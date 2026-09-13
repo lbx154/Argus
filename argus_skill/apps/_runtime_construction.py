@@ -543,32 +543,15 @@ def _inbox_drainer_for(
     *,
     project_root: Path | None = None,
 ):
-    """Return a `user_inbox` callable that drains pending messages from
-    ``<life_dir>/inbox.jsonl``.
-
-    The CLI's ``argus-skill --notify "<msg>"`` and the cockpit's ``/nudge``
-    slash command both append to this file. Each call to the returned
-    callable returns one message (or ``None``) and advances a tiny
-    offset file so the same line is never replayed twice.
-    """
-    from ._inbox import drain_inbox_messages
-
-    def _drain_one() -> str | None:
-        try:
-            from ..skills.stage_machine import current_stage
-
-            messages = drain_inbox_messages(
-                life_dir,
-                limit=1,
-                current_stage=current_stage(project_root or life_dir),
-            )
-        except Exception:  # noqa: BLE001
-            return None
-        return messages[0] if messages else None
-
+    """Bind durable operator intake and the separate advisory peer mailbox."""
     from ..messaging.inbox import PeerAwareInbox
+    from ._inbox_delivery import DurableInboxReceiver
 
-    return PeerAwareInbox(life_dir, _drain_one)
+    return PeerAwareInbox(
+        life_dir, operator_receiver=DurableInboxReceiver(
+            life_dir, consumer="supervisor", project_root=project_root,
+        ),
+    )
 
 
 def _pending_question_resolver_for(project_root: Path):

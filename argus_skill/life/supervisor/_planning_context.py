@@ -955,6 +955,15 @@ class PlanningContextMixin:
                 getattr(state, "operator_context_revision", 0) or 0
             )
         )
+        transient_ids = [
+            message.delivery_id
+            for message in getattr(state, "inbox_delivery_messages", ())
+            if getattr(message, "ephemeral", False)
+        ]
+        if current and transient_ids:
+            current += ":inbox:" + hashlib.sha256(
+                json.dumps(transient_ids, sort_keys=True).encode()
+            ).hexdigest()
         state.planner_input_signature = current
         if not current:
             return None
@@ -1400,9 +1409,12 @@ class PlanningContextMixin:
             # missions trying to canonicalize wake sources by hand.
             # The operator acted either way; both records count.
             root = Path(self.memory.root)
+            from ...apps._inbox import latest_durable_inbox_timestamp
+
             revision["authorization"] = [
                 self._waiting_revision_file(root / "operator-authorizations.jsonl"),
                 self._waiting_revision_file(root / "inbox.jsonl"),
+                latest_durable_inbox_timestamp(root),
             ]
         if "manager_stage" in wake_sources:
             from ...core.pipeline_state import pipeline_state_path

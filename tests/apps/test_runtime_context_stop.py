@@ -355,32 +355,31 @@ def test_composed_watchdog_polls_use_independent_copies_of_the_captured_context(
     assert marker.get() == "outside"
 
 
-def test_drained_guidance_commits_before_stop_under_contended_append(tmp_path, monkeypatch):
-    from argus_skill.apps._inbox import drain_inbox_messages, queue_inbox_message
+def test_claimed_guidance_stops_under_contended_apply_and_replays(tmp_path, monkeypatch):
+    from argus_skill.apps._inbox import count_pending_inbox_messages, queue_inbox_message
     from argus_skill.core import operator_context
 
     case = _runtime_case(tmp_path, monkeypatch)
     text = "Always preserve this newly drained instruction."
     queue_inbox_message(case.state, text, source="private-test")
-    # Classification is outside this storage-boundary test; use its ordinary
-    # plain-guidance fallback and exercise the real append/once publication.
-    monkeypatch.setattr(case.runner.manager, "classify_front_door", lambda *_args, **_kwargs: None)
-    append, lock = operator_context.append_directive, file_lock.portalocker.lock
+    classifications = []
+    monkeypatch.setattr(case.runner.manager, "classify_front_door", lambda message, **_kwargs: classifications.append(message))
+    apply, lock = operator_context.apply_operator_delivery, file_lock.portalocker.lock
     gate, held, release, contended = (threading.Event() for _ in range(4))
     lock_path = case.state / "operator_context.lock"
 
-    def append_after_revision(*args, **kwargs):
-        if args[1] == text:
+    def apply_after_freeze(*args, **kwargs):
+        if args[0]["effect"]["text"] == text:
             gate.set()
             assert held.wait(3)
-        return append(*args, **kwargs)
+        return apply(*args, **kwargs)
 
     def observe_lock(handle, flags):
         try:
             return lock(handle, flags)
         except file_lock.portalocker.exceptions.LockException:
             if threading.current_thread() is case.worker and os.path.samestat(os.fstat(handle.fileno()), lock_path.stat()):
-                assert file_lock.current_file_lock_wait_budget() is None
+                assert file_lock.current_file_lock_wait_budget() is not None
                 contended.set()
             raise
 
@@ -394,17 +393,19 @@ def test_drained_guidance_commits_before_stop_under_contended_append(tmp_path, m
             finally:
                 file_lock.portalocker.unlock(handle)
 
-    monkeypatch.setattr(operator_context, "append_directive", append_after_revision)
+    monkeypatch.setattr(operator_context, "apply_operator_delivery", apply_after_freeze)
     monkeypatch.setattr(file_lock.portalocker, "lock", observe_lock)
     holder = threading.Thread(target=hold, daemon=True)
     holder.start()
     case.worker.start()
     try:
         assert contended.wait(3)
+        started = time.monotonic()
         case.stop.set()
         case.requested.set()
-        assert not case.done.wait(0.15)
-        assert drain_inbox_messages(case.state) == []  # Cursor already advanced.
+        assert case.done.wait(0.75), "Stop waited for the canonical writer to release"
+        elapsed = time.monotonic() - started
+        assert count_pending_inbox_messages(case.state) == 1
         assert case.captured["adapter_invocations"] == []
     finally:
         release.set()
@@ -413,12 +414,20 @@ def test_drained_guidance_commits_before_stop_under_contended_append(tmp_path, m
     assert not holder.is_alive() and not case.worker.is_alive()
     assert "exception" not in case.captured, case.captured
     assert case.captured["outcome"].status == "paused_daemon_shutdown"
-    assert text in [record.text for record in OperatorContextStore(case.state).project("engineer", consume_once=False).directives]
+    assert text not in [record.text for record in OperatorContextStore(case.state).project("engineer", consume_once=False).directives]
     assert case.captured["adapter_invocations"] == []
+    case.stop.clear()
+    monkeypatch.setattr(operator_context, "apply_operator_delivery", apply)
+    _queue_success(case.backend)
+    assert case.execute().success
+    assert classifications == [text]
+    assert count_pending_inbox_messages(case.state) == 0
+    assert sum(record.text == text for record in OperatorContextStore(case.state).project("engineer", consume_once=False).directives) == 1
+    assert any(text in prompt for _label, prompt, _options in case.backend.history)
     (tmp_path / "durable-intake-observation.json").write_text(json.dumps({
-        "retained_original_lock_wait": True, "stop_observation_seconds": 0.15,
-        "inbox_cursor_already_advanced": True, "guidance_durably_preserved_after_release": True,
-        "no_provider_started": True,
+        "stop_while_writer_held_seconds": elapsed,
+        "pending_until_retry": True, "one_frozen_classification": True,
+        "no_provider_before_retry": True, "guidance_in_real_retry_prompt": True,
     }))
 
 

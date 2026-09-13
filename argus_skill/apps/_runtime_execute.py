@@ -49,43 +49,35 @@ def _engineer_guidance(
     state_root: Path | None,
     workdir: Path,
     manager: object | None = None,
+    *,
+    receiver=None,
+    delivery_messages: list[str] | None = None,
+    mission_id: str = "",
 ) -> list[str]:
     """Project the typed operator context after persisting fresh inbox input."""
     if state_root is None:
         return []
+    from ..core.file_lock import FileLockCancelled, bounded_file_lock_wait
     from ..core.operator_context import (
-        OperatorContextStore,
         OperatorContextUnavailable,
         build_operator_context_block,
     )
-    from ..skills.stage_machine import current_stage
-    from ._inbox import drain_inbox_messages
-
-    transient = drain_inbox_messages(
-        state_root,
-        current_stage=current_stage(workdir),
-    )
-    from ..core.file_lock import FileLockCancelled, bounded_file_lock_wait
     from ..core.run_gateway import current_run_interrupt_reason
-    from ..manager.directive import record_operator_messages
+    from ._inbox_delivery import DurableInboxReceiver, operator_live_turn
+
+    owned_receiver = receiver is None
+    receiver = receiver or DurableInboxReceiver(state_root, consumer="engineer", project_root=workdir)
 
     def cancelled() -> bool:
         return bool(current_run_interrupt_reason())
 
     try:
-        # Persisting a fresh directive also reads the required canonical
-        # ledger. A failure here must not bypass the protected projection.
-        if transient:
-            # Intake can call the Manager before its eventual append; validate
-            # the required source before that call without consuming once.
-            # The inbox cursor has already advanced. Finish this durable
-            # handoff before cancellation can skip prompt preparation; making
-            # this write path cancellable requires a claim/commit protocol.
-            _ = OperatorContextStore(state_root).revision
-        record_operator_messages(state_root, transient, manager=manager)
         with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=cancelled):
+            transient = receiver.receive(manager=manager, mission_id=mission_id, cancelled=cancelled)
+            if delivery_messages is not None:
+                delivery_messages.extend(transient)
             block, _revision = build_operator_context_block(
-                "engineer", state_root, live_turn="\n".join(transient),
+                "engineer", state_root, mission_id=mission_id, live_turn=operator_live_turn(transient),
             )
     except FileLockCancelled as exc:
         if current_run_interrupt_reason():
@@ -93,6 +85,10 @@ def _engineer_guidance(
         raise OperatorContextUnavailable("Current Engineer OperatorContext read was cancelled") from exc
     except Exception as exc:
         raise OperatorContextUnavailable("Current Engineer OperatorContext is unavailable") from exc
+    finally:
+        if owned_receiver:
+            # Standalone callers have no complete-prompt settlement hook.
+            receiver.release_pending()
     return [block] if block else []
 
 
@@ -800,26 +796,17 @@ class SkillLoopExecuteMixin:
         self._refresh_manager_skill_store(args, workdir=workdir)
         # The per-project runtime state dir holds inbox.jsonl + events.jsonl.
         operator_state_dir = _project_state_dir_for(args, workdir)
-        # REAL operator inbox (Change A): drain queued ``--notify`` / ``/nudge``
-        # messages EACH engineer round — not just at mission start — so the
-        # operator can steer a long in-flight mission instead of being locked out
-        # until the next mission. Wired through the existing per-round
-        # ``extra_guidance_provider`` hook; shares ``inbox.offset`` with the
-        # supervisor's mission-start drain, so each message is delivered exactly
-        # once with no duplication. Never raises into a mission.
+        # Both built-in consumers share durable claims. Canonical acceptance is
+        # idempotent; ephemeral messages settle only after full prompt assembly.
         inbox_life_dir = operator_state_dir
+        from ._inbox_delivery import EngineerInboxGuidance
 
-        def _inbox_guidance_provider() -> list[str]:
-            from ..core.operator_context import OperatorContextUnavailable
-
-            try:
-                return _engineer_guidance(inbox_life_dir, workdir, self.manager)
-            except OperatorContextUnavailable:
-                raise
-            except Exception:  # noqa: BLE001 — never break a mission
-                return []
-
-        extra_guidance_provider = _inbox_guidance_provider if inbox_life_dir is not None else None
+        extra_guidance_provider = (
+            EngineerInboxGuidance(
+                inbox_life_dir, workdir, self.manager,
+                mission_id=str(getattr(config, "session_id", "") or ""),
+            ) if inbox_life_dir is not None else None
+        )
         engineer_backend = getattr(self, "engineer_backend", None) or self._backend
         global_skills_dir = Path(args.skills_dir)
         skill_store = None

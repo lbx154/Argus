@@ -1113,13 +1113,14 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert result["continuous"] is True
     assert "我已调整团队方向" in result["reply"]
     assert "已升级为持续任务" in result["reply"]
-    inbox = [
-        json.loads(line)
-        for line in (life / "inbox.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    assert "Operator steering (standing)" in inbox[-1]["text"]
-    assert "检索最接近的前人研究" in inbox[-1]["text"]
-    assert "发明新的数学工具" not in inbox[-1]["text"]
+    from argus_skill.apps._inbox import claim_inbox_message, release_inbox_claim
+
+    claim = claim_inbox_message(life)
+    assert claim is not None
+    assert "Operator steering (standing)" in claim.text
+    assert "检索最接近的前人研究" in claim.text
+    assert "发明新的数学工具" not in claim.text
+    release_inbox_claim(life, claim)
     from argus_skill.manager.directive import load_active_manager_directive
 
     active = load_active_manager_directive(life)
@@ -1747,9 +1748,11 @@ def test_explicit_pending_answer_continues_without_a_model_call(
         "paper", "operator-reply", "manager-approved", "review:required",
     ]
     assert continuation.manager_decision == {"routed": True}
-    assert "MANAGER OPERATOR-ANSWER DECISION" in (
-        life / "inbox.jsonl"
-    ).read_text(encoding="utf-8")
+    from argus_skill.apps._inbox import claim_inbox_message, release_inbox_claim
+
+    claim = claim_inbox_message(life)
+    assert claim is not None and "MANAGER OPERATOR-ANSWER DECISION" in claim.text
+    release_inbox_claim(life, claim)
     assert "life.operator_question.answered" in (
         life / "events.jsonl"
     ).read_text(encoding="utf-8")

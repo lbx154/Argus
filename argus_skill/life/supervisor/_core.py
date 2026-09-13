@@ -705,6 +705,12 @@ class LifeSupervisor(
 
     def run(self) -> dict[str, Any]:
         """Drive missions until a stop condition. Returns a summary."""
+        try:
+            return self._run_with_inbox()
+        finally:
+            self._release_operator_inbox()
+
+    def _run_with_inbox(self) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         stopped_by: str = ""
         self._resume_automatic_pauses()

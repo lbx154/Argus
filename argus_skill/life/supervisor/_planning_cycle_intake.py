@@ -213,14 +213,18 @@ class PlanningCycleIntakeMixin:
             if revision_request is None
             else []
         )
+        from ...apps._inbox_delivery import operator_live_turn, unique_operator_messages
+
+        transient_messages = unique_operator_messages(transient_messages)
         state.had_operator_messages = bool(transient_messages)
+        state.inbox_delivery_messages = list(transient_messages)
         # Draining appends fresh messages to the durable ledger. Re-render after
         # the drain so this same planning turn sees the complete standing block
         # as well as the legacy one-shot operator note below.
         operator_context, _revision = build_operator_context_block(
             "planner",
             operator_context_state_root(self.memory),
-            live_turn="\n".join(transient_messages),
+            live_turn=operator_live_turn(transient_messages),
             consume_once=False,
         )
         state.operator_context_revision = _revision

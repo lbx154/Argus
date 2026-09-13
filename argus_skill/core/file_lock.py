@@ -43,6 +43,20 @@ def bounded_file_lock_wait(
 
 
 @contextmanager
+def cleanup_file_lock_wait(*, timeout_seconds: float = 0.2) -> Iterator[None]:
+    """Give lease release a short independent budget after cancellation.
+
+    This is for releasing existing ownership, never for accepting new work or
+    applying authority. Restoring the caller's budget is mandatory on exit.
+    """
+    token = _WAIT_BUDGET.set((time.monotonic() + max(0.0, timeout_seconds), None))
+    try:
+        yield
+    finally:
+        _WAIT_BUDGET.reset(token)
+
+
+@contextmanager
 def exclusive_file_lock(
     handle: BinaryIO | TextIO,
     *,
@@ -82,6 +96,7 @@ __all__ = [
     "DEFAULT_FILE_LOCK_TIMEOUT_SECONDS",
     "FileLockCancelled",
     "bounded_file_lock_wait",
+    "cleanup_file_lock_wait",
     "current_file_lock_wait_budget",
     "exclusive_file_lock",
 ]

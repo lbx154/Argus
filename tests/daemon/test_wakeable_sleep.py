@@ -78,6 +78,30 @@ def test_wakeable_sleep_sleeps_full_when_quiet(tmp_path) -> None:
     assert time.monotonic() - t0 >= 0.35
 
 
+def test_durable_input_wakes_once_and_new_input_interrupts_retained_envelope_wait(tmp_path):
+    from argus_skill.apps._inbox import queue_inbox_message
+
+    worker = _worker(tmp_path)
+    queue_inbox_message(tmp_path, "A retained instruction", source="test")
+    waits = []
+    worker._stop.wait = lambda timeout: waits.append(timeout) or False
+    worker._wakeable_sleep(2, 0.5, tmp_path)
+    assert waits == []
+    # Pending retry envelopes must not turn the daemon's backoff into a spin.
+    worker._wakeable_sleep(2, 0.5, tmp_path)
+    assert waits == [0.5] * 4
+    waits.clear()
+
+    def enqueue_during_wait(timeout):
+        waits.append(timeout)
+        queue_inbox_message(tmp_path, "A new instruction", source="test")
+        return False
+
+    worker._stop.wait = enqueue_during_wait
+    worker._wakeable_sleep(60, 0.5, tmp_path)
+    assert waits == [0.5]
+
+
 @pytest.mark.parametrize("resume_before_sleep", [False, True])
 def test_provider_fence_sleep_wakes_on_explicit_resume(
     tmp_path, resume_before_sleep: bool,

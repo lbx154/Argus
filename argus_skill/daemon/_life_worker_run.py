@@ -493,8 +493,7 @@ class LifeWorkerRunMixin:
         """Sleep until stop, inbox input, recovery, or configuration changes.
 
         The sleep is chunked into ``poll_interval`` slices so a stop request or
-        a freshly ``/add``'d / ``/nudge``'d message (which appends to the
-        project ``inbox.jsonl``) interrupts a long backoff promptly.
+        newly queued operator guidance interrupts a long backoff promptly.
         Ready work wakes provider-fence waits only: budget preflight can leave
         pending missions that must still observe their budget backoff.
         """
@@ -503,6 +502,7 @@ class LifeWorkerRunMixin:
         chunk = max(0.5, float(poll_interval))
         inbox = Path(runtime_root) / "inbox.jsonl"
         offset_file = Path(runtime_root) / "inbox.offset"
+        from ..apps._inbox import count_pending_inbox_messages, latest_durable_inbox_timestamp
         from ..core.paths import config_path
 
         operator_config = config_path(self.config.global_root)
@@ -521,7 +521,7 @@ class LifeWorkerRunMixin:
 
         def _inbox_size() -> int:
             try:
-                return inbox.stat().st_size
+                return inbox.stat().st_size if inbox.is_file() else 0
             except OSError:
                 return 0
 
@@ -534,9 +534,20 @@ class LifeWorkerRunMixin:
             except (OSError, ValueError):
                 return 0
 
+        def _durable_input() -> tuple[float | None, int]:
+            try:
+                return latest_durable_inbox_timestamp(runtime_root), count_pending_inbox_messages(runtime_root)
+            except (OSError, RuntimeError):
+                # Wake the ordinary intake path to report the required-state
+                # failure; a read error must not look like an empty inbox.
+                return None, 1
+
         baseline = _inbox_size()
+        durable_baseline = _durable_input()
         config_baseline = _config_version()
-        if _inbox_offset() < baseline:
+        previously_observed = getattr(self, "_last_inbox_wake_observation", None)
+        self._last_inbox_wake_observation = durable_baseline
+        if _inbox_offset() < baseline or (durable_baseline[1] and durable_baseline != previously_observed):
             return
         remaining = float(total_seconds)
         while remaining > 0 and not self._stop.is_set():
@@ -547,6 +558,10 @@ class LifeWorkerRunMixin:
                 return
             if _inbox_size() != baseline:
                 return  # new user input — re-drain immediately
+            durable_now = _durable_input()
+            if durable_now != durable_baseline:
+                self._last_inbox_wake_observation = durable_now
+                return
             if _config_version() != config_baseline:
                 return  # a budget increase/removal must wake paused work
             remaining -= chunk

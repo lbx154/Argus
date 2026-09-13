@@ -1444,11 +1444,8 @@ def _cmd_notify(args: argparse.Namespace) -> int:
         source="cli.notify",
         stage=target_stage,
     )
-    from .._inbox import inbox_path
-
-    inbox = inbox_path(bundle.project.root, target_stage)
     suffix = f" (stage={target_stage})" if target_stage else ""
-    print(f"argus-skill: queued nudge ({len(msg)} chars){suffix} → {inbox}")
+    print(f"argus-skill: queued nudge ({len(msg)} chars){suffix} → {bundle.project.root}")
     return 0
 
 

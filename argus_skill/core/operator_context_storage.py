@@ -9,17 +9,92 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 FORMAT = "operator-context-v2"
+DELIVERY_FORMAT = "operator-context-v3"
+DELIVERY_STATE_KEY = "delivery_replay"
+MAX_OPERATOR_DELIVERY_STREAMS = 64
+MAX_OPERATOR_DELIVERY_RECEIPTS = 256
+MAX_OPERATOR_DELIVERY_COUNTER = (1 << 63) - 1
 MAX_SOURCE_BYTES = 16 * 1024 * 1024
+
+_STREAM_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def encode(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n").encode()
+
+
+def operator_delivery_identity(value: Any, *, prefix: bool = False) -> dict[str, Any]:
+    """Validate a host-issued stream identity without coercing malformed counters."""
+    keys = {"stream", "generation", "sequence"} | (set() if prefix else {"digest"})
+    if not isinstance(value, dict) or set(value) != keys:
+        raise ValueError("operator delivery identity has invalid fields")
+    stream = value["stream"]
+    if not isinstance(stream, str) or not _STREAM_ID.fullmatch(stream):
+        raise ValueError("operator delivery stream is invalid")
+    for key in ("generation", "sequence"):
+        number = value[key]
+        if type(number) is not int or not 1 <= number <= MAX_OPERATOR_DELIVERY_COUNTER:
+            raise ValueError("operator delivery counter is invalid")
+    if not prefix and (not isinstance(value["digest"], str) or not _SHA256.fullmatch(value["digest"])):
+        raise ValueError("operator delivery digest is invalid")
+    return {key: value[key] for key in sorted(keys)}
+
+
+def validate_operator_delivery_state(state: dict[str, Any], revision: int) -> None:
+    """Reject corrupt or unbounded replay metadata before projecting authority."""
+    if DELIVERY_STATE_KEY not in state:
+        return
+    replay = state[DELIVERY_STATE_KEY]
+    if (
+        not isinstance(replay, dict) or set(replay) != {"version", "streams"}
+        or type(replay["version"]) is not int or replay["version"] != 1
+        or not isinstance(replay["streams"], dict)
+        or len(replay["streams"]) > MAX_OPERATOR_DELIVERY_STREAMS
+    ):
+        raise ValueError("invalid operator delivery replay state")
+    receipt_count = 0
+    for stream, row in replay["streams"].items():
+        if not isinstance(stream, str) or not _STREAM_ID.fullmatch(stream):
+            raise ValueError("invalid operator delivery replay stream")
+        if not isinstance(row, dict) or set(row) != {"generation", "closed_sequence", "receipts"}:
+            raise ValueError("invalid operator delivery stream state")
+        generation, closed = row["generation"], row["closed_sequence"]
+        if (
+            type(generation) is not int or not 1 <= generation <= MAX_OPERATOR_DELIVERY_COUNTER
+            or type(closed) is not int or not 0 <= closed <= MAX_OPERATOR_DELIVERY_COUNTER
+            or not isinstance(row["receipts"], dict)
+        ):
+            raise ValueError("invalid operator delivery stream counters")
+        receipt_count += len(row["receipts"])
+        if receipt_count > MAX_OPERATOR_DELIVERY_RECEIPTS:
+            raise ValueError("operator delivery receipts exceed their bounded capacity")
+        for sequence, receipt in row["receipts"].items():
+            if not isinstance(receipt, dict) or set(receipt) != {
+                "format", "identity", "target_root", "effect_digest", "revision",
+            }:
+                raise ValueError("invalid operator delivery receipt")
+            identity = operator_delivery_identity(receipt["identity"])
+            if (
+                identity["stream"] != stream or identity["generation"] != generation
+                or str(identity["sequence"]) != sequence or identity["sequence"] <= closed
+                or receipt["format"] != "operator-delivery-receipt-v1"
+                or not isinstance(receipt["target_root"], str)
+                or not Path(receipt["target_root"]).is_absolute()
+                or len(receipt["target_root"]) > 4096
+                or not isinstance(receipt["effect_digest"], str)
+                or not _SHA256.fullmatch(receipt["effect_digest"])
+                or type(receipt["revision"]) is not int
+                or not 0 <= receipt["revision"] <= revision
+            ):
+                raise ValueError("operator delivery receipt does not match its stream")
 
 
 def preference_key(row: dict[str, Any]) -> str:
@@ -79,7 +154,8 @@ def read_document(
             raise ValueError("operator context header/first row is corrupt") from exc
         if not isinstance(first, dict):
             raise ValueError("operator context row must be an object")
-        is_checkpoint = first.get("format") == FORMAT
+        source_format = first.get("format")
+        is_checkpoint = source_format == FORMAT or source_format == DELIVERY_FORMAT
         if (
             any(key in first for key in ("format", "base_revision", "checkpoint_digest"))
             and not is_checkpoint
@@ -98,6 +174,9 @@ def read_document(
             ):
                 raise ValueError("invalid operator context checkpoint")
             doc = ContextDocument(list(first["records"]), base, base, dict(first["state"]), True)
+            if (source_format == DELIVERY_FORMAT) != (DELIVERY_STATE_KEY in doc.state):
+                raise ValueError("operator delivery replay requires its fenced checkpoint format")
+            validate_operator_delivery_state(doc.state, doc.revision)
             if normalize_record is not None:
                 doc.records = [normalize_record(row) for row in doc.records]
             revisions = [int(row["revision"]) for row in doc.records]
@@ -147,6 +226,7 @@ def read_document(
         ):
             raise ValueError("invalid acknowledged operator-context revision")
         doc.absorb_records()
+        validate_operator_delivery_state(doc.state, doc.revision)
         if any(
             not 0 < int(value) <= doc.revision for value in doc.state["preference_heads"].values()
         ):
@@ -189,8 +269,9 @@ def compact_document(doc: ContextDocument) -> None:
 
 
 def checkpoint_bytes(doc: ContextDocument) -> bytes:
+    validate_operator_delivery_state(doc.state, doc.revision)
     payload = {
-        "format": FORMAT,
+        "format": DELIVERY_FORMAT if DELIVERY_STATE_KEY in doc.state else FORMAT,
         "base_revision": doc.revision,
         "records": doc.records,
         "state": doc.state,

@@ -207,6 +207,43 @@ class IdleCycleMixin:
         cb = getattr(self.config, "user_inbox", None)
         if cb is None:
             return []
+        receiver = getattr(cb, "operator_receiver", None)
+        if receiver is not None:
+            from ...core.file_lock import FileLockCancelled, bounded_file_lock_wait
+            from ...core.operator_context import OperatorContextUnavailable, _current_mission_id
+            from ...core.run_gateway import current_run_interrupt_reason
+
+            stop = getattr(self.config, "stop_event", None)
+
+            def cancelled() -> bool:
+                return bool((stop is not None and stop.is_set()) or current_run_interrupt_reason())
+
+            def manager_factory():
+                try:
+                    return self._bound_manager()
+                except Exception:
+                    return None
+
+            try:
+                with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=cancelled):
+                    mission_id = _current_mission_id(receiver.root)
+                    received = receiver.receive(
+                        manager=manager_factory, mission_id=mission_id,
+                        limit=max_messages, cancelled=cancelled,
+                    )
+            except FileLockCancelled:
+                if cancelled():
+                    return []
+                raise
+            except Exception as exc:
+                raise OperatorContextUnavailable("Supervisor operator inbox remains pending") from exc
+            if received:
+                self._emit({
+                    "type": EventType.LIFE_INBOX_DRAINED,
+                    "count": len(received), "messages": received,
+                    "source": "supervisor_intake", "delivery_boundary": "durable_acceptance",
+                })
+            return received
         out: list[str] = []
         for _ in range(max(1, int(max_messages))):
             try:
@@ -244,6 +281,16 @@ class IdleCycleMixin:
             })
         return out
 
+    def _settle_operator_inbox(self, messages: list[str]) -> None:
+        receiver = getattr(getattr(self.config, "user_inbox", None), "operator_receiver", None)
+        if receiver is not None:
+            receiver.settle(messages)
+
+    def _release_operator_inbox(self) -> None:
+        receiver = getattr(getattr(self.config, "user_inbox", None), "operator_receiver", None)
+        if receiver is not None:
+            receiver.release_pending()
+
     def _resolve_pending_question_from_inbox(self, pending_questions: list[Any]) -> bool:
         """Route unconsumed operator input through Manager before deferring Planner."""
         resolver = getattr(self.config, "pending_question_resolver", None)
@@ -261,8 +308,13 @@ class IdleCycleMixin:
                     "pending-question resolver failed for backlog item %s",
                     getattr(item, "id", ""),
                 )
+                self._release_operator_inbox()
                 continue
             if isinstance(result, dict) and bool(result.get("resolved")):
+                try:
+                    self._settle_operator_inbox([message])
+                finally:
+                    self._release_operator_inbox()
                 self._reset_idle_backoff()
                 # The resolver consumed this message, but the next Planner cycle
                 # still needs it as durable guidance. Keep an in-process carryover;
@@ -271,12 +323,14 @@ class IdleCycleMixin:
                 if carryover is None:
                     carryover = []
                     self._operator_guidance_carryover = carryover
-                carryover.append(message)
+                if not getattr(message, "ephemeral", False):
+                    carryover.append(message)
                 self._emit_status(
                     "operator inbox resolved pending question "
                     f"for backlog item {getattr(item, 'id', '')}"
                 )
                 return True
+            self._release_operator_inbox()
         return False
 
     def _take_operator_guidance_carryover(self) -> list[str]:
@@ -377,11 +431,13 @@ class IdleCycleMixin:
             return ""
         messages = self._drain_user_inbox()
         if messages:
+            from ...apps._inbox_delivery import unique_operator_messages
+
             carryover = getattr(self, "_operator_guidance_carryover", None)
             if carryover is None:
                 carryover = []
                 self._operator_guidance_carryover = carryover
-            carryover.extend(messages)
+            carryover[:] = unique_operator_messages([*carryover, *messages])
             self._reset_idle_backoff()
             self._emit_status("operator guidance woke the idle Planner")
             return ""
@@ -478,7 +534,9 @@ class IdleCycleMixin:
         # restart intake, not fall through to certification with that old view.
         messages = self._drain_user_inbox()
         if messages:
-            self._operator_guidance_carryover = (
+            from ...apps._inbox_delivery import unique_operator_messages
+
+            self._operator_guidance_carryover = unique_operator_messages(
                 list(getattr(self, "_operator_guidance_carryover", None) or [])
                 + messages
             )

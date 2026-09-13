@@ -1021,6 +1021,18 @@ class PlanningCycleMixin(
         *,
         revision_request: dict[str, Any] | None = None,
     ) -> bool | None | str:
+        try:
+            return self._plan_next_work_with_delivery(revision_request=revision_request)
+        finally:
+            release = getattr(self, "_release_operator_inbox", None)
+            if callable(release):
+                release()
+
+    def _plan_next_work_with_delivery(
+        self,
+        *,
+        revision_request: dict[str, Any] | None = None,
+    ) -> bool | None | str:
         """Call the planner to generate new backlog items.
 
         Returns ``True`` if new work was added (caller should loop),
@@ -1061,7 +1073,6 @@ class PlanningCycleMixin(
         # unchanged-input skip but must be reconsidered after restart.
         if (
             state.planner_invoked
-            and state.operator_context_revision > 0
             and state.verdict is not None
             and not state.verdict.error
             and (
@@ -1080,10 +1091,14 @@ class PlanningCycleMixin(
             from ...core.operator_context import OperatorContextStore, operator_context_state_root
 
             try:
-                OperatorContextStore(operator_context_state_root(self.memory)).acknowledge(
-                    "planner", state.operator_context_revision,
-                )
-            except (OSError, ValueError):
+                if state.operator_context_revision > 0:
+                    OperatorContextStore(operator_context_state_root(self.memory)).acknowledge(
+                        "planner", state.operator_context_revision,
+                    )
+                settle = getattr(self, "_settle_operator_inbox", None)
+                if callable(settle):
+                    settle(state.inbox_delivery_messages)
+            except (OSError, ValueError, RuntimeError):
                 log.exception("failed to checkpoint handled Planner input")
                 self._enter_pause_backoff()
                 return PLAN_ERROR

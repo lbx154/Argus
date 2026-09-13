@@ -1,95 +1,43 @@
 # Team intelligence implementation and acceptance
 
-Argus should be an evidence-driven, adaptable team supervised through its persistent Manager. This is the active work record for the full user objective; a passing candidate does not complete that objective.
+Argus should be an evidence-driven, adaptable team supervised through its persistent Manager. This is the active work record for the full user objective. A validated private candidate does not complete that objective or authorize publication.
 
-## Validated baseline for this iteration
+## Validated baseline: 9d
 
-The source baseline is `0e2cbbceb91a2c77a0ea04be4f811618a87efc93`, which incorporates observed live `8f8d2039981ee7a3e16e645e43619597bf70bcd9`. Its immutable private handoff is `team-intelligence-20260912/validation/release-candidate-0e2cbbceb9.json`. The private current pointer may advance only after new source and runtime evidence is reviewed; this document records a baseline, not a live deployment claim. This thread has not deployed, restarted production, changed live model catalogs or migrated real state. Publication coordination remains unacknowledged.
+The reviewed private baseline is `9d0b63a685d8ac165f1083781854fae601c827dd`, which incorporates exact observed live `59c3c21d4f9016cefa84f9029a94c477c612cb63`. Its immutable handoff is `team-intelligence-20260912/validation/release-candidate-9d0b63a685.json`; its image is `sha256:552a89e3fc7fc3037f82960b4aeade990e6cb8e80657496a356d12777c23faa2`. The three private pointers were updated to their immutable 9d counterparts after independent review. This is a private validation baseline, not a deployment claim.
 
-- Complete backend on exact 0e2: **10,326 passed / 56 skipped / zero failures**. The earlier complete 9cdf run remains separate at 10,303 passed / 56 skipped.
-- Frontend: **114 files / 1,010 tests**, with the tested 5473 frontend tree unchanged in 0e2. TypeScript, generated contracts and the exported-source build passed. All 1,061 backend files and 393 frontend artifacts match Git, frozen source, export and image; API/UDS and comprehensive offline smoke passed.
-- Actual Chromium → portal → WebAPI → bundled Pi control: 88.2 ms cancel receipt, 218.7 ms Pi interruption, new target observed at 992.8 ms and response complete at 1060.2 ms. Reload keeps one confirmation in the viewport, checked by element hit testing. Routing/startup are fixtures; the real Backlog claim does not prove Supervisor/Engineer execution, model quality or a production latency SLA.
-- Exact 8f8 state copies: 26 synthetic / 27 accurately copied synthetic checks, seven incorrect-source rejections and separate 69 protocol four-scenario acceptance. Scope is Backlog/project OperatorContext and the exercised delivery protocol, excluding complete Reader/artifact/portal, gateway SQLite/fee state and real tenant migration.
-- Stop-aware teammate required-context locks, concurrent first-interrupt retention, cancelled pending-answer authority, current subordinate memory, transcript recovery and readable Manager routing are covered by their source-bound receipts. Optional gateway observations fail fast on a held SQLite writer; accounting transactions still use the original synchronous wait boundary.
+| Evidence on exact 9d | Result and scope |
+| --- | --- |
+| Complete backend | **10,451 passed / 56 skipped / zero failures**; all 10,507 collected tests assigned once |
+| Frontend | **117 files / 1,054 tests**; standard build, TypeScript and generated contracts passed |
+| Artifact binding and offline image | Git, frozen source, export and image agree on **1,065 backend files / 432 frontend artifacts**; new API/UDS and comprehensive smoke passed, with both disposable containers removed |
+| Browser → portal → WebAPI → bundled Pi | Local-provider control passed: cancel receipt 96.4 ms, Pi interruption 202.4 ms, canonical target observed at 983.5 ms, response finished at 1048.6 ms. One acknowledgement remains visible after reload; the inline Reader shows one goal and one unavailable notice |
+| Exact 59 compatibility | **26 synthetic / 27 accurately attested copied-synthetic checks / 10 wrong-origin rejections**, plus the separate **four-scenario 69 delivery-protocol check**. Backlog/project OperatorContext and the exercised completion protocol are the covered stores; complete Reader, artifact, portal and real tenant migration are excluded |
+| Static checks | Ruff passed for 52 changed Python files. Gateway changed modules are type-clean; scoped role/Planner comparisons add no diagnostics to their existing baselines. **Whole-repository mypy is not clean** |
 
-The final read-only observation at 2026-09-13 02:27:44 UTC found clean actual 8f8 source, matching release metadata, 11 ready APIs and stable identities. Earlier mismatched metadata, rejected gates, failed tests and partial real-model receipts remain preserved. Whole-repository mypy is not clean. The retained TUI is explicitly the earlier AAC artifact, with matching observed bytes; no new TUI build or execution acceptance is claimed.
+The browser routing and startup are fixtures; its Backlog claim does not prove Supervisor/Engineer execution, autonomous judgment or a production latency SLA. Actual native Pi-to-gateway Stop ran on `70026b6b80`, covering headers and streaming. Its 152 observed source files and 52 native bundle files are identical in 9d. That is an explicit component-equivalence binding, not a new Pi execution or a combined browser/gateway timing measurement. The retained TUI is the artifact declared from `47c761cb16ca26a47ecc8bce3461f63f1b4e71c9`, with bytes matching observed 59; no new TUI build or execution is claimed.
 
-## Active follow-ups
+The final read-only gate at **2026-09-13 03:56:08 UTC** matched clean live 59, release metadata, stable identities and **11 ready APIs**. The 04:01 coordination update records the reviewed private handoff. This thread has not deployed, restarted production, migrated real state or changed live model catalogs. Publication coordination remains unacknowledged; a coordination note is neither another session's acknowledgement nor a deployment lock. A fresh gate is required at any eventual cutover.
 
-Current implementation work must receive new evidence before replacing that validated baseline:
+## Changes already included in 9d
 
-- Move authoritative gateway accounting off the ASGI event loop while preserving bounded ownership, reservation/settlement idempotence, conservative ambiguous charging and shutdown recovery. A cancelled reservation must not later invoke the provider or lose its settlement owner.
-- Make remaining Reviewer/optional-memory waits observe cancellation at actual role entry points. Required OperatorContext cannot silently degrade into optional recall, consume a one-shot abort or leak a cancelled wait budget into settlement.
-- Reduce duplicate Reader goals, repeated unavailable messages and empty sections. Runtime execution and stored queue claims need distinct, evidence-based treatment; original task/source records must remain accessible. Retain the full objective and actual new results when their text differs, and do not overwrite newer terminal records with an older runtime snapshot.
-- Broader mobile, complete Reader narration, autonomous task decisions, Manager's full four-phase judgment and Planner/Reviewer complete real-model turns remain unproven. No new paid run is justified merely to turn historical partial results green.
+Gateway accounting has moved off the ASGI event loop to a dedicated, owned SQLite executor with at most ten accounting leases. Reservation/dispatch phases, a durable operation key and one immutable settlement intent preserve ownership across cancellation and late results. Startup refunds managed reservations that were never submitted; submitted or ambiguous work remains conservatively charged. Failed cleanup degrades health and refuses new admissions. Shutdown retains gateway lock ownership while request owners, late responses, accounting and optional observations drain.
 
-The Reader cleanup was committed in `562b538e53`: identical inline goals and
-unavailable notices appear once, empty unused source sections are omitted, and
-runtime status is used only when its task status and attempt start agree with
-the current record. Five regressions cover these boundaries; the final frontend
-run at that checkpoint passed 1,015 tests. The ordinary browser/Pi functional
-comparison reduced the fallback card from 324.625 px to 231.5 px without removing
-the retained evidence or the single durable acknowledgement. These measurements
-cover the inline card, not the full reading dialog.
+Real HTTP disconnects can interrupt upstream header and JSON-body waits. A bounded watcher preserves the selected disconnect reason and the late-response owner. Known usage, late close and shutdown behavior have local TCP coverage. The current local vault read is synchronous; an awaited authorization fixture does not prove that read interruptible. Cancellation remains cooperative when a transport swallows it. Optional observations use a bounded in-memory queue and may drop under persistent contention; the durable observation table still has no retention cap, and accounting retains its worker timeout after HTTP cancellation.
 
-A fresh read-only observation at 2026-09-13 03:03:08 UTC found live
-`317f4ff5c6b55a7d06b2a2c3947389fed37e41c6`, with matching metadata, clean source,
-stable identities and 11 ready APIs. The old 8f8 gate correctly rejected this
-change; its result remains preserved. Source checkpoint `1f9395b874` incorporates
-the new saved-progress questions and modal focus behavior. Its complete frontend
-suite passed 1,049 tests, 205 relevant backend tests passed, and the combined
-changed-module mypy diagnostics introduced no additions beyond the two parents.
-This source checkpoint does not advance the private validated candidate.
+Required role-context locks and optional memory waits now observe Stop at covered ordinary role entry points, including plain watchdog threads. Planner optional cancellation no longer escapes as a task exception. Mandatory OperatorContext errors still block protected prompt projection, and current recall/revocation behavior is preserved. These fixes do not erase older provider conversation or establish refresh inside opaque custom runners.
 
-The current cancellation work also identified a remaining durability dependency:
-nonempty operator-message intake advances its inbox cursor before persisting the
-instruction. Its existing complete write boundary can still wait up to 30 seconds
-for a lock. Cancelling that write without a reliable replay or claim/commit
-protocol can lose the instruction. This boundary needs separate work and must
-not be included in prompt-read Stop timing claims.
+Reader cleanup removes identical inline goals, repeated unavailable notices and unused empty source sections. Runtime wording is used only when task status and attempt start agree with the stored record. Original evidence and differing objective/result text remain accessible. 9d also incorporates live changes to teaching requirements, editable question suggestions, math scrolling, modal focus and saved-progress questions. Full Reader narration and broader/mobile presentation remain separate acceptance.
 
-The exact `ffc9a212b6` full backend run completed all 10,475 collected tests:
-10,416 passed, 56 skipped and three failed. Two failures were obsolete callback
-object-identity assertions after context-preserving wrapping; their replacements
-exercise real threads and the captured request identity. The third exposed
-Planner optional-memory cancellation escaping as a task exception. Its narrow
-helper correction preserves genuine required-context errors and handles both
-current and legacy memory interfaces; 122 related tests and 14 independent
-checks passed. The failed full run, its image and its state-copy receipts remain
-on `ffc9a212b6`, which was never promoted.
+## Active work beyond the validated baseline
 
-A private fault injection separately confirmed the inbox durability defect:
-after the offset advanced, canonical intake failed; restoring storage and
-retrying completed the task without applying the instruction to its ledger or
-prompts. The raw inbox message remained on disk. A claim/application/acknowledgement
-design is recorded privately, including cross-scope idempotence and retention;
-it is not implemented or included in Stop acceptance.
+The operator inbox durability defect remains present in 9d: its raw drain advances the source cursor before canonical intake. A private filesystem fault reproduced normal delivery loss after that advance; raw message bytes remained on disk. The existing nonempty intake write can still wait up to 30 seconds. This is not covered by the prompt-read Stop timings.
 
-The read-only observation at 2026-09-13 03:26:54 UTC found clean live
-`6f7e2bbb29f0df4b28a68da5dfc62ea75f35f9a7`, matching metadata and 11 ready APIs.
-It adds only two CSS changes to 317; the complete backend tree is identical.
-Merge checkpoint `5d78ef198a` preserves its shared display-math scrolling. The
-frontend build and all 116 files / 1,049 tests passed at that checkpoint. New
-candidate evidence must retain the exact 6f origin instead of relabeling a 317
-or 8f8 state copy. The retained TUI is still the same bytes declared from 47c.
+A replacement [operator inbox delivery protocol](operator-inbox-delivery.md) is implemented in canonical storage and both built-in consumers. It adds durable enqueue, bounded claim leases, frozen decisions and targets, atomic canonical effect receipts and retained transient envelopes. The version 2 queue passed **61 focused tests**; its predecessor's **38 focused and 13 independent checks** remain preserved. Canonical application passed **68 focused tests**, with separate exact-9d reader rejection and near-limit payload evidence. The combined private source-v2 snapshot passed **422 related repository tests and 41 independent checks**. These include ordinary Stop/fault/restart, both consumers, once-consumption and compaction, physical-message settlement, corruption rejection and old-format fencing. A held canonical writer did not prevent ordinary Stop from returning in about 106 ms in the local fixture, and retry delivered the original instruction without reclassification.
 
-Checkpoint `70026b6b80` passed the complete backend suite: 10,444 passed and
-56 skipped, with all 10,500 collected tests assigned once. Its 1,065 backend
-files and 423 frontend artifacts match Git/frozen/export/image. Browser control
-passed with a 94.6 ms cancel receipt, 289.8 ms Pi interruption and new target
-observed at 2059.3 ms. The separate actual Pi-to-gateway Stop flow passed for
-headers and streaming, preserving uncertain charges once and releasing slots.
-These are local observations; the browser routing/startup and upstream model
-remain fixtures, and the two flows are not one combined latency measurement.
+A further real HTTP probe found that accepted input could still wait for its advisory event writer. That failed probe is preserved. The follow-up limits this optional log-lock wait to 0.2 seconds and passed eight focused checks. Busy/full nudge requests now return explicit 503/429 rejection instead of a success receipt. Final full regression and publication qualification remain separate gates; these changes are not in the immutable 9d image, and the current private release pointers still designate 9d.
 
-The final live check at 2026-09-13 03:45:41 UTC found a newer clean
-`59c3c21d4f9016cefa84f9029a94c477c612cb63`, with matching metadata and 11 ready
-APIs. The 700/6f gate correctly refused that drift; all its passing isolated
-evidence remains on 700 and no final handoff pointers moved. The incoming
-change shares novice-teaching requirements across reading surfaces and adds
-editable question suggestions. It is incorporated without changing the tested
-control/gateway/role implementations. Exact 59 compatibility and final source
-acceptance must be bound separately, without relabeling 6f samples.
+Other required acceptance remains incomplete: broader mobile and complete Reader narration, autonomous task decisions, Manager's full four-phase judgment, and Planner/Reviewer complete real-model turns. No paid rerun is justified merely to turn historical partial results green. Model-catalog coordination, real stopped-writer migration and publication remain unresolved.
 
 ## Required outcomes
 
@@ -97,13 +45,13 @@ acceptance must be bound separately, without relabeling 6f samples.
 | --- | --- | --- |
 | Optional advisor with a separately selected model | Manager, Planner, Engineer and Reviewer each invoke the real tool; selected model remains distinct; actual cost/cancellation/evidence and parent call are recorded | Pi native tools and Copilot scoped MCP implemented. Real Engineer and Manager complete turns passed. Planner and Reviewer completed real consultations; their final main replies were rejected before upstream dispatch by trial quota reservation, so complete-turn acceptance remains partial |
 | Manager as a persistent supervising session | Session survives process restart; answers current progress from current project evidence; ongoing team review can change direction at a safe boundary and records why | Real persistence, STEER and WAIT reached role boundaries; the four-phase model acceptance remains partial. Complete observation identity, safe incomplete-source handling and evidence-bearing session handoffs have offline coverage. Bounded provider history, durable control continuity and cancellable state reads passed native/local acceptance |
-| Useful, concise human interaction | Desktop/mobile trial recordings show what happened, what changed, evidence and next action; generic stage labels alone do not pass | Candidate 0e2 has actual browser/portal/Pi control, truthful single confirmations and viewport-tested transcript recovery. Manager plans use public task text and recorded rationale. Reader fallback density and runtime/queue wording are active follow-ups. Broader/mobile and autonomous judgment acceptance remains separate |
+| Useful, concise human interaction | Desktop/mobile trial recordings show what happened, what changed, evidence and next action; generic stage labels alone do not pass | Candidate 9d has actual browser/portal/Pi control, one durable confirmation visible after reload and inline Reader cleanup. Manager plans use public task text and recorded rationale. Broader/mobile, full Reader narration and autonomous judgment acceptance remain separate |
 | Dynamic agent-led work | Different evidence leads to different tool/team/continuation decisions; fixed control flow cannot masquerade as agent judgment | Evidence-driven continue/steer/wait applies at real role boundaries; waiting mission A does not block independent B; broader task-type acceptance remains |
 | Daemon-to-daemon exchange | Two project daemons exchange a request and correlated reply across restart; peer advice cannot acquire operator authority | Durable correlated mailbox and call-bound Manager tools implemented; queued offline messages and crash recovery tested; no automatic peer startup |
 | User and project learning | Explicit scope, override, revoke and one-time instruction behavior survives restart and compaction; relevant corrections reach subsequent role prompts | Global/project precedence and bounded checkpoints are implemented. Real runtime prompt assembly now refreshes Engineer memory each round and Planner memory at its call boundary; offline regressions cover correction/retraction and preference revocation. The teammate follow-up refreshes actual role prompts, including directive/knowledge/experience revocation and one-time consumption; mandatory policy errors do not silently become optional recall. Opaque custom runners cannot be claimed to refresh internal rounds they do not expose. Settlement-to-capture recovery and the bounded pending window passed committed-crash and pressure checks |
 | Bounded, revisable experience and vector retrieval | Real settlement/learning updates stable records; retire/merge replaces vectors; retrieval excludes superseded content; long-run active/history storage remains bounded | Canonical lifecycle and bounded optional adapter are implemented. Real Copilot semantic recall passed 13 checks using 4 requests / 128 actual tokens, including restart cache reuse, revision and retraction. Default recall remains lexical hashing; this bounded probe does not establish long-run learning quality |
 | Evidence-driven self-improvement | Accepted/rejected lessons cite real outcomes; usage or similarity alone is never evidence of correctness | Correction requires revision and reason. Host reads bounded scoped evidence bytes and records their hashes; symlink/FIFO isolation and concurrent index updates are tested. A byte hash does not establish that the model's interpretation is true |
-| User-perspective trial and coordination | Real invite login, ordinary-user UI, Manager inquiry, advisor and control flows exercised; findings drive changes; concurrent source preserved | Candidate 0e2 merges exact observed live 8f8. Read-only verification at 2026-09-13 02:27:44 UTC found matching clean source and release metadata, 11 ready APIs and stable identities. Browser control/reload, image and exact-source state-copy checks passed within their documented scopes. Publication coordination and real stopped-writer migration remain pending; no deployment by this thread |
+| User-perspective trial and coordination | Real invite login, ordinary-user UI, Manager inquiry, advisor and control flows exercised; findings drive changes; concurrent source preserved | Baseline 9d incorporates exact observed live 59. The 2026-09-13 03:56:08 UTC read-only gate matched clean source, release metadata, 11 ready APIs and stable identities. Browser control/reload, image and exact-source compatibility passed within their documented scopes. Publication coordination and real stopped-writer migration remain pending; no deployment by this thread |
 
 ## Implementation map
 
@@ -115,6 +63,8 @@ acceptance must be bound separately, without relabeling 6f samples.
 | Role memory | Supervisor runtime, role context providers, OperatorContext, memory bundle and recall adapters | Current project/user precedence and revocations are read at supported role-call boundaries; provider history is not retroactively scrubbed |
 | Settlement learning | `life/mission_delivery.py`, `failure_experience.py`, `failure_experience_storage.py` | Factual capture precedes durable completion; learning failure does not block delivery; idempotent recovery preserves edits, retractions and retirement |
 | Peer exchange | `argus_skill/messaging` and Manager peer handling | Durable correlated requests/replies across restart; peer input remains advice, not operator permission |
+| Gateway ownership | `trial/gateway_accounting.py`, `gateway_observation_queue.py`, gateway/store lifecycle | Accounting leaves the ASGI loop while reservation, dispatch, settlement and shutdown retain bounded durable ownership |
+| Operator inbox delivery (integration in progress) | `apps/_inbox_protocol.py`, `_inbox_delivery.py`, Manager classification, canonical delivery receipts and consumer prompt/verdict boundaries | Freeze before effect; durable acceptance before source ACK; retain envelopes until the selected settlement boundary. Component acceptance does not qualify the combined integration |
 | Human presentation | Shared `frontend/core` event models and web conversation/activity components | Display actual work, evidence and next action; missing data must not be replaced by a success claim |
 
 ## Validation and recovery boundaries
@@ -129,7 +79,7 @@ Source/API readiness does not prove independent Advisor model availability. Even
 
 ## Historical evidence
 
-The [prior investigation journal](team-intelligence-history-20260912.md) retains the chronological source notes, failed baselines and intermediate repair evidence. Its statements about work still pending apply to their recorded revisions; use the current candidate summary above for current validation.
+The unchanged [prior investigation journal](team-intelligence-history-20260912.md) and the verbatim [0e2-through-700 work checkpoint](team-intelligence-checkpoint-0e2-to-700-20260913.md) retain source chronology, failed baselines and intermediate repairs. The full FFC run retains its three failures; 700 retains its passing isolated results and the gate that refused newer live 59. Earlier 8f8/317/6f drift gates, metadata mismatches and archived compatibility origins remain intact. Their pending-work statements apply to those recorded revisions. Use the 9d summary above for the current validated baseline and the separate integration status for inbox delivery.
 
 Historical real-provider evidence remains partial: semantic recall used 4 requests / 128 actual tokens and verified revision/retraction/cache behavior; Manager used 2 requests /4,066 actual tokens and verified STEER/WAIT, with later phases refused before upstream dispatch. Planner/Reviewer completed consultations but their final main turns were quota-refused. Two-process peer delivery passed 31 deterministic runtime checks, not autonomous model judgment.
 
