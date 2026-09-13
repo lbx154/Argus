@@ -153,7 +153,7 @@ def test_raw_observation_pages_keep_four_roles_and_unassigned_runs_visible(train
     assert all(episode["quality"]["state"] == "not_evaluated" for episode in task["episodes"])
 
 
-@pytest.mark.parametrize("purpose", ["reader-foundation", "reader-application", "reader-clarification"])
+@pytest.mark.parametrize("purpose", ["reader-foundation", "reader-application", "reader-clarification", "reader-progress-question"])
 def test_reader_purpose_survives_observation_and_export_without_a_research_role(training, purpose):
     data, _, _ = training
     episode = begin(training, role=purpose, task=None)

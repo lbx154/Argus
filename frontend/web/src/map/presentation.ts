@@ -1,6 +1,8 @@
 import type { Dataset, MapEvent, MapTask } from "./model";
 import type { SubmapStep } from "./submap";
 import { humanizeHarnessNote, readableRecord } from "./submap";
+import type { ProgressSourceRef } from '../../../core/src/types';
+import { attachProgressSource } from '../research-brief/progressSource';
 
 /** Why a task waits on the reader: its open question, or the reason its last
  * attempt failed, said the way the cards say it. A record that is only a
@@ -53,6 +55,7 @@ export interface CardSourceSnapshot {
 }
 
 export interface CardCopy {
+  progress_source?: ProgressSourceRef;
   copy_revision?: number;
   version?: number;
   model_revision?: string;
@@ -109,10 +112,15 @@ export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, req
     if (settingsChanged && cards[key]?.model_revision === previous.model_revision) continue;
     const old = cards[key];
     if (old?.version && (card.version ?? 0) < old.version) continue;
+    if (old && card.progress_source && old.copy_revision === card.copy_revision && old.generated_at === card.generated_at) {
+      cards[key] = attachProgressSource(old, card, key);
+      continue;
+    }
     if (!old || (card.copy_revision ?? 0) > (old.copy_revision ?? 0) ||
       ((card.copy_revision ?? 0) === (old.copy_revision ?? 0) &&
         (card.generated_at > old.generated_at ||
           (card.generated_at === old.generated_at && !old.input_revision)))) cards[key] = card;
+    else if (old) cards[key] = attachProgressSource(old, card, key);
   }
   const older = (result.cache_revision ?? 0) < (previous?.cache_revision ?? 0);
   return {

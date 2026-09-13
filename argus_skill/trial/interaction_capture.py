@@ -24,7 +24,7 @@ MAX_BYTES = 1024 * 1024
 MAX_FRAMES = 2000
 _INPUT_FIELDS = frozenset(
     ("text", "attachments", "route_override", "command", "name", "resources",
-     "request_id", "question", "locale", "source_task_id", "parent_id")
+     "request_id", "question", "locale", "source_task_id", "parent_id", "progress_source")
 )
 _PUBLIC_FIELDS = frozenset("""
     kind reply text role type label phase fragment_mode message_id error detail code message
@@ -34,6 +34,7 @@ _PUBLIC_FIELDS = frozenset("""
     delivery delivery_id targets path filename mime size size_bytes artifacts
     created ts timestamp started_ts finished_ts
     reader_foundation question locale request_id source_task_id parent_id root_id sources created_at version
+    progress_source source_id card_key copy_revision generated_at
     state source exists name mtime provenance origin run_label call_id call_id_log_correlated exit_code quiet_s deadline_exceeded
 """.split())
 _SID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")

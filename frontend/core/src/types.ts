@@ -466,6 +466,17 @@ export type ArtifactKind =
   | 'video'
   | 'binary';
 
+/** An immutable, server-retained version of a progress explanation. */
+export interface ProgressSourceRef {
+  source_id: string;
+  title: string;
+  generated_at: number;
+  path: string;
+  task_id: string;
+  card_key: string;
+  copy_revision: number;
+}
+
 /** A registered project file exposed by the protected artifact API. */
 export interface ArtifactInfo {
   path: string;
@@ -478,13 +489,15 @@ export interface ArtifactInfo {
   mtime: number | null;
   /** Absolute local location shown on hover; reads still use the protected path. */
   storage_path?: string;
-  source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery' | 'reader_foundation';
+  source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery' | 'reader_foundation' | 'progress_snapshot';
+  progress_source?: ProgressSourceRef;
   group_title?: string;
   /** An explicit reading request, separate from a research result or review. */
   reader_foundation?: {
     id: string;
     /** Missing on earlier records; those records are root foundations. */
-    kind?: 'foundation' | 'clarification';
+    kind?: 'foundation' | 'clarification' | 'progress_answer';
+    progress_source?: ProgressSourceRef;
     parent_id?: string | null;
     root_id?: string;
     sources?: Array<{ id: string; path: string; title: string }>;

@@ -158,8 +158,17 @@ def register_map_live_routes(app, ctx, read_dataset):
             model_revision = map_narrative.resolve_map_model().revision
         except (OSError, ValueError, RuntimeError):
             model_revision = ""
+        cards = cache.get("cards", {})
+        if source == "project" and cards:
+            from ..reader_progress import bind_progress_cards
+
+            cards = bind_progress_cards(
+                root, name, map_narrative.copy_source(value["id"], locale, preview=preview,
+                                                     foundation_id=foundation["id"] if foundation else None),
+                cards, locale, evidence=value,
+            )
         return {
-            "cards": cache.get("cards", {}),
+            "cards": cards,
             "relations": cache.get("relations", []),
             "available": project_root is not None and (preview != "question-foundation" or foundation is not None)
                          and map_narrative.configured(),
@@ -193,12 +202,21 @@ def register_map_live_routes(app, ctx, read_dataset):
 
         def generate(on_progress=None):
             try:
-                return map_narrative.enrich(
+                result = map_narrative.enrich(
                     root, value, cards, body.locale, project_root=project_root,
                     **({"preview": preview} if preview else {}),
                     **({"on_progress": on_progress} if on_progress is not None else {}),
                     **({"foundation": foundation} if foundation is not None else {}),
                 )
+                if source == "project" and result.get("cards"):
+                    from ..reader_progress import bind_progress_cards
+
+                    result["cards"] = bind_progress_cards(
+                        root, name, map_narrative.copy_source(value["id"], body.locale, preview=preview,
+                                                             foundation_id=foundation["id"] if foundation else None),
+                        result["cards"], body.locale, evidence=value,
+                    )
+                return result
             except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
                 raise _copy_error(exc) from exc
 

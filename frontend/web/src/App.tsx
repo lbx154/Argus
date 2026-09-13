@@ -20,6 +20,7 @@ import { GuardianBanner } from './components/GuardianBanner';
 import { rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { QuestionFoundation } from './research-brief/QuestionFoundation';
+import { ProgressQuestionsProvider, ProgressQuestionHistoryButton } from './research-brief/ProgressQuestions';
 import { readerPreview } from './map/copyMode';
 import {
   missionIsComplete,
@@ -907,6 +908,7 @@ export default function App() {
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, chatPending, stopWaiting, locale, t]);
 
   return (
+    <ProgressQuestionsProvider sid={activeSid} readOnly={kiosk}>
     <WorkspaceShell
       ref={shellRef}
       style={{
@@ -1009,6 +1011,7 @@ export default function App() {
               {readerPreview() === 'question-foundation' && loadedSid ? <QuestionFoundation key={loadedSid} sid={loadedSid}
                 objective={snap.session.objective} readOnly={kiosk}
                 onOpenArtifact={setArtifactPath} /> : null}
+              <div className="mx-4 flex gap-2"><ProgressQuestionHistoryButton /></div>
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
@@ -1286,5 +1289,6 @@ export default function App() {
         />
       ) : null}
     </WorkspaceShell>
+    </ProgressQuestionsProvider>
   );
 }

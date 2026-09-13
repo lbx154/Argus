@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useMutationState, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, MessageCircle, Plus } from 'lucide-react';
-import { ApiError } from '../../../core/src/http';
-import { api, type ArtifactInfo } from '../api';
+import type { ArtifactInfo } from '../api';
 import { Button, RawDisclosure } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
 import { useI18n } from '../i18n';
 import { readerFoundationTitle } from '../lib/artifactPresentation';
 import { ReaderExplanationStatus } from './ReaderExplanation';
-import { beginExplanationProgress, useExplanationProgress } from './progress';
-import { foundationChoice, foundationListKey, saveFoundationRequest, selectFoundation, useFoundationList, useFoundationRequest, useSelectedFoundation, type FoundationDraft, type FoundationRequest } from './foundation';
+import { selectFoundation, useSelectedFoundation, type FoundationDraft } from './foundation';
+import { isRootFoundation, useReadingRequest } from './useReadingRequest';
+import { ReadingQuestionEditor } from './ReadingQuestionEditor';
 
 /** One explicit question creates one saved explanation; opening a file only reads it. */
 export function QuestionFoundation({ sid, objective, taskId, taskTitle, readOnly, onOpenArtifact }: {
@@ -20,62 +19,14 @@ export function QuestionFoundation({ sid, objective, taskId, taskTitle, readOnly
   const zh = locale === 'zh-CN';
   const language = zh ? 'zh-CN' : 'en-US';
   const text = (chinese: string, english: string) => zh ? chinese : english;
-  const client = useQueryClient();
+  const request = useReadingRequest(sid, language);
+  const { client, list, generation, progress, creationBlocked } = request;
   const selected = useSelectedFoundation(sid, language);
-  const list = useFoundationList(sid);
   const [draft, setDraft] = useState<FoundationDraft | null>(null);
   useEffect(() => setDraft(null), [sid, language]);
-  const pendingRequest = useFoundationRequest(sid, language);
-  const progressKey = ['reader-foundation-create', sid, language];
-  const activeRequests = useMutationState({ filters: { mutationKey: progressKey, status: 'pending' },
-    select: mutation => (mutation.state.variables as { id?: string } | undefined)?.id });
-  const progress = useExplanationProgress(progressKey, activeRequests.at(-1) ?? pendingRequest?.id);
-  const generation = useMutation({
-    mutationKey: progressKey,
-    mutationFn: async (request: FoundationRequest) => {
-      const observed = beginExplanationProgress(client, progressKey, [{ key: request.id }]);
-      try {
-        const body = { request_id: request.id, question: request.draft.question.trim(), locale: language } satisfies Parameters<typeof api.askReaderFoundation>[2];
-        const result = request.draft.parentId
-          ? await api.askReaderFoundation(sid, request.draft.parentId, body, observed.update)
-          : await api.generateReaderFoundation(sid, {
-            ...body, ...(request.draft.sourceTaskId ? { source_task_id: request.draft.sourceTaskId } : {}),
-          }, observed.update);
-        if (result.reader_foundation?.id !== request.id)
-          throw new Error(text('说明请求的结果尚未确认。', 'The result of this explanation request is unconfirmed.'));
-        if (request.draft.parentId && (result.reader_foundation.kind !== 'clarification'
-          || result.reader_foundation.parent_id !== request.draft.parentId))
-          throw new Error(text('追问与来源说明的对应关系尚未确认。', 'The question’s connection to its source is unconfirmed.'));
-        return result;
-      } finally {
-        observed.finish();
-        await client.invalidateQueries({ queryKey: foundationListKey(sid) });
-      }
-    },
-    onSuccess: (artifact, request) => {
-      // Completing an older request must not undo a question chosen meanwhile.
-      if (!request.draft.parentId && artifact.exists && artifact.reader_foundation?.state === 'complete'
-        && foundationChoice(client, sid, language).choice === request.beforeChoice)
-        selectFoundation(client, sid, language, artifact.reader_foundation!.id);
-      client.setQueryData<ArtifactInfo[]>(foundationListKey(sid), previous => {
-        const saved = previous?.find(item => item.path === artifact.path);
-        // A pending duplicate response may arrive after the refresh observed completion.
-        if (saved && saved.reader_foundation?.state !== 'generating'
-          && artifact.reader_foundation?.state === 'generating') return previous;
-        return [...(previous ?? []).filter(item => item.path !== artifact.path), artifact];
-      });
-      void client.invalidateQueries({ queryKey: ['map-copy', 'project', sid] });
-    },
-    onError: (error, request) => {
-      // Only this server rejection establishes that no request was reserved.
-      // Network failures and ordinary generation errors remain unconfirmed.
-      if (error instanceof ApiError && error.code === 'reader_source_unavailable')
-        saveFoundationRequest(client, sid, language, { ...request, rejected: 'reader_source_unavailable' });
-    },
-    retry: false,
-  });
-  const notes = (list.data ?? []).filter(item => item.reader_foundation?.locale === language);
-  const foundations = notes.filter(item => item.reader_foundation?.kind !== 'clarification' && !item.reader_foundation?.parent_id);
+  const pendingRequest = request.pendingRequest?.draft.progressSource ? null : request.pendingRequest;
+  const notes = request.notes.filter(item => !item.reader_foundation?.progress_source && item.reader_foundation?.kind !== 'progress_answer');
+  const foundations = notes.filter(isRootFoundation);
   const current = foundations.find(item => item.reader_foundation?.id === selected.id);
   const answers = current ? notes.filter(item => item.reader_foundation?.kind === 'clarification'
     && item.reader_foundation.root_id === current.reader_foundation?.id).reverse() : [];
@@ -84,26 +35,14 @@ export function QuestionFoundation({ sid, objective, taskId, taskTitle, readOnly
   const overdue = notes.some(item => item.reader_foundation?.state === 'generating' && item.reader_foundation.deadline_exceeded);
   const failed = notes.filter(item => item.reader_foundation?.state === 'failed');
   const availableParents = notes.filter(item => item.exists && item.reader_foundation?.state === 'complete');
-  const creating = generation.isPending || activeRequests.length > 0 || progress.active;
-  const requestId = pendingRequest?.id ?? generation.variables?.id;
-  const requested = notes.find(item => item.reader_foundation?.id === requestId);
-  const confirmedFailure = requested?.reader_foundation?.state === 'failed';
-  const confirmedComplete = requested?.reader_foundation?.state === 'complete';
-  const requestRejected = pendingRequest?.rejected === 'reader_source_unavailable';
-  const unknownResult = !!pendingRequest && !requestRejected && !requested && !creating;
-  const creationBlocked = creating || waiting || (!!pendingRequest && !requestRejected) || list.isPending || list.isError;
-  useEffect(() => {
-    if (pendingRequest && (confirmedFailure || confirmedComplete))
-      saveFoundationRequest(client, sid, language, null);
-  }, [client, sid, language, pendingRequest, confirmedFailure, confirmedComplete]);
+  const creating = !request.pendingRequest?.draft.progressSource && request.creating;
+  const confirmedFailure = !request.requested?.reader_foundation?.progress_source && request.confirmedFailure;
+  const requestRejected = !!pendingRequest && request.requestRejected;
+  const unknownResult = !!pendingRequest && request.unknownResult;
   const submit = () => {
     if (!draft?.question.trim() || readOnly || creationBlocked) return;
     if (draft.parentId && !availableParents.some(item => item.reader_foundation?.id === draft.parentId)) return;
-    const id = crypto.randomUUID();
-    const request = { id, draft, beforeChoice: foundationChoice(client, sid, language).choice };
-    saveFoundationRequest(client, sid, language, request);
-    generation.mutate(request);
-    setDraft(null);
+    if (request.submit(draft)) setDraft(null);
   };
   const ask = (artifact: ArtifactInfo) => {
     if (readOnly || creationBlocked || !artifact.exists || artifact.reader_foundation?.state !== 'complete') return;
@@ -165,7 +104,7 @@ export function QuestionFoundation({ sid, objective, taskId, taskTitle, readOnly
       {!readOnly && pendingRequest && !creating && !waiting ? requestRejected ? <Button className="mt-2 text-xs" onClick={() => {
         setDraft(pendingRequest.draft);
         generation.reset();
-      }}>{text('编辑问题与来源', 'Edit question and source')}</Button> : <Button className="mt-2 text-xs" onClick={() => generation.mutate(pendingRequest)}>{text('重试同一请求', 'Retry this same request')}</Button> : null}
+      }}>{text('编辑问题与来源', 'Edit question and source')}</Button> : <Button className="mt-2 text-xs" onClick={() => request.retrySavedRequest(pendingRequest)}>{text('重试同一请求', 'Retry this same request')}</Button> : null}
       {!readOnly && failed.length ? <RawDisclosure label={text(`未完成的说明（${failed.length}）`, `Unfinished explanations (${failed.length})`)}><div className="max-h-[24vh] overflow-y-auto">{failed.map(item => <div key={item.path} className="mt-2 flex items-center gap-2 text-xs text-ink-faint">
         <span className="min-w-0 flex-1 truncate" title={item.reader_foundation!.question}>{text('未完成：', 'Not completed: ')}{item.reader_foundation!.question}</span>
         <Button className="shrink-0 text-xs" disabled={creationBlocked} onClick={() => setDraft({
@@ -195,11 +134,8 @@ export function QuestionFoundation({ sid, objective, taskId, taskTitle, readOnly
             {availableParents.map(item => <option key={item.path} value={item.reader_foundation!.id}>{readerFoundationTitle(item.reader_foundation!)}</option>)}
           </select>
         </label> : null}
-        <textarea aria-label={text('想理解的问题', 'Question to understand')} className="min-h-40 w-full rounded-lg border border-line bg-bg p-3 text-sm leading-6 text-ink"
-          maxLength={8000} value={draft?.question ?? ''} onChange={event => setDraft(previous => previous ? { ...previous, question: event.target.value } : previous)} />
-        {draft?.sourceTitle ? <p className="mt-2 text-xs text-ink-faint">{text('从这项任务打开：', 'Opened from this task: ')}{draft.sourceTitle}</p> : null}
-        <div className="mt-3 flex justify-end"><Button disabled={!draft?.question.trim() || creationBlocked || readOnly
-          || !!draft?.parentId && !availableParents.some(item => item.reader_foundation?.id === draft.parentId)} onClick={submit}>{draft?.parentId ? text('提问', 'Ask question') : text('生成并保存基础说明', 'Generate and save foundations')}</Button></div>
+        {draft ? <ReadingQuestionEditor draft={draft} onChange={setDraft} onSubmit={submit}
+          disabled={creationBlocked || readOnly || !!draft.parentId && !availableParents.some(item => item.reader_foundation?.id === draft.parentId)} /> : null}
       </div>
     </Modal>
   </>;

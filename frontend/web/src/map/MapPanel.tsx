@@ -1550,6 +1550,7 @@ export function MapCanvas({
           <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
+              readOnly={readOnly}
               originalDetail={readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
               selection={readerSelection}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />

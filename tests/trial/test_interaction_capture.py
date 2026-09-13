@@ -112,7 +112,8 @@ def test_json_chat_result_matches_its_input_and_finish_is_idempotent(analytics):
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("clarification", [False, True])
-def test_question_foundation_preserves_request_and_call_reference_without_accepting_a_task(analytics, stream, clarification):
+@pytest.mark.parametrize("progress", [False, True])
+def test_question_foundation_preserves_request_and_call_reference_without_accepting_a_task(analytics, stream, clarification, progress):
     body = {
         "request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f",
         "question": "Explain how a feasible bound proves optimality.",
@@ -122,6 +123,12 @@ def test_question_foundation_preserves_request_and_call_reference_without_accept
     path = "/api/projects/s-one/reader-foundation" + (f"/{parent_id}/question" if clarification else "")
     if clarification:
         body.pop("source_task_id")
+    source = {"source_id": "f314da38-60d2-42fd-944d-413d1b5d9a03", "title": "The selected old explanation",
+              "generated_at": 120.5, "path": "reader-progress/s-one/f314da38-60d2-42fd-944d-413d1b5d9a03.md",
+              "task_id": "task-context", "card_key": "task-context", "copy_revision": 3}
+    if progress and not clarification:
+        body.pop("source_task_id")
+        body["progress_source"] = {"source_id": source["source_id"]}
     item = Capture(analytics, "tenant-a", "s-one", path, body)
     result = {
         "path": "reader-notes/s-one/48f5757f-cab6-4ef8-8024-b9fcd0a7899f.md",
@@ -139,6 +146,14 @@ def test_question_foundation_preserves_request_and_call_reference_without_accept
         result["reader_foundation"].update(kind="clarification", parent_id=parent_id, root_id=parent_id)
         result["reader_foundation"]["sources"] = [{"id": parent_id, "path": f"reader-notes/s-one/{parent_id}.md", "title": "Original explanation"}]
         result["reader_foundation"]["provenance"]["run_label"] = "reader-clarification"
+    if progress:
+        metadata = result["reader_foundation"]
+        metadata["progress_source"] = source
+        metadata["sources"] = [{"id": source["source_id"], "path": source["path"], "title": source["title"],
+                                "kind": "progress_snapshot"}, *metadata.get("sources", [])]
+        if not clarification:
+            metadata.update(kind="progress_answer", parent_id=None, root_id=body["request_id"], source_task_id=None)
+            metadata["provenance"]["run_label"] = "reader-progress-question"
     if stream:
         item.feed(frame({"type": "heartbeat", "quiet_s": 0}))
         item.feed(frame({"type": "progress", "phase": "writing"}))

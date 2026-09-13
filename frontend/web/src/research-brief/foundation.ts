@@ -2,6 +2,7 @@ import { skipToken, useQuery, type QueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { readerPreview } from '../map/copyMode';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
+import type { ProgressSourceRef } from '../../../core/src/types';
 
 interface FoundationChoice { id: string | null; choice: number }
 export interface FoundationDraft {
@@ -10,11 +11,15 @@ export interface FoundationDraft {
   sourceTitle?: string;
   parentId?: string;
   parentTitle?: string;
+  progressSource?: ProgressSourceRef;
 }
 export interface FoundationRequest {
   id: string;
   draft: FoundationDraft;
   beforeChoice: number;
+  /** New requests keep their originating scope even if their observer moves. */
+  sid?: string;
+  locale?: 'zh-CN' | 'en-US';
   rejected?: 'reader_source_unavailable';
 }
 const choiceKey = (sid: string, locale: string) => ['reader-foundation-choice', sid, locale];
@@ -45,6 +50,13 @@ function readRequest(sid: string, locale: string): FoundationRequest | null {
 export function saveFoundationRequest(client: QueryClient, sid: string, locale: string, request: FoundationRequest | null) {
   client.setQueryData(requestKey(sid, locale), request);
   writeLocalStorage(requestStorageKey(sid, locale), JSON.stringify(request));
+}
+
+/** A passive observer of an older completion cannot clear a newer submission. */
+export function clearFoundationRequest(client: QueryClient, sid: string, locale: string, requestId: string) {
+  const current = client.getQueryData<FoundationRequest | null>(requestKey(sid, locale));
+  const stored = readRequest(sid, locale);
+  if (current?.id === requestId && (!stored || stored.id === requestId)) saveFoundationRequest(client, sid, locale, null);
 }
 
 /** Reloading an unconfirmed submission retains its identity; it never resubmits. */
@@ -78,12 +90,12 @@ export function useSelectedFoundation(sid: string, locale: string) {
   return query.data!;
 }
 
-export function useFoundationList(sid: string) {
+export function useFoundationList(sid: string, enabled = readerPreview() === 'question-foundation') {
   return useQuery({
     queryKey: foundationListKey(sid),
     queryFn: async ({ signal }) => (await api.artifacts(sid, signal, true))
       .filter(item => item.source === 'reader_foundation'),
-    enabled: !!sid && readerPreview() === 'question-foundation',
+    enabled: !!sid && enabled,
     refetchInterval: query => query.state.data?.some(item => item.reader_foundation?.state === 'generating') ? 5_000 : false,
     retry: false, refetchOnWindowFocus: false,
   });

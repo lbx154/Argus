@@ -686,6 +686,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <h3><MarkdownExcerpt>{stepCopy(detail)?.title || detail.title}</MarkdownExcerpt></h3>
             <div className="macro-reader-body">
               <MapReaderContent cardKey={detail.id} taskId={task.id} card={stepCopy(detail)} task={task}
+                readOnly={data.readOnly}
                 originalDetail={detail.detail || noDetails(zh)} selection={data.readerCopy}
                 artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
             </div>

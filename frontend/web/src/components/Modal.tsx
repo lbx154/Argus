@@ -1,6 +1,7 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import { useI18n } from '../i18n';
+import { registerModal } from './modalStack';
 
 /**
  * A centered modal over a plain scrim — the container for the command palette,
@@ -61,47 +62,8 @@ export function Modal({
       );
   }, [open, align]);
   useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => {
-      const target = dialogRef.current?.querySelector<HTMLElement>('[data-autofocus]')
-        ?? dialogRef.current?.querySelector<HTMLElement>(
-          'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])',
-        );
-      (target ?? dialogRef.current)?.focus();
-    });
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeRef.current();
-        return;
-      }
-      if (e.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-        'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])',
-      )).filter((element) => element.getAttribute('aria-hidden') !== 'true'
-        && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden');
-      if (focusable.length === 0) {
-        e.preventDefault();
-        dialogRef.current.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey && (document.activeElement === first || !dialogRef.current.contains(document.activeElement))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener('keydown', onKey);
-      if (previous?.isConnected) previous.focus();
-    };
+    if (!open || !dialogRef.current) return;
+    return registerModal(dialogRef.current, () => closeRef.current());
   }, [open]);
 
   if (!open) return null;

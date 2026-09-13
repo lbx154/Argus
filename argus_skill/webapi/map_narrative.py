@@ -474,6 +474,21 @@ def enrich(
                 from .map_learning import checked_learning_path
 
                 card["learning_path"] = checked_learning_path(card["learning_path"])
+        progress_sid = dataset["id"][5:] if dataset["id"].startswith("live:") else None
+        if progress_sid:
+            from .reader_clarification import ReaderSourceUnavailable
+            from .reader_progress import retain_progress_source
+
+            # Preserve the previous version before replacing its cache entry.
+            # This short registry lock never contains a model call.
+            for card in generated:
+                previous = existing.get(card["key"])
+                if previous is not None:
+                    try:
+                        retain_progress_source(root, progress_sid, copy_source=source, card_key=card["key"],
+                                               card=previous, locale=locale, evidence=dataset)
+                    except ReaderSourceUnavailable:
+                        pass  # An old cache without a source snapshot stays unverified.
         for card in generated:
             existing[card["key"]] = {
                 field: card[field] for field in CARD_TEXT_LIMITS
@@ -506,6 +521,14 @@ def enrich(
                 event_ids=[e["id"] for e in document["events"]],
                 event_revisions=[e.get("revision", e["id"]) for e in document["events"]],
             )
+            if progress_sid:
+                try:
+                    existing[card["key"]]["progress_source"] = retain_progress_source(
+                        root, progress_sid, copy_source=source, card_key=card["key"],
+                        card=existing[card["key"]], locale=locale, evidence=dataset,
+                    )
+                except ReaderSourceUnavailable:
+                    pass
         ids = [t["id"] for t in dataset["tasks"]]
         relations = []
         seen = set()

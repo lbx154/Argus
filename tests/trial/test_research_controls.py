@@ -79,3 +79,17 @@ def test_clarification_capture_preserves_real_path_binding_through_input_project
     result = get_interaction(controls.analytics, "trial-01", item.id, include_trace=False)
     assert result["input"] == {**body, "parent_id": parent}
     assert result["path"] == "/api/projects/:sid/reader-foundation/:parent_id/question"
+
+
+def test_progress_capture_preserves_source_identity_without_accepting_client_source_prose(controls):
+    from argus_skill.trial.interaction_capture import get_interaction
+    from argus_skill.trial.journey_journal import Journal
+
+    Journal(controls.analytics)
+    body = {"request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f", "question": "Why this step?", "locale": "en-US"}
+    source_id = "f314da38-60d2-42fd-944d-413d1b5d9a03"
+    item = controls.capture("trial-01", "s-one", "/api/projects/s-one/reader-foundation",
+                            {**body, "progress_source": {"source_id": source_id, "markdown": "Client cannot supply a source"}})
+    result = get_interaction(controls.analytics, "trial-01", item.id, include_trace=False)
+    assert result["input"] == {**body, "progress_source": {"source_id": source_id}}
+    assert result["task_id"] is None and result["task_accepted"] is False
