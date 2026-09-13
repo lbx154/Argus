@@ -1,6 +1,7 @@
 import type { DispatchObserver } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
+import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useGitDiff } from './hooks';
+import { useConversationHistory } from './useConversationHistory';
 import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride } from './api';
 import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
@@ -49,7 +50,6 @@ import { COMMANDS } from '../../core/src/commands';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
 import {
-  mergeConversationEvents,
   mergeOptimisticManagerDelta,
   mergeOptimisticManagerSteps,
   optimisticOperatorEvent,
@@ -196,6 +196,7 @@ export default function App() {
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>(initialMessageRoute);
   const [chatPending, setChatPending] = useState(false);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
+  const localConversationSid = useRef<string | null>(null);
   const [managerSteps, setManagerSteps] = useState<PhaseStep[]>([]);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [previewPathRequest, setPreviewPathRequest] = useState({ path: '', token: 0 });
@@ -366,18 +367,17 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [loadedSid, queryClient, snapshotRefreshKey]);
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
-  const transcriptQ = useTranscript(loadedSid, standardWorkspaceView === 'activity', 120);
+  const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
+    loadedSid, standardWorkspaceView === 'activity', events, localConversationEvents, localConversationSid.current,
+  );
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
-  const activityEvents = useMemo(() => {
-    return mergeConversationEvents(
-      events,
-      transcriptQ.data ?? [],
-      localConversationEvents,
-    );
-  }, [events, localConversationEvents, transcriptQ.data]);
   // The map view follows the stream at a beat, not per token.
-  const mapEvents = useThrottledValue(events, 250);
-  const mapConversationEvents = useThrottledValue(activityEvents, 250);
+  const mapInput = useMemo(() => ({ sid: loadedSid, events, conversation: activityEvents }), [loadedSid, events, activityEvents]);
+  const mapHistory = useThrottledValue(mapInput, 250);
+  // A pending throttle belongs to its original project, even when the next
+  // project's snapshot is already cached and renders synchronously.
+  const mapEvents = mapHistory.sid === loadedSid ? mapHistory.events : [];
+  const mapConversationEvents = mapHistory.sid === loadedSid ? mapHistory.conversation : [];
   const missionView = useMemo(
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
@@ -669,8 +669,10 @@ export default function App() {
         return false;
       }
     }
+    const sameConversation = localConversationSid.current === requestSid;
+    localConversationSid.current = requestSid;
     setLocalConversationEvents((current) => [
-      ...current,
+      ...(sameConversation ? current : []),
       optimisticOperatorEvent(requestSid, requestId, text),
     ]);
 
@@ -1043,12 +1045,16 @@ export default function App() {
                 ) : (
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
                   <EventStream
+                    key={loadedSid}
                     snapshot={snap}
                     missionView={missionView}
                     events={activityEvents}
                     connected={connected && !snapQ.isError}
                     showReasoning={showReasoning}
                     onToggleReasoning={() => setShowReasoning((value) => !value)}
+                    historyStatus={historyStatus}
+                    historyRefreshing={transcriptQ.isFetching}
+                    onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
                     filter={eventFilter}
                     query={eventQuery}

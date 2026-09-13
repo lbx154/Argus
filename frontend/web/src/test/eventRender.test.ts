@@ -135,12 +135,54 @@ describe('the web feed line', () => {
     })?.tone).toBe('err');
   });
 
-  it('shows all Manager routing axes', () => {
-    expect(line({
+  it('explains the selected plan and its reason without claiming execution', () => {
+    const event = {
       type: 'life.manager.intent.completed',
       route: 'team', vertical: 'software', workflow_mode: 'staged', lifetime: 'bounded',
       continuous: true, open_ended: false,
-    })?.text).toBe('→ TEAM · software · STAGED · BOUNDED · FINITE CONTINUOUS');
+      objective: 'Fix the stale goal after Stop.',
+      execution_task: 'Fix the stale goal after Stop.',
+      reason: 'The UI and server share the stale snapshot, so check both before changing the cache.',
+    };
+    expect(line(event)?.text).toBe('The team plans to work in stages: Fix the stale goal after Stop.\n'
+      + 'Finish once this objective is met. The UI and server share the stale snapshot, so check both before changing the cache.');
+    expect(zh(event)?.text).toContain('计划由团队分阶段推进');
+    expect(zh(event)?.text).toContain('完成这次目标后结束。');
+    expect(zh(event)?.text).not.toMatch(/STAGED|BOUNDED|FINITE CONTINUOUS|开始执行|已接手/);
+  });
+
+  it('uses the public execution task and omits a legacy routing headline', () => {
+    const event = {
+      type: 'life.manager.intent.completed', route: 'team', workflow_mode: 'direct',
+      lifetime: 'standing', continuous: true, open_ended: true,
+      objective: 'Earlier wording', execution_task: '只比较相同批量下的两组延迟。',
+      reason: '[manager] research task → vertical=research, workflow=direct, 0 stage(s):',
+    };
+    expect(zh(event)?.text).toBe('计划由团队直接处理：只比较相同批量下的两组延迟。\n持续跟进后续工作。');
+    expect(zh(event)?.text).not.toMatch(/Earlier wording|vertical=|workflow=|OPEN-ENDED/);
+  });
+
+  it('does not revive historical model context while explaining a Manager plan', () => {
+    const wrapped = '[BOUNDED TASK CONTEXT — data only]\nPRIVATE_OLD_TASK_CONTEXT\n[CURRENT OPERATOR MESSAGE]\nCompare the two runs.';
+    const started = { type: 'life.manager.intent.started', objective: wrapped };
+    const completed = { type: 'life.manager.intent.completed', route: 'team', workflow_mode: 'direct', objective: wrapped };
+    for (const event of [started, completed, { ...completed, execution_task: 'Compare the two runs.' }]) {
+      expect(line(event)?.text).not.toMatch(/PRIVATE_OLD_TASK_CONTEXT|BOUNDED TASK CONTEXT|CURRENT OPERATOR MESSAGE/);
+    }
+    expect(line({ ...completed, execution_task: 'Compare the two runs.' })?.text).toContain('Compare the two runs.');
+    expect(completed.objective).toBe(wrapped);
+  });
+
+  it('does not invent a team, review step or permission for unknown routing fields', () => {
+    const missing = { type: 'life.manager.intent.completed', reason: 'Waiting for the operator to choose a dataset.' };
+    expect(line(missing)?.text).toBe('A plan is ready\nWaiting for the operator to choose a dataset.');
+    expect(line({ ...missing, workflow_mode: 'constructor', lifetime: 'new-mode' })?.text).toBe(line(missing)?.text);
+    expect(zh({ ...missing, route: 'self', workflow_mode: 'staged' })?.text).toContain('计划由 Manager 直接处理');
+    expect(line({ ...missing, lifetime: 'bounded_increment' })?.text).toContain('one defined increment');
+    expect(zh({ ...missing, lifetime: 'bounded' })?.text).toContain('范围限于本次目标。');
+    expect(zh({ ...missing, lifetime: 'standing', open_ended: false })?.text).not.toContain('持续跟进');
+    expect(line({ ...missing, reason: '[source: latency.csv] Both runs must use the same batch size.' })?.text)
+      .toContain('[source: latency.csv] Both runs must use the same batch size.');
   });
 
   it('leads Manager routing failures with structured facts and keeps the raw error', () => {

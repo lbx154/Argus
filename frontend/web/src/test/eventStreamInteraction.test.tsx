@@ -175,6 +175,19 @@ describe('conversation scroll following during reflow', () => {
   const events: EventMsg[] = [{ type: 'ui.argus', text: 'A recorded answer with wrapping text.', ts: 1 }];
   const resumeButtons = () => renderer!.root.findAllByProps({ 'aria-label': 'Jump to latest' });
 
+  it('keeps following when growing history fires a scroll event without an upward reader movement', () => {
+    mount(events);
+    paint();
+    scrollConversation(600);
+    outer.scrollHeight = 1800;
+    resize(content);
+    // Layout/scroll anchoring can dispatch scroll before the queued resize frame.
+    scrollConversation(600);
+    paint();
+    expect(outer.scrollTop).toBe(1500);
+    expect(resumeButtons()).toHaveLength(0);
+  });
+
   it('stays at the latest answer after viewport and content size changes without new events', () => {
     mount(events);
     paint();
@@ -237,6 +250,36 @@ describe('conversation scroll following during reflow', () => {
     renderer = undefined;
     expect(frames.size).toBe(0);
     expect(observers.every(observer => observer.targets.size === 0)).toBe(true);
+  });
+});
+
+describe('conversation history readiness', () => {
+  it('distinguishes loading, failed history and a confirmed empty conversation', () => {
+    const retry = vi.fn();
+    const view = (historyStatus: 'loading' | 'error' | 'ready') => <EventStream
+      events={[]} connected showReasoning={false} onToggleReasoning={() => {}}
+      historyStatus={historyStatus} onRetryHistory={retry} />;
+    act(() => { renderer = create(view('loading'), { createNodeMock: nodeMock }); });
+    expect(visibleText(renderer!.root)).toContain('Loading conversation history');
+    expect(visibleText(renderer!.root)).not.toContain('Argus is ready');
+    act(() => renderer!.update(view('error')));
+    expect(visibleText(renderer!.root)).toContain('Could not load conversation history');
+    expect(visibleText(renderer!.root)).not.toContain('Argus is ready');
+    const button = renderer!.root.findAllByType('button').find(node => visibleText(node) === 'Retry')!;
+    act(() => button.props.onClick());
+    expect(retry).toHaveBeenCalledTimes(1);
+    act(() => renderer!.update(view('ready')));
+    expect(visibleText(renderer!.root)).toContain('Argus is ready');
+  });
+
+  it('retains loaded messages when refreshing their history fails', () => {
+    act(() => { renderer = create(<EventStream
+      events={[{ type: 'ui.argus', text: 'A previously loaded answer.', ts: 1 }]}
+      connected showReasoning={false} onToggleReasoning={() => {}} historyStatus="error"
+      onRetryHistory={() => {}} />, { createNodeMock: nodeMock }); });
+    expect(visibleText(renderer!.root)).toContain('A previously loaded answer.');
+    expect(visibleText(renderer!.root)).toContain('Could not load conversation history');
+    expect(visibleText(renderer!.root)).not.toContain('Argus is ready');
   });
 });
 
