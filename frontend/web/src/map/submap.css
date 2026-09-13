@@ -972,7 +972,6 @@
 .macro-reader-markdown h2 { font-size: 1.1em; }
 .macro-reader-markdown h3 { font-size: 1em; }
 .macro-reader-markdown th, .macro-reader-markdown td { min-width: 5em; }
-.macro-reader-body .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
 
 /* Step outcome is legible per card: status recolors the meta, terminal failure
  * and live work mark the left edge, replaced work visibly recedes. */
