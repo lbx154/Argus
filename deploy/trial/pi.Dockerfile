@@ -1,5 +1,7 @@
 ARG WEB_BASE_IMAGE=argus-web-trial:20260911
 FROM ${WEB_BASE_IMAGE}
+ARG ARGUS_SKILL_BUILD_REVISION=""
+ENV ARGUS_SKILL_BUILD_REVISION=${ARGUS_SKILL_BUILD_REVISION}
 USER root
 COPY --from=node-runtime /node /usr/local/bin/node
 COPY --from=argus-pi /package.json /opt/argus-pi/package.json

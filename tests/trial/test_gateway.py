@@ -6,6 +6,7 @@ import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import httpx
 import portalocker
@@ -765,11 +766,11 @@ def test_observation_storage_failure_does_not_change_response_or_cleanup(setting
 
         monkeypatch.setattr(store, method, failed_write)
         result = client.post("/v1/chat/completions", headers=auth, json={**PAYLOAD, "stream": mode == "stream"})
-        assert result.status_code == (503 if mode == "rejected" else 200)
+        assert result.status_code == (429 if mode == "rejected" else 200)
         if mode == "stream":
             assert "[DONE]" in result.text
         elif mode == "rejected":
-            assert result.json()["error"]["code"] == "provider_unavailable"
+            assert result.json()["error"]["code"] == "provider_rate_limited"
         else:
             assert result.json()["usage"]["total_tokens"] == 15
         assert closed == [True] and client.app.state.request_slots._value == 10
@@ -878,7 +879,7 @@ def test_upstream_errors_do_not_leak_credentials_or_follow_redirects(settings, s
     with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
         auth = issued_auth(client)
         result = client.post("/v1/chat/completions", headers=auth, json=PAYLOAD)
-        assert result.status_code == (400 if status in (400, 422) else 503 if status == 429 else 502)
+        assert result.status_code == (400 if status in (400, 422) else 429 if status == 429 else 502)
         client.portal.call(client.app.state.accounting.wait_idle)
         observed, = gateway_attempts(client.app.state.store)
         assert observed["upstream_status"] == status and observed["selected_response_status"] == result.status_code
@@ -891,6 +892,49 @@ def test_upstream_errors_do_not_leak_credentials_or_follow_redirects(settings, s
         status = client.get("/trial/status", headers=auth).json()
         assert status["tokens_used"] == (prepare(PAYLOAD, settings.model)[1] if charged else 0)
         assert status["active_requests"] == 0
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("retry_header,expected_delay", [
+    ("17", 17),
+    ("0", 1),
+    ("Sun, 13 Sep 2026 09:30:17 GMT", 17),
+    ("Sun, 13 Sep 2026 09:29:00 GMT", 1),
+    (None, 60),
+    (ACCESS_SECRET, 60),
+])
+def test_upstream_rate_limit_keeps_retry_delay_and_refunds_without_retry(
+    settings, monkeypatch, stream, retry_header, expected_delay,
+):
+    from argus_skill.trial import gateway
+
+    monkeypatch.setattr(gateway.time, "time", lambda: datetime(2026, 9, 13, 9, 30, tzinfo=UTC).timestamp())
+    calls = []
+
+    def provider(request):
+        calls.append(request)
+        headers = {"Set-Cookie": ACCESS_SECRET, "Location": "https://attacker.invalid"}
+        if retry_header is not None:
+            headers["Retry-After"] = retry_header
+        return httpx.Response(429, text=GITHUB_SECRET + ACCESS_SECRET, headers=headers)
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(provider))) as client:
+        auth = issued_auth(client)
+        result = client.post("/v1/chat/completions", headers=auth, json={**PAYLOAD, "stream": stream})
+        assert result.status_code == 429
+        assert result.json()["error"]["code"] == "provider_rate_limited"
+        assert result.headers["Retry-After"] == str(expected_delay)
+        assert len(calls) == 1
+        assert GITHUB_SECRET not in result.text and ACCESS_SECRET not in result.text
+        assert "set-cookie" not in result.headers and "location" not in result.headers
+        client.portal.call(client.app.state.accounting.wait_idle)
+        status = client.get("/trial/status", headers=auth).json()
+        assert status["tokens_used"] == 0 and status["active_requests"] == 0
+        assert client.app.state.request_slots._value == 10
+        observed, = gateway_attempts(client.app.state.store)
+        assert observed["upstream_status"] == observed["selected_response_status"] == 429
+        assert observed["client_error_code"] == "provider_rate_limited"
+        assert observed["retry_after"] == expected_delay
 
 
 def test_provider_metadata_cannot_redirect_credentials(settings):

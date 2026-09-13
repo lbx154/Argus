@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Literal
 
@@ -27,6 +30,22 @@ from .secrets import Vault
 from .store import Store, TrialError
 
 MAX_BODY_BYTES = 2_000_000
+
+
+def provider_retry_after(value: str | None) -> int:
+    """Normalize the provider's retry delay without forwarding other headers."""
+    value = (value or "").strip()
+    if not value or len(value) > 64:
+        return 60
+    if value.isascii() and value.isdecimal():
+        return max(1, int(value)) if len(value) <= 10 else 60
+    try:
+        deadline = parsedate_to_datetime(value)
+        if deadline.tzinfo is not None:
+            return max(1, math.ceil(deadline.timestamp() - time.time()))
+    except (ValueError, TypeError, OverflowError):
+        pass
+    return 60
 
 
 class TrialFiles(StaticFiles):
@@ -348,13 +367,18 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                 await monitor.check()
                 attempt.upstream_response(response.status_code)
                 if response.status_code != 200:
-                    # Do not return upstream bodies, cookies, headers, or auth errors.
+                    # Keep the rate-limit signal, without forwarding provider content.
                     if response.status_code in {400, 401, 403, 404, 422, 429}:
                         actual = 0
                         lease.actual = actual
                     if response.status_code in {400, 422}:
                         raise TrialError(400, "provider_rejected_request", "Trial provider rejected the request format; retrying unchanged will not help.")
-                    raise TrialError(503 if response.status_code == 429 else 502, "provider_unavailable", "Trial provider could not complete the request.")
+                    if response.status_code == 429:
+                        retry_after = provider_retry_after(response.headers.get("retry-after"))
+                        raise TrialError(429, "provider_rate_limited",
+                                         f"Model provider is rate limiting requests. Retry after {retry_after} seconds.",
+                                         retry_after=retry_after)
+                    raise TrialError(502, "provider_unavailable", "Trial provider could not complete the request.")
                 if payload["stream"]:
                     # StreamingResponse owns downstream disconnect handling
                     # after handoff. Stop our upstream-header watcher synchronously;
