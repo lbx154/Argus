@@ -11,13 +11,14 @@ from typing import Literal
 import httpx
 import portalocker
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
 from . import CLIENT_MODEL, MAX_CONCURRENCY, MAX_OUTPUT_TOKENS, MODEL, TOKEN_LIMIT
 from .copilot import Copilot
+from .gateway_observation import GatewayAttempt, GatewayStreamingResponse
 from .model_catalog import configured_model_ids, select_model
 from .responses import chat_chunks, completion, request_payload
 from .secrets import Vault
@@ -258,6 +259,7 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
         payload, reserve = prepare(request_data, settings.model, models=catalog)
         response_model = MODEL if request_data.get("model") == MODEL else payload["model"]
         store, copilot = app.state.store, app.state.copilot
+        attempt = GatewayAttempt(store, key_id, reserve)
         slot_acquired = False
 
         def release_slot():
@@ -282,8 +284,11 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                             raise TrialError(499, "client_disconnected", "Client disconnected before model admission.")
                         try:
                             async with asyncio.timeout(1):
+                                if app.state.request_slots.locked():
+                                    attempt.waiting_for_slot()
                                 await app.state.request_slots.acquire()
                                 slot_acquired = True
+                                attempt.acquired_slot()
                         except TimeoutError:
                             continue
                     while True:
@@ -291,11 +296,13 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                             raise TrialError(499, "client_disconnected", "Client disconnected before model admission.")
                         try:
                             request_id = store.reserve(key_id, reserve)
+                            attempt.admitted(request_id)
                             break
                         except TrialError as exc:
                             if exc.code != "trial_tpm_exceeded":
                                 raise
                             last_tpm_error = exc
+                            attempt.waiting_for_tpm()
                         await asyncio.sleep(1)
             except TimeoutError:
                 if last_tpm_error is not None:
@@ -305,7 +312,9 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                 base_url, headers = await copilot.authorization()
                 actual = None  # Ambiguous network failures must not refund usage.
                 upstream = copilot.client.build_request("POST", base_url + "/responses", headers=headers, json=payload)
+                attempt.upstream()
                 response = await copilot.client.send(upstream, stream=True)
+                attempt.upstream_response(response.status_code)
                 if response.status_code != 200:
                     # Do not return upstream bodies, cookies, headers, or auth errors.
                     if response.status_code in {400, 401, 403, 404, 422, 429}:
@@ -315,10 +324,11 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                     raise TrialError(503 if response.status_code == 429 else 502, "provider_unavailable", "Trial provider could not complete the request.")
                 if payload["stream"]:
                     handed_off = True
-                    return StreamingResponse(
-                        stream_response(response, request_id, release_slot, response_model), media_type="text/event-stream",
+                    attempt.streaming()
+                    return GatewayStreamingResponse(
+                        stream_response(response, request_id, release_slot, response_model, attempt), media_type="text/event-stream",
                         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-                        background=BackgroundTask(finish_stream, response, request_id, release_slot),
+                        background=BackgroundTask(finish_stream, response, request_id, release_slot, attempt),
                     )
                 body = await response.aread()
                 data = json.loads(body)
@@ -326,11 +336,23 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                 actual = usage_total(result)
                 if actual is None:
                     raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
-                return JSONResponse(result, headers={"Cache-Control": "no-store"})
+                result_response = JSONResponse(result, headers={"Cache-Control": "no-store"})
+                attempt.finish("completed", selected_status=200)
+                return result_response
+        except TrialError as exc:
+            outcome = "disconnected" if exc.code == "client_disconnected" else "rejected" if request_id is None else "error"
+            attempt.finish(outcome, selected_status=exc.status,
+                           error_code=exc.code, retry_after=exc.retry_after if exc.status == 429 else None)
+            raise
         except (httpx.HTTPError, TimeoutError):
+            attempt.finish("error", selected_status=502, error_code="provider_connection_failed")
             raise TrialError(502, "provider_connection_failed", "Trial provider connection failed.") from None
         except (ValueError, TypeError, KeyError, AttributeError):
+            attempt.finish("error", selected_status=502, error_code="provider_protocol_error")
             raise TrialError(502, "provider_protocol_error", "Invalid provider completion response.") from None
+        except asyncio.CancelledError:
+            attempt.finish("cancelled")
+            raise
         finally:
             if not handed_off:
                 release_slot()
@@ -338,14 +360,16 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                     store.settle(request_id, actual)
                 if response is not None:
                     await response.aclose()
+                attempt.finish("unknown")
 
-    async def finish_stream(response, request_id, release_slot):
+    async def finish_stream(response, request_id, release_slot, attempt):
         # Also covers a disconnect before the async generator starts.
+        attempt.finish("interrupted")
         app.state.store.settle(request_id, None)
         release_slot()
         await response.aclose()
 
-    async def stream_response(response, request_id, release_slot, model_id):
+    async def stream_response(response, request_id, release_slot, model_id, attempt):
         actual = None
         complete = False
         try:
@@ -356,6 +380,7 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                             raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
                         complete = True
                         app.state.store.settle(request_id, actual)
+                        attempt.finish("completed")
                         yield "data: [DONE]\n\n"
                         return
                     reported = usage_total(chunk)
@@ -364,8 +389,13 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                     yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
         except (httpx.HTTPError, TimeoutError, ValueError, TypeError, KeyError, AttributeError, TrialError) as exc:
             code = exc.code if isinstance(exc, TrialError) else "provider_stream_failed"
+            attempt.finish("stream_error", error_code=code)
             yield "data: " + json.dumps({"error": {"code": code, "message": "Trial stream failed; retry after checking remaining quota."}}) + "\n\n"
+        except (asyncio.CancelledError, GeneratorExit):
+            attempt.finish("cancelled")
+            raise
         finally:
+            attempt.finish("interrupted")
             # Disconnects and truncated streams retain reservations even if a
             # partial usage object was seen. Cancellation cannot skip settlement.
             app.state.store.settle(request_id, actual if complete else None)

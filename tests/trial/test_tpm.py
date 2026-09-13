@@ -1,3 +1,4 @@
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -151,3 +152,71 @@ def test_zero_usage_auth_failure_refunds_both_budgets(tmp_path):
     store.settle(request, 0)
     status = store.status("trial-key")
     assert status["global_tpm_reserved"] == status["tokens_used"] == 0
+
+
+def test_gateway_observation_does_not_invent_legacy_times_or_statuses(tmp_path):
+    path = tmp_path / "legacy.db"
+    with sqlite3.connect(path) as db:
+        db.executescript("""
+            CREATE TABLE trial_keys (
+                key_id TEXT PRIMARY KEY, credential_hash TEXT UNIQUE NOT NULL,
+                used INTEGER NOT NULL DEFAULT 0 CHECK (used >= 0), claim_hash TEXT UNIQUE
+            );
+            CREATE TABLE trial_requests (
+                id INTEGER PRIMARY KEY, key_id TEXT NOT NULL REFERENCES trial_keys(key_id),
+                reserved INTEGER NOT NULL, charged INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'active'
+            );
+            INSERT INTO trial_keys VALUES ('legacy', 'existing-credential-hash', 120, NULL);
+            INSERT INTO trial_requests VALUES (1, 'legacy', 1000, 20, 'settled');
+            INSERT INTO trial_requests VALUES (2, 'legacy', 100, 100, 'active');
+        """)
+        original_schema = db.execute("SELECT sql FROM sqlite_master WHERE name='trial_requests'").fetchone()[0]
+    store = Store(path, clock=lambda: 200)
+    store.recover()
+    with store.transaction() as db:
+        assert db.execute("SELECT sql FROM sqlite_master WHERE name='trial_requests'").fetchone()[0] == original_schema
+        assert [tuple(row) for row in db.execute("SELECT * FROM trial_requests ORDER BY id")] == [
+            (1, "legacy", 1000, 20, "settled"), (2, "legacy", 100, 100, "interrupted"),
+        ]
+        assert db.execute("SELECT COUNT(*) FROM trial_gateway_attempts").fetchone()[0] == 0
+    assert store.status("legacy")["tokens_used"] == 120
+
+
+def test_gateway_terminal_observation_is_idempotent_and_recovery_keeps_end_time_unknown(tmp_path):
+    now = [100.0]
+    store = Store(tmp_path / "usage.db", clock=lambda: now[0])
+    store.issue("trial-key", "key")
+    pending = store.begin_gateway_attempt("trial-key", 1000)
+    finished = store.begin_gateway_attempt("trial-key", 1000)
+    store.update_gateway_attempt(pending, phase="tpm", queue_reason="tpm")
+    store.update_gateway_attempt(finished, outcome="rejected", finished_at=101,
+                                 selected_response_status=429, client_error_code="trial_busy")
+    store.update_gateway_attempt(finished, outcome="completed", finished_at=102, selected_response_status=200)
+    now[0] = 200
+    store.recover()
+    now[0] = 300
+    store.recover()
+    with store.transaction() as db:
+        rows = [dict(row) for row in db.execute("SELECT * FROM trial_gateway_attempts ORDER BY id")]
+        assert db.execute("SELECT COUNT(*) FROM trial_requests").fetchone()[0] == 0
+    assert rows[0]["outcome"] == "interrupted" and rows[0]["recovered_at"] == 200
+    assert rows[0]["phase"] == "tpm" and rows[0]["queue_reason"] == "tpm"
+    assert rows[0]["finished_at"] is None and rows[0]["upstream_status"] is None
+    assert rows[0]["selected_response_status"] is None and rows[0]["reservation_id"] is None
+    assert rows[1]["outcome"] == "rejected" and rows[1]["finished_at"] == 101
+    assert rows[1]["selected_response_status"] == 429 and rows[1]["client_error_code"] == "trial_busy"
+    assert rows[1]["recovered_at"] is None
+
+
+def test_observation_recovery_failure_cannot_roll_back_accounting_recovery(tmp_path):
+    store = Store(tmp_path / "usage.db", clock=lambda: 200)
+    store.issue("trial-key", "key")
+    request = store.reserve("trial-key", 1000)
+    with store.transaction() as db:
+        db.execute("DROP TABLE trial_gateway_attempts")
+    store.recover()
+    status = store.status("trial-key")
+    assert status["active_requests"] == 0 and status["tokens_used"] == status["global_tpm_reserved"] == 1000
+    with store.transaction() as db:
+        assert db.execute("SELECT state FROM trial_requests WHERE id=?", (request,)).fetchone()[0] == "interrupted"
+        assert db.execute("SELECT retain_until FROM trial_tpm_reservations WHERE request_id=?", (request,)).fetchone()[0] == 260
