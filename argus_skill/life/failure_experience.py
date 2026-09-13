@@ -751,15 +751,16 @@ class FailureExperienceStore:
         ]
         for hit in hits:
             item = hit.experience
+            outcome = item.factual_outcome or item.status
             lines.extend(
                 [
                     "",
                     f"#### {item.title or item.mission_id} [{hit.channel}]",
                     f"- Experience: {item.id} (revision {item.revision}; status {item.status})",
-                    f"- Outcome: {item.factual_outcome or item.status}",
+                    f"- Outcome: {outcome}",
                 ]
             )
-            if item.research_narrative:
+            if item.research_narrative and item.research_narrative != outcome:
                 lines.append(f"- Narrative: {item.research_narrative}")
             lessons = [lesson for lesson in item.lessons if lesson != item.factual_outcome]
             if lessons:
