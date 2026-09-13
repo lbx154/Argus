@@ -70,7 +70,7 @@ log = logging.getLogger(__name__)
 # The longest the backend-failure hold sleeps between checks of the daemon's
 # stop and abort signals. The hold itself can grow to the hour scale; a
 # shutdown or an abort must not wait behind it.
-_BACKEND_FAILURE_HOLD_SLICE_SECONDS = 10.0
+_BACKEND_FAILURE_HOLD_SLICE_SECONDS = 0.2
 
 
 def _engineer_decision_message(payload: dict) -> str:
@@ -805,30 +805,40 @@ class RoundExecutionMixin:
             return control_continue_loop()
         return control_proceed()
 
-    def _hold_interrupt_reason(self) -> str | None:
-        """The daemon's stop or the operator's abort, read during a hold.
+    def _hold_interrupt_reason(self, *, retry_runner: object | None = None) -> str | None:
+        """Read request cancellation and the retrying role's stop providers.
 
-        The engineer backend already consults this provider during a live
-        provider call (``AgentCliBackend`` composes its default interrupt
-        reason provider, wired to the daemon's stop event and the operator's
-        abort mailbox, into every run). The hold between failed rounds must
-        consult it too: the backoff can grow to the hour scale, and a shutdown
-        must not wait behind it. A runner without the attribute (tests, bare
-        backends) makes this a no-op.
+        A Reviewer may use an independent backend. The Engineer callback remains
+        the mission-wide fallback, and shared callbacks are checked only once.
+        Return the first reason immediately: abort-mailbox callbacks consume it.
         """
-        provider = getattr(
-            self.engineer_runner, "_default_interrupt_reason_provider", None
-        )
-        if not callable(provider):
-            return None
-        try:
-            reason = provider()
-        except Exception:  # noqa: BLE001 — a provider fault must never wedge the hold
-            return None
-        text = str(reason or "").strip()
-        return text or None
+        from ..core.run_gateway import current_run_interrupt_reason
 
-    def _hold_before_backend_failure_retry(self, seconds: float) -> str | None:
+        providers = [current_run_interrupt_reason, *(
+            getattr(runner, "_default_interrupt_reason_provider", None)
+            for runner in (retry_runner, self.engineer_runner)
+        )]
+        seen: set[tuple[int, int]] = set()
+        for provider in providers:
+            if not callable(provider):
+                continue
+            identity = (id(getattr(provider, "__self__", None)),
+                        id(getattr(provider, "__func__", provider)))
+            if identity in seen:
+                continue
+            seen.add(identity)
+            try:
+                reason = provider()
+            except Exception:  # noqa: BLE001 — a broken callback must not hide another stop source
+                continue
+            text = str(reason or "").strip()
+            if text:
+                return text
+        return None
+
+    def _hold_before_backend_failure_retry(
+        self, seconds: float, *, retry_runner: object | None = None,
+    ) -> str | None:
         """Sleep out a backend-failure backoff, waking for stop signals.
 
         Returns the interrupt reason when the daemon asked to stop or the
@@ -837,7 +847,7 @@ class RoundExecutionMixin:
         """
         remaining = max(0.0, float(seconds))
         while True:
-            reason = self._hold_interrupt_reason()
+            reason = self._hold_interrupt_reason(retry_runner=retry_runner)
             if reason:
                 return reason
             if remaining <= 0:

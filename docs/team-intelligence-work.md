@@ -2,29 +2,46 @@
 
 User objective, 2026-09-12: make Argus an evidence-driven, adaptable team that a person can supervise through its Manager. Improve the architecture through actual trial use. This is an active work record, not a completion claim.
 
-Validation baseline before this follow-up: `69a2f6f9c17029cee3fa0c38de20adf5cda97716`.
-Its frozen Python suite passed 10,071 tests with 56 skips and no failures;
-the unchanged frontend passed 942 tests and its final type/generated-contract/build
-checks. Image API/UDS checks passed, and 1,051 backend plus 354 frontend files
-matched Git, exported source and image bytes. The private immutable
-`FINAL-CANDIDATE-69a2f6f9c.md` records the exact receipts.
+Validation baseline before the final retry-stop fix:
+`dc5553c57d2a037d84ea8ba0f3f4a898ce96044d` passed the complete Python suite:
+10,160 passed, 56 skipped, no failures. The frontend passed 952 tests across
+110 files plus its generated-contract/type/build checks. The source includes
+observed live `aeeac67fc5`, captured read-only at 00:10:22 UTC with all 11 APIs
+ready and stable identities. Its explanation-progress changes were merged while
+preserving the existing related-source cache fixes.
 
-The actual-browser/local-Pi acceptance measured 89.3 ms for cancellation HTTP,
-194.3 ms for Pi interruption, and 1,123.3 ms to the replacement stream's completion.
-Forced old-cache refill now returns the updated snapshot after completion.
-These are isolated measurements with deterministic classification and daemon
-startup; the canonical Backlog claim does not establish real Engineer execution.
-Cancelled late replies, internal objective wrappers, optional embedding cancellation
-and streamed-response cache invalidation are repaired in this candidate.
+The preceding `bd159104c0` full run found six failures: two attachment fixtures
+needed the new dispatch parameter, and four runtime recall cases exposed an
+identical outcome/narrative appearing twice in the prompt. Their fixes retain
+canonical memory and the original four runtime assertions. A separate real
+Supervisor probe found that an oversized integer in damaged learning-retention
+metadata could block delivery; that optional-learning error is now isolated.
+All original failures remain preserved. Exact aee-to-dc state-copy checks passed
+26 synthetic and 27 accurately copied checks, plus source-declaration rejection;
+69-to-dc v2 protocol compatibility is recorded separately.
 
-Follow-up work is now validating durable bounded settlement learning, Manager
-provider-context maintenance, and a single truthful HTTP dispatch receipt.
-The later read-only capture at 00:10:22 UTC observed clean live `aeeac67fc5`
-with all 11 APIs ready. Its explanation-progress changes were merged in `f606a88f1`
-with the existing related-source cache fixes; 952 frontend tests and the
-standard generated-contract/type/build checks passed. The combined code requires a
-separate frozen validation and storage compatibility receipt. The current candidate's evidence does not certify these later changes.
-Real Manager four-phase acceptance and Planner/Reviewer final main replies remain
+Bounded Manager context maintenance preserves current directives, unanswered
+questions, permissions and one logical session across provider rotations. Native
+Pi/local-provider checks passed short chat 40/40, compact supervision 29/30 with
+the final quota refusal preserved, and full supervision 24/24. Usage in these
+fixtures is synthetic. Canonical state preparation has cancellable read-lock
+budgets; a missing authority/continuity read cannot launch an unscoped fallback.
+Settlement learning survives committed completion and has an independent bounded
+pending window. HTTP dispatch now produces one truthful queue receipt.
+
+The final follow-up makes Reviewer and Engineer retry waits interruptible.
+Reviewer previously slept for its entire 15-second backoff; the Engineer checked
+stops only every ten seconds. Shared 200 ms checks cover request scope and both
+roles without losing a consumptive abort. Interrupted review retains completed
+Engineer work and the unavailable review, with no extra model call. Its 117
+related checks and 27 final wait/circuit checks passed, including two real-timer
+SkillLoop stops. This follow-up requires its own frozen validation; the dc full
+suite is a separately named baseline, not a claim about later source.
+
+The last fully handed-off release before these follow-ups remains `69a2f6f9c`;
+its immutable private receipts are unchanged. Final source/image/browser evidence
+and publication coordination belong in the private candidate handoff. Real
+Manager four-phase acceptance and Planner/Reviewer final main replies remain
 partial; no paid test was repeated to obtain a pass. This thread has not deployed
 or migrated live project state.
 
@@ -33,11 +50,11 @@ or migrated live project state.
 | Requirement | Evidence required for completion | Current state |
 | --- | --- | --- |
 | Optional advisor with a separately selected model | Manager, Planner, Engineer and Reviewer each invoke the real tool; selected model remains distinct; actual cost/cancellation/evidence and parent call are recorded | Pi native tools and Copilot scoped MCP implemented. Real Engineer and Manager complete turns passed. Planner and Reviewer completed real consultations; their final main replies were rejected before upstream dispatch by trial quota reservation, so complete-turn acceptance remains partial |
-| Manager as a persistent supervising session | Session survives process restart; answers current progress from current project evidence; ongoing team review can change direction at a safe boundary and records why | Real persistence, STEER and WAIT reached role boundaries; the four-phase model acceptance remains partial. Complete observation identity, safe incomplete-source handling and evidence-bearing session handoffs have offline coverage. Provider-history capacity has a measured local reproduction and an implementation under validation |
+| Manager as a persistent supervising session | Session survives process restart; answers current progress from current project evidence; ongoing team review can change direction at a safe boundary and records why | Real persistence, STEER and WAIT reached role boundaries; the four-phase model acceptance remains partial. Complete observation identity, safe incomplete-source handling and evidence-bearing session handoffs have offline coverage. Bounded provider history, durable control continuity and cancellable state reads passed native/local acceptance |
 | Useful, concise human interaction | Desktop/mobile trial recordings show what happened, what changed, evidence and next action; generic stage labels alone do not pass | Existing invite baseline captured; candidate idle entry and concrete Advisor/Manager/peer events implemented; composer Stop now reaches the actual Pi process |
 | Dynamic agent-led work | Different evidence leads to different tool/team/continuation decisions; fixed control flow cannot masquerade as agent judgment | Evidence-driven continue/steer/wait applies at real role boundaries; waiting mission A does not block independent B; broader task-type acceptance remains |
 | Daemon-to-daemon exchange | Two project daemons exchange a request and correlated reply across restart; peer advice cannot acquire operator authority | Durable correlated mailbox and call-bound Manager tools implemented; queued offline messages and crash recovery tested; no automatic peer startup |
-| User and project learning | Explicit scope, override, revoke and one-time instruction behavior survives restart and compaction; relevant corrections reach subsequent role prompts | Global/project precedence and bounded checkpoints are implemented. Real runtime prompt assembly now refreshes Engineer memory each round and Planner memory at its call boundary; offline regressions cover correction/retraction and preference revocation. Legacy callers retain snapshots; the settlement-to-capture recovery and bounded pending window are under validation |
+| User and project learning | Explicit scope, override, revoke and one-time instruction behavior survives restart and compaction; relevant corrections reach subsequent role prompts | Global/project precedence and bounded checkpoints are implemented. Real runtime prompt assembly now refreshes Engineer memory each round and Planner memory at its call boundary; offline regressions cover correction/retraction and preference revocation. Legacy callers retain snapshots; settlement-to-capture recovery and the bounded pending window passed committed-crash and pressure checks |
 | Bounded, revisable experience and vector retrieval | Real settlement/learning updates stable records; retire/merge replaces vectors; retrieval excludes superseded content; long-run active/history storage remains bounded | Canonical lifecycle and bounded optional adapter are implemented. Real Copilot semantic recall passed 13 checks using 4 requests / 128 actual tokens, including restart cache reuse, revision and retraction. Default recall remains lexical hashing; this bounded probe does not establish long-run learning quality |
 | Evidence-driven self-improvement | Accepted/rejected lessons cite real outcomes; usage or similarity alone is never evidence of correctness | Correction requires revision and reason. Host reads bounded scoped evidence bytes and records their hashes; symlink/FIFO isolation and concurrent index updates are tested. A byte hash does not establish that the model's interpretation is true |
 | User-perspective trial and coordination | Real invite login, ordinary-user UI, Manager inquiry, advisor and control flows exercised; findings drive changes; concurrent source preserved | Live `63738a4a8` is merged; clean `98daa0d01a3b5d53297edee848df8aee4153e448` and all 11 ready APIs were observed at 23:02:54 UTC, with stable capture identities. Its integration passed 937 frontend tests and build. The cancelled-triage late-reply race is repaired with 117 focused backend tests; combined frozen validation follows. No deployment by this thread |

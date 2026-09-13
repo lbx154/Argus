@@ -17,10 +17,10 @@ import logging
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, cast
 
 from ..core.event_catalog import EventType
-from ..core.models import ReviewDecision, RoundRecord
+from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.operator_messages import uses_cjk
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.stop_kinds import (
@@ -98,6 +98,12 @@ def _active_manager_directive_for_reviewer(
 
 class RoundReviewerMixin:
     """Mixin providing ``SupervisedEngineer``'s reviewer-invocation phase."""
+
+    if TYPE_CHECKING:
+        # Supplied by RoundExecutionMixin on the composed SupervisedEngineer.
+        def _hold_before_backend_failure_retry(
+            self, seconds: float, *, retry_runner: object | None = None,
+        ) -> str | None: ...
 
     def _call_reviewer_once(
         self,
@@ -736,7 +742,38 @@ class RoundReviewerMixin:
                             f"{backoff_seconds:.1f}s"
                         ),
                     })
-                time.sleep(backoff_seconds)
+                interrupt_reason = self._hold_before_backend_failure_retry(
+                    backoff_seconds, retry_runner=getattr(getattr(self, "reviewer", None), "runner", None),
+                )
+                if interrupt_reason:
+                    interrupt_kind = stop_kind_from_external_interrupt(interrupt_reason) or "operator_pause"
+                    status = cast(LoopStatus, "aborted" if interrupt_kind == "operator_abort"
+                                  else pause_status_for_stop_kind(interrupt_kind) or "paused_operator")
+                    reason_text = (
+                        "The wait after a Reviewer backend failure ended "
+                        f"early: {interrupt_reason}."
+                    )
+                    # The Engineer completed this round, but no Reviewer
+                    # judgment arrived. Preserve both facts without another call.
+                    state.rounds.append(RoundRecord(
+                        round_index=round_index,
+                        engineer_message=engineer_message,
+                        engineer_exit_code=engineer_result.exit_code,
+                        review=review,
+                        fatal_error=f"External interrupt: {interrupt_reason}",
+                        stop_kind=interrupt_kind,
+                    ))
+                    if on_event:
+                        on_event({
+                            "type": "round.backend_failure.hold_interrupted",
+                            "round_index": round_index,
+                            "round_max": supervised_config.max_rounds,
+                            "stop_kind": interrupt_kind,
+                            "text": reason_text,
+                        })
+                    return control_return((
+                        status, state.rounds, state.last_engineer_message, reason_text, None,
+                    ))
             # Retry ONLY the reviewer against the SAME engineer output — do
             # not fall through to a fresh (xhigh) engineer turn.
             continue

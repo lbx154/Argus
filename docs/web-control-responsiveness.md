@@ -57,6 +57,21 @@ cancellation neither removes it nor rolls back an already committed task. These
 cooperative checks do not promise an atomic transaction spanning filesystem I/O
 and the in-memory cancellation registry.
 
+## Waiting between failed model calls
+
+Engineer and Reviewer retry holds use the same 200 ms interrupt checks. The
+current request scope is checked first, followed by the retrying role's backend
+and the Engineer's mission control callback. Shared callbacks are deduplicated;
+the first reason is returned immediately because an abort callback may consume
+its mailbox entry. No event log or Backlog scan was added to the polling loop.
+
+Previously the Reviewer slept for the entire 15-second retry delay, while the
+Engineer checked stops only every ten seconds. A stopped Reviewer hold now
+preserves the completed Engineer output and the unavailable review, then ends
+without another model call. A hold without cancellation retains its full retry
+delay and retries only the failed role. Tests use both a controlled sleep entry
+and real short sleeps through the complete SkillLoop path.
+
 ## Verification
 
 `tests/webapi/test_message_requests.py` checks identity, capacity and ordering.
