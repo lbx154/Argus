@@ -803,7 +803,7 @@ class SkillLoopExecuteMixin:
 
         extra_guidance_provider = (
             EngineerInboxGuidance(
-                inbox_life_dir, workdir, self.manager,
+                inbox_life_dir, workdir, lambda: getattr(self, "manager", None),
                 mission_id=str(getattr(config, "session_id", "") or ""),
             ) if inbox_life_dir is not None else None
         )

@@ -37,6 +37,8 @@ A replacement [operator inbox delivery protocol](operator-inbox-delivery.md) is 
 
 A further real HTTP probe found that accepted input could still wait for its advisory event writer. That failed probe is preserved. The follow-up limits this optional log-lock wait to 0.2 seconds and passed eight focused checks. Busy/full nudge requests now return explicit 503/429 rejection instead of a success receipt. Final full regression and publication qualification remain separate gates; these changes are not in the immutable 9d image, and the current private release pointers still designate 9d.
 
+The complete `0a89d8d3d6` backend run retained **10,551 passed / 56 skipped / one failure**. The failure exposed eager Manager lookup during execution-host construction, where the previous callback had deferred access. The correction restores lazy lookup at actual classification and keeps lightweight hosts constructible. The failed checkpoint and its passing narrower evidence remain separate; they are not relabeled as a successful full run.
+
 Other required acceptance remains incomplete: broader mobile and complete Reader narration, autonomous task decisions, Manager's full four-phase judgment, and Planner/Reviewer complete real-model turns. No paid rerun is justified merely to turn historical partial results green. Model-catalog coordination, real stopped-writer migration and publication remain unresolved.
 
 ## Required outcomes
