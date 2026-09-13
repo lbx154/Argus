@@ -106,7 +106,7 @@ export function ReaderExplanation({ brief, identity, detail, learningPath, found
       </div>
     </section> : null}</>}
     <section className="min-w-0"><h3 className="mb-1 text-xs font-medium text-ink">{text('结论到哪里为止', 'What this does and does not establish')}</h3><ShortText key={`scope:${identity}`} value={brief.scope} expandLabel={text('完整适用范围', 'Full scope')} clamp={false} /></section>
-    <section className="min-w-0"><h3 className="mb-1 text-xs font-medium text-ink">{text('当前任务与后续安排', 'Assigned work and next steps')}</h3><ShortText key={`next:${identity}`} value={brief.next} expandLabel={text('完整安排', 'Full assignment and next steps')} clamp={false} /></section>
+    <section className="min-w-0" data-reader-next-interpretation={identity}><h3 className="mb-1 text-xs font-medium text-ink">{text('解说对后续的理解', 'How the explanation interprets the follow-up')}</h3><ShortText key={`next:${identity}`} value={brief.next} expandLabel={text('完整解读', 'Full interpretation')} clamp={false} /></section>
     {detail ? <RawDisclosure key={`detail:${identity}`} className="min-w-0" label={text('详细说明与条件', 'Detailed explanation and conditions')}>
       <div className="macro-reader-markdown text-[13px] leading-6 text-ink-dim"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{detail}</MarkdownContent></div>
     </RawDisclosure> : null}

@@ -1892,6 +1892,38 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
     rows = LifeMemory.open(life).backlog.all()
     assert len(rows) == 1
     assert rows[0].pending_question == "Which GPU may I use?"
+    assert not (life / "operator_context.jsonl").exists()
+    turns = [json.loads(line) for line in (life / "transcript.jsonl").read_text().splitlines()]
+    assert [turn["text"] for turn in turns if turn["role"] == "operator"] == ["What is the status?"]
+
+
+@pytest.mark.parametrize("failure", ["backend", "contract"])
+def test_unclassified_message_stays_in_conversation_without_research_directive(
+    tmp_path: Path, monkeypatch, failure: str,
+) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
+    blocked.status = "paused_operator"
+    blocked.pending_question = "Which GPU may I use?"
+    LifeMemory.open(life).backlog.add(blocked)
+    question = "Explain why the bound in this document matters."
+
+    def interpret(*_args, **_kwargs):
+        if failure == "backend":
+            raise RuntimeError("classification unavailable")
+        return "IS_ANSWER=maybe\nRESOLVED=false\nDECISION=\nREPLY="
+
+    monkeypatch.setattr(front_door, "manager_triage", interpret)
+    result = manager_bridge.manager_message("s-msgtest0", question, global_root=tmp_path)
+
+    assert result["kind"] == "pending_question"
+    assert result.get("error") and result["answer_preserved"] is False
+    assert not (life / "operator_context.jsonl").exists()
+    assert not (life / "inbox.jsonl").exists()
+    rows = LifeMemory.open(life).backlog.all()
+    assert len(rows) == 1 and rows[0].pending_question == blocked.pending_question
+    turns = [json.loads(line) for line in (life / "transcript.jsonl").read_text().splitlines()]
+    assert [turn["text"] for turn in turns if turn["role"] == "operator"] == [question]
 
 
 def test_manager_keeps_pending_question_when_answer_is_insufficient(

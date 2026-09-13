@@ -167,9 +167,11 @@ def manager_message(
     per phase transition. ``None`` (the default, used by the blocking POST
     ``/message``) keeps the whole exchange synchronous.
 
-    ``route_override`` lets the operator explicitly mark Chat or Task. It skips
-    only the front-door category call; formal Task work still requires Manager
+    ``route_override`` lets the operator explicitly mark Chat or Task. Both skip
+    the front-door category call; formal Task work still requires Manager
     routing and a Planner-authored DAG before Engineer execution.
+    Explicit Chat also bypasses automatic pending-answer interpretation and
+    task replay; the dedicated answer/decision endpoints remain authoritative.
 
     The pipeline below is a sequence of typed phase helpers (pending-question,
     classify, greeting shortcut, authorization/steer/pause/abort control, config
@@ -189,6 +191,7 @@ def manager_message(
     body = compose_message_body(operator_text, resolved_attachments).strip()
     if not body:
         return {"kind": "error", "reply": "empty message"}
+    explicit_chat = str(route_override or "").strip().lower() == "chat"
     message_attachment_refs = attachment_context_refs(resolved_attachments)
 
     control_generation = manager_control_generation(sid)
@@ -381,7 +384,7 @@ def manager_message(
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
 
-        duplicate_item = _recent_team_replay(mem, body, prior_turns)
+        duplicate_item = None if explicit_chat else _recent_team_replay(mem, body, prior_turns)
         if duplicate_item is not None:
             from ..manager.dispatch import _daemon_status
 
@@ -407,14 +410,16 @@ def manager_message(
                 "duplicate": True,
             }
 
-        pending_questions = [
-            item
-            for item in mem.backlog.active()
-            if item.pending_question.strip()
-        ]
-        pending_result = _handle_pending_question_turn(
-            mem, pending_questions, body, chat_state, emitter
-        )
+        pending_result = None
+        if not explicit_chat:
+            pending_questions = [
+                item
+                for item in mem.backlog.active()
+                if item.pending_question.strip()
+            ]
+            pending_result = _handle_pending_question_turn(
+                mem, pending_questions, body, chat_state, emitter
+            )
         if _cancelled():
             return _cancelled_result()
         if pending_result is not None:

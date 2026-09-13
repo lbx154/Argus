@@ -187,6 +187,62 @@ def test_forced_chat_restores_history_without_classification(
     assert manager_state._STATES[_SID]["startup_handoffs"] == 1
 
 
+@pytest.mark.parametrize("pending_count", [1, 2])
+def test_forced_chat_does_not_interpret_or_resolve_pending_questions(
+    tmp_path: Path, monkeypatch, pending_count: int,
+) -> None:
+    from argus_skill.core.transcript import read_turns
+    from argus_skill.life.memory import BacklogItem, LifeMemory
+
+    life = _make_project(tmp_path)
+    memory = LifeMemory.open(life)
+    for index in range(pending_count):
+        item = BacklogItem.new(title=f"Pending {index}", objective="Run a separate study")
+        item.status = "paused_operator"
+        item.pending_question = f"Choose an execution option for {index}?"
+        memory.backlog.add(item)
+    before = [item.to_jsonable() for item in memory.backlog.history()]
+    manager_state._STATES.clear()
+    calls = []
+
+    def reply(_mem, body, _chat_state, **kwargs):
+        assert kwargs.get("self_mode") == "inspect", "Chat cannot run pending-answer interpretation"
+        calls.append(body)
+        return "Here is the explanation."
+
+    monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", reply)
+    monkeypatch.setattr("argus_skill.manager.config_intent._front_door_classify",
+                        lambda *a, **kw: pytest.fail("An explicit Chat must not be classified again"))
+    result = manager_bridge.manager_message(
+        _SID, "Explain what the rank means.", global_root=tmp_path, route_override="chat",
+    )
+
+    assert result == {"kind": "chat", "reply": "Here is the explanation."}
+    assert len(calls) == 1
+    assert [item.to_jsonable() for item in memory.backlog.history()] == before
+    assert not (life / "operator_context.jsonl").exists()
+    assert not (life / "inbox.jsonl").exists()
+    assert [turn["text"] for turn in read_turns(life) if turn["role"] == "operator"] == ["Explain what the rank means."]
+
+
+def test_forced_chat_does_not_replay_a_matching_recent_research_task(tmp_path, monkeypatch):
+    from argus_skill.life.memory import BacklogItem, LifeMemory
+
+    life = _make_project(tmp_path)
+    text = "Explain the algorithm."
+    memory = LifeMemory.open(life)
+    memory.backlog.add(BacklogItem.new(title="Research task", objective=text))
+    manager_state._STATES.clear()
+    monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", lambda *a, **kw: "An inline explanation.")
+    monkeypatch.setattr("argus_skill.manager.config_intent._front_door_classify",
+                        lambda *a, **kw: pytest.fail("An explicit Chat must not be classified again"))
+
+    result = manager_bridge.manager_message(_SID, text, global_root=tmp_path, route_override="chat")
+
+    assert result == {"kind": "chat", "reply": "An inline explanation."}
+    assert len(memory.backlog.history()) == 1
+
+
 def test_forced_task_skips_the_classifier(tmp_path, monkeypatch) -> None:
     result, phases, calls = _classify(
         tmp_path,

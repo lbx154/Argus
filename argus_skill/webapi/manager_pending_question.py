@@ -647,12 +647,6 @@ def _resolve_pending_question_with_manager(
             root.parent.parent if root.parent.name == "projects" else None
         ),
     )
-    answer_record = persist_once_answer(
-        mem.project_root,
-        answer,
-        source="operator.pending_answer",
-        mission_id=str(item.id),
-    )
     prompt = build_pending_question_prompt(item, answer)
     try:
         manager_reply = manager_triage(
@@ -674,20 +668,20 @@ def _resolve_pending_question_with_manager(
         message = (
             "Manager pending-question interpretation failed "
             f"[{failure_kind}]: {facts['cause']}. "
-            "Your answer is preserved in the inbox/steering record and Manager "
-            "interpretation will be retried; the answer was not rejected."
+            "This message has not been classified as an answer; the pending "
+            "question is unchanged. Retry after the interpretation problem is resolved."
         )
         _emit_pending_question_failure(
             mem,
             item,
             facts,
             error=raw_error,
-            answer_preserved=True,
+            answer_preserved=False,
         )
         return {
             "error": message,
             "answered_item_id": item.id,
-            "answer_preserved": True,
+            "answer_preserved": False,
             **facts,
         }
     parsed = _parse_pending_question_decision(manager_reply or "")
@@ -718,12 +712,12 @@ def _resolve_pending_question_with_manager(
             item,
             facts,
             error=raw_error,
-            answer_preserved=True,
+            answer_preserved=False,
         )
         return {
             "error": f"Manager pending-question interpretation failed [{phase}]: {cause}",
             "answered_item_id": item.id,
-            "answer_preserved": True,
+            "answer_preserved": False,
             **facts,
         }
     if not parsed["is_answer"]:
@@ -733,6 +727,14 @@ def _resolve_pending_question_with_manager(
             "resolved": False,
             "reply": "",
         }
+    # The caller already journals the real conversation turn. Only a positive
+    # answer classification may promote it into research-role instructions.
+    answer_record = persist_once_answer(
+        mem.project_root,
+        answer,
+        source="operator.pending_answer",
+        mission_id=str(item.id),
+    )
     if not parsed["resolved"]:
         return {
             "answered_item_id": item.id,

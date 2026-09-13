@@ -133,7 +133,7 @@ PROJECT_WRITES = re.compile(
     r"^/api/projects/[^/]+/(?:attachments|message(?:/stream)?|tasks|nudge|note|"
     r"plan|prompt/rewrite|reset|continuous|daemon/(?:start|stop)|mission/abort|"
     r"backlog/[^/]+/(?:answer|dispose|stop)|decisions/[^/]+/resolve|"
-    r"reviews/final|map-notes|reader-foundation)$"
+    r"reviews/final|map-notes|reader-foundation(?:/[^/]+/question)?)$"
 )
 PLUGIN_WRITES = re.compile(
     r"^/api/plugins/crystalpilot/(?:launch|preferences|config|"
@@ -1101,7 +1101,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             extensions={"argus_backend": route_key},
         )
         capture = None
-        interaction = re.fullmatch(r"/api/projects/([^/]+)/(?:message(?:/stream)?|tasks|reader-foundation)", path)
+        interaction = re.fullmatch(r"/api/projects/([^/]+)/(?:message(?:/stream)?|tasks|reader-foundation(?:/[^/]+/question)?)", path)
         if analytics is not None and identity["role"] == "trial" and request.method == "POST" and interaction:
             capture = await run_in_threadpool(
                 app.state.research_controls.capture,

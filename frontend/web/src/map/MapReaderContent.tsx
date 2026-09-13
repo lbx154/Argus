@@ -7,7 +7,7 @@ import { isReaderBrief, READER_BRIEF_VERSION } from '../research-brief/model';
 import { ReaderExplanation, ReaderExplanationStatus, readerExplanationBoundary } from '../research-brief/ReaderExplanation';
 import type { MapEvent, MapTask } from './model';
 import type { CardCopy, CardRequest } from './presentation';
-import { ReaderEvidence, ReaderEvidenceSummary } from '../research-brief/ReaderEvidence';
+import { ReaderEvidence, ReaderEvidenceSummary, ReaderTaskFacts } from '../research-brief/ReaderEvidence';
 import { selectReaderEvidence } from '../research-brief/evidence';
 
 export interface MapReaderSelection {
@@ -52,6 +52,7 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
           : zh ? '阅读说明待整理；可以先读已保留的详细记录。' : 'A reading explanation is pending. The retained detailed record is available below.'}</p>
         <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{cleanDeliverySummary(card?.detail || originalDetail)}</MarkdownContent></div>
       </>}
+    <ReaderTaskFacts selection={sources} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
     <RawDisclosure label={zh ? '当前加载的任务与环节记录' : 'Currently loaded task and step record'}>
       <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{originalDetail}</MarkdownContent></div>
     </RawDisclosure>

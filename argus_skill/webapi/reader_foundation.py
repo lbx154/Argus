@@ -58,6 +58,30 @@ def _record(life_dir: Path, request_id: str) -> dict[str, Any] | None:
         or not Path(value["workspace"]).is_absolute()
     ):
         raise ValueError("invalid question foundation record")
+    kind = value.get("kind", "foundation")
+    if kind not in {"foundation", "clarification"}:
+        raise ValueError("invalid reading record kind")
+    if kind == "foundation" and (value.get("parent_id") or value.get("root_id", value["id"]) != value["id"]):
+        raise ValueError("invalid foundation binding")
+    if kind == "clarification":
+        if any(_request_id(value.get(key, "")) != value.get(key) for key in ("parent_id", "root_id")):
+            raise ValueError("invalid clarification binding")
+        if value["id"] in {value["parent_id"], value["root_id"]}:
+            raise ValueError("invalid clarification ancestry")
+        snapshot = value.get("source_snapshot")
+        sources = snapshot.get("sources") if isinstance(snapshot, dict) else None
+        expected_ids = {value["root_id"], value["parent_id"]}
+        if (not isinstance(sources, list) or len(sources) != len(expected_ids)
+                or any(not isinstance(source, dict) for source in sources)
+                or {source.get("id") for source in sources} != expected_ids
+                or any(snapshot.get(key) != value[key] for key in ("root_id", "parent_id"))):
+            raise ValueError("invalid clarification source snapshot")
+        for source in sources:
+            if (source.get("path") != f"{ARTIFACT_DIRECTORY}/{life_dir.name}/{source['id']}.md"
+                    or not isinstance(source.get("markdown"), str) or not source["markdown"].strip()
+                    or not isinstance(source.get("question"), str)
+                    or source.get("kind") != ("foundation" if source["id"] == value["root_id"] else "clarification")):
+                raise ValueError("invalid clarification source content")
     # Deadline passage is only an observation: a live worker may be waiting for
     # provider termination or saving its receipt. Only a confirmed dead owner
     # can establish interruption on read. Start ticks distinguish PID reuse.
@@ -92,6 +116,9 @@ def read_foundation(global_root: Path, sid: str, request_id: str) -> dict[str, A
         record = _record(life_dir, _request_id(request_id))
     except (ValueError, OSError, TypeError, KeyError):
         return None
+    if record is not None:
+        # The registered file is authoritative; a manifest field is not a readback.
+        record.pop("markdown", None)
     if record is None or record["state"] != "complete":
         return record
     safe = safe_artifact_path(Path(record["workspace"]), record["path"])
@@ -119,6 +146,16 @@ def foundation_artifact(record: dict[str, Any], *, preview_bytes: int = 0) -> di
         "id", "question", "locale", "source_task_id", "created_at", "version", "state",
         "title", "error", "provenance", "deadline_exceeded",
     ) if key in record}
+    metadata.update(
+        kind=record.get("kind", "foundation"),
+        parent_id=record.get("parent_id"),
+        root_id=record.get("root_id", record["id"]),
+    )
+    if record.get("kind") == "clarification":
+        metadata["sources"] = [
+            {"id": source["id"], "path": source["path"], "title": source.get("title") or source["question"]}
+            for source in record["source_snapshot"]["sources"]
+        ]
     return {
         **row, "source": "reader_foundation", "group_title": (
             "问题基础说明" if record["locale"] == "zh-CN" else "Question foundations"
@@ -160,7 +197,7 @@ def registered_foundation_artifact(
 
 def reserve_foundation(
     global_root: Path, sid: str, *, request_id: str, question: str, locale: str,
-    source_task_id: str | None = None,
+    source_task_id: str | None = None, parent_id: str | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Persist a real explicit POST before a single worker may begin its call."""
     from .artifacts import artifact_workspace
@@ -170,14 +207,25 @@ def reserve_foundation(
         raise ValueError("unknown project")
     request_id = _request_id(request_id)
     body = {"question": question, "locale": locale, "source_task_id": source_task_id}
+    kind = "clarification" if parent_id is not None else "foundation"
+    if parent_id is not None:
+        body["parent_id"] = _request_id(parent_id)
     directory = life_dir / MANIFEST_DIRECTORY
     directory.mkdir(exist_ok=True)
     with (directory / (request_id + ".lock")).open("a+b") as handle, exclusive_file_lock(handle):
         previous = _record(life_dir, request_id)
         if previous is not None:
-            if any(previous.get(key) != value for key, value in body.items()):
+            if (previous.get("kind", "foundation") != kind
+                    or any(previous.get(key) != value for key, value in body.items())):
                 raise FoundationConflict("request_id already belongs to another question request")
             return previous, False
+        sources = None
+        if parent_id is not None:
+            from .reader_clarification import clarification_sources
+
+            sources = clarification_sources(global_root, sid, body["parent_id"])
+            if request_id in {sources["root_id"], sources["parent_id"]}:
+                raise FoundationConflict("clarification request_id must differ from its sources")
         if source_task_id and not any(
             item.id == source_task_id for item in Backlog(life_dir / "backlog.jsonl").history()
         ):
@@ -197,6 +245,9 @@ def reserve_foundation(
                 "request_id": request_id, "run_label": "reader-foundation",
             },
         }
+        if sources is not None:
+            record.update(kind=kind, root_id=sources["root_id"], source_snapshot=sources)
+            record["provenance"]["run_label"] = "reader-clarification"
         _save_record(life_dir, record)
         return record, True
 
@@ -226,11 +277,20 @@ def generate_foundation(
         config = resolve_map_model()
         if not config.available:
             raise OSError("question foundation model unavailable")
-        prompt, schema = foundation_request(record["question"], record["locale"])
+        clarification = record.get("kind") == "clarification"
+        if clarification:
+            from .reader_clarification import clarification_request
+
+            prompt, schema = clarification_request(
+                record["question"], record["locale"], record["source_snapshot"],
+            )
+        else:
+            prompt, schema = foundation_request(record["question"], record["locale"])
         result = run_map_model(
             prompt, schema, config, project_root=life_dir, global_root=global_root,
             deadline=time.monotonic() + max(0, record["deadline_at"] - time.time()),
-            on_progress=on_progress, run_label="reader-foundation", on_result=receipt,
+            on_progress=on_progress,
+            run_label="reader-clarification" if clarification else "reader-foundation", on_result=receipt,
         )
         if time.time() > record["deadline_at"]:
             raise TimeoutError("question foundation generation deadline exceeded")
@@ -243,7 +303,22 @@ def generate_foundation(
             if record["locale"] == "zh-CN" else
             ("Background reading for understanding the original question. Research progress and reviewed results are tracked with the task.", "Original question")
         )
-        document = f"# {title}\n\n{introduction}\n\n## {question_heading}\n\n{record['question']}\n\n---\n\n{markdown}\n"
+        if clarification:
+            introduction, question_heading = (
+                ("这是一份针对阅读疑点的补充回答。原说明保留不变，背景讨论不计作研究进展。", "这次追问")
+                if record["locale"] == "zh-CN" else
+                ("A clarification of the saved reading. The original documents are unchanged; this discussion is not research progress.", "Your follow-up question")
+            )
+        references = ""
+        if clarification:
+            links = []
+            for source in record["source_snapshot"]["sources"]:
+                label = " ".join((source.get("title") or source["question"]).split())
+                label = label.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+                links.append(f"- [{label}]({source['path']})")
+            sources_heading = "参考来源" if record["locale"] == "zh-CN" else "Reading sources"
+            references = f"\n\n## {sources_heading}\n\n" + "\n".join(links)
+        document = f"# {title}\n\n{introduction}\n\n## {question_heading}\n\n{record['question']}{references}\n\n---\n\n{markdown}\n"
         _atomic_write_confined(
             Path(record["workspace"]), f"{ARTIFACT_DIRECTORY}/{life_dir.name}",
             record["id"] + ".md", document.encode("utf-8"),

@@ -4,6 +4,8 @@ import json
 import os
 from types import SimpleNamespace
 
+import pytest
+
 from argus_skill.adapters.agent_cli_backend import AgentCliBackend
 from argus_skill.agent_cli.models import AgentRunResult
 from argus_skill.core.models import RunnerOptions
@@ -92,6 +94,7 @@ def test_pending_question_401_replay_settles_answer_after_persistence(
     calls: list[str] = []
 
     def run_exec(**_kwargs) -> AgentRunResult:
+        assert not (tmp_path / "operator_context.jsonl").exists()
         calls.append(os.environ["COPILOT_RELAY_TOKEN"])
         if len(calls) == 1:
             return _raw_result(error="401 Missing bearer")
@@ -133,7 +136,7 @@ def test_pending_question_401_replay_settles_answer_after_persistence(
     assert projection["consumed_once"] == [1]
 
 
-def test_pending_question_backend_failure_preserves_answer_and_cause(
+def test_pending_question_backend_failure_preserves_cause_without_answer_directive(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -164,24 +167,15 @@ def test_pending_question_backend_failure_preserves_answer_and_cause(
     assert result["backend_error"] == "401 Missing bearer"
     assert result["attempts"] == 2
     assert result["login_required"] is True
-    assert result["answer_preserved"] is True
+    assert result["answer_preserved"] is False
     assert "login_required" in result["error"]
-    assert "answer is preserved" in result["error"]
-    assert "interpretation will be retried" in result["error"]
-    assert "not rejected" in result["error"]
+    assert "not been classified" in result["error"]
+    assert "Retry" in result["error"]
 
     rows = mem.backlog.history()
     assert len(rows) == 1
     assert rows[0].pending_question == "May the repair proceed?"
-    ledger = [
-        json.loads(line)
-        for line in (tmp_path / "operator_context.jsonl").read_text().splitlines()
-    ]
-    assert [row["text"] for row in ledger] == [
-        "Yes, authorize the requested repair."
-    ]
-    projection = json.loads((tmp_path / "operator_context.json").read_text())
-    assert projection["consumed_once"] == []
+    assert not (tmp_path / "operator_context.jsonl").exists()
 
     event = json.loads((tmp_path / "events.jsonl").read_text().splitlines()[-1])
     assert event["type"] == "life.manager.intent.failed"
@@ -189,7 +183,7 @@ def test_pending_question_backend_failure_preserves_answer_and_cause(
     assert event["cause"] == "401 Missing bearer"
     assert event["attempts"] == 2
     assert event["login_required"] is True
-    assert event["answer_preserved"] is True
+    assert event["answer_preserved"] is False
 
 
 def test_pending_question_contract_failure_carries_reply_snippet(
@@ -220,3 +214,30 @@ def test_pending_question_contract_failure_carries_reply_snippet(
     assert result["phase"] == "contract"
     assert result["contract_field"] == "pending_question_decision"
     assert result["model_reply_snippet"] == reply.replace("\n", " ")
+    assert result["answer_preserved"] is False
+    assert not (tmp_path / "operator_context.jsonl").exists()
+
+
+@pytest.mark.parametrize("is_answer", [False, True])
+def test_answer_directive_is_written_only_after_positive_classification(tmp_path, monkeypatch, is_answer):
+    from argus_skill.manager import front_door
+
+    mem, item = _pending_memory(tmp_path)
+    answer = "Use one of the available cards."
+
+    def classify(*_args, **_kwargs):
+        assert not (tmp_path / "operator_context.jsonl").exists()
+        return json.dumps({"is_answer": is_answer, "resolved": False, "decision": "", "reply": "Please specify the card."})
+
+    monkeypatch.setattr(front_door, "manager_triage", classify)
+    result = _resolve_pending_question_with_manager(mem, item, answer, {})
+
+    assert result["answer_intent"] is is_answer and result["resolved"] is False
+    if is_answer:
+        ledger = [json.loads(line) for line in (tmp_path / "operator_context.jsonl").read_text().splitlines()]
+        assert len(ledger) == 1 and ledger[0]["text"] == answer
+        assert ledger[0]["source"] == "operator.pending_answer"
+        assert ledger[0]["scope"] == "mission"
+        assert ledger[0]["lifetime"] == "once"
+    else:
+        assert not (tmp_path / "operator_context.jsonl").exists()

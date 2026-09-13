@@ -11,7 +11,7 @@ import { useResearchBrief, type ResearchBriefOptions } from './useResearchBrief'
 import { readerPreview } from '../map/copyMode';
 import { MapReaderContent } from '../map/MapReaderContent';
 import { ReaderExplanation, ReaderExplanationStatus, ShortText, readerExplanationBoundary } from './ReaderExplanation';
-import { ReaderEvidence } from './ReaderEvidence';
+import { ReaderEvidence, ReaderTaskFacts } from './ReaderEvidence';
 import { selectReaderEvidence } from './evidence';
 
 export interface ResearchBriefProps {
@@ -39,7 +39,7 @@ function SelectedResearchReading({ selection, onOpenArtifact }: { selection: Rea
   return <>
     <ModalHeader title={zh ? '读懂这一步' : 'Understand this step'} sub={title} />
     <div className="px-6 pb-6" data-testid="research-brief-reading" data-project-id={selection.sid} data-task-id={taskId}>
-      <MapReaderContent cardKey={taskId} taskId={taskId} task={task} card={result.card}
+      <MapReaderContent cardKey={taskId} taskId={taskId} task={result.task} card={result.card}
         onOpenArtifact={onOpenArtifact}
         originalDetail={task.objective || selection.snapshot.session.objective || ''}
         selection={{ request: briefRequest(task, result.evidence), evidence: result.loadedEvents ?? [],
@@ -71,8 +71,7 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   const { task, evidence, brief, card } = result;
   const title = (brief ? card?.title : undefined) || task?.title || props.view.mission.title || text('当前任务', 'Current task');
   const objective = task?.objective || props.view.mission.objective || props.snapshot.session.objective;
-  const sources = selectReaderEvidence({ cardKey: props.view.mission.id, taskId: props.view.mission.id, card,
-    task: task || { id: props.view.mission.id, title: props.view.mission.title, objective: props.view.mission.objective, status: props.view.mission.status },
+  const sources = selectReaderEvidence({ cardKey: props.view.mission.id, taskId: props.view.mission.id, card, task,
     loadedEvents: result.loadedEvents, currentEvents: evidence });
   const generatedDate = dateOf({ ts: card?.generated_at });
   const generatedAt = generatedDate?.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? '';
@@ -91,6 +90,7 @@ export default function ResearchBrief(props: ResearchBriefProps) {
         : text('解说暂不可用，可以先查看任务目标与依据。', 'An explanation is not available yet. You can still view the task objective and evidence.')}</p>
     </div>}
     {result.generating && brief ? <p className="mt-2 text-[11px] text-ink-faint">{text('正在依据新记录更新；上方暂时保留之前的说明。', 'Updating from new records; the previous explanation remains visible above.')}{generatedAt ? ` ${generatedAt}` : ''}</p> : null}
+    <ReaderTaskFacts selection={sources} onOpenArtifact={props.onOpenArtifact} />
     {hasProblem ? <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-faint" role="status"><span>{result.readError ? text('记录暂时读取失败；已显示内容仍保留。', 'Records could not be refreshed; previously loaded content is retained.')
       : result.generationError ? text('说明生成未完成；不会自动重复请求。', 'The explanation could not be prepared. This request will not be repeated automatically.')
         : text('解说服务暂不可用；任务记录不受影响。', 'Explanations are temporarily unavailable; the task records remain available.')}</span>

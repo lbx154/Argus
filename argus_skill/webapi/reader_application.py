@@ -16,6 +16,11 @@ PROCESS_VERSION = 1
 
 
 def foundation_reference(foundation: dict) -> dict:
+    if isinstance(foundation, dict) and (
+        foundation.get("kind", "foundation") != "foundation" or foundation.get("parent_id")
+        or foundation.get("root_id", foundation.get("id")) != foundation.get("id")
+    ):
+        raise ValueError("application requires a root foundation, not a clarification")
     if (not isinstance(foundation, dict) or foundation.get("state") != "complete"
             or not isinstance(foundation.get("markdown"), str) or not foundation["markdown"].strip()):
         raise ValueError("a completed question foundation is required")

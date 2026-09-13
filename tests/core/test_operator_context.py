@@ -337,10 +337,11 @@ def test_read_adapter_serves_legacy_steering(tmp_path: Path) -> None:
     assert [row["revision"] for row in rows] == [1, 2]
 
 
-def test_pending_answer_survives_failed_interpretation_for_engineer(
+def test_unclassified_pending_message_does_not_become_an_engineer_directive(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from argus_skill.core.transcript import append_turn, read_turns
     from argus_skill.manager import front_door
     from argus_skill.webapi.manager_pending_question import (
         _resolve_pending_question_with_manager,
@@ -360,6 +361,7 @@ def test_pending_answer_survives_failed_interpretation_for_engineer(
         pending_question="May the technical route proceed?",
     )
     answer = "Always decide reversible infrastructure choices without asking me."
+    append_turn(tmp_path, "operator", answer)
 
     result = _resolve_pending_question_with_manager(
         SimpleNamespace(project_root=tmp_path),
@@ -369,11 +371,11 @@ def test_pending_answer_survives_failed_interpretation_for_engineer(
     )
     block, revision = build_operator_context_block("engineer", tmp_path)
 
-    assert result["answer_preserved"] is True
-    assert revision == 1
-    assert answer in block
-    ledger = (tmp_path / "operator_context.jsonl").read_text(encoding="utf-8")
-    assert ledger.index(answer) >= 0
+    assert result["answer_preserved"] is False
+    assert revision == 0
+    assert answer not in block
+    assert not (tmp_path / "operator_context.jsonl").exists()
+    assert read_turns(tmp_path)[0]["text"] == answer
 
 
 def test_credential_import_keeps_raw_key_out_of_context(
