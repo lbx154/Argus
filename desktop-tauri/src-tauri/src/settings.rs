@@ -291,6 +291,7 @@ mod tests {
         io,
         net::{TcpListener, TcpStream},
         sync::Mutex,
+        time::{Duration, Instant},
     };
 
     fn port_store(port: u16, trial_mode: bool) -> (tempfile::TempDir, SettingsStore) {
@@ -362,7 +363,21 @@ mod tests {
             for listener in &listeners {
                 listener.set_nonblocking(true).unwrap();
                 let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-                let (connection, _) = listener.accept().unwrap();
+                // A successful connect can precede accept readiness on macOS.
+                // Wait for the nonblocking listener without hiding real errors.
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let (connection, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error)
+                            if error.kind() == io::ErrorKind::WouldBlock
+                                && Instant::now() < deadline =>
+                        {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("foreign listener accept failed: {error}"),
+                    }
+                };
                 assert_eq!(connection.local_addr().unwrap(), client.peer_addr().unwrap());
             }
         }

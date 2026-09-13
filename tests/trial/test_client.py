@@ -230,6 +230,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
     env.update(
         ARGUS_SKILL_HOME=str(tmp_path / "argus"),
         PYTHONPATH=str(project),
+        PYTHONIOENCODING="utf-8",
         CI="true",
         ARGUS_TRIAL_KEY=credential,
     )
@@ -237,7 +238,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
     try:
         result = subprocess.run(
             [sys.executable, "-m", "argus_skill", "--setup", "--trial-url", f"http://127.0.0.1:{port}"],
-            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120,
+            cwd=tmp_path, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120,
         )
         assert result.returncode == 0, result.stdout + result.stderr + str(rejected)
         config = json.loads((tmp_path / "argus/copilot-trial.json").read_text())
@@ -251,8 +252,8 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
         probe = (
             "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
             "r=run_read_only_agent_prompt(backend='copilot', executable=shutil.which('copilot'), "
-            f"model='gpt-4.1', run_label={label!r}, prompt='Read "
-            + str(tmp_path / "evidence.txt") + " and report TRIAL_TOOL_OK.'); "
+            f"model='gpt-4.1', run_label={label!r}, "
+            f"prompt={'Read ' + str(tmp_path / 'evidence.txt') + ' and report TRIAL_TOOL_OK.'!r}); "
             if local_tool == "view" else
             "from argus_skill.core.agent_probe import run_agent_repair_prompt; "
             "r=run_agent_repair_prompt(backend='copilot', executable=shutil.which('copilot'), "
@@ -292,7 +293,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
              "k=read_persisted_knobs(); assert k['ARGUS_SKILL_MODEL']=='gpt-5.5'; "
              "assert k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
              "import shutil; " + probe],
-            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
+            cwd=tmp_path, env=env, capture_output=True, text=True, encoding="utf-8", timeout=60,
         )
         assert result.returncode == 0 and "TRIAL_TOOL_OK" in result.stdout, result.stdout + result.stderr + str(rejected)
         assert len(requests) >= 3
