@@ -19,7 +19,7 @@ from ..life.memory import Backlog
 from .map_model import MapProgress, resolve_map_model, run_map_model
 from .project_state import project_life_dir
 
-FOUNDATION_VERSION = 1
+FOUNDATION_VERSION = 2
 GENERATION_SECONDS = 180
 MANIFEST_DIRECTORY = "reader-foundations"
 ARTIFACT_DIRECTORY = "reader-notes"

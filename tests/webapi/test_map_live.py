@@ -128,7 +128,7 @@ def _copy_stream_frames(response):
 
 
 @pytest.mark.parametrize("preview_cache_present", [False, True])
-@pytest.mark.parametrize("mode,version", [("source-first", 24), ("learning-path", 26)])
+@pytest.mark.parametrize("mode,version", [("source-first", 25), ("learning-path", 27)])
 def test_copy_preview_get_reads_only_its_cache_and_reports_its_version(tmp_path, monkeypatch, preview_cache_present, mode, version):
     sid, _ = sample(tmp_path)
     reads = []
@@ -148,7 +148,7 @@ def test_copy_preview_get_reads_only_its_cache_and_reports_its_version(tmp_path,
     path = f"/api/map-copy/project/{sid}"
     normal = client.get(path).json()
     candidate = client.get(path, params={"preview": "true" if mode == "source-first" else mode}).json()
-    assert normal["cards"] == main["cards"] and normal["version"] == 23
+    assert normal["cards"] == main["cards"] and normal["version"] == 24
     assert candidate["cards"] == preview["cards"] and candidate["version"] == version
     assert candidate["cache_revision"] == preview["cache_revision"] and normal["cache_revision"] == 7
     assert reads == [source, source + ":" + mode]

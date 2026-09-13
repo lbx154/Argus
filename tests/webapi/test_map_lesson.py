@@ -9,6 +9,7 @@ from jsonschema import Draft202012Validator
 
 from argus_skill.webapi import map_learning, map_lesson, map_narrative
 from argus_skill.webapi.map_model import MapModel
+from argus_skill.webapi.map_teaching_review import TEACHING_CORE
 
 
 def outline(learning_path=False):
@@ -59,7 +60,7 @@ def run_stub(calls, *, fail_second=False, learning_path=False):
         if kwargs.get("on_progress") is not None:
             kwargs["on_progress"](kwargs["phase"])
         sources = json.loads(prompt.rsplit("Retained sources:\n", 1)[1])
-        calls.append({"sources": sources, "schema": schema, "config": config, **kwargs})
+        calls.append({"prompt": prompt, "sources": sources, "schema": schema, "config": config, **kwargs})
         keys = list(sources["passages"])
         if "outlines" in schema["properties"]:
             result = {"outlines": {key: outline(learning_path) for key in keys}, "relations": []}
@@ -86,6 +87,7 @@ def test_two_stages_share_exact_bounded_sources_deadline_and_actual_efforts(monk
     value = map_lesson.generate_source_first(docs, tasks, "en-US", config=model(), project_root=None,
                                               global_root=None, learning_path=learning_path, on_progress=phases.append)
     assert len(calls) == 2 and calls[0]["deadline"] == calls[1]["deadline"]
+    assert all(call["prompt"].count(TEACHING_CORE) == 1 for call in calls)
     assert phases == ["planning", "writing"]
     assert [call["config"].effort for call in calls] == ["medium", "high"]
     assert calls[0]["sources"] == calls[1]["sources"]
@@ -194,5 +196,5 @@ def test_previous_learning_preview_is_retained_on_failure_then_replaced_by_new_g
     monkeypatch.setattr(map_lesson, "run_map_model", run_stub(calls, learning_path=True))
     result = generate()
     assert len(calls) == 2 and result["cached"] is False
-    assert result["cards"]["a"]["version"] == 26
+    assert result["cards"]["a"]["version"] == 27
     assert result["cards"]["a"]["teaching_process"]["version"] == 3

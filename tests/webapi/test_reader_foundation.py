@@ -144,6 +144,37 @@ def test_failed_parse_keeps_real_call_and_never_retries_on_read_or_repost(projec
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("failed", [False, True])
+def test_version_upgrade_preserves_terminal_request_and_only_versions_new_ids(project, tmp_path, monkeypatch, failed):
+    sid, life, _, body = project
+    assert foundation.FOUNDATION_VERSION == 2
+    calls = []
+    monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
+    client = TestClient(create_app(global_root=tmp_path))
+    url = f"/api/projects/{sid}/reader-foundation"
+    with monkeypatch.context() as legacy:
+        legacy.setattr(foundation, "FOUNDATION_VERSION", 1)
+        legacy.setattr(foundation, "run_map_model", fake_run(calls, fail=failed))
+        initial = client.post(url, json=body)
+    assert initial.status_code == (422 if failed else 200)
+    saved = foundation.read_foundation(tmp_path, sid, body["request_id"])
+    retained = foundation.foundation_artifact(saved)
+    assert saved["version"] == 1 and saved["state"] == ("failed" if failed else "complete")
+    manifest = life / foundation.MANIFEST_DIRECTORY / (body["request_id"] + ".json")
+    before = manifest.read_bytes()
+    with monkeypatch.context() as replay:
+        replay.setattr(foundation, "generate_foundation", lambda *a, **k: pytest.fail("Old request was readmitted"))
+        replay.setattr(foundation, "Backlog", lambda *a, **k: pytest.fail("Replay reread its source task"))
+        replay.setattr("argus_skill.webapi.artifacts.artifact_workspace", lambda *a, **k: pytest.fail("Replay reserved a new workspace"))
+        assert client.post(url, json=body).json() == retained
+    assert manifest.read_bytes() == before and len(calls) == 1
+    new_body = {**body, "request_id": str(uuid4())}
+    new = client.post(url, json=new_body)
+    assert new.status_code == 200
+    assert new.json()["reader_foundation"]["version"] == 2
+    assert len(calls) == 2 and manifest.read_bytes() == before
+
+
 def test_concurrent_same_request_and_refresh_share_one_persistent_generation(project, tmp_path, monkeypatch):
     sid, _, _, body = project
     started, release = threading.Event(), threading.Event()
@@ -294,7 +325,13 @@ def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(
     calls = []
     monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
     client = TestClient(create_app(global_root=tmp_path))
-    root = completed_reading(client, sid, root_body)
+    assert foundation.FOUNDATION_VERSION == 2
+    with monkeypatch.context() as legacy:
+        legacy.setattr(foundation, "FOUNDATION_VERSION", 1)
+        root = completed_reading(client, sid, root_body)
+    assert root["reader_foundation"]["version"] == 1
+    root_manifest = life / foundation.MANIFEST_DIRECTORY / (root_body["request_id"] + ".json")
+    manifest_before = root_manifest.read_bytes()
     root_path = workspace / root["path"]
     original = root_path.read_bytes()
     backlog_before = (life / "backlog.jsonl").read_bytes()
@@ -320,6 +357,7 @@ def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(
     assert root["reader_foundation"]["parent_id"] is None
     assert root["reader_foundation"]["root_id"] == root_body["request_id"]
     assert meta["question"] == request["question"] and meta["state"] == "complete"
+    assert meta["version"] == 2
     assert meta["provenance"]["run_label"] == "reader-clarification"
     assert meta["provenance"]["call_id"] == "native-runtime-call"
     assert meta["sources"] == [{"id": root_body["request_id"], "path": root["path"], "title": "Feasible bounds"}]
@@ -328,6 +366,7 @@ def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(
     snapshot = json.loads(prompt.split(SOURCES_MARKER, 1)[1].split(QUESTION_MARKER, 1)[0])
     assert len(snapshot["sources"]) == 1
     assert snapshot["sources"][0]["markdown"].encode() == original
+    assert snapshot["sources"][0]["version"] == 1
     assert json.loads(prompt.split(QUESTION_MARKER, 1)[1]) == request["question"]
     assert options["run_label"] == "reader-clarification" and "mission_id" not in options
     saved = foundation.read_foundation(tmp_path, sid, request["request_id"])
@@ -341,6 +380,7 @@ def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(
     assert [row["reader_foundation"]["id"] for row in listed] == [root_body["request_id"], request["request_id"]]
     assert client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"] == []
     assert root_path.read_bytes() == original and (life / "backlog.jsonl").read_bytes() == backlog_before
+    assert root_manifest.read_bytes() == manifest_before
     assert all(not (life / name).exists() for name in ("transcript.jsonl", "inbox.jsonl", "events.jsonl"))
 
 
@@ -438,6 +478,9 @@ def test_clarification_rejects_unavailable_parent_or_root_without_model_or_reser
 def test_existing_clarification_replays_terminal_after_source_loss_without_readmission(project, tmp_path, monkeypatch, stream, failed):
     sid, life, workspace, root_body = project
     calls = []
+    current_version = foundation.FOUNDATION_VERSION
+    assert current_version == 2
+    monkeypatch.setattr(foundation, "FOUNDATION_VERSION", 1)
     monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
     client = TestClient(create_app(global_root=tmp_path))
     root = completed_reading(client, sid, root_body)
@@ -455,8 +498,14 @@ def test_existing_clarification_replays_terminal_after_source_loss_without_readm
         assert initial.status_code == 200
     assert (life / foundation.MANIFEST_DIRECTORY / (request["request_id"] + ".json")).is_file()
     retained = foundation.foundation_artifact(foundation.read_foundation(tmp_path, sid, request["request_id"]))
+    assert retained["reader_foundation"]["version"] == 1
+    manifest = life / foundation.MANIFEST_DIRECTORY / (request["request_id"] + ".json")
+    before = manifest.read_bytes()
+    monkeypatch.setattr(foundation, "FOUNDATION_VERSION", current_version)
     (workspace / root["path"]).unlink()
     monkeypatch.setattr(foundation, "run_map_model", lambda *a, **k: pytest.fail("Terminal clarification regenerated"))
+    monkeypatch.setattr(foundation, "generate_foundation", lambda *a, **k: pytest.fail("Terminal clarification was readmitted"))
+    monkeypatch.setattr("argus_skill.webapi.reader_clarification.clarification_sources", lambda *a, **k: pytest.fail("Replay reread its parent"))
     replay = client.post(url, params={"stream": stream}, json=request)
     assert replay.status_code == 200
     if stream:
@@ -466,6 +515,7 @@ def test_existing_clarification_replays_terminal_after_source_loss_without_readm
     else:
         assert replay.json() == retained
     assert retained["reader_foundation"]["state"] == ("failed" if failed else "complete")
+    assert manifest.read_bytes() == before
     assert len(calls) == 2
 
 

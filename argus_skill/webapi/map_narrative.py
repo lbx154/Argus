@@ -27,7 +27,7 @@ from .map_teaching_review import (
 )
 from .map_view import digest, task_content_revision, text
 
-PROMPT_VERSION = 23
+PROMPT_VERSION = 24
 SOURCE_SNAPSHOT_VERSION = 2
 Preview = bool | Literal["learning-path", "question-foundation"]
 _LOCK = threading.Lock()
