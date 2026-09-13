@@ -491,3 +491,35 @@ def test_valid_multilingual_capsule_uses_utf8_size_and_does_not_block_commit(tmp
     supervisor.memory.backlog.update(item.id, status="done", _mission_delivery=record)
     assert drain_mission_deliveries(supervisor.memory.backlog, supervisor._emit)
     assert len(supervisor.memory.failure_experiences.recent()) == 1
+
+
+def test_retention_numeric_overflow_does_not_block_delivery_or_new_work(tmp_path, monkeypatch):
+    from argus_skill.life.mission_delivery import EXPERIENCE_RETENTION
+
+    supervisor = _supervisor(tmp_path)
+    first = _enqueue(supervisor)
+    append = JsonlEventSink._append
+    with monkeypatch.context() as fault:
+        fault.setattr(JsonlEventSink, "_append", lambda sink, event:
+            False if event.get("mission_delivery_id") else append(sink, event))
+        assert supervisor.tick()["success"] is True
+    assert len(supervisor.memory.backlog.pending_mission_deliveries()) == 1
+    retention = supervisor.memory.root / EXPERIENCE_RETENTION
+    retention.write_text(json.dumps({"version": 1, "retired_through": [10**400, "0" * 64],
+        "retired_count": 0, "reason": "pending_experience_capacity"}) + "\n")
+    corrupt = retention.read_bytes()
+    assert len(corrupt) < 4096  # Valid bounded JSON; conversion to float overflows.
+    second = _enqueue(supervisor)
+    result = supervisor.tick()
+    assert result["success"] is True and result["item_id"] == second.id
+    assert len(supervisor.memory.journal.tail_settlements(5)) == 2
+    assert {row.id for row in supervisor.memory.backlog.history()} == {first.id, second.id}
+    pending = supervisor.memory.backlog.pending_mission_deliveries()
+    assert len(pending) == 2 and all(row["publication_acknowledged"] is True for row in pending)
+    assert retention.read_bytes() == corrupt  # Never invent a replacement retirement history.
+    retention.rename(retention.with_suffix(".corrupt-preserved"))
+    restarted = _supervisor(tmp_path, allow_execute=False)
+    assert restarted.tick() is None
+    assert {row.mission_id for row in restarted.memory.failure_experiences.recent()} == {first.id, second.id}
+    assert restarted.memory.backlog.pending_mission_deliveries() == []
+    assert len((tmp_path / "executions.jsonl").read_text().splitlines()) == 2

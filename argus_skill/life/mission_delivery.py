@@ -198,7 +198,7 @@ def drain_mission_deliveries(
 
             try:
                 retention = _experience_retention(root)
-            except (OSError, TypeError, ValueError):
+            except (OSError, TypeError, ValueError, OverflowError):
                 log.exception("experience retention recovery deferred; completion delivery remains independent")
                 retention = None
             retries = 0
