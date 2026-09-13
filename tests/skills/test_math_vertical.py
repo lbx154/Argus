@@ -695,7 +695,7 @@ def test_reviewer_keeps_its_stage_checklist_when_the_daemon_names_the_vertical(
         engineer_runner=backend,
         reviewer_runner=backend,
         config=SkillLoopConfig(
-            max_rounds=1, workflow_mode="direct", active_vertical="math",
+            max_rounds=1, workflow_mode="staged", active_vertical="math",
         ),
     )
     loop.run("Prove G.", workdir=tmp_path, scope="bounded")

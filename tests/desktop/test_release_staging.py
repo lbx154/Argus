@@ -106,5 +106,5 @@ def test_release_notes_require_all_desktop_platforms(tmp_path, monkeypatch):
 
     combined = json.loads((tmp_path / "latest.json").read_text())
     assert set(combined["platforms"]) == set(targets)
-    assert "Linux x86_64" in notes.read_text()
+    assert "Linux x86_64" in notes.read_text(encoding="utf-8")
     assert (tmp_path / "SHA256SUMS").is_file()

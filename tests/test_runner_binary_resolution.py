@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.agent_cli import runner_backend
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
 from argus_skill.agent_cli.runner_backend import (
     BACKEND_CODEX,
@@ -144,6 +146,64 @@ def test_runner_skips_inaccessible_path_candidate(
     monkeypatch.setenv("PATH", str(blocked))
 
     assert resolve_runner_bin("claude") is None
+
+
+def test_windows_runner_fallback_does_not_stat_unrelated_directory_entries(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    unrelated = tmp_path / "unrelated.dll"
+    unrelated.write_text("not a runner", encoding="utf-8")
+    executable = tmp_path / "Pi.CmD"
+    executable.write_text("@echo off\n", encoding="utf-8")
+    candidate = tmp_path / "pi"
+    inspected: list[Path] = []
+    original_is_file = Path.is_file
+    original_iterdir = Path.iterdir
+
+    def inspect(path: Path) -> bool:
+        inspected.append(path)
+        if path == unrelated:
+            raise PermissionError("unrelated file metadata is inaccessible")
+        return original_is_file(path)
+
+    monkeypatch.setattr(runner_backend, "os", SimpleNamespace(
+        name="nt", environ={"PATHEXT": os.pathsep.join([".EXE", ".CMD"])},
+        pathsep=os.pathsep,
+    ))
+    monkeypatch.setattr(runner_backend.shutil, "which", lambda *_args: None)
+    monkeypatch.setattr(Path, "is_file", inspect)
+    monkeypatch.setattr(Path, "iterdir", lambda path: (
+        iter([unrelated, executable]) if path == tmp_path else original_iterdir(path)
+    ))
+
+    assert runner_backend._resolve_explicit_candidate(candidate) == str(executable)
+    assert inspected == [candidate, executable]
+
+
+def test_windows_runner_fallback_rejects_directories_without_probing_unrelated_files(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    candidate = tmp_path / "pi"
+    matching_directory = tmp_path / "pi.EXE"
+    matching_directory.mkdir()
+    unrelated = tmp_path / "unrelated.dll"
+    unrelated.write_text("not a runner", encoding="utf-8")
+    inspected: list[Path] = []
+    original_is_file = Path.is_file
+
+    def inspect(path: Path) -> bool:
+        inspected.append(path)
+        return original_is_file(path)
+
+    monkeypatch.setattr(runner_backend, "os", SimpleNamespace(
+        name="nt", environ={"PATHEXT": os.pathsep.join([".EXE", ".CMD"])},
+        pathsep=os.pathsep,
+    ))
+    monkeypatch.setattr(runner_backend.shutil, "which", lambda *_args: None)
+    monkeypatch.setattr(Path, "is_file", inspect)
+
+    assert runner_backend._resolve_explicit_candidate(candidate) is None
+    assert inspected == [candidate, matching_directory]
 
 
 def test_opencode_runner_resolves_standard_install_directory(

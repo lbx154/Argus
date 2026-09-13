@@ -173,6 +173,10 @@ def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
 
 
 def _entrypoint() -> int:
+    from argus_skill.apps.tui_launcher import _configure_windows_console_encoding
+
+    # Python-compatible commands bypass the normal CLI's Windows stdio setup.
+    _configure_windows_console_encoding()
     _install_windows_signal_zero_guard()
     if sys.argv[1:] == [_VERIFY_FROZEN_RUNTIME]:
         report = verify_runtime_providers()
