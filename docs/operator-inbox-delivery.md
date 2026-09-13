@@ -1,5 +1,7 @@
 # Operator inbox delivery protocol
 
+The [September 13 closeout](evaluations/ARGUS_CLOSEOUT_2026-09-13.md) records completed full and integration regression for this protocol. Image qualification and production migration remain the unified publisher's next steps; the earlier 9d image does not contain it.
+
 Status: implemented after validated baseline `9d0b63a685d8ac165f1083781854fae601c827dd`, with focused and independent combined acceptance. Final full regression and publication qualification are separate gates. This document describes the contract and maintenance boundaries; it does not authorize deployment or claim a real-state migration.
 
 ## Why the protocol is needed

@@ -209,6 +209,10 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
     'life.manager.intent.started': { text: 'Working out how to handle your request…' },
     'life.manager.intent.failed': { text: 'could not work out where this request belongs · model service 401 Missing bearer (attempt 2) · error text: VerticalDecisionError: routing failed' },
     'life.phase.started': { text: 'entering implementation' },
+    // The shared renderer explains the selected plan and its recorded rationale.
+    'life.manager.intent.completed': {
+      text: 'The team plans to work in stages\nFinish once this objective is met. the current operation needs attention',
+    },
     // The old TUI leaks recognized credentials; the semantic core redacts them.
     'engineer.progress.secret-redaction': { text: 'using token <REDACTED:github-token>' },
     // A semantic distinction the old whitelist's own task_skipped line loses.
