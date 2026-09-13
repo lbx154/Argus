@@ -486,25 +486,40 @@ class _ManagerSession:
         rejected resume target can still rotate through the explicit branch
         below, which carries the bounded saved conversation handoff.
         """
+        from ..core.file_lock import FileLockCancelled, bounded_file_lock_wait
         from ..core.operator_context import build_operator_context_block
+        from ..core.run_gateway import current_run_interrupt_reason
+        from .session_continuity import ManagerSessionContinuityUnavailable
 
-        try:
-            operator_context, _operator_context_revision = build_operator_context_block(
-                "manager", self.project_root, consume_once=False
-            )
-        except OSError:
-            operator_context = ""
-        if operator_context:
-            from ..core.operator_context import append_operator_context
+        original_prompt = prompt
+        interruption = getattr(options, "external_interrupt_reason_provider", None)
 
-            prompt = append_operator_context(prompt, operator_context)
+        def _cancelled() -> bool:
+            return bool((callable(interruption) and interruption()) or current_run_interrupt_reason())
+
+        def _current_prompt() -> str:
+            try:
+                with bounded_file_lock_wait(timeout_seconds=0.25, cancelled=_cancelled):
+                    operator_context, _revision = build_operator_context_block(
+                        "manager", self.project_root, consume_once=False
+                    )
+            except (OSError, FileLockCancelled) as exc:
+                _check_lock_cancelled(_cancelled)
+                raise ManagerSessionContinuityUnavailable(
+                    "Current Manager permissions could not be read; provider was not started"
+                ) from exc
+            if operator_context:
+                from ..core.operator_context import append_operator_context
+
+                return append_operator_context(original_prompt, operator_context)
+            return original_prompt
         if self.skill_paths:
             options = replace(options, skill_paths=list(self.skill_paths))
 
         def _no_session() -> Any:
             return gateway_run_exec(
                 self.runner,
-                prompt=prompt, options=options, run_label=run_label
+                prompt=_current_prompt(), options=options, run_label=run_label
             )
 
         try:
@@ -515,15 +530,17 @@ class _ManagerSession:
 
         provider_attempted = False
         try:
-            interruption = getattr(options, "external_interrupt_reason_provider", None)
-            _acquire_session_lock(
-                fh, cancelled=(lambda: bool(interruption())) if callable(interruption) else None,
-            )
+            _acquire_session_lock(fh, cancelled=_cancelled)
             try:
+                from .session_capacity import capacity_rotation_reason, remember_capacity
                 from .session_context import remember_turn, session_handoff, session_identity
 
                 prior = self._read_state()
                 tid = self._read_tid()
+                prior_tid = tid
+                # Permission may have changed while this turn waited for the
+                # shared provider session. Project it immediately before use.
+                prompt = _current_prompt()
                 if options is not None and not getattr(options, "model", ""):
                     prior_model = (prior.get("identity") or {}).get("model", "")
                     if prior_model:
@@ -533,8 +550,17 @@ class _ManagerSession:
                 rotation_reason = ""
                 if tid and prior.get("identity") not in (None, identity):
                     rotation_reason = "the configured model or backend changed"
-                    call_prompt = session_handoff(prior, prompt, rotation_reason)
+                elif tid:
+                    rotation_reason = capacity_rotation_reason(
+                        prior, prompt=prompt, runner=self.runner, options=options,
+                    )
+                if rotation_reason:
+                    call_prompt = session_handoff(
+                        prior, prompt, rotation_reason, project_root=self.project_root, run_label=run_label,
+                        cancelled=_cancelled,
+                    )
                     tid = None
+                continued = bool(tid)
                 provider_attempted = True
                 result = gateway_run_exec(
                     self.runner,
@@ -550,21 +576,43 @@ class _ManagerSession:
                         "rotating to a fresh thread",
                         tid,
                     )
-                    _check_lock_cancelled((lambda: bool(interruption())) if callable(interruption) else None)
+                    _check_lock_cancelled(_cancelled)
                     rotation_reason = "the previous provider thread is no longer resumable"
+                    prompt = _current_prompt()
+                    call_prompt = session_handoff(
+                        prior, prompt, rotation_reason, project_root=self.project_root, run_label=run_label,
+                        cancelled=_cancelled,
+                    )
+                    continued = False
                     result = gateway_run_exec(
                         self.runner,
-                        prompt=session_handoff(prior, prompt, rotation_reason),
+                        prompt=call_prompt,
                         options=options,
                         run_label=run_label,
                     )
                 new = getattr(result, "thread_id", None)
-                if new and not (callable(interruption) and interruption()):
+                if new and not _cancelled():
                     try:
+                        logical_id = prior.get("logical_manager_id")
+                        if not isinstance(logical_id, str) or not 0 < len(logical_id) <= 128:
+                            logical_id = "manager-" + uuid.uuid4().hex
+                        generation = prior.get("provider_generation", 1 if prior_tid else 0)
+                        if type(generation) is not int or generation < 0:
+                            generation = 0
+                        generation += not continued
+                        last_rotation = prior.get("last_rotation")
+                        if rotation_reason:
+                            last_rotation = {"reason": rotation_reason, "from_thread_id": prior_tid,
+                                             "to_thread_id": str(new), "provider_generation": generation}
                         self._write_tid(str(new), state={
-                            "version": 2, "identity": identity,
+                            "version": 3, "identity": identity,
+                            "logical_manager_id": logical_id,
+                            "provider_generation": generation,
+                            "capacity": remember_capacity(prior, call_prompt, result, continued=continued,
+                                                          runner=self.runner, options=options),
                             "recent_turns": remember_turn(prior, prompt, result, run_label),
                             "rotation_reason": rotation_reason,
+                            "last_rotation": last_rotation,
                         })
                     except Exception:  # noqa: BLE001 — persist is best-effort
                         pass
@@ -574,6 +622,9 @@ class _ManagerSession:
                     portalocker.unlock(fh)
                 except Exception:  # noqa: BLE001
                     pass
+        except ManagerSessionContinuityUnavailable:
+            _check_lock_cancelled(_cancelled)
+            raise
         except (BackendLoginRequired, ManagerLockCancelled):
             raise
         except Exception:  # noqa: BLE001 — only pre-dispatch session setup may degrade

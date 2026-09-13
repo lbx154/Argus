@@ -310,9 +310,11 @@ def test_uncertain_session_provider_error_is_not_replayed(tmp_path):
     assert not (tmp_path / _SESSION_FILE).exists()
 
 
-def test_fail_open_when_root_unwritable(tmp_path, monkeypatch):
-    # Lock/IO error (here: a forced mkdir failure) must still degrade, not block.
+def test_unreadable_authority_does_not_fail_open_when_root_unwritable(tmp_path, monkeypatch):
+    # A session setup fallback is allowed only if current permissions remain
+    # readable. This fault also prevents their canonical state from opening.
     from argus_skill.manager import _session_ops
+    from argus_skill.manager.session_continuity import ManagerSessionContinuityUnavailable
 
     fake = _RecordingRunner()
     sess = _ManagerSession(fake, tmp_path)
@@ -325,10 +327,9 @@ def test_fail_open_when_root_unwritable(tmp_path, monkeypatch):
         return real_mkdir(self, *a, **k)
 
     monkeypatch.setattr(_session_ops.Path, "mkdir", _boom)
-    res = sess.run_exec(prompt="a", options=None, run_label="x")
-    # Degraded to a plain no-session call (resume_thread_id not passed → None).
-    assert res.thread_id == "t1"
-    assert fake.resumes == [None]
+    with pytest.raises(ManagerSessionContinuityUnavailable):
+        sess.run_exec(prompt="a", options=None, run_label="x")
+    assert fake.resumes == []
 
 
 # ---------------------------------------------------------------------------

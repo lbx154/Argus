@@ -1598,20 +1598,52 @@ class Backlog:
         return changed
 
     @contextmanager
-    def _locked(self) -> Iterator[None]:
+    def _locked(
+        self, *, timeout_seconds: float | None = None, cancelled: Callable[[], bool] | None = None,
+    ) -> Iterator[None]:
         """Serialize backlog read-modify-write operations across processes."""
+        from ..core.file_lock import current_file_lock_wait_budget
+
+        budget = current_file_lock_wait_budget()
+        if budget is not None:
+            inherited_timeout = max(0.0, budget[0] - time.monotonic())
+            timeout_seconds = inherited_timeout if timeout_seconds is None else min(timeout_seconds, inherited_timeout)
+            original_cancelled = cancelled
+            cancelled = lambda: bool((original_cancelled and original_cancelled()) or (budget[1] and budget[1]()))
         key = os.path.normcase(str(self._lock_path.resolve()))
         with _BACKLOG_THREAD_LOCKS_GUARD:
             thread_lock = _BACKLOG_THREAD_LOCKS.setdefault(key, threading.Lock())
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with thread_lock:
+        if timeout_seconds is None and cancelled is None:
+            # Preserve the existing writer/recovery protocol for every caller
+            # that did not explicitly request a bounded, cancellable read.
+            with thread_lock:
+                with self._lock_path.open("a+b") as fh:
+                    portalocker.lock(fh, portalocker.LOCK_EX)
+                    try:
+                        self._recover_commit()
+                        yield
+                    finally:
+                        portalocker.unlock(fh)
+            return
+        from ..core.file_lock import FileLockCancelled, exclusive_file_lock
+
+        deadline = time.monotonic() + (30.0 if timeout_seconds is None else max(0.0, timeout_seconds))
+        while not thread_lock.acquire(blocking=False):
+            if cancelled is not None and cancelled():
+                raise FileLockCancelled("cancelled while acquiring backlog thread lock")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("timed out acquiring backlog thread lock")
+            time.sleep(min(0.05, remaining))
+        try:
             with self._lock_path.open("a+b") as fh:
-                portalocker.lock(fh, portalocker.LOCK_EX)
-                try:
+                with exclusive_file_lock(fh, timeout_seconds=max(0.0, deadline - time.monotonic()),
+                                         cancelled=cancelled, lock_name="backlog file lock"):
                     self._recover_commit()
                     yield
-                finally:
-                    portalocker.unlock(fh)
+        finally:
+            thread_lock.release()
 
     # --- write ---
     def add(self, item: BacklogItem) -> BacklogItem:
