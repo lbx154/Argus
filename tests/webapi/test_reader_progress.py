@@ -84,7 +84,7 @@ def retain(tmp_path, sid, card, **kwargs):
     )
 
 
-def fake_runner(calls):
+def fake_runner(calls, *, fail=False):
     def run(prompt, schema, config, **kwargs):
         calls.append((prompt, schema, kwargs))
         if kwargs.get("on_progress"):
@@ -92,6 +92,8 @@ def fake_runner(calls):
         kwargs["on_result"](SimpleNamespace(
             call_id=f"offline-call-{len(calls)}", call_id_log_correlated=True, exit_code=0,
         ))
+        if fail:
+            raise ValueError("invalid generated schema")
         return {"title": f"Offline answer {len(calls)}",
                 "markdown": f"Unique body of offline answer number {len(calls)}."}
     return run
@@ -417,27 +419,51 @@ def test_new_progress_question_rejects_unavailable_or_client_supplied_sources_wi
     assert not (life / reader_foundation.MANIFEST_DIRECTORY / (body["request_id"] + ".json")).exists()
 
 
-def test_existing_progress_answer_replays_and_selected_parent_keeps_its_source_after_source_file_loss(project, tmp_path, monkeypatch):
-    sid, _, workspace = project
+@pytest.mark.parametrize("failed", [False, True])
+def test_existing_progress_answer_replays_and_selected_parent_keeps_its_source_after_source_file_loss(project, tmp_path, monkeypatch, failed):
+    sid, life, workspace = project
+    assert reader_foundation.FOUNDATION_VERSION == 2
     ref = retain(tmp_path, sid, selected_card())
     calls = []
     monkeypatch.setattr(reader_foundation, "run_map_model", fake_runner(calls))
     client = TestClient(create_app(global_root=tmp_path))
     url = f"/api/projects/{sid}/reader-foundation"
     first_body = question(ref["source_id"])
-    first = response_artifact(client.post(url, json=first_body))
-    bound = copy.deepcopy(reader_foundation.read_foundation(
-        tmp_path, sid, first_body["request_id"],
-    )["source_snapshot"]["progress_source"])
+    with monkeypatch.context() as legacy:
+        legacy.setattr(reader_foundation, "FOUNDATION_VERSION", 1)
+        legacy.setattr(reader_foundation, "run_map_model", fake_runner(calls, fail=failed))
+        initial = client.post(url, json=first_body)
+    assert initial.status_code == (422 if failed else 200)
+    old = reader_foundation.read_foundation(tmp_path, sid, first_body["request_id"])
+    first = reader_foundation.foundation_artifact(old)
+    assert old["version"] == 1 and old["state"] == ("failed" if failed else "complete")
+    bound = copy.deepcopy(old["source_snapshot"]["progress_source"])
+    manifest = life / reader_foundation.MANIFEST_DIRECTORY / (first_body["request_id"] + ".json")
+    before = manifest.read_bytes()
     (workspace / ref["path"]).unlink()
-    assert response_artifact(client.post(url, json=first_body)) == first
+    with monkeypatch.context() as replay:
+        replay.setattr(reader_foundation, "generate_foundation", lambda *a, **k: pytest.fail("Old progress answer was readmitted"))
+        replay.setattr(reader_progress, "progress_question_sources", lambda *a, **k: pytest.fail("Replay reread its progress source"))
+        assert response_artifact(client.post(url, json=first_body)) == first
+    assert manifest.read_bytes() == before
     assert len(calls) == 1
+    if failed:
+        new_body = question(ref["source_id"])
+        rejected = client.post(url, json=new_body)
+        assert rejected.status_code == 422 and rejected.json()["detail"]["code"] == "reader_source_unavailable"
+        assert not (life / reader_foundation.MANIFEST_DIRECTORY / (new_body["request_id"] + ".json")).exists()
+        assert len(calls) == 1
+        return
     followup_body = question(text="One doubt in this saved answer.")
     followup_url = f"{url}/{first_body['request_id']}/question"
     response_artifact(client.post(followup_url, json=followup_body))
     saved = reader_foundation.read_foundation(tmp_path, sid, followup_body["request_id"])
+    assert saved["version"] == 2
     assert saved["source_snapshot"]["progress_source"] == bound
     assert [source["id"] for source in saved["source_snapshot"]["sources"]] == [first_body["request_id"]]
+    assert saved["source_snapshot"]["sources"][0]["version"] == 1
+    assert saved["source_snapshot"]["sources"][0]["markdown"] == old["markdown"]
+    assert manifest.read_bytes() == before
     assert len(calls) == 2
     (workspace / first["path"]).unlink()
     rejected = client.post(followup_url, json=question(text="A new question needs a readable selected answer."))

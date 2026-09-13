@@ -312,6 +312,7 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     kwargs = {"config": config, "project_root": None, "global_root": None, "on_progress": phases.append}
     result = map_narrative.generate([document()], [{"id": "a"}], "en-US", **kwargs)
     assert len(observed) == 2 and observed[0][1] == observed[1][1]
+    assert all(prompt.count(teaching.TEACHING_CORE) == 1 for prompt, _, _ in observed)
     assert phases == ["writing", "reviewing"]
     assert observed[0][1] == 1170.0
     assert observed[0][2].effort == "medium" and observed[1][2].effort == "high"

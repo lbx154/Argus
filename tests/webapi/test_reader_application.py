@@ -13,6 +13,7 @@ from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.webapi import map_lesson, map_narrative, reader_application, reader_foundation
 from argus_skill.webapi.map_model import MapModel
+from argus_skill.webapi.map_teaching_review import TEACHING_CORE
 from argus_skill.webapi.server import create_app
 
 
@@ -43,7 +44,7 @@ def run_stub(calls):
     def run(prompt, schema, config, **kwargs):
         sources = json.loads(prompt.rsplit("Retained sources:\n", 1)[1])
         saved = json.loads(prompt.split("Saved question foundation:\n", 1)[1].split("\nRetained sources:\n", 1)[0])
-        calls.append({"sources": sources, "foundation": saved, "schema": schema, "config": config, **kwargs})
+        calls.append({"prompt": prompt, "sources": sources, "foundation": saved, "schema": schema, "config": config, **kwargs})
         if kwargs.get("on_progress"):
             kwargs["on_progress"](kwargs["phase"])
         result = {"cards": {key: card() for key in sources["passages"]}, "relations": []}
@@ -63,6 +64,7 @@ def test_application_uses_one_call_and_retains_the_actual_foundation_and_sources
     result = reader_application.generate_application(docs, tasks, "en-US", foundation=saved, config=model(),
                                                        project_root=None, global_root=None, on_progress=phases.append)
     assert len(calls) == 1 and calls[0]["run_label"] == "reader-application"
+    assert calls[0]["prompt"].count(TEACHING_CORE) == 1
     assert calls[0]["config"] == model() and phases == ["writing"]
     generated = result["cards"][0]
     sent = calls[0]["sources"]["passages"]["a"]
@@ -115,7 +117,7 @@ def test_application_cache_is_question_specific_and_preserves_all_earlier_modes(
                                     preview="question-foundation", foundation=saved)
 
     first = generate(foundation())
-    assert not first["cached"] and first["version"] == 27 and first["process_version"] == 1
+    assert not first["cached"] and first["version"] == 28 and first["process_version"] == 1
     assert generate(foundation())["cached"] is True and len(calls) == 1
     second = generate(foundation(id="different-question", path="reader-notes/different-question.md"))
     assert not second["cached"] and len(calls) == 2
@@ -255,7 +257,7 @@ def test_application_route_uses_session_owned_artifact_and_shared_stream(project
         result = frames[-1]["result"]
     else:
         result = response.json()
-    assert result["version"] == 27 and result["cards"]["a"]["foundation_ref"]["id"] == saved["id"]
+    assert result["version"] == 28 and result["cards"]["a"]["foundation_ref"]["id"] == saved["id"]
     assert len(calls) == 1 and calls[0]["project_root"] == life
     assert calls[0]["foundation"]["markdown"].startswith("# The saved foundation")
     cached = client.get(path, params={"preview": "question-foundation", "foundation_id": saved["id"].upper(), "locale": "en-US"}, headers=headers).json()
@@ -281,7 +283,7 @@ def test_application_get_is_empty_and_post_refuses_missing_or_incomplete_foundat
     client = TestClient(create_app(global_root=tmp_path))
     path = f"/api/map-copy/project/{sid}"
     result = client.get(path, params=params).json()
-    assert result["version"] == 27 and result["available"] is False and result["cards"] == {} and result["relations"] == []
+    assert result["version"] == 28 and result["available"] is False and result["cards"] == {} and result["relations"] == []
     response = client.post(path, params=params, json={"cards": [{"key": "a", "task_id": "a", "kind": "task"}]})
     assert response.status_code == status and "text/event-stream" not in response.headers["content-type"]
 

@@ -73,6 +73,24 @@ frontend build and all 116 files / 1,049 tests passed at that checkpoint. New
 candidate evidence must retain the exact 6f origin instead of relabeling a 317
 or 8f8 state copy. The retained TUI is still the same bytes declared from 47c.
 
+Checkpoint `70026b6b80` passed the complete backend suite: 10,444 passed and
+56 skipped, with all 10,500 collected tests assigned once. Its 1,065 backend
+files and 423 frontend artifacts match Git/frozen/export/image. Browser control
+passed with a 94.6 ms cancel receipt, 289.8 ms Pi interruption and new target
+observed at 2059.3 ms. The separate actual Pi-to-gateway Stop flow passed for
+headers and streaming, preserving uncertain charges once and releasing slots.
+These are local observations; the browser routing/startup and upstream model
+remain fixtures, and the two flows are not one combined latency measurement.
+
+The final live check at 2026-09-13 03:45:41 UTC found a newer clean
+`59c3c21d4f9016cefa84f9029a94c477c612cb63`, with matching metadata and 11 ready
+APIs. The 700/6f gate correctly refused that drift; all its passing isolated
+evidence remains on 700 and no final handoff pointers moved. The incoming
+change shares novice-teaching requirements across reading surfaces and adds
+editable question suggestions. It is incorporated without changing the tested
+control/gateway/role implementations. Exact 59 compatibility and final source
+acceptance must be bound separately, without relabeling 6f samples.
+
 ## Required outcomes
 
 | Requirement | Evidence required for completion | Current state |

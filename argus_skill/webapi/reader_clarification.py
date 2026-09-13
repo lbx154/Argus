@@ -7,7 +7,7 @@ import json
 import time
 from pathlib import Path
 
-from .map_teaching_review import _object, _string
+from .map_teaching_review import TEACHING_CORE, _object, _string
 
 QUESTION_MARKER = "\nReader's actual follow-up question (JSON):\n"
 SOURCES_MARKER = "\nSaved reading sources (JSON):\n"
@@ -73,7 +73,9 @@ Use the selected card to resolve what words and symbols in the question refer to
 
 {supplied} Address the doubts in the actual question one by one, using the supplied sources as context rather than treating them as proven or infallible. Do not infer missing conversation turns, inspect files, consult a research transcript, or invent source material.
 
-Explain necessary concepts before relying on unfamiliar notation. Show the relevant operation with concrete eligible inputs, intermediate steps and a result the reader can recompute; when a changed input reveals the point, work through that change too. Explain what the comparison means and its limits. If the original explanation is wrong, ambiguous or omits a necessary condition, state the issue and give the correction explicitly in this answer. Never silently edit, replace or claim to have repaired the original document. Distinguish general background, a teaching example, a conjecture and a proved fact; admit what cannot be established from the available material.
+{TEACHING_CORE}
+
+Show the relevant operation with concrete eligible inputs, intermediate steps and a result the reader can recompute; when a changed input reveals the point, work through that change too. Explain what the comparison means and its limits. If the original explanation is wrong, ambiguous or omits a necessary condition, state the issue and give the correction explicitly in this answer. Never silently edit, replace or claim to have repaired the original document. Distinguish a conjecture from a proved fact; admit what cannot be established about this run from the available material.
 
 Stay with the reader's question. Do not generate a course plan, mastery score, research task, role assignment or implementation instructions. Return a useful short title and the complete answer as ordinary Markdown, without HTML or hidden details. Do not claim that the reader now understands or that the research goal is complete.
 
