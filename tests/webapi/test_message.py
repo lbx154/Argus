@@ -95,7 +95,7 @@ def _install_manager(monkeypatch, execution_for) -> None:
 def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
         "argus_skill.webapi.manager_bridge.manager_message",
-        lambda sid, text, *, global_root=None, cancelled=None: {"kind": "chat", "reply": "你好呀 👋"},
+        lambda sid, text, *, global_root=None, cancelled=None, defer_dispatch_ack=False: {"kind": "chat", "reply": "你好呀 👋"},
     )
     r = client.post("/api/projects/s-msgtest0/message", json={"text": "你好"})
     assert r.status_code == 200
@@ -1138,7 +1138,7 @@ def test_manager_steer_persists_high_priority_live_directive(
 def test_message_task_lazily_spawns_daemon(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         "argus_skill.webapi.manager_bridge.manager_message",
-        lambda sid, text, *, global_root=None, cancelled=None: {
+        lambda sid, text, *, global_root=None, cancelled=None, defer_dispatch_ack=False: {
             "kind": "task", "reply": None,
             "item": {"id": "x1", "title": "optimize kernel"}, "daemon_alive": False,
         },
@@ -2110,7 +2110,7 @@ def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) 
     """A streamed chat turn: the endpoint forwards each on_fragment(phase|delta)
     live, then a final ``done`` frame carrying the classification + reply."""
     def _streaming(
-        sid, text, *, global_root=None, on_fragment=None, cancelled=None,
+        sid, text, *, global_root=None, on_fragment=None, cancelled=None, defer_dispatch_ack=False,
     ):
         assert on_fragment is not None  # the stream endpoint MUST pass a sink
         on_fragment("phase", {"role": "manager", "label": "Manager · reading events.jsonl"})
@@ -2135,7 +2135,7 @@ def test_message_stream_task_spawns_and_reports(tmp_path: Path, monkeypatch) -> 
     """A streamed TEAM classification lazily spawns the executor (like /message)
     and the done frame carries the enqueued item."""
     def _streaming(
-        sid, text, *, global_root=None, on_fragment=None, cancelled=None,
+        sid, text, *, global_root=None, on_fragment=None, cancelled=None, defer_dispatch_ack=False,
     ):
         assert callable(cancelled) and not cancelled()
         return {"kind": "task", "reply": None,
@@ -2165,7 +2165,7 @@ def test_message_stream_standing_task_starts_continuous_executor(
     tmp_path: Path, monkeypatch,
 ) -> None:
     def _streaming(
-        sid, text, *, global_root=None, on_fragment=None, cancelled=None,
+        sid, text, *, global_root=None, on_fragment=None, cancelled=None, defer_dispatch_ack=False,
     ):
         return {
             "kind": "task",
@@ -2256,7 +2256,7 @@ def test_message_stream_keeps_ack_exception_in_diagnostic(
 
 def test_message_stream_error_frame(client: TestClient, monkeypatch) -> None:
     """A triage crash surfaces as an ``error`` frame, not a wedged stream."""
-    def _boom(sid, text, *, global_root=None, on_fragment=None, cancelled=None):
+    def _boom(sid, text, *, global_root=None, on_fragment=None, cancelled=None, defer_dispatch_ack=False):
         raise RuntimeError("kaboom")
 
     monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _boom)

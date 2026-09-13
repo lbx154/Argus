@@ -181,6 +181,11 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         result["daemon_alive"] = daemon_view["alive"]
         result["daemon_control_available"] = daemon_view["control_available"]
         if not starts_executor and result.get("kind") != "task":
+            # A control reply can itself advance the generation (natural
+            # language Pause). Only explicit request cancellation supersedes
+            # that successful reply while its final status read was pending.
+            if request_cancelled():
+                superseded()
             return result
 
         if superseded():
@@ -188,10 +193,11 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         with daemon_command_execution_lock(ctx.resolve_or_404(sid), blocking=False) as acquired:
             if superseded():
                 return result
-            if not acquired:
-                result["daemon"] = {"rc": 3, "error": "Daemon control is busy; retry shortly."}
-                return result
-            if starts_executor and not result.get("daemon_alive"):
+            if not acquired and starts_executor:
+                result["daemon"] = {
+                    "rc": 3, "control_busy": True, "error": "Daemon control is busy; retry shortly.",
+                }
+            elif starts_executor and not result.get("daemon_alive"):
                 try:
                     spawned = ctx.daemon_services.start(
                         sid, global_root=global_root,
@@ -203,12 +209,20 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                         "rc": 2, "error": "The background worker could not start.",
                         "diagnostic": f"{type(exc).__name__}: {exc}",
                     }
+            # Cancellation can arrive while startup is blocked. A late success
+            # must not publish an acknowledgement for a superseded request.
+            if superseded():
+                return result
             if result.get("kind") == "task":
                 try:
-                    record_task_dispatch_ack(sid, result, global_root=global_root, on_fragment=on_fragment)
+                    record_task_dispatch_ack(
+                        sid, result, global_root=global_root, on_fragment=on_fragment, operator_text=text,
+                        cancelled=superseded,
+                    )
                 except Exception as exc:  # noqa: BLE001 — preserve the task if its ACK write fails
                     result["ack_error"] = "The task was queued, but its confirmation could not be saved."
                     result["ack_diagnostic"] = f"{type(exc).__name__}: {exc}"
+            superseded()
         return result
 
     async def _resolve_message_attachments(
@@ -287,6 +301,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             attachments = await _resolve_message_attachments(sid, body, global_root=project_root)
             kwargs: dict[str, Any] = {
                 "global_root": project_root,
+                "defer_dispatch_ack": True,
                 "cancelled": lambda: lease.cancelled() or manager_control_generation(sid) != generation,
             }
             if attachments:
@@ -348,6 +363,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             try:
                 kwargs: dict[str, Any] = {
                     "global_root": project_root,
+                    "defer_dispatch_ack": True,
                     "on_fragment": _on_fragment,
                     "cancelled": lambda: lease.cancelled() or manager_control_generation(sid) != generation,
                 }

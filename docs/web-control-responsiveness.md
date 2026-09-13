@@ -34,6 +34,29 @@ Stopping a reply cancels the foreground request. Work already handed to the team
 has its separate task/daemon Stop controls. Changing the selected project only
 detaches its browser conversation; it does not implicitly cancel project work.
 
+## Dispatch confirmation
+
+HTTP message routes defer the bridge's queue echo until startup finishes. A
+streaming phase reports that the task is saved while startup is pending; then
+one confirmation is saved to the transcript and sent through SSE or the shared
+Activity channel. Direct bridge callers keep their existing queue echo.
+`manager_dispatch_receipt.py` owns this policy independently of pending questions.
+
+Queue insertion says "queued", and a Backlog claim says "claimed". Neither
+daemon readiness nor a claim proves that an Engineer/model has started. Fresh
+startup failure, admission delay or busy control takes precedence over the
+bridge's earlier queue observation. Replaying completed or paused work retains
+its duplicate confirmation even while an unrelated control command owns the lock.
+The original operator message selects the confirmation language, including when
+the Manager rewrites the task title or saves a continuous objective without a task.
+
+The route rechecks cancellation after startup and after preparing the receipt.
+Receipt persistence checks again after opening the transcript and before live
+publication. An append already completed remains a historical queue receipt;
+cancellation neither removes it nor rolls back an already committed task. These
+cooperative checks do not promise an atomic transaction spanning filesystem I/O
+and the in-memory cancellation registry.
+
 ## Verification
 
 `tests/webapi/test_message_requests.py` checks identity, capacity and ordering.
@@ -43,6 +66,12 @@ interruption, stale handoffs, resolved questions and paused/completed task repla
 through both HTTP message transports. Trial proxy tests hold ordinary connections
 open while forwarding cancellation on the reserved pool. Frontend tests cover
 independent cancellation, its deadline and request IDs on plain HTTP.
+
+`test_dispatch_receipt_truth.py` drives the real Manager/canonical Backlog through
+both HTTP transports with deterministic classification and startup, including
+failed startup, admission delay, claims and control contention.
+`test_dispatch_receipt_races.py` holds transcript opening or unrelated control
+locks to check cancellation and duplicate-message handling.
 
 An isolated ordinary-invitation browser test exercised the built UI, trial portal,
 WebAPI and actual bundled Pi process against a deliberately delayed local HTTP

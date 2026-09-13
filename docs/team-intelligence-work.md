@@ -2,31 +2,42 @@
 
 User objective, 2026-09-12: make Argus an evidence-driven, adaptable team that a person can supervise through its Manager. Improve the architecture through actual trial use. This is an active work record, not a completion claim.
 
-Current status: bounded real Copilot semantic recall has passed acceptance.
-Dynamic Engineer/Planner memory, complete observation identity, readable
-incomplete-observation feedback and Manager handoff fixes are committed in
-`4092a393d` with focused offline coverage. The previously observed live change
-`63738a4a8` is merged. The complete read-only live capture at 23:02:54 UTC observed
-clean source `98daa0d01a3b5d53297edee848df8aee4153e448`, all 11 APIs ready and stable
-identities throughout capture; that source is merged in `6f05afb10`. The merged frontend passed 937 tests and its standard generated-contract/type/build checks.
-Frozen `ec91af13e` then passed the complete Python suite: 10,045 passed,
-56 skipped and no failures. Its image/API/UDS, byte comparisons and browser
-control checks passed. The browser inspection found a public-objective event
-leak, and a delayed local embedding fixture found a cancellation delay; both
-follow-ups are tracked below and require separate final-candidate validation.
-Manager's four-phase real-model acceptance remains partial. This thread has
-not deployed these follow-ups.
+Validation baseline before this follow-up: `69a2f6f9c17029cee3fa0c38de20adf5cda97716`.
+Its frozen Python suite passed 10,071 tests with 56 skips and no failures;
+the unchanged frontend passed 942 tests and its final type/generated-contract/build
+checks. Image API/UDS checks passed, and 1,051 backend plus 354 frontend files
+matched Git, exported source and image bytes. The private immutable
+`FINAL-CANDIDATE-69a2f6f9c.md` records the exact receipts.
+
+The actual-browser/local-Pi acceptance measured 89.3 ms for cancellation HTTP,
+194.3 ms for Pi interruption, and 1,123.3 ms to the replacement stream's completion.
+Forced old-cache refill now returns the updated snapshot after completion.
+These are isolated measurements with deterministic classification and daemon
+startup; the canonical Backlog claim does not establish real Engineer execution.
+Cancelled late replies, internal objective wrappers, optional embedding cancellation
+and streamed-response cache invalidation are repaired in this candidate.
+
+Follow-up work is now validating durable bounded settlement learning, Manager
+provider-context maintenance, and a single truthful HTTP dispatch receipt.
+The later read-only capture at 00:10:22 UTC observed clean live `aeeac67fc5`
+with all 11 APIs ready. Its explanation-progress changes were merged in `f606a88f1`
+with the existing related-source cache fixes; 952 frontend tests and the
+standard generated-contract/type/build checks passed. The combined code requires a
+separate frozen validation and storage compatibility receipt. The current candidate's evidence does not certify these later changes.
+Real Manager four-phase acceptance and Planner/Reviewer final main replies remain
+partial; no paid test was repeated to obtain a pass. This thread has not deployed
+or migrated live project state.
 
 ## Required outcomes
 
 | Requirement | Evidence required for completion | Current state |
 | --- | --- | --- |
 | Optional advisor with a separately selected model | Manager, Planner, Engineer and Reviewer each invoke the real tool; selected model remains distinct; actual cost/cancellation/evidence and parent call are recorded | Pi native tools and Copilot scoped MCP implemented. Real Engineer and Manager complete turns passed. Planner and Reviewer completed real consultations; their final main replies were rejected before upstream dispatch by trial quota reservation, so complete-turn acceptance remains partial |
-| Manager as a persistent supervising session | Session survives process restart; answers current progress from current project evidence; ongoing team review can change direction at a safe boundary and records why | Real persistence, STEER and WAIT reached role boundaries; the four-phase model acceptance remains partial. Complete observation identity, safe incomplete-source handling and evidence-bearing session handoffs have offline coverage. Provider-history capacity remains unresolved |
+| Manager as a persistent supervising session | Session survives process restart; answers current progress from current project evidence; ongoing team review can change direction at a safe boundary and records why | Real persistence, STEER and WAIT reached role boundaries; the four-phase model acceptance remains partial. Complete observation identity, safe incomplete-source handling and evidence-bearing session handoffs have offline coverage. Provider-history capacity has a measured local reproduction and an implementation under validation |
 | Useful, concise human interaction | Desktop/mobile trial recordings show what happened, what changed, evidence and next action; generic stage labels alone do not pass | Existing invite baseline captured; candidate idle entry and concrete Advisor/Manager/peer events implemented; composer Stop now reaches the actual Pi process |
 | Dynamic agent-led work | Different evidence leads to different tool/team/continuation decisions; fixed control flow cannot masquerade as agent judgment | Evidence-driven continue/steer/wait applies at real role boundaries; waiting mission A does not block independent B; broader task-type acceptance remains |
 | Daemon-to-daemon exchange | Two project daemons exchange a request and correlated reply across restart; peer advice cannot acquire operator authority | Durable correlated mailbox and call-bound Manager tools implemented; queued offline messages and crash recovery tested; no automatic peer startup |
-| User and project learning | Explicit scope, override, revoke and one-time instruction behavior survives restart and compaction; relevant corrections reach subsequent role prompts | Global/project precedence and bounded checkpoints are implemented. Real runtime prompt assembly now refreshes Engineer memory each round and Planner memory at its call boundary; offline regressions cover correction/retraction and preference revocation. Legacy callers retain snapshots; the settlement-to-capture window remains |
+| User and project learning | Explicit scope, override, revoke and one-time instruction behavior survives restart and compaction; relevant corrections reach subsequent role prompts | Global/project precedence and bounded checkpoints are implemented. Real runtime prompt assembly now refreshes Engineer memory each round and Planner memory at its call boundary; offline regressions cover correction/retraction and preference revocation. Legacy callers retain snapshots; the settlement-to-capture recovery and bounded pending window are under validation |
 | Bounded, revisable experience and vector retrieval | Real settlement/learning updates stable records; retire/merge replaces vectors; retrieval excludes superseded content; long-run active/history storage remains bounded | Canonical lifecycle and bounded optional adapter are implemented. Real Copilot semantic recall passed 13 checks using 4 requests / 128 actual tokens, including restart cache reuse, revision and retraction. Default recall remains lexical hashing; this bounded probe does not establish long-run learning quality |
 | Evidence-driven self-improvement | Accepted/rejected lessons cite real outcomes; usage or similarity alone is never evidence of correctness | Correction requires revision and reason. Host reads bounded scoped evidence bytes and records their hashes; symlink/FIFO isolation and concurrent index updates are tested. A byte hash does not establish that the model's interpretation is true |
 | User-perspective trial and coordination | Real invite login, ordinary-user UI, Manager inquiry, advisor and control flows exercised; findings drive changes; concurrent source preserved | Live `63738a4a8` is merged; clean `98daa0d01a3b5d53297edee848df8aee4153e448` and all 11 ready APIs were observed at 23:02:54 UTC, with stable capture identities. Its integration passed 937 frontend tests and build. The cancelled-triage late-reply race is repaired with 117 focused backend tests; combined frozen validation follows. No deployment by this thread |
@@ -49,9 +60,10 @@ automatic old-image rollback after the new writer has migrated project state.
 
 ## Integrated validation and limits
 
-The complete runs below certify their named immutable baselines. They do not
-certify the subsequent runtime/Manager follow-ups or the in-progress `98daa`
-merge; the next combined immutable run remains pending.
+The runs below certify their named immutable baselines. Later paragraphs retain
+the history of failures and follow-up work; the last completed validation baseline is
+listed at the top. The new settlement, Manager-capacity and receipt changes are
+not covered by that candidate until their own frozen validation finishes.
 
 The implementation was committed as `b42251b7e`; `48def20fc` then declared
 the composed Manager/supervisor type contracts. Against the c7 live baseline,

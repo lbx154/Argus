@@ -165,6 +165,7 @@ def manager_message(
     source_channel: str = "web",
     source_message_id: str = "",
     route_override: str = "",
+    defer_dispatch_ack: bool = False,
 ) -> dict[str, Any]:
     """Run a Manager turn with request-scoped provider interruption."""
     from ..core.run_gateway import run_interrupt_scope
@@ -184,6 +185,7 @@ def manager_message(
             sid, text, global_root=global_root, attachments=attachments,
             on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
             source_message_id=source_message_id, route_override=route_override,
+            defer_dispatch_ack=defer_dispatch_ack,
         )
 
 
@@ -198,6 +200,7 @@ def _manager_message(
     source_channel: str = "web",
     source_message_id: str = "",
     route_override: str = "",
+    defer_dispatch_ack: bool = False,
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -444,7 +447,8 @@ def _manager_message(
                 or operator_text
                 or body
             )
-            emitter.emit_only(f"Already queued · {title}")
+            if not defer_dispatch_ack:
+                emitter.emit_only(f"Already queued · {title}")
             return {
                 "kind": "task",
                 "reply": None,
@@ -672,7 +676,14 @@ def _manager_message(
         or operator_text
         or body
     )
-    if result.get("dispatch_state") == "planner_pending":
+    if defer_dispatch_ack:
+        from ..core.operator_messages import uses_cjk
+
+        emitter.phase(
+            "已保存，正在确认执行状态" if uses_cjk(text)
+            else "Saved; checking executor status"
+        )
+    elif result.get("dispatch_state") == "planner_pending":
         emitter.emit_only(
             "Campaign updated · Planner will sequence this objective after "
             f"current work · {title}"

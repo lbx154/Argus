@@ -26,7 +26,9 @@ capacity retirement, never as successful learning. Undelivered completions are
 excluded from the learning window and are not discarded.
 
 Version 1 envelopes remain readable, but contain no recoverable learning capsule.
-Old runtimes reject version 2. Upgrade all shared Backlog writers together and
+The prior version 1 runtime (`69a2f6f9c`) rejects version 2. Earlier runtimes that
+predate delivery recovery may ignore its files; that rejection is not a general
+rollback guarantee. Upgrade all shared Backlog writers together and
 include every `Backlog.storage_paths` entry in a quiesced state copy, especially
 the pending-delivery directory and retirement metadata. An old binary is not a
 safe automatic rollback after a new writer has committed version 2 state.
