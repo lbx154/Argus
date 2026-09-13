@@ -7,6 +7,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from threading import Lock
 from typing import Any, Callable, Iterator
 
 from .models import RunnerOptions, RunnerResult
@@ -17,10 +18,34 @@ _INTERRUPT: ContextVar[Callable[[], str | None] | None] = ContextVar("argus_run_
 
 
 @contextmanager
-def run_interrupt_scope(provider: Callable[[], str | None]) -> Iterator[None]:
-    """Attach one request's cancellation to calls without mutating cached runners."""
+def run_interrupt_scope(
+    provider: Callable[[], str | None], *, retain_first_reason: bool = False,
+) -> Iterator[None]:
+    """Attach request cancellation without mutating cached runners.
+
+    A caller that polls during preparation can retain its first reason until
+    this scope exits, so a one-shot abort also reaches subsequent provider calls.
+    """
     previous = _INTERRUPT.get()
-    token = _INTERRUPT.set(lambda: provider() or (previous() if previous else None))
+    first_reason: str | None = None
+    reason_lock = Lock()
+
+    def interrupt_reason() -> str | None:
+        nonlocal first_reason
+        if retain_first_reason:
+            with reason_lock:
+                if first_reason:
+                    return first_reason
+        # Poll outside the lock: a slow inherited state read must not prevent
+        # another thread in a copied context from observing the current Stop.
+        reason = provider() or (previous() if previous else None)
+        if retain_first_reason:
+            with reason_lock:
+                first_reason = first_reason or reason
+                return first_reason
+        return reason
+
+    token = _INTERRUPT.set(interrupt_reason)
     try:
         yield
     finally:
