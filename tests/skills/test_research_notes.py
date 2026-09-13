@@ -60,3 +60,20 @@ def test_stage_context_loads_the_notes_under_the_new_name(tmp_path: Path) -> Non
     assert "UNIQUE_THESIS_LINE" in block
     assert f"`{RESEARCH_NOTES_FILENAME}`" in block
     assert (tmp_path / RESEARCH_NOTES_FILENAME).exists()
+
+
+def test_team_workers_read_the_notes_and_leave_them_to_the_dispatching_mission(
+    monkeypatch,
+) -> None:
+    from argus_skill.verticals.research import stages
+
+    monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
+    solo = stages.role_banner("engineer")
+    assert "rewrite the research notes, RESEARCH_NOTES.md" in solo
+
+    monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", "research-idea-pipeline-v8-g1-route-03")
+    worker = stages.role_banner("engineer")
+    assert "rewrite the research notes" not in worker
+    assert "leave them unchanged" in worker
+    assert worker.startswith(solo.split(" and rewrite the research notes")[0])
+    assert stages.role_banner("reviewer") == stages._REVIEWER_RESEARCH_JUDGEMENT

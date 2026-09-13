@@ -206,7 +206,7 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
   const context = { locale: 'en', showReasoning: true, unknownEventPolicy: 'hide', density: 'full' } as const;
   const oldRendererBugs: Record<string, Partial<ReturnType<typeof semanticProjection>>> = {
     // The old TUI hard-codes Chinese for only three event families instead of honoring one locale policy.
-    'life.manager.intent.started': { text: 'working out what kind of request this is…' },
+    'life.manager.intent.started': { text: 'Working out how to handle your request…' },
     'life.manager.intent.failed': { text: 'could not work out where this request belongs · model service 401 Missing bearer (attempt 2) · error text: VerticalDecisionError: routing failed' },
     'life.phase.started': { text: 'entering implementation' },
     // The old TUI leaks recognized credentials; the semantic core redacts them.
@@ -255,7 +255,7 @@ test('render-events streams semantic-core corpus events as one plain line per ND
 
   assert.equal(
     rendered,
-    '🧭 [Manager] 判断这是什么样的请求…\n'
+    '🧭 [Manager] 正在安排处理方式…\n'
     + '• [Argus] [future.event] kept for grep\n'
     + '⛔ [监控] 卡住了 — 需要你来处理 · Renderer event detail\n',
   );

@@ -85,6 +85,12 @@ def _project_state_dir_for(args: argparse.Namespace, workdir: Path) -> Path | No
 
 def _checkpoint_path_for(args: argparse.Namespace, workdir: Path) -> Path | None:
     """Shared checkpoint in internal project state, never the output workdir."""
+    explicit = str(getattr(args, "checkpoint_path", "") or "").strip()
+    if explicit:
+        # A caller that owns its continuation note names it directly. A team
+        # worker does this: its siblings share the project tree, so the note
+        # must stay private even where project-state persistence is off.
+        return Path(explicit).expanduser()
     if not _env_flag("ARGUS_SKILL_CHECKPOINT_PERSIST", True):
         return None
     try:
