@@ -631,12 +631,29 @@ async function readSSE(
 let activeSnapshotPrewarmSid: string | null = null;
 
 /** An explicitly selected preview uses the normal web request and its own cache. */
-function mapCopyPath(source: string, name: string, values: Record<string, string>, sessionId?: string, preview = readerPreview()): string {
+function mapCopyPath(source: string, name: string, values: Record<string, string>, sessionId?: string, preview = readerPreview(), foundationId?: string | null): string {
   const params = new URLSearchParams(values);
   if (sessionId) params.set('session_id', sessionId);
   if (preview === 'source-first') params.set('preview', 'true');
   if (preview === 'learning-path') params.set('preview', 'learning-path');
+  if (preview === 'question-foundation') {
+    params.set('preview', 'question-foundation');
+    if (foundationId) params.set('foundation_id', foundationId);
+  }
   return `/api/map-copy/${source}/${encodeURIComponent(name)}?${params}`;
+}
+
+/** Both explanation purposes use the same stream and terminal/EOF semantics. */
+async function explanationResponse<T>(path: string, body: unknown, signal?: AbortSignal, onProgress?: (phase: ExplanationPhase) => void): Promise<T> {
+  const response = await postResponse(path, body, signal);
+  let receivedTerminal = false;
+  const terminal = await readSSE(response, 'Explanation stream', frame => {
+    if (frame.type === 'done' || frame.type === 'error') receivedTerminal = true;
+    if (!receivedTerminal && frame.type === 'progress' && EXPLANATION_PHASES.has(frame.phase))
+      onProgress?.(frame.phase as ExplanationPhase);
+  }, signal);
+  if (terminal.type === 'error') throw new Error(String(terminal.error ?? 'Explanation failed'));
+  return terminal.result as T;
 }
 
 export const api = {
@@ -659,18 +676,11 @@ export const api = {
     if (taskAfter) params.set('task_after', taskAfter);
     return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
   },
-  mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview), signal),
-  generateMapCopy: async (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, onProgress?: (phase: ExplanationPhase) => void): Promise<import('./map/presentation').MapCopy> => {
-    const response = await postResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview), body, signal);
-    let receivedTerminal = false;
-    const terminal = await readSSE(response, 'Explanation stream', frame => {
-      if (frame.type === 'done' || frame.type === 'error') receivedTerminal = true;
-      if (!receivedTerminal && frame.type === 'progress' && EXPLANATION_PHASES.has(frame.phase))
-        onProgress?.(frame.phase as ExplanationPhase);
-    }, signal);
-    if (terminal.type === 'error') throw new Error(String(terminal.error ?? 'Explanation failed'));
-    return terminal.result as import('./map/presentation').MapCopy;
-  },
+  mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, foundationId?: string | null) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview, foundationId), signal),
+  generateMapCopy: (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string; foundation_id?: string}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, onProgress?: (phase: ExplanationPhase) => void): Promise<import('./map/presentation').MapCopy> =>
+    explanationResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview, body.foundation_id), body, signal, onProgress),
+  generateReaderFoundation: (sid: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US'; source_task_id?: string }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
+    explanationResponse(P(sid, '/reader-foundation?stream=true'), body, undefined, onProgress),
   mapDatasets: (signal?: AbortSignal) => getJson<{ datasets: import('./map/model').DatasetSummary[] }>('/api/map-datasets', signal),
   mapDataset: (id: string, signal?: AbortSignal) => getJson<import('./map/model').Dataset>(`/api/map-datasets/${encodeURIComponent(id)}`, signal),
   meta: compatibleApiMeta,
@@ -783,8 +793,8 @@ export const api = {
       P(sid, `/backlog/${encodeURIComponent(id)}`),
       signal,
     ).then((r) => r.item),
-  artifacts: (sid: string, signal?: AbortSignal) =>
-    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, '/artifacts'), signal)
+  artifacts: (sid: string, signal?: AbortSignal, includeReading = false) =>
+    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, `/artifacts${includeReading ? '?include_reading=true' : ''}`), signal)
       .then((r) => r.artifacts),
   artifact: (sid: string, path: string, signal?: AbortSignal) => {
     const q = new URLSearchParams({ path });

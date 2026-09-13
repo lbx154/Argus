@@ -11,8 +11,8 @@ const SEMANTIC_EVENTS = new Set([
   'turn.asked', 'turn.replied',
 ]);
 
-export function briefCopyKey(sid: string, locale: string, preview = readerPreview()) {
-  return mapCopyKey('project', sid, locale, sid, preview);
+export function briefCopyKey(sid: string, locale: string, preview = readerPreview(), foundationId?: string | null) {
+  return mapCopyKey('project', sid, locale, sid, preview, foundationId);
 }
 
 export function briefSelection(snapshot: Snapshot, view: MissionView): MapSelection {

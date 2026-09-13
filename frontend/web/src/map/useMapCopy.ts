@@ -6,6 +6,7 @@ import type { Dataset } from "./model";
 import { buildSubmap, type SubmapStep } from "./submap";
 import { briefEvidence, briefInputSignature, briefRequest } from '../research-brief/model';
 import { beginExplanationProgress, explanationRunStart, useExplanationProgress } from '../research-brief/progress';
+import { useSelectedFoundation } from '../research-brief/foundation';
 import {
   mergeMapCopy,
   needsCardCopy,
@@ -82,12 +83,16 @@ export function useMapCopy(
   _paused = false,
   prewarm = false,
   readingKey: string | null = focused,
+  pinnedFoundationId?: string | null,
 ) {
   const locale = zh ? "zh-CN" : "en-US";
   const source = data.kind === "live" ? "project" : "dataset";
   const name = data.id.replace(/^live:/, "");
   const preview = readerPreview();
-  const key = mapCopyKey(source, name, locale, sessionId, preview);
+  const foundationChoice = useSelectedFoundation(sessionId ?? name, locale);
+  const foundationId = preview === 'question-foundation' ? pinnedFoundationId === undefined ? foundationChoice.id : pinnedFoundationId : null;
+  const foundationRequired = preview === 'question-foundation' && !foundationId;
+  const key = mapCopyKey(source, name, locale, sessionId, preview, foundationId);
   const context = JSON.stringify(key);
   const contextRef = useRef(context);
   contextRef.current = context;
@@ -97,7 +102,9 @@ export function useMapCopy(
   const copy = useQuery({
     queryKey: key,
     queryFn: async ({ signal }) => {
-      const result = await api.mapCopy(source, name, locale, signal, sessionId, preview);
+      const result = preview === 'question-foundation'
+        ? await api.mapCopy(source, name, locale, signal, sessionId, preview, foundationId)
+        : await api.mapCopy(source, name, locale, signal, sessionId, preview);
       const previous = queryClient.getQueryData<MapCopy>(key);
       return mergeMapCopy(previous, result, previous?.model_revision);
     },
@@ -145,7 +152,7 @@ export function useMapCopy(
     .slice(0, 8);
   const inputSignature = mapCopyInputSignature(data, cards);
   const generationScope = ['map-copy-generation', source, name, locale, sessionId];
-  const generationKey = [...generationScope, preview, copy.data?.version ?? null,
+  const generationKey = [...generationScope, preview, ...(preview === 'question-foundation' ? [foundationId] : []), copy.data?.version ?? null,
     copy.data?.model_revision ?? null, inputSignature,
     cards.map(card => needsRelatedCheck(card) ? relatedCheckKey(card) : null)];
   const signature = JSON.stringify(generationKey);
@@ -161,7 +168,8 @@ export function useMapCopy(
       })));
       let result: MapCopy;
       try {
-        result = await api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId, preview, observed.update);
+        result = await api.generateMapCopy(source, name, { cards, locale,
+          ...(foundationId ? { foundation_id: foundationId } : {}) }, undefined, sessionId, preview, observed.update);
       } finally {
         observed.finish();
       }
@@ -209,6 +217,7 @@ export function useMapCopy(
   useEffect(() => {
     if (
       !allowGeneration ||
+      foundationRequired ||
       !copy.data?.available ||
       !cards.length ||
       generation.isError || (generation.isSuccess && !retryAfter) || activeGenerations > 0 ||
@@ -226,10 +235,11 @@ export function useMapCopy(
   }, [signature, pulse, copy.data?.available, allowGeneration, activeGenerations, generation.status, generation.dataUpdatedAt]);
   const busy = generating || generation.isFetching || activeGenerations > 0;
   const retry = async () => {
-    if (!allowGeneration || !copy.data?.available || !cards.length || busy || inflight.current) return;
+    if (!allowGeneration || foundationRequired || !copy.data?.available || !cards.length || busy || inflight.current) return;
     await startGeneration().catch(() => undefined);
   };
   return { copy: copy.data, generating: busy, ready: copy.isFetched,
+    foundationRequired,
     readingGenerating: progress.active, generationPhase: progress.phase,
     generationError: cards.length && !generation.isFetching && !progress.active ? generation.error : null,
     generationUnavailable: !!cards.length && !generation.isFetching && !progress.active && !retryAfter && generation.data?.available === false,

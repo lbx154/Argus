@@ -92,7 +92,8 @@ class ResearchControls:
             # Attachments and arbitrary command/resource objects are not research inputs.
             return Capture(self.analytics, tenant_id, sid, path, {
                 key: value for key, value in data.items()
-                if key in {"text", "name", "route_override"} and isinstance(value, str)
+                if key in {"text", "name", "route_override", "request_id", "question",
+                           "locale", "source_task_id"} and isinstance(value, str)
             })
 
     def delete_copies(self, journal, tenant_id, sid):

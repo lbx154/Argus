@@ -59,6 +59,7 @@ import "./notes.css";
 import { BranchNode, BRANCH_FRAME, GROUP_FRAME, type BranchFlowNode } from "./BranchNode";
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
+import { useSelectedFoundation } from '../research-brief/foundation';
 import { MapComposer, type MapComposerProps } from "./MapComposer";
 import { referenceText, type CardReference } from "./presentation";
 import type { ArtifactInfo, DeliveryReceipt, EventMsg } from "../../../core/src/types";
@@ -184,13 +185,14 @@ export function MapCanvas({
   const [pendingCard, setPendingCard] = useState<string | null>(null);
   const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
-  const [readingCopy, setReadingCopy] = useState<{ nodeId: string; key: string } | null>(null);
+  const foundationChoice = useSelectedFoundation(sessionId, zh ? 'zh-CN' : 'en-US');
+  const [readingCopy, setReadingCopy] = useState<{ nodeId: string; key: string; foundationId: string | null } | null>(null);
   const readCopy = useCallback((nodeId: string, key: string | null) => {
     // An explicit task modal outlives changes to its background card's focus.
     // Step readers still close when their owning card leaves detailed mode.
-    setReadingCopy(previous => key ? { nodeId, key }
+    setReadingCopy(previous => key ? { nodeId, key, foundationId: foundationChoice.id }
       : previous?.nodeId === nodeId && !data.tasks.some(task => task.id === previous.key) ? null : previous);
-  }, [data.tasks]);
+  }, [data.tasks, foundationChoice.id]);
   useEffect(() => {
     setReadingCopy(previous => previous && (previous.nodeId === camera.focusId
       || data.tasks.some(task => task.id === previous.key)) ? previous : null);
@@ -211,7 +213,7 @@ export function MapCanvas({
     ...dependencies.downstream.map((task) => task.id),
   ]) : null, [tracedTask, dependencies]);
   const { copy, ready: copyReady, generating: copyGenerating, readingRequest, readingNeedsUpdate,
-    readingGenerating, generationPhase,
+    readingGenerating, generationPhase, foundationRequired,
     generationError: copyGenerationError, generationUnavailable: copyGenerationUnavailable, retry: retryCopy } = useMapCopy(
     data,
     readingTask?.id || focusedNode?.data.task.id || null,
@@ -222,6 +224,7 @@ export function MapCanvas({
     paused,
     false,
     readingKey,
+    readingCopy?.foundationId,
   );
   const readingEvidence = useMemo(() => {
     if (!readingRequest) return [];
@@ -230,10 +233,10 @@ export function MapCanvas({
   }, [readingRequest, copy, data.events]);
   const readerSelection = useMemo<MapReaderSelection | undefined>(() => readingRequest ? {
     request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: readingGenerating,
-    phase: generationPhase, error: copyGenerationError, unavailable: copyGenerationUnavailable,
+    phase: generationPhase, error: copyGenerationError, unavailable: copyGenerationUnavailable, foundationRequired,
     retry: readOnly ? undefined : retryCopy, retryDisabled: copyGenerating,
   } : undefined, [readingRequest, readingEvidence, readingNeedsUpdate, copyGenerating, readingGenerating, generationPhase,
-    copyGenerationError, copyGenerationUnavailable, readOnly, retryCopy]);
+    copyGenerationError, copyGenerationUnavailable, readOnly, retryCopy, foundationRequired]);
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh),
     [graph, copy?.relations, zh],

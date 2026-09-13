@@ -30,12 +30,13 @@ def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
         "/api/projects/{sid}/artifacts",
         dependencies=[Depends(ctx.require_auth)],
     )
-    def _artifacts(sid: str, response: Response) -> dict[str, Any]:
+    def _artifacts(sid: str, response: Response, include_reading: bool = False) -> dict[str, Any]:
         response.headers["Cache-Control"] = "private, no-store"
         return {
             "artifacts": ctx.not_found_if_none(
                 server_mod.list_project_artifacts(
-                    sid, global_root=ctx.project_root_or_404(sid)
+                    sid, global_root=ctx.project_root_or_404(sid),
+                    **({"include_reading": True} if include_reading else {}),
                 ),
                 sid,
             )

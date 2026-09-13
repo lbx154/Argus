@@ -20,6 +20,7 @@ export interface MapReaderSelection {
   unavailable?: boolean;
   retry?: () => Promise<unknown>;
   retryDisabled?: boolean;
+  foundationRequired?: boolean;
 }
 
 /** Only this card's copy and event range enter the reader; no task-root fallback. */
@@ -41,7 +42,8 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
     <ReaderExplanationStatus generatedAt={card?.generated_at} pending={selected?.pending} generating={selected?.generating} hasExplanation={!!card}
       phase={selected?.phase} error={selected?.error} unavailable={selected?.unavailable} retry={selected?.retry} retryDisabled={selected?.retryDisabled} />
     <ReaderEvidenceSummary selection={sources} />
-    {brief ? <ReaderExplanation brief={brief} identity={cardKey} detail={card?.detail} learningPath={card?.learning_path}
+    {selected?.foundationRequired ? <p className="mt-2 text-xs text-ink-dim">{zh ? '先在“问题基础”里选择一份说明，再阅读本次进展的解释。原始记录仍可查看。' : 'Choose a saved foundation to explain this progress. The original records remain available.'}</p> : null}
+    {brief ? <ReaderExplanation brief={brief} identity={cardKey} detail={card?.detail} learningPath={card?.learning_path} foundation={card?.foundation_ref}
       readingUnavailable={card?.teaching_review?.reading_review?.status === 'unavailable'}
       teachingUnavailable={card?.teaching_review?.status === 'unavailable'} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       : <>

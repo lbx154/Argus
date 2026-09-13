@@ -14,10 +14,10 @@ import { Spinner } from './primitives';
 import { useI18n } from '../i18n';
 import { PdfPreview } from './PdfPreview';
 import { setDesktopLargePreview } from '../lib/desktopBridge';
-import { isMarkdownArtifact } from '../lib/artifactPresentation';
+import { isMarkdownArtifact, readerFoundationTitle } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
 
-/** Authenticated preview/download for one result file the Reviewer has checked. */
+/** Authenticated preview/download for one registered project file. */
 export function ArtifactModal({
   sid,
   path,
@@ -42,6 +42,7 @@ export function ArtifactModal({
   const files = delivery ? deliveryFiles(delivery) : [];
   const artifactQ = useArtifact(sid, path);
   const info = artifactQ.data;
+  const foundation = info?.source === 'reader_foundation' ? info.reader_foundation : undefined;
   const markdownPreview = info ? isMarkdownArtifact(info) : false;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
@@ -121,11 +122,12 @@ export function ArtifactModal({
       {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
       <div className={`flex shrink-0 items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate font-mono text-sm font-semibold text-ink" title={info?.storage_path ?? info?.path ?? path ?? ''}>
-            {info?.name ?? path ?? t('artifact.title')}
+          <h2 className={`truncate text-sm font-semibold text-ink ${foundation ? '' : 'font-mono'}`} title={foundation?.question ?? info?.storage_path ?? info?.path ?? path ?? ''}>
+            {foundation ? readerFoundationTitle(foundation) : info?.name ?? path ?? t('artifact.title')}
           </h2>
           <p className="mt-0.5 truncate text-[11px] text-ink-faint">
-            {info ? `${info.kind} · ${formatBytes(info.size)} · ${info.mime}` : t('artifact.approvedEvidence')}
+            {foundation ? (zh ? '背景说明 · 不计作研究进展' : 'Background explanation · separate from research progress')
+              : info ? `${info.kind} · ${formatBytes(info.size)} · ${info.mime}` : zh ? '正在读取文件' : 'Loading file'}
           </p>
         </div>
         {delivery && <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? (zh ? '收起预览' : 'Exit full screen') : (zh ? '全屏预览' : 'Full screen preview')} title={zh ? '切换全屏预览' : 'Toggle full screen preview'} className="shrink-0 rounded-md border border-line p-2 text-ink-dim">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
@@ -157,7 +159,7 @@ export function ArtifactModal({
         {artifactQ.isError ? (
           <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · {(artifactQ.error as Error).message}</div>
         ) : null}
-        {info?.why && !pdfPreview && !delivery ? (
+        {info?.why && !foundation && !pdfPreview && !delivery ? (
           <div className="mb-3 rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-dim">
             <span className="mr-1 text-ink-faint">Reviewer:</span>{info.why}
           </div>
@@ -179,6 +181,9 @@ export function ArtifactModal({
               {info.mtime != null && <div>{zh ? '最近更新：' : 'Last updated: '}{new Date(info.mtime * 1000).toLocaleString(locale)}</div>}
             </div>}
             <MarkdownContent artifacts={files.map((file) => ({ path: file.path }))} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
+            {info.truncated ? <p role="status" className="mt-3 border-t border-line pt-2 text-xs text-ink-faint">
+              {t('artifact.truncated')} · {t('artifact.downloadHint')}
+            </p> : null}
           </div>
         ) : null}
         {info?.kind === 'json' ? <JsonPreview value={info.preview || ''} /> : null}

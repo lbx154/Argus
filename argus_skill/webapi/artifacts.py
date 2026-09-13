@@ -325,12 +325,11 @@ def list_project_artifacts(
     sid: str,
     *,
     global_root: Path | str | None = None,
+    include_reading: bool = False,
 ) -> list[dict[str, Any]] | None:
     if project_life_dir(sid, global_root=global_root) is None:
         return None
     workspace = artifact_workspace(sid, global_root=global_root)
-    if workspace is None:
-        return []
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     evidence_rows = [
@@ -341,8 +340,12 @@ def list_project_artifacts(
         ),
         *manager_live_view_files(sid, workspace, global_root=global_root),
         *registered_research_artifacts(sid, global_root=global_root),
-    ]
+    ] if workspace is not None else []
     for evidence in evidence_rows:
+        # Reading notes have their own session registration and never become
+        # reviewed research outputs through a delivery/live-view declaration.
+        if PurePosixPath(evidence["path"].replace("\\", "/")).parts[:1] == ("reader-notes",):
+            continue
         row = artifact_metadata(workspace, evidence["path"], why=evidence["why"])
         if (
             row is not None
@@ -355,6 +358,10 @@ def list_project_artifacts(
             row["group_title"] = evidence["group_title"]
             seen.add(row["path"])
             rows.append(row)
+    if include_reading:
+        from .reader_foundation import registered_foundation_artifacts
+
+        rows.extend(registered_foundation_artifacts(resolve_global_root(global_root), sid))
     return rows
 
 
@@ -365,6 +372,14 @@ def get_project_artifact(
     global_root: Path | str | None = None,
     preview_bytes: int = 128 * 1024,
 ) -> dict[str, Any] | None:
+    if PurePosixPath(str(artifact_path).strip().replace("\\", "/")).parts[:1] == ("reader-notes",):
+        from .reader_foundation import registered_foundation_artifact
+
+        row = registered_foundation_artifact(
+            resolve_global_root(global_root), sid, artifact_path,
+            preview_bytes=max(0, min(int(preview_bytes), 512 * 1024)),
+        )
+        return row if row is not None and row["exists"] else None
     artifacts = list_project_artifacts(sid, global_root=global_root)
     if artifacts is None:
         return None
@@ -403,6 +418,11 @@ def resolved_project_artifact(
         global_root=global_root,
         preview_bytes=0,
     )
+    if info is not None and info.get("source") == "reader_foundation":
+        # This address was resolved from this session's registered fixed
+        # workspace by get_project_artifact, never from a request field.
+        path = Path(info["storage_path"])
+        return (info, path) if path.is_file() else None
     workspace = artifact_workspace(sid, global_root=global_root)
     if info is None or workspace is None:
         return None

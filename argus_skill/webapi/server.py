@@ -640,6 +640,9 @@ def create_app(
     register_counterexample_routes(app, ctx, server_mod)
     register_daemon_routes(app, ctx, server_mod)
     register_artifact_routes(app, ctx, server_mod)
+    from .routes.reader_foundation import register_reader_foundation_routes
+
+    register_reader_foundation_routes(app, ctx)
     register_manager_routes(app, ctx, server_mod)
     register_meta_routes(app, ctx, server_mod)
     register_advisor_routes(app, ctx)

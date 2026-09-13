@@ -134,7 +134,7 @@ PROJECT_WRITES = re.compile(
     r"^/api/projects/[^/]+/(?:attachments|message(?:/stream|/cancel)?|advisor/config|tasks|nudge|note|"
     r"plan|prompt/rewrite|reset|continuous|daemon/(?:start|stop)|mission/abort|"
     r"backlog/[^/]+/(?:answer|dispose|stop)|decisions/[^/]+/resolve|"
-    r"reviews/final|map-notes)$"
+    r"reviews/final|map-notes|reader-foundation)$"
 )
 # These operations must remain reachable while ordinary reads or message
 # streams occupy every workspace connection. Keep model-backed routes out.
@@ -1169,7 +1169,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             extensions=backend_extensions,
         )
         capture = None
-        interaction = re.fullmatch(r"/api/projects/([^/]+)/(?:message(?:/stream)?|tasks)", path)
+        interaction = re.fullmatch(r"/api/projects/([^/]+)/(?:message(?:/stream)?|tasks|reader-foundation)", path)
         if analytics is not None and identity["role"] == "trial" and request.method == "POST" and interaction:
             capture = await run_in_threadpool(
                 app.state.research_controls.capture,
