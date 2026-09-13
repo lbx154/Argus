@@ -211,6 +211,7 @@ export function MapCanvas({
     ...dependencies.downstream.map((task) => task.id),
   ]) : null, [tracedTask, dependencies]);
   const { copy, ready: copyReady, generating: copyGenerating, readingRequest, readingNeedsUpdate,
+    readingGenerating, generationPhase,
     generationError: copyGenerationError, generationUnavailable: copyGenerationUnavailable, retry: retryCopy } = useMapCopy(
     data,
     readingTask?.id || focusedNode?.data.task.id || null,
@@ -228,9 +229,10 @@ export function MapCanvas({
     return data.events.filter(event => event.item_id === readingRequest.task_id && ids.has(event.id));
   }, [readingRequest, copy, data.events]);
   const readerSelection = useMemo<MapReaderSelection | undefined>(() => readingRequest ? {
-    request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: copyGenerating,
-    error: copyGenerationError, unavailable: copyGenerationUnavailable, retry: readOnly ? undefined : retryCopy,
-  } : undefined, [readingRequest, readingEvidence, readingNeedsUpdate, copyGenerating,
+    request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: readingGenerating,
+    phase: generationPhase, error: copyGenerationError, unavailable: copyGenerationUnavailable,
+    retry: readOnly ? undefined : retryCopy, retryDisabled: copyGenerating,
+  } : undefined, [readingRequest, readingEvidence, readingNeedsUpdate, copyGenerating, readingGenerating, generationPhase,
     copyGenerationError, copyGenerationUnavailable, readOnly, retryCopy]);
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh),

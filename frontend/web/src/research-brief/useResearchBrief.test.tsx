@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../api';
+import { api, type ExplanationPhase } from '../api';
 import type { Dataset } from '../map/model';
 import type { MapCopy } from '../map/presentation';
 import { briefCopyKey, briefLiveKey, briefSelection, READER_BRIEF_VERSION } from './model';
@@ -227,6 +227,31 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(generate).toHaveBeenCalledTimes(2);
     expect(result.needsUpdate).toBe(false);
     expect(result.card?.model_revision).toBe('review-new');
+  });
+
+  it('retains reported progress across a read-only remount and clears it after failure without a new POST', async () => {
+    let report!: (phase: ExplanationPhase) => void;
+    let reject!: (error: Error) => void;
+    const generate = vi.spyOn(api, 'generateMapCopy').mockImplementation((_source, _name, _body, _signal, _sid, _preview, onProgress) => {
+      report = onProgress!;
+      report('planning');
+      return new Promise((_resolve, fail) => { reject = fail; });
+    });
+    await mount();
+    expect(result.generationPhase).toBe('planning');
+    act(() => renderer!.unmount());
+    await mount({ ...inputs(), active: false, readOnly: true });
+    report('writing');
+    await flush();
+    expect(result.generationPhase).toBe('writing');
+    expect(result.generating).toBe(true);
+    const failure = new Error('The observed generation timed out');
+    await act(async () => { reject(failure); });
+    await flush();
+    expect(result.generationPhase).toBeUndefined();
+    expect(result.generating).toBe(false);
+    expect(result.generationError).toBe(failure);
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
   it.each(['source-first', 'learning-path'] as const)('keeps normal and %s text separate when switching mode without a page reload', async mode => {

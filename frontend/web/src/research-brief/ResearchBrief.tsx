@@ -41,7 +41,7 @@ function SelectedResearchReading({ selection }: { selection: ReadingSelection })
       <MapReaderContent cardKey={taskId} taskId={taskId} task={task} card={result.card}
         originalDetail={task.objective || selection.snapshot.session.objective || ''}
         selection={{ request: briefRequest(task, result.evidence), evidence: result.loadedEvents ?? [],
-          pending: result.needsUpdate, generating: result.generating,
+          pending: result.needsUpdate, generating: result.generating, phase: result.generationPhase,
           error: result.generationError,
           unavailable: result.legacy || result.generationUnavailable || (!result.loading && !result.generationAvailable) }} />
       {result.readError ? <p className="mt-2 text-xs text-ink-faint" role="status">{zh
@@ -76,7 +76,7 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   const generatedAt = generatedDate?.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? '';
   const unavailable = result.legacy || result.generationUnavailable || (!result.loading && !result.generationAvailable);
   const hasProblem = !!result.readError || !!result.generationError || unavailable;
-  const explanationStatus = <ReaderExplanationStatus generatedAt={card?.generated_at} pending={result.needsUpdate} generating={result.generating} hasExplanation={!!brief} />;
+  const explanationStatus = <ReaderExplanationStatus generatedAt={card?.generated_at} pending={result.needsUpdate} generating={result.generating} phase={result.generationPhase} hasExplanation={!!brief} />;
 
   const explanation = <>
     {brief ? <ReaderExplanation brief={brief} identity={task?.id || props.view.mission.id} detail={card?.detail} learningPath={card?.learning_path} readingUnavailable={result.readingUnavailable} teachingUnavailable={result.teachingUnavailable} /> : <div className="mt-3 text-[13px] leading-6 text-ink-dim">
@@ -112,6 +112,7 @@ export default function ResearchBrief(props: ResearchBriefProps) {
         <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setEvidenceOpen(true)}><BookOpen size={12} />{text('查看依据', 'View evidence')}</Button>
         {props.onAsk && task && !props.readOnly ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => props.onAsk?.(questionAboutStep(props.sid, task, evidence, zh))}><MessageCircle size={12} />{compact && !zh ? <>Ask<span className="sr-only"> about latest progress</span></> : text('询问最新进展', 'Ask about latest progress')}</Button> : null}
       </div>
+      {compact && result.generating ? <div className="mt-2">{explanationStatus}</div> : null}
     </footer>
   </section>
     <Modal open={!!selectedReading} onClose={() => setReadingSelection(null)} label={text('任务说明', 'Task explanation')}>

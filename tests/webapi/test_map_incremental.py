@@ -393,6 +393,7 @@ def test_completed_child_copy_ignores_later_progress_but_rechecks_requested_mode
 
 @pytest.mark.parametrize("version", [None, 5, 6])
 def test_legacy_copy_remains_readable_when_generation_is_unavailable(tmp_path, monkeypatch, version):
+    phases = []
     sid, life, _ = setup_session(tmp_path)
     value = read_map(sid, tmp_path, life)
     saved = {"version": version, "model_revision": "earlier-model",
@@ -403,10 +404,12 @@ def test_legacy_copy_remains_readable_when_generation_is_unavailable(tmp_path, m
     path.write_text(json.dumps({"cards": {"a": saved}, "relations": []}))
     monkeypatch.setattr(map_narrative, "configured", lambda: False)
     monkeypatch.setattr(map_narrative, "generate", lambda *a, **k: (_ for _ in ()).throw(AssertionError("regenerated")))
-    result = map_narrative.enrich(tmp_path, value, [{"key": "a", "task_id": "a", "kind": "task", "event_ids": []}], "en-US", project_root=life)
+    result = map_narrative.enrich(tmp_path, value, [{"key": "a", "task_id": "a", "kind": "task", "event_ids": []}], "en-US",
+                                 project_root=life, on_progress=phases.append)
     assert result["available"] is False and result["cards"]["a"]["generated_at"] == 1
     assert "reader_brief" not in result["cards"]["a"]
     assert "input_revision" not in result["cards"]["a"]
+    assert phases == ["waiting_for_source"]
 
 
 def test_different_sessions_can_prepare_copy_concurrently(tmp_path, monkeypatch):

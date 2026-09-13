@@ -12,7 +12,7 @@ from typing import Literal
 from weakref import WeakValueDictionary
 
 from ..core.file_lock import exclusive_file_lock
-from .map_model import MapModel, resolve_map_model, run_map_model
+from .map_model import MapModel, MapProgress, resolve_map_model, run_map_model
 from .map_outcomes import project_task_outcome
 from .map_teaching_review import (
     BRIEF_LIMITS,
@@ -220,6 +220,7 @@ def generate(
     documents: list[dict], tasks: list[dict], locale: str, *,
     config: MapModel, project_root: Path, global_root: Path,
     cached_reviews: dict | None = None,
+    on_progress: MapProgress | None = None,
 ) -> dict:
     # Draft and teaching check share the existing source lock and one deadline.
     deadline = time.monotonic() + 170
@@ -262,6 +263,7 @@ def generate(
     )
     value = run_map_model(
         prompt, output_schema, config, project_root=project_root, global_root=global_root, deadline=deadline,
+        **({"on_progress": on_progress, "phase": "writing"} if on_progress is not None else {}),
     )
     if not isinstance(value.get("cards"), dict) or not all(
         isinstance(card, dict) for card in value["cards"].values()
@@ -281,6 +283,7 @@ def generate(
         run=lambda review_prompt, review_schema: run_map_model(
             review_prompt, review_schema, review_config, project_root=project_root,
             global_root=global_root, deadline=deadline,
+            **({"on_progress": on_progress, "phase": "reviewing"} if on_progress is not None else {}),
         ),
         locale=locale,
         context=source_context,
@@ -350,6 +353,7 @@ def enrich(
     root: Path, dataset: dict, cards: list[dict], locale: str, *,
     project_root: Path | None = None,
     preview: Preview = False,
+    on_progress: MapProgress | None = None,
 ) -> dict:
     documents = card_evidence(dataset, cards)
     # generation_context_tasks indexes projected IDs as well. Long IDs must
@@ -375,6 +379,8 @@ def enrich(
             k: v for k, v in d.items() if k != "task_revision" or d["dynamic"]
         }]) for d in documents
     }
+    if on_progress is not None:
+        on_progress("waiting_for_source")
     with _source_lock(root, source):
         cache = read_cache(root, source)
         metadata["cache_revision"] = cache.get("cache_revision", 0)
@@ -418,11 +424,13 @@ def enrich(
             value = generate_source_first(
                 todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
                 **({"learning_path": True} if preview == "learning-path" else {}),
+                **({"on_progress": on_progress} if on_progress is not None else {}),
             )
         else:
             value = generate(
                 todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
                 cached_reviews=cache.get("teaching_reviews", {}),
+                **({"on_progress": on_progress} if on_progress is not None else {}),
             )
         wanted = {d["key"] for d in todo[:8]}
         generated = value.get("cards", [])

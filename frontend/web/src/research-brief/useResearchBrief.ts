@@ -10,6 +10,7 @@ import {
   briefCopyKey, briefEvidence, briefInputSignature, briefLiveKey, briefRelatedInputSignature, briefRequest, briefSelection,
   currentBriefData, isReaderBrief, needsBrief, oldBriefService, READER_BRIEF_VERSION,
 } from './model';
+import { beginExplanationProgress, explanationRunStart, useExplanationProgress } from './progress';
 
 export interface ResearchBriefOptions {
   sid: string;
@@ -51,6 +52,8 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     retry: false, retryOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false,
   });
   const task = live.data?.tasks.find(item => item.id === taskId);
+  const progressStart = explanationRunStart(taskId, task, selection.eventSince);
+  const progress = useExplanationProgress(copyKey, taskId, progressStart);
   const evidence = useMemo(() => briefEvidence(live.data, task, selection.eventSince), [live.data, task, selection.eventSince]);
   const inputSignature = briefInputSignature(task, evidence);
   const card = taskId ? copy.data?.cards[taskId] : undefined;
@@ -78,7 +81,13 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
       const requestedRevision = client.getQueryData<MapCopy>(copyKey)?.model_revision;
       // The request is task/source-scoped. A tab switch may stop observing it,
       // but completed text still belongs in the shared map cache.
-      const result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale }, undefined, sid, preview);
+      const observed = beginExplanationProgress(client, copyKey, [{ key: task.id, startedAt: progressStart }]);
+      let result: MapCopy;
+      try {
+        result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale }, undefined, sid, preview, observed.update);
+      } finally {
+        observed.finish();
+      }
       const returned = result.cards?.[task.id];
       const valid = (returned?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(returned?.reader_brief);
       // Coalescing can return a previous valid brief with retry_after. Its
@@ -131,10 +140,11 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     needsUpdate: needsUpdate && generation.data?.available !== true,
     legacy,
     loading: enabled && (live.isPending || copy.isPending),
-    generating: generation.isFetching || activeGenerations > 0,
+    generating: progress.active || generation.isFetching || activeGenerations > 0,
+    generationPhase: progress.phase,
     readError: live.error || copy.error,
-    generationError: needsUpdate ? generation.error : null,
-    generationUnavailable: generation.data?.available === false && needsUpdate,
+    generationError: needsUpdate && !progress.active ? generation.error : null,
+    generationUnavailable: generation.data?.available === false && needsUpdate && !progress.active,
     generationAvailable: copy.data?.available === true,
     teachingUnavailable: !!brief && card?.teaching_review?.status === 'unavailable',
     readingUnavailable: !!brief && card?.teaching_review?.reading_review?.status === 'unavailable',

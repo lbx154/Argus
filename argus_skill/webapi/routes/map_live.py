@@ -153,11 +153,12 @@ def register_map_live_routes(app, ctx, read_dataset):
             raise HTTPException(422, "select a session for map summaries")
         cards = [c.model_dump() for c in body.cards]
 
-        def generate():
+        def generate(on_progress=None):
             try:
                 return map_narrative.enrich(
                     root, value, cards, body.locale, project_root=project_root,
                     **({"preview": preview} if preview else {}),
+                    **({"on_progress": on_progress} if on_progress is not None else {}),
                 )
             except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
                 raise _copy_error(exc) from exc
@@ -179,7 +180,9 @@ def register_map_live_routes(app, ctx, read_dataset):
 
         def run():
             try:
-                items.put({"type": "done", "result": generate()})
+                items.put({"type": "done", "result": generate(
+                    lambda phase: items.put({"type": "progress", "phase": phase}),
+                )})
             except HTTPException as exc:
                 items.put({"type": "error", "error": exc.detail, "status": exc.status_code})
             except Exception:  # noqa: BLE001 — report a terminal frame after headers were sent
