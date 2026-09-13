@@ -368,6 +368,32 @@ class FailureExperienceStore:
             self._commit(snapshot, protected={written.id})
             return snapshot.current[written.id]
 
+    def record_settled(self, experience: FailureExperience) -> str:
+        """Insert a durable observation once, without network or waiting for recall.
+
+        Replay never supersedes human revisions or revives retired identities.
+        The next ordinary recall refreshes its disposable index from this source.
+        """
+        self._repository.validate(experience)
+        if experience.revision != 1 or experience.state != "active" or not experience.id.startswith("exp:"):
+            raise ValueError("settled observations must have their original identity and revision")
+        with self._repository.locked(timeout_seconds=0):
+            snapshot = self._repository.load(full_legacy=True)
+            previous = snapshot.current.get(experience.id)
+            if previous is not None:
+                if (
+                    (previous.created_at, previous.mission_id) != (experience.created_at, experience.mission_id)
+                    or not set(experience.source_refs).issubset(previous.source_refs)
+                ):
+                    raise ValueError("settled observation identity conflicts with canonical ownership")
+                return "already_recorded"
+            if experience.created_at <= snapshot.admission_floor:
+                return "retired_by_canonical_capacity"
+            written = replace(experience, updated_at=time.time())
+            snapshot.current[written.id] = written
+            self._commit(snapshot, protected={written.id})
+            return "recorded"
+
     def revise(
         self,
         experience_id: str,

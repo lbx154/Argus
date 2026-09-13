@@ -17,7 +17,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
-from ..core.file_lock import exclusive_file_lock
+from ..core.file_lock import DEFAULT_FILE_LOCK_TIMEOUT_SECONDS, exclusive_file_lock
 from ..core.scoped_file import open_regular_file
 
 if TYPE_CHECKING:
@@ -90,11 +90,11 @@ class ExperienceRepository:
         return open_regular_file(path, flags)
 
     @contextmanager
-    def locked(self) -> Iterator[None]:
+    def locked(self, *, timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
         self._guard_paths()
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
         with self._open_file(self.lock_path, os.O_RDWR | os.O_CREAT) as handle:
-            with exclusive_file_lock(handle, lock_name="failure experience lock"):
+            with exclusive_file_lock(handle, timeout_seconds=timeout_seconds, lock_name="failure experience lock"):
                 self._guard_paths()
                 yield
 

@@ -852,7 +852,16 @@ class MissionExecutionSettlementMixin:
 
             capture_state()
             event, result = self._build_mission_completion(state)
-            record = prepare_mission_delivery(item=item, event=event, result=result)
+            try:
+                experience = self._build_settled_experience(state)
+                capsule = experience.to_jsonable() if experience is not None else None
+            except (TypeError, ValueError):
+                log.exception("settled observation could not be frozen; completion remains independent")
+                capsule = {"capture_error": "settled evidence could not be frozen"}
+            record = prepare_mission_delivery(
+                item=item, event=event, result=result,
+                settled_experience=capsule,
+            )
             settled = self.memory.backlog.update(item.id, _mission_delivery=record, **updates)
             if settled is None:
                 raise RuntimeError("mission disappeared before completion commit")
@@ -1504,7 +1513,6 @@ class MissionExecutionSettlementMixin:
             )
         except Exception:  # noqa: BLE001 - metrics never own settlement
             log.debug("goal mission metric skipped", exc_info=True)
-        self._capture_failure_experience(state)
         try:
             research_result = getattr(outcome, "research_result", None)
             frontier = getattr(outcome, "final_frontier_report", {}) or {}
@@ -1551,52 +1559,59 @@ class MissionExecutionSettlementMixin:
                 log.exception("post-mission usage receipt deferred; call ledger remains authoritative")
         return result
 
-    def _capture_failure_experience(self, state: _MissionRunState) -> None:
-        """Persist one settled observation without reading referenced artifacts."""
+    def _build_settled_experience(self, state: _MissionRunState) -> Any:
+        """Freeze conservative evidence before the completion commit; no I/O."""
         if state.intentional_abort:
-            return
+            return None
+        from ..failure_experience import experience_from_settled_mission
+
+        item, outcome = state.item, state.outcome
+        refs = [
+            str(ref.get("path") or ref.get("ref") or "").strip()
+            for ref in (getattr(item, "context_refs", []) or [])
+            if isinstance(ref, dict)
+        ]
+        if state.context_packet_path is not None:
+            refs.append(str(state.context_packet_path.parent / "latest.json"))
+        review_status = str(getattr(outcome, "final_review_status", "") or "").strip().lower()
+        status = state.status
+        success = bool(
+            state.success and status in {"done", "success", "completed"}
+            and state.iteration is None and not state.resumable
+            and review_status in {"", "done"}
+        )
+        if state.iteration is not None:
+            status = "iteration_" + str(state.iteration.get("status") or "incomplete")
+        elif not success and status in {"done", "success", "completed"}:
+            status = "review_" + review_status if review_status and review_status != "done" else "not_accepted"
+        final_message = str(getattr(outcome, "final_message", "") or "")
+        review_reason = str(getattr(outcome, "final_review_reason", "") or getattr(outcome, "reason", "") or "")
+        factual_outcome = (
+            state.stop_reason or final_message or review_reason or status
+            if success else str((state.iteration or {}).get("stop_reason") or state.stop_reason or state.err or status)
+        )
+        return experience_from_settled_mission(
+            mission_id=item.id,
+            attempt_id=state.usage_attempt_id or str(getattr(item, "started_ts", None) or item.ts),
+            created_at=float(getattr(item, "started_ts", None) or item.ts),
+            title=item.title, objective=item.objective, status=status, success=success,
+            reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
+            factual_outcome=factual_outcome, final_message=final_message, review_reason=review_reason,
+            planner_report=getattr(outcome, "final_planner_report", {}) or {},
+            stop_kind=str(state.stop_kind or ""), recoverable=state.resumable,
+            concepts=list(item.tags), artifact_refs=[ref for ref in refs if ref],
+            non_goals=list(getattr(item, "non_goals", []) or []),
+        )
+
+    def _capture_failure_experience(self, state: _MissionRunState) -> None:
+        """Compatibility helper; durable runtime capture uses its committed envelope."""
         store = getattr(self.memory, "failure_experiences", None)
         if store is None:
             return
         try:
-            from ..failure_experience import experience_from_settled_mission
-
-            item = state.item
-            outcome = state.outcome
-            refs = [
-                str(ref.get("path") or ref.get("ref") or "").strip()
-                for ref in (getattr(item, "context_refs", []) or [])
-                if isinstance(ref, dict)
-            ]
-            if state.context_packet_path is not None:
-                refs.append(str(state.context_packet_path.parent / "latest.json"))
-            experience = experience_from_settled_mission(
-                mission_id=item.id,
-                attempt_id=(
-                    state.usage_attempt_id
-                    or str(getattr(item, "started_ts", None) or item.ts)
-                ),
-                created_at=float(getattr(item, "started_ts", None) or item.ts),
-                title=item.title,
-                objective=item.objective,
-                status=state.status,
-                success=bool(state.success),
-                reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
-                factual_outcome=state.stop_reason or state.err or state.status,
-                final_message=str(getattr(outcome, "final_message", "") or ""),
-                review_reason=str(
-                    getattr(outcome, "final_review_reason", "")
-                    or getattr(outcome, "reason", "")
-                    or ""
-                ),
-                planner_report=getattr(outcome, "final_planner_report", {}) or {},
-                stop_kind=str(state.stop_kind or ""),
-                recoverable=state.resumable,
-                concepts=list(item.tags),
-                artifact_refs=[ref for ref in refs if ref],
-                non_goals=list(getattr(item, "non_goals", []) or []),
-            )
-            store.append(experience)
+            experience = MissionExecutionSettlementMixin._build_settled_experience(self, state)
+            if experience is not None:
+                store.record_settled(experience)
         except (OSError, TypeError, ValueError):
             log.exception("life supervisor: failed to persist settled experience")
 

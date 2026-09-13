@@ -1206,14 +1206,16 @@ class Backlog:
         self.archive_path = self.path.with_name(f"{self.path.stem}.archive.jsonl")
         self._commit_path = self.path.with_name(f"{self.path.stem}.commit.json")
         self._lock_path = self.path.parent / f"{self.path.name}.lock"
-        from .mission_delivery import PENDING_DIRECTORY
+        from .mission_delivery import EXPERIENCE_RETENTION, PENDING_DIRECTORY
 
         self._mission_deliveries_path = self.path.parent / PENDING_DIRECTORY
+        self._mission_experience_retention_path = self.path.parent / EXPERIENCE_RETENTION
 
     @property
     def storage_paths(self) -> tuple[Path, ...]:
         """State files for cache invalidation and complete backups, including recovery."""
-        return self.path, self.archive_path, self._commit_path, self._mission_deliveries_path
+        return (self.path, self.archive_path, self._commit_path, self._mission_deliveries_path,
+                self._mission_experience_retention_path)
 
     # --- io ---
     def _load(self) -> list[BacklogItem]:
@@ -2002,11 +2004,22 @@ class Backlog:
                 records.append(record)
             return sorted(records, key=lambda row: (float(row["event"].get("ts") or 0), row["id"]))
 
-    def acknowledge_mission_delivery(self, delivery_id: str) -> None:
+    def acknowledge_mission_delivery(self, delivery_id: str, *, keep_for_experience: bool = False) -> None:
         if len(delivery_id) != 64 or any(c not in "0123456789abcdef" for c in delivery_id):
             raise ValueError("invalid mission delivery acknowledgement")
         with self._locked():
             path = self._mission_deliveries_path / f"{delivery_id}.json"
+            if keep_for_experience:
+                from .mission_delivery import validate_mission_delivery
+
+                record = json.loads(path.read_text(encoding="utf-8"))
+                validate_mission_delivery(record)
+                if record["version"] != 2 or record["id"] != delivery_id:
+                    raise ValueError("only owned v2 deliveries can retain pending experience")
+                if record.get("publication_acknowledged") is not True:
+                    record["publication_acknowledged"] = True
+                    _atomic_rewrite_jsonl(path, [record])
+                return
             path.unlink(missing_ok=True)
             if path.parent.exists():
                 _fsync_parent(path)
