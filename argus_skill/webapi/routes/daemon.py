@@ -18,6 +18,15 @@ from .context import ServerContext
 from .models import CommandIn, ContinuousIn, CreateDaemonIn, ReplaceDaemonIn, StopIn
 
 
+def _resume_provider_fences_after_start(life_dir, result, *, enabled=True):
+    # Only an authenticated, explicit start/continue command reaches this
+    # callback. Automatic supervision/restarts never clear this boundary.
+    # Account attention and unknown-cost acknowledgements are separate gates.
+    if enabled and type(result.get("rc")) is int and result["rc"] == 0:
+        LifeMemory.open(life_dir).backlog.resume_paused_statuses({"paused_provider_fence"})
+    return result
+
+
 def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
     @app.post("/api/daemons", dependencies=[Depends(ctx.require_auth)])
     async def _create_daemon(body: CreateDaemonIn) -> dict[str, Any]:
@@ -93,7 +102,13 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
             command_id=command.command_id or None,
             expected_revision=command.expected_revision,
             issuer="webapi",
-            handler=start_and_resume,
+            handler=lambda: _resume_provider_fences_after_start(
+                life_dir, ctx.not_found_if_none(
+                    server_mod.start_project_daemon(
+                        sid, global_root=project_root, resume_continuous=True,
+                    ), sid,
+                ),
+            ),
         )
         return server_mod._command_response(receipt)
 
@@ -153,7 +168,14 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
             command_id=body.command_id or None,
             expected_revision=body.expected_revision,
             issuer="webapi",
-            handler=replace_and_resume,
+            handler=lambda: _resume_provider_fences_after_start(
+                life_dir, ctx.not_found_if_none(
+                    server_mod.replace_project_daemon(
+                        sid, body.victim_sid, global_root=project_root,
+                        resume_continuous=body.resume_continuous,
+                    ), sid,
+                ), enabled=body.resume_continuous,
+            ),
         )
         return server_mod._command_response(receipt)
 

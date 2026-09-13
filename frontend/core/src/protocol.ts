@@ -1,5 +1,6 @@
 import type { Snapshot } from './types.js';
 
+import { RELEASE_ID } from './release.generated.js';
 
 export const API_SERVICE = 'argus-skill-webapi';
 export const API_PROTOCOL = {
@@ -8,6 +9,8 @@ export const API_PROTOCOL = {
   minServerMinor: 15,
 } as const;
 export const SNAPSHOT_SCHEMA_VERSION = 7;
+export const RELEASE_ARTIFACT_DRIFT_WARNING =
+  'python -m argus_skill.release_tools.build_release';
 export const REQUIRED_API_CAPABILITIES = [
   'daemon.admission.v1',
   'daemon.status.protocol.v1',
@@ -26,6 +29,7 @@ export const REQUIRED_API_CAPABILITIES = [
   'project.counterexamples.v1',
   'project.workdir.v1',
   'research.events.v1',
+  'release.identity.v1',
   'snapshot.budget.v1',
   'snapshot.schema.v1',
   'source.update.v1',
@@ -42,6 +46,10 @@ export interface ApiRuntimeIdentity {
   python_version: string;
   executable: string;
   started_at: string;
+  release_id: string;
+  manifest_source_digest: string | null;
+  runtime_source_digest: string | null;
+  release_matches_source: boolean | null;
 }
 
 export interface ApiMeta {
@@ -64,7 +72,13 @@ export interface ApiMeta {
 export interface ApiCompatibility {
   compatible: boolean;
   reason: string;
+  warning?: string;
   meta?: ApiMeta;
+}
+
+export interface ApiRuntimeExpectation {
+  releaseId: string;
+  sourceDigest?: string;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -86,7 +100,10 @@ export function describeApiRuntime(meta: ApiMeta): string {
   return `Argus backend is running (pid ${meta.runtime.pid})${mismatch}`;
 }
 
-export function inspectApiMeta(value: unknown): ApiCompatibility {
+export function inspectApiMeta(
+  value: unknown,
+  expected: ApiRuntimeExpectation = { releaseId: RELEASE_ID },
+): ApiCompatibility {
   const root = object(value);
   const protocol = object(root?.protocol);
   const runtime = object(root?.runtime);
@@ -102,6 +119,7 @@ export function inspectApiMeta(value: unknown): ApiCompatibility {
     typeof runtime.source_root !== 'string'
     || number(runtime.pid) === null
     || typeof runtime.package_version !== 'string'
+    || typeof runtime.release_id !== 'string'
   ) {
     return { compatible: false, reason: 'malformed /api/meta runtime identity' };
   }
@@ -141,14 +159,49 @@ export function inspectApiMeta(value: unknown): ApiCompatibility {
       meta,
     };
   }
-  return { compatible: true, reason: '', meta };
+  if (runtime.release_id !== expected.releaseId) {
+    return {
+      compatible: false,
+      reason: 'backend and client installations are out of sync; restart or reinstall Argus',
+      meta,
+    };
+  }
+  if (expected.sourceDigest) {
+    if (typeof runtime.runtime_source_digest !== 'string' || !runtime.runtime_source_digest) {
+      return {
+        compatible: false,
+        reason: 'backend cannot verify this local installation; restart it from the current checkout',
+        meta,
+      };
+    }
+    if (runtime.runtime_source_digest !== expected.sourceDigest) {
+      return {
+        compatible: false,
+        reason: 'backend is running code from a different local installation; restart it',
+        meta,
+      };
+    }
+  }
+  // A live source digest is a release-integrity signal, not a wire-contract
+  // version. Editable checkouts keep the last generated release_id while source
+  // changes, so drift cannot prove incompatibility. The versioned protocol,
+  // snapshot schema, and capabilities above remain the compatibility authority;
+  // keep drift visible so operators still know to rebuild before release.
+  const warning = runtime.release_matches_source === false
+    ? RELEASE_ARTIFACT_DRIFT_WARNING
+    : undefined;
+  return { compatible: true, reason: '', warning, meta };
 }
 
-export function requireCompatibleApiMeta(value: unknown): ApiMeta {
+export function requireCompatibleApiMeta(
+  value: unknown,
+  onWarning?: (warning: string) => void,
+): ApiMeta {
   const result = inspectApiMeta(value);
   if (!result.compatible || !result.meta) {
     throw new Error(`incompatible Argus API: ${result.reason}`);
   }
+  if (result.warning) onWarning?.(result.warning);
   return result.meta;
 }
 

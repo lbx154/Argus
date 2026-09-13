@@ -5,6 +5,7 @@ from typing import Any, Literal, TypeAlias, cast
 
 StopKind: TypeAlias = Literal[
     "budget_exhausted",
+    "cost_unreconciled",
     "provider_cooldown",
     "provider_fence",
     "daemon_shutdown",
@@ -17,6 +18,7 @@ StopKind: TypeAlias = Literal[
 
 STOP_KINDS = frozenset({
     "budget_exhausted",
+    "cost_unreconciled",
     "provider_cooldown",
     "provider_fence",
     "daemon_shutdown",
@@ -28,6 +30,7 @@ STOP_KINDS = frozenset({
 })
 RECOVERABLE_STOP_KINDS = frozenset({
     "budget_exhausted",
+    "cost_unreconciled",
     "provider_cooldown",
     "provider_fence",
     "daemon_shutdown",
@@ -37,6 +40,7 @@ RECOVERABLE_STOP_KINDS = frozenset({
 })
 NON_FAILURE_STOP_KINDS = frozenset({
     "budget_exhausted",
+    "cost_unreconciled",
     "provider_cooldown",
     "provider_fence",
     "daemon_shutdown",
@@ -57,6 +61,7 @@ def stop_kind_from_external_interrupt(value: Any) -> StopKind | None:
         normalized = normalized.removeprefix("external interrupt:").lstrip()
     for prefix, kind in (
         ("global daily budget exhausted", "budget_exhausted"),
+        ("unresolved provider cost", "cost_unreconciled"),
         ("cost control unavailable", "backend_unavailable"),
         ("daemon stop requested", "daemon_shutdown"),
         ("operator pause requested", "operator_pause"),
@@ -73,6 +78,7 @@ def pause_status_for_stop_kind(value: Any) -> str:
         return ""
     return {
         "budget_exhausted": "paused_budget",
+        "cost_unreconciled": "paused_cost",
         "provider_cooldown": "paused_provider_cooldown",
         "provider_fence": "paused_provider_fence",
         "daemon_shutdown": "paused_daemon_shutdown",

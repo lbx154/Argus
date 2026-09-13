@@ -186,6 +186,7 @@ def outcome_dimension_summary(outcome: object) -> list[str]:
         parts.append({
             "operator_abort": "Stopped at your request",
             "budget_exhausted": "Stopped at the budget limit",
+            "cost_unreconciled": "Waiting for provider usage reconciliation (not a budget limit)",
         }.get(interruption, f"Stopped because {interruption.replace('_', ' ')}"))
     if outcome.get("resumable") is True:
         parts.append("Can resume")

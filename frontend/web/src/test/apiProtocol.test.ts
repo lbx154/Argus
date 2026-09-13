@@ -4,6 +4,7 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../../core/src/protocol';
+import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.generated';
 
 const currentMeta = {
   service: 'argus-skill-webapi',
@@ -11,7 +12,11 @@ const currentMeta = {
   snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
   capabilities: [...REQUIRED_API_CAPABILITIES],
   runtime: {
-    package_version: '0.1.1',
+    package_version: RELEASE_ID.split('+')[0],
+    release_id: RELEASE_ID,
+    manifest_source_digest: RELEASE_SOURCE_DIGEST,
+    runtime_source_digest: RELEASE_SOURCE_DIGEST,
+    release_matches_source: true,
     source_root: '/checkout/argus-skill',
     configured_source_root: '/checkout/argus-skill',
     source_root_matches_config: true,
@@ -131,6 +136,16 @@ describe('web API protocol handshake', () => {
     const { api } = await import('../api');
 
     await expect(api.listProjects()).rejects.toThrow(/does not expose \/api\/meta/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a mismatched release before any protected project read', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ ...currentMeta,
+      runtime: { ...currentMeta.runtime, release_id: 'another-build' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+    await expect(api.listProjects()).rejects.toThrow(/out of sync/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

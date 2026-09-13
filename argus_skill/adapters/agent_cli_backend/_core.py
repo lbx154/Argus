@@ -319,9 +319,14 @@ class AgentCliBackend:
             )
 
     def _refresh_known_secret_values(self) -> None:
+        trial_values = ()
+        if getattr(self, "_is_copilot", False):
+            from ...trial.client import runtime_redactions
+            trial_values = runtime_redactions()
         self._known_secret_values = tuple(dict.fromkeys((
             *self._known_secret_values_override,
             *known_secret_values(),
+            *trial_values,
         )))
 
     def _configured_pricing_model(self, *, profile: str = "") -> str:

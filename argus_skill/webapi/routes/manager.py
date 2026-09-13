@@ -24,6 +24,37 @@ from .models import MessageIn
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 
 
+class _ManagerStreamingResponse(StreamingResponse):
+    """Propagate disconnect before the response waits for its worker to drain."""
+
+    def __init__(self, *args, cancel_event: threading.Event, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cancel_event = cancel_event
+
+    async def __call__(self, scope, receive, send):
+        async def receive_checked():
+            try:
+                message = await receive()
+            except BaseException:
+                self.cancel_event.set()
+                raise
+            if message.get("type") == "http.disconnect":
+                self.cancel_event.set()
+            return message
+
+        async def send_checked(message):
+            try:
+                await send(message)
+            except BaseException:
+                self.cancel_event.set()
+                raise
+
+        try:
+            await super().__call__(scope, receive_checked, send_checked)
+        finally:
+            self.cancel_event.set()
+
+
 async def _read_uploaded_attachments(
     files: list[UploadFile],
 ) -> list[tuple[str, str, bytes]]:
@@ -249,14 +280,17 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         )
 
         q: "queue.Queue[dict | None]" = queue.Queue()
+        cancel_event = threading.Event()
 
         def _run() -> None:
             def _on_fragment(kind: str, payload: dict) -> None:
-                q.put({"type": kind, **payload})
+                if not cancel_event.is_set():
+                    q.put({"type": kind, **payload})
             try:
                 kwargs = {
                     "global_root": project_root,
                     "on_fragment": _on_fragment,
+                    "cancelled": cancel_event.is_set,
                 }
                 if attachments:
                     kwargs["attachments"] = attachments
@@ -329,8 +363,9 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             ):
                 yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
 
-        return StreamingResponse(
+        return _ManagerStreamingResponse(
             _gen(),
+            cancel_event=cancel_event,
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

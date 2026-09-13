@@ -138,6 +138,7 @@ def test_budget_pause_backoff_never_starts_idle_timeout(tmp_path) -> None:
     "status",
     [
         "paused_budget",
+        "paused_cost",
         "paused_provider_cooldown",
         "paused_daemon_shutdown",
     ],

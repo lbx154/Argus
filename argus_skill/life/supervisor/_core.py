@@ -476,7 +476,7 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001 - keep budget pauses conservative
             budget_ok = False
         if budget_ok:
-            statuses.add("paused_budget")
+            statuses.update({"paused_budget", "paused_cost"})
         resumed = self.memory.backlog.resume_paused_statuses(statuses)
         from ...engineer.external_work import inspect_external_work
 
@@ -718,7 +718,7 @@ class LifeSupervisor(
             self._reload_continuous_config()
             stop_reason = self._maybe_stop()
             if stop_reason:
-                if stop_reason == "paused_budget":
+                if stop_reason in {"paused_budget", "paused_cost"}:
                     self._enter_pause_backoff()
                 if stop_reason != "__silent_stop__":
                     self._emit_status(stop_reason)
@@ -923,6 +923,7 @@ class LifeSupervisor(
                 # waiting on still had ninety minutes to run.
                 "claim_lost",
                 "paused_budget",
+                "paused_cost",
                 "paused_provider_cooldown",
                 "paused_provider_fence",
                 "paused_daemon_shutdown",
@@ -1054,6 +1055,7 @@ class LifeSupervisor(
             # daemon's outer loop re-enters after ``poll_interval``.
             if outcome.get("status") in {
                 "paused_budget",
+                "paused_cost",
                 "paused_provider_cooldown",
                 "paused_provider_fence",
                 "paused_daemon_shutdown",
@@ -1187,17 +1189,20 @@ class LifeSupervisor(
             # Don't fail the item — it'll be retried next supervisor
             # run when the daily cap rolls over. Emit a heartbeat-gated event
             # so a long budget pause cannot flood the timeline.
-            self._emit_status(f"budget block: {reason}")
-            if self._should_journal_idle_repeat("budget_pause"):
+            unpriced = reason.startswith("unresolved provider cost")
+            pause_status = "paused_cost" if unpriced else "paused_budget"
+            self._emit_status(f"{'cost reconciliation' if unpriced else 'budget'} block: {reason}")
+            if self._should_journal_idle_repeat(pause_status):
                 self._emit({
                     "type": EventType.LIFE_BUDGET_PAUSE,
+                    "stop_kind": "cost_unreconciled" if unpriced else "budget_exhausted",
                     "item_id": item.id,
                     "title": item.title,
                     "reason": reason,
                     "agent_layer": "supervisor",
                 })
             return {
-                "status": "paused_budget",
+                "status": pause_status,
                 "item_id": item.id,
                 "reason": reason,
                 "recoverable": True,

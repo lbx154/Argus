@@ -117,6 +117,9 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MAP_MODEL", "auto", "map summaries model; auto follows the research engineer model", "models", cockpit=True),
     Knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto", "map summaries reasoning effort; auto follows the research engineer", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto", "map teaching review reasoning effort; auto follows map summaries", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "600", "map-only generation deadline in seconds (1-3600); does not limit research turns", "map", cockpit=True),
+    Knob("ARGUS_SKILL_MAP_BATCH_SIZE", "2", "maximum cards per map generation (1-8)", "map", cockpit=True),
+    Knob("ARGUS_SKILL_MAP_RETRY_SECONDS", "300", "cross-tab cooldown after a failed map generation (1-3600 seconds)", "map", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "auto", "model for the L2 reviewer; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_SUPERVISOR_MODEL", "auto", "model for supervised subagent health decisions; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "auto", "model for the L4 planner; auto uses the selected backend's default", "models", cockpit=True),
@@ -139,6 +142,7 @@ KNOBS: tuple[Knob, ...] = (
     # --- budget ---
     Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-global daily USD cap across all projects", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "host-global settled-cost admission and reconciliation", "budget"),
+    Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),
@@ -150,6 +154,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
+    Knob("ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS", "900", "foreground Manager wait for a safe task boundary (1-3600 seconds); never interrupts provider work", "mission", cockpit=True),
     Knob(
         "ARGUS_SKILL_AUTONOMY_MODE",
         "pragmatic",
@@ -470,6 +475,20 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if effort not in {"auto", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError(f"{name} must be auto, low, medium, high, xhigh, or max")
         return effort
+    if name in {"ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "ARGUS_SKILL_MAP_BATCH_SIZE", "ARGUS_SKILL_MAP_RETRY_SECONDS", "ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS"}:
+        maximum = 8 if name == "ARGUS_SKILL_MAP_BATCH_SIZE" else 3600
+        try:
+            number = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be an integer from 1 to {maximum}") from exc
+        if not 1 <= number <= maximum:
+            raise ValueError(f"{name} must be an integer from 1 to {maximum}")
+        return str(number)
+    if name == "ARGUS_SKILL_UNPRICED_COST_POLICY":
+        policy = raw.lower()
+        if policy not in {"block", "allow"}:
+            raise ValueError(f"{name} must be block or allow")
+        return policy
     if name == "ARGUS_SKILL_AUTONOMY_MODE":
         mode = raw.lower()
         if mode not in {"cautious", "pragmatic", "autonomous"}:
@@ -629,15 +648,20 @@ def resolve_role_model(
     from ..trial import CLIENT_MODEL
     from ..trial.client import trial_enabled
 
-    if trial_enabled(env_map):
-        return CLIENT_MODEL
+    hosted_trial = trial_enabled(env_map) and str(
+        backend or resolve_role_backend(route, env=env_map, default="codex")
+    ).strip().lower() == "copilot"
+    # Trial is a custom catalog. Normalize automatic choices before admission,
+    # logging and execution, not only in the CLI command builder (upstream's
+    # trial_model_options). Explicit choices still reach the validation guard.
+    auto_model = CLIENT_MODEL if hosted_trial else ""
     if role_env:
         explicit = str(env_map.get(role_env, "") or "").strip()
         if explicit:
-            return "" if explicit.lower() in _AUTO_MODEL_SENTINELS else explicit
+            return auto_model if explicit.lower() in _AUTO_MODEL_SENTINELS else explicit
     shared = str(env_map.get("ARGUS_SKILL_MODEL", "") or "").strip()
     if shared:
-        return "" if shared.lower() in _AUTO_MODEL_SENTINELS else shared
+        return auto_model if shared.lower() in _AUTO_MODEL_SENTINELS else shared
     from .knob_store import read_persisted_knobs
 
     persisted = read_persisted_knobs()
@@ -645,17 +669,19 @@ def resolve_role_model(
         persisted_role = persisted.get(role_env, "").strip()
         if persisted_role:
             return (
-                ""
+                auto_model
                 if persisted_role.lower() in _AUTO_MODEL_SENTINELS
                 else persisted_role
             )
     persisted_shared = persisted.get("ARGUS_SKILL_MODEL", "").strip()
     if persisted_shared:
         return (
-            ""
+            auto_model
             if persisted_shared.lower() in _AUTO_MODEL_SENTINELS
             else persisted_shared
         )
+    if hosted_trial:
+        return CLIENT_MODEL
     from ..agent_cli.runner_backend import BACKEND_MEMORY, normalize_runner_backend
 
     # default="codex": the backend is used here ONLY to choose between "name an
@@ -855,8 +881,10 @@ def backend_uses_openai_catalog(
     normalized = str(backend or "").strip().casefold()
     if normalized not in _OPENAI_CATALOG_BACKENDS:
         return False
-    if normalized != "codex":
-        return True
+    if normalized == "copilot":
+        from ..trial.client import trial_enabled
+
+        return not trial_enabled(env)
     try:
         from ..tools.capability_vault import read_codex_provider_config
 

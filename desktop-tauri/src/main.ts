@@ -1,4 +1,6 @@
 import './style.css';
+import { visibleEyeCycle } from './startup';
+import { nativePathRequests } from './nativePaths';
 import {
   desktopBridge,
   type AppearanceTheme,
@@ -10,6 +12,7 @@ import {
   type PiConfiguration,
   type RunnerKind,
   type TrialDownloadProgress,
+  type StartupEyeMotion,
   type UpdateStatus,
 } from './bridge';
 
@@ -86,17 +89,28 @@ const wizardBack = document.getElementById('wizardBack') as HTMLButtonElement;
 const wizardNext = document.getElementById('wizardNext') as HTMLButtonElement;
 const wizardFinish = document.getElementById('wizardFinish') as HTMLButtonElement;
 const trialOpen = document.getElementById('trialOpen') as HTMLButtonElement;
+const ownOpen = document.getElementById('ownOpen') as HTMLButtonElement;
+const trialPanel = document.getElementById('trialPanel') as HTMLElement;
+const ownIntro = document.getElementById('ownIntro') as HTMLElement;
+const ownContent = document.getElementById('ownContent') as HTMLElement;
 const trialForm = document.getElementById('trialForm') as HTMLFormElement;
 const trialKey = document.getElementById('trialKey') as HTMLInputElement;
 const trialSubmit = document.getElementById('trialSubmit') as HTMLButtonElement;
 const trialProgress = document.getElementById('trialProgress') as HTMLParagraphElement;
+const trialShortcut = document.getElementById('trialShortcut') as HTMLButtonElement;
+let trialBusy = false;
+let trialMode = false;
+const trialAccount = document.getElementById('trialAccount') as HTMLElement;
+const trialBalance = document.getElementById('trialBalance') as HTMLElement;
+const trialRefresh = document.getElementById('trialRefresh') as HTMLButtonElement;
+const trialRestore = document.getElementById('trialRestore') as HTMLButtonElement;
+const trialResume = document.getElementById('trialResume') as HTMLButtonElement;
+const trialAttention = document.getElementById('trialAttention') as HTMLElement;
 const trialDownload = document.getElementById('trialDownload') as HTMLDivElement;
 const trialDownloadBar = document.getElementById('trialDownloadBar') as HTMLProgressElement;
 const trialDownloadDetails = document.getElementById('trialDownloadDetails') as HTMLParagraphElement;
 const trialNetworkHint = document.getElementById('trialNetworkHint') as HTMLParagraphElement;
 let trialDownloadTimer: ReturnType<typeof setTimeout> | undefined;
-const trialShortcut = document.getElementById('trialShortcut') as HTMLButtonElement;
-let trialBusy = false;
 
 const cockpitEl = document.getElementById('cockpit') as HTMLElement;
 const cockpitFrame = document.getElementById('cockpitFrame') as HTMLIFrameElement;
@@ -117,6 +131,9 @@ const desktopMenuActions = Array.from(
   document.querySelectorAll<HTMLButtonElement>('[data-menu-action]'),
 );
 
+const startupEyeButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>('button[data-startup-eye-motion]'),
+);
 const STEP_LABELS = ['Agent CLI', '本地服务', '确认设置'];
 
 let cockpitOpening = false;
@@ -133,15 +150,59 @@ let detectedRunners: Partial<Record<RunnerKind, string>> = {};
 let piConfiguration: PiConfiguration = { configDir: '' };
 let releaseIdentity: DesktopReleaseIdentity = {
   packageVersion: 'unknown',
+  releaseId: 'unknown',
+  sourceDigest: '',
   distribution: 'development',
 };
 let runtimeIdentity: DesktopRuntimeIdentity = { state: 'idle' };
 let port = 8799;
-let appearanceTheme: AppearanceTheme = 'system';
+let appearanceTheme: AppearanceTheme = 'light';
+let startupEyeMotion: StartupEyeMotion = 'on';
+let startupPreferenceLoaded = false;
 let cockpitTheme: 'light' | 'dark' | null = null;
 let updateStatus: UpdateStatus | null = null;
 let splashHideTimer: number | undefined;
+let splashRevealTimer: number | undefined;
+let splashGeneration = 0;
+let coldStart = true;
+let cockpitLoaded = false;
 let returnFocus: HTMLElement | null = null;
+const splashMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+function eyeMotionEnabled(): boolean {
+  return startupEyeMotion === 'on' || (startupEyeMotion === 'system' && !splashMotion.matches);
+}
+function applyStartupEyeMotion(motion: StartupEyeMotion): void {
+  startupEyeMotion = motion;
+  startupPreferenceLoaded = true;
+  document.documentElement.dataset.startupEyeMotion = motion;
+  for (const button of startupEyeButtons) {
+    button.setAttribute('aria-checked', String(button.dataset.startupEyeMotion === motion));
+  }
+}
+// A DOM paint is not proof that the native window was exposed. Count actual
+// visible frames, including when a second EXE launch reactivates a resident host.
+function newEyeCycle() {
+  return visibleEyeCycle({
+    eye: document.querySelector('.argus-splash-eye') as SVGElement,
+    nativeVisible: () => desktopBridge.isWindowVisible(),
+    enabled: () => startupPreferenceLoaded && !wizardOpen && !splashEl.hidden && document.body.dataset.state !== 'error',
+    motionEnabled: eyeMotionEnabled,
+  });
+}
+let eyeCycle = newEyeCycle();
+const pathRequests = nativePathRequests(cockpitFrame, cockpitOrigin);
+
+function cancelSplashTransition(): void {
+  splashGeneration++;
+  if (splashRevealTimer !== undefined) window.clearTimeout(splashRevealTimer);
+  if (splashHideTimer !== undefined) window.clearTimeout(splashHideTimer);
+  splashRevealTimer = undefined;
+  splashHideTimer = undefined;
+}
+
+splashMotion.addEventListener('change', () => {
+  if (cockpitLoaded && !splashEl.hidden) void hideSplashAfterCockpitLoad();
+});
 
 function resolvedSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -157,8 +218,14 @@ function currentResolvedTheme(): 'light' | 'dark' {
 
 async function loadAppearance(): Promise<void> {
   const result = await capture(() => desktopBridge.getAppearance());
-  if (!result.ok) return;
+  if (!result.ok) {
+    // A failed preference read must not leave the visual gate waiting forever
+    // or silently force animation against an unknown saved choice.
+    applyStartupEyeMotion('system');
+    return;
+  }
   const appearance: DesktopAppearance = result.value;
+  applyStartupEyeMotion(appearance.startupEyeMotion ?? 'on');
   appearanceTheme = appearance.theme;
   const resolved = appearance.theme === 'system'
     ? resolvedSystemTheme()
@@ -173,7 +240,9 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   applyTheme(resolved);
   void desktopBridge.setWindowTheme(resolved);
 });
-applyTheme();
+// New profiles start light even on a dark OS; saved preferences take over as
+// soon as the native settings arrive. Do not guess the user's first-run theme.
+applyTheme('light');
 document.documentElement.dataset.argusDesktop = 'true';
 document.documentElement.dataset.argusDesktopNativeFrame = 'true';
 
@@ -217,17 +286,17 @@ function updateSteps(status: DesktopStatus): void {
 }
 
 function showLauncher(preserveCockpit = false): void {
-  if (splashHideTimer !== undefined) {
-    window.clearTimeout(splashHideTimer);
-    splashHideTimer = undefined;
-  }
+  cancelSplashTransition();
   splashEl.hidden = false;
   if (!preserveCockpit) {
     cockpitMounted = false;
+    cockpitLoaded = false;
     cockpitFrame.removeAttribute('src');
   }
   cockpitOpening = false;
   cockpitEl.hidden = true;
+  cockpitEl.inert = true;
+  cockpitEl.classList.add('is-loading');
   splashEl.classList.remove('is-ready');
   cockpitTheme = null;
   if (appearanceTheme === 'system') applyTheme(resolvedSystemTheme());
@@ -260,35 +329,69 @@ function sameCockpitConnection(left: string, right: string): boolean {
 }
 
 function mountCockpit(url: string): void {
-  if (splashHideTimer !== undefined) {
-    window.clearTimeout(splashHideTimer);
-    splashHideTimer = undefined;
-  }
+  cancelSplashTransition();
   splashEl.hidden = false;
   cockpitOpening = false;
   wizardPending = false;
   cockpitEl.hidden = false;
-  splashEl.classList.add('is-ready');
 
   // A runner-only settings change restarts the backend at the same URL. Keep
   // the already-mounted React cockpit alive so it can reconnect through its
   // normal WebSocket/query recovery instead of paying for a full WebView reload.
   if (cockpitMounted && sameCockpitConnection(cockpitFrame.src, url)) {
-    hideSplashAfterCockpitLoad();
+    void hideSplashAfterCockpitLoad();
     return;
   }
+  // Load at its real layout size, but do not cover the eye with an opaque iframe
+  // before the document has loaded and the initial visible cycle has finished.
+  cockpitEl.classList.add('is-loading');
+  cockpitEl.inert = true;
+  cockpitLoaded = false;
+  splashEl.classList.remove('is-ready');
   cockpitMounted = true;
   cockpitFrame.src = url;
 }
 
-function hideSplashAfterCockpitLoad(): void {
-  if (!cockpitMounted) return;
-  if (splashHideTimer !== undefined) window.clearTimeout(splashHideTimer);
-  // Let the opacity-only exit complete before removing the launcher.
-  splashHideTimer = window.setTimeout(() => {
-    if (cockpitMounted && !wizardOpen) splashEl.hidden = true;
-    splashHideTimer = undefined;
-  }, 180);
+async function hideSplashAfterCockpitLoad(): Promise<void> {
+  if (!cockpitMounted || !cockpitLoaded) return;
+  cancelSplashTransition();
+  const generation = splashGeneration;
+  if (coldStart) await eyeCycle.finished;
+  const canReveal = () => generation === splashGeneration && cockpitMounted
+    && cockpitLoaded && !wizardOpen && document.body.dataset.state !== 'error';
+  if (!canReveal()) return;
+  splashRevealTimer = window.setTimeout(() => {
+    splashRevealTimer = undefined;
+    if (!canReveal()) return;
+    if (coldStart) performance.mark('argus:cockpit-visible');
+    coldStart = false;
+    cockpitEl.classList.remove('is-loading');
+    cockpitEl.inert = false;
+    splashEl.classList.add('is-ready');
+    // Ready is already the actual backend state; this is only a visual handoff,
+    // not a fabricated progress phase or another service startup delay.
+    splashHideTimer = window.setTimeout(() => {
+      if (canReveal()) splashEl.hidden = true;
+      splashHideTimer = undefined;
+    }, splashMotion.matches ? 0 : 180);
+  }, 0);
+}
+
+function replayLaunchEye(): void {
+  // An explicit second double-click is a launch, unlike a tray restore. Keep
+  // the live iframe, backend, tasks, focus and draft; only replay the visual handoff.
+  if (!cockpitMounted || !cockpitLoaded || wizardOpen || document.body.dataset.state !== 'ready') return;
+  if (!splashEl.hidden) return;
+  cancelSplashTransition();
+  eyeCycle.cancel();
+  coldStart = true;
+  splashEl.hidden = false;
+  splashEl.classList.remove('is-ready');
+  cockpitEl.classList.add('is-loading');
+  cockpitEl.inert = true;
+  statusEl.textContent = '正在返回 Argus 工作台';
+  eyeCycle = newEyeCycle();
+  void hideSplashAfterCockpitLoad();
 }
 
 function render(status: DesktopStatus): void {
@@ -412,6 +515,7 @@ function renderRunner(): void {
     clearRunnerEl.hidden = true;
   }
   chooseRunnerLabel.textContent = `选择 ${RUNNER_LABELS[runnerKind]}`;
+  runnerPath.title = runnerPath.textContent || '';
   wizardNext.disabled = !manual && !detected;
 }
 
@@ -465,6 +569,9 @@ function goToStep(step: number): void {
 }
 
 function showWizard(setup: DesktopSetup): void {
+  coldStart = false; // The visible first-run/settings eye already owns this flow.
+  eyeCycle.cancel();
+  cancelSplashTransition();
   if (!wizardOpen) returnFocus = document.activeElement as HTMLElement | null;
   wizardOpen = true;
   wizardFinish.disabled = false;
@@ -478,20 +585,18 @@ function showWizard(setup: DesktopSetup): void {
   splashEl.classList.add('has-wizard');
   document.documentElement.dataset.settingsMode = cockpitMounted ? 'true' : 'false';
   wizardCancel.hidden = !cockpitMounted;
+  wizardEl.dataset.returnAvailable = String(cockpitMounted);
   applySetup(setup);
   trialKey.value = '';
-  trialForm.hidden = true;
-  wizardEl.classList.remove('trial-entry-active');
-  stepperEl.hidden = false;
-  trialOpen.setAttribute('aria-expanded', 'false');
-  trialOpen.className = 'primary';
-  trialOpen.textContent = setup.trialMode ? '更换内部测试 Key' : '输入内部测试 Key';
+  trialMode = !!setup.trialMode;
+  trialAccount.hidden = !trialMode;
+  trialRestore.hidden = !setup.canRestoreOwnAccount;
+  if (trialMode) void refreshTrialBalance();
   trialProgress.textContent = '';
-  resetTrialDownload();
   portInput.value = String(port);
   renderRunnerKind();
   renderRunner();
-  goToStep(0);
+  selectEntryMode(trialMode ? 'trial' : 'own');
 }
 
 async function reopenWizard(): Promise<void> {
@@ -511,7 +616,7 @@ function closeWizard(): void {
   if (applying) return;
   wizardOpen = false;
   wizardEl.hidden = true;
-  cockpitEl.inert = false;
+  cockpitEl.inert = cockpitEl.classList.contains('is-loading');
   splashEl.inert = false;
   desktopMenuBar.inert = false;
   splashEl.classList.remove('has-wizard');
@@ -519,6 +624,7 @@ function closeWizard(): void {
   setupRequested = false;
   trialKey.value = '';
   returnFocus?.focus();
+  if (cockpitLoaded && !splashEl.hidden) void hideSplashAfterCockpitLoad();
 }
 
 function closeDesktopMenus(): void {
@@ -693,42 +799,77 @@ retryEl.addEventListener('click', () => {
 
 setupEl.addEventListener('click', () => void reopenWizard());
 
-function revealTrial(): void {
-  trialForm.hidden = false;
-  wizardEl.classList.add('trial-entry-active');
-  stepperEl.hidden = true;
-  wizardCaption.textContent = '内部测试';
-  trialOpen.className = 'ghost small';
-  trialOpen.textContent = '使用自己的账号';
-  trialOpen.setAttribute('aria-expanded', 'true');
-  trialKey.focus();
-}
-trialOpen.addEventListener('click', () => {
-  if (applying) return;
-  if (trialForm.hidden) {
-    revealTrial();
-  } else {
-    trialForm.hidden = true;
-    trialKey.value = '';
-    wizardEl.classList.remove('trial-entry-active');
-    stepperEl.hidden = false;
-    trialOpen.className = 'primary';
-    trialOpen.textContent = '输入内部测试 Key';
-    trialOpen.setAttribute('aria-expanded', 'false');
-    goToStep(0);
+async function refreshTrialBalance(): Promise<void> {
+  if (!trialMode || trialRefresh.disabled) return;
+  trialRefresh.disabled = true;
+  const result = await capture(() => desktopBridge.getTrialStatus());
+  trialRefresh.disabled = false;
+  if (!result.ok) { trialBalance.textContent = '余额暂未同步，请检查网络后刷新。'; return; }
+  const balance = result.value;
+  trialResume.hidden = !balance.paused;
+  trialAttention.hidden = !balance.attention;
+  trialAttention.textContent = balance.attention || '';
+  if (typeof balance.tokensRemaining !== 'number' || typeof balance.tokenLimit !== 'number') {
+    trialBalance.textContent = balance.error || '余额暂未同步，请稍后刷新。';
+    return;
   }
+  const at = balance.checkedAt ? new Date(balance.checkedAt * 1000).toLocaleString() : '';
+  trialBalance.textContent = `${balance.stale ? '上次同步' : '剩余额度'}：${balance.tokensRemaining.toLocaleString()} / ${balance.tokenLimit.toLocaleString()} token${at ? ` · ${at}` : ''}${balance.stale ? '（当前未同步）' : ''}`;
+}
+trialRefresh.addEventListener('click', () => void refreshTrialBalance());
+trialResume.addEventListener('click', async () => {
+  if (applying || !window.confirm('中断的请求可能已经扣除预留额度。查询余额并解除试用暂停？不会自动重放已失败任务。')) return;
+  trialResume.disabled = true;
+  const result = await capture(() => desktopBridge.resumeTrial());
+  trialResume.disabled = false;
+  if (!result.ok || result.value.error) {
+    trialAttention.hidden = false;
+    trialAttention.textContent = result.ok ? result.value.error || '恢复失败。' : '无法连接本地服务。';
+    return;
+  }
+  await refreshTrialBalance();
 });
-trialShortcut.addEventListener('click', () => void openTrialSettings());
+trialRestore.addEventListener('click', async () => {
+  if (applying || !window.confirm('切回原账号会重启本地后端，请确认正在进行的任务已暂停。')) return;
+  applying = trialBusy = true;
+  trialRestore.disabled = true;
+  const result = await capture(() => desktopBridge.restoreOwnAccount());
+  applying = trialBusy = false;
+  trialRestore.disabled = false;
+  if (!result.ok || !result.value.ok) {
+    trialBalance.textContent = result.ok ? result.value.error || '切换失败，原设置已保留。' : '无法连接本地设置服务。';
+    return;
+  }
+  trialMode = false;
+  closeWizard();
+  const status = await capture(() => desktopBridge.getStatus());
+  if (status.ok) render(status.value);
+});
 
+function selectEntryMode(mode: 'own' | 'trial', focusInput = false): void {
+  const trial = mode === 'trial';
+  goToStep(0);
+  trialPanel.hidden = !trial;
+  trialForm.hidden = !trial;
+  ownIntro.hidden = trial;
+  ownContent.hidden = trial;
+  wizardEl.classList.toggle('trial-entry-active', trial);
+  stepperEl.hidden = trial;
+  trialOpen.setAttribute('aria-pressed', String(trial));
+  trialOpen.setAttribute('aria-expanded', String(trial));
+  ownOpen.setAttribute('aria-pressed', String(!trial));
+  wizardCaption.textContent = trial ? '内测试用' : '使用自己的账号';
+  wizardBody.scrollTop = 0;
+  if (!trial) { trialKey.value = ''; trialProgress.textContent = ''; resetTrialDownload(); }
+  if (trial && focusInput) trialKey.focus();
+}
+ownOpen.addEventListener('click', () => { if (!applying) selectEntryMode('own'); });
+trialOpen.addEventListener('click', () => { if (!applying) selectEntryMode('trial', true); });
 async function openTrialSettings(): Promise<void> {
   await reopenWizard();
-  if (wizardOpen && !applying) revealTrial();
+  if (wizardOpen && !applying) selectEntryMode('trial', true);
 }
-desktopBridge.onTrialProgress((message) => {
-  if (!trialBusy) return;
-  resetTrialDownload();
-  trialProgress.textContent = message;
-});
+trialShortcut.addEventListener('click', () => void openTrialSettings());
 function resetTrialDownload(): void {
   clearTimeout(trialDownloadTimer);
   trialDownloadTimer = undefined;
@@ -737,27 +878,28 @@ function resetTrialDownload(): void {
   trialDownloadBar.removeAttribute('value');
   trialDownloadDetails.textContent = '';
 }
-
 function renderTrialDownload({ downloaded_bytes: downloaded, total_bytes: total }: TrialDownloadProgress): void {
-  if (!trialBusy) return;
+  if (!trialBusy || !Number.isFinite(downloaded) || downloaded < 0) return;
   clearTimeout(trialDownloadTimer);
   trialNetworkHint.hidden = true;
   trialDownload.hidden = false;
-  trialProgress.textContent = '正在下载 Copilot…';
-  const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  if (total !== null && total > 0) {
+  const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+  if (total !== null && Number.isFinite(total) && total > 0) {
     const percent = Math.min(100, Math.floor(downloaded / total * 100));
     trialDownloadBar.value = percent;
     trialDownloadDetails.textContent = `${percent}% · ${megabytes(downloaded)} / ${megabytes(total)}`;
   } else {
     trialDownloadBar.removeAttribute('value');
-    trialDownloadDetails.textContent = downloaded > 0 ? `已下载 ${megabytes(downloaded)}` : '正在连接下载服务器…';
+    trialDownloadDetails.textContent = downloaded > 0 ? `已接收 ${megabytes(downloaded)}` : '正在连接下载服务器…';
   }
-  trialDownloadTimer = setTimeout(() => {
-    trialNetworkHint.hidden = false;
-  }, 30_000);
+  trialDownloadTimer = setTimeout(() => { trialNetworkHint.hidden = false; }, 30_000);
 }
-desktopBridge.onTrialDownload(renderTrialDownload);
+desktopBridge.onTrialDownload?.(renderTrialDownload);
+desktopBridge.onTrialProgress((message) => {
+  if (!trialBusy) return;
+  resetTrialDownload();
+  trialProgress.textContent = message;
+});
 trialForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (applying) return;
@@ -767,8 +909,8 @@ trialForm.addEventListener('submit', async (event) => {
     trialKey.focus();
     return;
   }
+  if (cockpitMounted && !window.confirm('启用或更换试用 Key 会重启本地后端。确认当前任务已暂停并继续？')) return;
   applying = trialBusy = true;
-  resetTrialDownload();
   trialKey.value = '';
   trialKey.disabled = trialSubmit.disabled = true;
   wizardEl.setAttribute('aria-busy', 'true');
@@ -785,6 +927,7 @@ trialForm.addEventListener('submit', async (event) => {
     trialProgress.textContent = result.ok ? (result.value.error || '配置失败，请重试。') : '无法连接本地安装服务，请重试。';
     return;
   }
+  trialMode = true;
   closeWizard();
   const status = await capture(() => desktopBridge.getStatus());
   if (status.ok) render(status.value);
@@ -977,6 +1120,22 @@ for (const button of desktopMenuActions) {
     });
   });
 }
+for (const button of startupEyeButtons) {
+  button.addEventListener('click', async () => {
+    const motion = button.dataset.startupEyeMotion;
+    if (motion !== 'on' && motion !== 'off' && motion !== 'system') return;
+    startupEyeButtons.forEach(control => { control.disabled = true; });
+    const result = await capture(() => desktopBridge.setStartupEyeMotion(motion));
+    startupEyeButtons.forEach(control => { control.disabled = false; });
+    closeDesktopMenus();
+    if (!result.ok) {
+      window.alert('无法保存眼睛动画设置，原设置未更改。');
+      return;
+    }
+    applyStartupEyeMotion(result.value.startupEyeMotion);
+    if (cockpitLoaded && !splashEl.hidden) void hideSplashAfterCockpitLoad();
+  });
+}
 document.addEventListener('pointerdown', (event) => {
   if (!desktopMenuBar.contains(event.target as Node)) closeDesktopMenus();
 });
@@ -1012,9 +1171,15 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
-cockpitFrame.addEventListener('load', hideSplashAfterCockpitLoad);
+cockpitFrame.addEventListener('load', () => {
+  pathRequests.navigated();
+  if (!cockpitMounted || !cockpitFrame.hasAttribute('src')) return;
+  cockpitLoaded = true;
+  void hideSplashAfterCockpitLoad();
+});
 
 window.addEventListener('message', (event) => {
+  pathRequests.receive(event);
   if (event.source !== cockpitFrame.contentWindow || event.origin !== cockpitOrigin()) return;
   const data = event.data;
   if (!data || typeof data !== 'object') return;
@@ -1050,6 +1215,7 @@ window.addEventListener('message', (event) => {
   }
 });
 
+desktopBridge.onLaunchActivation(replayLaunchEye);
 desktopBridge.onNewChat(() => postToCockpit('argus:new-chat'));
 desktopBridge.onOpenDelivery((payload) => postToCockpit('argus:open-delivery', payload));
 desktopBridge.onShowSetup(() => void reopenWizard());

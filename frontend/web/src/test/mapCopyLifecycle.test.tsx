@@ -175,10 +175,8 @@ it("naturally rechecks an open historical step after saving review settings whil
 it("does not retry failed summary generation when the daemon resumes without new source records", async () => {
   const generate = vi.spyOn(api, "generateMapCopy").mockRejectedValue(new Error("Runner unavailable"));
   act(() => { renderer = create(tree(true)); });
-  await act(async () => { await vi.advanceTimersByTimeAsync(700); });
-  expect(generate).toHaveBeenCalledTimes(1);
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
-  expect(generate).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(120700); });
+  expect(generate).not.toHaveBeenCalled();
 
   act(() => renderer!.update(tree(false)));
   await act(async () => { await vi.advanceTimersByTimeAsync(700); });
@@ -455,6 +453,29 @@ it('shares an in-flight phase on return to its source without leaking it into an
   expect(client.getQueryData<MapCopy>(otherKey)?.cards.task.title).toBe('Other source result');
   expect(generate.mock.calls.map(call => call[1])).toEqual(['research', 'another-project']);
   expect(generate).toHaveBeenCalledTimes(2);
+});
+
+it('does not generate while paused and starts when the session resumes', async () => {
+  const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(empty);
+  act(() => { renderer = create(tree(true)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+  expect(generate).not.toHaveBeenCalled();
+  act(() => { renderer!.update(tree(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(1);
+});
+
+it('honors a persisted failure cooldown even when the cache has no cards', async () => {
+  client.setQueryData(key, { ...empty, retry_after: 300,
+    generation_error: { code: 'map_timeout', message: 'Cached fallback' } });
+  const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue({ ...empty,
+    generation_error: null, retry_after: 0 });
+  act(() => { renderer = create(tree(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(299999); });
+  expect(generate).not.toHaveBeenCalled();
+  expect(latest.generationError?.message).toBe('Cached fallback');
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(generate).toHaveBeenCalledTimes(1);
 });
 
 it("never schedules generation in read-only mode, including across pause changes", async () => {

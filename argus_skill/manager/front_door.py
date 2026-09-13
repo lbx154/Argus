@@ -7,11 +7,11 @@ import json
 import logging
 import os
 import time
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from ..core.knobs import resolve_role_model
 from ..core.progress_step import REPLY_KINDS
@@ -651,6 +651,8 @@ class PreparedManagerHandoff:
     lifetime: str = "bounded"
     continuous: bool | None = None
     open_ended: bool | None = None
+    cancelled: Callable[[], bool] | None = None
+    on_wait: Callable[[], None] | None = None
 
     @property
     def execution_task(self) -> str:
@@ -785,6 +787,55 @@ class PreparedManagerHandoff:
         })
 
 
+def _handoff_wait_seconds() -> float:
+    from ..core.knobs import normalize_cockpit_knob_value, resolve_knob
+
+    name = "ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS"
+    return float(normalize_cockpit_knob_value(name, resolve_knob(name, "900").value))
+
+
+@contextmanager
+def _operator_pipeline_lock(
+    prepared: PreparedManagerHandoff, *, cancelled: Callable[[], bool] | None = None,
+) -> Iterator[None]:
+    """Ask for a mission boundary BEFORE waiting on the foreground commit lock.
+
+    This never terminates a provider call. Native Manager locks honor timeout
+    and cancellation; the optional kwargs keep injected test/custom lock
+    factories compatible with the existing no-argument protocol.
+    """
+    from ._session_ops import (
+        ManagerLockCancelled,
+        clear_manager_pipeline_yield,
+        request_manager_pipeline_yield,
+    )
+
+    check = cancelled if cancelled is not None else getattr(prepared, "cancelled", None)
+    if callable(check) and check():
+        raise ManagerLockCancelled("Manager request cancelled before safe handoff")
+    timeout = _handoff_wait_seconds()
+    on_wait = getattr(prepared, "on_wait", None)
+    if callable(on_wait):
+        on_wait()
+    life_dir = _life_dir_for(prepared.mem)
+    owner = request_manager_pipeline_yield(life_dir)
+    try:
+        factory = getattr(prepared.manager, "pipeline_lock", None)
+        kwargs: dict[str, Any] = {}
+        if callable(factory):
+            if _accepts_parameter(factory, "timeout"):
+                kwargs["timeout"] = timeout
+            if _accepts_parameter(factory, "cancelled"):
+                kwargs["cancelled"] = check
+        lock = factory(**kwargs) if callable(factory) else nullcontext()
+        with lock:
+            if callable(check) and check():
+                raise ManagerLockCancelled("Manager request cancelled before commit")
+            yield
+    finally:
+        clear_manager_pipeline_yield(life_dir, owner)
+
+
 def prepare_manager_execution_task(
     mem: Any,
     body: str,
@@ -912,9 +963,10 @@ def _manager_divide_user_task(
     except ManagerHandoffError:
         return None
     try:
-        division = prepared.commit()
-        prepared.completed(division)
-        return division
+        with _operator_pipeline_lock(prepared):
+            division = prepared.commit(acquire_lock=False)
+            prepared.completed(division)
+            return division
     except Exception as exc:  # noqa: BLE001
         prepared.failed(exc)
         return None
@@ -948,6 +1000,7 @@ def manager_bounded_handoff(
     prepare_persist: Callable[[str], None] | None = None,
     validate_persist: Callable[[str], None] | None = None,
     prepared_handoff: PreparedManagerHandoff | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> Any:
     """Commit Manager state and durable task enqueue under one pipeline lock.
 
@@ -973,12 +1026,10 @@ def manager_bounded_handoff(
         raise ManagerHandoffError(
             "prepared Manager handoff does not match the bounded dispatch"
         )
-    lock_factory = getattr(prepared.manager, "pipeline_lock", None)
-    pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
     try:
         if prepare_persist is not None:
             prepare_persist(prepared.execution_task)
-        with pipeline_lock:
+        with _operator_pipeline_lock(prepared, cancelled=cancelled):
             if validate_persist is not None:
                 validate_persist(prepared.execution_task)
             division = _bounded_handoff_division(
@@ -1118,18 +1169,10 @@ def manager_continuous_handoff(
                 committed["division"],
             )
 
-    from ._session_ops import (
-        clear_manager_pipeline_yield,
-        request_manager_pipeline_yield,
-    )
-
-    yield_token = request_manager_pipeline_yield(life_dir)
     try:
         if prepare_persist is not None:
             prepare_persist(prepared.execution_task)
-        lock_factory = getattr(prepared.manager, "pipeline_lock", None)
-        pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
-        with pipeline_lock:
+        with _operator_pipeline_lock(prepared, cancelled=cancelled):
             resolved_open_ended = bool(
                 chat_state.get("_continuous_open_ended", expected.open_ended)
             )
@@ -1146,8 +1189,6 @@ def manager_continuous_handoff(
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager handoff commit failed: {exc}") from exc
-    finally:
-        clear_manager_pipeline_yield(life_dir, yield_token)
     if not swapped:
         prepared.superseded()
         current = read_continuous_state(life_dir)
@@ -1220,12 +1261,15 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         route = "simple"
     from ..provider_integrations.authorization_retry import BackendLoginRequired
 
+    chat_state.pop("_self_delivery", None)
+    chat_state.pop("_self_failure", None)
     runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
     chat_state.pop("_self_delivery", None)
     chat_state.pop("_self_failure", None)
     captured: list[str] = []
+    round_failure: str | None = None
     empty_reply = (
         "[Manager reply unavailable] The SELF turn completed without an assistant "
         "message. No task was dispatched and the current mission was not changed. "
@@ -1247,7 +1291,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                 "partial files may exist. No TEAM task was dispatched."
             )
         if captured:
-            return captured[0]
+            # Only the latest successful completed round is the final delivery.
+            return captured[-1]
         if not stop_reason:
             return empty_reply
         return (
@@ -1259,6 +1304,19 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
 
     def _redact_live_text(text: Any) -> str:
         return redact_secrets_text(str(text or ""), known_values=known_secret_values())
+
+    def _failure_reply(detail: Any, *, formatted: bool = False) -> str:
+        safe = _redact_live_text(detail).strip()[:1200] or "The Manager returned no completed reply."
+        chat_state["_self_failure"] = {"detail": safe}
+        chat_state.pop("_self_delivery", None)
+        chat_state.pop("last_thread_id", None)
+        if formatted:
+            return safe
+        from ..core.operator_messages import uses_cjk
+
+        if uses_cjk(body):
+            return f"[Manager reply unavailable] 本次处理未正常完成：{safe}。未追加新任务。"
+        return f"[Manager reply unavailable] The SELF turn did not complete: {safe}. No new task was queued."
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
@@ -1359,6 +1417,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             self._last_live_message_id = ""
 
         def handle_event(self, event: dict[str, Any]) -> None:
+            nonlocal round_failure
             try:
                 etype = str(event.get("type") or "")
                 # Tool-capable SELF turns narrate before/between tool calls and
@@ -1408,6 +1467,18 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                     return
                 if etype != "round.main.completed":
                     return
+                failed = (
+                    event.get("exit_code") not in (None, 0)
+                    or bool(event.get("fatal_error"))
+                    or event.get("turn_completed") is False
+                )
+                round_failure = _redact_live_text(
+                    event.get("fatal_error") or "The Manager SELF round did not complete."
+                ).strip() if failed else None
+                if failed:
+                    # Partial narration from a failed round is not its final reply.
+                    # A later successful round can still replace this receipt.
+                    return
                 text = _redact_live_text(
                     _extract_chat_reply_text(str(event.get("last_message") or ""))
                 )
@@ -1446,36 +1517,32 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             "root_task_id",
         ):
             triage_kwargs["root_task_id"] = root_task_id
+        # Decide compatibility before execution. A TypeError raised inside a
+        # started turn must not cause another possibly paid invocation.
+        if not _accepts_parameter(runner.chat_reply_if_conversational, "phase_cb"):
+            triage_kwargs["sink"] = _Capture(progress_phases=True)
+        for name in ("seed_thread_id", "phase_cb", "route"):
+            if not _accepts_parameter(runner.chat_reply_if_conversational, name):
+                triage_kwargs.pop(name, None)
         if runner.chat_reply_if_conversational(**triage_kwargs):
             outcome = getattr(runner, "last_chat_outcome", None)
+            if getattr(outcome, "success", None) is False or round_failure:
+                return _failure_reply(getattr(outcome, "stop_reason", "") or round_failure)
+            if not captured:
+                return _failure_reply("模型没有返回可交付的回复。")
             delivery = getattr(outcome, "delivery", None)
             if isinstance(delivery, dict):
                 chat_state["_self_delivery"] = delivery
             if mode == "inspect":
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
             return _reply_for_outcome()
-    except TypeError:
-        # Older runner without phase_cb / route support — retry without them
-        # (fail-soft; the older runner will classify route internally).
-        try:
-            if runner.chat_reply_if_conversational(
-                objective=body, sink=_Capture(progress_phases=True),
-                seed_thread_id=chat_state.get("last_thread_id"),
-            ):
-                chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
-                return _reply_for_outcome()
-        except BackendLoginRequired:
-            raise
-        except Exception as exc:  # noqa: BLE001 — triage failure
-            if is_pre_provider_refusal_error(exc):
-                return _pre_provider_refusal_reply(exc, body)
-            return None
     except BackendLoginRequired:
         raise
-    except Exception as exc:  # noqa: BLE001 — triage failure: bias to task
+    except Exception as exc:  # noqa: BLE001 — preserve failure, never dispatch or replay
+        reply = _failure_reply(f"{type(exc).__name__}: {exc}")
         if is_pre_provider_refusal_error(exc):
-            return _pre_provider_refusal_reply(exc, body)
-        return None
+            return _redact_live_text(_pre_provider_refusal_reply(exc, body))
+        return reply
     return None
 
 def _extract_chat_reply_text(msg: str) -> str:

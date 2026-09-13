@@ -35,6 +35,7 @@ const STATUS_LABELS: Record<string, readonly [string, string]> = {
   supervisor_error: ['执行异常', 'Execution failed'],
   skipped: ['已跳过', 'Skipped'],
   paused: ['已暂停', 'Paused'],
+  paused_cost: ['费用待对账', 'Awaiting usage reconciliation'],
   stopped: ['已暂停', 'Paused'],
   cancelled: ['已暂停', 'Paused'],
   aborted: ['已暂停', 'Paused'],

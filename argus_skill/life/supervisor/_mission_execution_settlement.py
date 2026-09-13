@@ -1167,6 +1167,7 @@ class MissionExecutionSettlementMixin:
                     "running",
                     "paused",
                     "paused_budget",
+                    "paused_cost",
                     "paused_provider_cooldown",
                     "paused_provider_fence",
                     "paused_operator",

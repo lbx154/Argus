@@ -468,6 +468,29 @@ class EventConsumerMixin:
             return thread_id, turn_completed, turn_failed, fatal_error
         event_type = str(event.get("type") or "").strip()
         data = event.get("data")
+        # A stream can report an error after HTTP 200. Only inspect structured
+        # error envelopes, never assistant text that happens to discuss errors.
+        envelope = event.get("error")
+        # Newer Copilot versions multiplex delegated agents onto the same stream.
+        # Their local messages/results cannot complete or replace the parent turn.
+        # An explicit top-level provider envelope still fails closed.
+        if str(event.get("agentId") or "").strip() and not isinstance(envelope, dict):
+            return thread_id, turn_completed, turn_failed, fatal_error
+        # Copilot puts recoverable tool/MCP operation errors in data.error too.
+        # They are feedback to the agent, not a failed model request. Preserve
+        # them in the stream without poisoning the eventual completion receipt.
+        # A top-level provider error envelope remains fatal on every event type.
+        local_operation = event_type.startswith(("tool.", "mcp.", "session.mcp_"))
+        if not isinstance(envelope, dict) and isinstance(data, dict) and not local_operation:
+            envelope = data.get("error")
+        if isinstance(envelope, dict) or event_type == "session.error":
+            envelope = envelope if isinstance(envelope, dict) else data if isinstance(data, dict) else {}
+            code = str(envelope.get("code") or envelope.get("errorType") or "provider_stream_failed")
+            message = str(envelope.get("message") or "Copilot stream failed.")
+            status = envelope.get("statusCode")
+            if type(status) is int and 400 <= status <= 599:
+                message = f"HTTP {status}: {message}"
+            return thread_id, False, True, fatal_error or f"{code}: {message}"
         if event_type == "tool.execution_complete" and isinstance(data, dict):
             telemetry = data.get("toolTelemetry")
             properties = telemetry.get("properties") if isinstance(telemetry, dict) else {}
@@ -533,13 +556,19 @@ class EventConsumerMixin:
             thread_id = session_id
 
         exit_code = event.get("exitCode")
-        if exit_code == 0:
-            turn_completed = True
+        if type(exit_code) is int and exit_code == 0:
+            turn_completed = not turn_failed and not fatal_error
             return thread_id, turn_completed, turn_failed, fatal_error
 
+        turn_completed = False
         turn_failed = True
-        if write_state is not None and isinstance(exit_code, int) and not isinstance(exit_code, bool):
+        if write_state is not None and type(exit_code) is int:
+            # The current runner adds stderr context when it finalizes this receipt.
             write_state.exit_code = exit_code
+        elif fatal_error is None:
+            # Legacy/direct consumers have no accumulator to carry this diagnostic.
+            fatal_error = (f"Copilot CLI exited with code {exit_code}." if type(exit_code) is int
+                           else "Copilot CLI result did not contain a valid exit code.")
         return thread_id, turn_completed, turn_failed, fatal_error
 
     @staticmethod

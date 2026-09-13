@@ -8,6 +8,7 @@
     "budget.reservation.denied",
     "budget.reservation.released",
     "budget.reservation.settled",
+    "budget.unpriced.acknowledged",
     "budget.unpriced.blocked",
     "codex.util.completed",
     "daemon.command.completed",
@@ -176,7 +177,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 148
+        "missing": 149
       },
       "fallback": "greppable",
       "handled": [
@@ -213,6 +214,7 @@
         "budget.reservation.denied",
         "budget.reservation.released",
         "budget.reservation.settled",
+        "budget.unpriced.acknowledged",
         "budget.unpriced.blocked",
         "codex.util.completed",
         "daemon.command.completed",
@@ -357,13 +359,14 @@
     },
     "tui": {
       "counts": {
-        "handled": 86,
+        "handled": 87,
         "hidden": 84,
         "missing": 0
       },
       "fallback": "hide",
       "handled": [
         "budget.reservation.denied",
+        "budget.unpriced.acknowledged",
         "budget.unpriced.blocked",
         "daemon.parked",
         "domain.promotion",
@@ -540,13 +543,14 @@
     },
     "web": {
       "counts": {
-        "handled": 86,
+        "handled": 87,
         "hidden": 84,
         "missing": 0
       },
       "fallback": "hide",
       "handled": [
         "budget.reservation.denied",
+        "budget.unpriced.acknowledged",
         "budget.unpriced.blocked",
         "daemon.parked",
         "domain.promotion",

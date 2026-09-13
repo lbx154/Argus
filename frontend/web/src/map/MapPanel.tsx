@@ -1086,6 +1086,11 @@ export function MapCanvas({
   return (
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
+      {copy?.generation_error && <div role="status" className="map-paused-label">
+        {zh ? '地图说明暂时不可用，原始记录和已有说明已保留。' : 'Map explanation unavailable; records and saved explanations are retained.'}
+        {copy.generation_error.code === 'cost_unreconciled' && (zh
+          ? ' 调用费用待对账，并非预算耗尽。' : ' Provider usage awaits reconciliation, not budget exhaustion.')}
+      </div>}
       {/* The second header line: one sentence on where the work stands, and,
           when something waits on the reader, a link straight to it. */}
       <div className="map-status-row">
@@ -1575,6 +1580,8 @@ export const MapPanel = memo(function MapPanel({
   draft,
   onDraftChange,
   onSend,
+  attachments: controlledAttachments,
+  onAttachmentsChange,
   pending,
   onCancel,
   focusSignal,
@@ -1598,6 +1605,8 @@ export const MapPanel = memo(function MapPanel({
   draft: string;
   onDraftChange: (text: string) => void;
   onSend: MapSend;
+  attachments?: File[];
+  onAttachmentsChange?: (files: File[]) => void;
   pending: boolean;
   onCancel: () => void;
   focusSignal: number;
@@ -1608,7 +1617,16 @@ export const MapPanel = memo(function MapPanel({
 } & MapWorkspaceActions) {
   const { locale } = useI18n();
   const zh = locale === "zh-CN";
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [localAttachments, setLocalAttachments] = useState<File[]>([]);
+  const attachments = controlledAttachments ?? localAttachments;
+  const attachmentRef = useRef(attachments);
+  attachmentRef.current = attachments;
+  const setAttachments = useCallback((update: File[] | ((current: File[]) => File[])) => {
+    const next = typeof update === 'function' ? update(attachmentRef.current) : update;
+    attachmentRef.current = next;
+    if (onAttachmentsChange) onAttachmentsChange(next);
+    else setLocalAttachments(next);
+  }, [onAttachmentsChange]);
   const currentDraft = useRef(draft);
   currentDraft.current = draft;
   const mounted = useRef(true);
@@ -1619,7 +1637,9 @@ export const MapPanel = memo(function MapPanel({
     };
   }, []);
   const send: MapSend = useCallback(async (text, files = [], observe) => {
+    let failedBeforeAcceptance = false;
     const accepted = await onSend(text, files, (result) => {
+      if (result.type === 'settled' && result.outcome === 'error') failedBeforeAcceptance = true;
       if (!mounted.current) return;
       if (result.type === 'settled' && result.outcome === 'error' && !currentDraft.current.trim()) {
         onDraftChange(text);
@@ -1627,14 +1647,14 @@ export const MapPanel = memo(function MapPanel({
       }
       observe?.(result);
     });
-    if (accepted && mounted.current) {
+    if (accepted && !failedBeforeAcceptance && mounted.current) {
       if (currentDraft.current === text) onDraftChange("");
       setAttachments((current) =>
         current.filter((file) => !files.includes(file)),
       );
     }
     return accepted;
-  }, [onSend, onDraftChange]);
+  }, [onSend, onDraftChange, setAttachments]);
   const [source, setSource] = useState(
     () =>
       new URLSearchParams(window.location.search).get("dataset") ||

@@ -51,7 +51,8 @@
       "../resources/argus-backend": "argus-backend"
     },
     "icon": [
-      "icons/icon.png"
+      "icons/icon-light-rounded.png",
+      "icons/icon-light-rounded.ico"
     ],
     "windows": {
       "allowDowngrades": true,
@@ -60,8 +61,8 @@
       "nsis": {
         "installMode": "currentUser",
         "displayLanguageSelector": false,
-        "installerIcon": "icons/icon.ico",
-        "uninstallerIcon": "icons/icon.ico",
+        "installerIcon": "icons/icon-light-rounded.ico",
+        "uninstallerIcon": "icons/icon-light-rounded.ico",
         "installerHooks": "installer-hooks.nsh"
       }
     }

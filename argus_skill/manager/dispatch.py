@@ -854,6 +854,7 @@ def enqueue_mission(
             prepare_persist=_prepare_persist,
             validate_persist=_validate_persist,
             prepared_handoff=prepared_handoff,
+            cancelled=cancelled,
         )
     chat_state["last_objective"] = item.original_objective or item.objective
     alive, pid = _daemon_status(life_dir)

@@ -26,6 +26,8 @@ class MissionSettlementMixin:
         stop_kind = rounds[-1].stop_kind if rounds else None
         if status == "paused_budget" and stop_kind is None:
             stop_kind = "budget_exhausted"
+        if status == "paused_cost" and stop_kind is None:
+            stop_kind = "cost_unreconciled"
         outcome = LoopOutcome(
             status=status,
             rounds=rounds,

@@ -10,7 +10,8 @@ import { pluginEntryState, preparingSentence, unavailableSentence, type PluginEn
 export type Plugin = PluginEntry & {
   description: string; version: string; url: string; command?: string; reason: string; installed_version?: string;
   rights_notice?: string; rights_notice_zh?: string;
-  update_available: boolean; backends: Record<string, string>;
+  update_available: boolean; environment_update?: boolean; backends: Record<string, string>;
+  operation?: { status?: string; progress?: string; error?: string };
   health?: PluginHealth; setup?: PluginSetup;
   platform?: string; machine?: string;
 };
@@ -83,7 +84,7 @@ export function PluginCard({ plugin, running, locale, act }: { plugin: Plugin; r
       {tr(!plugin.installed && !managed && <button className={control} disabled={disabled} onClick={() => void act('install')}><Download size={14}/>{tr("安装")}</button>)}
       {tr(plugin.installed && plugin.enabled && <button className={control} disabled={disabled} onClick={() => void act('launch')}>{tr("打开工作台")}<ArrowUpRight size={14}/></button>)}
       {tr(plugin.installed && !plugin.enabled && !managed && <button className={control} disabled={disabled} onClick={() => void act('enable')}>{tr("启用")}</button>)}
-      {tr(plugin.update_available && !managed && <button className={control} disabled={disabled} onClick={() => void act('update')}><RefreshCw size={14}/>{tr("更新至 ")}{tr(plugin.version)}</button>)}
+      {tr(plugin.update_available && !managed && <button className={control} disabled={disabled} onClick={() => void act('update')}><RefreshCw size={14}/>{plugin.environment_update ? tr("更新科学环境校验") : <>{tr("更新至 ")}{tr(plugin.version)}</>}</button>)}
       {tr(plugin.installed && plugin.enabled && !managed && <button className={control} disabled={running} onClick={() => void act('disable')}>{tr("停用")}</button>)}
       {tr(plugin.installed && !managed && <button className={control} disabled={running} onClick={() => void act('uninstall')}>{tr("卸载")}</button>)}
     </div>
@@ -102,15 +103,25 @@ export function PluginLauncher({ compact = false }: { compact?: boolean }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
+  const [consent, setConsent] = useState<{ pluginId: string; action: string } | null>(null);
+  const [licenseAccepted, setLicenseAccepted] = useState(false);
   const close = useRef<HTMLButtonElement>(null);
   const preparing = plugins.some(plugin => pluginEntryState(plugin) === 'preparing');
   const provided = plugins.length > 0 && plugins.every(plugin => plugin.managed_by_host);
   async function refresh(signal?: AbortSignal) {
     const response = await fetch('/api/plugins', { headers: authHeaders(), signal });
     if (!response.ok) throw new Error(tr("无法读取插件列表"));
-    setPlugins((await response.json()).plugins);
+    const value = await response.json();
+    if (!signal?.aborted) setPlugins(value.plugins);
   }
   useEffect(() => {
+    if (!open) {
+      setConsent(null);
+      setLicenseAccepted(false);
+    }
+  }, [open]);
+  useEffect(() => {
+    // Discover installed/hosted entries on arrival even while the center is closed.
     const controller = new AbortController();
     const load = () => refresh(controller.signal).catch(e => { if (!controller.signal.aborted && open) setError(e.message); });
     if (open) { close.current?.focus(); setError(''); setLoading(true); }
@@ -123,6 +134,14 @@ export function PluginLauncher({ compact = false }: { compact?: boolean }) {
     return () => { controller.abort(); if (timer) window.clearInterval(timer); window.removeEventListener('keydown', key); };
   }, [open, preparing]);
   async function act(plugin: Plugin, action: string, payload?: Record<string, unknown>): Promise<boolean> {
+    const runtime = plugin.setup?.windows_runtime;
+    if (runtime && !runtime.accepted && ['install', 'update', 'repair', runtime.action].includes(action)
+      && payload?.accept_software_license !== true) {
+      setConsent({ pluginId: plugin.id, action });
+      setLicenseAccepted(false);
+      setError('');
+      return false;
+    }
     setPending(plugin.id); setError('');
     try {
       const response = await fetch(`/api/plugins/${plugin.id}/${action === 'launch' ? 'launch' : `manage/${action}`}`, { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: payload ? JSON.stringify(payload) : undefined });
@@ -145,9 +164,44 @@ export function PluginLauncher({ compact = false }: { compact?: boolean }) {
         {tr(error && <p role="alert" className="mb-4 text-sm text-ink-dim">{tr(error)}</p>)}
         {tr(loading && <p className="text-sm text-ink-faint">{tr("正在读取插件…")}</p>)}
         {tr(!loading && !plugins.length && <p className="text-sm text-ink-faint">{tr("暂无可用插件")}</p>)}
-        {tr(plugins.map(plugin => <PluginCard key={plugin.id} plugin={plugin} locale={locale}
-          running={plugin.operation?.status === 'running' || pending === plugin.id}
-          act={(action, payload) => act(plugin, action, payload)}/>))}
+        {tr(plugins.map(plugin => {
+          const running = plugin.operation?.status === 'running' || pending === plugin.id;
+          const disabled = running || !plugin.supported;
+          const control = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm transition-colors hover:bg-bg disabled:cursor-not-allowed disabled:opacity-45';
+          return <article key={plugin.id} className="rounded-xl border border-line/70 p-4" data-testid={`plugin-${plugin.id}`}>
+            <div className="flex items-start gap-3"><Diamond size={24} strokeWidth={1.25} className="mt-0.5 shrink-0 text-blue"/>
+              <div className="min-w-0 flex-1"><div className="flex items-baseline gap-2"><h3 className="font-medium">{tr(plugin.name)}</h3><span className="text-xs text-ink-faint">{tr(plugin.installed_version || plugin.version)}</span></div>
+                <p className="mt-1 text-sm leading-relaxed text-ink-faint">{tr(plugin.description)}</p></div>
+            </div>
+            <div className="mt-4 text-xs text-ink-faint">{tr(plugin.installed ? plugin.enabled ? tr("已启用") : tr("已停用") : tr("未安装"))}{tr(" · 当前后端 ")}{tr(Array.from(new Set(Object.values(plugin.backends))).join(' / '))}</div>
+            {tr(!plugin.supported && <p className="mt-3 text-sm text-ink-dim">{tr(plugin.reason)}</p>)}
+            {tr(plugin.operation?.status === 'running' && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-ink-dim"><Loader2 size={14} className="animate-spin"/>{tr(plugin.operation.progress)}</p>)}
+            {tr(plugin.operation?.status === 'failed' && <p role="status" className="mt-3 break-words text-sm text-ink-dim">{tr(plugin.operation.error)}</p>)}
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              {tr(!plugin.installed && !plugin.managed_by_host && <button className={control} disabled={disabled} onClick={() => void act(plugin, 'install')}><Download size={14}/>{tr("安装")}</button>)}
+              {tr(plugin.installed && plugin.enabled && <button className={control} disabled={disabled} onClick={() => void act(plugin, 'launch')}>{tr("打开工作台")}<ArrowUpRight size={14}/></button>)}
+              {tr(plugin.installed && !plugin.enabled && !plugin.managed_by_host && <button className={control} disabled={disabled} onClick={() => void act(plugin, 'enable')}>{tr("启用")}</button>)}
+              {tr(plugin.update_available && !plugin.managed_by_host && <button className={control} disabled={disabled} onClick={() => void act(plugin, 'update')}><RefreshCw size={14}/>{plugin.environment_update ? tr("更新科学环境校验") : <>{tr("更新至 ")}{tr(plugin.version)}</>}</button>)}
+              {tr(plugin.installed && plugin.enabled && !plugin.managed_by_host && <button className={control} disabled={running} onClick={() => void act(plugin, 'disable')}>{tr("停用")}</button>)}
+              {tr(plugin.installed && !plugin.managed_by_host && <button className={control} disabled={running} onClick={() => void act(plugin, 'uninstall')}>{tr("卸载")}</button>)}
+            </div>
+            {consent?.pluginId === plugin.id && plugin.setup?.windows_runtime && <form className="mt-4 rounded-lg bg-bg/70 p-3" onSubmit={async event => {
+              event.preventDefault();
+              if (!licenseAccepted || running) return;
+              if (await act(plugin, consent.action, { accept_software_license: true })) {
+                setConsent(null); setLicenseAccepted(false);
+              }
+            }}>
+              <p className="text-xs leading-relaxed text-ink-dim">{tr("继续安装或修复前，请确认 PLATON 官方许可。确认后会在同一流程准备完整运行环境，无需另点其他修复按钮。")}</p>
+              <p className="mt-2 text-xs leading-relaxed text-ink-faint">{tr(plugin.setup.windows_runtime.notice)} <a href={plugin.setup.windows_runtime.url} target="_blank" rel="noreferrer" className="text-blue">{tr("官方安装说明 ↗")}</a></p>
+              <label className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-ink-dim"><input type="checkbox" checked={licenseAccepted} onChange={event => setLicenseAccepted(event.target.checked)} className="mt-0.5"/>{tr("我确认用途符合 PLATON 官方许可；如用于商业用途，已另行取得授权。")}</label>
+              <div className="mt-3 flex gap-3"><button type="submit" className={control} disabled={running || !licenseAccepted}>{tr("同意并继续")}</button><button type="button" className="text-xs text-ink-faint" disabled={running} onClick={() => { setConsent(null); setLicenseAccepted(false); }}>{tr("取消")}</button></div>
+            </form>}
+            <p className="mt-4 text-xs leading-relaxed text-ink-faint">{tr(plugin.installed ? tr(`原生会话输入 ${plugin.command || ''} 可启用后台工具。卸载保留会话、研究数据和科学软件。`) : tr("首次安装自动配置独立 Python、DIALS、Systre / Java 和 PLATON 学术免费组件。SHELX 稍后输入授权信息即可安装。"))}</p>
+            {tr(plugin.rights_notice && <p className="mt-3 text-[10px] leading-relaxed text-ink-faint" data-testid="plugin-rights-notice">{tr(locale === 'zh-CN' ? plugin.rights_notice_zh || plugin.rights_notice : plugin.rights_notice)}</p>)}
+            {tr(plugin.installed && plugin.setup && <PluginEnvironment health={plugin.health} setup={plugin.setup} running={running} platform={plugin.platform} machine={plugin.machine} act={(action, payload) => act(plugin, action, payload)}/>)}
+          </article>;
+        }))}
       </section>
     </div>, document.body)}
   </>;

@@ -873,11 +873,10 @@ def test_unpriced_call_does_not_block_next_provider_spawn(
 
     assert first.pricing_status == "unpriced"
     assert first.cost_usd is None
-    assert calls == ["engineer-r1", "reviewer"]
-    assert not second.fatal_error
-    assert second.exit_code == 0
-    assert second.pricing_status == "priced"
-    assert second.cost_usd is not None and second.cost_usd > 0
+    assert calls == ["engineer-r1"]
+    assert "unresolved provider cost" in second.fatal_error
+    assert second.stop_kind == "cost_unreconciled"
+    assert second.pricing_status == "not_billed"
     state = json.loads((root / "cost-control.json").read_text())
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", str(second.cost_usd))

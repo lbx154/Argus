@@ -19,7 +19,7 @@ import time
 
 import pytest
 
-from argus_skill.agent_cli import _run_exec
+from argus_skill.agent_cli import _run_exec as runner_exec
 from argus_skill.agent_cli._env import _provider_turn_cap
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus_skill.agent_cli.runner_backend import (
@@ -141,8 +141,11 @@ def _capped_runner(
     backend: str = BACKEND_COPILOT,
 ) -> tuple[AgentCliRunner, list[str]]:
     terminations: list[str] = []
+    # These are stream-loop unit doubles, not Windows HANDLEs. Stub the owned
+    # spawn boundary rather than handing an incomplete fake to real Job APIs.
+    # Actual Windows spawn/ownership remains covered by real subprocess tests.
     monkeypatch.setattr(
-        _run_exec, "spawn_owned_process", lambda *args, **kwargs: process
+        runner_exec, "spawn_owned_process", lambda *args, **kwargs: process
     )
     monkeypatch.setattr(
         AgentCliRunner, "_resolve_executable", staticmethod(lambda value: value)
@@ -184,6 +187,32 @@ def test_engineer_call_winds_down_at_the_provider_turn_allowance(
     assert result.provider_turns == 3
     assert str(result.fatal_error or "").startswith("Provider turn cap reached")
     assert "ARGUS_SKILL_PROVIDER_TURN_CAP" in str(result.fatal_error)
+
+
+@pytest.mark.parametrize("provider_failure", [False, True])
+def test_turn_allowance_after_tool_errors_keeps_the_right_terminal_reason(monkeypatch, provider_failure):
+    class ToolThenTurns(_LiveFakeProc):
+        def _endless_turns(self):
+            yield json.dumps({"type": "tool.execution_complete", "data": {
+                "success": False, "error": {"code": "failure", "message": "Synthetic tool error"},
+            }})
+            if provider_failure:
+                yield json.dumps({"type": "session.error", "data": {
+                    "code": "provider_usage_missing", "message": "Synthetic provider failure",
+                }})
+            yield from super()._endless_turns()
+
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "3")
+    process = ToolThenTurns()
+    runner, terminations = _capped_runner(monkeypatch, process)
+    result = runner.run_exec(prompt="fixture", resume_thread_id=None, options=RunnerOptions(), run_label="engineer-r1")
+    assert terminations == ["terminate"]
+    assert result.provider_turn_cap_hit and result.provider_turns == 3
+    if provider_failure:
+        assert result.fatal_error.startswith("provider_usage_missing:")
+    else:
+        assert result.fatal_error.startswith("Provider turn cap reached:")
+        assert "Synthetic tool error" not in result.fatal_error
 
 
 def test_call_under_the_allowance_completes_untouched(

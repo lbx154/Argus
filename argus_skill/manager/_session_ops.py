@@ -22,10 +22,11 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import portalocker
 
+from ..core.daemon_lock import is_pid_running
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.runner_errors import result_has_unrecoverable_resume_state
 from ..provider_integrations.authorization_retry import BackendLoginRequired
@@ -40,10 +41,31 @@ _PIPELINE_LOCK = ".manager_pipeline.lock"
 _PIPELINE_YIELD_FILE = ".manager_pipeline_yield.json"
 
 
-def _acquire_session_lock(fh: Any, *, timeout: float | None = None) -> bool:
-    """Acquire ``LOCK_EX``, optionally bounded for explicit diagnostic callers.
+class ManagerLockCancelled(RuntimeError):
+    """A foreground request was cancelled before acquiring its commit lock."""
 
-    Production Manager locks wait until the OS releases the peer's lock.
+    phase = "cancelled"
+
+
+class ManagerPipelineWaitTimeout(TimeoutError):
+    """The task boundary was unavailable; no provider operation timed out."""
+
+    phase = "handoff_wait"
+
+
+def _check_lock_cancelled(cancelled: Callable[[], bool] | None) -> None:
+    if cancelled is not None and cancelled():
+        raise ManagerLockCancelled("Manager request cancelled while waiting for safe handoff")
+
+
+def _acquire_session_lock(
+    fh: Any, *, timeout: float | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> bool:
+    """Acquire ``LOCK_EX``; operator waits can be bounded and cancelled.
+
+    Background execution retains an unbounded hold/wait unless explicitly
+    configured otherwise. A timeout never removes or breaks the peer's lock.
     """
     deadline = (
         time.monotonic() + max(0.0, timeout)
@@ -51,6 +73,7 @@ def _acquire_session_lock(fh: Any, *, timeout: float | None = None) -> bool:
         else None
     )
     while True:
+        _check_lock_cancelled(cancelled)
         try:
             portalocker.lock(
                 fh,
@@ -96,7 +119,10 @@ _pipeline_lock_delegation: ContextVar[frozenset[str]] = ContextVar(
 
 
 @contextmanager
-def manager_pipeline_lock(root: Path | str):
+def manager_pipeline_lock(
+    root: Path | str, *, timeout: float | None = None,
+    cancelled: Callable[[], bool] | None = None,
+):
     """Serialize Manager pipeline commits with daemon mission execution.
 
     Cross-process: an exclusive advisory flock on ``<root>/.manager_pipeline.lock``
@@ -148,11 +174,23 @@ def manager_pipeline_lock(root: Path | str):
         # Our delegation chain already holds the on-disk flock: don't touch
         # it (a second file handle would deadlock — see docstring); serialise
         # against sibling delegated workers on the gate instead.
-        with state.gate:
+        deadline = time.monotonic() + max(0.0, timeout) if timeout is not None else None
+        while True:
+            _check_lock_cancelled(cancelled)
+            if state.gate.acquire(blocking=False):
+                break
+            if deadline is not None and time.monotonic() >= deadline:
+                raise ManagerPipelineWaitTimeout("Timed out waiting for Manager pipeline handoff; no commit was made")
+            time.sleep(0.05)
+        try:
+            _check_lock_cancelled(cancelled)
             yield
+        finally:
+            state.gate.release()
         return
     with lock_path.open("a+b") as handle:
-        _acquire_session_lock(handle)
+        if not _acquire_session_lock(handle, timeout=timeout, cancelled=cancelled):
+            raise ManagerPipelineWaitTimeout("Timed out waiting for Manager pipeline handoff; no commit was made")
         try:
             # Grant the entitlement only after the flock is ours, inside the
             # try: if anything below raises, reset() runs before unlock and
@@ -161,6 +199,7 @@ def manager_pipeline_lock(root: Path | str):
                 _pipeline_lock_delegation.get() | {key}
             )
             try:
+                _check_lock_cancelled(cancelled)
                 yield
             finally:
                 _pipeline_lock_delegation.reset(token)
@@ -219,9 +258,9 @@ def manager_pipeline_yield_requested(root: Path | str) -> bool:
     if not token or pid <= 0:
         _clear_pipeline_yield_if_token(path, token)
         return False
-    try:
-        os.kill(pid, 0)
-    except (ProcessLookupError, PermissionError):
+    # os.kill(pid, 0) can terminate a process on Windows. This predicate must
+    # remain non-destructive outside the frozen entrypoint's compatibility shim.
+    if not is_pid_running(pid):
         _clear_pipeline_yield_if_token(path, token)
         return False
     return True

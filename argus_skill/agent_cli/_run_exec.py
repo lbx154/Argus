@@ -53,6 +53,38 @@ _POST_EXIT_PIPE_DRAIN_MAX_SECONDS = 5.0
 _ORPHAN_GROUP_DETACH_GRACE_SECONDS = 0.5
 
 
+def _consume_pipe_lines(
+    stream_name, pipe, line_queue, stop_queueing, last_enqueue_at, on_error=None,
+    *, publish_eof=True,
+):
+    """Retain complete lines and expose Windows close races without losing EOF.
+
+    The owning reader publishes EOF after closing its pipe. Standalone callers
+    retain the original helper contract and publish it here instead.
+    """
+    def enqueue(item):
+        while not stop_queueing.is_set():
+            try:
+                line_queue.put(item, timeout=0.1)
+                last_enqueue_at[0] = time.monotonic()
+                return
+            except queue.Full:
+                continue
+
+    try:
+        for line in pipe:
+            if not stop_queueing.is_set():
+                enqueue((stream_name, line.rstrip("\n")))
+    except (OSError, ValueError) as exc:
+        if not stop_queueing.is_set():
+            if on_error is not None:
+                on_error(exc)
+            enqueue(("stderr", f"[runner] {stream_name} pipe closed: {type(exc).__name__}"))
+    finally:
+        if publish_eof:
+            enqueue((stream_name, None))
+
+
 @dataclass
 class _StreamState:
     """Mutable accumulator threaded through the stream/finalize phases.
@@ -362,20 +394,11 @@ class RunExecMixin:
             try:
                 if pipe is None:
                     raise RuntimeError(f"{stream_name} pipe was not created")
-                for line in pipe:
-                    if stop_queueing.is_set():
-                        # An independent job can retain the write end. Keep
-                        # draining it without retaining late output or blocking
-                        # the completed invocation; close here on actual EOF.
-                        continue
-                    item = (stream_name, line.rstrip("\n"))
-                    while not stop_queueing.is_set():
-                        try:
-                            line_queue.put(item, timeout=0.1)
-                            last_reader_enqueue_at[0] = time.monotonic()
-                            break
-                        except queue.Full:
-                            continue
+                _consume_pipe_lines(
+                    stream_name, pipe, line_queue, stop_queueing,
+                    last_reader_enqueue_at, on_error=pipe_errors.put,
+                    publish_eof=False,
+                )
             except Exception as exc:
                 if not stop_queueing.is_set():
                     pipe_errors.put(exc)

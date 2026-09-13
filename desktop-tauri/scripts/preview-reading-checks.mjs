@@ -118,6 +118,9 @@ export async function verifyReadingExperience(page, frame, stage, record) {
   await expect(modules).toHaveCount(3);
   assert.deepEqual(await modules.evaluateAll((buttons) => buttons.map((button) => button.dataset.module)), ['overview', 'experiments', 'ide']);
   await expect(frame.locator('.module-card')).toHaveCount(2);
+  await frame.locator('[data-module="experiments"]').click();
+  await expect(frame.getByRole('button', { name: /继续运行|Resume/, exact: true })).toBeVisible();
+  record('Stopped executor retains the explicit Resume action (not clicked; no model task)');
   await frame.locator('[data-module="ide"]').click();
   const tree = frame.locator('.vscode-sidebar .workspace-tree');
   const folder = tree.getByRole('button', { name: 'src', exact: true });

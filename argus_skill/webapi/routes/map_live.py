@@ -177,6 +177,7 @@ def register_map_live_routes(app, ctx, read_dataset):
             "cache_revision": cache.get("cache_revision", 0),
             **({"foundation_ref": foundation_reference(foundation),
                 "process_version": APPLICATION_PROCESS_VERSION} if foundation else {}),
+            **map_narrative._failure_metadata(cache),
         }
 
     @app.post("/api/map-copy/{source}/{name}", dependencies=[Depends(ctx.require_auth)])

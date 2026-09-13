@@ -232,20 +232,18 @@ def _release(root: Path) -> dict[str, Any] | None:
             (_NPM, "--prefix", frontend, "ci"), cwd=root, check=False,
         ).returncode:
             return None
-    for frontend in ("frontend/web", "frontend/tui"):
-        if (root / frontend / "package.json").is_file() and _run(
-            (_NPM, "--prefix", frontend, "run", "build"), cwd=root, check=False,
-        ).returncode:
-            return None
+    script = root / "argus_skill/release_tools/build_release.py"
+    if _run((sys.executable, str(script)), cwd=root, check=False).returncode:
+        return None
     probe = _run((
         sys.executable, "-c",
-        "import json; from argus_skill import __version__; "
-        "print(json.dumps({'package_version': __version__}))",
+        "import json; from argus_skill.release import release_identity; "
+        "print(json.dumps(release_identity('.')))",
     ), cwd=root, check=False)
     try:
-        identity = json.loads(probe.stdout) if probe.returncode == 0 else None
-        return identity if isinstance(identity, dict) and identity.get("package_version") else None
-    except json.JSONDecodeError:
+        identity = json.loads(probe.stdout) if probe.returncode == 0 else {}
+        return identity if identity["release_matches_source"] is True else None
+    except (json.JSONDecodeError, KeyError, TypeError):
         return None
 
 
@@ -322,7 +320,7 @@ def deploy_reviewed_change(
             "approval_matches_input": False, "reviewer_verdict_done": False,
             "baseline_failures": [], "candidate_failures": [],
             "failure_subset": False, "acceptance_passed": False,
-            "both_publication_routes_complete": False,
+            "release_matches_source": False, "both_publication_routes_complete": False,
             "partial_publication": False, "failure_stage": "input",
             "failure_reason": type(exc).__name__, "verdict": "REJECT",
             "daemon_roll_permitted": False,
@@ -345,12 +343,12 @@ def deploy_reviewed_change(
         "reviewer_verdict_done": run_input.reviewer_verdict == "done",
         "baseline_failures": [], "candidate_failures": [],
         "failure_subset": False, "acceptance_reproduced": False,
-        "acceptance_passed": False,
+        "acceptance_passed": False, "release_matches_source": False,
         "repository_parity_verified": False,
         "public_sync_published": False, "public_main_updated": False,
         "private_sync_published": False, "private_main_updated": False,
         "both_publication_routes_complete": False, "partial_publication": False,
-        "package_version": "", "adopted_public_ref": "", "adopted_private_ref": "",
+        "release_id": "", "adopted_public_ref": "", "adopted_private_ref": "",
         "runtime_source_root": "", "failure_stage": "", "failure_reason": "",
     }
     if not approved or run_input.reviewer_verdict != "done":
@@ -492,7 +490,8 @@ def deploy_reviewed_change(
                 elif not _is_ancestor(repo, existing_private_sync, built_private):
                     raise RuntimeError("existing private sync differs from this release")
 
-            facts["package_version"] = str(public_release.get("package_version") or "")
+            facts["release_id"] = str(public_release.get("release_id") or "")
+            facts["release_matches_source"] = True
             facts["public_sync_branch"] = public_sync
             facts["private_sync_branch"] = private_sync
 
@@ -563,7 +562,7 @@ def deploy_reviewed_change(
     facts["partial_publication"] = published and not routes_complete
     adopt = all((
         approved, facts["reviewer_verdict_done"], facts["failure_subset"],
-        facts["acceptance_passed"],
+        facts["acceptance_passed"], facts["release_matches_source"],
         routes_complete,
     ))
     facts.update(verdict="ADOPT" if adopt else "REJECT", daemon_roll_permitted=adopt)

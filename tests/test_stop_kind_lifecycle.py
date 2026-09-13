@@ -67,6 +67,7 @@ def _run_engineer(
     ("stop_kind", "expected_status"),
     [
         ("budget_exhausted", "paused_budget"),
+        ("cost_unreconciled", "paused_cost"),
         ("provider_cooldown", "paused_provider_cooldown"),
         ("provider_fence", "paused_provider_fence"),
         ("daemon_shutdown", "paused_daemon_shutdown"),
@@ -174,6 +175,7 @@ def test_provider_max_budget_is_a_fence_not_backend_failure() -> None:
     ("fatal_error", "expected"),
     [
         ("External interrupt: daemon stop requested", "daemon_shutdown"),
+        ("External interrupt: unresolved provider cost: 1 call(s) awaiting usage reconciliation", "cost_unreconciled"),
         ("External interrupt: operator pause requested: hold", "operator_pause"),
         ("External interrupt: operator abort requested: stop", "operator_abort"),
     ],

@@ -225,10 +225,11 @@ Cloudflare Worker 模板：它仅代理 `lbx154/Argus` 的允许 release 资产�
 ## 内部体验预览（不安装、不发布）
 
 `npm --prefix desktop-tauri run build:preview` 是独立的本地验收路径，不调用 `dist`、
-NSIS、签名或上传脚本。它重新构建 Web/TUI 静态资源，冻结当前
+NSIS、签名或上传脚本。它刷新仓库已有的运行身份清单和 Web/TUI 静态资源，冻结当前
 Python 后端，以 Tauri `--no-bundle --no-sign --features preview` 编译宿主，再对实际
 暂存目录执行 WebView2 端到端检查。仅检查通过后生成 `desktop-tauri/build/previews/`
-下的独立 ZIP；不生成安装器、签名文件或 `latest.json`。
+下的独立 ZIP；不生成安装器、签名文件或 `latest.json`。内置 `release_manifest.json`
+仍是后端身份校验的必要数据，不是更新发布清单。
 
 完整解压后运行 `Argus.exe`。预览使用单独标识 `cn.argusbot.desktop.preview`，
 桌面设置、日志与 WebView 缓存位于 `%APPDATA%/argus-desktop-preview/`，项目与运行时
@@ -259,9 +260,7 @@ AI IDE 的编辑区、文件树、Git 区域、终端和状态栏统一跟随全
 并尊重系统减少动态效果设置。
 
 主对话与地图使用同一 `ComposerSurface` 和样式；主对话保留模式选择、斜杠命令、改写、
-附件及停止等待。主页输入框宽度固定为可用空间的 100%（最大 680px），不随空白、悬停、
-聚焦、输入或清空伸缩；多行高度自适应与地图的 compact／hover 行为保持不变。
-草稿／附件由 App 统一管理，视图切换或上传期间输入新内容不会被旧提交
+附件及停止等待。草稿／附件由 App 统一管理，视图切换或上传期间输入新内容不会被旧提交
 清空。眼睛动效只在启动／处理消息时出现，故障和空闲不持续转动，并尊重减少动态效果。
 
 `build:preview` 默认还要求 1800 秒连续运行及故障注入检查通过，再生成 ZIP。开发者可通过

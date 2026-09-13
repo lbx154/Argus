@@ -12,6 +12,7 @@ export type RunnerKind =
   | 'qoder'
   | 'dsh';
 export type AppearanceTheme = 'system' | 'light' | 'dark';
+export type StartupEyeMotion = 'on' | 'system' | 'off';
 export type LaunchState = 'idle' | 'starting' | 'ready' | 'error' | 'stopped';
 
 export interface DesktopStatus {
@@ -32,6 +33,8 @@ export interface PiConfiguration {
 
 export interface DesktopReleaseIdentity {
   packageVersion: string;
+  releaseId: string;
+  sourceDigest: string;
   distribution: 'development' | 'packaged' | 'preview';
 }
 
@@ -44,6 +47,7 @@ export interface DesktopRuntimeIdentity {
 export interface DesktopSetup {
   complete: boolean;
   trialMode: boolean;
+  canRestoreOwnAccount?: boolean;
   host: string;
   port: number;
   runnerKind: RunnerKind;
@@ -58,6 +62,18 @@ export interface DesktopSetup {
 export interface DesktopAppearance {
   theme: AppearanceTheme;
   resolvedTheme: 'light' | 'dark';
+  startupEyeMotion: StartupEyeMotion;
+}
+
+export interface TrialBalance {
+  tokensRemaining?: number | null;
+  tokenLimit?: number | null;
+  tokensUsed?: number | null;
+  checkedAt?: number | null;
+  stale: boolean;
+  error?: string | null;
+  paused?: boolean;
+  attention?: string | null;
 }
 
 export interface SetupResult {
@@ -122,6 +138,9 @@ export const desktopBridge = {
   getSetup: (): Promise<DesktopSetup> => invoke('get_setup'),
   completeTrialSetup: (apiKey: string): Promise<SetupResult> =>
     invoke('complete_trial_setup', { input: { apiKey } }),
+  getTrialStatus: (): Promise<TrialBalance> => invoke('get_trial_status'),
+  resumeTrial: (): Promise<TrialBalance> => invoke('resume_trial'),
+  restoreOwnAccount: (): Promise<SetupResult> => invoke('restore_own_account'),
   onTrialProgress: (callback: (message: string) => void): (() => void) =>
     eventSubscription('argus:trial-progress', callback),
   onTrialDownload: (callback: (progress: TrialDownloadProgress) => void): (() => void) =>
@@ -129,12 +148,20 @@ export const desktopBridge = {
   getAppearance: (): Promise<DesktopAppearance> => invoke('get_appearance'),
   setAppearance: (appearance: { theme: AppearanceTheme }): Promise<DesktopAppearance> =>
     invoke('set_appearance', { input: appearance }),
+  setStartupEyeMotion: (motion: StartupEyeMotion): Promise<DesktopAppearance> =>
+    invoke('set_startup_eye_motion', { motion }),
   setWindowTheme: (theme: AppearanceTheme): Promise<void> =>
     invoke('set_window_theme', { theme }),
   setLargePreview: (active: boolean): Promise<void> =>
     invoke('set_large_preview', { active }),
   chooseRunner: (kind: RunnerKind): Promise<string | null> =>
     invoke('choose_runner', { kind }),
+  chooseLocalPath: (kind: 'folder' | 'cif'): Promise<string | null> =>
+    invoke('choose_local_path', { kind }),
+  isWindowVisible: (): Promise<boolean> =>
+    invoke('plugin:window|is_visible', { label: 'main' }),
+  onLaunchActivation: (callback: () => void): (() => void) =>
+    eventSubscription('argus:launch-activation', callback),
   completeSetup: (input: {
     port: number;
     runnerKind: RunnerKind;

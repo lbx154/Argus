@@ -21,10 +21,16 @@ from . import CLIENT_MODEL, MAX_OUTPUT_TOKENS, MODEL, REASONING_EFFORT
 TRIAL_ENV = "ARGUS_SKILL_COPILOT_TRIAL"
 
 
-def profile_path() -> Path:
+def trial_home() -> Path:
+    """Account configuration belongs to the host, not a plugin task namespace."""
     from ..core.paths import global_root
 
-    return global_root() / "copilot-trial.json"
+    return Path(os.environ.get("ARGUS_WORKBENCH_HOST_ROOT") or global_root()).resolve()
+
+
+def profile_path() -> Path:
+    candidate = os.environ.get("ARGUS_DESKTOP_TRIAL_PROFILE")
+    return Path(candidate) if candidate else trial_home() / "copilot-trial.json"
 
 
 def trial_enabled(env: dict[str, str] | None = None) -> bool:
@@ -37,9 +43,35 @@ def trial_enabled(env: dict[str, str] | None = None) -> bool:
     return enabled == "1"
 
 
-def trial_model_options(model: str | None, effort: str | None) -> tuple[str | None, str | None]:
-    """Old saved role models must not override the trial's custom provider ID."""
-    return (CLIENT_MODEL, REASONING_EFFORT) if trial_enabled() else (model, effort)
+def trial_model_options(
+    model: str | None, effort: str | None, *, env: dict[str, str] | None = None,
+) -> tuple[str | None, str | None]:
+    """Normalize a trial selector consistently for one-shot and ACP workers.
+
+    Adapted from upstream be5bb394. Preserve the opaque client selector and the
+    user's reasoning setting; never silently accept an incompatible explicit
+    model or rewrite persistent own-account settings.
+    """
+    if not trial_enabled(env):
+        return model, effort
+    selected = str(model or "").strip().casefold()
+    if selected not in {"", "auto", "inherit", "default", CLIENT_MODEL.casefold()}:
+        raise ValueError(
+            "试用模式由服务端选择真实模型。请将当前插件或会话的模型设为 "
+            "argus-trial / auto，或切回自己的账号。"
+        )
+    return CLIENT_MODEL, effort
+
+
+def runtime_redactions() -> tuple[str, ...]:
+    """Include the file-backed trial Key in normal Argus log redaction."""
+    if not trial_enabled():
+        return ()
+    try:
+        value = json.loads(profile_path().read_text(encoding="utf-8")).get("api_key", "")
+        return (value,) if isinstance(value, str) and re.fullmatch(r"argus_trial_[a-f0-9]{64}", value) else ()
+    except (OSError, ValueError, AttributeError):
+        return ()
 
 
 def apply_trial_provider(env: dict[str, str]) -> dict[str, str]:
@@ -48,6 +80,7 @@ def apply_trial_provider(env: dict[str, str]) -> dict[str, str]:
 
     if not trial_enabled(env):
         return env
+    validate_role_overrides()
     config = json.loads(profile_path().read_text(encoding="utf-8"))
     if (
         not isinstance(config, dict) or set(config) != {"base_url", "api_key"}
@@ -113,7 +146,7 @@ def setup_trial(url: str, *, non_interactive: bool = False, api_key: str | None 
     from ..core.backend_readiness import check_backend_readiness, format_backend_readiness
     from ..core.knob_store import write_persisted_knobs
     from ..tools.setup import _verify_setup_smoke
-    from .secrets import write_private
+    from .storage import write_private
 
     key_options = {"api_key": api_key} if api_key is not None else {}
     base_url, api_key = connect(url, non_interactive=non_interactive, **key_options)
@@ -195,23 +228,55 @@ def connect(url: str, *, non_interactive: bool = False, api_key: str | None = No
         api_key = getpass.getpass("Argus trial key (hidden): ").strip()
     if not re.fullmatch(r"argus_trial_[a-f0-9]{64}", api_key):
         raise ValueError("Invalid trial key format. Use the private key supplied with your trial invitation.")
+    data = query_status(origin, api_key)
+    if data["tokens_remaining"] <= 0:
+        raise ValueError("此内测 Key 的额度已用完，请更换 Key 或使用自己的账号。")
+    print(f"Trial: {data['tokens_remaining']} / {data.get('token_limit', '?')} tokens remaining.")
+    return origin + "/v1", api_key
+
+
+def validate_role_overrides() -> None:
+    """Reject incompatible explicit roles; never erase the user's own choices."""
+    from ..core.knob_store import read_persisted_knobs
+
+    settings = {**read_persisted_knobs(), **os.environ}
+    conflicts = []
+    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER", "CURATOR", "SUPERVISOR"):
+        backend = str(settings.get(f"ARGUS_SKILL_{role}_BACKEND", "")).strip().lower()
+        model_key = "PLAN" if role == "PLANNER" else role
+        model = str(settings.get(f"ARGUS_SKILL_{model_key}_MODEL", "")).strip().lower()
+        if backend and backend != "copilot" or model and model not in {"auto", CLIENT_MODEL, MODEL}:
+            conflicts.append(role.lower())
+    if conflicts:
+        raise ValueError("以下角色有与试用不兼容的独立后端或模型设置：" + ", ".join(conflicts)
+                         + "。请先在模型设置中调整；现有配置不会被自动覆盖。")
+
+
+def query_status(url: str, api_key: str) -> dict:
+    validate_origin(url)
+    origin = url.rstrip("/")
+    if not re.fullmatch(r"argus_trial_[a-f0-9]{64}", api_key):
+        raise ValueError("请输入完整有效的内部测试 Key。")
     request = urllib.request.Request(
         origin + "/trial/status",
         headers={"Authorization": "Bearer " + api_key, "User-Agent": "Argus/0.1.1"},
     )
     try:
         context = ssl.create_default_context(cafile=certifi.where())
-        with urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=context)).open(request, timeout=30) as response:
+        with urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=context)).open(request, timeout=30) as response:
             data = json.loads(response.read(8192))
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
-            raise ValueError("Trial key was not recognized. Check the key and retry.") from None
-        raise ValueError("Trial service is unavailable. Try again later.") from None
+            raise ValueError("内测 Key 未被识别，请核对后重试。") from None
+        if exc.code == 429:
+            raise ValueError("试用服务当前繁忙，请稍后重试。") from None
+        raise ValueError("试用服务暂不可用，请稍后重试。") from None
     except (urllib.error.URLError, ValueError, OSError):
-        raise ValueError("Cannot connect to the trial service. Check the URL and connection.") from None
-    if not isinstance(data, dict) or type(data.get("tokens_remaining")) is not int:
-        raise ValueError("Invalid trial status response.")
-    if data["tokens_remaining"] <= 0:
-        raise ValueError("This trial key has used its token allowance.")
-    print(f"Trial: {data['tokens_remaining']} / {data.get('token_limit', '?')} tokens remaining.")
-    return origin + "/v1", api_key
+        raise ValueError("无法连接试用服务，请检查网络连接。") from None
+    if not isinstance(data, dict) or any(type(data.get(k)) is not int or data[k] < 0
+                                          for k in ("tokens_remaining", "token_limit")):
+        raise ValueError("试用服务返回了无效的额度信息。")
+    return {k: v for k, v in data.items() if k in {
+        "tokens_remaining", "token_limit", "tokens_used", "active_requests", "max_concurrency",
+        "global_tpm_limit", "global_tpm_remaining",
+    } and type(v) is int and v >= 0}

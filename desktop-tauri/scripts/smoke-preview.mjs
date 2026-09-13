@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -9,11 +10,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { chromium, expect } from '@playwright/test';
 import { createReadingFixture, verifyReadingExperience } from './preview-reading-checks.mjs';
 import { verifyRuntimeStability } from './preview-stability-checks.mjs';
+import { verifyColdStartupTiming, verifyEyeMotion } from './preview-eye-checks.mjs';
+import { windowsMotionPreference } from './windows-motion.mjs';
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const binary = resolve(process.argv[2] || '');
 assert(process.platform === 'win32' && existsSync(binary), 'Pass a staged Windows preview Argus.exe.');
 const stage = dirname(binary);
+const systemMotionBefore = windowsMotionPreference();
 const soakIndex = process.argv.indexOf('--soak-seconds');
 const soakSeconds = soakIndex < 0 ? 0 : Number(process.argv[soakIndex + 1]);
 assert(Number.isInteger(soakSeconds) && soakSeconds >= 0, 'Invalid soak duration.');
@@ -22,7 +26,7 @@ assert(existsSync(join(stage, 'argus-backend', 'argus-backend.exe')), 'Frozen ba
 const sandbox = mkdtempSync(join(desktop, 'build', 'preview-smoke-'));
 const appData = join(sandbox, 'appdata');
 const localData = join(sandbox, 'localappdata');
-const previewData = join(appData, 'argus-desktop-preview');
+const previewData = join(appData, 'argus-desktop-preview-integration-20260913');
 const home = join(previewData, 'argus-home');
 const workspace = join(sandbox, 'reading-workspace');
 createReadingFixture(workspace);
@@ -53,18 +57,23 @@ const env = {
   ...process.env,
   APPDATA: appData,
   LOCALAPPDATA: localData,
+  // Keep a real single-instance mutex, but never activate an operator's old
+  // preview. The same namespace is reused for this test's second launch.
+  ARGUS_DESKTOP_TEST_INSTANCE: randomUUID().replaceAll('-', ''),
   // Deliberately point at another home: preview must ignore production overrides.
   ARGUS_SKILL_HOME: join(sandbox, 'do-not-touch-home'),
   ARGUS_DESKTOP_DEV: '1',
   ARGUS_DESKTOP_REPO_ROOT: join(sandbox, 'must-not-use-source'),
   ARGUS_SKILL_RUNNER_BACKEND: 'codex',
   ARGUS_SKILL_RUNNER_BIN: codex,
+  CODEX_HOME: join(sandbox, 'unused-codex-home'),
+  PI_CODING_AGENT_DIR: join(sandbox, 'unused-pi-home'),
   PATH: `${join(process.env.SystemRoot || 'C:\\Windows', 'System32')};${dirname(codex)}`,
   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort} --remote-debugging-address=127.0.0.1`,
   PYTHONUTF8: '1',
   PYTHONIOENCODING: 'utf-8',
 };
-for (const key of ['ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE', 'NVM_HOME', 'NVM_SYMLINK']) delete env[key];
+for (const key of ['ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE', 'ARGUS_WORKBENCH_HOST_ROOT', 'NVM_HOME', 'NVM_SYMLINK']) delete env[key];
 
 // A stopped, synthetic project with recorded tasks exercises the actual frozen
 // map API/UI without running a daemon or spending any provider/model credit.
@@ -101,7 +110,7 @@ async function startHost() {
   for (let attempt = 0; attempt < 100; attempt++) {
     if (child.exitCode !== null) throw new Error('Preview exited before connection; check WebView2 or another running preview instance.');
     try {
-      connected = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 800 });
+      connected = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 800, noDefaults: true });
       break;
     } catch { await delay(250); }
   }
@@ -148,6 +157,17 @@ async function quitHost(page) {
 async function invoke(page, command, args = {}) {
   return page.evaluate(({ name, input }) => window.__TAURI_INTERNALS__.invoke(name, input), { name: command, input: args });
 }
+async function chooseEyeMotion(page, motion) {
+  await page.locator('#fileMenuTrigger').click();
+  await page.locator(`button[data-startup-eye-motion="${motion}"]`).click();
+  await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', motion);
+  assert.equal((await invoke(page, 'get_appearance')).startupEyeMotion, motion);
+}
+async function assertNativeMotionBaseline(page) {
+  const reduced = await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
+  assert.equal(reduced, systemMotionBefore.reducedMotion, 'WebView media preference differs from the real Windows setting.');
+  return reduced;
+}
 async function cockpit(page) {
   await expect(page.locator('#cockpit')).toBeVisible({ timeout: 45_000 });
   let frame;
@@ -166,6 +186,30 @@ try {
   await expect(page.locator('#wizardNext')).toBeDisabled();
   assert(!existsSync(join(previewData, 'runtime', 'backend.json')), 'Backend started before explicit CLI confirmation.');
   record('First launch requires CLI confirmation; no backend spawned beforehand');
+  const firstAppearance = await invoke(page, 'get_appearance');
+  assert.equal(firstAppearance.theme, 'light', 'A fresh native profile must default to light.');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  assert.equal(firstAppearance.startupEyeMotion, 'on', 'This preview explicitly defaults the original eye to On.');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(249, 250, 251)');
+  await assertNativeMotionBaseline(page);
+  record('Fresh profile starts light; native attachment uses noDefaults and never emulates media or focus');
+  // No page.emulateMedia anywhere in this native smoke: even a color-only call
+  // would silently set reducedMotion=no-preference. Cross-check the OS instead.
+  const originalEye = await verifyEyeMotion(page, '.argus-wizard-eye', { directory: stage, label: 'native-first-run', moving: true });
+  assert.equal(originalEye.reducedMotion, systemMotionBefore.reducedMotion);
+  record(`Native first-run pupil moves with Windows reduced-motion=${originalEye.reducedMotion}, application eye=on`);
+  if (systemMotionBefore.reducedMotion) {
+    const transition = await page.locator('.desktop-menu-trigger').first().evaluate(element => parseFloat(getComputedStyle(element).transitionDuration));
+    assert(transition < 0.001, 'Only the eye may override reduced motion, not the rest of the UI.');
+  }
+  assert.equal(await page.locator('.argus-loading-ring').count(), 0, 'Do not add arcs or other decorations to the original eye.');
+  await expect(page.locator('#trialOpen')).toBeVisible();
+  await page.locator('#trialOpen').click();
+  await page.locator('#trialKey').fill('invalid-preview-key');
+  await page.locator('#trialSubmit').click();
+  await expect(page.locator('#trialProgress')).toContainText('完整的内部测试 Key');
+  await page.locator('#ownOpen').click();
+  record('Original eye geometry retained under the real OS preference; malformed trial keys rejected');
   await page.screenshot({ path: join(stage, 'preview-onboarding.png'), animations: 'disabled' });
   await page.locator('[data-kind="codex"]').click();
   await page.locator('#wizardNext').click();
@@ -188,6 +232,8 @@ try {
   assert.equal(await frame.evaluate(() => Object.isFrozen(Object.prototype)), false, 'Web iframe must retain standard browser prototype semantics.');
   record(`Actual frozen backend and isolated cockpit ready (${((Date.now() - started) / 1000).toFixed(1)}s)`);
 
+  // A frozen daemon must receive the installation root from the product host,
+  // not from an acceptance script's ambient build environment.
   const state = await invoke(page, 'get_status');
   const auth = new URL(state.url).searchParams.get('token');
   const request = async (path, authenticated = true) => fetch(`http://127.0.0.1:${apiPort}${path}`, {
@@ -202,6 +248,33 @@ try {
   assert.equal(map.status, 200);
   assert.equal((await map.json()).tasks[0].id, 'task-smoke');
   record('Authenticated API, bundled source identity and new research-map endpoint');
+  const documentMarker = randomUUID();
+  await frame.evaluate(marker => { window.__eyePreferenceDocument = marker; }, documentMarker);
+  for (const motion of ['off', 'system', 'on']) {
+    // First-run onboarding intentionally covers the menu. Use the normal
+    // configured-workbench menu, then open Settings to inspect its visible eye.
+    await chooseEyeMotion(page, motion);
+    await page.locator('#fileMenuTrigger').click();
+    await page.locator('[data-menu-action="settings"]').click();
+    await expect(page.locator('#wizard')).toBeVisible();
+    const moving = motion === 'on' || (motion === 'system' && !systemMotionBefore.reducedMotion);
+    await verifyEyeMotion(page, '.argus-wizard-eye', {
+      directory: stage, label: `native-${motion}-choice`, duration: moving ? 1100 : 350, moving,
+    });
+    await page.locator('#wizardCancel').click();
+    await expect(page.locator('#wizard')).toBeHidden();
+    assert.equal((await invoke(page, 'get_status')).pid, state.pid, 'Changing only eye preference restarted the backend.');
+    assert.equal(await frame.evaluate(() => window.__eyePreferenceDocument), documentMarker, 'Eye preference reloaded the live workbench.');
+  }
+  await frame.evaluate(() => { delete window.__eyePreferenceDocument; });
+  record('Eye preference changes persist without restarting the native backend or replacing the live workbench document');
+  assert.equal((await request('/api/plugins', false)).status, 401);
+  const pluginRows = await (await request('/api/plugins')).json();
+  assert.equal(pluginRows.plugins[0].id, 'crystalpilot');
+  assert.equal(pluginRows.plugins[0].installed, false);
+  assert.equal(pluginRows.plugins[0].enabled, false);
+  assert.equal(pluginRows.plugins[0].version, '0.4.0');
+  record('Packaged plugin center lists pinned CrystalPilot 0.4.0, disabled by default; management API is authenticated');
   const shim = join(previewData, 'runtime', 'bin', 'python.cmd');
   const shimCheck = spawnSync('cmd.exe', ['/d', '/s', '/c', `""${shim}" -c "print('shim-ok')""`], {
     env: { ...env, ARGUS_SKILL_PYTHON: join(stage, 'argus-backend', 'argus-backend.exe') },
@@ -264,7 +337,13 @@ try {
   await revealHost();
   await expect.poll(() => invoke(page, 'plugin:window|is_visible', { label: 'main' })).toBe(true);
   assert.equal((await invoke(page, 'get_status')).pid, state.pid);
-  record('Native maximize/restore, hide-to-background and single-instance reactivation');
+  await assertNativeMotionBaseline(page);
+  await verifyEyeMotion(page, '.argus-splash-eye', {
+    directory: stage, label: 'native-exe-reactivation', duration: 350, minimumExcursion: 0.02, moving: true,
+  });
+  await verifyColdStartupTiming(page);
+  await expect(page.locator('#splash')).toBeHidden();
+  record('Native maximize/restore and explicit EXE reactivation replay visible eye pixels while retaining the authenticated backend and live iframe');
 
   await delay(16_000);
   assert.equal((await invoke(page, 'get_status')).state, 'ready');
@@ -278,13 +357,45 @@ try {
     seconds: soakSeconds, record });
 
   await frame.evaluate(() => localStorage.setItem('argus.workspace.view', 'activity'));
+  const savedAppearance = await invoke(page, 'set_appearance', { input: { theme: 'dark' } });
+  assert.equal(savedAppearance.theme, 'dark');
   await quitHost(page);
   record('Explicit stop-and-quit exits the owned host/backend');
   page = await startHost();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  assert.equal((await invoke(page, 'get_appearance')).theme, 'dark', 'An explicit saved theme must survive restart.');
+  record('A previously chosen dark theme survives a real native process restart');
+  const coldReduced = await assertNativeMotionBaseline(page);
+  assert.equal((await invoke(page, 'get_appearance')).startupEyeMotion, 'on');
+  await verifyEyeMotion(page, '.argus-splash-eye', {
+    directory: stage, label: 'native-cold-start', duration: 400, minimumExcursion: 0.02, moving: true,
+  });
+  const coldTiming = await verifyColdStartupTiming(page);
+  writeFileSync(join(stage, 'native-cold-start-timing.json'), JSON.stringify(coldTiming, null, 2) + '\n', { flag: 'wx' });
   frame = await cockpit(page);
   await expect(page.locator('#wizard')).toBeHidden();
-  record('Second actual process launch reuses the saved CLI without onboarding');
+  record(`Configured native cold start: visible eye ${coldTiming.visibleMilliseconds.toFixed(0)}ms, actual Windows reduced-motion=${coldReduced}, eye=on; saved CLI reused`);
+  await chooseEyeMotion(page, 'off');
   await quitHost(page);
+  page = await startHost();
+  await assertNativeMotionBaseline(page);
+  await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', 'off');
+  assert.equal((await invoke(page, 'get_appearance')).startupEyeMotion, 'off');
+  // Off deliberately has no minimum display time, so it may already be hidden
+  // on a fast restart. Check its disabled animation without fabricating a wait.
+  await expect(page.locator('.argus-splash-eye')).toHaveCSS('animation-name', 'none');
+  const offTiming = await verifyColdStartupTiming(page);
+  assert.equal(offTiming.motionEnabled, false);
+  record('Explicit Off survives an actual native restart with animation disabled and no animation allowance');
+  await quitHost(page);
+  const systemMotionAfter = windowsMotionPreference();
+  assert.deepEqual(systemMotionAfter, systemMotionBefore, 'System animation preference must not be changed.');
+  writeFileSync(join(stage, 'native-motion-baseline.json'), JSON.stringify({
+    noDefaults: true, mediaEmulationUsed: false, focusEmulationUsed: false,
+    systemBefore: systemMotionBefore, systemAfter: systemMotionAfter,
+    firstRun: { systemReducedMotion: originalEye.reducedMotion, eyeMode: originalEye.eyeMode, moving: originalEye.expectedMoving },
+    coldOn: coldTiming, coldOff: offTiming,
+  }, null, 2) + '\n', { flag: 'wx' });
   assert.deepEqual(readdirSync(production), ['do-not-touch.txt']);
   assert(!existsSync(join(sandbox, 'do-not-touch-home')));
   assert(existsSync(join(previewData, 'webview')));

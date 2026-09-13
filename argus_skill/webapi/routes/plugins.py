@@ -5,9 +5,10 @@ import os
 import threading
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from ...core import plugin_manager as manager
+from .. import plugin_desktop
 
 
 class PluginSurface:
@@ -38,6 +39,15 @@ class PluginSurface:
         ):
             response = JSONResponse({"detail": "插件正在更新，请稍候再执行操作。"}, status_code=409)
             return await response(scope, receive, send)
+        installed = manager.state_entry(name, self.ctx.global_root)
+        adapter = (plugin_desktop.supported(spec)
+                   and installed.get("version") == spec["version"]
+                   and manager.installed_digest(installed, self.ctx.global_root)
+                   == spec["artifact"]["sha256"])
+        if adapter and scope.get("path") == f"/plugins/{name}/{plugin_desktop.ADAPTER_NAME}":
+            response = Response(plugin_desktop.script_bytes(), media_type="application/javascript",
+                                headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+            return await response(scope, receive, send)
         key = id(plugin)
         if key not in self.apps:
             host = FastAPI()
@@ -47,7 +57,12 @@ class PluginSurface:
 
                 host.middleware("http")(workspace_boundary)
             self.apps[key] = host
-        await self.apps[key](scope, receive, send)
+        ui_path = scope.get("path", "").removeprefix("/plugins/crystalpilot").strip("/")
+        ui_document = scope.get("path", "").startswith("/plugins/crystalpilot") and (
+            not ui_path or ui_path.startswith("thread/")
+        )
+        output = plugin_desktop.html_adapter(send) if adapter and ui_document and scope.get("method") == "GET" else send
+        await self.apps[key](scope, receive, output)
 
 
 def register_plugin_routes(app, ctx):
@@ -101,12 +116,11 @@ def register_plugin_routes(app, ctx):
         if origin and urlparse(origin).netloc != request.headers.get("host"):
             raise HTTPException(403, "Cross-origin plugin management refused")
         try:
-            if set(payload) - {"username", "password", "paths", "accept_platform_license"}:
+            if set(payload) - {"username", "password", "paths", "accept_platform_license", "accept_software_license"}:
                 raise ValueError("Unknown plugin setup field")
-            if "accept_platform_license" in payload and not isinstance(
-                payload["accept_platform_license"], bool
-            ):
-                raise ValueError("Invalid platform consent")
+            for consent in ("accept_platform_license", "accept_software_license"):
+                if consent in payload and type(payload[consent]) is not bool:
+                    raise ValueError("Invalid software consent")
             if any(
                 not isinstance(payload.get(key, ""), str) or len(payload.get(key, "")) > 500
                 for key in ("username", "password")

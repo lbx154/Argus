@@ -80,7 +80,7 @@ export function useMapCopy(
   allowGeneration = true,
   visibleSteps?: SubmapStep[],
   sessionId?: string,
-  _paused = false,
+  paused = false,
   prewarm = false,
   readingKey: string | null = focused,
   pinnedFoundationId?: string | null,
@@ -163,6 +163,9 @@ export function useMapCopy(
   const generation = useQuery({ ...generationOptions, enabled: false });
   const retryAfter = generation.isSuccess && generation.data.available === false
     ? generation.data.retryAfter : null;
+  const cachedFailure = useMemo(() => copy.data?.generation_error
+    ? new Error(copy.data.generation_error.message) : null,
+  [copy.data?.generation_error?.code, copy.data?.generation_error?.message]);
   const startGeneration = () => {
     const request = queryClient.fetchQuery({ ...generationOptions, staleTime: 0 });
     inflight.current = request;
@@ -188,30 +191,38 @@ export function useMapCopy(
     if (
       !allowGeneration ||
       foundationRequired ||
+      paused ||
       !copy.data?.available ||
       !cards.length ||
       generation.isError || (generation.isSuccess && !retryAfter) || activeGenerations > 0 ||
       inflight.current
     )
       return;
+    const persistedDelay = typeof copy.data.retry_after === 'number' && copy.data.retry_after > 0
+      ? copy.data.retry_after : 0;
+    const notBefore = Math.max(
+      retryAfter ? generation.dataUpdatedAt + retryAfter * 1000 : 0,
+      persistedDelay ? copy.dataUpdatedAt + persistedDelay * 1000 : 0,
+    );
     const timer = setTimeout(() => {
       if (queryClient.isFetching({ queryKey: generationScope }) === 0)
         void startGeneration();
-    }, retryAfter ? Math.max(700, generation.dataUpdatedAt + retryAfter * 1000 - Date.now()) : 700);
+    }, Math.max(700, notBefore - Date.now()));
     // Cancel an unstarted debounce only. The active request is source-scoped;
     // cancelling it on every live event leaves completed results stuck on disk.
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, pulse, copy.data?.available, allowGeneration, activeGenerations, generation.status, generation.dataUpdatedAt]);
+  }, [signature, pulse, copy.data?.available, copy.data?.retry_after, copy.dataUpdatedAt,
+    allowGeneration, paused, foundationRequired, activeGenerations, generation.status, generation.dataUpdatedAt]);
   const busy = generating || generation.isFetching || activeGenerations > 0;
   const retry = async () => {
-    if (!allowGeneration || foundationRequired || !copy.data?.available || !cards.length || busy || inflight.current) return;
+    if (!allowGeneration || paused || foundationRequired || !copy.data?.available || !cards.length || busy || inflight.current) return;
     await startGeneration().catch(() => undefined);
   };
   return { copy: copy.data, generating: busy, ready: copy.isFetched,
     foundationRequired,
     readingGenerating: progress.active, generationPhase: progress.phase,
-    generationError: cards.length && !generation.isFetching && !progress.active ? generation.error : null,
+    generationError: cards.length && !generation.isFetching && !progress.active ? generation.error || cachedFailure : null,
     generationUnavailable: !!cards.length && !generation.isFetching && !progress.active && !retryAfter && generation.data?.available === false,
     retry,
     readingRequest: foreground.find(card => card.key === readingKey),

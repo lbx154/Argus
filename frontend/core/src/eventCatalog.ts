@@ -15,6 +15,7 @@ export const EVENT_TYPES = {
   BUDGET_RESERVATION_SETTLED: 'budget.reservation.settled',
   BUDGET_RESERVATION_RELEASED: 'budget.reservation.released',
   BUDGET_UNPRICED_BLOCKED: 'budget.unpriced.blocked',
+  BUDGET_UNPRICED_ACKNOWLEDGED: 'budget.unpriced.acknowledged',
   LOOP_START: 'loop.start',
   LOOP_DONE: 'loop.done',
   ROUND_START: 'round.start',

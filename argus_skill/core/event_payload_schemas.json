@@ -162,6 +162,17 @@
         "run_label": {"type": "string"}
       }
     },
+    "budget.unpriced.acknowledged": {
+      "version": 1,
+      "required": ["call_id", "project_id", "liability_usd", "reason", "acknowledged_at"],
+      "properties": {
+        "call_id": {"type": "string", "minLength": 1},
+        "project_id": {"type": "string", "minLength": 1},
+        "liability_usd": {"type": "number", "minimum": 0},
+        "reason": {"type": "string", "minLength": 1},
+        "acknowledged_at": {"type": "number", "minimum": 0}
+      }
+    },
     "life.mission.started": {
       "version": 1,
       "required": ["item_id"],
@@ -230,6 +241,7 @@
           "type": ["string", "null"],
           "enum": [
             "budget_exhausted",
+            "cost_unreconciled",
             "provider_cooldown",
             "provider_fence",
             "daemon_shutdown",
@@ -288,6 +300,7 @@
           "type": ["string", "null"],
           "enum": [
             "budget_exhausted",
+            "cost_unreconciled",
             "provider_cooldown",
             "provider_fence",
             "daemon_shutdown",
@@ -376,6 +389,7 @@
           "type": ["string", "null"],
           "enum": [
             "budget_exhausted",
+            "cost_unreconciled",
             "provider_cooldown",
             "provider_fence",
             "daemon_shutdown",
@@ -438,6 +452,7 @@
             "completed",
             "research_incomplete",
             "paused_budget",
+            "paused_cost",
             "paused_no_breakthrough",
             "exhausted_current_methods",
             "provider_cooldown",

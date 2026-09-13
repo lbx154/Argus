@@ -17,6 +17,7 @@ export * from './http.js';
 export * from './backlog.js';
 export * from './activity.js';
 export * from './protocol.js';
+export * from './release.generated.js';
 export * from './splash.js';
 export * from './thinking.js';
 export * from './phaseTrail.js';

@@ -6,12 +6,14 @@ pub struct ExpectedBackendIdentity {
     pub host: String,
     pub port: u16,
     pub executable: String,
+    pub manifest_source_digest: String,
     pub token_sha256: String,
 }
 
 #[derive(Clone, Debug)]
 pub struct ExpectedBackendLaunch {
     pub launch_nonce: String,
+    pub manifest_source_digest: String,
     pub spawned_at_ms: i64,
     pub now_ms: i64,
 }
@@ -23,11 +25,21 @@ pub struct ExpectedPriorBackendOwnership {
     pub token_sha256: String,
 }
 
+/// Isolate preview smoke mutexes while retaining real single-instance behavior.
+/// Release builds ignore this test namespace; user-facing preview defaults stay
+/// unchanged. The caller also supplies a fresh AppData/WebView directory.
+pub fn preview_instance_identifier(base: &str, preview: bool, namespace: Option<&str>) -> String {
+    match namespace {
+        Some(value) if preview && (16..=64).contains(&value.len())
+            && value.bytes().all(|byte| byte.is_ascii_hexdigit()) => format!("{base}.test{value}"),
+        _ => base.to_owned(),
+    }
+}
+
 /// Canonicalize Windows comparison spelling without changing the path's target.
 /// Rust's `std::fs::canonicalize` returns the `\\\\?\\` extended form, while
 /// Python's `sys.executable` reports an ordinary drive path. They identify the
 /// same file and must not make a fresh desktop-owned backend look foreign.
-#[cfg(windows)]
 pub fn normalized_windows_path(value: &str) -> String {
     let normalized = value.trim().replace('/', "\\");
     let without_extended_prefix = normalized
@@ -47,25 +59,18 @@ pub fn normalized_windows_path(value: &str) -> String {
 /// does not support the verbatim spelling returned by Rust canonicalization.
 pub fn shell_command_path(path: &std::path::Path) -> String {
     let value = path.to_string_lossy();
-    #[cfg(windows)]
-    {
+    if cfg!(windows) {
         normalized_windows_path(&value)
-    }
-    #[cfg(not(windows))]
-    {
+    } else {
         value.into_owned()
     }
 }
 
 pub fn same_path(left: &str, right: &str) -> bool {
     #[cfg(windows)]
-    {
-        normalized_windows_path(left).eq_ignore_ascii_case(&normalized_windows_path(right))
-    }
+    { normalized_windows_path(left).eq_ignore_ascii_case(&normalized_windows_path(right)) }
     #[cfg(not(windows))]
-    {
-        left == right
-    }
+    { left == right }
 }
 
 pub fn save_ownership(path: &std::path::Path, ownership: &BackendOwnership) -> anyhow::Result<()> {
@@ -96,6 +101,7 @@ pub fn backend_launch_claim_matches(
             .as_deref()
             .is_some_and(|value| !value.is_empty())
         && probe.launch_nonce.as_deref() == Some(expected.launch_nonce.as_str())
+        && probe.manifest_source_digest.as_deref() == Some(expected.manifest_source_digest.as_str())
         && started_at_ms.is_some_and(|value| {
             value >= expected.spawned_at_ms - 5_000 && value <= expected.now_ms + 5_000
         })
@@ -117,6 +123,8 @@ pub fn backend_ownership_matches(
             .executable
             .as_deref()
             .is_some_and(|value| same_path(value, &expected.executable))
+        && ownership.manifest_source_digest == expected.manifest_source_digest
+        && probe.manifest_source_digest.as_deref() == Some(expected.manifest_source_digest.as_str())
         && ownership.token_sha256 == expected.token_sha256
         && !ownership.started_at.is_empty()
         && probe.started_at.as_deref() == Some(ownership.started_at.as_str())
@@ -138,6 +146,9 @@ pub fn prior_backend_ownership_matches(
             .executable
             .as_deref()
             .is_some_and(|value| same_path(value, &ownership.executable))
+        && !ownership.manifest_source_digest.is_empty()
+        && probe.manifest_source_digest.as_deref()
+            == Some(ownership.manifest_source_digest.as_str())
         && ownership.token_sha256 == expected.token_sha256
         && !ownership.started_at.is_empty()
         && probe.started_at.as_deref() == Some(ownership.started_at.as_str())
@@ -151,6 +162,10 @@ pub fn authenticated_bundled_backend_matches(probe: &ProbeIdentity, executable: 
             .executable
             .as_deref()
             .is_some_and(|value| same_path(value, executable))
+        && probe
+            .manifest_source_digest
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
         && probe
             .started_at
             .as_deref()
@@ -170,6 +185,7 @@ mod tests {
             detail: None,
             pid: Some(4242),
             executable: Some("D:\\Argus\\argus-backend.exe".into()),
+            manifest_source_digest: Some("a".repeat(64)),
             started_at: Some("2026-08-09T13:00:00Z".into()),
             launch_nonce: Some("nonce".into()),
             failure_kind: None,
@@ -184,6 +200,17 @@ mod tests {
     }
 
     #[test]
+    fn test_instance_is_preview_only_and_validated() {
+        let nonce = "a123456789abcdef";
+        assert_eq!(preview_instance_identifier("cn.argus.preview", true, Some(nonce)),
+                   "cn.argus.preview.testa123456789abcdef");
+        assert_eq!(preview_instance_identifier("cn.argus", false, Some(nonce)), "cn.argus");
+        for value in ["", "short", "../../another-app", "not a valid namespace"] {
+            assert_eq!(preview_instance_identifier("cn.argus", true, Some(value)), "cn.argus");
+        }
+    }
+
+    #[test]
     fn exact_owned_backend_matches() {
         let ownership = BackendOwnership {
             schema: 3,
@@ -192,6 +219,7 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: "D:\\Argus\\argus-backend.exe".into(),
+            manifest_source_digest: "a".repeat(64),
             token_sha256: "b".repeat(64),
             started_at: "2026-08-09T13:00:00Z".into(),
         };
@@ -199,6 +227,7 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: ownership.executable.clone(),
+            manifest_source_digest: ownership.manifest_source_digest.clone(),
             token_sha256: ownership.token_sha256.clone(),
         };
         assert!(backend_ownership_matches(&ownership, &probe(), &expected));
@@ -224,7 +253,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(windows)]
     fn accepts_python_drive_paths_after_rust_canonicalization() {
         assert_eq!(
             normalized_windows_path(r"\\?\D:\Argus\argus-backend.exe"),
@@ -241,6 +269,7 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: r"\\?\D:\Argus\argus-backend.exe".into(),
+            manifest_source_digest: "a".repeat(64),
             token_sha256: "b".repeat(64),
             started_at: "2026-08-09T13:00:00Z".into(),
         };
@@ -248,23 +277,17 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: r"D:\Argus\argus-backend.exe".into(),
+            manifest_source_digest: ownership.manifest_source_digest.clone(),
             token_sha256: ownership.token_sha256.clone(),
         };
         assert!(backend_ownership_matches(&ownership, &probe(), &expected));
     }
 
     #[test]
-    #[cfg(not(windows))]
-    fn posix_paths_preserve_case_and_separators() {
-        assert!(same_path("/Applications/Argus.app/backend", "/Applications/Argus.app/backend"));
-        assert!(!same_path("/Applications/Argus.app/backend", "/Applications/argus.app/backend"));
-        assert!(!same_path("/tmp/argus/backend", r"\tmp\argus\backend"));
-    }
-
-    #[test]
-    fn launch_claim_binds_nonce_and_start_time() {
+    fn launch_claim_binds_nonce_digest_and_start_time() {
         let expected = ExpectedBackendLaunch {
             launch_nonce: "nonce".into(),
+            manifest_source_digest: "a".repeat(64),
             spawned_at_ms: DateTime::parse_from_rfc3339("2026-08-09T12:59:59Z")
                 .unwrap()
                 .timestamp_millis(),

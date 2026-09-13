@@ -25,6 +25,7 @@ const STATUS_KEYS: Record<string, string> = {
   continue: 'label.status.needsChanges',
   skipped: 'label.status.skipped',
   paused: 'label.status.paused',
+  paused_cost: 'label.outcome.costUnreconciled',
   stopped: 'label.status.paused',
   cancelled: 'label.status.paused',
   aborted: 'label.status.paused',
@@ -117,6 +118,7 @@ const CERTIFICATION_KEYS: Record<string, string> = {
 const INTERRUPTION_KEYS: Record<string, string> = {
   budget_exhausted: 'label.outcome.budgetPaused',
   budget_pause: 'label.outcome.budgetPaused',
+  cost_unreconciled: 'label.outcome.costUnreconciled',
   operator_input_required: 'label.outcome.waitingForYou',
   operator_abort: 'label.outcome.stoppedByYou',
   operator_pause: 'label.outcome.pausedByYou',

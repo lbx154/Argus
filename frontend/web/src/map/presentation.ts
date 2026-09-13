@@ -103,6 +103,7 @@ export interface MapCopy {
   relations: MapRelation[];
   available?: boolean;
   retry_after?: number;
+  generation_error?: { code: string; message: string } | null;
 }
 
 export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, requestedRevision?: string): MapCopy {

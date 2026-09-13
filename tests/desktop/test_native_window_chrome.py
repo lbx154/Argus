@@ -89,7 +89,9 @@ def test_ready_cockpit_checks_initial_setup_without_duplicate_reload() -> None:
     assert "if (!setup.value.complete)" in ready_path
     assert "cockpitMounted && sameCockpitConnection(cockpitFrame.src, url)" in shell
     assert "url.searchParams.delete('desktopTheme')" in shell
-    assert "}, 180);" in shell
+    assert "visibleEyeCycle({" in shell
+    assert "nativeVisible: () => desktopBridge.isWindowVisible()" in shell
+    assert "motionEnabled: eyeMotionEnabled" in shell
 
 
 def test_onboarding_requires_a_selected_available_runner_before_saving() -> None:

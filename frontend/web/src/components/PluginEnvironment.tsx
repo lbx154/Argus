@@ -3,10 +3,10 @@ import { useState } from 'react';
 import { Check, CircleHelp, Download, KeyRound, RefreshCw, ShieldCheck, ChevronDown, ExternalLink } from 'lucide-react';
 
 export type PluginHealth = {
-  checked?: number; ready?: boolean; summary?: string;
+  checked?: number; ready?: boolean; summary?: string; stale?: boolean;
   components?: { id: string; name: string; description: string; status: string; detail: string; path?: string; url: string; automatic: boolean; license_required: boolean }[];
 };
-export type PluginSetup = { actions: string[]; license?: { action: string; name: string; url: string; platform_consent?: { platform: string; machines: string[]; text: string; url: string } } };
+export type PluginSetup = { actions: string[]; windows_runtime?: { action: string; name: string; url: string; notice: string; accepted?: boolean }; license?: { action: string; name: string; url: string; platform_consent?: { platform: string; machines: string[]; text: string; url: string } } };
 const control = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm transition-colors hover:bg-bg disabled:cursor-not-allowed disabled:opacity-45';
 
 export function PluginEnvironment({ health, setup, running, act, platform, machine }: {
@@ -22,6 +22,9 @@ export function PluginEnvironment({ health, setup, running, act, platform, machi
   const [manual, setManual] = useState<string | null>(null);
   const [path, setPath] = useState('');
   const [acceptPlatform, setAcceptPlatform] = useState(false);
+  const [runtimeConsent, setRuntimeConsent] = useState(false);
+  const [showRuntime, setShowRuntime] = useState(false);
+  const runtime = setup.windows_runtime;
   const terms = setup.license?.platform_consent;
   const platformConsent = terms?.platform === platform && terms?.machines.includes(machine || '');
   const components = health?.components || [];
@@ -40,17 +43,31 @@ export function PluginEnvironment({ health, setup, running, act, platform, machi
       <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}
         className="inline-flex items-center gap-2 text-sm text-ink-dim hover:text-ink">
         <ShieldCheck size={16} strokeWidth={1.5}/>
-        <span>{tr(health?.checked ? health.ready ? tr("科学环境已就绪") : tr(`科学环境 · ${missing.length} 项待配置`) : tr("科学环境"))}</span>
+        <span>{tr(health?.stale ? tr("科学环境 · 上次检查结果") : health?.checked ? health.ready ? tr("科学环境已就绪") : tr(`科学环境 · ${missing.length} 项待配置`) : tr("科学环境"))}</span>
         <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}/>
       </button>
       <button type="button" className="inline-flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink disabled:opacity-45"
         disabled={running} onClick={() => { setExpanded(true); void act('health'); }}><RefreshCw size={12}/>{tr("检查环境")}</button>
     </div>
+    {health?.stale && <p role="status" className="mt-2 text-xs leading-relaxed text-ink-dim">{tr("下方为本次操作前的检查结果；请以上方最新错误为准，或重新检查环境。")}</p>}
     {tr((needLicense || needRepair || !health?.checked) && <p className="mt-2 text-xs leading-relaxed text-ink-faint">{tr(" 免费科学组件自动配置；SHELX 需要你在官网取得学术授权后输入下载凭据。 ")}</p>)}
     <div className="mt-3 flex flex-wrap gap-2">
-      {tr((needRepair || !health?.checked) && <button className={control} disabled={running} onClick={() => { setExpanded(true); void act('repair'); }}><Download size={14}/>{tr("修复依赖")}</button>)}
+      {tr((needRepair || !health?.checked || health.stale) && <button className={control} disabled={running} onClick={() => { setExpanded(true); void act('repair'); }}><Download size={14}/>{tr("修复依赖")}</button>)}
       {tr(setup.license && <button className={control} disabled={running} onClick={() => { setCredentials(!credentials); setPassword(''); setUsername(''); }}><KeyRound size={14}/>{tr(needLicense ? tr("配置 SHELX") : tr("SHELX 授权安装"))}</button>)}
     </div>
+    {runtime && <div className="mt-3">
+      <button type="button" className={control} disabled={running} onClick={() => { setShowRuntime(!showRuntime); setRuntimeConsent(false); }}><Download size={14}/>{tr("准备 PLATON 官方环境")}</button>
+      {showRuntime && <form className="mt-3 rounded-lg bg-bg/70 p-3" onSubmit={async e => {
+        e.preventDefault();
+        if (runtimeConsent && await act(runtime.action, { accept_software_license: true })) {
+          setShowRuntime(false); setRuntimeConsent(false); setExpanded(true);
+        }
+      }}>
+        <p className="text-xs leading-relaxed text-ink-dim">{tr(runtime.notice)} <a href={runtime.url} target="_blank" rel="noreferrer" className="text-blue">{tr("官方安装说明 ↗")}</a></p>
+        <label className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-ink-dim"><input type="checkbox" checked={runtimeConsent} onChange={e => setRuntimeConsent(e.target.checked)} className="mt-0.5"/>{tr("我确认用途符合 PLATON 官方许可；如用于商业用途，已另行取得授权。")}</label>
+        <div className="mt-3 flex gap-3"><button type="submit" className={control} disabled={running || !runtimeConsent}>{tr("下载、验证并配置")}</button><button type="button" className="text-xs text-ink-faint" onClick={() => { setShowRuntime(false); setRuntimeConsent(false); }}>{tr("取消")}</button></div>
+      </form>}
+    </div>}
     {tr(credentials && setup.license && <form onSubmit={license} className="mt-4 rounded-lg bg-bg/70 p-3">
       <div className="flex items-center justify-between gap-2 text-sm"><span className="font-medium">{tr(setup.license.name)}{tr(" 学术授权")}</span>
         <a href={setup.license.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue">{tr("前往官网申请")}<ExternalLink size={11}/></a></div>

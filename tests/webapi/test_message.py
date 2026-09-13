@@ -924,7 +924,9 @@ def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
         global_root=tmp_path,
     )
 
-    assert result["kind"] == "chat"
+    assert result["kind"] == "error"
+    assert result["success"] is False
+    assert result["error_code"] == "classification_failed"
     assert result["reply"].startswith("[not dispatched]")
     assert "Manager backend" in result["reply"]
     assert "argus doctor --deep" in result["reply"]
@@ -992,7 +994,9 @@ def test_known_budget_limit_is_reported_without_claiming_manager_backend_is_unav
 
     result = manager_bridge.manager_message(sid, "请继续推进任务", global_root=tmp_path)
 
-    assert result["kind"] == "chat"
+    assert result["kind"] == "error"
+    assert result["success"] is False
+    assert result["error_code"] == "classification_failed"
     assert result["reply"].startswith("[not dispatched]")
     assert "已达到全局日预算上限" in result["reply"]
     assert "$0.000000 available" in result["reply"]
@@ -1405,7 +1409,9 @@ def test_no_dispatch_control_fails_closed_when_inline_reply_fails(
         global_root=tmp_path,
     )
 
-    assert result["kind"] == "chat"
+    assert result["kind"] == "error"
+    assert result["success"] is False
+    assert result["error_code"] == "inline_reply_failed"
     assert result["reply"].startswith("[not dispatched]")
     assert LifeMemory.open(life).backlog.all() == []
 
@@ -1437,7 +1443,9 @@ def test_simple_route_reply_failure_never_falls_through_to_task_dispatch(
         global_root=tmp_path,
     )
 
-    assert result["kind"] == "chat"
+    assert result["kind"] == "error"
+    assert result["success"] is False
+    assert result["error_code"] == "inline_reply_failed"
     assert result["reply"].startswith("[not dispatched]")
     assert LifeMemory.open(life).backlog.all() == []
 
@@ -2160,7 +2168,7 @@ def test_message_stream_task_spawns_and_reports(client: TestClient, monkeypatch)
     def _streaming(
         sid, text, *, global_root=None, on_fragment=None, cancelled=None,
     ):
-        assert cancelled is None
+        assert callable(cancelled) and cancelled() is False
         return {"kind": "task", "reply": None,
                 "item": {"id": "x9", "title": "optimize kernel"}, "daemon_alive": False}
 

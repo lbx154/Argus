@@ -1,5 +1,5 @@
 use crate::models::{
-    AppearanceTheme, DesktopAppearance, DesktopSettings, RunnerKind, RUNNER_KINDS,
+    AppearanceTheme, DesktopAppearance, DesktopSettings, RunnerKind, StartupEyeMotion, RUNNER_KINDS,
 };
 use anyhow::Context;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -87,6 +87,17 @@ impl SettingsStore {
         Ok(self.appearance())
     }
 
+    pub fn set_startup_eye_motion(&self, motion: StartupEyeMotion) -> anyhow::Result<DesktopAppearance> {
+        let mut current = self.settings.lock().expect("settings mutex poisoned");
+        if current.startup_eye_motion != motion {
+            let mut next = current.clone();
+            next.startup_eye_motion = motion;
+            self.write_settings(&next)?;
+            *current = next;
+        }
+        Ok(self.appearance_from(&current))
+    }
+
     pub fn appearance(&self) -> DesktopAppearance {
         self.appearance_from(&self.snapshot())
     }
@@ -99,6 +110,7 @@ impl SettingsStore {
                 AppearanceTheme::Light | AppearanceTheme::System => "light".to_owned(),
             },
             theme,
+            startup_eye_motion: settings.startup_eye_motion,
         }
     }
 
@@ -150,7 +162,9 @@ pub fn available_backend_port(settings: &DesktopSettings) -> io::Result<u16> {
 }
 
 pub(crate) fn desktop_data_dir() -> PathBuf {
-    let name = if crate::release::preview_mode() { "argus-desktop-preview" } else { CANONICAL_USER_DATA_DIR };
+    // A new preview namespace gives manual acceptance a genuinely empty profile
+    // without deleting or silently importing an earlier preview's account/data.
+    let name = if crate::release::preview_mode() { "argus-desktop-preview-integration-20260913" } else { CANONICAL_USER_DATA_DIR };
     #[cfg(not(windows))]
     {
         let home = env::var_os("HOME")
@@ -427,6 +441,108 @@ mod tests {
             std::fs::read(store.data_dir.join("settings.json")).unwrap(),
             original
         );
+    }
+
+    #[test]
+    fn corrupt_settings_are_preserved_and_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("settings.json");
+        for raw in ["{broken", "[]", r#"{"port":"invalid"}"#] {
+            std::fs::write(&file, raw).unwrap();
+            assert!(super::load_settings_file(&file).is_err());
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), raw);
+        }
+    }
+
+    #[test]
+    fn failed_save_does_not_publish_unsaved_settings() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = super::SettingsStore {
+            data_dir: directory.path().to_path_buf(),
+            settings_path: directory.path().join("blocked"),
+            settings: std::sync::Mutex::new(Default::default()),
+        };
+        std::fs::create_dir(&store.settings_path).unwrap();
+        let mut changed = store.snapshot();
+        changed.port = 19876;
+        assert!(store.replace(changed).is_err());
+        assert_ne!(store.snapshot().port, 19876);
+    }
+
+    #[test]
+    fn a_new_profile_defaults_to_light_without_following_the_os_theme() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("appearance-fixture.json");
+        let (settings, _) = super::load_settings_file(&file).unwrap();
+        assert_eq!(settings.appearance_theme, crate::models::AppearanceTheme::Light);
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn an_existing_explicit_theme_is_not_reset_to_the_new_default() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("appearance-fixture.json");
+        for (name, theme) in [
+            ("dark", crate::models::AppearanceTheme::Dark),
+            ("system", crate::models::AppearanceTheme::System),
+            ("light", crate::models::AppearanceTheme::Light),
+        ] {
+            let raw = format!(r#"{{"appearanceTheme":"{name}"}}"#);
+            std::fs::write(&file, &raw).unwrap();
+            let (settings, _) = super::load_settings_file(&file).unwrap();
+            assert_eq!(settings.appearance_theme, theme);
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), raw);
+        }
+    }
+
+    #[test]
+    fn legacy_profiles_default_eye_on_without_resetting_saved_theme() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("appearance-fixture.json");
+        let original = r#"{"appearanceTheme":"dark","runnerKind":"pi","runnerConfigured":true,"setupComplete":true}"#;
+        std::fs::write(&file, original).unwrap();
+        let (settings, _) = super::load_settings_file(&file).unwrap();
+        assert_eq!(settings.startup_eye_motion, crate::models::StartupEyeMotion::On);
+        assert_eq!(settings.appearance_theme, crate::models::AppearanceTheme::Dark);
+        assert_eq!(settings.runner_kind, crate::models::RunnerKind::Pi);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+    }
+
+    #[test]
+    fn eye_preference_is_persisted_without_changing_runtime_or_theme() {
+        use crate::models::{AppearanceTheme, StartupEyeMotion};
+        let directory = tempfile::tempdir().unwrap();
+        let mut original = crate::models::DesktopSettings::default();
+        original.port = 19876;
+        original.appearance_theme = AppearanceTheme::Dark;
+        original.runner_configured = true;
+        original.setup_complete = true;
+        let store = super::SettingsStore {
+            data_dir: directory.path().to_path_buf(),
+            settings_path: directory.path().join("appearance-fixture.json"),
+            settings: std::sync::Mutex::new(original),
+        };
+        for motion in [StartupEyeMotion::Off, StartupEyeMotion::System, StartupEyeMotion::On] {
+            assert_eq!(store.set_startup_eye_motion(motion).unwrap().startup_eye_motion, motion);
+            let (saved, _) = super::load_settings_file(&store.settings_path).unwrap();
+            assert_eq!(saved.startup_eye_motion, motion);
+            assert_eq!(saved.appearance_theme, AppearanceTheme::Dark);
+            assert_eq!(saved.port, 19876);
+            assert!(saved.runner_configured && saved.setup_complete);
+        }
+    }
+
+    #[test]
+    fn failed_eye_preference_save_keeps_the_previous_choice() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = super::SettingsStore {
+            data_dir: directory.path().to_path_buf(),
+            settings_path: directory.path().join("blocked"),
+            settings: std::sync::Mutex::new(Default::default()),
+        };
+        std::fs::create_dir(&store.settings_path).unwrap();
+        assert!(store.set_startup_eye_motion(crate::models::StartupEyeMotion::Off).is_err());
+        assert_eq!(store.snapshot().startup_eye_motion, crate::models::StartupEyeMotion::On);
     }
 
     #[test]

@@ -31,6 +31,11 @@ class PricingQuote:
 
 
 MODEL_PRICES_USD_PER_MTOK: dict[str, ModelPrice] = {
+    # Standard public API reference, 2026-09-09. A proxy's actual bill may differ.
+    # https://developers.openai.com/api/docs/pricing
+    "gpt-5.6-luna": ModelPrice(0.20, 0.02, 1.20,
+        long_context_threshold=272_000, long_input_multiplier=2.0,
+        long_cached_input_multiplier=2.0, long_output_multiplier=1.5),
     # Official GPT-5.6 Sol API pricing.  Requests whose input exceeds 272K
     # tokens price the full request at 2x input (including cached input) and
     # 1.5x output.
