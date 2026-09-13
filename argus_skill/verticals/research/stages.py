@@ -8,6 +8,7 @@ while the evidence comes in.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -611,13 +612,31 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "its rendered output and direct dependencies, and paper/REVIEW.md."
 )
 
-_ENGINEER_RESEARCH_EXECUTION = (
+_TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
+
+_ENGINEER_RESEARCH_METHOD = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Verify current models, benchmark versions, and APIs from live sources instead "
     "of memory. Preserve reproducibility through code, explicit configuration, and raw output, "
     "not extra reporting files. Repair defects in the current stage and never move the "
-    "work backward. Keep experiments adaptive and rewrite the research notes, "
-    "RESEARCH_NOTES.md, with only what the next stage needs."
+    "work backward. Keep experiments adaptive"
+)
+
+_ENGINEER_RESEARCH_EXECUTION = (
+    _ENGINEER_RESEARCH_METHOD
+    + " and rewrite the research notes, RESEARCH_NOTES.md, with only what the next "
+    "stage needs."
+)
+
+# One worker among several in a shared project tree. Every sibling rewriting
+# the project-root notes left each of them reading another route's account and
+# spending rounds repairing the wrong task.
+_ENGINEER_TEAM_RESEARCH_EXECUTION = (
+    _ENGINEER_RESEARCH_METHOD
+    + ". You are one of several workers sharing this project tree: write only the "
+    "files your task names and your own continuation note. The project-root research "
+    "notes, RESEARCH_NOTES.md, belong to the mission that dispatched this work; read "
+    "them for context and leave them unchanged."
 )
 
 _REVIEWER_RESEARCH_JUDGEMENT = (
@@ -670,6 +689,8 @@ def search_altitude_context(project_root: object) -> str:
 
 
 def role_banner(role: str = "engineer") -> str:
+    if role == "engineer" and os.environ.get(_TEAM_TASK_ENV, "").strip():
+        return _ENGINEER_TEAM_RESEARCH_EXECUTION
     return {
         "planner": _PLANNER_RESEARCH_ORCHESTRATION,
         "reviewer": _REVIEWER_RESEARCH_JUDGEMENT,

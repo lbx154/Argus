@@ -25,6 +25,7 @@ def test_build_runner_ns_has_required_fields(tmp_path: Path, monkeypatch) -> Non
     assert ns.engineer_model == "m-eng" and ns.reviewer_model == "m-rev"
     assert ns.workdir == str(tmp_path) and ns.max_rounds == 7 and ns.paper_mission is False
     assert ns.project_state_dir == ""
+    assert ns.checkpoint_path == ""
     # every field _SkillLoopRunner / execute reads must exist
     for f in ("backend", "engineer_reasoning_effort", "skills_dir",
               "plan_mode", "plan_model", "color", "verbose", "quiet"):
@@ -267,6 +268,46 @@ def test_teammate_forces_checkpoint_persist_off(tmp_path: Path, monkeypatch) -> 
     te.run_one_engineer_mission("obj", cwd=str(tmp_path), life_dir=tmp_path / "life",
                                 max_rounds=1, timeout_s=10.0)
     assert os.environ["ARGUS_SKILL_CHECKPOINT_PERSIST"] == "1"
+
+
+def test_each_teammate_carries_its_rounds_in_its_own_note(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Twelve route workers share one project tree. Without a note of their own,
+    # every continuation round read the project-root CHECKPOINT.md another
+    # sibling had just rewritten, and the Reviewer sent the round back for
+    # working on the wrong route.
+    import argus_skill.apps._runtime as rt
+    from argus_skill.apps._runtime_helpers import _checkpoint_path_for
+
+    for var in ("ENGINEER", "REVIEWER"):
+        monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")
+    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
+    monkeypatch.setenv("ARGUS_SKILL_CHECKPOINT_PERSIST", "1")
+    notes: list[Path | None] = []
+
+    class _Outcome:
+        success = True
+
+    class _Runner:
+        def __init__(self, ns):
+            self.ns = ns
+
+        def execute(self, *, objective, sink, prelude_context="", **kwargs):
+            notes.append(_checkpoint_path_for(self.ns, Path(self.ns.workdir)))
+            return _Outcome()
+
+    monkeypatch.setattr(rt, "_SkillLoopRunner", _Runner)
+    for member in ("w1", "w2"):
+        te.run_one_engineer_mission(
+            "obj", cwd=str(tmp_path), life_dir=tmp_path / "life" / member,
+            max_rounds=1, timeout_s=10.0,
+        )
+
+    assert notes == [
+        tmp_path / "life" / "w1" / "CHECKPOINT.md",
+        tmp_path / "life" / "w2" / "CHECKPOINT.md",
+    ]
 
 
 def test_teammate_restores_checkpoint_env_when_setup_fails(

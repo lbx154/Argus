@@ -111,6 +111,7 @@ def _build_runner_ns(
     max_rounds: int,
     paper_mission: bool,
     project_state_dir: Path | None = None,
+    checkpoint_path: Path | None = None,
     stop_event=None,
 ) -> argparse.Namespace:
     """Replicate the daemon's runner namespace (life_worker._runner_namespace)."""
@@ -126,6 +127,7 @@ def _build_runner_ns(
     ns.skills_dir = os.environ.get("ARGUS_SKILL_SKILLS_DIR", str(core_paths.shared_skills_root()))
     ns.workdir = str(cwd)
     ns.project_state_dir = str(project_state_dir or "")
+    ns.checkpoint_path = str(checkpoint_path or "")
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", str(max_rounds)))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
@@ -174,9 +176,11 @@ def run_one_engineer_mission(
     # ``<global_root>/projects/<fingerprint>/events.jsonl`` that the reviewer's
     # engineer-execution-log audit greps — so that audit would inspect a
     # co-located daemon's shared log and mis-attribute other missions' commands.
-    # Disable checkpoint persistence: the audit is then omitted, and a single-shot
-    # teammate (no cross-mission continuity) won't collide with sibling teammates
-    # on a shared CHECKPOINT.md.
+    # Disable project-state persistence so that audit is omitted. The teammate
+    # still carries its own rounds forward through a continuation note, which
+    # lives in its ``life_dir``: left unnamed, the note resolved to the shared
+    # project root, where parallel siblings read each other's state and
+    # continued the wrong task.
     with (
         _temporary_env("ARGUS_SKILL_CHECKPOINT_PERSIST", "0"),
         _temporary_env(
@@ -203,6 +207,7 @@ def run_one_engineer_mission(
                 max_rounds=max_rounds,
                 paper_mission=paper_mission,
                 project_state_dir=Path(cwd),
+                checkpoint_path=life_dir / "CHECKPOINT.md",
                 stop_event=stop_event,
             )
             runner = _SkillLoopRunner(ns)
