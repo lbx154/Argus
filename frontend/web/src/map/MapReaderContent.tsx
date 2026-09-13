@@ -9,6 +9,7 @@ import type { MapEvent, MapTask } from './model';
 import type { CardCopy, CardRequest } from './presentation';
 import { ReaderEvidence, ReaderEvidenceSummary, ReaderTaskFacts } from '../research-brief/ReaderEvidence';
 import { selectReaderEvidence } from '../research-brief/evidence';
+import { ProgressQuestionButton } from '../research-brief/ProgressQuestions';
 
 export interface MapReaderSelection {
   request: CardRequest;
@@ -24,9 +25,10 @@ export interface MapReaderSelection {
 }
 
 /** Only this card's copy and event range enter the reader; no task-root fallback. */
-export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, selection, artifacts, onOpenArtifact }: {
+export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, selection, artifacts, onOpenArtifact, readOnly }: {
   cardKey: string; taskId: string; card?: CardCopy; originalDetail: string;
   task?: MapTask; selection?: MapReaderSelection; artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void;
+  readOnly?: boolean;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -53,6 +55,7 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
         <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{cleanDeliverySummary(card?.detail || originalDetail)}</MarkdownContent></div>
       </>}
     <ReaderTaskFacts selection={sources} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
+    <div className="my-3"><ProgressQuestionButton card={card} cardKey={cardKey} taskId={taskId} readOnly={readOnly} /></div>
     <RawDisclosure label={zh ? '当前加载的任务与环节记录' : 'Currently loaded task and step record'}>
       <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{originalDetail}</MarkdownContent></div>
     </RawDisclosure>

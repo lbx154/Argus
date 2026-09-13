@@ -12,6 +12,7 @@ import type {
   GitDiffView,
   ProjectRow,
   ProjectCostRow,
+  ProgressSourceRef,
   RequestUsage,
   Role,
   Snapshot,
@@ -661,7 +662,7 @@ export const api = {
   mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, foundationId?: string | null) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview, foundationId), signal),
   generateMapCopy: (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string; foundation_id?: string}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, onProgress?: (phase: ExplanationPhase) => void): Promise<import('./map/presentation').MapCopy> =>
     explanationResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview, body.foundation_id), body, signal, onProgress),
-  generateReaderFoundation: (sid: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US'; source_task_id?: string }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
+  generateReaderFoundation: (sid: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US'; source_task_id?: string; progress_source?: Pick<ProgressSourceRef, 'source_id'> }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
     explanationResponse(P(sid, '/reader-foundation?stream=true'), body, undefined, onProgress),
   askReaderFoundation: (sid: string, parentId: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US' }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
     explanationResponse(P(sid, `/reader-foundation/${encodeURIComponent(parentId)}/question?stream=true`), body, undefined, onProgress),

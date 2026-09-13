@@ -89,9 +89,13 @@ export function oldBriefService(copy: MapCopy | undefined): boolean {
   return !!copy && typeof copy.version === 'number' && copy.version < READER_BRIEF_VERSION;
 }
 
-export function questionAboutStep(sid: string, task: MapTask, events: readonly MapEvent[], zh: boolean): string {
+export function referenceAboutStep(sid: string, task: MapTask, events: readonly MapEvent[], zh: boolean): string {
   return referenceText({ source: `live:${sid}`, task_id: task.id, task_title: task.title,
-    event_ids: events.map(event => event.id), lang: zh ? 'zh' : 'en' })
+    event_ids: events.map(event => event.id), lang: zh ? 'zh' : 'en' });
+}
+
+export function questionAboutStep(sid: string, task: MapTask, events: readonly MapEvent[], zh: boolean): string {
+  return referenceAboutStep(sid, task, events, zh)
     + (zh ? '请用不需要专业背景的语言继续解释这一步：它为什么有用，已经核验了什么，还有哪些条件或缺口？'
       : 'Explain this step without assuming specialist knowledge: why does it help, what has been checked, and which conditions or gaps remain?');
 }

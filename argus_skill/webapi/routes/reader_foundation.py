@@ -29,8 +29,15 @@ class ReaderQuestionIn(BaseModel):
         return value
 
 
+class ProgressSourceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: UUID
+
+
 class ReaderFoundationIn(ReaderQuestionIn):
     source_task_id: str | None = Field(default=None, min_length=1, max_length=160)
+    progress_source: ProgressSourceIn | None = None
 
 
 def _foundation_error(exc: Exception) -> HTTPException:

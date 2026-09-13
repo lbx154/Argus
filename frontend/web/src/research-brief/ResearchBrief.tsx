@@ -6,13 +6,14 @@ import { MarkdownContent } from '../components/MarkdownContent';
 import { Modal, ModalHeader } from '../components/Modal';
 import { useI18n } from '../i18n';
 import { dateOf } from '../lib/format';
-import { briefRequest, questionAboutStep } from './model';
+import { briefRequest, referenceAboutStep } from './model';
 import { useResearchBrief, type ResearchBriefOptions } from './useResearchBrief';
 import { readerPreview } from '../map/copyMode';
 import { MapReaderContent } from '../map/MapReaderContent';
 import { ReaderExplanation, ReaderExplanationStatus, ShortText, readerExplanationBoundary } from './ReaderExplanation';
 import { ReaderEvidence, ReaderTaskFacts } from './ReaderEvidence';
 import { selectReaderEvidence } from './evidence';
+import { ProgressQuestionButton } from './ProgressQuestions';
 
 export interface ResearchBriefProps {
   sid: string;
@@ -28,7 +29,7 @@ export interface ResearchBriefProps {
 type ReadingSelection = Pick<ResearchBriefOptions, 'sid' | 'snapshot' | 'view' | 'locale' | 'preview' | 'foundationId'>;
 
 /** Observe the selected task's existing queries; opening a reader adds no work. */
-function SelectedResearchReading({ selection, onOpenArtifact }: { selection: ReadingSelection; onOpenArtifact?: (path: string) => void }) {
+function SelectedResearchReading({ selection, onOpenArtifact, readOnly }: { selection: ReadingSelection; onOpenArtifact?: (path: string) => void; readOnly?: boolean }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const result = useResearchBrief({ ...selection, active: false, readOnly: true });
@@ -40,6 +41,7 @@ function SelectedResearchReading({ selection, onOpenArtifact }: { selection: Rea
     <ModalHeader title={zh ? '读懂这一步' : 'Understand this step'} sub={title} />
     <div className="px-6 pb-6" data-testid="research-brief-reading" data-project-id={selection.sid} data-task-id={taskId}>
       <MapReaderContent cardKey={taskId} taskId={taskId} task={result.task} card={result.card}
+        readOnly={readOnly}
         onOpenArtifact={onOpenArtifact}
         originalDetail={task.objective || selection.snapshot.session.objective || ''}
         selection={{ request: briefRequest(task, result.evidence), evidence: result.loadedEvents ?? [],
@@ -114,14 +116,15 @@ export default function ResearchBrief(props: ResearchBriefProps) {
           sid: props.sid, snapshot: props.snapshot, view: props.view, locale: zh ? 'zh-CN' : 'en-US', preview: readerPreview(), foundationId: result.foundationId,
         })}><BookOpen size={12} />{text('阅读说明', 'Read explanation')}</Button>
         <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setEvidenceOpen(true)}><BookOpen size={12} />{text('查看依据', 'View evidence')}</Button>
-        {props.onAsk && task && !props.readOnly ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => props.onAsk?.(questionAboutStep(props.sid, task, evidence, zh))}><MessageCircle size={12} />{compact && !zh ? <>Ask<span className="sr-only"> about latest progress</span></> : text('询问最新进展', 'Ask about latest progress')}</Button> : null}
+        <ProgressQuestionButton card={card} cardKey={props.view.mission.id} taskId={props.view.mission.id} readOnly={props.readOnly} />
+        {props.onAsk && task && !props.readOnly ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => props.onAsk?.(referenceAboutStep(props.sid, task, evidence, zh))}><MessageCircle size={12} />{text('引用任务', 'Reference task')}</Button> : null}
       </div>
       {compact && result.generating ? <div className="mt-2">{explanationStatus}</div> : null}
       {!compact ? <p className="mt-1 text-[11px] text-ink-faint">{boundary}</p> : null}
     </footer>
   </section>
     <Modal open={!!selectedReading} onClose={() => setReadingSelection(null)} label={text('任务说明', 'Task explanation')}>
-      {selectedReading ? <SelectedResearchReading selection={selectedReading} onOpenArtifact={props.onOpenArtifact} /> : null}
+      {selectedReading ? <SelectedResearchReading selection={selectedReading} onOpenArtifact={props.onOpenArtifact} readOnly={props.readOnly} /> : null}
     </Modal>
     <Modal open={evidenceOpen} onClose={() => setEvidenceOpen(false)} label={text('这一步的依据', 'Evidence for this step')}>
       <ModalHeader title={text('这一步的依据', 'Evidence for this step')} sub={card?.title || task?.title || props.view.mission.title} />

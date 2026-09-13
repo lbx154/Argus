@@ -344,7 +344,7 @@ def list_project_artifacts(
     for evidence in evidence_rows:
         # Reading notes have their own session registration and never become
         # reviewed research outputs through a delivery/live-view declaration.
-        if PurePosixPath(evidence["path"].replace("\\", "/")).parts[:1] == ("reader-notes",):
+        if PurePosixPath(evidence["path"].replace("\\", "/")).parts[:1] in {("reader-notes",), ("reader-progress",)}:
             continue
         row = artifact_metadata(workspace, evidence["path"], why=evidence["why"])
         if (
@@ -372,6 +372,14 @@ def get_project_artifact(
     global_root: Path | str | None = None,
     preview_bytes: int = 128 * 1024,
 ) -> dict[str, Any] | None:
+    if PurePosixPath(str(artifact_path).strip().replace("\\", "/")).parts[:1] == ("reader-progress",):
+        from .reader_progress import registered_progress_artifact
+
+        row = registered_progress_artifact(
+            resolve_global_root(global_root), sid, artifact_path,
+            preview_bytes=max(0, min(int(preview_bytes), 512 * 1024)),
+        )
+        return row if row is not None and row["exists"] else None
     if PurePosixPath(str(artifact_path).strip().replace("\\", "/")).parts[:1] == ("reader-notes",):
         from .reader_foundation import registered_foundation_artifact
 
@@ -418,7 +426,7 @@ def resolved_project_artifact(
         global_root=global_root,
         preview_bytes=0,
     )
-    if info is not None and info.get("source") == "reader_foundation":
+    if info is not None and info.get("source") in {"reader_foundation", "progress_snapshot"}:
         # This address was resolved from this session's registered fixed
         # workspace by get_project_artifact, never from a request field.
         path = Path(info["storage_path"])

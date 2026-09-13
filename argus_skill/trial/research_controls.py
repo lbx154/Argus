@@ -90,11 +90,15 @@ class ResearchControls:
                 ).fetchone():
                     return None
             # Attachments and arbitrary command/resource objects are not research inputs.
-            return Capture(self.analytics, tenant_id, sid, path, {
+            captured = {
                 key: value for key, value in data.items()
                 if key in {"text", "name", "route_override", "request_id", "question",
                            "locale", "source_task_id"} and isinstance(value, str)
-            })
+            }
+            progress = data.get("progress_source")
+            if isinstance(progress, dict) and isinstance(progress.get("source_id"), str):
+                captured["progress_source"] = {"source_id": progress["source_id"]}
+            return Capture(self.analytics, tenant_id, sid, path, captured)
 
     def delete_copies(self, journal, tenant_id, sid):
         with self.capture_lock:

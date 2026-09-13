@@ -59,18 +59,30 @@ def _record(life_dir: Path, request_id: str) -> dict[str, Any] | None:
     ):
         raise ValueError("invalid question foundation record")
     kind = value.get("kind", "foundation")
-    if kind not in {"foundation", "clarification"}:
+    if kind not in {"foundation", "clarification", "progress_answer"}:
         raise ValueError("invalid reading record kind")
     if kind == "foundation" and (value.get("parent_id") or value.get("root_id", value["id"]) != value["id"]):
         raise ValueError("invalid foundation binding")
+    snapshot = value.get("source_snapshot")
+    progress = snapshot.get("progress_source") if isinstance(snapshot, dict) else None
+    if progress is not None:
+        from .reader_progress import validate_source_context
+
+        validate_source_context(progress, life_dir.name)
+        if kind == "foundation":
+            raise ValueError("a progress snapshot is not a foundation")
+    if kind == "progress_answer":
+        if (progress is None or value.get("parent_id") or value.get("root_id") != value["id"]
+                or value.get("progress_source") != {"source_id": progress["source_id"]}
+                or snapshot.get("sources") != []):
+            raise ValueError("invalid progress answer binding")
     if kind == "clarification":
         if any(_request_id(value.get(key, "")) != value.get(key) for key in ("parent_id", "root_id")):
             raise ValueError("invalid clarification binding")
         if value["id"] in {value["parent_id"], value["root_id"]}:
             raise ValueError("invalid clarification ancestry")
-        snapshot = value.get("source_snapshot")
         sources = snapshot.get("sources") if isinstance(snapshot, dict) else None
-        expected_ids = {value["root_id"], value["parent_id"]}
+        expected_ids = {value["parent_id"]} if progress is not None else {value["root_id"], value["parent_id"]}
         if (not isinstance(sources, list) or len(sources) != len(expected_ids)
                 or any(not isinstance(source, dict) for source in sources)
                 or {source.get("id") for source in sources} != expected_ids
@@ -80,7 +92,8 @@ def _record(life_dir: Path, request_id: str) -> dict[str, Any] | None:
             if (source.get("path") != f"{ARTIFACT_DIRECTORY}/{life_dir.name}/{source['id']}.md"
                     or not isinstance(source.get("markdown"), str) or not source["markdown"].strip()
                     or not isinstance(source.get("question"), str)
-                    or source.get("kind") != ("foundation" if source["id"] == value["root_id"] else "clarification")):
+                    or (source.get("kind") not in {"progress_answer", "clarification"} if progress is not None
+                        else source.get("kind") != ("foundation" if source["id"] == value["root_id"] else "clarification"))):
                 raise ValueError("invalid clarification source content")
     # Deadline passage is only an observation: a live worker may be waiting for
     # provider termination or saving its receipt. Only a confirmed dead owner
@@ -151,10 +164,20 @@ def foundation_artifact(record: dict[str, Any], *, preview_bytes: int = 0) -> di
         parent_id=record.get("parent_id"),
         root_id=record.get("root_id", record["id"]),
     )
-    if record.get("kind") == "clarification":
+    snapshot = record.get("source_snapshot", {})
+    progress = snapshot.get("progress_source")
+    if progress is not None:
+        from .reader_progress import source_reference
+
+        metadata["progress_source"] = source_reference({**progress, "id": progress["source_id"]})
+    if record.get("kind") in {"clarification", "progress_answer"}:
         metadata["sources"] = [
+            *([{"id": progress["source_id"], "path": progress["path"], "title": progress["title"],
+                "kind": "progress_snapshot"}] if progress is not None else []),
+            *[
             {"id": source["id"], "path": source["path"], "title": source.get("title") or source["question"]}
-            for source in record["source_snapshot"]["sources"]
+            for source in snapshot["sources"]
+            ],
         ]
     return {
         **row, "source": "reader_foundation", "group_title": (
@@ -197,7 +220,7 @@ def registered_foundation_artifact(
 
 def reserve_foundation(
     global_root: Path, sid: str, *, request_id: str, question: str, locale: str,
-    source_task_id: str | None = None, parent_id: str | None = None,
+    source_task_id: str | None = None, parent_id: str | None = None, progress_source: dict | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Persist a real explicit POST before a single worker may begin its call."""
     from .artifacts import artifact_workspace
@@ -208,6 +231,12 @@ def reserve_foundation(
     request_id = _request_id(request_id)
     body = {"question": question, "locale": locale, "source_task_id": source_task_id}
     kind = "clarification" if parent_id is not None else "foundation"
+    if progress_source is not None:
+        if (parent_id is not None or source_task_id is not None or not isinstance(progress_source, dict)
+                or set(progress_source) != {"source_id"}):
+            raise ValueError("progress questions require only a retained source reference")
+        body["progress_source"] = {"source_id": _request_id(progress_source["source_id"])}
+        kind = "progress_answer"
     if parent_id is not None:
         body["parent_id"] = _request_id(parent_id)
     directory = life_dir / MANIFEST_DIRECTORY
@@ -220,6 +249,10 @@ def reserve_foundation(
                 raise FoundationConflict("request_id already belongs to another question request")
             return previous, False
         sources = None
+        if progress_source is not None:
+            from .reader_progress import progress_question_sources
+
+            sources = progress_question_sources(global_root, sid, body["progress_source"]["source_id"])
         if parent_id is not None:
             from .reader_clarification import clarification_sources
 
@@ -246,8 +279,8 @@ def reserve_foundation(
             },
         }
         if sources is not None:
-            record.update(kind=kind, root_id=sources["root_id"], source_snapshot=sources)
-            record["provenance"]["run_label"] = "reader-clarification"
+            record.update(kind=kind, root_id=sources.get("root_id", request_id), source_snapshot=sources)
+            record["provenance"]["run_label"] = "reader-progress-question" if kind == "progress_answer" else "reader-clarification"
         _save_record(life_dir, record)
         return record, True
 
@@ -277,7 +310,7 @@ def generate_foundation(
         config = resolve_map_model()
         if not config.available:
             raise OSError("question foundation model unavailable")
-        clarification = record.get("kind") == "clarification"
+        clarification = record.get("kind") in {"clarification", "progress_answer"}
         if clarification:
             from .reader_clarification import clarification_request
 
@@ -290,7 +323,7 @@ def generate_foundation(
             prompt, schema, config, project_root=life_dir, global_root=global_root,
             deadline=time.monotonic() + max(0, record["deadline_at"] - time.time()),
             on_progress=on_progress,
-            run_label="reader-clarification" if clarification else "reader-foundation", on_result=receipt,
+            run_label=record["provenance"]["run_label"], on_result=receipt,
         )
         if time.time() > record["deadline_at"]:
             raise TimeoutError("question foundation generation deadline exceeded")
@@ -309,10 +342,19 @@ def generate_foundation(
                 if record["locale"] == "zh-CN" else
                 ("A clarification of the saved reading. The original documents are unchanged; this discussion is not research progress.", "Your follow-up question")
             )
+            if record["source_snapshot"].get("progress_source") is not None:
+                introduction, question_heading = (
+                    ("这是一份针对所选进展解释的阅读回答，依据保留的解释和记录快照。它不会修改任务或研究指令，也不计作新的研究进展。", "这次问题")
+                    if record["locale"] == "zh-CN" else
+                    ("A reading answer about the selected progress explanation and its retained records. It does not change tasks or research instructions and is not new research progress.", "Your question")
+                )
         references = ""
         if clarification:
             links = []
-            for source in record["source_snapshot"]["sources"]:
+            sources = record["source_snapshot"]["sources"]
+            if record["source_snapshot"].get("progress_source") is not None:
+                sources = [record["source_snapshot"]["progress_source"], *sources]
+            for source in sources:
                 label = " ".join((source.get("title") or source["question"]).split())
                 label = label.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
                 links.append(f"- [{label}]({source['path']})")

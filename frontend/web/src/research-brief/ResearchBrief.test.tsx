@@ -158,13 +158,14 @@ it('does not carry another task’s retained title or explanation across a task 
   expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
 });
 
-it('fills a referenced draft when asked and does not send a model request', () => {
+it('explicitly references a task in the research composer without asking or generating', () => {
   const props = inputs(), queryClient = cachedClient(), onAsk = vi.fn();
   const generate = vi.spyOn(api, 'generateMapCopy');
   act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} onAsk={onAsk} /></QueryClientProvider>); });
-  const button = renderer!.root.findAllByType('button').find(item => item.children.includes('Ask about latest progress'))!;
+  const button = renderer!.root.findAllByType('button').find(item => item.children.includes('Reference task'))!;
   act(() => button.props.onClick());
   expect(onAsk).toHaveBeenCalledTimes(1);
+  expect(splitDraft(onAsk.mock.calls[0][0]).text).toBe('');
   expect(splitDraft(onAsk.mock.calls[0][0]).refs[0]).toMatchObject({ source: 'live:s-research', task_id: 'a', event_ids: ['start-a', 'main-a'] });
   expect(generate).not.toHaveBeenCalled();
 });
@@ -405,7 +406,7 @@ it('keeps evidence and follow-up available when the concept explanation is unava
   const markup = renderToStaticMarkup(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} onAsk={() => {}} /></QueryClientProvider>);
   expect(markup).toContain('You can keep asking about this step');
   expect(markup).toContain('View evidence');
-  expect(markup).toContain('Ask about latest progress');
+  expect(markup).toContain('Reference task');
   expect(markup).not.toContain('internal_failure_code');
   expect(markup).not.toContain('Counterexample');
   expect(markup).not.toContain('data-reader-teaching');
@@ -425,7 +426,7 @@ it('keeps task facts and a usable concept when the separate reading check is una
   expect(markup).toContain('the general problem remains open');
   expect(markup).toContain('Counterexample');
   expect(markup).toContain('View evidence');
-  expect(markup).toContain('Ask about latest progress');
+  expect(markup).toContain('Reference task');
 });
 
 it('contains a record-read failure inside the card and leaves the original goal and neighboring content visible', async () => {
@@ -488,7 +489,7 @@ it('keeps retained source excerpts and same-version originals distinct while a n
   expect(raw(current.findByProps({ 'data-evidence-task': 'current' }), 'task').objective).toBe('Latest task goal');
   expect(used().findByProps({ 'data-evidence-captured-at': true }).props.dateTime).toBe('1970-01-01T00:00:06.000Z');
   expect(evidence().findByProps({ 'data-evidence-summary': true }).findAllByProps({ 'data-evidence-captured-at': true })).toHaveLength(0);
-  const ask = renderer!.root.findAllByType('button').find(item => item.children.includes('Ask about latest progress'))!;
+  const ask = renderer!.root.findAllByType('button').find(item => item.children.includes('Reference task'))!;
   act(() => ask.props.onClick());
   expect(splitDraft(onAsk.mock.calls[0][0]).refs[0]).toMatchObject({ task_id: 'a', event_ids: ['start-a', 'main-a', 'review-a'] });
   expect(generate).toHaveBeenCalledTimes(1);
