@@ -270,7 +270,7 @@ class Curator:
     deadlines testable without sleeping.
     """
 
-    def __init__(self, *, project_root: Path, default_width: int = 8,
+    def __init__(self, *, project_root: Path, default_width: int = 2,
                  tick_s: float = 5.0, teammate_timeout_s: float = 0.0,
                  hard_grace_s: float = 600.0,
                  max_total_in_flight: int | None = None,
@@ -293,7 +293,7 @@ class Curator:
             else int(
                 environment.get("ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT")
                 or environment.get("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY")
-                or "32"
+                or "2"
             )
         )
         if int(configured_total) <= 0:

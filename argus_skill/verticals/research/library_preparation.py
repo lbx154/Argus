@@ -11,6 +11,7 @@ STAGE_PLAYBOOK_PATHS: dict[str, str] = {
 
 def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
     """Prepare only the active stage's research Skills and internal idea team."""
+
     playbook = STAGE_PLAYBOOK_PATHS.get(context.stage)
     if playbook:
         context.required_skill_paths.append(playbook)
@@ -27,6 +28,7 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         idea_portfolio_selection,
         migrate_legacy_idea_selection,
         portfolio_required,
+        portfolio_width,
     )
 
     migrate_legacy_idea_selection(
@@ -72,7 +74,7 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
     context.emit({
         "type": "idea.portfolio.formed",
         "team_root": str(team_root),
-        "width": DEFAULT_PORTFOLIO_SIZE,
+        "width": portfolio_width(team_root),
         "route_count": DEFAULT_PORTFOLIO_SIZE,
         "task_count": DEFAULT_PORTFOLIO_SIZE * 2,
         "selection": selection or {},

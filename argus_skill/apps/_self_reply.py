@@ -152,6 +152,16 @@ def self_retryable_transport_failure(result: Any) -> bool:
     return any(marker in fatal for marker in _SELF_RETRYABLE_TRANSPORT_ERRORS)
 
 
+def _execution_without_tools(result: Any) -> bool:
+    """A successful prose turn is not evidence that a local action ran."""
+    return (
+        getattr(result, "tool_activity_observed", None) is False
+        and int(getattr(result, "exit_code", 0) or 0) == 0
+        and not getattr(result, "fatal_error", None)
+        and bool(str(getattr(result, "last_agent_message", "") or "").strip())
+    )
+
+
 def build_status_snapshot_reply(root: Path | str, objective: str) -> str:
     """Render a live, bounded status snapshot without invoking a model."""
     try:
@@ -860,19 +870,27 @@ class SelfReplyMixin:
                 resume_thread_id=seed,
             )
             attempt_results.append(result)
-            if self_retryable_transport_failure(result):
+            no_action = executing and _execution_without_tools(result)
+            if self_retryable_transport_failure(result) or no_action:
                 sink.handle_event({
                     "type": "engineer.progress",
                     "kind": "provider_retry",
                     "agent_layer": "manager",
                     "text": (
-                        "Provider transport failed before output; retrying once "
-                        "in a fresh session"
+                        "尚未执行实际操作，正在自动补做一次…"
+                        if no_action else
+                        "Provider transport failed before output; retrying once in a fresh session"
                     ),
                 })
                 result = gateway_run_exec(
                     backend,
-                    prompt=prompt,
+                    prompt=(
+                        prompt + "\n\nYour previous turn ended with prose and no tool calls. "
+                        "Perform the requested local work now using the available tools. "
+                        "Inspect the inputs, create or update the requested files, verify them, "
+                        "then report the actual result. Do not return another plan."
+                        if no_action else prompt
+                    ),
                     options=options,
                     run_label=run_label,
                     resume_thread_id=None,
@@ -883,6 +901,8 @@ class SelfReplyMixin:
 
         last_msg = (result.last_agent_message or "").strip()
         fatal = getattr(result, "fatal_error", None)
+        if executing and _execution_without_tools(result):
+            fatal = "The execution turn returned text without performing any tool action."
         success = result.exit_code == 0 and not fatal and bool(last_msg)
         new_thread_id = getattr(result, "thread_id", None)
         round_thread_id = new_thread_id or seed

@@ -1,9 +1,9 @@
-import { Children, isValidElement, useState, type ReactNode } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { Children, isValidElement, useEffect, useState, type ReactNode } from 'react';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { markdownRemarkPlugins, markdownRehypePlugins } from './markdownMath';
 import { CopyButton } from './CopyButton';
 import { useI18n } from '../i18n';
-import type { ArtifactInfo } from '../api';
+import { api, type ArtifactInfo } from '../api';
 type ArtifactReference = Pick<ArtifactInfo, 'path' | 'storage_path'>;
 
 function nodeText(node: ReactNode): string {
@@ -20,6 +20,7 @@ function normalizedArtifactReference(value: string): string {
   } catch {
     // Keep the literal path when it contains a malformed percent escape.
   }
+  if (/^sandbox:/i.test(raw)) raw = raw.slice('sandbox:'.length);
   if (/^file:/i.test(raw)) {
     try {
       const url = new URL(raw);
@@ -48,9 +49,25 @@ function sameArtifactReference(left: string, right: string): boolean {
 export function artifactPathFromHref(
   href: string | undefined,
   artifacts: ArtifactReference[] = [],
+  basePath = '',
 ): string | null {
   const requested = normalizedArtifactReference(href || '');
   if (!requested) return null;
+  let relativeToDocument = '';
+  if (basePath && !/^(?:\/|[a-z]:\/)/i.test(requested)) {
+    const parts = basePath.replaceAll('\\', '/').split('/').slice(0, -1);
+    for (const part of requested.split('/')) {
+      if (part === '..') {
+        if (!parts.length) return null;
+        parts.pop();
+      } else if (part && part !== '.') parts.push(part);
+    }
+    relativeToDocument = parts.join('/');
+  }
+  const documentMatch = artifacts.find(artifact => sameArtifactReference(
+    relativeToDocument, normalizedArtifactReference(artifact.path),
+  ));
+  if (documentMatch) return documentMatch.path;
   for (const artifact of artifacts) {
     const relative = normalizedArtifactReference(artifact.path);
     const storage = normalizedArtifactReference(artifact.storage_path || '');
@@ -65,14 +82,32 @@ export function artifactPathFromHref(
   return null;
 }
 
-function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
+function MarkdownImage({ src, alt, sid, path }: { src?: string; alt?: string; sid?: string | null; path?: string | null }) {
   const [failed, setFailed] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
+  useEffect(() => {
+    setFailed(false);
+    setPreviewUrl('');
+    if (!sid || !path) return;
+    const controller = new AbortController();
+    let objectUrl = '';
+    api.artifactBlob(sid, path, false, controller.signal).then(blob => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(blob);
+      setPreviewUrl(objectUrl);
+    }).catch(() => { if (!controller.signal.aborted) setFailed(true); });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [sid, path, src]);
   if (failed || !src) {
     return <span className="text-xs text-ink-faint">Image unavailable{alt ? ` · ${alt}` : ''}</span>;
   }
+  if (sid && path && !previewUrl) return <span className="text-xs text-ink-faint">{alt || '…'}</span>;
   return (
     <img
-      src={src}
+      src={sid && path ? previewUrl : src}
       alt={alt || ''}
       loading="lazy"
       decoding="async"
@@ -86,16 +121,22 @@ export function MarkdownContent({
   children,
   artifacts = [],
   onOpenArtifact,
+  basePath = '',
+  sid,
 }: {
   children: string;
   artifacts?: ArtifactReference[];
   onOpenArtifact?: (path: string) => void;
+  basePath?: string;
+  sid?: string | null;
 }) {
   const { t, locale } = useI18n();
   return (
     <ReactMarkdown
       remarkPlugins={markdownRemarkPlugins}
       rehypePlugins={markdownRehypePlugins(locale === 'zh-CN')}
+      urlTransform={(url, key) => key === 'href' && onOpenArtifact
+        && artifactPathFromHref(url, artifacts, basePath) ? url : defaultUrlTransform(url)}
       components={{
         h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold text-ink first:mt-0">{value}</h1>,
         h2: ({ children: value }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold text-ink first:mt-0">{value}</h2>,
@@ -107,7 +148,7 @@ export function MarkdownContent({
         blockquote: ({ children: value }) => <blockquote className="my-2 border-l border-blue/50 pl-3 text-ink-dim">{value}</blockquote>,
         hr: () => <hr className="my-3 border-line/60" />,
         a: ({ href, title, children: value }) => {
-          const artifactPath = artifactPathFromHref(href, artifacts);
+          const artifactPath = artifactPathFromHref(href, artifacts, basePath);
           const artifact = artifactPath
             ? artifacts.find((item) => item.path === artifactPath)
             : undefined;
@@ -161,7 +202,7 @@ export function MarkdownContent({
         th: ({ children: value }) => <th className="break-words border border-line/60 bg-bg px-2 py-1.5 font-semibold text-ink">{value}</th>,
         td: ({ children: value }) => <td className="break-words border border-line/60 px-2 py-1.5 align-top">{value}</td>,
         strong: ({ children: value }) => <strong className="font-semibold text-ink">{value}</strong>,
-        img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} />,
+        img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} sid={sid} path={artifactPathFromHref(src, artifacts, basePath)} />,
       }}
     >
       {children}

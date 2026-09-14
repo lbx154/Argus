@@ -27,6 +27,7 @@ export function ArtifactModal({
   onSelectDelivery,
   onSelectPath,
   reviewActivity,
+  artifacts = [],
 }: {
   sid: string | null;
   path: string | null;
@@ -36,6 +37,7 @@ export function ArtifactModal({
   onSelectDelivery?: (receipt: DeliveryReceipt) => void;
   onSelectPath?: (path: string) => void;
   reviewActivity?: 'revising' | 'reviewing';
+  artifacts?: Array<{ path: string; storage_path?: string }>;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -184,7 +186,7 @@ export function ArtifactModal({
                   : (zh ? '这是最近保存的审稿意见，文件更新后会自动刷新。' : 'This is the latest saved review. Changes to this file appear automatically.')}
               {info.mtime != null && <div>{zh ? '最近更新：' : 'Last updated: '}{new Date(info.mtime * 1000).toLocaleString(locale)}</div>}
             </div>}
-            <MarkdownContent artifacts={[...files.map((file) => ({ path: file.path })), ...(foundation?.sources ?? []),
+            <MarkdownContent sid={sid} basePath={path || ''} artifacts={[...artifacts, ...files.map((file) => ({ path: file.path })), ...(foundation?.sources ?? []),
               ...(foundation?.progress_source ? [{ path: foundation.progress_source.path }] : [])]} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
             {info.truncated ? <p role="status" className="mt-3 border-t border-line pt-2 text-xs text-ink-faint">
               {t('artifact.truncated')} · {t('artifact.downloadHint')}

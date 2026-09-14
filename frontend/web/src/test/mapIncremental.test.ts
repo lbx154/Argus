@@ -106,6 +106,7 @@ it("late responses cannot erase other cards or overwrite newer model results", (
 it("pauses stopped sessions and an explicit operator pause without stopping bounded work", () => {
   const snapshot = { daemon: { alive: false }, roles: [] } as unknown as Snapshot;
   expect(mapIsPaused(snapshot)).toBe(true);
+  expect(mapIsPaused({ ...snapshot, manager_requests: [{ request_id: 'self', status: 'running' }] })).toBe(false);
   expect(mapIsPaused({ ...snapshot, daemon: { ...snapshot.daemon, alive: true }, continuous: { enabled: false, objective: "", done_reason: "operator pause" } })).toBe(true);
   expect(mapIsPaused({ ...snapshot, daemon: { ...snapshot.daemon, alive: true }, continuous: { enabled: false, objective: "" } })).toBe(false);
 });

@@ -1794,7 +1794,7 @@ export const MapPanel = memo(function MapPanel({
   );
   const composer = useMemo<MapComposerProps>(
     () => ({
-      footer: <ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive} />,
+      footer: <ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive || Boolean(snapshot.manager_requests?.length)} />,
       routeOverride,
       onRouteOverrideChange,
       value: draft,
@@ -1811,7 +1811,7 @@ export const MapPanel = memo(function MapPanel({
     }),
     [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
      pending, onCancel, focusSignal, snapshot.session.display_name, snapshot.session.id,
-     source, zh, snapshot.roles, snapshot.daemon.alive],
+     source, zh, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests],
   );
   const switchSource = (value: string) => {
     setSource(value);

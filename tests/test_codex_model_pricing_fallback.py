@@ -284,6 +284,7 @@ def test_codex_call_without_pinned_model_is_priced_not_blocked(
 def test_codex_unknown_pinned_model_remains_unpriced_without_blocking(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
     backend, root, seen_models = _codex_backend(tmp_path, monkeypatch)
 
     first = backend.run_exec(

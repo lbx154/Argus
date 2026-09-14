@@ -37,7 +37,7 @@ from .map_teaching_review import (
 )
 from .map_view import digest, task_content_revision, text
 
-PROMPT_VERSION = 25
+PROMPT_VERSION = 26
 SOURCE_SNAPSHOT_VERSION = 2
 Preview = bool | Literal["learning-path", "question-foundation"]
 _LOCK = threading.Lock()
@@ -238,16 +238,22 @@ def _bounded_document(document: dict) -> dict:
     """Bound presentation inputs without rewriting canonical research evidence."""
     original_task = document.get("task", {})
     original_events = document.get("events", [])
-    task = {
-        key: text(value, 160 if key == "title" else 1000) if isinstance(value, str) else value
-        for key, value in original_task.items()
-    }
-    events = [
-        {**event, "text": text(event.get("text"), 1200),
-         "next_action": text(event.get("next_action"), 600)}
-        for event in original_events[-4:]
-    ]
+    task = copy.deepcopy(original_task)
+    for key, value in original_task.items():
+        if isinstance(value, str):
+            task[key] = text(value, 160 if key == "title" else 1000)
+            if task[key] != value:
+                task[key + "_truncated"] = True
+    events = copy.deepcopy(original_events[-4:])
+    for event in events:
+        for key, limit in (("text", 1200), ("next_action", 600)):
+            if isinstance(event.get(key), str):
+                original = event[key]
+                event[key] = text(original, limit)
+                if event[key] != original:
+                    event[key + "_truncated"] = True
     return {**document, "task": task, "events": events,
+            "events_truncated": bool(document.get("events_truncated")) or len(original_events) > 4,
             "evidence_truncated": bool(document.get("evidence_truncated"))
             or task != original_task or events != original_events}
 
@@ -282,6 +288,7 @@ def generate(
     source_captured_at = time.time()
     source_context = {d["key"]: teaching_context({
         "task": d.get("task", {}), "events": d.get("events", []),
+        "events_truncated": d.get("events_truncated", False),
         "related_tasks": [task for task in tasks if task.get("id") != d["task_id"]],
     }) for d in documents}
     for document in documents:

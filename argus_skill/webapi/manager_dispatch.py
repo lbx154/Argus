@@ -293,7 +293,7 @@ def _journal_argus_reply(
     from ..core.transcript import append_turn
 
     try:
-        append_turn(life_dir, "argus", reply, metadata=metadata)
+        append_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus", metadata=metadata)
     except Exception:  # noqa: BLE001
         pass
     _emit_ui_turn(
@@ -1257,9 +1257,14 @@ def _run_triage_and_fallbacks(
         chat_state.pop("_self_delivery", None)
         return emitter.respond(reply or "[not dispatched] Manager did not complete this request.", {
             "kind": "error", "success": False, "error_code": "inline_reply_failed",
+            **({"mission_result": True, "summary": reply or "Execution did not finish."}
+               if self_mode in {"micro", "implement", "debug", "review", "synthesize"} else {}),
         })
     if reply is not None:
         result: dict[str, Any] = {"kind": "chat"}
+        if self_mode in {"micro", "implement", "debug", "review", "synthesize"}:
+            # A completed direct action need not produce a new downloadable file.
+            result.update(mission_result=True, success=True, summary=reply)
         failure = chat_state.pop("_self_failure", None)
         if failure is not None:
             result.update({

@@ -143,6 +143,10 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
     )
 
     requests = MessageRequestRegistry()
+    # Project snapshots read this live registry after their cached filesystem
+    # projection.  Keeping the registry app-local preserves cancellation
+    # isolation while allowing a reloaded browser to recover the request id.
+    app.state.message_requests = requests
 
     def _begin_message(sid: str, request_id: str):
         try:
@@ -342,9 +346,9 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
 
             return await run_in_threadpool(_run)
         except BaseException:
-            requests.cancel(sid, lease.request_id)
             with handoff:
                 if not started:
+                    requests.cancel(sid, lease.request_id)
                     abandoned = True
                     lease.finish()
             raise
@@ -379,20 +383,23 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             raise
 
         q: "queue.Queue[dict | None]" = queue.Queue()
-        cancel_event = threading.Event()
+        stream_closed = threading.Event()
 
         def request_cancelled() -> bool:
-            return cancel_event.is_set() or lease.cancelled() or manager_control_generation(sid) != generation
+            # Navigation closes the HTTP subscription, not the accepted task.
+            # Explicit cancel/daemon-stop remains authoritative after a reload.
+            return lease.cancelled() or manager_control_generation(sid) != generation
 
         def _run() -> None:
             def _on_fragment(kind: str, payload: dict) -> None:
-                if not request_cancelled():
+                if not request_cancelled() and not stream_closed.is_set():
                     q.put({"type": kind, **payload})
 
             def _on_terminal(payload: dict) -> None:
                 # Detach stale reads even if a cancelled request partially committed.
                 ctx.invalidate_read_caches()
-                q.put(payload)
+                if not stream_closed.is_set():
+                    q.put(payload)
 
             try:
                 kwargs: dict[str, Any] = {
@@ -412,7 +419,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                 )
                 result = _finish_message(
                     sid, result, generation, global_root=project_root, text=body.text, on_fragment=_on_fragment,
-                    request_cancelled=request_cancelled,
+                    request_cancelled=lease.cancelled,
                 )
                 _on_terminal({"type": "done", "result": result})
             except Exception as exc:  # noqa: BLE001
@@ -423,7 +430,8 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                 })
             finally:
                 lease.finish()
-                q.put(None)  # sentinel: generator stops
+                if not stream_closed.is_set():
+                    q.put(None)  # sentinel: generator stops
 
         try:
             threading.Thread(target=_run, name=f"manager-stream-{sid}", daemon=True).start()
@@ -436,11 +444,13 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                 q,
                 heartbeat_s=server_mod._manager_stream_heartbeat_seconds(),
             ):
+                if stream_closed.is_set():
+                    break
                 yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
 
         return _ManagerStreamingResponse(
             _gen(),
-            cancel_event=cancel_event,
+            cancel_event=stream_closed,
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

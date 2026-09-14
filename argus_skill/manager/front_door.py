@@ -1545,7 +1545,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             if getattr(outcome, "success", None) is False or round_failure:
                 return _failure_reply(getattr(outcome, "stop_reason", "") or round_failure)
             if not captured:
-                return _failure_reply("模型没有返回可交付的回复。")
+                return _failure_reply(getattr(outcome, "stop_reason", "") or "模型没有返回可交付的回复")
             delivery = getattr(outcome, "delivery", None)
             if isinstance(delivery, dict):
                 chat_state["_self_delivery"] = delivery

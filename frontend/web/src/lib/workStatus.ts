@@ -93,6 +93,35 @@ export function currentWorkStatus(
     activityAt, activityAgeSeconds: activityAt === null ? null : Math.max(0, nowSeconds - activityAt), reason: '',
   };
   if (!snapshot || snapshot.daemon.read_status === 'error') return { ...result, state: 'unknown' };
+  const managerRunning = snapshot.manager_requests?.some(request => request.status === 'running') ?? false;
+  if (managerRunning) {
+    const provider = activeProviderRequest(events);
+    const at = timestamp(provider?.ts) ?? activityAt;
+    return {
+      ...result,
+      state: 'running',
+      role: 'manager',
+      activityAt: at,
+      activityAgeSeconds: at === null ? null : Math.max(0, nowSeconds - at),
+    };
+  }
+  // SELF execution does not create a daemon backlog item. Its durable mission
+  // receipt is the execution boundary even when Argus-Pi records no tool
+  // steps; ordinary chat and item-bound queue receipts remain excluded.
+  if (!taskId) {
+    const direct = [...events].reverse().find(event => event.type === 'ui.argus'
+      && event.mission_result === true && !event.item_id && event.live !== true);
+    if (direct) {
+      const at = timestamp(direct.ts);
+      return {
+        ...result,
+        state: 'step_finished',
+        activityAt: at,
+        activityAgeSeconds: at === null ? null : Math.max(0, nowSeconds - at),
+        reason: direct.success === false ? 'task_failed' : '',
+      };
+    }
+  }
   const missionState = String(task?.status || view?.mission.status || '').toLowerCase();
   if (PAUSED.has(missionState) || missionState.startsWith('paused_') || missionState === 'research_incomplete') {
     const needsReply = operatorDecisionCards(snapshot.pending_questions ?? [], snapshot.backlog.map(item => ({ ...item })), taskId)
@@ -124,7 +153,7 @@ export function workStatusLabel(status: WorkStatus, locale: Locale, connected = 
   if (status.reason === 'task_failed') return zh ? '这一步执行未完成' : 'Execution of this step did not finish';
   if (status.state === 'running') {
     const roles: Record<string, [string, string]> = {
-      manager: ['正在安排下一步', 'Coordinating the next step'], planner: ['正在规划下一步', 'Planning the next step'],
+      manager: ['正在处理你的请求', 'Working on your request'], planner: ['正在规划下一步', 'Planning the next step'],
       engineer: ['正在执行当前步骤', 'Working on this step'], reviewer: ['正在核对这一步的结果', 'Checking this step’s result'],
     };
     return roles[status.role]?.[zh ? 0 : 1] || (zh ? '正在处理当前任务' : 'Working on the current task');

@@ -81,7 +81,7 @@ def _isolate_argus_state_roots(
     # Argus session, child-env tests inherit the real worker home and stop
     # exercising the "no explicit home was chosen" path. Start from a clean slate;
     # a test that needs a value sets it itself.
-    for name in [k for k in os.environ if k.startswith("ARGUS_SKILL_")]:
+    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_TEAM_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("COPILOT_HOME", raising=False)
 

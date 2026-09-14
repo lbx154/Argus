@@ -176,3 +176,20 @@ describe('completed delivery presentation', () => {
     expect(events[0].delivery).toEqual(delivery);
   });
 });
+
+it('resolves document-relative model links and confined sandbox links', () => {
+  const files = [
+    { path: 'study/models/model.npz', storage_path: '/workspace/study/models/model.npz' },
+    { path: 'model.npz', storage_path: '/workspace/model.npz' },
+  ];
+  expect(artifactPathFromHref('models/model.npz', files, 'study/README.md')).toBe('study/models/model.npz');
+  expect(artifactPathFromHref('../model.npz', files, 'study/README.md')).toBe('model.npz');
+  expect(artifactPathFromHref('../../model.npz', files, 'study/README.md')).toBeNull();
+  expect(artifactPathFromHref('sandbox:/workspace/study/models/model.npz', files)).toBe('study/models/model.npz');
+  const markup = renderToStaticMarkup(createElement(MarkdownContent, {
+    artifacts: files, basePath: 'study/README.md', onOpenArtifact: () => undefined,
+    children: '[model](models/model.npz) [sandbox](sandbox:/workspace/study/models/model.npz) [unsafe](javascript:alert%281%29)',
+  }));
+  expect(markup.match(/data-artifact-path="study\/models\/model.npz"/g)).toHaveLength(2);
+  expect(markup).not.toContain('href="javascript:');
+});

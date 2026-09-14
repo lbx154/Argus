@@ -136,8 +136,9 @@ def test_preview_caches_only_complete_lessons_separately_and_reuses_them(tmp_pat
                                     preview="learning-path" if learning_path else True, on_progress=phases.append)
 
     if fail_second:
-        with pytest.raises(OSError, match="second-stage failure"):
-            generate()
+        failure = generate()
+        assert failure["generation_error"]["code"] == "provider_error"
+        assert failure["retry_after"] > 0
         cache = map_narrative.read_cache(tmp_path, map_narrative.copy_source("live:s", "en-US",
                                           preview="learning-path" if learning_path else True))
         assert not cache.get("cards")
@@ -187,11 +188,13 @@ def test_previous_learning_preview_is_retained_on_failure_then_replaced_by_new_g
     prior = json.loads(path.read_text())
     calls.clear()
     monkeypatch.setattr(map_lesson, "run_map_model", run_stub(calls, learning_path=True, fail_second=True))
-    with pytest.raises(OSError, match="second-stage failure"):
-        generate()
+    failure = generate()
+    assert failure["generation_error"]["code"] == "provider_error"
     failed = json.loads(path.read_text())
     assert len(calls) == 2 and failed["cards"] == prior["cards"]
     assert failed["generated_at"] == prior["generated_at"]
+    failed.update(retry_at=0, attempt_at=0)
+    path.write_text(json.dumps(failed))
     calls.clear()
     monkeypatch.setattr(map_lesson, "run_map_model", run_stub(calls, learning_path=True))
     result = generate()

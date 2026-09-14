@@ -693,6 +693,34 @@ def test_a_chat_turn_with_tool_steps_becomes_a_card_on_the_map(tmp_path):
     ]
 
 
+def test_step_less_self_delivery_becomes_a_map_card_but_chat_and_queue_receipts_do_not():
+    rows = [
+        {"type": "ui.operator", "message_id": "web-self-operator", "ts": 20,
+         "text": "Build the requested artifact."},
+        {"type": "ui.argus", "message_id": "web-self-argus", "ts": 21,
+         "text": "Artifact delivered.", "mission_result": True, "success": True, "steps": []},
+        {"type": "ui.operator", "message_id": "web-chat-operator", "ts": 22,
+         "text": "Thanks."},
+        {"type": "ui.argus", "message_id": "web-chat-argus", "ts": 23,
+         "text": "You're welcome.", "steps": []},
+        {"type": "ui.operator", "message_id": "web-queue-operator", "ts": 24,
+         "text": "Queue another task."},
+        {"type": "ui.argus", "message_id": "web-queue-argus", "ts": 25,
+         "text": "Queued.", "mission_result": True, "success": True,
+         "item_id": "task-queued", "steps": []},
+    ]
+
+    turns = turn_records(rows)
+
+    assert list(turns) == ["turn:web-self"]
+    turn = turns["turn:web-self"]
+    assert turn["card"]["status"] == "done"
+    assert turn["card"]["title"] == "Build the requested artifact."
+    assert turn["events"][0]["steps"] == []
+    assert turn["events"][0]["tool_details_recorded"] is False
+    assert turn["events"][0]["association"] == "explicit"
+
+
 def _legacy_solo_rows(*, failed=False, observed=True, run_label="self-implement"):
     return [
         {"type": "ui.operator", "message_id": "web-legacy-operator",

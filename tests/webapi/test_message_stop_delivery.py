@@ -15,6 +15,45 @@ from argus_skill.webapi import manager_bridge, server
 from argus_skill.webapi.daemon_services import DaemonServices
 
 
+def test_snapshot_recovers_running_manager_request_without_replaying_it(tmp_path, monkeypatch):
+    sid = "s-refresh-self"
+    life = tmp_path / "projects" / sid
+    life.mkdir(parents=True)
+    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def manager(*args, cancelled, **kwargs):
+        calls.append(args[1])
+        entered.set()
+        assert release.wait(3)
+        return {"kind": "cancelled", "reply": "cancelled"} if cancelled() else {
+            "kind": "chat", "reply": "finished",
+        }
+
+    monkeypatch.setattr(manager_bridge, "manager_message", manager)
+    with TestClient(server.create_app(global_root=tmp_path)) as client:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(client.post, f"/api/projects/{sid}/message/stream",
+                                  json={"text": "Fix the page", "request_id": "self-request"})
+            try:
+                assert entered.wait(2)
+                for _ in range(2):
+                    snapshot = client.get(f"/api/projects/{sid}/snapshot?compact=true")
+                    assert snapshot.status_code == 200
+                    assert snapshot.json()["manager_requests"] == [
+                        {"request_id": "self-request", "status": "running"},
+                    ]
+                assert calls == ["Fix the page"], "snapshot refresh must not replay the request"
+                stopped = client.post(f"/api/projects/{sid}/message/cancel",
+                                      json={"request_id": "self-request"})
+                assert stopped.json()["active"] is True
+            finally:
+                release.set()
+            assert '"cancelled"' in pending.result(timeout=2).text
+            assert client.get(f"/api/projects/{sid}/snapshot?compact=true").json()["manager_requests"] == []
+
+
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("resolved_question", [False, True])
 def test_stop_between_handoff_and_http_delivery_cannot_restart_executor(
@@ -162,3 +201,58 @@ def test_cancel_before_intake_and_late_cancel_do_not_execute_or_interrupt_new_me
             assert "new answer" in pending.result(timeout=2).text
         assert not client.post(f"/api/projects/{sid}/message/cancel", json={"request_id": "new"}).json()["requested"]
     assert calls == [True]
+
+
+def test_browser_disconnect_keeps_task_cancellable_without_replaying(tmp_path, monkeypatch):
+    import asyncio
+
+    from argus_skill.webapi.routes.models import MessageIn
+
+    sid = "s-detached-action"
+    life = tmp_path / "projects" / sid
+    life.mkdir(parents=True)
+    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    observed = []
+
+    def manager(*args, cancelled, on_fragment, **kwargs):
+        entered.set()
+        on_fragment("phase", {"label": "working"})
+        try:
+            assert release.wait(4)
+            observed.append(cancelled())
+            return {"kind": "cancelled", "reply": "Stopped"} if cancelled() else {"kind": "chat", "reply": "Done"}
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(manager_bridge, "manager_message", manager)
+    monkeypatch.setattr(server, "_manager_stream_heartbeat_seconds", lambda: 0.01)
+    app = server.create_app(global_root=tmp_path)
+    endpoint = next(route.endpoint for route in app.routes
+                    if getattr(route, "path", "") == "/api/projects/{sid}/message/stream")
+
+    async def disconnect():
+        response = await endpoint(sid, MessageIn(text="Do local work", request_id="survives-refresh"))
+        sent = asyncio.Event()
+
+        async def receive():
+            await sent.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            if message["type"] == "http.response.body" and message.get("body"):
+                sent.set()
+
+        await asyncio.wait_for(response({"type": "http", "asgi": {"spec_version": "2.0"}}, receive, send), 2)
+
+    try:
+        asyncio.run(disconnect())
+        assert entered.is_set() and not finished.is_set()
+        assert app.state.message_requests.active(sid) == [{"request_id": "survives-refresh", "status": "running"}]
+        with TestClient(app) as client:
+            response = client.post(f"/api/projects/{sid}/message/cancel", json={"request_id": "survives-refresh"})
+            assert response.json()["active"] is True
+    finally:
+        release.set()
+    assert finished.wait(2)
+    assert observed == [True]

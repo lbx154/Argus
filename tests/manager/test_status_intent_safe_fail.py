@@ -59,15 +59,14 @@ def _triage(runner: Any, body: str) -> str | None:
     )
 
 
-def test_triage_failure_no_longer_keyword_safe_fails_status_text() -> None:
-    assert _triage(_RaisingRunner(), "请只做状态检查，不要运行任务") is None
+def test_triage_failure_reports_status_check_failure_without_dispatch() -> None:
+    reply = _triage(_RaisingRunner(), "请只做状态检查，不要运行任务")
+    assert reply and "classify blocked before start" in reply and "未追加新任务" in reply
 
 
-def test_triage_failure_still_dispatches_real_work() -> None:
-    assert _triage(
-        _RaisingRunner(),
-        "optimize the training throughput of this project",
-    ) is None
+def test_triage_failure_does_not_dispatch_unclassified_work() -> None:
+    reply = _triage(_RaisingRunner(), "optimize the training throughput of this project")
+    assert reply and "classify blocked before start" in reply and "No new task was queued" in reply
 
 
 def test_pre_provider_refusal_never_dispatches_unclassified_input() -> None:
@@ -82,7 +81,8 @@ def test_handled_empty_self_reply_is_explicit_and_never_dispatched() -> None:
 
     assert reply is not None
     assert reply != "(no reply)"
-    assert "活着" in reply or "运行正常" in reply
+    assert "reply unavailable" in reply and "未追加新任务" in reply
+    assert "运行正常" not in reply
 
 
 def test_failed_empty_self_reply_surfaces_the_actual_stop_reason() -> None:

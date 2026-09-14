@@ -403,6 +403,8 @@ export interface Snapshot {
   continuous?: ContinuousState;
   /** Present on compact UI snapshots. */
   pending_questions?: Array<Record<string, unknown>>;
+  /** Foreground Manager/SELF requests that remain cancellable across a page reload. */
+  manager_requests?: Array<{ request_id: string; status: 'running' }>;
   partial?: boolean;
   diagnostics?: Array<{
     section: string;

@@ -201,7 +201,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
                 compact=compact,
             )
 
-        return ctx.not_found_if_none(
+        snapshot = ctx.not_found_if_none(
             await ctx.snapshot_cache.get_async(
                 ("project_snapshot", sid, events_limit, compact),
                 _build_snapshot,
@@ -209,6 +209,14 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
             ),
             sid,
         )
+        # Foreground SELF work belongs to the Web process rather than the
+        # daemon/backlog projection.  Attach it after the cached read so a page
+        # refresh sees current work and its cancellable identity immediately.
+        requests = getattr(app.state, "message_requests", None)
+        return {
+            **snapshot,
+            "manager_requests": requests.active(sid) if requests is not None else [],
+        }
 
     @app.get(
         "/api/projects/{sid}/events",

@@ -95,11 +95,12 @@ def test_config_help_does_not_advertise_formal_vertical_override() -> None:
     assert "ARGUS_SKILL_VERTICAL" not in format_config_help(env={})
 
 
-def test_unpriced_cost_policy_is_not_a_configurable_knob() -> None:
+def test_unpriced_cost_policy_is_explicit_and_defaults_to_block() -> None:
     name = "ARGUS_SKILL_UNPRICED_COST_POLICY"
-    assert name not in {knob.name for knob in KNOBS}
-    assert name not in cockpit_editable_names()
-    assert name not in format_config_help(env={name: "block"})
+    assert next(knob for knob in KNOBS if knob.name == name).default == "block"
+    assert name in cockpit_editable_names()
+    assert normalize_cockpit_knob_value(name, "allow") == "allow"
+    assert name in format_config_help(env={name: "block"})
 
 
 def test_registry_covers_the_active_team_knobs() -> None:

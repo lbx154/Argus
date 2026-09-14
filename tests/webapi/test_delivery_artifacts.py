@@ -187,3 +187,52 @@ def test_reviewed_framework_pptx_is_exposed_as_a_downloadable_binary(tmp_path: P
         ("paper/figures/method.svg", "text"),
         ("paper/figures/method.docx", "binary"),
     ]
+
+
+def test_nested_report_downloads_models_and_patches_without_exposing_other_files(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from argus_skill.webapi import server
+
+    sid = "s-nested-model"
+    life, workspace = tmp_path / "projects" / sid, tmp_path / "workspace"
+    life.mkdir(parents=True)
+    (workspace / "study" / "models").mkdir(parents=True)
+    (workspace / "study" / "README.md").write_text(
+        "[model](models/model.npz) [patch](fix.patch) [secret](../.env)"
+    )
+    (workspace / "study" / "models" / "model.npz").write_bytes(b"numeric model bytes")
+    (workspace / "study" / "fix.patch").write_text("verified patch")
+    (workspace / ".env").write_text("private")
+    (workspace / "unlisted.npz").write_bytes(b"unlisted")
+    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)))
+    append_turn(life, "argus", "Report is ready", metadata={"delivery": {
+        "summary": "[report](study/README.md)",
+        "targets": [{"path": "study/README.md", "label": "report", "source": "solo_output"}],
+    }})
+    with TestClient(server.create_app(global_root=tmp_path, auth_token="test-token")) as client:
+        url = f"/api/projects/{sid}/artifact/raw"
+        headers = {"Authorization": "Bearer test-token"}
+        response = client.get(url, params={"path": "study/models/model.npz", "download": True}, headers=headers)
+        assert response.status_code == 200
+        assert response.content == b"numeric model bytes"
+        assert response.headers["content-disposition"].startswith("attachment;")
+        assert client.get(url, params={"path": "study/fix.patch"}, headers=headers).status_code == 200
+        for path in [".env", "study/../.env", "../outside.npz", "unlisted.npz"]:
+            assert client.get(url, params={"path": path}, headers=headers).status_code == 404
+        assert client.get(url, params={"path": "study/models/model.npz"}).status_code == 401
+
+
+def test_resumed_direct_task_can_link_verified_unchanged_outputs(tmp_path):
+    sid = "s-resumed-output"
+    life, workspace = tmp_path / "projects" / sid, tmp_path / "workspace"
+    life.mkdir(parents=True)
+    workspace.mkdir()
+    (workspace / "result.npz").write_bytes(b"previously written, now verified")
+    os.utime(workspace / "result.npz", (1, 1))
+    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)))
+    append_turn(life, "argus", "Verified [model](result.npz)", metadata={
+        "mission_result": True, "success": True,
+    })
+    rows = list_project_artifacts(sid, global_root=tmp_path)
+    assert [row["path"] for row in rows] == ["result.npz"]

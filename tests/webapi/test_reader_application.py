@@ -149,8 +149,9 @@ def test_failed_application_keeps_prior_copy_and_its_actual_source_snapshot(tmp_
         raise OSError("offline application failure")
 
     monkeypatch.setattr(reader_application, "run_map_model", fail)
-    with pytest.raises(OSError, match="offline application failure"):
-        map_narrative.enrich(tmp_path, changed, requests, "en-US", **kwargs)
+    failure = map_narrative.enrich(tmp_path, changed, requests, "en-US", **kwargs)
+    assert failure["generation_error"]["code"] == "provider_error"
+    assert failure["retry_after"] > 0
     retained = map_narrative.read_cache(tmp_path, source)
     assert retained["cards"] == first["cards"]
     assert retained["cache_revision"] == first["cache_revision"]

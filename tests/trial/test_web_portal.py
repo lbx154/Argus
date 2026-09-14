@@ -1961,8 +1961,8 @@ def test_invitation_only_copy_and_private_admin_entry_stays_hidden(provisioned):
     with client_for(provisioned) as client:
         entry = client.get("/invite")
         assert "邀请码入口" in entry.text and "进入工作区" in entry.text
-        assert "无需注册或其他身份验证" in entry.text
-        assert "同一邀请码可在不同设备继续进入同一独立工作空间" in entry.text
+        assert "使用邀请码，继续项目、查看结果或开始新任务。" in entry.text
+        assert "同一邀请码可在不同设备继续同一工作区" in entry.text
         assert "登录" not in entry.text
         assert 'id="code" type="password"' in entry.text
         for account_field in ('type="email"', 'name="username"', 'name="password"', 'href="/admin"'):

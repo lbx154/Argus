@@ -165,6 +165,9 @@ def _workspace_relative_reference(workspace: Path, value: object) -> str | None:
     if not raw or "\x00" in raw:
         return None
     lowered = raw.casefold()
+    if lowered.startswith("sandbox:"):
+        raw = raw[len("sandbox:"):]
+        lowered = raw.casefold()
     if lowered.startswith(("http://", "https://", "data:", "javascript:")):
         return None
     if lowered.startswith("file:"):
@@ -240,7 +243,17 @@ def linked_report_paths(workspace: Path | str, paths: Iterable[object]) -> list[
         try:
             with (root / safe).open("rb") as handle:
                 text = handle.read(128 * 1024).decode("utf-8", errors="replace")
-            references.extend(referenced_delivery_paths(root, [text]))
+            # Markdown links resolve against the report's directory. Still
+            # validate the resulting path against the full workspace boundary.
+            for candidate in _referenced_path_candidates(text):
+                candidate_path = str(candidate)
+                if not re.match(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|[/\\])", candidate_path):
+                    candidate_path = (Path(safe).parent / candidate_path).as_posix()
+                resolved = _workspace_relative_reference(root, candidate_path)
+                if resolved is None:
+                    resolved = _workspace_relative_reference(root, candidate)
+                if resolved:
+                    references.append(resolved)
         except OSError:
             continue
     return list(dict.fromkeys(references))[:MAX_DELIVERY_TARGETS]

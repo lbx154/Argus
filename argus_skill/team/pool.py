@@ -23,6 +23,15 @@ _STATES = frozenset({"running", "draining", "dissolved"})
 _MAX_WIDTH_ENV = "ARGUS_TEAM_MAX_WIDTH"
 
 
+def default_width() -> int:
+    """Execution concurrency is independent of the number of research candidates."""
+    width = int(os.environ.get("ARGUS_TEAM_DEFAULT_WIDTH", "2"))
+    maximum = int(os.environ.get(_MAX_WIDTH_ENV, "64"))
+    if width <= 0 or maximum <= 0:
+        raise ValueError("team concurrency limits must be positive")
+    return min(width, maximum)
+
+
 def _path(root: Path) -> Path:
     return Path(root) / "pool.json"
 

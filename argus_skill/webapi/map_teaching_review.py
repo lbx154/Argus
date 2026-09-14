@@ -171,7 +171,9 @@ def teaching_context(value: Mapping | None) -> dict:
     collection cursors and generated prose never become checking evidence.
     """
     value = value or {}
-    result = {}
+    result: dict = {}
+    if value.get("evidence_truncated") is True:
+        result["evidence_truncated"] = True
     for key, limit in CONTEXT_LIMITS.items():
         raw = value.get(key)
         if isinstance(raw, str) and raw.strip():

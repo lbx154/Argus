@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Persistent reviewed research and engineering runtime",
   "author": {
     "name": "Argus contributors"
@@ -8,7 +8,12 @@
   "homepage": "https://github.com/lbx154/Argus",
   "repository": "https://github.com/lbx154/Argus",
   "license": "MIT",
-  "keywords": ["research", "engineering", "medical", "review"],
+  "keywords": [
+    "research",
+    "engineering",
+    "medical",
+    "review"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
@@ -17,7 +22,10 @@
     "longDescription": "Run and inspect persistent Argus research and engineering projects from Codex.",
     "developerName": "Argus contributors",
     "category": "Productivity",
-    "capabilities": ["Skills", "MCP"],
+    "capabilities": [
+      "Skills",
+      "MCP"
+    ],
     "defaultPrompt": "Use Argus to execute this objective persistently with independent review."
   }
 }

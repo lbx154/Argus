@@ -142,6 +142,21 @@ class MessageRequestRegistry:
             self._active[key] = entry
         return MessageRequestLease(key[0], key[1], self, entry)
 
+    def active(self, sid: str) -> list[dict[str, str]]:
+        """Return cancellable foreground requests for one project.
+
+        This read is intentionally independent of snapshot caching: a browser
+        reload must be able to reattach its Stop control without replaying the
+        original POST.
+        """
+        session = self._key(sid, "status")[0]
+        with self._lock:
+            return [
+                {"request_id": request_id, "status": "running"}
+                for (request_sid, request_id), entry in self._active.items()
+                if request_sid == session and not entry.stop.is_set()
+            ]
+
     def cancel(self, sid: str, request_id: str) -> dict[str, str | bool]:
         key = self._key(sid, request_id)
         with self._lock:

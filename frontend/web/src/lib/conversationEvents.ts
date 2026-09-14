@@ -209,7 +209,8 @@ export function mergeConversationEvents(
       // Receipt prose is often a repeated template. Require its durable
       // message identity before removing history or carrying task metadata.
       return event.mission_result !== true && live.mission_result !== true
-        || Boolean(messageId && live.message_id === messageId);
+        || Boolean(messageId && live.message_id === messageId)
+        || Boolean(!messageId && event.delivery_id && event.delivery_id === live.delivery_id);
     };
     let match = candidates.findIndex(liveIndex => compatible(liveIndex)
       && Boolean(messageId && mergedLive[liveIndex].message_id === messageId));

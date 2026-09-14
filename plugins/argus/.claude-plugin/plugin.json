@@ -8,7 +8,12 @@
   "homepage": "https://github.com/lbx154/Argus",
   "repository": "https://github.com/lbx154/Argus",
   "license": "MIT",
-  "keywords": ["research", "engineering", "medical", "review"],
+  "keywords": [
+    "research",
+    "engineering",
+    "medical",
+    "review"
+  ],
   "skills": "./skills/",
   "mcpServers": "./mcp/claude.json"
 }

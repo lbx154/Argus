@@ -555,7 +555,7 @@ def test_tick_uses_default_width_when_pool_unset(tmp_path: Path) -> None:
     root = tmp_path / "team"
     registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
     task_board.form(root, [{"task_id": f"t::{i}", "objective": "x"} for i in range(5)])
-    c = _fake_curator(tmp_path, default_width=3)
+    c = _fake_curator(tmp_path, default_width=3, max_total_in_flight=3)
     c._tick(now=100.0)  # no pool.json → default width 3
     assert task_board.count_in_flight(root) == 3
 
@@ -968,3 +968,17 @@ def test_tick_distills_at_bounded_interval(tmp_path: Path) -> None:
     curator._tick(now=1200.0)
 
     assert len(calls) == 2
+
+
+def test_twelve_candidate_tasks_do_not_spawn_twelve_workers_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", raising=False)
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="portfolio", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=12, state="running")
+    task_board.form(root, [{"task_id": f"idea::{i}", "objective": "research candidate"} for i in range(12)])
+    curator = _fake_curator(tmp_path)
+    curator._tick(now=100.0)
+    curator._tick(now=101.0)
+    assert len(curator._children) == 2
+    assert task_board.count_in_flight(root) == 2

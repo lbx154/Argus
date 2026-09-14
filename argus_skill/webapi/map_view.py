@@ -335,7 +335,11 @@ def turn_records(
         steps = [step for step in row.get("steps") or [] if isinstance(step, dict) and step.get("label")]
         calls = [call for call in ask.get("calls", {}).values() if call.get("ended_ts")]
         observed = [call for call in calls if call.get("observed")]
-        if not steps and not observed:
+        # SELF delivery is itself durable execution evidence.  Argus-Pi can
+        # legitimately report no per-tool steps, unlike an ordinary chat; an
+        # item-bound receipt belongs to its queued task instead of a turn card.
+        direct_result = row.get("mission_result") is True and not row.get("item_id")
+        if not steps and not observed and not direct_result:
             continue
         recovered = not steps
         latest = calls[-1] if calls else {}
@@ -374,7 +378,7 @@ def turn_records(
                     "type": "work.segment",
                     "ts": started or replied_at,
                     "ts_end": finished or replied_at,
-                    "association": "single_active_window" if recovered else "explicit",
+                    "association": "explicit" if steps or direct_result else "single_active_window",
                     "role": "manager",
                     "text": error or "",
                     "status": "failed" if failed else "recorded",

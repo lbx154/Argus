@@ -83,6 +83,7 @@ interface ActiveMessageRequest {
   serverRequestId: string;
   sid: string;
   controller: AbortController;
+  recovered?: boolean;
 }
 interface CompletionContext {
   sid: string;
@@ -377,6 +378,33 @@ export default function App() {
   const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
     loadedSid, standardWorkspaceView === 'activity', events, localConversationEvents, localConversationSid.current,
   );
+  const activeManagerRequestId = loadedSid
+    ? snap?.manager_requests?.filter(request => request.status === 'running').at(-1)?.request_id || ''
+    : '';
+  const messagePending = chatPending || Boolean(activeManagerRequestId);
+  useEffect(() => {
+    if (!loadedSid) return;
+    const current = messageRequestRef.current;
+    if (activeManagerRequestId) {
+      if (!current) {
+        messageRequestRef.current = {
+          id: ++messageEpochRef.current,
+          serverRequestId: activeManagerRequestId,
+          sid: loadedSid,
+          controller: new AbortController(),
+          recovered: true,
+        };
+        setChatPending(true);
+      }
+      return;
+    }
+    if (current?.recovered && current.sid === loadedSid) {
+      messageRequestRef.current = null;
+      setChatPending(false);
+      setManagerSteps([]);
+      void transcriptQ.refetch();
+    }
+  }, [activeManagerRequestId, loadedSid, transcriptQ.refetch]);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
   // The map view follows the stream at a beat, not per token.
   const mapInput = useMemo(() => ({ sid: loadedSid, events, conversation: activityEvents }), [loadedSid, events, activityEvents]);
@@ -891,7 +919,7 @@ export default function App() {
       ? []
       : [
           { id: 'message', label: t('palette.messageArgus'), hint: '/', group: t('palette.action'), run: () => setComposerFocus((x) => x + 1) },
-          ...(chatPending
+          ...(messagePending
             ? [{ id: 'cancel-message', label: t('palette.stopWaiting'), hint: 'Esc', group: t('palette.action'), run: stopWaiting }]
             : []),
           ...(continuous
@@ -922,7 +950,7 @@ export default function App() {
     }));
     return [...nav, ...acts, ...commandRows, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, chatPending, stopWaiting, locale, t]);
+  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, messagePending, stopWaiting, locale, t]);
 
   return (
     <ProgressQuestionsProvider sid={activeSid} readOnly={kiosk}>
@@ -1041,7 +1069,7 @@ export default function App() {
                   {locale === 'zh-CN' ? '文件' : 'Files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
                 </button>
               </nav>
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={setComposerAttachments} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={setComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
                 conversationEvents={mapConversationEvents} connected={connected} artifacts={artifactsQ.data ?? []}
@@ -1109,7 +1137,7 @@ export default function App() {
                       onSend={sendComposerMessage}
                       onCancel={stopWaiting}
                       disabled={!activeSid}
-                      pending={chatPending}
+                      pending={messagePending}
                       focusSignal={composerFocus}
                       embedded
                       steps={managerSteps}
@@ -1256,7 +1284,7 @@ export default function App() {
           }}
         />
       ) : null}
-      <ArtifactModal sid={activeSid} path={artifactPath}
+      <ArtifactModal sid={activeSid} path={artifactPath} artifacts={artifactsQ.data ?? []}
         reviewActivity={activeSid === loadedSid ? reviewActivity : undefined}
         onSelectPath={setArtifactPath}
         onClose={() => setArtifactPath(null)} />

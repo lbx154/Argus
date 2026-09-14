@@ -132,7 +132,7 @@ def test_explicit_incompatible_trial_model_is_rejected_without_rewriting_persona
 
 @pytest.mark.e2e
 @pytest.mark.skipif(shutil.which("copilot") is None, reason="Copilot CLI required for real client smoke test")
-@pytest.mark.parametrize("local_tool", ["view", "apply_patch"])
+@pytest.mark.parametrize("local_tool", ["view", "write"])
 @pytest.mark.parametrize("transport_mode", ["oneshot", "acp"])
 def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, local_tool, transport_mode):
     """Real Argus -> real Copilot CLI -> HTTP gateway -> simulated upstream."""
@@ -177,20 +177,27 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
             if local_tool == "view":
                 assert any("trial-local-file-evidence" in str(m.get("output")) for m in messages if m.get("type") == "function_call_output")
             else:
-                assert any(m.get("type") == "custom_tool_call_output" for m in messages)
+                assert any(m.get("type") in {"custom_tool_call_output", "function_call_output"} for m in messages)
                 assert (tmp_path / "result.txt").read_text() == "trial-local-patch-evidence\n"
             delta, finish = {"role": "assistant", "content": "TRIAL_TOOL_OK"}, "stop"
-        elif local_tool == "apply_patch":
-            tool = next(t for t in payload["tools"] if t["name"] == "apply_patch")
-            assert tool["type"] == "custom" and tool["format"]["type"] == "grammar"
-            assert tool["format"]["syntax"] == "lark" and tool["format"]["definition"]
-            assert "grammar" not in tool["format"]
-            delta = {"role": "assistant", "tool_calls": [{
-                "id": "call_patch", "type": "custom", "custom": {
+        elif local_tool == "write":
+            # CLI versions expose either custom apply_patch or function create
+            # for opaque hosted model selectors. Exercise the advertised tool.
+            tool = next((t for t in payload["tools"] if t["name"] == "apply_patch"), None)
+            if tool is not None:
+                assert tool["type"] == "custom" and tool["format"]["type"] == "grammar"
+                assert tool["format"]["syntax"] == "lark" and tool["format"]["definition"]
+                assert "grammar" not in tool["format"]
+                call = {"id": "call_patch", "type": "custom", "custom": {
                     "name": "apply_patch",
                     "input": "*** Begin Patch\n*** Add File: result.txt\n+trial-local-patch-evidence\n*** End Patch",
-                },
-            }]}
+                }}
+            else:
+                assert any(t["name"] == "create" and t["type"] == "function" for t in payload["tools"])
+                call = {"id": "call_create", "type": "function", "function": {
+                    "name": "create", "arguments": json.dumps({"path": str(tmp_path / "result.txt"), "file_text": "trial-local-patch-evidence\n"}),
+                }}
+            delta = {"role": "assistant", "tool_calls": [call]}
             finish = "tool_calls"
         else:
             assert any(t["name"] == "view" for t in payload["tools"])
@@ -260,7 +267,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
             "from argus_skill.core.models import RunnerOptions; "
             "from argus_skill.core.run_gateway import run_exec; "
             "runner=AgentCliBackend(backend='copilot', runner_bin=shutil.which('copilot')); "
-            f"o=RunnerOptions(model='gpt-4.1', working_dir={str(tmp_path)!r}, "
+            f"o=RunnerOptions(model='argus-trial', working_dir={str(tmp_path)!r}, "
             "sandbox_mode='read-only', force_safe_mode=True, skip_git_repo_check=True); "
             f"r=run_exec(runner, resume_thread_id=None, options=o, run_label={label!r}, "
             f"prompt={'Read ' + str(tmp_path / 'evidence.txt') + ' and report TRIAL_TOOL_OK.'!r}); "
@@ -269,7 +276,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
             if local_tool == "view" else
             "from argus_skill.core.agent_probe import run_agent_repair_prompt; "
             "r=run_agent_repair_prompt(backend='copilot', executable=shutil.which('copilot'), "
-            f"working_dir={str(tmp_path)!r}, model='gpt-4.1', run_label={label!r}, "
+            f"working_dir={str(tmp_path)!r}, model='argus-trial', run_label={label!r}, "
             "prompt='Create result.txt with trial-local-patch-evidence using apply_patch, then report TRIAL_TOOL_OK.'); "
             "assert r.ok and 'TRIAL_TOOL_OK' in r.output, r; "
         )
@@ -282,7 +289,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
             probe = (
                 "from argus_skill.agent_cli.copilot_acp import CopilotAcpClient; "
                 "from argus_skill.agent_cli.agent_cli_runner import RunnerOptions; "
-                "c=CopilotAcpClient(shutil.which('copilot'),model='gpt-5.5',reasoning_effort='high'); "
+                "c=CopilotAcpClient(shutil.which('copilot'),model='argus-trial',reasoning_effort='high'); "
                 f"o=RunnerOptions(working_dir={str(tmp_path)!r}); "
                 f"r=c.run_prompt(prompt={prompt!r},resume_thread_id=None,options=o,run_label='simple-1'); "
                 "assert r.turn_completed and 'TRIAL_TOOL_OK' in r.agent_messages[-1], r; "
@@ -297,12 +304,12 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
             probe += (
                 "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
                 "r=run_read_only_agent_prompt(backend='copilot',executable=shutil.which('copilot'),"
-                "model='gpt-5.5',run_label='trial-reject-smoke',prompt='TRIAL_REJECT_REQUEST'); "
+                "model='argus-trial',run_label='trial-reject-smoke',prompt='TRIAL_REJECT_REQUEST'); "
                 "assert not r.ok and r.error, r; print('TRIAL_TOOL_OK: one-shot rejection verified'); "
             )
         result = subprocess.run(
             [sys.executable, "-c", "from argus_skill.core.knob_store import read_persisted_knobs; "
-             "k=read_persisted_knobs(); assert k['ARGUS_SKILL_MODEL']=='gpt-5.5'; "
+             "k=read_persisted_knobs(); assert k['ARGUS_SKILL_MODEL']=='argus-trial'; "
              "assert k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
              "import shutil; " + probe],
             cwd=tmp_path, env=env, capture_output=True, text=True, encoding="utf-8", timeout=60,

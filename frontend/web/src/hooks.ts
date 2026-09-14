@@ -28,7 +28,9 @@ export function projectPollInterval(index?: ProjectIndex): number {
 }
 
 export function snapshotPollInterval(snapshot?: Snapshot): number {
-  return snapshot?.daemon.alive ? ACTIVE_DAEMON_POLL_MS : SNAPSHOT_POLL_MS;
+  return snapshot?.daemon.alive || snapshot?.manager_requests?.some(request => request.status === 'running')
+    ? ACTIVE_DAEMON_POLL_MS
+    : SNAPSHOT_POLL_MS;
 }
 
 export const useProjects = () =>

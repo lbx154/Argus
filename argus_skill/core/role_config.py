@@ -156,6 +156,8 @@ def is_reasoning_model(model: str) -> bool:
     m = (model or "").strip().lower()
     if not m:
         return False
+    if m == "argus-trial":
+        return True  # The hosted selector explicitly forwards reasoning effort.
     if m.startswith("gpt-5") or m.startswith("gpt5"):
         return True
     if re.match(r"^o[1-9]", m):  # o1 / o3 / o4 …

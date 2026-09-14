@@ -1,6 +1,7 @@
 """Only the exact hosted project/task references are public path literals."""
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -32,7 +33,9 @@ def hosted_engineer_prompt(task):
     """
     roots = [f"/tenant/home/.argus-skill/projects/{SID}/skills",
              "/tenant/home/.argus-skill/skills/_shared_verticals/software", "/tenant/home/.argus-skill/skills"]
-    libraries = render_skill_library_paths(SimpleNamespace(library_roots=lambda: roots), role="engineer", task=task)
+    # Model the hosted public library path, not this test runner's private checkout.
+    with patch("argus_skill.skills.role_library.builtin_skill_source_path", return_value=Path(roots[-1])):
+        libraries = render_skill_library_paths(SimpleNamespace(library_roots=lambda: roots), role="engineer", task=task)
     banner = RolePromptCatalog().resolve(mission_request(
         Path(f"/tenant/home/.argus-skill/projects/{SID}"), vertical="software", altitude_root=Path(WORKSPACE), stage="delivery",
     )).role_banner

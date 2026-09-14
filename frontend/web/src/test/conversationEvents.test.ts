@@ -190,3 +190,13 @@ describe('task receipt replay and live deduplication', () => {
     expect(mergeConversationEvents([live], [{ role: 'argus', text: live.text, ts: 19, message_id: 'journal-a' }], [])).toEqual([live]);
   });
 });
+
+it('does not duplicate a legacy delivery when transcript lacks its message id', () => {
+  const row = { text: 'Result ready', ts: 100, mission_result: true, delivery_id: 'delivery:one' };
+  const merged = mergeConversationEvents(
+    [{ ...row, type: 'ui.argus', message_id: 'web-one-argus', ts: 100.001 }],
+    [{ ...row, role: 'argus' }], [],
+  );
+  expect(merged).toHaveLength(1);
+  expect(merged[0].message_id).toBe('web-one-argus');
+});

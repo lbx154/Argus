@@ -80,20 +80,25 @@ def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(
     )
     engineer_dir = (skills / "engineer").resolve()
     reviewer_dir = (skills / "reviewer").resolve()
-    assert engineer_options.skill_paths == [
+    from argus_skill.skills.builtins import builtin_skill_source_path
+
+    bundled = builtin_skill_source_path().resolve()
+    for options in (engineer_options, reviewer_options):
+        assert {str(bundled), str(bundled / "engineer"), str(bundled / "reviewer")} <= set(options.skill_paths)
+    assert [path for path in engineer_options.skill_paths if not Path(path).is_relative_to(bundled)] == [
         str(engineer_dir),
         str(skills.resolve()),
         str(reviewer_dir),
     ]
-    assert reviewer_options.skill_paths == [
+    assert [path for path in reviewer_options.skill_paths if not Path(path).is_relative_to(bundled)] == [
         str(skills.resolve()),
         str(reviewer_dir),
         str(engineer_dir),
     ]
     assert str(skills.resolve()) in engineer_prompt
     assert str(skills.resolve()) in reviewer_prompt
-    assert "inspect the available descriptions" in engineer_prompt
-    assert "inspect the available descriptions" in reviewer_prompt
+    assert "Use native Skill descriptions" in engineer_prompt
+    assert "Use native Skill descriptions" in reviewer_prompt
     assert "Inspect and simplify Argus" not in engineer_prompt
     assert "Review an Argus maintenance patch" not in reviewer_prompt
 

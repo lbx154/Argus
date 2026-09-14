@@ -30,12 +30,12 @@ def register_research_timeline_routes(app, ctx: ServerContext) -> None:
 
     @app.get("/api/research/timeline/example", dependencies=[Depends(ctx.require_auth)])
     def _example() -> dict[str, Any]:
-        source = files("argus_skill.verticals.research").joinpath("timeline_example.json")
+        source = files("argus_skill.core").joinpath("timeline_example.json")
         return json.loads(source.read_text(encoding="utf-8"))
 
     @app.post("/api/research/timeline/estimate", dependencies=[Depends(ctx.require_auth)])
     def _estimate(body: dict[str, Any]) -> dict[str, Any]:
-        from ...verticals.research.timeline import estimate
+        from ...core.timeline import estimate
 
         try:
             return estimate(body)
@@ -44,7 +44,7 @@ def register_research_timeline_routes(app, ctx: ServerContext) -> None:
 
     @app.get("/api/projects/{sid}/research/timeline", dependencies=[Depends(ctx.require_auth)])
     def _latest(sid: str) -> dict[str, Any]:
-        from ...verticals.research.timeline_store import latest
+        from ...core.timeline_store import latest
 
         root = workspace(sid)
         try:
@@ -56,15 +56,24 @@ def register_research_timeline_routes(app, ctx: ServerContext) -> None:
 
     @app.post("/api/projects/{sid}/research/timeline", dependencies=[Depends(ctx.require_auth)])
     def _record(sid: str, body: dict[str, Any]) -> dict[str, Any]:
-        from ...verticals.research.timeline_store import TimelineVersionConflict, record
+        from ...core.timeline_store import TimelineVersionConflict, record
 
         root = workspace(sid)
         try:
+            payload = body.get("input")
+            expected_version = body.get("expected_version")
+            reason = body.get("reason")
+            if not isinstance(payload, dict):
+                raise ValueError("input must be an object")
+            if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+                raise ValueError("expected_version must be a nonnegative integer")
+            if not isinstance(reason, str):
+                raise ValueError("revision reason must be nonempty text")
             return record(
                 root,
-                body.get("input"),
-                expected_version=body.get("expected_version"),
-                reason=body.get("reason"),
+                payload,
+                expected_version=expected_version,
+                reason=reason,
             )
         except TimelineVersionConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc

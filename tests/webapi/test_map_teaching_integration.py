@@ -96,8 +96,9 @@ def test_draft_and_checker_share_actual_task_evidence_and_attribution_without_mu
                 if field not in {"version", "card_key", "task_id", "captured_at"}} == checked
         assert checked["task"] == sent["task"]
         assert checked["events"] == sent["events"]
-        assert checked["source_ids"] == sent["source_ids"] == [event["id"] for event in original["events"]]
-        assert len(checked["source_ids"]) == 9
+        assert checked["source_ids"] == sent["source_ids"] == [event["id"] for event in original["events"][-4:]]
+        assert len(checked["source_ids"]) == 4
+        assert checked["events_truncated"] is True and checked["evidence_truncated"] is True
         for field in ("summary", "acceptance_check", "outcome", "outcome_source", "plan_hypothesis", "non_goals"):
             assert checked["task"][field] == original["task"][field]
         assert "summary" not in checked  # No title/non-goals surrogate for a research summary.
@@ -134,7 +135,7 @@ def test_upstream_evidence_truncation_remains_visible_to_both_draft_and_checker(
     assert checked["task"]["objective_truncated"] is True
     assert checked["events"][0]["text_truncated"] is True
     # This value already fits the second projector: its upstream loss flag must survive.
-    assert len(checked["events"][0]["next_action"]) == 1500
+    assert len(checked["events"][0]["next_action"]) == 600
     assert checked["events"][0]["next_action_truncated"] is True
     assert checked["events"][0]["review_skipped"] is False
     assert dataset == before and documents == document_snapshot
@@ -281,6 +282,7 @@ def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_bac
 
 
 def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(monkeypatch):
+    monkeypatch.setattr(map_narrative, "map_timeout_seconds", lambda: 170)
     observed = []
     phases = []
     original = card()
@@ -456,8 +458,8 @@ def test_oversize_generated_text_is_rejected_without_replacing_cached_conditions
     generated[field] = "x" * limit + "!"
     dataset["tasks"][0].update(objective="A later objective", revision="task-v2")
     now["value"] += 30
-    with pytest.raises(ValueError, match="invalid card copy"):
-        map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    failure = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    assert failure["generation_error"]["code"] == "invalid_response"
     assert len(calls) == 3  # The invalid draft never enters a second checking call.
     cached = map_narrative.read_cache(tmp_path, "live:checked-text:en-US")
     assert cached["cards"]["a"] == previous

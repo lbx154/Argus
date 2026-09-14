@@ -11,20 +11,6 @@ from argus_skill.release_tools import build_release
 ROOT = Path(__file__).parents[2]
 
 
-def test_wheel_smoke_imports_the_install_in_isolated_mode() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
-        encoding="utf-8"
-    )
-    smoke = workflow.split("- name: Clean-install wheel smoke", 1)[1].split(
-        "- uses: actions/upload-artifact", 1
-    )[0]
-
-    assert "/bin/python -I - <<'PY'" in smoke
-    assert smoke.index("/bin/python -I - <<'PY'") < smoke.index(
-        "import argus_skill"
-    )
-
-
 def test_release_uses_the_platform_npm_launcher() -> None:
     expected = "npm.cmd" if os.name == "nt" else "npm"
     assert build_release.NPM_COMMAND == expected

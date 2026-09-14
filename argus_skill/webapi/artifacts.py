@@ -13,6 +13,7 @@ from ..life.memory import _read_jsonl_tail_history
 from .project_state import project_life_dir, resolve_global_root
 
 _TEXT_ARTIFACT_SUFFIXES = {
+    ".diff", ".patch",
     ".bib", ".cfg", ".css", ".js", ".mjs", ".ini", ".log", ".py", ".rst", ".sh", ".tex", ".toml",
     ".svg", ".ts", ".txt", ".yaml", ".yml",
 }
@@ -189,6 +190,12 @@ def registered_delivery_artifacts(
     from ..core.transcript import read_turns
 
     for turn in reversed(read_turns(life_dir)):
+        if (turn.get("mission_result") is True and turn.get("success") is True
+                and not turn.get("item_id")):
+            # A resumed direct task can verify already-written outputs without
+            # changing their mtimes. Its explicit links still belong to this
+            # completed turn; existence and confinement are checked below.
+            completion_summaries.append(turn.get("text"))
         transcript_delivery = turn.get("delivery")
         if not isinstance(transcript_delivery, dict):
             continue
@@ -239,6 +246,18 @@ def registered_delivery_artifacts(
                 "source": "delivery",
                 "group_title": title,
             })
+    if resolved_workspace:
+        from ..life.delivery import linked_report_paths
+
+        for path in linked_report_paths(resolved_workspace, [row["path"] for row in results]):
+            if path not in seen:
+                seen.add(path)
+                results.append({
+                    "path": path,
+                    "why": "File linked by a delivered report.",
+                    "source": "delivery",
+                    "group_title": title,
+                })
     return results
 
 

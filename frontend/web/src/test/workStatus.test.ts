@@ -37,6 +37,29 @@ describe('shared work status', () => {
     expect(workStatusLabel(state, 'zh-CN')).toBe('正在核对这一步的结果');
   });
 
+  it('tracks foreground SELF work and its step-less durable delivery without classifying chat or queue receipts', () => {
+    const snapshot = fixture(false);
+    snapshot.manager_requests = [{ request_id: 'self-request', status: 'running' }];
+    const running = currentWorkStatus(snapshot, null, [
+      { type: 'agent.io.start', call_id: 'self-call', run_label: 'self-implement', ts: 190 },
+    ], 200);
+    expect(running).toMatchObject({ state: 'running', role: 'manager', activityAt: 190 });
+    expect(workStatusLabel(running, 'zh-CN')).toBe('正在处理你的请求');
+
+    snapshot.manager_requests = [];
+    const completed = currentWorkStatus(snapshot, null, [{
+      type: 'ui.argus', ts: 210, text: 'Implemented.', mission_result: true, success: true, steps: [],
+    }], 220);
+    expect(completed).toMatchObject({ state: 'step_finished', activityAt: 210 });
+    expect(workStatusLabel(completed, 'zh-CN')).toBe('这一步已结束');
+    expect(currentWorkStatus(snapshot, null, [
+      { type: 'ui.argus', ts: 211, text: 'Hello.', success: true, steps: [] },
+    ], 220).state).toBe('idle');
+    expect(currentWorkStatus(snapshot, null, [
+      { type: 'ui.argus', ts: 212, text: 'Queued.', mission_result: true, item_id: 'queued-task', success: true },
+    ], 220).state).toBe('idle');
+  });
+
   it('does not treat a completed step in continuous research as the whole project finishing', () => {
     const snapshot = fixture(), view = emptyMissionView();
     view.mission.status = 'complete';

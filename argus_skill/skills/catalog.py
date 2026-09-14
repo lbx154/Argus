@@ -55,9 +55,9 @@ def library_roots(
                 result.append(Library(f"domain:{domain.name}:bundled", "vertical", domain / "skills", "bundled", domain.name))
     shared_verticals = shared / "_shared_verticals"
     if shared_allowed and _inside(shared_verticals, shared) and shared_verticals.is_dir():
-        for vertical in sorted(shared_verticals.iterdir()):
-            if vertical.is_dir() and _inside(vertical, shared_verticals) and not vertical.name.startswith((".", "_")):
-                result.append(Library(f"vertical:{vertical.name}:shared", "vertical", vertical, "shared", vertical.name))
+        for vertical_dir in sorted(shared_verticals.iterdir()):
+            if vertical_dir.is_dir() and _inside(vertical_dir, shared_verticals) and not vertical_dir.name.startswith((".", "_")):
+                result.append(Library(f"vertical:{vertical_dir.name}:shared", "vertical", vertical_dir, "shared", vertical_dir.name))
     if workdir is not None:
         active = resolve_skill_scope(workdir)
         active_root = shared_skill_scope_dir(shared, active)

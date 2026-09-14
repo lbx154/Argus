@@ -512,7 +512,7 @@ export function ResearchCanvas({
         ) : null}
         {info && markdownPreview ? (
           <div className="min-h-0 flex-1 overflow-auto p-5 text-sm text-ink-dim scroll-thin">
-            <MarkdownContent artifacts={artifacts} onOpenArtifact={selectPreviewPath}>{info.preview || '(empty file)'}</MarkdownContent>
+            <MarkdownContent sid={sid} basePath={info.path} artifacts={artifacts} onOpenArtifact={selectPreviewPath}>{info.preview || '(empty file)'}</MarkdownContent>
           </div>
         ) : null}
         {info?.kind === 'json' ? <JsonPreview value={info.preview || ''} /> : null}
@@ -558,7 +558,7 @@ export function ResearchCanvas({
 
       {!showLiveProgress && info ? (
         <footer className="flex h-9 items-center gap-2 border-t border-line px-4 font-mono text-xs text-ink-faint">
-          <span className="min-w-0 flex-1 truncate" title={info.storage_path || info.path}>{info.storage_path || info.path}</span>
+          <span className="min-w-0 flex-1 truncate" title={info.storage_path || info.path}>{info.path}</span>
           {downloadError ? <span className="ml-auto truncate text-err" title={downloadError}>{t('research.downloadFailed')}</span> : null}
           <span className="shrink-0">{formatBytes(info.size)}</span>
         </footer>

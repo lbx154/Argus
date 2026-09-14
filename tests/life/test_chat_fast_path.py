@@ -54,6 +54,7 @@ class _FakeBackend:
     backend: str = "pi"
     started_at: float = 0.0
     call_id: str = ""
+    tool_activity_observed: bool | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
     classify_calls: list[dict[str, Any]] = field(default_factory=list)
 
@@ -103,6 +104,10 @@ class _FakeBackend:
             fatal_error=self.fatal_error,
             started_at=self.started_at,
             call_id=self.call_id,
+            tool_activity_observed=(
+                self.tool_activity_observed if self.tool_activity_observed is not None
+                else run_label.startswith("self-") and bool(self.response_message)
+            ),
         )
 
 
@@ -1326,3 +1331,43 @@ def test_supervisor_still_runs_critic_for_non_chat_outcome(tmp_path: Path) -> No
     # iteration outcome dict is non-None (recorded the bail). The
     # journal should still mark this complete, not iterated.
     assert result["success"] is True
+
+
+def test_local_execution_retries_plan_once_and_does_not_claim_completion():
+    backend = _FakeBackend(
+        response_message="We need modify project. First inspect files and use tools.",
+        tool_activity_observed=False,
+    )
+    sink = _RecordingSink()
+    outcome = _make_runner(backend)._simple_quick_reply(
+        objective="Create and verify the requested report", sink=sink, execute_mode="implement",
+    )
+    assert len(backend.calls) == 2
+    assert "no tool calls" in backend.calls[1]["prompt"]
+    assert outcome.success is False
+    assert outcome.delivery is None
+    assert "without performing any tool action" in outcome.stop_reason
+
+
+def test_local_execution_recovers_from_plan_before_any_side_effect(tmp_path):
+    class RecoveringBackend(_FakeBackend):
+        def run_exec(self, **kwargs):
+            if self.calls:
+                (tmp_path / "result.txt").write_text("actual output")
+                self.response_message = "Created and checked `result.txt`."
+                self.tool_activity_observed = True
+            return super().run_exec(**kwargs)
+
+    backend = RecoveringBackend(
+        response_message="I will create result.txt.", tool_activity_observed=False,
+        started_at=time.time() - 1, call_id="recovered-action",
+    )
+    runner = _make_runner(backend)
+    runner._args.workdir = str(tmp_path)
+    outcome = runner._simple_quick_reply(
+        objective="Create result.txt", sink=_RecordingSink(), execute_mode="implement",
+    )
+    assert len(backend.calls) == 2
+    assert outcome.success is True
+    assert outcome.delivery["primary_target"]["path"] == "result.txt"
+    assert (tmp_path / "result.txt").read_text() == "actual output"

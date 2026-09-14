@@ -37,6 +37,11 @@ _NO_NESTED_TEAM = (
 )
 
 
+def portfolio_width(root: Path) -> int:
+    """Report the execution width of this portfolio, separately from route count."""
+    return int(pool.read(root).get("width", 0))
+
+
 def portfolio_required(project_root: Path) -> bool:
     from ...skills.vertical_select import resolve_workflow_mode
 
@@ -585,9 +590,9 @@ def _ensure_selection_team(
         for task in actual.values()
     ) and (
         str(pool.read(root).get("state") or "") != "running"
-        or int(pool.read(root).get("width", 0) or 0) != DEFAULT_PORTFOLIO_SIZE
+        or int(pool.read(root).get("width", 0) or 0) != pool.default_width()
     ):
-        pool.update(root, width=DEFAULT_PORTFOLIO_SIZE, state="running")
+        pool.update(root, width=pool.default_width(), state="running")
 
     reviews = _available_review_ids(
         project_root,
@@ -768,12 +773,12 @@ def ensure_idea_portfolio(
             cwd=project_root,
             tasks=tasks,
         )
-        pool.update(root, width=DEFAULT_PORTFOLIO_SIZE, state="running")
+        pool.update(root, width=pool.default_width(), state="running")
     elif (
         str(pool.read(root).get("state") or "") == "running"
-        and int(pool.read(root).get("width", 0) or 0) != DEFAULT_PORTFOLIO_SIZE
+        and int(pool.read(root).get("width", 0) or 0) != pool.default_width()
     ):
-        pool.update(root, width=DEFAULT_PORTFOLIO_SIZE, state="running")
+        pool.update(root, width=pool.default_width(), state="running")
 
     selection_root = _ensure_selection_team(
         project_root,
