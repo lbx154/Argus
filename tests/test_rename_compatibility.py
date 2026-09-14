@@ -9,6 +9,7 @@ recognise teammates spawned before the rename.
 """
 from __future__ import annotations
 
+import importlib.machinery
 import os
 import subprocess
 import sys
@@ -48,7 +49,18 @@ def test_legacy_import_name_is_the_same_module_object() -> None:
     assert sys.modules["argus_skill.core.paths"] is argus.core.paths
     # The canonical module keeps its own spec: nothing about it says argus_skill.
     assert argus.core.paths.__spec__.name == "argus.core.paths"
-    assert type(sys.meta_path[0]).__name__ == "ArgusSkillAliasFinder"
+    # The alias finder must answer before PathFinder, which would otherwise load
+    # a second copy of every submodule from argus.__path__ under the old name.
+    # (Index 0 is not guaranteed: pytest's assertion-rewriting hook may sit there.)
+    alias_index = next(
+        index for index, finder in enumerate(sys.meta_path)
+        if type(finder).__name__ == "ArgusSkillAliasFinder"
+    )
+    path_finder_index = next(
+        index for index, finder in enumerate(sys.meta_path)
+        if finder is importlib.machinery.PathFinder
+    )
+    assert alias_index < path_finder_index
 
 
 def test_patching_through_the_legacy_name_patches_the_runtime(monkeypatch) -> None:

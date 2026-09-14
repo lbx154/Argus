@@ -1612,8 +1612,18 @@ def test_importing_the_kernel_does_not_load_the_engine() -> None:
 # silently skipped.
 _DOTTED_PATH = re.compile(r"\bargus(?:_skill)?(\.[A-Za-z_][A-Za-z0-9_]*)+")
 # ``argus.exe`` (the Windows launcher) and ``argus.mjs`` (the cockpit bundle)
-# are file names that share the package's stem, not module paths.
+# are file names that share the package's stem, not module paths. Only the
+# two-segment form ``argus.<suffix>`` and tokens that are path components
+# (``bundle/argus.mjs``) are exempt: ``argus.plugin.service`` and
+# ``argus.advisor.service`` are real modules and stay resolve-checked.
 _FILE_NAME_SUFFIXES = frozenset({"exe", "mjs", "md", "json", "log", "service", "toml", "yaml", "yml"})
+
+
+def _is_file_name(match: re.Match[str]) -> bool:
+    if match.start() > 0 and match.string[match.start() - 1] in "/\\":
+        return True
+    parts = match.group(0).split(".")
+    return len(parts) == 2 and parts[1] in _FILE_NAME_SUFFIXES
 
 # Cited paths that are illustrative rather than real modules. Empty today:
 # every ``argus.x.y`` in a Skill, plugin document or role prompt resolves.
@@ -1626,7 +1636,7 @@ def _cited_module_paths() -> dict[str, str]:
 
     def note(text: str, where: str) -> None:
         for match in _DOTTED_PATH.finditer(text):
-            if match.group(0).rsplit(".", 1)[1] in _FILE_NAME_SUFFIXES:
+            if _is_file_name(match):
                 continue
             cited.setdefault(match.group(0), where)
 
@@ -1665,6 +1675,18 @@ def _resolves_on_disk(dotted: str) -> bool:
         else:
             return False
     return True
+
+
+def test_file_name_exemption_keeps_dotted_modules_checked() -> None:
+    """Only ``argus.<suffix>`` and path components are files; ``argus.plugin.service`` is a module."""
+    def scan(text: str) -> list[str]:
+        return [m.group(0) for m in _DOTTED_PATH.finditer(text) if not _is_file_name(m)]
+
+    assert scan("run argus.exe or frontend/tui/bundle/argus.mjs") == []
+    assert scan("see argus.plugin.service and argus.advisor.service") == [
+        "argus.plugin.service", "argus.advisor.service",
+    ]
+    assert scan("python -m argus_skill.tools.subagent") == ["argus_skill.tools.subagent"]
 
 
 def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
