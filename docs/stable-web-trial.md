@@ -20,6 +20,11 @@ contains only prose and no observed tool action gets one bounded recovery
 attempt. If it still performs no action, it is reported as incomplete. This
 recovery is not used after observed tool activity or a provider failure.
 
+After a reviewed finite task completes with no remaining work, the Manager does
+not start another background steering call during daemon shutdown. Continuous
+campaigns, pending tasks, and issued decisions awaiting delivery retain their
+normal supervision.
+
 ## Concurrency
 
 Research candidate count and worker concurrency are independent. A twelve-route

@@ -556,6 +556,19 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     relevant |= event_type == EventType.LIFE_PHASE_STARTED and event.get("agent_layer") == "engineer" and int(event.get("round_index") or 0) > 1
     if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
         return False
+    if event_type == EventType.LIFE_MISSION_COMPLETED and event.get("success") is True and event.get("status") == "done":
+        from ..daemon.state import read_continuous_state
+        from ..life.memory import Backlog
+
+        project_root = Path(root)
+        # A reviewed finite task with no remaining work has no course to steer.
+        # Starting another model check here races orderly daemon shutdown and
+        # reports a cancelled check immediately after a successful delivery.
+        # Preserve durable issued decisions that still need their effects applied.
+        if (not read_continuous_state(project_root).enabled
+                and not Backlog(project_root / "backlog.jsonl").active()
+                and _latest_record(project_root).get("status") != "issued"):
+            return False
     key = str(Path(root).resolve())
     with _GUARD:
         if _CLOSED or key in _STOPPED_ROOTS:

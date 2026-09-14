@@ -269,6 +269,33 @@ def test_shutdown_bounds_an_uncooperative_backend_and_rejects_its_late_result(tm
         assert shutdown_supervision(tmp_path) == 0
 
 
+@pytest.mark.parametrize("remaining_work", ["none", "pending", "continuous", "issued"])
+def test_completed_finite_work_does_not_start_a_shutdown_bound_check(tmp_path, monkeypatch, remaining_work):
+    from argus.manager import supervision
+
+    backlog, item = project(tmp_path)
+    backlog.update(item.id, status="done")
+    write_continuous_config(tmp_path, enabled=remaining_work == "continuous", objective="Produce a validated grouped summary")
+    if remaining_work == "pending":
+        backlog.add(BacklogItem.new(title="Next validation", objective="Check the next batch"))
+    if remaining_work == "issued":
+        supervision._write(tmp_path / "manager-supervision/latest.json", {"status": "issued"})
+    dispatched = []
+    monkeypatch.setattr(supervision, "_dispatch_pending", lambda: dispatched.append(True))
+    manager = Manager(tmp_path, runner=EvidenceBackend(), memory_maintenance_enabled=False)
+    supervision.start_supervision(tmp_path)
+    try:
+        admitted = supervision.schedule_supervision(manager, tmp_path, {
+            "type": EventType.LIFE_MISSION_COMPLETED, "item_id": item.id,
+            "success": True, "status": "done",
+        })
+        assert admitted is (remaining_work != "none")
+        assert bool(dispatched) is admitted
+        assert manager.runner.calls == []
+    finally:
+        supervision.shutdown_supervision(tmp_path)
+
+
 def test_unobserved_evidence_reference_cannot_authorize_steering(tmp_path):
     project(tmp_path)
 
