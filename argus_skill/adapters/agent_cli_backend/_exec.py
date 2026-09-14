@@ -49,8 +49,10 @@ def execute(
     # share one model id instead of independently guessing after the call.
     options = backend._resolve_execution_options(options)
     from ...core.workbench_plugins import prepare_plugin_run
+    usage_context = getattr(backend, "_usage_context_snapshot", None)
+    project_root = usage_context()[0] if callable(usage_context) else None
     prompt, options = prepare_plugin_run(prompt, options,
-        backend=backend._runner.backend, run_label=run_label)
+        backend=backend._runner.backend, run_label=run_label, project_root=project_root)
     backend._plugin_execution_options = options
     try:
         return _execute_prepared(backend, prompt=prompt, options=options, run_label=run_label, resume_thread_id=resume_thread_id)

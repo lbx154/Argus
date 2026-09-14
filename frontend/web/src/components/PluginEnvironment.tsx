@@ -6,7 +6,7 @@ export type PluginHealth = {
   checked?: number; ready?: boolean; summary?: string;
   components?: { id: string; name: string; description: string; status: string; detail: string; path?: string; url: string; automatic: boolean; license_required: boolean }[];
 };
-export type PluginSetup = { actions: string[]; license?: { action: string; name: string; url: string; platform_consent?: { platform: string; machines: string[]; text: string; url: string } } };
+export type PluginSetup = { actions: string[]; windows_runtime?: { action: string; name: string; url: string; notice: string }; license?: { action: string; name: string; url: string; platform_consent?: { platform: string; machines: string[]; text: string; url: string } } };
 const control = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm transition-colors hover:bg-bg disabled:cursor-not-allowed disabled:opacity-45';
 
 export function PluginEnvironment({ health, setup, running, act, platform, machine }: {
@@ -22,6 +22,9 @@ export function PluginEnvironment({ health, setup, running, act, platform, machi
   const [manual, setManual] = useState<string | null>(null);
   const [path, setPath] = useState('');
   const [acceptPlatform, setAcceptPlatform] = useState(false);
+  const [runtimeConsent, setRuntimeConsent] = useState(false);
+  const [showRuntime, setShowRuntime] = useState(false);
+  const runtime = setup.windows_runtime;
   const terms = setup.license?.platform_consent;
   const platformConsent = terms?.platform === platform && terms?.machines.includes(machine || '');
   const components = health?.components || [];
@@ -51,6 +54,19 @@ export function PluginEnvironment({ health, setup, running, act, platform, machi
       {tr((needRepair || !health?.checked) && <button className={control} disabled={running} onClick={() => { setExpanded(true); void act('repair'); }}><Download size={14}/>{tr("修复依赖")}</button>)}
       {tr(setup.license && <button className={control} disabled={running} onClick={() => { setCredentials(!credentials); setPassword(''); setUsername(''); }}><KeyRound size={14}/>{tr(needLicense ? tr("配置 SHELX") : tr("SHELX 授权安装"))}</button>)}
     </div>
+    {runtime && <div className="mt-3">
+      <button type="button" className={control} disabled={running} onClick={() => { setShowRuntime(!showRuntime); setRuntimeConsent(false); }}><Download size={14}/>{tr("准备 PLATON 官方环境")}</button>
+      {showRuntime && <form className="mt-3 rounded-lg bg-bg/70 p-3" onSubmit={async e => {
+        e.preventDefault();
+        if (runtimeConsent && await act(runtime.action, { accept_software_license: true })) {
+          setShowRuntime(false); setRuntimeConsent(false); setExpanded(true);
+        }
+      }}>
+        <p className="text-xs leading-relaxed text-ink-dim">{tr(runtime.notice)} <a href={runtime.url} target="_blank" rel="noreferrer" className="text-blue">{tr("官方安装说明 ↗")}</a></p>
+        <label className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-ink-dim"><input type="checkbox" checked={runtimeConsent} onChange={e => setRuntimeConsent(e.target.checked)} className="mt-0.5"/>{tr("我确认用途符合 PLATON 官方许可；如用于商业用途，已另行取得授权。")}</label>
+        <div className="mt-3 flex gap-3"><button type="submit" className={control} disabled={running || !runtimeConsent}>{tr("下载、验证并配置")}</button><button type="button" className="text-xs text-ink-faint" onClick={() => { setShowRuntime(false); setRuntimeConsent(false); }}>{tr("取消")}</button></div>
+      </form>}
+    </div>}
     {tr(credentials && setup.license && <form onSubmit={license} className="mt-4 rounded-lg bg-bg/70 p-3">
       <div className="flex items-center justify-between gap-2 text-sm"><span className="font-medium">{tr(setup.license.name)}{tr(" 学术授权")}</span>
         <a href={setup.license.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue">{tr("前往官网申请")}<ExternalLink size={11}/></a></div>

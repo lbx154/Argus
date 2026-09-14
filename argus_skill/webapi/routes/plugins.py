@@ -57,12 +57,11 @@ def register_plugin_routes(app, ctx):
         if origin and urlparse(origin).netloc != request.headers.get("host"):
             raise HTTPException(403, "Cross-origin plugin management refused")
         try:
-            if set(payload) - {"username", "password", "paths", "accept_platform_license"}:
+            if set(payload) - {"username", "password", "paths", "accept_platform_license", "accept_software_license"}:
                 raise ValueError("Unknown plugin setup field")
-            if "accept_platform_license" in payload and not isinstance(
-                payload["accept_platform_license"], bool
-            ):
-                raise ValueError("Invalid platform consent")
+            for consent in ("accept_platform_license", "accept_software_license"):
+                if consent in payload and type(payload[consent]) is not bool:
+                    raise ValueError("Invalid software consent")
             if any(
                 not isinstance(payload.get(key, ""), str) or len(payload.get(key, "")) > 500
                 for key in ("username", "password")
