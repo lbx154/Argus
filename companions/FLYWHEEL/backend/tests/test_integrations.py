@@ -181,6 +181,19 @@ def test_cli_plan_is_explicit_isolated_and_dry(tmp_path: Path) -> None:
     assert adapter.launch(plan) is plan
 
 
+def test_cli_adapter_defaults_to_argus_and_falls_back_to_the_pre_rename_launcher(monkeypatch) -> None:
+    from foundry.integrations import argus_cli
+
+    monkeypatch.setattr(argus_cli.shutil, "which", lambda name: None)
+    assert ArgusCliAdapter().executable == "argus"
+    monkeypatch.setattr(
+        argus_cli.shutil, "which", lambda name: "/usr/bin/argus-skill" if name == "argus-skill" else None,
+    )
+    assert ArgusCliAdapter().executable == "argus-skill"
+    monkeypatch.setattr(argus_cli.shutil, "which", lambda name: f"/usr/bin/{name}")
+    assert ArgusCliAdapter().executable == "argus"
+
+
 def test_arxiv_atom_parse_and_daily_cache(tmp_path: Path) -> None:
     calls = 0
     atom = b'''<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2608.12345v1</id><updated>2026-08-23T00:00:00Z</updated><title> A useful paper </title></entry></feed>'''

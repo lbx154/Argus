@@ -342,6 +342,37 @@ def test_frozen_python_compat_dispatches_daemon_spawn_helper(monkeypatch) -> Non
     assert calls == [("argus.daemon.spawn_helper", "__main__", True)]
 
 
+@pytest.mark.parametrize(
+    ("requested", "canonical"),
+    [
+        ("argus_skill", "argus"),
+        ("argus_skill.daemon.spawn_helper", "argus.daemon.spawn_helper"),
+        ("argus_skill.tools.subagent", "argus.tools.subagent"),
+    ],
+)
+def test_frozen_python_compat_accepts_the_pre_rename_module_spelling(
+    monkeypatch, requested: str, canonical: str
+) -> None:
+    """Seeded Skill copies still say ``-m argus_skill.…``; the frozen backend runs them as ``argus.…``."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "argus.desktop_backend_entry.runpy.run_module",
+        lambda module, *, run_name, alter_sys: calls.append(module),
+    )
+
+    handled, code = _python_compat_entrypoint(["-m", requested, "--help"])
+
+    assert handled is True and code == 0
+    assert calls == [canonical]
+
+
+def test_frozen_python_compat_still_refuses_lookalike_packages(capsys) -> None:
+    handled, code = _python_compat_entrypoint(["-m", "argus_skillful.tool"])
+
+    assert (handled, code) == (True, 2)
+    assert "refusing non-Argus frozen module 'argus_skillful.tool'" in capsys.readouterr().err
+
+
 def test_source_runtime_verifier_loads_every_registered_provider() -> None:
     report = verify_runtime_providers()
 
@@ -385,6 +416,8 @@ def test_pyinstaller_spec_collects_registered_stage_and_overlay_modules(monkeypa
     assert namespace["domain_overlay_modules"] == expected_domains
     assert set(expected_verticals + expected_domains) <= set(namespace["hiddenimports"])
     assert "unittest" in namespace["hiddenimports"]
+    # The pre-rename alias ships in the frozen build for one release.
+    assert {"argus_skill", "argus_skill.__main__"} <= set(namespace["hiddenimports"])
     assert ("unittest", "warn once") in calls
     assert "argus.tools.manager_live_view" in namespace["argus_modules"]
     assert "argus.daemon.spawn_helper" in namespace["argus_modules"]

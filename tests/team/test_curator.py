@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from argus.team import completion, leaderboard, pool, registry, roster, task_board
 from argus.team import curator as cur
 
@@ -34,15 +36,19 @@ def _allow_fake_windows_adoption_handle(monkeypatch) -> None:
 
 
 # --- restart durability: adopt orphans the prior daemon left running --------
-def test_pid_is_teammate_verifies_real_cmdline(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "entry_module", ["argus.team.teammate_entry", "argus_skill.team.teammate_entry"],
+)
+def test_pid_is_teammate_verifies_real_cmdline(tmp_path: Path, entry_module: str) -> None:
     import subprocess
     import sys
-    # A live process carrying the exact module/root/member arguments.
+    # A live process carrying the exact module/root/member arguments. Teammates
+    # spawned before the package rename still spell the module ``argus_skill``.
     p = subprocess.Popen([
         sys.executable,
         "-c",
         "import time; time.sleep(30)",
-        "argus.team.teammate_entry",
+        entry_module,
         "--root",
         str(tmp_path),
         "--member-id",

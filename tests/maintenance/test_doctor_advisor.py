@@ -47,6 +47,19 @@ def _context(tmp_path: Path) -> DoctorContext:
     )
 
 
+def test_advisor_recognises_a_checkout_from_before_the_package_rename(tmp_path: Path) -> None:
+    from argus.maintenance.advisor import _is_argus_checkout
+
+    old = tmp_path / "old"
+    (old / "argus_skill").mkdir(parents=True)
+    (old / "argus_skill" / "__init__.py").write_text("", encoding="utf-8")
+    (old / "pyproject.toml").write_text('[project]\nname = "argus-skill"\n', encoding="utf-8")
+
+    assert _is_argus_checkout(old) is True
+    assert _is_argus_checkout(_context(tmp_path).checkout) is True
+    assert _is_argus_checkout(tmp_path) is False
+
+
 def test_doctor_advisor_uses_installed_agent_to_repair(
     monkeypatch,
     tmp_path,

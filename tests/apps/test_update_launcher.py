@@ -92,7 +92,7 @@ def test_user_install_does_not_touch_the_system_scripts_directory(scripts, monke
 
 def test_failure_moving_a_launcher_restores_already_moved_files(scripts, monkeypatch):
     first = scripts / "argus.exe"
-    second = scripts / "argus.exe"
+    second = scripts / "argus-skill.exe"  # the pre-rename launcher is still shipped
     first.write_bytes(b"first")
     second.write_bytes(b"second")
     rename = Path.rename

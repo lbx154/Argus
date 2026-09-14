@@ -159,6 +159,19 @@ def test_chatter_before_the_refusal_is_dropped(monkeypatch, tmp_path) -> None:
     assert "unrelated preamble" not in message
 
 
+def test_a_pre_rename_launcher_prefix_still_anchors_the_message(monkeypatch, tmp_path) -> None:
+    """A helper from a tree installed before the rename prefixes ``argus-skill:``."""
+    message = _run_clean_launcher(
+        monkeypatch,
+        tmp_path,
+        stderr="warning: unrelated preamble\n" + BUSY.replace("argus:", "argus-skill:", 1),
+        returncode=3,
+    )
+
+    assert message.startswith("argus-skill: workdir")
+    assert "unrelated preamble" not in message
+
+
 def test_the_helper_result_is_captured_rather_than_inherited() -> None:
     """If the caller ever stopped capturing, unmuting the helper would spray
     the parent's own stderr instead of being relayed."""

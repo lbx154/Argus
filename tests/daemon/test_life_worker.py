@@ -462,9 +462,11 @@ def test_explicit_stop_cancels_pending_daemon_upgrade(tmp_path: Path) -> None:
     assert not request.exists()
 
 
+@pytest.mark.parametrize("shadow_name", ["argus", "argus_skill"])
 @pytest.mark.parametrize("frozen", [False, True])
 def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
     frozen: bool,
+    shadow_name: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -476,7 +478,9 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
     ))
     workdir = tmp_path / "workdir"
     workdir.mkdir()
-    shadow = workdir / "argus"
+    # Either spelling could shadow the runtime: the package, or the alias
+    # package that older Skill copies still import.
+    shadow = workdir / shadow_name
     shadow.mkdir()
     (shadow / "__init__.py").write_text(
         "raise RuntimeError('workspace package shadow was imported')\n",
@@ -534,7 +538,7 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
         [
             life_worker_mod.sys.executable,
             "-c",
-            "import argus; print(argus.__file__)",
+            "import argus, argus_skill; print(argus.__file__, argus_skill.__file__)",
         ],
         cwd=captured["cwd"],
         env=captured["env"],

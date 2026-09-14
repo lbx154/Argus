@@ -75,6 +75,27 @@ def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> No
     assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == str(backend)
 
 
+def test_launcher_falls_back_to_the_pre_rename_backend_launcher(monkeypatch, tmp_path: Path) -> None:
+    """A venv that only has ``argus-skill`` (installed before the rename) still gets a backend."""
+    venv_bin = tmp_path / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    suffix = ".exe" if os.name == "nt" else ""
+    legacy = venv_bin / f"argus-skill{suffix}"
+    legacy.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(tui_launcher.sys, "executable", str(venv_bin / "python"))
+    monkeypatch.delenv("ARGUS_SKILL_BIN", raising=False)
+    monkeypatch.delenv("ARGUS_BINARY_DISTRIBUTION", raising=False)
+
+    tui_launcher._configure_tui_backend_bin()
+    assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == str(legacy)
+
+    current = venv_bin / f"argus{suffix}"
+    current.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.delenv("ARGUS_SKILL_BIN")
+    tui_launcher._configure_tui_backend_bin()
+    assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == str(current)
+
+
 def test_binary_launcher_points_tui_at_real_frozen_backend(
     monkeypatch, tmp_path: Path
 ) -> None:

@@ -174,6 +174,8 @@ def test_parent_binding_rejects_tool_spawned_python_despite_argus_label(monkeypa
     peer._runtime_parent(table[101])
     with pytest.raises(AnalyticsError, match="runtime_parent_untrusted"):
         peer._runtime_parent({**table[103], "argv": ["python", "-c", "malicious", "argus"]})
+    with pytest.raises(AnalyticsError, match="runtime_parent_untrusted"):
+        peer._runtime_parent({**table[103], "argv": ["python", "-c", "malicious", "argus_skill"]})
 
 
 def test_extension_retains_actual_provider_input_and_excludes_structured_private_blocks(tmp_path):

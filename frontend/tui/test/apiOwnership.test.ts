@@ -157,7 +157,7 @@ test('accepts a quoted case-insensitive Windows console-script command line', as
       argv: [],
       commandLine:
         '"G:\\CODE SPACE\\ARGUS\\.venv\\Scripts\\python.exe" '
-        + '"g:\\code space\\argus\\.venv\\scripts\\ARGUS-SKILL.EXE" '
+        + '"g:\\code space\\argus\\.venv\\scripts\\ARGUS.EXE" '
         + `--web --web-host ${record.host} --web-port ${record.port}`,
     }),
   });

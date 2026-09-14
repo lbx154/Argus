@@ -1606,7 +1606,14 @@ def test_importing_the_kernel_does_not_load_the_engine() -> None:
     )
 
 
-_DOTTED_PATH = re.compile(r"\bargus_skill(\.[A-Za-z_][A-Za-z0-9_]*)+")
+# Both spellings on purpose: a citation of the pre-rename ``argus_skill.x``
+# is found by the scan and then fails ``_resolves_on_disk`` (which walks
+# ``argus/`` only), so stale prose is reported as unresolved rather than
+# silently skipped.
+_DOTTED_PATH = re.compile(r"\bargus(?:_skill)?(\.[A-Za-z_][A-Za-z0-9_]*)+")
+# ``argus.exe`` (the Windows launcher) and ``argus.mjs`` (the cockpit bundle)
+# are file names that share the package's stem, not module paths.
+_FILE_NAME_SUFFIXES = frozenset({"exe", "mjs", "md", "json", "log", "service", "toml", "yaml", "yml"})
 
 # Cited paths that are illustrative rather than real modules. Empty today:
 # every ``argus.x.y`` in a Skill, plugin document or role prompt resolves.
@@ -1619,6 +1626,8 @@ def _cited_module_paths() -> dict[str, str]:
 
     def note(text: str, where: str) -> None:
         for match in _DOTTED_PATH.finditer(text):
+            if match.group(0).rsplit(".", 1)[1] in _FILE_NAME_SUFFIXES:
+                continue
             cited.setdefault(match.group(0), where)
 
     for base in ("argus", "plugins", "integrations"):
@@ -1697,6 +1706,15 @@ SUBPROCESS_REENTRY_MODULES = (
 )
 
 
+# The same names as processes started before the 2026-09-14 rename spell them
+# (``argus_skill`` was the package): teammates, trial containers and seeded
+# Skill copies still carry these on their command lines. The alias package
+# ``argus_skill/`` must resolve every one for one release.
+LEGACY_SUBPROCESS_REENTRY_MODULES = tuple(
+    "argus_skill" + dotted[len("argus"):] for dotted in SUBPROCESS_REENTRY_MODULES
+)
+
+
 def test_subprocess_reentry_module_paths_stay_importable() -> None:
     """These names cross a process boundary as strings, so a move is invisible to Python.
 
@@ -1712,6 +1730,72 @@ def test_subprocess_reentry_module_paths_stay_importable() -> None:
     ]
 
     assert missing == []
+
+
+def test_pre_rename_subprocess_reentry_module_paths_still_resolve() -> None:
+    """A daemon or Skill copy from before the rename must still find its modules.
+
+    ``python -m argus_skill.tools.subagent`` is what an operator-edited Skill
+    copy under ``~/.argus-skill/skills`` says today, and the old daemon's
+    handoff spawns ``-c "from argus_skill.daemon.life_worker import ..."``
+    into the new tree. Resolving these through ``find_spec`` proves the
+    ``argus_skill`` alias package answers for every re-entry name.
+    """
+    missing = [
+        dotted for dotted in LEGACY_SUBPROCESS_REENTRY_MODULES
+        if importlib.util.find_spec(dotted) is None
+    ]
+
+    assert missing == []
+
+
+# Prose that tells an agent or operator which module to run. After the rename
+# every such citation must spell the package ``argus``; the historical
+# handoff notes below describe the tree as it was and are left alone.
+_LEGACY_MODULE_CITATION = re.compile(r"\bargus_skill\.[A-Za-z_]")
+_HISTORICAL_DOCS = (
+    "docs/handoff-2026-09-04-capability-tests.md",
+    "docs/HANDOFF-2026-09-05-NEXT.md",
+    "docs/WHAT_ARGUS_GREW.md",
+    "docs/team-intelligence-",
+    "docs/notes-2026-09-06-",
+)
+
+
+def _rename_citation_files() -> list[Path]:
+    files: list[Path] = []
+    files.extend(sorted(ARGUS.rglob("*.md")))
+    files.extend(sorted((ARGUS / "roles" / "prompts").glob("*.py")))
+    for base in ("plugins", "integrations"):
+        files.extend(sorted(p for p in (REPO_ROOT / base).rglob("*") if p.is_file()))
+    files.extend(sorted(REPO_ROOT.glob("README*.md")))
+    files.extend(
+        path for path in sorted((REPO_ROOT / "docs").glob("*.md"))
+        if not path.relative_to(REPO_ROOT).as_posix().startswith(_HISTORICAL_DOCS)
+    )
+    return files
+
+
+def test_no_pre_rename_module_citations_remain_in_prose() -> None:
+    """Skills, prompts, plugins, integrations and current docs say ``argus``, not ``argus_skill``.
+
+    The alias keeps ``argus_skill.x`` *running* for one release; it does not
+    make it the name to teach. A citation left in a Skill or a README is copied
+    into new seeded Skills and new operator shells, and outlives the alias.
+    """
+    offenders = []
+    for path in _rename_citation_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue  # a binary asset under plugins/ or integrations/
+        offenders.extend(
+            f"{path.relative_to(REPO_ROOT).as_posix()}:{lineno}"
+            for lineno, line in enumerate(text.splitlines(), 1)
+            if _LEGACY_MODULE_CITATION.search(line)
+        )
+
+    assert offenders == []
 
 
 _STAGE_WRITERS = frozenset({"advance_stage", "rollback_stage", "complete_final_stage"})

@@ -109,6 +109,29 @@ def test_bootstrap_install_uses_only_registered_venv_command(
     ]
 
 
+def test_bootstrap_recognises_a_checkout_from_before_the_package_rename(tmp_path: Path) -> None:
+    old = tmp_path / "old-checkout"
+    (old / "argus_skill").mkdir(parents=True)
+    (old / "pyproject.toml").write_text("[project]\nname='argus-skill'\n", encoding="utf-8")
+
+    assert argus_doctor._checkout(old) == old.resolve()
+    assert argus_doctor._checkout(tmp_path) is None
+
+
+def test_bootstrap_import_probe_prefers_argus_and_falls_back_to_the_alias(monkeypatch, capsys) -> None:
+    import importlib
+    import importlib.util
+    from types import SimpleNamespace
+
+    exec(argus_doctor._IMPORT_PROBE, {})  # noqa: S102 - the probe the doctor runs in the checkout venv
+    assert capsys.readouterr().out.strip() == importlib.import_module("argus").__version__
+
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None if name == "argus" else object())
+    monkeypatch.setattr(importlib, "import_module", lambda name: SimpleNamespace(__version__=f"legacy:{name}"))
+    exec(argus_doctor._IMPORT_PROBE, {})  # noqa: S102
+    assert capsys.readouterr().out.strip() == "legacy:argus_skill"
+
+
 def test_bootstrap_doctor_reports_missing_checkout_without_crashing(tmp_path: Path) -> None:
     report = argus_doctor.run_bootstrap_doctor(tmp_path / "missing")
 

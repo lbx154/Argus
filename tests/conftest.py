@@ -84,6 +84,10 @@ def _isolate_argus_state_roots(
     for name in [k for k in os.environ if k.startswith("ARGUS_SKILL_")]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("COPILOT_HOME", raising=False)
+    # The life-worker boot path setdefault()s the workbench host root into
+    # os.environ in-process; a test that booted a worker would otherwise hand
+    # its throwaway root to every later test that resolves trial_home().
+    monkeypatch.delenv("ARGUS_WORKBENCH_HOST_ROOT", raising=False)
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     # Model resolution inspects Codex's provider config to decide whether an

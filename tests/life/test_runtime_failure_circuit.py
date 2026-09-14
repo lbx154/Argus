@@ -51,6 +51,30 @@ def test_checkpoint_failure_fingerprint_ignores_per_mission_path() -> None:
     assert "aaaaaaaaaaaa" not in first["normalized_error"]
 
 
+def test_callsite_is_package_relative_for_either_package_spelling() -> None:
+    """Frames inside the package (either spelling) become ``argus/<path>:<function>``."""
+    own = str(Path(circuit_module.__file__))
+    assert circuit_module._package_relative_filename(own) == "argus/life/runtime_failure_circuit.py"
+    assert circuit_module._package_relative_filename(
+        "/opt/argus/argus_skill/life/supervisor/_helpers.py"
+    ) == "argus/life/supervisor/_helpers.py"
+    assert circuit_module._package_relative_filename(
+        "C:\\Users\\a\\argus_skill\\daemon\\state.py"
+    ) == "argus/daemon/state.py"
+    # A checkout that merely has ``argus`` in its path is not the package.
+    assert circuit_module._package_relative_filename("/home/me/argus/tests/test_x.py") is None
+
+    namespace: dict = {}
+    exec(  # noqa: S102 - a frame whose filename is the pre-rename layout
+        compile("def boom():\n    raise ValueError('x')\n", "/opt/argus/argus_skill/life/legacy.py", "exec"),
+        namespace,
+    )
+    try:
+        namespace["boom"]()
+    except ValueError as exc:
+        assert circuit_module._exception_callsite(exc) == "argus/life/legacy.py:boom"
+
+
 def test_runtime_failure_circuit_persists_and_counts_same_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -45,6 +45,61 @@ def test_source_comparison_normalizes_paths_and_retains_only_first_party_diagnos
     assert typecheck_gate.diagnostic_counts(output).total() == 2
 
 
+def test_diagnostics_from_a_base_that_predates_the_package_rename_are_comparable():
+    """A base revision still laid out as ``argus_skill/`` keys its debt by the current path."""
+    before = typecheck_gate.diagnostic_counts(
+        'argus_skill/a.py:10: error: Wrong argument [arg-type]\n'
+        'argus_skill\\b.py:11: error: Missing attribute "x" [attr-defined]\n',
+        source_only=True,
+    )
+    after = typecheck_gate.diagnostic_counts(
+        'argus/a.py:12: error: Wrong argument [arg-type]\n'
+        'argus/b.py:13: error: Missing attribute "x" [attr-defined]\n',
+        source_only=True,
+    )
+    assert before == after
+    assert set(after) == {'argus/a.py: Wrong argument [arg-type]', 'argus/b.py: Missing attribute "x" [attr-defined]'}
+    # The alias package's own diagnostics (there are none: it is not type-checked)
+    # would not masquerade as another file's.
+    assert typecheck_gate.diagnostic_counts(
+        'argus_skillful/a.py:1: error: Other [misc]\n', source_only=True,
+    ) == {}
+
+
+def test_base_archive_falls_back_to_the_pre_rename_package_directory(tmp_path, monkeypatch):
+    attempts = []
+
+    def run(command, **kwargs):
+        attempts.append(list(command))
+        if "argus_skill" in command:
+            return SimpleNamespace(returncode=0, stdout=b"tarball", stderr=b"")
+        return SimpleNamespace(returncode=128, stdout=b"", stderr=b"fatal: pathspec 'argus' did not match any files")
+
+    monkeypatch.setattr(typecheck_gate.subprocess, "run", run)
+
+    assert typecheck_gate._archive_base("abc123", tmp_path) == b"tarball"
+    assert [command[-2] for command in attempts] == ["argus", "argus_skill"]
+    assert all(command[:4] == ["git", "archive", "abc123", "--"] for command in attempts)
+
+
+def test_base_archive_prefers_the_current_package_directory(tmp_path, monkeypatch):
+    attempts = []
+    monkeypatch.setattr(typecheck_gate.subprocess, "run", lambda command, **kwargs: (
+        attempts.append(list(command)) or SimpleNamespace(returncode=0, stdout=b"tarball", stderr=b"")
+    ))
+
+    assert typecheck_gate._archive_base("abc123", tmp_path) == b"tarball"
+    assert [command[-2] for command in attempts] == ["argus"]
+
+
+def test_base_archive_failure_is_reported_as_a_git_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(typecheck_gate.subprocess, "run", lambda command, **kwargs: SimpleNamespace(
+        returncode=128, stdout=b"", stderr=b"fatal: bad revision",
+    ))
+    with pytest.raises(typecheck_gate.subprocess.CalledProcessError):
+        typecheck_gate._archive_base("nope", tmp_path)
+
+
 def test_editable_install_and_baseline_are_checked_without_silencing(tmp_path, monkeypatch):
     commands = []
 
