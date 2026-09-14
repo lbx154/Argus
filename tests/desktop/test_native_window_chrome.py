@@ -125,7 +125,10 @@ def test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint() ->
     )
 
     assert "window.parent !== window" in entry
-    assert "useState(!embeddedDesktop)" in entry
+    # Current dev removed the startup scene entirely instead of gating a
+    # second splash with the old React state hook. Keep that stronger boundary.
+    assert "StartupScene" not in entry
+    assert "document.documentElement.dataset.argusEmbedded = String(embeddedDesktop)" in entry
     assert "data-argus-embedded" in styles
     assert "content-visibility: auto" in styles
     assert "backdrop-filter: blur(8px)" in styles
