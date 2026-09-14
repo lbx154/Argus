@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from argus_skill.loop import SkillLoop
-from argus_skill.reviewer import Reviewer
+from argus.loop import SkillLoop
+from argus.reviewer import Reviewer
 
 
 def _contract() -> str:
-    from argus_skill.roles.task_contract import EFFECTIVE_TASK_CONTRACT
+    from argus.roles.task_contract import EFFECTIVE_TASK_CONTRACT
 
     return EFFECTIVE_TASK_CONTRACT
 

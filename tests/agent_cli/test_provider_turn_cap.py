@@ -19,10 +19,10 @@ import time
 
 import pytest
 
-from argus_skill.agent_cli import _run_exec as runner_exec
-from argus_skill.agent_cli._env import _provider_turn_cap
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import (
+from argus.agent_cli import _run_exec as runner_exec
+from argus.agent_cli._env import _provider_turn_cap
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
     BACKEND_COPILOT,

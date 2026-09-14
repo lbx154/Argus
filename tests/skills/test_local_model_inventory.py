@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.research import prompt_policy
+from argus.verticals.research import prompt_policy
 
 
 def _hub_with(root: Path, *repos: tuple[str, int]) -> Path:
@@ -34,7 +34,7 @@ def _fresh_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for key in ("HF_HUB_CACHE", "HF_HOME", "TRANSFORMERS_CACHE", "ARGUS_SKILL_MODEL_CACHE_DIRS"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs", lambda *a, **k: {}
+        "argus.core.knob_store.read_persisted_knobs", lambda *a, **k: {}
     )
 
 

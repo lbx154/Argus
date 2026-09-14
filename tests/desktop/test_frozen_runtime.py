@@ -12,16 +12,16 @@ from pathlib import Path
 import pytest
 import yaml
 
-from argus_skill import desktop_backend_entry
-from argus_skill.apps import tui_launcher
-from argus_skill.desktop_backend_entry import (
+from argus import desktop_backend_entry
+from argus.apps import tui_launcher
+from argus.desktop_backend_entry import (
     _install_windows_signal_zero_guard,
     _python_compat_entrypoint,
     verify_runtime_providers,
 )
-from argus_skill.domains import BUILTIN_DOMAINS, load_domain
-from argus_skill.skills.vertical_select import VERTICALS
-from argus_skill.verticals._base import load_vertical
+from argus.domains import BUILTIN_DOMAINS, load_domain
+from argus.skills.vertical_select import VERTICALS
+from argus.verticals._base import load_vertical
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = ROOT / "desktop-tauri" / "argus_backend.spec"
@@ -102,9 +102,9 @@ def _execute_spec_collection(tree: ast.Module) -> tuple[dict, list[tuple[str, st
     ) -> list[str]:
         calls.append((package, on_error))
         candidates = [package]
-        if package.startswith("argus_skill.verticals."):
+        if package.startswith("argus.verticals."):
             candidates += [f"{package}.stages", f"{package}.helper"]
-        elif package.startswith("argus_skill.domains."):
+        elif package.startswith("argus.domains."):
             candidates += [f"{package}.overlay", f"{package}.helper"]
         return [name for name in candidates if filter(name)]
 
@@ -126,7 +126,7 @@ def test_windows_signal_zero_guard_never_delegates_to_terminate_process(
     delegated: list[tuple[int, int]] = []
     monkeypatch.setattr(os, "kill", lambda pid, sig: delegated.append((pid, sig)))
     monkeypatch.setattr(
-        "argus_skill.core.daemon_lock.is_pid_running",
+        "argus.core.daemon_lock.is_pid_running",
         lambda pid: pid == 123,
     )
 
@@ -143,7 +143,7 @@ def test_frozen_python_compat_dispatches_argus_modules_and_code(capsys) -> None:
     handled, code = _python_compat_entrypoint([
         "-I",
         "-m",
-        "argus_skill.tools.manager_live_view",
+        "argus.tools.manager_live_view",
         "--help",
     ])
     assert handled is True and code == 0
@@ -206,7 +206,7 @@ def test_frozen_non_windows_code_preserves_the_existing_stream_encoding(monkeypa
 def test_frozen_cached_native_install_reports_progress_on_redirected_windows_streams(
     tmp_path, monkeypatch, encoding,
 ):
-    from argus_skill.trial import native_cli
+    from argus.trial import native_cli
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setattr(native_cli.platform, "system", lambda: "Windows")
@@ -222,7 +222,7 @@ def test_frozen_cached_native_install_reports_progress_on_redirected_windows_str
     stdout, _stderr = _frozen_console_streams(monkeypatch, encoding)
     monkeypatch.setattr(sys, "argv", [
         "argus-backend", "-c",
-        "from argus_skill.trial.native_cli import install_native_copilot; "
+        "from argus.trial.native_cli import install_native_copilot; "
         "install_native_copilot(); print('native-copilot-ready')",
     ])
 
@@ -327,7 +327,7 @@ def test_frozen_python_compat_runs_scripts_with_python_argv_semantics(
 def test_frozen_python_compat_dispatches_daemon_spawn_helper(monkeypatch) -> None:
     calls: list[tuple[str, str, bool]] = []
     monkeypatch.setattr(
-        "argus_skill.desktop_backend_entry.runpy.run_module",
+        "argus.desktop_backend_entry.runpy.run_module",
         lambda module, *, run_name, alter_sys: calls.append(
             (module, run_name, alter_sys)
         ),
@@ -335,11 +335,42 @@ def test_frozen_python_compat_dispatches_daemon_spawn_helper(monkeypatch) -> Non
 
     handled, code = _python_compat_entrypoint([
         "-m",
-        "argus_skill.daemon.spawn_helper",
+        "argus.daemon.spawn_helper",
     ])
 
     assert handled is True and code == 0
-    assert calls == [("argus_skill.daemon.spawn_helper", "__main__", True)]
+    assert calls == [("argus.daemon.spawn_helper", "__main__", True)]
+
+
+@pytest.mark.parametrize(
+    ("requested", "canonical"),
+    [
+        ("argus_skill", "argus"),
+        ("argus_skill.daemon.spawn_helper", "argus.daemon.spawn_helper"),
+        ("argus_skill.tools.subagent", "argus.tools.subagent"),
+    ],
+)
+def test_frozen_python_compat_accepts_the_pre_rename_module_spelling(
+    monkeypatch, requested: str, canonical: str
+) -> None:
+    """Seeded Skill copies still say ``-m argus_skill.…``; the frozen backend runs them as ``argus.…``."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "argus.desktop_backend_entry.runpy.run_module",
+        lambda module, *, run_name, alter_sys: calls.append(module),
+    )
+
+    handled, code = _python_compat_entrypoint(["-m", requested, "--help"])
+
+    assert handled is True and code == 0
+    assert calls == [canonical]
+
+
+def test_frozen_python_compat_still_refuses_lookalike_packages(capsys) -> None:
+    handled, code = _python_compat_entrypoint(["-m", "argus_skillful.tool"])
+
+    assert (handled, code) == (True, 2)
+    assert "refusing non-Argus frozen module 'argus_skillful.tool'" in capsys.readouterr().err
 
 
 def test_source_runtime_verifier_loads_every_registered_provider() -> None:
@@ -359,7 +390,7 @@ def test_source_runtime_verifier_loads_every_registered_provider() -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows native payload requirement")
 def test_pyinstaller_spec_rejects_a_missing_native_adapter(monkeypatch) -> None:
-    native = ROOT / "argus_skill/_native/platon-headless.exe"
+    native = ROOT / "argus/_native/platon-headless.exe"
     original = Path.is_file
     monkeypatch.setattr(Path, "is_file", lambda path: False if path == native else original(path))
     tree = ast.parse(SPEC_PATH.read_text(encoding="utf-8"), filename=str(SPEC_PATH))
@@ -369,36 +400,38 @@ def test_pyinstaller_spec_rejects_a_missing_native_adapter(monkeypatch) -> None:
 
 def test_pyinstaller_spec_collects_registered_stage_and_overlay_modules(monkeypatch) -> None:
     tree = ast.parse(SPEC_PATH.read_text(encoding="utf-8"), filename=str(SPEC_PATH))
-    native = ROOT / "argus_skill/_native/platon-headless.exe"
+    native = ROOT / "argus/_native/platon-headless.exe"
     original = Path.is_file
     # Collection-only unit test: do not require a previous build in the checkout.
     # The actual spec still refuses missing payloads, as tested separately above.
     monkeypatch.setattr(Path, "is_file", lambda path: True if path == native else original(path))
     namespace, calls = _execute_spec_collection(tree)
     if sys.platform == "win32":
-        assert (str(native), "argus_skill/_native") in namespace["datas"]
+        assert (str(native), "argus/_native") in namespace["datas"]
     expected_verticals = [load_vertical(name).__name__ for name in VERTICALS]
     expected_domains = [load_domain(name).__name__ for name in BUILTIN_DOMAINS]
 
     assert namespace["vertical_stage_modules"] == expected_verticals
-    assert "argus_skill.verticals.math_synth.stages" in expected_verticals
+    assert "argus.verticals.math_synth.stages" in expected_verticals
     assert namespace["domain_overlay_modules"] == expected_domains
     assert set(expected_verticals + expected_domains) <= set(namespace["hiddenimports"])
     assert "unittest" in namespace["hiddenimports"]
+    # The pre-rename alias ships in the frozen build for one release.
+    assert {"argus_skill", "argus_skill.__main__"} <= set(namespace["hiddenimports"])
     assert ("unittest", "warn once") in calls
-    assert "argus_skill.tools.manager_live_view" in namespace["argus_modules"]
-    assert "argus_skill.daemon.spawn_helper" in namespace["argus_modules"]
-    assert ("argus_skill-python-sources", "True") in namespace["datas"]
+    assert "argus.tools.manager_live_view" in namespace["argus_modules"]
+    assert "argus.daemon.spawn_helper" in namespace["argus_modules"]
+    assert ("argus-python-sources", "True") in namespace["datas"]
     # Dynamic tools are shipped as source data rather than hidden imports, so
     # optional scientific modules fail visibly only when invoked and do not
     # drag the host environment into every desktop build.
-    assert "argus_skill.tools.manager_live_view" not in namespace["hiddenimports"]
+    assert "argus.tools.manager_live_view" not in namespace["hiddenimports"]
 
     provider_calls = [
         call
         for call in calls
-        if call[0].startswith("argus_skill.verticals.")
-        or call[0].startswith("argus_skill.domains.")
+        if call[0].startswith("argus.verticals.")
+        or call[0].startswith("argus.domains.")
     ]
     assert len(provider_calls) == len(VERTICALS) + len(BUILTIN_DOMAINS)
     assert all(on_error == "raise" for _package, on_error in provider_calls)

@@ -84,6 +84,10 @@ def _isolate_argus_state_roots(
     for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_TEAM_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("COPILOT_HOME", raising=False)
+    # The life-worker boot path setdefault()s the workbench host root into
+    # os.environ in-process; a test that booted a worker would otherwise hand
+    # its throwaway root to every later test that resolves trial_home().
+    monkeypatch.delenv("ARGUS_WORKBENCH_HOST_ROOT", raising=False)
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     # Model resolution inspects Codex's provider config to decide whether an
@@ -123,7 +127,7 @@ def _isolate_working_directory(
     lookups, the daemon's own workdir. Under pytest that cwd was the source
     checkout, so a test would silently adopt the repository as its project. The
     visible symptom was log lines like ``no Manager vertical resolved for
-    .../argus-skill; using research only as a compatibility fallback`` during
+    .../argus; using research only as a compatibility fallback`` during
     unrelated tests; the invisible one is any test that writes project state
     into the tree it is testing.
 
@@ -170,7 +174,7 @@ def _no_stop_leaks_between_tests():
     wait deep inside a mission can see a signal. One test setting it once made
     an unrelated external-work test read `stop_requested` instead of the
     outcome that had actually arrived."""
-    from argus_skill.core import process_stop
+    from argus.core import process_stop
 
     process_stop.clear_stop()
     yield

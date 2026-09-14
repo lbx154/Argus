@@ -27,17 +27,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life.memory import Backlog, BacklogItem
+from argus.life.memory import Backlog, BacklogItem
 
 
 class _Filter:
     """The real predicate, on a bare object carrying only what it reads."""
 
     def __init__(self) -> None:
-        from argus_skill.life.supervisor._planning_context import (
+        from argus.life.supervisor._planning_context import (
             PlanningContextMixin,
         )
-        from argus_skill.life.supervisor._planning_cycle_enqueue import (
+        from argus.life.supervisor._planning_cycle_enqueue import (
             PlanningCycleEnqueueMixin,
         )
 
@@ -93,8 +93,8 @@ def test_a_self_reviewed_prior_task_never_satisfies_a_certification() -> None:
 
 class _StageCertificationGuard:
     def __init__(self, tmp_path) -> None:
-        from argus_skill.life.supervisor._planning_context import PlanningContextMixin
-        from argus_skill.life.supervisor._planning_cycle_enqueue import (
+        from argus.life.supervisor._planning_context import PlanningContextMixin
+        from argus.life.supervisor._planning_cycle_enqueue import (
             PlanningCycleEnqueueMixin,
         )
 
@@ -155,7 +155,7 @@ def test_reviewed_gate_requires_an_intervening_repair_before_recertification(
 
 
 def test_host_stage_certificate_blocks_reworded_legacy_reproposal(tmp_path) -> None:
-    from argus_skill.core.stage_certificate import record_stage_review
+    from argus.core.stage_certificate import record_stage_review
 
     guard = _StageCertificationGuard(tmp_path)
     legacy = SimpleNamespace(
@@ -202,7 +202,7 @@ def test_reviewed_gate_from_another_stage_does_not_block_current_stage(tmp_path)
 
 
 def test_planner_tasks_are_tagged_with_the_current_stage() -> None:
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     class Harness(PlanningContextMixin):
         @staticmethod
@@ -234,11 +234,11 @@ def test_planner_tasks_are_tagged_with_the_current_stage() -> None:
 
 
 def test_terminal_unrecoverable_gate_is_indexed_as_duplicate(tmp_path) -> None:
-    from argus_skill.life.supervisor._helpers import _planner_task_signature
-    from argus_skill.life.supervisor._planning_cycle_enqueue import (
+    from argus.life.supervisor._helpers import _planner_task_signature
+    from argus.life.supervisor._planning_cycle_enqueue import (
         PlanningCycleEnqueueMixin,
     )
-    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
 
     blocked = _gate_item("failed")
     blocked.outcome = {
@@ -290,11 +290,11 @@ def test_terminal_unrecoverable_gate_is_indexed_as_duplicate(tmp_path) -> None:
 def test_reworded_terminal_blocker_is_filtered_by_stable_fingerprint(
     tmp_path,
 ) -> None:
-    from argus_skill.life.supervisor._planning_cycle_enqueue import (
+    from argus.life.supervisor._planning_cycle_enqueue import (
         PlanningCycleEnqueueMixin,
     )
-    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-    from argus_skill.planner import PlannerVerdict, TaskSpec
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus.planner import PlannerVerdict, TaskSpec
 
     blocked = _gate_item("failed", review_required=False)
     blocked.outcome = {
@@ -379,11 +379,11 @@ def test_reworded_terminal_blocker_is_filtered_by_stable_fingerprint(
 def test_terminal_fingerprint_takes_priority_over_completed_signature(
     tmp_path,
 ) -> None:
-    from argus_skill.life.supervisor._planning_cycle_enqueue import (
+    from argus.life.supervisor._planning_cycle_enqueue import (
         PlanningCycleEnqueueMixin,
     )
-    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-    from argus_skill.planner import PlannerVerdict, TaskSpec
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus.planner import PlannerVerdict, TaskSpec
 
     blocked = _gate_item("failed", review_required=False)
     blocked.outcome = {

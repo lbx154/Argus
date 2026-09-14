@@ -1,4 +1,4 @@
-"""Tests for D3: gate + lifecycle snapshot rendered into ``argus-skill --status``.
+"""Tests for D3: gate + lifecycle snapshot rendered into ``argus --status``.
 
 The new helpers are pure projections of observable state — render facts
 the agent already acts on, don't make new decisions. These tests verify
@@ -13,11 +13,11 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from argus_skill.apps.cli._core import (
+from argus.apps.cli._core import (
     _render_lifecycle_status_lines,
     _resolve_research_workdir,
 )
-from argus_skill.life import MemoryBundle
+from argus.life import MemoryBundle
 
 # ---------------------------------------------------------------------------
 # _resolve_research_workdir
@@ -83,8 +83,8 @@ def test_lifecycle_lines_show_state_and_allocatability(tmp_path: Path) -> None:
 def test_lifecycle_lines_mark_persisted_state(tmp_path: Path) -> None:
     from datetime import datetime, timezone
 
-    from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
-    from argus_skill.life.project_lifecycle_io import write_persisted
+    from argus.life.project_lifecycle import ProjectState, ProjectStatus
+    from argus.life.project_lifecycle_io import write_persisted
 
     worktree = tmp_path / "code"
     worktree.mkdir()
@@ -132,7 +132,7 @@ def _write_claims_tsv(root: Path, rows: list[dict[str, str]]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Subprocess: full `python -m argus_skill --status` smoke
+# Subprocess: full `python -m argus --status` smoke
 # ---------------------------------------------------------------------------
 
 
@@ -145,7 +145,7 @@ def test_status_subprocess_includes_lifecycle_block(tmp_path: Path, monkeypatch)
     MemoryBundle.for_cwd(repo, global_root=home).init()
 
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill", "--status"],
+        [sys.executable, "-m", "argus", "--status"],
         cwd=repo,
         capture_output=True,
         text=True,

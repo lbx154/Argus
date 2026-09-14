@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps._runtime_construction import build_life_runner
-from argus_skill.core.pipeline_state import (
+from argus.apps._runtime_construction import build_life_runner
+from argus.core.pipeline_state import (
     primary_pipeline_state_path,
     read_pipeline_state,
     write_pipeline_state,
@@ -27,8 +27,8 @@ _HOLD_PIPELINE = r"""
 import json
 import sys
 from pathlib import Path
-from argus_skill.core.pipeline_state import write_pipeline_state
-from argus_skill.manager._session_ops import manager_pipeline_lock
+from argus.core.pipeline_state import write_pipeline_state
+from argus.manager._session_ops import manager_pipeline_lock
 
 root = Path(sys.argv[1])
 with manager_pipeline_lock(root):
@@ -134,7 +134,7 @@ def test_manager_construction_does_not_wait_for_a_mission_without_migration(
 def test_manager_migration_waits_and_rereads_after_the_peer_commits(
     tmp_path: Path, monkeypatch, migration: str, peer_commits: bool,
 ) -> None:
-    from argus_skill.manager import _session_ops
+    from argus.manager import _session_ops
 
     lock_requested = threading.Event()
     pipeline_lock = _session_ops.manager_pipeline_lock
@@ -186,12 +186,12 @@ def test_manager_migration_waits_and_rereads_after_the_peer_commits(
 def test_prewarm_and_self_question_complete_during_a_peer_mission(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-    from argus_skill.core.models import RunnerResult
-    from argus_skill.core.session import SessionMeta, write_session_meta
-    from argus_skill.core.transcript import read_turns
-    from argus_skill.life.memory import BacklogItem, LifeMemory
-    from argus_skill.webapi import manager_bridge, manager_state
+    from argus.adapters.agent_cli_backend import AgentCliBackend
+    from argus.core.models import RunnerResult
+    from argus.core.session import SessionMeta, write_session_meta
+    from argus.core.transcript import read_turns
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.webapi import manager_bridge, manager_state
 
     sid = "s-live-manager-lock"
     state = tmp_path / "projects" / sid
@@ -207,7 +207,7 @@ def test_prewarm_and_self_question_complete_during_a_peer_mission(
     monkeypatch.setattr(manager_state, "_STATES", {})
     monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", sid)
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_available_runner",
+        "argus.agent_cli.runner_backend.resolve_available_runner",
         lambda backend, runner_bin: (backend, runner_bin or backend),
     )
     prewarmed = []

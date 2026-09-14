@@ -8,23 +8,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.apps._runtime_backends import _Outcome
-from argus_skill.apps._runtime_execute import SkillLoopExecuteMixin
-from argus_skill.core.operator_context import (
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.apps._runtime_backends import _Outcome
+from argus.apps._runtime_execute import SkillLoopExecuteMixin
+from argus.core.operator_context import (
     OperatorContextStore,
     append_directive,
     append_preference,
     append_revoke,
 )
-from argus_skill.core.pipeline_state import write_pipeline_state
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.experience_tools import ExperienceToolService
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.manager.supervision import shutdown_supervision
+from argus.core.pipeline_state import write_pipeline_state
+from argus.life.event_log import JsonlEventSink
+from argus.life.experience_tools import ExperienceToolService
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.manager.supervision import shutdown_supervision
 
 
 class OfflineBackend(MemoryBackend):

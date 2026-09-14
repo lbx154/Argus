@@ -1,21 +1,15 @@
-"""``python -m argus_skill`` entry point and the [project.scripts] target.
+"""``python -m argus_skill``: the pre-rename spelling of ``python -m argus``.
 
-The entry point declared in pyproject.toml is
-``argus_skill.__main__:main`` — we re-export ``main`` from
-``apps.cli`` here so that resolves correctly.
+With the alias finder installed by :mod:`argus_skill` the interpreter normally
+resolves ``argus_skill.__main__`` to :mod:`argus.__main__` directly; this file
+covers the paths that bypass the finder (running the file as a script, or a
+frozen build that lists ``argus_skill.__main__`` as a hidden import).
 """
 from __future__ import annotations
 
 import sys
 
-from .apps.cli import main as _cli_main
-from .apps.tui_launcher import _configure_windows_console_encoding
-
-
-def main(argv: list[str] | None = None) -> int:
-    """Run the Python CLI with a Windows-safe text console."""
-    _configure_windows_console_encoding()
-    return _cli_main(argv)
+from argus.__main__ import main
 
 if __name__ == "__main__":
     sys.exit(main())

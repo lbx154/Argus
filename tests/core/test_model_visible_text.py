@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from argus_skill.core.model_visible_text import (
+from argus.core.model_visible_text import (
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_judgment_text,
     sanitize_model_visible_text,
 )
-from argus_skill.reviewer import Reviewer
-from argus_skill.reviewer._parsing import parse_decision_text
-from argus_skill.roles.prompts.engineer import assemble_round_prompt, build_mission_prompt
-from argus_skill.roles.prompts.manager import assemble_manager_prompt, build_quick_reply_prompt
-from argus_skill.roles.prompts.planner import build_bounded_dag_prompt
+from argus.reviewer import Reviewer
+from argus.reviewer._parsing import parse_decision_text
+from argus.roles.prompts.engineer import assemble_round_prompt, build_mission_prompt
+from argus.roles.prompts.manager import assemble_manager_prompt, build_quick_reply_prompt
+from argus.roles.prompts.planner import build_bounded_dag_prompt
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64

@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import ReviewDecision
-from argus_skill.manager.stage_decider import (
+from argus.core.models import ReviewDecision
+from argus.manager.stage_decider import (
     build_stage_decision_prompt,
     fallback_empty_stage_decision,
     final_stage_completion_decision,
@@ -60,7 +60,7 @@ def test_direct_stage_prompt_completes_instead_of_advancing() -> None:
 
 
 def test_completion_report_prompt_contains_all_stage_information() -> None:
-    from argus_skill.roles.prompts.manager import (
+    from argus.roles.prompts.manager import (
         build_project_completion_report_prompt,
     )
 
@@ -145,8 +145,8 @@ def test_parse_advance_still_rejects_current_or_earlier_stage() -> None:
 
 
 def test_research_advances_from_idea_to_experiment(tmp_path) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
@@ -185,8 +185,8 @@ def test_research_advances_from_idea_to_experiment(tmp_path) -> None:
 
 
 def test_direct_idea_only_research_can_complete_at_idea(tmp_path) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
@@ -237,8 +237,8 @@ def test_direct_idea_only_research_can_complete_at_idea(tmp_path) -> None:
 def test_publishable_idea_only_can_complete_without_paper_artifacts(
     tmp_path,
 ) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
@@ -285,8 +285,8 @@ def test_publishable_idea_only_can_complete_without_paper_artifacts(
 def test_bounded_stage_mission_cannot_complete_staged_research_project(
     tmp_path,
 ) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
@@ -397,8 +397,8 @@ def test_no_second_machine_value_guard_overrides_manager() -> None:
     """
     import inspect
 
-    from argus_skill.manager import stage_decider
-    from argus_skill.manager._stage_ops import _StageDecisionMixin
+    from argus.manager import stage_decider
+    from argus.manager._stage_ops import _StageDecisionMixin
 
     assert not hasattr(stage_decider, "enforce_scientific_stage_guard")
 
@@ -417,8 +417,8 @@ def test_no_second_machine_value_guard_overrides_manager() -> None:
 def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
     tmp_path,
 ) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
@@ -467,7 +467,7 @@ def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
 def test_kernel_direct_vertical_has_no_process_completion_hook(
     tmp_path,
 ) -> None:
-    from argus_skill.verticals._base import (
+    from argus.verticals._base import (
         load_vertical,
         vertical_stage_completion_issues,
     )
@@ -490,10 +490,10 @@ def test_final_stage_completion_requires_manager_decision(
     manager_action: str,
     expected_status: str,
 ) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.stage_machine import completion_contract_fingerprint
-    from argus_skill.skills.vertical_select import persist_vertical
-    from argus_skill.verticals._base import (
+    from argus.manager import Manager
+    from argus.skills.stage_machine import completion_contract_fingerprint
+    from argus.skills.vertical_select import persist_vertical
+    from argus.verticals._base import (
         load_vertical,
         vertical_completion_contract_version,
     )

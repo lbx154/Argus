@@ -8,12 +8,12 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.team import task_board
-from argus_skill.webapi import map_feed, map_team
-from argus_skill.webapi.map_feed import MapFeed
-from argus_skill.webapi.server import create_app
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.team import task_board
+from argus.webapi import map_feed, map_team
+from argus.webapi.map_feed import MapFeed
+from argus.webapi.server import create_app
 
 
 def append(life: Path, event: dict) -> None:

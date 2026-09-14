@@ -28,11 +28,11 @@ local Research SVG component added.
 
 | Figure area | Source files, relative to the repository |
 | --- | --- |
-| Manager authority | `argus_skill/manager/_core.py`, `argus_skill/manager/_stage_ops.py`, `argus_skill/manager/_vertical_ops.py` |
-| Planner and campaign scheduling | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` |
-| Engineer and Reviewer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py`, `argus_skill/reviewer/_core.py` |
-| Skills and Wiki | `argus_skill/skills/loop_skill_library.py`, `argus_skill/manager/skill_review.py`, `argus_skill/wiki/context.py` |
-| Research contracts and drawing | `argus_skill/verticals/research/stages.py`, `argus_skill/verticals/research/pipeline_figure.py` |
+| Manager authority | `argus/manager/_core.py`, `argus/manager/_stage_ops.py`, `argus/manager/_vertical_ops.py` |
+| Planner and campaign scheduling | `argus/planner/planner.py`, `argus/life/supervisor/_core.py` |
+| Engineer and Reviewer | `argus/loop.py`, `argus/engineer/runner.py`, `argus/reviewer/_core.py` |
+| Skills and Wiki | `argus/skills/loop_skill_library.py`, `argus/manager/skill_review.py`, `argus/wiki/context.py` |
+| Research contracts and drawing | `argus/verticals/research/stages.py`, `argus/verticals/research/pipeline_figure.py` |
 | Manuscript context | `technical_report/sections/04_argus_method.tex` |
 
 Current code takes precedence where the technical report describes an older
@@ -43,7 +43,7 @@ implementation. No retired L3 critic or independent matcher/distiller is drawn.
 From the repository root, with Chromium and Times New Roman installed:
 
 ```bash
-python -m argus_skill.verticals.research.pipeline_figure render \
+python -m argus.verticals.research.pipeline_figure render \
   --input docs/examples/argus-framework/architecture.source.svg \
   --output docs/examples/argus-framework/architecture.svg --pdf --png --width 624
 ```

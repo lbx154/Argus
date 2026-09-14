@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 
 
 class _Sink:
@@ -62,7 +62,7 @@ class _RunnerMustNotRun(_CaptureRunner):
 
 
 def _authorized_repair(tmp_path):  # noqa: ANN001
-    from argus_skill.manager.control_state import CampaignControlStore
+    from argus.manager.control_state import CampaignControlStore
 
     life = tmp_path / "life"
     workdir = tmp_path / "workdir"
@@ -162,7 +162,7 @@ def test_bounded_dag_node_keeps_vertical_stage_workflow(tmp_path) -> None:
 
 
 def test_review_waiver_requires_an_explicit_tag() -> None:
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     default_item = BacklogItem.new(title="default", objective="review me")
     waived_item = BacklogItem.new(

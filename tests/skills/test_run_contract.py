@@ -1,11 +1,11 @@
-"""Tests for argus_skill.skills.run_contract (RUN_CONTRACT + feasibility packet)."""
+"""Tests for argus.skills.run_contract (RUN_CONTRACT + feasibility packet)."""
 from __future__ import annotations
 
 import hashlib
 import json
 from pathlib import Path
 
-from argus_skill.skills.run_contract import (
+from argus.skills.run_contract import (
     DEFAULT_RUN_CONTRACT_PATH,
     LaunchKnobs,
     RunContract,

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.life import memory
-from argus_skill.life.memory import Backlog, BacklogItem, IllegalStateTransition
+from argus.life import memory
+from argus.life.memory import Backlog, BacklogItem, IllegalStateTransition
 
 
 def _running(backlog: Backlog) -> BacklogItem:

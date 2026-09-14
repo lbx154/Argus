@@ -6,7 +6,7 @@ on its own.
 """
 from __future__ import annotations
 
-from argus_skill.life.chat.render import (
+from argus.life.chat.render import (
     TELEGRAM_LIMIT,
     chunk_html,
     html_to_lark_md,

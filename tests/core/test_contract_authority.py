@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from argus_skill.core.project_contract import (
+from argus.core.project_contract import (
     Clause,
     ContractError,
     confirmation_changes,

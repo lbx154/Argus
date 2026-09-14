@@ -12,19 +12,19 @@ from dataclasses import asdict
 import portalocker
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.operator_context import OperatorContextStore, append_directive, append_revoke
-from argus_skill.daemon.state import write_continuous_config
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.manager import _session_ops
-from argus_skill.manager._session_ops import ManagerLockCancelled, _ManagerSession
-from argus_skill.manager.directive import (
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.operator_context import OperatorContextStore, append_directive, append_revoke
+from argus.daemon.state import write_continuous_config
+from argus.life.memory import Backlog, BacklogItem
+from argus.manager import _session_ops
+from argus.manager._session_ops import ManagerLockCancelled, _ManagerSession
+from argus.manager.directive import (
     clear_active_manager_directive,
     set_active_manager_directive,
 )
-from argus_skill.manager.session_context import SESSION_HANDOFF_HISTORY_BYTES, session_handoff
-from argus_skill.manager.session_continuity import (
+from argus.manager.session_context import SESSION_HANDOFF_HISTORY_BYTES, session_handoff
+from argus.manager.session_continuity import (
     SESSION_CONTROL_CAPSULE_BYTES,
     ManagerSessionContinuityUnavailable,
 )
@@ -53,7 +53,7 @@ class Backend:
         self.results = []
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-        from argus_skill.core.file_lock import _WAIT_BUDGET
+        from argus.core.file_lock import _WAIT_BUDGET
 
         assert _WAIT_BUDGET.get() is None, "Provider execution must not inherit the state-read deadline"
         self.calls.append({"prompt": prompt, "resume": resume_thread_id, "options": options})
@@ -339,7 +339,7 @@ def test_rotation_refreshes_operator_permission_after_waiting_for_session_lock(t
 
 @pytest.mark.parametrize("damage", ["invalid_json", "nan", "unreadable"])
 def test_bad_backlog_aborts_rotation_without_a_plain_provider_fallback(tmp_path, monkeypatch, damage):
-    from argus_skill.core import scoped_file
+    from argus.core import scoped_file
 
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(title="Pending", objective="Keep the question"))
     backend = Backend()

@@ -26,9 +26,9 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.reviewer import Reviewer
-from argus_skill.roles.prompts import reviewer as reviewer_prompt
-from argus_skill.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
+from argus.reviewer import Reviewer
+from argus.roles.prompts import reviewer as reviewer_prompt
+from argus.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
 
 #: Blocks a vertical owns inside the static preamble, not the fixed contract.
 #: The objective/operator/planner text ("objective_context") is absent here
@@ -85,7 +85,7 @@ def _prompt(measured: bool, monkeypatch) -> str:
 
 
 def _persist_research_stage(project_root, stage: str) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(project_root, "research")
     state_path = project_root / ".argus" / "PIPELINE_STATE.json"
@@ -300,7 +300,7 @@ def test_research_target_context_stays_compact(tmp_path, monkeypatch):
     The margin above is sized for the longest verification-profile line, not
     for another paragraph.
     """
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(
         tmp_path,

@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _needed_for_live_progress
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import BACKEND_PI
-from argus_skill.core.token_usage import extract_token_usage
+from argus.adapters.agent_cli_backend import _needed_for_live_progress
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import BACKEND_PI
+from argus.core.token_usage import extract_token_usage
 
 
 def _runner() -> AgentCliRunner:

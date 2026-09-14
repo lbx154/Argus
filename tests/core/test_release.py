@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from argus_skill.core import runtime_identity as runtime_identity_module
-from argus_skill.release import (
+from argus.core import runtime_identity as runtime_identity_module
+from argus.release import (
     MANIFEST_SCHEMA_VERSION,
     _source_files,
     compute_source_digest,
@@ -26,15 +26,15 @@ def test_release_digest_covers_runtime_and_frontend_build_inputs() -> None:
     }
 
     assert {
-        "argus_skill/verticals/kernel_engineering/references/specialized_tool_registry.json",
-        "argus_skill/verticals/kernel_engineering/references/toolchain-selection.md",
+        "argus/verticals/kernel_engineering/references/specialized_tool_registry.json",
+        "argus/verticals/kernel_engineering/references/toolchain-selection.md",
         "frontend/tui/scripts/build-bundle.mjs",
         "frontend/web/src/index.css",
         "frontend/web/public/manifest.webmanifest",
         "frontend/web/package-lock.json",
         "frontend/web/vite.config.ts",
         "frontend/web/index.html",
-        "argus_skill/desktop_backend_entry.py",
+        "argus/desktop_backend_entry.py",
         "desktop-tauri/argus_backend.spec",
         "desktop-tauri/src-tauri/src/backend.rs",
         "desktop-tauri/src-tauri/tauri.conf.json",
@@ -87,7 +87,7 @@ def test_release_manifest_matches_current_shipped_source() -> None:
 
 
 def test_bundled_workbench_identity_tracks_source_not_dependencies(tmp_path):
-    vertical = tmp_path / "argus_skill" / "verticals" / "sample"
+    vertical = tmp_path / "argus" / "verticals" / "sample"
     vertical.mkdir(parents=True)
     source = vertical / "tools.mjs"
     source.write_text("export const version = 1;")
@@ -134,16 +134,16 @@ def release_checkout(tmp_path: Path) -> Path:
     directory, and must not race parallel release builds through fixed files.
     """
     subprocess.run(["git", "init", "--quiet", "--template=", str(tmp_path)], check=True)
-    runtime = tmp_path / "argus_skill" / "runtime.py"
+    runtime = tmp_path / "argus" / "runtime.py"
     runtime.parent.mkdir()
     runtime.write_text("VALUE = 0\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", "argus_skill/runtime.py"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "argus/runtime.py"], check=True)
     return tmp_path
 
 
 def test_untracked_runtime_skill_does_not_change_release_identity(release_checkout: Path) -> None:
     root = release_checkout
-    generated = root / "argus_skill" / "builtin_skills" / "_release-test-untracked.md"
+    generated = root / "argus" / "builtin_skills" / "_release-test-untracked.md"
     generated.parent.mkdir()
     before = compute_source_digest(root)
     generated.write_text("# Runtime-generated skill\n", encoding="utf-8")
@@ -152,7 +152,7 @@ def test_untracked_runtime_skill_does_not_change_release_identity(release_checko
 
 def test_untracked_new_source_participates_before_first_commit(release_checkout: Path) -> None:
     root = release_checkout
-    source = root / "argus_skill" / "_release_test_untracked_source.py"
+    source = root / "argus" / "_release_test_untracked_source.py"
     before = compute_source_digest(root)
     source.write_text("VALUE = 1\n", encoding="utf-8")
     assert compute_source_digest(root) != before
@@ -168,7 +168,7 @@ def test_installed_frontend_dependencies_do_not_change_release_identity(release_
 
 
 def test_repository_parity_tool_does_not_change_product_release_identity(tmp_path: Path) -> None:
-    runtime = tmp_path / "argus_skill" / "runtime.py"
+    runtime = tmp_path / "argus" / "runtime.py"
     runtime.parent.mkdir()
     runtime.write_text("VALUE = 1\n", encoding="utf-8")
     public_digest = compute_source_digest(tmp_path)

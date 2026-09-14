@@ -4,8 +4,8 @@ import json
 import os
 from pathlib import Path
 
-from argus_skill.engineer.background_subagents import emit_subagent_cost_events
-from argus_skill.engineer.external_work import (
+from argus.engineer.background_subagents import emit_subagent_cost_events
+from argus.engineer.external_work import (
     ExternalWorkState,
     parse_external_wait_request,
     render_external_work_advisory,

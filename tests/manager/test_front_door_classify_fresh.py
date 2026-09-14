@@ -7,7 +7,7 @@ what made every cockpit message slow), at ``medium`` effort by default.
 """
 from __future__ import annotations
 
-from argus_skill.manager import Manager
+from argus.manager import Manager
 
 
 class _FakeResult:
@@ -44,7 +44,7 @@ def _manager(answer: str, tmp_path) -> tuple[Manager, _RecordingBackend]:
 def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", raising=False)
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_manager_classify_model",
+        "argus.core.knobs.resolve_manager_classify_model",
         lambda **_kwargs: "fast-manager",
     )
     mgr, backend = _manager(

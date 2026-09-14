@@ -4,15 +4,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.core.models import RunnerResult
-from argus_skill.engineer.runner import (
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.core.models import RunnerResult
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
     parse_continue_work_request,
 )
-from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer import Reviewer, ReviewerConfig
 
 
 def _done_review() -> str:
@@ -271,7 +271,7 @@ def test_forbidden_engineer_question_becomes_autonomous_continuation(
 
 
 def test_inflight_forbid_takes_effect_at_engineer_boundary(tmp_path: Path) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     set_active_manager_directive(
         tmp_path,
@@ -316,7 +316,7 @@ def test_inflight_forbid_takes_effect_at_engineer_boundary(tmp_path: Path) -> No
 
 
 def test_inflight_allow_reenables_engineer_question_boundary(tmp_path: Path) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     set_active_manager_directive(
         tmp_path,

@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import Path
 
-from argus_skill.verticals.kernel_engineering.frontier_watch import (
+from argus.verticals.kernel_engineering.frontier_watch import (
     canonicalize,
     ledger_path,
     main,
@@ -16,7 +16,7 @@ from argus_skill.verticals.kernel_engineering.frontier_watch import (
     validate_record,
     write_record,
 )
-from argus_skill.verticals.kernel_engineering.stages import CHECKLIST_ITEMS
+from argus.verticals.kernel_engineering.stages import CHECKLIST_ITEMS
 
 
 def _record(*, stage: str = "optimize", searched_at: datetime | None = None) -> dict:

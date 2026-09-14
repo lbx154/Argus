@@ -5,23 +5,23 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.domains import (
+from argus.domains import (
     BUILTIN_DOMAINS,
     DOMAIN_PURPOSES,
     domain_checklist_items,
     domain_role_banner,
     load_domain,
 )
-from argus_skill.roles.prompts import resolve_role_prompt
-from argus_skill.roles.prompts.engineer import mission_request
-from argus_skill.skills.builtins import (
+from argus.roles.prompts import resolve_role_prompt
+from argus.roles.prompts.engineer import mission_request
+from argus.skills.builtins import (
     iter_domain_skill_texts,
     remove_unmodified_inactive_context_skill_seeds,
     seed_context_skills,
 )
-from argus_skill.skills.layered import LayeredSkillStore, shared_skill_scope_dir
-from argus_skill.skills.stage_machine import resolve_stage_checklist_contract
-from argus_skill.skills.vertical_select import (
+from argus.skills.layered import LayeredSkillStore, shared_skill_scope_dir
+from argus.skills.stage_machine import resolve_stage_checklist_contract
+from argus.skills.vertical_select import (
     VERTICALS,
     UnknownVerticalError,
     persist_vertical,
@@ -29,7 +29,7 @@ from argus_skill.skills.vertical_select import (
     resolve_domain_if_decided,
     resolve_skill_scope,
 )
-from argus_skill.verticals._base import (
+from argus.verticals._base import (
     load_vertical,
     vertical_checklist_stage_order,
     vertical_completion_gate,

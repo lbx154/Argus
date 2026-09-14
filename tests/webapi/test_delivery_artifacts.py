@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from argus_skill.core.mission_view import update_mission_view_event
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import append_turn
-from argus_skill.webapi.artifacts import list_project_artifacts
+from argus.core.mission_view import update_mission_view_event
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import append_turn
+from argus.webapi.artifacts import list_project_artifacts
 
 
 def test_delivery_receipt_makes_only_its_safe_targets_openable(tmp_path: Path) -> None:
@@ -192,7 +192,7 @@ def test_reviewed_framework_pptx_is_exposed_as_a_downloadable_binary(tmp_path: P
 def test_nested_report_downloads_models_and_patches_without_exposing_other_files(tmp_path):
     from fastapi.testclient import TestClient
 
-    from argus_skill.webapi import server
+    from argus.webapi import server
 
     sid = "s-nested-model"
     life, workspace = tmp_path / "projects" / sid, tmp_path / "workspace"

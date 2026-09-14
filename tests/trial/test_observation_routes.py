@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from argus_skill.trial.training_routes import register_training_routes
+from argus.trial.training_routes import register_training_routes
 from tests.trial.test_training_data import training as training
 
 

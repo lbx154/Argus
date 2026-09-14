@@ -8,10 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_execute import SkillLoopExecuteMixin
-from argus_skill.apps._runtime_helpers import _ExecuteState
-from argus_skill.core.operator_context import OperatorContextStore, append_directive
-from argus_skill.manager.plan_mode import Plan, PlanStep
+from argus.apps._runtime_execute import SkillLoopExecuteMixin
+from argus.apps._runtime_helpers import _ExecuteState
+from argus.core.operator_context import OperatorContextStore, append_directive
+from argus.manager.plan_mode import Plan, PlanStep
 
 
 class _Harness(SkillLoopExecuteMixin):
@@ -38,7 +38,7 @@ def _capture_plan(monkeypatch) -> list[str]:
         requests.append(objective)
         return Plan(objective, steps=[PlanStep("Continue from verified B")])
 
-    monkeypatch.setattr("argus_skill.manager.plan_mode.draft_plan", draft)
+    monkeypatch.setattr("argus.manager.plan_mode.draft_plan", draft)
     return requests
 
 
@@ -164,9 +164,9 @@ class _RuntimeProbe(_Harness):
 def test_supervisor_to_execute_to_planner_preserves_shared_continuation(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    from argus_skill.life.memory import BacklogItem, LifeMemory
-    from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-    from argus_skill.life.supervisor._mission_execution_helpers import _MissionRunState
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+    from argus.life.supervisor._mission_execution_helpers import _MissionRunState
 
     memory = LifeMemory.open(tmp_path / "life")
     sink = SimpleNamespace(handle_event=lambda _event: None)
@@ -204,7 +204,7 @@ def test_supervisor_to_execute_to_planner_preserves_shared_continuation(
     assert "A passed the original check." in requests[0]
     assert "B is complete; do not repeat A or B." in requests[0]
     assert "LATEST_OPERATOR_REPLY: continue C only" in requests[0]
-    from argus_skill.core.operator_context import build_operator_context_block
+    from argus.core.operator_context import build_operator_context_block
 
     engineer_context = runner.state.prelude_context_provider() + build_operator_context_block(
         "engineer", memory.root, mission_id=item.id, consume_once=False,

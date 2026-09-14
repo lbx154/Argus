@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
@@ -43,10 +44,24 @@ class CliLaunchPlan:
         }
 
 
+DEFAULT_EXECUTABLE = "argus"
+#: Command name before the 2026-09-14 rename; used only when it is the one on PATH.
+LEGACY_EXECUTABLE = "argus-skill"
+
+
+def default_executable() -> str:
+    """``argus``, or the pre-rename ``argus-skill`` when only that launcher is installed."""
+    if shutil.which(DEFAULT_EXECUTABLE) is None and shutil.which(LEGACY_EXECUTABLE) is not None:
+        return LEGACY_EXECUTABLE
+    return DEFAULT_EXECUTABLE
+
+
 class ArgusCliAdapter:
     """Builds an explicit argv; never invokes a shell or a shared Argus workdir."""
 
-    def __init__(self, executable: str = "argus-skill") -> None:
+    def __init__(self, executable: str | None = None) -> None:
+        if executable is None:
+            executable = default_executable()
         if not executable.strip():
             raise ValueError("Argus executable is required")
         self.executable = executable

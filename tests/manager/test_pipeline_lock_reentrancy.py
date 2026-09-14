@@ -46,7 +46,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.manager._session_ops import manager_pipeline_lock
+from argus.manager._session_ops import manager_pipeline_lock
 
 pytestmark = pytest.mark.integration
 

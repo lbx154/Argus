@@ -8,15 +8,15 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.run_gateway import run_exec
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.memory import LifeMemory, MemoryBundle
-from argus_skill.manager import config_intent, front_door
-from argus_skill.manager._session_ops import manager_pipeline_lock
-from argus_skill.webapi import manager_bridge, manager_dispatch, manager_state, server
-from argus_skill.webapi.daemon_services import DaemonServices
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.run_gateway import run_exec
+from argus.core.session import SessionMeta, write_session_meta
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.memory import LifeMemory, MemoryBundle
+from argus.manager import config_intent, front_door
+from argus.manager._session_ops import manager_pipeline_lock
+from argus.webapi import manager_bridge, manager_dispatch, manager_state, server
+from argus.webapi.daemon_services import DaemonServices
 
 
 def _project(root):

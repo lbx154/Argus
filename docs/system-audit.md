@@ -6,7 +6,7 @@ at the time of writing and can be re-derived with the command given.
 
 Chinese version: [system-audit.zh-CN.md](system-audit.zh-CN.md)
 
-**Scope of the tree:** 194,487 lines of Python under `argus_skill/`, 264 shipped
+**Scope of the tree:** 194,487 lines of Python under `argus/`, 264 shipped
 skill documents totalling 22,765 lines.
 
 | # | Complaint | Verdict |
@@ -32,15 +32,15 @@ audit/guard/contract/validate        42
 
 One in three `except Exception` handlers discards the error and carries on. The
 idiom is explicit in the docstrings — `"Fail-open: any error is swallowed"`
-(`argus_skill/skills/capability_trace.py`), `"Fail-open to ()"`
-(`argus_skill/skills/checklist_store.py`), and comments of the form *"must never
-break prompt building"* in `argus_skill/skills/stage_machine.py`.
+(`argus/skills/capability_trace.py`), `"Fail-open to ()"`
+(`argus/skills/checklist_store.py`), and comments of the form *"must never
+break prompt building"* in `argus/skills/stage_machine.py`.
 
 Each is individually reasonable and the aggregate is not: a runtime that cannot
 fail is a runtime that cannot tell you it is broken.
 
 ```bash
-grep -rc "^\s*try:" --include=*.py argus_skill/ | awk -F: '{s+=$2} END{print s}'
+grep -rc "^\s*try:" --include=*.py argus/ | awk -F: '{s+=$2} END{print s}'
 ```
 
 ## 2. Verification bar too rigorous — confirmed
@@ -53,7 +53,7 @@ gates demanding exact CSV columns     5
 
 The Novelty-Seeking gate alone requires ten candidate directions, eleven
 reasoning columns each, and six numeric scores before a manuscript may be
-written (`argus_skill/verticals/physics/gates/novelty_seeking.py`). That is 170
+written (`argus/verticals/physics/gates/novelty_seeking.py`). That is 170
 cells of table to earn the right to make a claim.
 
 The cost is not the check. The cost is that the work bends toward filling the
@@ -73,7 +73,7 @@ of which research judgment            13%  (5 requests in 1,548 h)
 ```
 
 The *rate* is low, so the complaint is not that Argus interrupts constantly. The
-problem is **how** the decision is made. `argus_skill/core/role_handoff.py:20`
+problem is **how** the decision is made. `argus/core/role_handoff.py:20`
 decides operator ownership with a regular expression over prose:
 
 > `permission|authorization|authorize|approval|approve|consent|confirmation|credential|access|secret|budget|purchase|pay|publish|release|deploy|production|irreversible|delete|destructive|…`
@@ -91,7 +91,7 @@ A word list cannot tell authority from vocabulary.
 Our first measurement was wrong twice, and both corrections matter.
 
 **First error.** We reported 7,438 tokens of "standing Manager instruction" by
-summing every string literal in `argus_skill/roles/prompts/manager.py`. That
+summing every string literal in `argus/roles/prompts/manager.py`. That
 module holds **20 different prompt builders**, one per situation, and only one
 fires per call. Summing them measures nothing.
 
@@ -135,7 +135,7 @@ it is relevant or not, then the four outlier banners.
 ```bash
 python3 -c "
 import ast,pathlib
-for d in sorted(pathlib.Path('argus_skill/verticals').iterdir()):
+for d in sorted(pathlib.Path('argus/verticals').iterdir()):
     f=d/'stages.py'
     if not f.is_file(): continue
     t=ast.parse(f.read_text())
@@ -161,7 +161,7 @@ the same event emitted two different ways, which is how the catalog stopped bein
 reliable index of what the runtime actually does.
 
 **A function that does nothing, elaborately.**
-`argus_skill/wiki/lifecycle.py:54` takes seven parameters, discards five, and
+`argus/wiki/lifecycle.py:54` takes seven parameters, discards five, and
 says so:
 
 > `"""Do nothing: Agents maintain pages and INDEX.md during the mission."""`
@@ -184,7 +184,7 @@ says so:
 
 This is the one complaint the code partly answers already, and the reasoning is
 worth quoting because it is the position the rest of this audit argues for.
-`argus_skill/core/role_reply.py` reads a role's decision out of ordinary prose:
+`argus/core/role_reply.py` reads a role's decision out of ordinary prose:
 
 > Roles are not forced to emit JSON. A model told to reply with "ONE JSON object
 > and NOTHING else" spends its answer satisfying a serialiser instead of

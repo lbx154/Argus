@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.tools.capability_vault import (
+from argus.tools.capability_vault import (
     ModelApiGrant,
     ModelApiRoute,
     bootstrap_model_api_vault,
@@ -251,7 +251,7 @@ def test_api_context_exposes_capabilities_without_vault_access_instructions(
         "image_review": None,
     }
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.load_model_api_route",
+        "argus.tools.capability_vault.load_model_api_route",
         lambda name: routes[name],
     )
 
@@ -269,7 +269,7 @@ def test_api_context_is_empty_without_usable_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.load_model_api_route",
+        "argus.tools.capability_vault.load_model_api_route",
         lambda _name: None,
     )
 

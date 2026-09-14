@@ -4,12 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR, PLAN_RETRY
-from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-from argus_skill.planner import Planner, PlannerVerdict
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR, PLAN_RETRY
+from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus.planner import Planner, PlannerVerdict
 
 HOST_ERROR = (
     "Code Mode is unavailable because failed to spawn code-mode host "
@@ -122,7 +122,7 @@ def test_existing_operator_hold_is_not_rewritten_as_host_failure(tmp_path, monke
 
 
 def test_failed_pause_cas_does_not_emit_a_successful_pause(tmp_path, monkeypatch):
-    from argus_skill.daemon import state as state_module
+    from argus.daemon import state as state_module
 
     supervisor, events = _supervisor(tmp_path, monkeypatch)
     root = supervisor.memory.root

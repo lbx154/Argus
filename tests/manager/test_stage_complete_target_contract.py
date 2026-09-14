@@ -56,7 +56,7 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.manager.stage_decider import parse_stage_decision
+from argus.manager.stage_decider import parse_stage_decision
 
 STAGES = ["scope", "solve", "review", "report"]
 
@@ -148,7 +148,7 @@ def test_the_prompt_pins_target_stage_for_both_actions(action: str) -> None:
     The parser is forgiving now, but a verdict that needs rewriting is still a
     verdict the operator has to read past.
     """
-    from argus_skill.roles.prompts import manager as manager_prompts
+    from argus.roles.prompts import manager as manager_prompts
 
     with open(manager_prompts.__file__, encoding="utf-8") as handle:
         text = handle.read()

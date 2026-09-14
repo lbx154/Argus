@@ -14,7 +14,7 @@ export interface PairingPlan {
 /** Ask the Python backend how to pair this bind.
  *
  * Token minting, LAN-address resolution, and QR rendering all live in
- * `argus_skill.webapi.pairing`. The cockpit spawns the backend detached with
+ * `argus.webapi.pairing`. The cockpit spawns the backend detached with
  * stdio discarded, so it cannot read the banner the backend prints for itself;
  * it asks here instead, then passes the token down when spawning. Keeping one
  * implementation means the two entry points can't disagree about the URL.

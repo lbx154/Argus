@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.core.manuscript_snapshot import manuscript_snapshot
-from argus_skill.core.transcript import append_turn
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.core.manuscript_snapshot import manuscript_snapshot
+from argus.core.transcript import append_turn
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 
 
 class _Runner:
@@ -336,7 +336,7 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
 
 
 def test_continued_mission_names_the_next_queued_task(tmp_path) -> None:
-    from argus_skill.life.memory import BacklogItem
+    from argus.life.memory import BacklogItem
 
     memory = LifeMemory.open(tmp_path)
     memory.backlog.add(BacklogItem.new(title="Write the release notes", objective="notes"))

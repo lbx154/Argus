@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.life.memory import (
+from argus.life.memory import (
     BacklogItem,
     LifeMemory,
     consume_running_item_abort,
@@ -193,7 +193,7 @@ def test_current_abort_reports_persistence_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.life.memory as memory
+    import argus.life.memory as memory
 
     item = _running_item(tmp_path)
     monkeypatch.setattr(
@@ -214,7 +214,7 @@ def test_concurrent_writes_use_unique_temporary_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.life.memory as memory
+    import argus.life.memory as memory
 
     _running_item(tmp_path)
     sources: list[str] = []

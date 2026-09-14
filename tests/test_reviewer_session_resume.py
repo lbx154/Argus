@@ -4,13 +4,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.core.models import ReviewDecision, RoundRecord
-from argus_skill.engineer.round_reviewer import _previous_review_summary
-from argus_skill.engineer.round_state import RoundLoopState
-from argus_skill.reviewer import Reviewer
-from argus_skill.reviewer._core import ReviewerConfig
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.core.models import ReviewDecision, RoundRecord
+from argus.engineer.round_reviewer import _previous_review_summary
+from argus.engineer.round_state import RoundLoopState
+from argus.reviewer import Reviewer
+from argus.reviewer._core import ReviewerConfig
 
 # A static-preamble marker (lives in the rubric) + a delta marker (per round).
 _STATIC_MARKER = "## Reviewer role"
@@ -169,8 +169,8 @@ def test_matching_resume_request_sends_delta_only() -> None:
 
 
 def test_review_artifact_changes_keep_session_and_refresh_delta(tmp_path: Path) -> None:
-    from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "research")
     state = read_pipeline_state(tmp_path)
@@ -200,9 +200,9 @@ def test_review_artifact_changes_keep_session_and_refresh_delta(tmp_path: Path) 
 
 
 def test_live_gpu_and_checkpoint_changes_keep_reviewer_session(tmp_path: Path, monkeypatch) -> None:
-    from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-    from argus_skill.skills.vertical_select import persist_vertical
-    from argus_skill.verticals.research import prompt_policy
+    from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+    from argus.skills.vertical_select import persist_vertical
+    from argus.verticals.research import prompt_policy
 
     persist_vertical(tmp_path, "research")
     state = read_pipeline_state(tmp_path)
@@ -268,8 +268,8 @@ def test_new_objective_keeps_the_fingerprint_and_resumes() -> None:
 
 
 def test_stage_change_still_uses_a_fresh_full_prompt(tmp_path: Path) -> None:
-    from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "research")
     state = read_pipeline_state(tmp_path)

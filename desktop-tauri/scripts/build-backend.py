@@ -28,13 +28,13 @@ def main():
                         str(ROOT / "argus_backend.spec"), "--distpath", str(ROOT / "build"),
                         "--workpath", str(ROOT / "build/.work")], cwd=REPO, check=True)
         for arguments in (["--verify-frozen-runtime"],
-                          ["-I", "-m", "argus_skill.tools.manager_live_view", "--help"],
-                          ["-c", "import argus_skill.trial.desktop, certifi; print('desktop-trial-ready')"]):
+                          ["-I", "-m", "argus.tools.manager_live_view", "--help"],
+                          ["-c", "import argus.trial.desktop, certifi; print('desktop-trial-ready')"]):
             subprocess.run([str(executable), *arguments], cwd=REPO, check=True)
         if os.environ.get("ARGUS_TEST_NATIVE_COPILOT") == "1":
             with tempfile.TemporaryDirectory(prefix="argus-frozen-native-") as temporary:
                 subprocess.run(
-                    [str(executable), "-c", "from argus_skill.trial.native_cli import install_native_copilot; install_native_copilot(); print('native-copilot-ready')"],
+                    [str(executable), "-c", "from argus.trial.native_cli import install_native_copilot; install_native_copilot(); print('native-copilot-ready')"],
                     cwd=temporary, check=True,
                     env={**os.environ, "ARGUS_SKILL_HOME": temporary},
                 )

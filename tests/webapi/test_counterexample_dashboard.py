@@ -6,9 +6,9 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.webapi import counterexample_dashboard, server
-from argus_skill.webapi.counterexample_dashboard import (
+from argus.core.session import SessionMeta, write_session_meta
+from argus.webapi import counterexample_dashboard, server
+from argus.webapi.counterexample_dashboard import (
     build_counterexample_dashboard,
 )
 

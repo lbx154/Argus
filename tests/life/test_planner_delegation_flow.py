@@ -9,21 +9,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.event_catalog import EventType
-from argus_skill.core.models import RunnerResult
-from argus_skill.daemon.state import write_continuous_config
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import (
+from argus.core.event_catalog import EventType
+from argus.core.models import RunnerResult
+from argus.daemon.state import write_continuous_config
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import (
     BacklogItem,
     GlobalMemory,
     LifeMemory,
     MemoryBundle,
     ProjectMemory,
 )
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_RETRY
-from argus_skill.planner import Planner, PlannerConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_RETRY
+from argus.planner import Planner, PlannerConfig
+from argus.skills.vertical_select import persist_vertical
 
 
 class _MissionRunner:
@@ -135,7 +135,7 @@ def test_planner_require_independent_review_survives_enqueue(
     enqueued with the review:required tag so the mission runs an independent
     Reviewer instead of self-settling with "independent review was not
     required"."""
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     project = tmp_path / "project"
     project.mkdir()
@@ -213,7 +213,7 @@ def test_planner_retires_pending_tasks_without_requiring_new_work(
         ])
     planner.replies.append("\n".join(lines))
 
-    with caplog.at_level("INFO", logger="argus_skill.life.supervisor._planning_cycle_enqueue"):
+    with caplog.at_level("INFO", logger="argus.life.supervisor._planning_cycle_enqueue"):
         supervisor._plan_next_work()
 
     rows = {item.id: item for item in backlog.history()}
@@ -354,7 +354,7 @@ def test_bounded_manager_direct_task_skips_planner_decomposition(
 
     # A later planning pass must not bootstrap the same finite objective again
     # while its original mission is running or waiting to resume.
-    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
 
     memory.backlog.update(pending[0].id, status=existing_status)
     original = memory.backlog.history()
@@ -431,7 +431,7 @@ def test_direct_kernel_workflow_does_not_generate_scope_bundle(
 def test_manager_intent_survives_generation_only_daemon_restart(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     life = tmp_path / "life"
     life.mkdir()
@@ -489,7 +489,7 @@ def test_manager_intent_survives_generation_only_daemon_restart(
 
 
 def test_continuous_reload_updates_lifetime_and_final_gate() -> None:
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     class Harness(PlanningContextMixin):
         config = SimpleNamespace(
@@ -824,7 +824,7 @@ def test_replan_replace_commits_after_version_zero_source_terminalized(
 def test_forbidden_questions_request_revision_within_existing_authority(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     project = tmp_path / "project"
     project.mkdir()
@@ -902,7 +902,7 @@ def test_forbidden_questions_block_out_of_scope_operator_alternative(
     tmp_path: Path,
     alternative: str,
 ) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     project = tmp_path / "project"
     project.mkdir()

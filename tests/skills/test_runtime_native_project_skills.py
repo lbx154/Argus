@@ -4,14 +4,14 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.apps._runtime_construction import _RunnerConstructionMixin
-from argus_skill.apps._runtime_execute import SkillLoopExecuteMixin
-from argus_skill.apps._runtime_supervisor import run_life_supervisor
-from argus_skill.daemon.config import LifeWorkerConfig
-from argus_skill.daemon.life_worker import LifeWorker
-from argus_skill.life.supervisor import LifeSupervisor
-from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-from argus_skill.skills.missions import (
+from argus.apps._runtime_construction import _RunnerConstructionMixin
+from argus.apps._runtime_execute import SkillLoopExecuteMixin
+from argus.apps._runtime_supervisor import run_life_supervisor
+from argus.daemon.config import LifeWorkerConfig
+from argus.daemon.life_worker import LifeWorker
+from argus.life.supervisor import LifeSupervisor
+from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus.skills.missions import (
     EngineerMission,
     ManagerMission,
     PlannerMission,
@@ -124,7 +124,7 @@ def test_runtime_does_not_create_a_missing_agents_directory(tmp_path: Path) -> N
 
 
 def test_mission_start_does_not_overwrite_learned_vertical_guidance(tmp_path: Path) -> None:
-    from argus_skill.skills.builtins import seed_context_skills
+    from argus.skills.builtins import seed_context_skills
 
     workdir = tmp_path / "repo"
     workdir.mkdir()
@@ -146,7 +146,7 @@ def test_in_process_life_planner_receives_refreshed_project_skills(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.apps import _runtime_supervisor
+    from argus.apps import _runtime_supervisor
 
     workdir = tmp_path / "project"
     workdir.mkdir()
@@ -204,7 +204,7 @@ def test_daemon_boot_life_planner_receives_refreshed_project_skills(
             self._vertical_resolved = False
 
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.LifeSupervisor",
+        "argus.daemon.life_worker.LifeSupervisor",
         _Supervisor,
     )
     worker = LifeWorker(
@@ -240,7 +240,7 @@ def test_life_planner_cycle_rebuilds_skills_for_adopted_worktree(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.campaign_workdir import adopt_campaign_workdir
+    from argus.core.campaign_workdir import adopt_campaign_workdir
 
     base = tmp_path / "base"
     adopted = base / "adopted"
@@ -268,7 +268,7 @@ def test_life_planner_cycle_rebuilds_skills_for_adopted_worktree(
         def plan_next(self, **_kwargs):
             return object()
 
-    monkeypatch.setattr("argus_skill.planner.Planner", _Planner)
+    monkeypatch.setattr("argus.planner.Planner", _Planner)
     supervisor = LifeSupervisor.__new__(LifeSupervisor)
     supervisor.runner = runner
     supervisor.skill_store = stale_store
@@ -323,11 +323,11 @@ def test_daemon_restart_refreshes_primary_and_helper_planner_skills(
         return runner
 
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.LifeSupervisor",
+        "argus.daemon.life_worker.LifeSupervisor",
         _Supervisor,
     )
     monkeypatch.setattr(
-        "argus_skill.apps._runtime.build_life_runner",
+        "argus.apps._runtime.build_life_runner",
         build_helper,
     )
     worker = LifeWorker(

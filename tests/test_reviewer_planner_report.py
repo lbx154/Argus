@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.core.models import LoopOutcome, RoundRecord
-from argus_skill.reviewer._parsing import decision_from_payload, parse_decision_text
+from argus.core.models import LoopOutcome, RoundRecord
+from argus.reviewer._parsing import decision_from_payload, parse_decision_text
 
 
 def test_named_reviewer_verdict_preserves_planner_report() -> None:

@@ -13,17 +13,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from argus_skill.life.failure_experience import FailureExperience, FailureExperienceStore
-from argus_skill.life.failure_experience_index import (
+from argus.life.failure_experience import FailureExperience, FailureExperienceStore
+from argus.life.failure_experience_index import (
     EmbeddingUnavailable,
     FailureExperienceIndex,
     LexicalHashEmbedding,
     RecallDocument,
     _normalized,
 )
-from argus_skill.life.http_embedding import HttpEmbeddingAdapter
-from argus_skill.life.memory import MemoryBundle
-from argus_skill.life.recall_embedding import (
+from argus.life.http_embedding import HttpEmbeddingAdapter
+from argus.life.memory import MemoryBundle
+from argus.life.recall_embedding import (
     EmbeddingConfigError,
     RecallEmbeddingConfig,
     configured_embedder,
@@ -213,7 +213,7 @@ def test_switching_wire_format_does_not_reuse_vectors_or_reset_budget(tmp_path, 
 
 
 def test_markdown_semantic_pointer_uses_current_file_and_disappears_after_delete(tmp_path, embedding_server):
-    from argus_skill.life.knowledge_recall import KnowledgeRoot, MarkdownKnowledgeRecall
+    from argus.life.knowledge_recall import KnowledgeRoot, MarkdownKnowledgeRecall
 
     pages = tmp_path / "pages"
     pages.mkdir()
@@ -267,7 +267,7 @@ def test_timeout_is_bounded_and_failure_consumes_shared_durable_budget(tmp_path,
 
 
 def test_cancelled_http_returns_before_response_and_keeps_its_budget(tmp_path, embedding_server):
-    from argus_skill.core.run_gateway import run_interrupt_scope
+    from argus.core.run_gateway import run_interrupt_scope
 
     configure(tmp_path, embedding_server)
     adapter = configured_embedder(tmp_path)
@@ -317,7 +317,7 @@ def test_cancelled_http_returns_before_response_and_keeps_its_budget(tmp_path, e
 def test_cancelled_late_worker_never_sends_http(tmp_path, embedding_server, monkeypatch, boundary):
     import http.client
 
-    from argus_skill.core.run_gateway import run_interrupt_scope
+    from argus.core.run_gateway import run_interrupt_scope
 
     configure(tmp_path, embedding_server)
     adapter = configured_embedder(tmp_path)
@@ -373,7 +373,7 @@ def test_cancelled_late_worker_never_sends_http(tmp_path, embedding_server, monk
 
 
 def test_already_cancelled_embedding_has_no_reservation_or_http(tmp_path, embedding_server):
-    from argus_skill.core.run_gateway import run_interrupt_scope
+    from argus.core.run_gateway import run_interrupt_scope
 
     configure(tmp_path, embedding_server)
     with run_interrupt_scope(lambda: "operator abort requested"):
@@ -395,9 +395,9 @@ def _memory_with_two_embedding_channels(tmp_path, embedding_server):
 
 
 def test_scope_cancel_during_actual_prelude_skips_second_embedding_and_main_model(tmp_path, embedding_server):
-    from argus_skill import SkillLoop, SkillLoopConfig
-    from argus_skill.adapters.memory_backend import MemoryBackend
-    from argus_skill.core.run_gateway import run_interrupt_scope
+    from argus import SkillLoop, SkillLoopConfig
+    from argus.adapters.memory_backend import MemoryBackend
+    from argus.core.run_gateway import run_interrupt_scope
 
     memory, entry, canonical = _memory_with_two_embedding_channels(tmp_path, embedding_server)
     stopped = threading.Event()
@@ -440,13 +440,13 @@ def test_scope_cancel_during_actual_prelude_skips_second_embedding_and_main_mode
 def test_supervisor_stop_event_interrupts_both_current_memory_providers(tmp_path, embedding_server, role):
     from types import SimpleNamespace
 
-    from argus_skill.apps._runtime_backends import _Outcome
-    from argus_skill.core.file_lock import current_file_lock_wait_budget
-    from argus_skill.core.run_gateway import current_run_interrupt_reason
-    from argus_skill.life.memory import BacklogItem
-    from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-    from argus_skill.life.supervisor._mission_execution_helpers import _MissionRunState
-    from argus_skill.manager.supervision import shutdown_supervision
+    from argus.apps._runtime_backends import _Outcome
+    from argus.core.file_lock import current_file_lock_wait_budget
+    from argus.core.run_gateway import current_run_interrupt_reason
+    from argus.life.memory import BacklogItem
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+    from argus.life.supervisor._mission_execution_helpers import _MissionRunState
+    from argus.manager.supervision import shutdown_supervision
 
     memory, entry, canonical = _memory_with_two_embedding_channels(tmp_path, embedding_server)
     stopped = threading.Event()
@@ -500,10 +500,10 @@ def test_supervisor_stop_event_interrupts_both_current_memory_providers(tmp_path
 def test_mission_memory_prelude_recognizes_one_shot_lock_cancellation(tmp_path, legacy, retain_parent):
     from types import SimpleNamespace
 
-    from argus_skill.core.file_lock import current_file_lock_wait_budget, exclusive_file_lock
-    from argus_skill.core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
-    from argus_skill.life.memory import BacklogItem
-    from argus_skill.life.supervisor._mission_execution_runtime import _mission_memory_prelude
+    from argus.core.file_lock import current_file_lock_wait_budget, exclusive_file_lock
+    from argus.core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
+    from argus.life.memory import BacklogItem
+    from argus.life.supervisor._mission_execution_runtime import _mission_memory_prelude
 
     calls = 0
     reason = "operator abort requested: one-shot memory stop"
@@ -541,11 +541,11 @@ def test_mission_memory_prelude_recognizes_one_shot_lock_cancellation(tmp_path, 
 def test_mission_memory_prelude_preserves_unclassified_and_mandatory_failures(legacy, failure):
     from types import SimpleNamespace
 
-    from argus_skill.core.file_lock import FileLockCancelled, current_file_lock_wait_budget
-    from argus_skill.core.operator_context import OperatorContextUnavailable
-    from argus_skill.core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
-    from argus_skill.life.memory import BacklogItem
-    from argus_skill.life.supervisor._mission_execution_runtime import _mission_memory_prelude
+    from argus.core.file_lock import FileLockCancelled, current_file_lock_wait_budget
+    from argus.core.operator_context import OperatorContextUnavailable
+    from argus.core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
+    from argus.life.memory import BacklogItem
+    from argus.life.supervisor._mission_execution_runtime import _mission_memory_prelude
 
     error = {
         "unknown-cancellation": FileLockCancelled("unattributed cancellation"),

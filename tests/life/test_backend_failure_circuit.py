@@ -26,24 +26,24 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.engineer import round_execution as round_execution_module
-from argus_skill.engineer.round_stop_signals import (
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.engineer import round_execution as round_execution_module
+from argus.engineer.round_stop_signals import (
     BACKEND_FAILURE_BACKOFF_CAP_SECONDS,
     backend_failure_hold_backoff_seconds,
     backend_failure_signature,
 )
-from argus_skill.engineer.runner import (
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor._mission_execution_helpers import _MissionRunState
-from argus_skill.life.supervisor._mission_execution_runtime import (
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor._mission_execution_helpers import _MissionRunState
+from argus.life.supervisor._mission_execution_runtime import (
     MissionExecutionRuntimeMixin,
 )
-from argus_skill.reviewer import ReviewerConfig
+from argus.reviewer import ReviewerConfig
 
 # --------------------------------------------------------------------------- #
 # Normalization + backoff units
@@ -338,7 +338,7 @@ def test_a_wait_round_restarts_the_same_cause_count(
     import json
     import time as _time
 
-    from argus_skill.engineer import runner as runner_module
+    from argus.engineer import runner as runner_module
 
     registry = tmp_path / ".argus_external_work"
     registry.mkdir()

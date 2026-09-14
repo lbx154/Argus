@@ -9,8 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life import telegram_bot
-from argus_skill.life.chat.router import COMMAND_MENU
+from argus.life import telegram_bot
+from argus.life.chat.router import COMMAND_MENU
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ def test_menu_failure_is_reported_but_not_fatal(monkeypatch) -> None:
 def test_status_reply_carries_quick_actions(api) -> None:
     transport = telegram_bot.TelegramTransport(token="tok", chat_id="1")
 
-    transport.send("📊 <b>argus-skill 状态</b>\n🟢 守护进程运行中")
+    transport.send("📊 <b>argus 状态</b>\n🟢 守护进程运行中")
 
     _method, payload = api[-1]
     buttons = [

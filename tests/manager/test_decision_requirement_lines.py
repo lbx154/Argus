@@ -30,13 +30,13 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.manager.domain_author import (
+from argus.manager.domain_author import (
     _DECISION_KEYS,
     _decision_fields,
     _stated_requirements,
     parse_vertical_decision,
 )
-from argus_skill.roles.prompts.manager import build_vertical_decision_prompt
+from argus.roles.prompts.manager import build_vertical_decision_prompt
 
 KNOWN = ("math", "research", "software")
 

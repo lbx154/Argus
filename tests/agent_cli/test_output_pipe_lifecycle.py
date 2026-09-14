@@ -10,8 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.agent_cli import _run_exec
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli import _run_exec
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 
 
 def wait_file(path):

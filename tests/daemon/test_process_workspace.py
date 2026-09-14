@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import argus_skill.daemon.process as process
+import argus.daemon.process as process
 
 
 def _status(*, alive: bool, pid: int | None = None):

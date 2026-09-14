@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.release_tools import build_release
+from argus.release_tools import build_release
 
 ROOT = Path(__file__).parents[2]
 

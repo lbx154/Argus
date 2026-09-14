@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from argus_skill.reviewer import Reviewer, parse_decision_text
+from argus.reviewer import Reviewer, parse_decision_text
 
 
 def _prompt(checkpoint_path: str = "/tmp/project/CHECKPOINT.md") -> str:

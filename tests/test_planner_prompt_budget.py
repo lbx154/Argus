@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-from argus_skill.life.memory import EventJournal
-from argus_skill.life.supervisor import LifeSupervisor
-from argus_skill.planner import Planner
-from argus_skill.roles.prompts.planner import _RESEARCH_PLAN_CONTRACT
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.life.memory import EventJournal
+from argus.life.supervisor import LifeSupervisor
+from argus.planner import Planner
+from argus.roles.prompts.planner import _RESEARCH_PLAN_CONTRACT
+from argus.skills.vertical_select import persist_vertical
 
 # Raised from 9_500 / 15_000 when the math vertical gained the objective mode
 # (targeted vs exploratory), the route ledger, and the proof-gap graph — three
@@ -176,7 +176,7 @@ def test_planner_keeps_operator_actions_ahead_of_optional_hardening(
 
 
 def test_bounded_planner_rejects_tautological_acceptance_checks() -> None:
-    from argus_skill.roles.prompts.planner import build_bounded_dag_prompt
+    from argus.roles.prompts.planner import build_bounded_dag_prompt
 
     prompt = build_bounded_dag_prompt("Create exact.txt without changing README.")
 
@@ -359,8 +359,8 @@ def test_research_planner_prompt_drops_frozen_plan_block(
     the experimental design lives in the experiment stage and is revised in
     contact with evidence, so the planner prompt carries no plan block even
     when a plan file exists."""
-    from argus_skill.life.research_plan import render_research_plan_for_planner
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.life.research_plan import render_research_plan_for_planner
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "research")
     plan = _research_plan()
@@ -380,7 +380,7 @@ def test_research_planner_prompt_drops_frozen_plan_block(
 
 
 def test_planner_prompt_marks_absent_or_corrupt_plan_for_creation(tmp_path) -> None:
-    from argus_skill.life.research_plan import render_research_plan_for_planner
+    from argus.life.research_plan import render_research_plan_for_planner
 
     absent = render_research_plan_for_planner(tmp_path)
     (tmp_path / "RESEARCH_PLAN.md").write_text("not the contract", encoding="utf-8")
@@ -399,7 +399,7 @@ def test_research_plan_contract_avoids_hard_result_gates() -> None:
 def test_oversize_research_plan_keeps_head_and_next_milestone_with_hard_cap(
     tmp_path,
 ) -> None:
-    from argus_skill.life.research_plan import render_research_plan_for_planner
+    from argus.life.research_plan import render_research_plan_for_planner
 
     (tmp_path / "RESEARCH_PLAN.md").write_text(
         _research_plan(experiment_fill="x" * 12_000),

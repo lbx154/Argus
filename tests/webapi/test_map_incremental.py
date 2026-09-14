@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi import map_history, map_narrative
-from argus_skill.webapi.map_feed import MapFeed
-from argus_skill.webapi.map_view import read_map
-from argus_skill.webapi.server import create_app
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi import map_history, map_narrative
+from argus.webapi.map_feed import MapFeed
+from argus.webapi.map_view import read_map
+from argus.webapi.server import create_app
 
 
 def setup_session(root, sid="s-progress"):
@@ -35,7 +35,7 @@ def test_feed_reuses_unchanged_projection_and_returns_only_new_records(tmp_path,
     feed = MapFeed()
     first = feed.read(sid, tmp_path, life)
     with monkeypatch.context() as patch:
-        patch.setattr("argus_skill.webapi.map_feed.read_map", lambda *a, **k: (_ for _ in ()).throw(AssertionError("reread")))
+        patch.setattr("argus.webapi.map_feed.read_map", lambda *a, **k: (_ for _ in ()).throw(AssertionError("reread")))
         unchanged = feed.read(sid, tmp_path, life, first["cursor"])
     assert unchanged["tasks"] == unchanged["events"] == []
     append(life, {"type": "round.review.completed", "ts": 3, "summary": "Check coverage"})
@@ -456,7 +456,7 @@ def test_separate_api_processes_reuse_the_same_cached_generation(tmp_path):
     script = """
 import json, sys, time
 from pathlib import Path
-from argus_skill.webapi import map_narrative as copy
+from argus.webapi import map_narrative as copy
 root = Path(sys.argv[1])
 def generate(documents, *args, **kwargs):
     with (root / 'calls.txt').open('a') as f: f.write('call\\n')

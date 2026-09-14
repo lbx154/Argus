@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core import plugin_manager as pm
+from argus.core import plugin_manager as pm
 
 
 @pytest.fixture
@@ -23,8 +23,8 @@ def host(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("frozen", [False, True])
 def test_product_clean_spawn_pins_host_before_child_switches_task_home(host, monkeypatch, frozen):
-    from argus_skill.daemon import _life_worker_admission as admission
-    from argus_skill.daemon.config import LifeWorkerConfig
+    from argus.daemon import _life_worker_admission as admission
+    from argus.daemon.config import LifeWorkerConfig
 
     task_root = host / "plugins" / "crystalpilot" / "workbench"
     life = task_root / "projects" / "s-fixture"
@@ -53,15 +53,15 @@ import json, os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from argus_skill.daemon._life_worker_boot import LifeWorkerBootMixin
-from argus_skill.daemon.config import LifeWorkerConfig
-from argus_skill.core import plugin_manager
+from argus.daemon._life_worker_boot import LifeWorkerBootMixin
+from argus.daemon.config import LifeWorkerConfig
+from argus.core import plugin_manager
 worker = SimpleNamespace(
     config=LifeWorkerConfig(life_dir=Path({str(life)!r}), global_root=Path({str(task_root)!r}), project_workdir=None),
     _install_signal_handlers=lambda: None,
     _rf_export_configured_backend=lambda: None,
 )
-with patch("argus_skill.daemon._life_worker_boot.configure_framework_python_env"), patch("argus_skill.tools.capability_vault.gpu_env_vars", return_value={{}}):
+with patch("argus.daemon._life_worker_boot.configure_framework_python_env"), patch("argus.tools.capability_vault.gpu_env_vars", return_value={{}}):
     LifeWorkerBootMixin._rf_bootstrap_environment(worker)
 print(json.dumps({{"host": str(plugin_manager.host_root()), "task": os.environ["ARGUS_SKILL_HOME"], "registry": plugin_manager.registry()}}))
 '''
@@ -77,8 +77,8 @@ print(json.dumps({{"host": str(plugin_manager.host_root()), "task": os.environ["
 
 
 def test_explicit_missing_plugin_is_not_a_research_fallback(host, tmp_path):
-    from argus_skill.core.pipeline_state import write_pipeline_state
-    from argus_skill.skills.vertical_select import resolve_vertical
+    from argus.core.pipeline_state import write_pipeline_state
+    from argus.skills.vertical_select import resolve_vertical
 
     state = tmp_path / "session"
     write_pipeline_state(state, {"vertical": "crystalpilot"})
@@ -87,9 +87,9 @@ def test_explicit_missing_plugin_is_not_a_research_fallback(host, tmp_path):
 
 
 def test_missing_plugin_backlog_is_not_reclassified_or_overwritten(host, monkeypatch):
-    from argus_skill.life.memory import BacklogItem, LifeMemory
-    from argus_skill.life.supervisor.backlog_guard import ensure_manager_decision
-    from argus_skill.manager import front_door
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.life.supervisor.backlog_guard import ensure_manager_decision
+    from argus.manager import front_door
 
     memory = LifeMemory.open(host / "session")
     decision = {"routed": True, "vertical": "crystalpilot"}
@@ -103,8 +103,8 @@ def test_missing_plugin_backlog_is_not_reclassified_or_overwritten(host, monkeyp
 
 
 def test_missing_plugin_has_a_terminal_event_and_no_mission_execution(host):
-    from argus_skill.life.memory import BacklogItem, LifeMemory
-    from argus_skill.life.supervisor._mission_execution import MissionExecutionMixin
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.life.supervisor._mission_execution import MissionExecutionMixin
 
     memory = LifeMemory.open(host / "session")
     item = memory.backlog.add(BacklogItem.new(
@@ -130,8 +130,8 @@ def test_missing_plugin_has_a_terminal_event_and_no_mission_execution(host):
 
 
 def test_builtin_and_undecided_library_sessions_keep_existing_behavior(host):
-    from argus_skill.core.pipeline_state import write_pipeline_state
-    from argus_skill.skills.vertical_select import resolve_vertical
+    from argus.core.pipeline_state import write_pipeline_state
+    from argus.skills.vertical_select import resolve_vertical
 
     write_pipeline_state(host / "builtin", {"vertical": "software"})
     assert resolve_vertical(host / "builtin") == "software"
@@ -139,9 +139,9 @@ def test_builtin_and_undecided_library_sessions_keep_existing_behavior(host):
 
 
 def test_task_preflight_reports_missing_plugin_before_spawning(host, monkeypatch):
-    from argus_skill.core.pipeline_state import write_pipeline_state
-    from argus_skill.daemon import _life_worker_admission as admission
-    from argus_skill.daemon.config import LifeWorkerConfig
+    from argus.core.pipeline_state import write_pipeline_state
+    from argus.daemon import _life_worker_admission as admission
+    from argus.daemon.config import LifeWorkerConfig
 
     life = host / "projects" / "s-fixture"
     life.mkdir(parents=True)
@@ -153,8 +153,8 @@ def test_task_preflight_reports_missing_plugin_before_spawning(host, monkeypatch
 
 
 def test_old_workbench_research_route_cannot_silently_resume(host, monkeypatch):
-    from argus_skill.life.memory import BacklogItem, LifeMemory
-    from argus_skill.life.supervisor.backlog_guard import ensure_manager_decision
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.life.supervisor.backlog_guard import ensure_manager_decision
 
     memory = LifeMemory.open(host / "projects" / "s-crystalpilot-01234567")
     item = memory.backlog.add(BacklogItem.new(title="old failed attempt", objective="preserve it",
@@ -166,8 +166,8 @@ def test_old_workbench_research_route_cannot_silently_resume(host, monkeypatch):
 
 
 def test_missing_workbench_binding_fails_before_tool_or_model_preparation(host, monkeypatch):
-    from argus_skill.core.models import RunnerOptions
-    from argus_skill.core.workbench_plugins import prepare_plugin_run
+    from argus.core.models import RunnerOptions
+    from argus.core.workbench_plugins import prepare_plugin_run
 
     monkeypatch.setattr(pm, "require_plugin", lambda name: SimpleNamespace(owns_workdir=lambda _: False))
     with pytest.raises(pm.PluginUnavailableError, match="绑定缺失"):

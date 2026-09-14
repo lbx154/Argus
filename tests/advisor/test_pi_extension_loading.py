@@ -34,19 +34,19 @@ def wheel_root(tmp_path_factory):
     assert output.returncode == 0, output.stdout + output.stderr
     wheel, = directory.glob("*.whl")
     required = {
-        "argus_skill/advisor/pi_extension.mjs", "argus_skill/advisor/pi_tools.mjs",
-        "argus_skill/messaging/pi_extension.mjs", "argus_skill/messaging/pi_tools.mjs",
-        "argus_skill/core/role_tool_bridge.mjs", "argus_skill/core/role_tool_bridge.py",
-        "argus_skill/core/scoped_file.py",
-        "argus_skill/tools/advisor.py", "argus_skill/tools/peer.py",
-        "argus_skill/tools/experience.py", "argus_skill/life/experience_tools.py",
-        "argus_skill/life/experience_runtime.py", "argus_skill/life/experience_extension.mjs",
-        "argus_skill/life/experience_pi_tools.mjs",
-        "argus_skill/skills/runtime_extension.mjs", "argus_skill/skills/runtime_pi_tools.mjs",
-        "argus_skill/skills/runtime_worker.py", "argus_skill/skills/runtime_tools.py",
-        "argus_skill/skills/runtime_tools_context.py",
+        "argus/advisor/pi_extension.mjs", "argus/advisor/pi_tools.mjs",
+        "argus/messaging/pi_extension.mjs", "argus/messaging/pi_tools.mjs",
+        "argus/core/role_tool_bridge.mjs", "argus/core/role_tool_bridge.py",
+        "argus/core/scoped_file.py",
+        "argus/tools/advisor.py", "argus/tools/peer.py",
+        "argus/tools/experience.py", "argus/life/experience_tools.py",
+        "argus/life/experience_runtime.py", "argus/life/experience_extension.mjs",
+        "argus/life/experience_pi_tools.mjs",
+        "argus/skills/runtime_extension.mjs", "argus/skills/runtime_pi_tools.mjs",
+        "argus/skills/runtime_worker.py", "argus/skills/runtime_tools.py",
+        "argus/skills/runtime_tools_context.py",
         *[str(path.relative_to(ROOT)) for package in ("advisor", "messaging")
-          for path in (ROOT / "argus_skill" / package).glob("*.py")],
+          for path in (ROOT / "argus" / package).glob("*.py")],
     }
     extracted = directory / "installed"
     with zipfile.ZipFile(wheel) as archive:
@@ -104,10 +104,10 @@ export default function(pi) {
         node, PI_CLI, "--mode", "json", "--no-session", "--no-extensions", "--no-skills",
         "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve",
         "--model", "argus-loader-test/loader-only", "--tools", "read,grep,find,ls," + ",".join(sorted(EXPECTED)),
-        "--extension", str(package_root / "argus_skill/advisor/pi_extension.mjs"),
-        "--extension", str(package_root / "argus_skill/messaging/pi_extension.mjs"),
-        "--extension", str(package_root / "argus_skill/life/experience_extension.mjs"),
-        "--extension", str(package_root / "argus_skill/skills/runtime_extension.mjs"),
+        "--extension", str(package_root / "argus/advisor/pi_extension.mjs"),
+        "--extension", str(package_root / "argus/messaging/pi_extension.mjs"),
+        "--extension", str(package_root / "argus/life/experience_extension.mjs"),
+        "--extension", str(package_root / "argus/skills/runtime_extension.mjs"),
         "--extension", str(probe), "Load tools only; do not send a provider request.",
     ]
     try:

@@ -3,13 +3,13 @@ import subprocess
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
-from argus_skill.release_tools.pr_gate.__main__ import main
-from argus_skill.release_tools.pr_gate.criteria import (
+from argus.release_tools.pr_gate.__main__ import main
+from argus.release_tools.pr_gate.criteria import (
     evaluate,
     file_type_consistency,
     scope_adequacy,
 )
-from argus_skill.release_tools.pr_gate.patch import (
+from argus.release_tools.pr_gate.patch import (
     is_config_path,
     is_docs_path,
     is_test_path,
@@ -45,7 +45,7 @@ def test_json_config_detection_is_narrow() -> None:
     assert is_config_path("plugins/argus/.mcp.json")
     assert is_config_path("plugins/argus/.claude-plugin/plugin.json")
     assert not is_config_path("frontend/core/fixtures/eventCorpus.generated.json")
-    assert not is_config_path("argus_skill/core/event_payload_schemas.json")
+    assert not is_config_path("argus/core/event_payload_schemas.json")
     assert not is_config_path("tests/domains/fixtures/example.json")
 
 
@@ -54,7 +54,7 @@ def test_docs_detection_requires_conventional_names_or_directories() -> None:
     assert is_docs_path("plugins/argus/README.md")
     assert is_docs_path("README.zh-CN.md")
     assert is_docs_path("CHANGELOG.md")
-    assert not is_docs_path("argus_skill/builtin_skills/agent-team-lead.md")
+    assert not is_docs_path("argus/builtin_skills/agent-team-lead.md")
     assert not is_docs_path("plugins/argus/skills/argus-run/SKILL.md")
     assert not is_docs_path("desktop/src/main/security.ts")
     assert not is_docs_path("src/readme_parser.py")
@@ -65,7 +65,7 @@ def test_config_detection_uses_context_not_generic_extensions() -> None:
     assert is_config_path("frontend/web/vite.config.ts")
     assert is_config_path("docker-compose.dev.yml")
     assert is_config_path(".pre-commit-config.yaml")
-    assert not is_config_path("argus_skill/verticals/classical_poetry/sources.yaml")
+    assert not is_config_path("argus/verticals/classical_poetry/sources.yaml")
     assert not is_config_path("data/model.toml")
 
 
@@ -78,7 +78,7 @@ def test_test_detection_supports_common_language_conventions() -> None:
     assert not is_test_path("src/latest.ts")
 
 
-@patch("argus_skill.release_tools.pr_gate.patch.subprocess.run")
+@patch("argus.release_tools.pr_gate.patch.subprocess.run")
 def test_patch_stats_keeps_git_rename_detection(run) -> None:
     run.side_effect = [
         CompletedProcess(args=[], returncode=0, stdout="merge-base\n", stderr=""),

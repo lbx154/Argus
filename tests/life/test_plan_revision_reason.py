@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from argus_skill.core.models import LoopOutcome, ReviewDecision, RoundRecord
-from argus_skill.life.supervisor._planning_cycle_helpers import _revision_reason
+from argus.core.models import LoopOutcome, ReviewDecision, RoundRecord
+from argus.life.supervisor._planning_cycle_helpers import _revision_reason
 
 
 def test_revision_reason_falls_back_to_stable_nonempty_value() -> None:

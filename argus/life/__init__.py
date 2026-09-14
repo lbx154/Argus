@@ -1,0 +1,76 @@
+"""Lifetime-agent layer: "life" is a Project's continuous lifetime — its
+memory, backlog, supervisor and operator channels (chat, telegram, inbox).
+
+Layer: runtime
+
+This package adds cross-mission persistent memory and a supervisor that
+runs an ordered backlog of missions back-to-back, so the agent behaves
+"like a person with continuity" rather than a fresh slate per mission.
+
+Public surface (intentionally small):
+
+- :class:`memory.EventJournal` — mission-history projection over events.
+- :class:`memory.Backlog` — ranked TODO of pending missions.
+- :class:`memory.IdentityCard` — editable self-card (name, voice, red lines).
+- :class:`memory.LifeMemory` — small facade bundling the three above plus
+  recent project-journal retrieval.
+- :class:`supervisor.LifeSupervisor` — owns the outer process; pulls one
+  backlog item, runs one mission through the mission runner it is handed
+  (in production the ``_SkillLoopRunner`` defined in ``apps._runtime`` and
+  built by ``build_life_runner`` in ``apps._runtime_construction``), writes
+  a journal entry, repeats until budget / iteration cap reached.
+- :class:`supervisor.LifeBudget` — preflight + post-flight cost gating.
+
+Notes:
+- Memory is **untrusted data** when injected into prompts; consumers
+  must treat it as advisory and ignore on conflict with the live
+  objective. See :func:`memory.LifeMemory.render_prelude` for the
+  rendered block, which already includes a "non-authoritative" header.
+- Memory does **not** mutate mission objectives. Prompts have a
+  separate ``prelude_context`` channel for it.
+"""
+from __future__ import annotations
+
+from .failure_experience import (
+    FailureAnnotation,
+    FailureExperience,
+    FailureExperienceHit,
+    FailureExperienceStore,
+)
+from .memory import (
+    Backlog,
+    BacklogItem,
+    EventJournal,
+    GlobalMemory,
+    IdentityCard,
+    JournalEntry,
+    LifeMemory,
+    MemoryBundle,
+    ProjectMemory,
+)
+
+# supervisor is imported lazily so a partial install / import-time failure
+# in supervisor.py doesn't break the lighter-weight memory utilities.
+
+__all__ = [
+    "Backlog",
+    "BacklogItem",
+    "EventJournal",
+    "FailureAnnotation",
+    "FailureExperience",
+    "FailureExperienceHit",
+    "FailureExperienceStore",
+    "GlobalMemory",
+    "IdentityCard",
+    "JournalEntry",
+    "LifeMemory",
+    "MemoryBundle",
+    "ProjectMemory",
+]
+
+
+def __getattr__(name: str):  # PEP 562 lazy attrs
+    if name in {"LifeBudget", "LifeSupervisor"}:
+        from . import supervisor  # intentional lazy import (PEP 562)
+        return getattr(supervisor, name)
+    raise AttributeError(f"module 'argus.life' has no attribute {name!r}")

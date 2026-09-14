@@ -16,21 +16,21 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.planner_verdict_outbox import (
+from argus.core.models import RunnerResult
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.planner_verdict_outbox import (
     OUTBOX_FILE,
     load_planner_verdict_outbox,
     write_planner_verdict_outbox,
 )
-from argus_skill.life.supervisor import (
+from argus.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
 )
-from argus_skill.life.supervisor._constants import PLAN_RETRY
-from argus_skill.planner import Planner
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.life.supervisor._constants import PLAN_RETRY
+from argus.planner import Planner
+from argus.skills.vertical_select import persist_vertical
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,7 +72,7 @@ class _RecordingSink:
         self.events: list[dict[str, Any]] = []
         self._tee = None
         if life_dir is not None:
-            from argus_skill.life.event_log import JsonlEventSink
+            from argus.life.event_log import JsonlEventSink
 
             self._tee = JsonlEventSink(None, life_dir=life_dir, verbosity="full")
 

@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from test_training_runtime import training as training
 
-from argus_skill.trial.interaction_capture import Capture
-from argus_skill.trial.training_capture import HOSTED_PROFILE
-from argus_skill.trial.training_schema import pi_strict_schema
-from argus_skill.trial.training_validate import (
+from argus.trial.interaction_capture import Capture
+from argus.trial.training_capture import HOSTED_PROFILE
+from argus.trial.training_schema import pi_strict_schema
+from argus.trial.training_validate import (
     InvalidPackage,
     _check_public_sources,
     _sample,
@@ -249,7 +249,7 @@ def test_file_integrity_failure_is_detected_before_semantics(package):
 
 
 def test_duplicate_json_keys_and_nonfinite_numbers_fail_strictly():
-    from argus_skill.trial.training_validate import InvalidPackage, _json
+    from argus.trial.training_validate import InvalidPackage, _json
 
     for raw, code in ((b'{"a":1,"a":2}', "duplicate_json_key"), (b'{"a":NaN}', "nonfinite_json_number"),
                       (b'{"a":1e999}', "nonfinite_json_number")):
@@ -259,7 +259,7 @@ def test_duplicate_json_keys_and_nonfinite_numbers_fail_strictly():
 
 def test_offline_public_skill_read_rejects_modified_body_at_valid_published_path():
     relative = "verticals/software/skills/engineer/software-change-implementation.md"
-    body = (Path(__file__).resolve().parents[2] / "argus_skill" / relative).read_text()
+    body = (Path(__file__).resolve().parents[2] / "argus" / relative).read_text()
     payload = {
         "toolCallId": "synthetic-public-read", "toolName": "read",
         "input": {"path": "/tenant/home/.argus-skill/skills/_shared_verticals/software/engineer/software-change-implementation.md"},

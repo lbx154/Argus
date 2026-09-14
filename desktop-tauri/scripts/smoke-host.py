@@ -165,7 +165,7 @@ def main() -> int:
                                 "the host must not create periodic loopback stalls"
                             )
                         ready_seconds = ready_observed_at - launched_at
-                        expected = json.loads((binary.parent / "argus-backend/_internal/argus_skill/release_manifest.json").read_text(encoding="utf-8"))
+                        expected = json.loads((binary.parent / "argus-backend/_internal/argus/release_manifest.json").read_text(encoding="utf-8"))
                         request = urllib.request.Request(f"http://127.0.0.1:{port}/api/meta", headers={"Authorization": f"Bearer {token}"})
                         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=5) as response:
                             metadata = json.load(response)

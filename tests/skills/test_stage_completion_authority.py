@@ -39,8 +39,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_machine import complete_final_stage
-from argus_skill.skills.vertical_select import (
+from argus.skills.stage_machine import complete_final_stage
+from argus.skills.vertical_select import (
     persist_vertical,
     vertical_completion_certificate_status,
 )
@@ -144,7 +144,7 @@ def test_early_completion_flag_cannot_bypass_staged_workflow(
 
 def test_the_final_stage_never_needed_the_flag(tmp_path: Path) -> None:
     """Ordinary completion must be untouched by the new gate."""
-    from argus_skill.skills.stage_machine import StageCompletionError
+    from argus.skills.stage_machine import StageCompletionError
 
     root = _project(tmp_path, stage="review")
 
@@ -163,8 +163,8 @@ def _forge(root: Path, *, mode: str) -> None:
     primitive now refuses — and the read side has to reject records written
     before it did.
     """
-    from argus_skill.skills.stage_machine import completion_contract_fingerprint
-    from argus_skill.verticals._base import (
+    from argus.skills.stage_machine import completion_contract_fingerprint
+    from argus.verticals._base import (
         load_vertical,
         vertical_completion_contract_version,
     )

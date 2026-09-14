@@ -20,25 +20,25 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.life.supervisor._constants import (
+from argus.life.supervisor._constants import (
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
 )
-from argus_skill.life.supervisor._planning_context import PlanningContextMixin
-from argus_skill.life.supervisor._planning_cycle_completion import (
+from argus.life.supervisor._planning_context import PlanningContextMixin
+from argus.life.supervisor._planning_cycle_completion import (
     PlanningCycleCompletionMixin,
 )
-from argus_skill.life.supervisor._planning_cycle_helpers import (
+from argus.life.supervisor._planning_cycle_helpers import (
     _PlanCycleState,
     completion_rejection_circuit_path,
     load_completion_rejection_circuit,
     pause_completion_rejection_circuit,
     record_completion_rejection,
 )
-from argus_skill.life.supervisor._planning_cycle_intake import (
+from argus.life.supervisor._planning_cycle_intake import (
     PlanningCycleIntakeMixin,
 )
-from argus_skill.planner import PlannerVerdict
+from argus.planner import PlannerVerdict
 
 _OBJECTIVE = "finish the paper"
 

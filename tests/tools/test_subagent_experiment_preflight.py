@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from argus_skill.tools.subagent._experiment_preflight import (
+from argus.tools.subagent._experiment_preflight import (
     experiment_launch_preflight,
     release_experiment_launch_claim,
 )

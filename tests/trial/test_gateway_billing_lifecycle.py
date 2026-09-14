@@ -12,9 +12,9 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 
-from argus_skill.trial.gateway import Settings, create_app, prepare
-from argus_skill.trial.secrets import Vault, write_private
-from argus_skill.trial.store import Store, TrialError
+from argus.trial.gateway import Settings, create_app, prepare
+from argus.trial.secrets import Vault, write_private
+from argus.trial.store import Store, TrialError
 from tests.trial.test_gateway_billing_responsiveness import (
     KEY_ID,
     PAYLOAD,

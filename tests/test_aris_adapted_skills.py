@@ -21,10 +21,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-BUILTIN_ROOT = Path(__file__).resolve().parents[1] / "argus_skill" / "builtin_skills"
+BUILTIN_ROOT = Path(__file__).resolve().parents[1] / "argus" / "builtin_skills"
 RESEARCH_ROOT = (
     Path(__file__).resolve().parents[1]
-    / "argus_skill"
+    / "argus"
     / "verticals"
     / "research"
     / "skills"
@@ -184,7 +184,7 @@ def test_seed_builtin_skills_copies_bundled_scripts(tmp_path: Path) -> None:
     figure_renderer.py) alongside the skill markdown. Without this the
     skill prompt would reference a script that's missing in the seeded
     project workspace."""
-    from argus_skill.skills.builtins import seed_vertical_skills
+    from argus.skills.builtins import seed_vertical_skills
 
     seed_vertical_skills(tmp_path, "research")
     renderer = tmp_path / "engineer" / "figure_spec_scripts" / "figure_renderer.py"

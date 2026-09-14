@@ -13,15 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.agent_cli import _structured_output as transport
-from argus_skill.agent_cli.agent_cli_runner import (
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.agent_cli import _structured_output as transport
+from argus.agent_cli.agent_cli_runner import (
     AgentCliRunner,
     PrivateRunnerEnvironment,
     RunnerOptions,
 )
-from argus_skill.core.models import RunnerOptions as CoreOptions
-from argus_skill.trial import training_runtime
+from argus.core.models import RunnerOptions as CoreOptions
+from argus.trial import training_runtime
 
 SCHEMA = {
     "type": "object", "properties": {"answer": {"$ref": "#/$defs/answer"}},

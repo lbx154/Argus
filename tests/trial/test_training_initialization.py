@@ -10,9 +10,9 @@ import pytest
 from test_training_runtime import registration, verifier
 from test_training_runtime import training as training
 
-from argus_skill.trial import training_runtime as runtime
-from argus_skill.trial.analytics import AnalyticsError
-from argus_skill.trial.training_bridge import TrainingBridge, _Handler, _Server
+from argus.trial import training_runtime as runtime
+from argus.trial.analytics import AnalyticsError
+from argus.trial.training_bridge import TrainingBridge, _Handler, _Server
 
 
 def _run_extension(path, lease):

@@ -4,7 +4,7 @@ import asyncio
 import json
 from typing import Any
 
-from argus_skill.plugin import mcp_server
+from argus.plugin import mcp_server
 
 
 class FakeService:

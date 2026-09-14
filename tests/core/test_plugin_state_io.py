@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.core import plugin_manager as manager
+from argus.core import plugin_manager as manager
 
 
 def test_polling_and_installer_state_writes_remain_atomic(tmp_path):

@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.webapi import server
-from argus_skill.webapi.daemon_liveness import web_daemon_liveness
-from argus_skill.webapi.project_state import list_projects
+from argus.core.session import SessionMeta, write_session_meta
+from argus.webapi import server
+from argus.webapi.daemon_liveness import web_daemon_liveness
+from argus.webapi.project_state import list_projects
 
 
 def _status(*, alive: bool, pid: int | None = None):

@@ -75,7 +75,7 @@ Node.js 22.12+, and one authenticated Agent CLI.
 
 ```powershell
 py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 $Argus = Join-Path $Scripts "argus.exe"
 if (-not (Test-Path $Argus)) { throw "Argus entry point not found at $Argus" }
@@ -127,7 +127,7 @@ the user's approval and its official installer.
 
 ```bash
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 ARGUS_BIN="$(uv tool dir --bin)/argus"
 test -x "$ARGUS_BIN"
 "$ARGUS_BIN" --version

@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from argus_skill.core.external_completion_gate import external_completion_gate_issue
-from argus_skill.manager.stage_decider import (
+from argus.core.external_completion_gate import external_completion_gate_issue
+from argus.manager.stage_decider import (
     StageDecision,
     external_completion_gate_rework_decision,
     external_completion_gate_stage_guard_decision,

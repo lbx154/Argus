@@ -6,17 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps._runtime_supervisor import (
+from argus.apps._runtime_supervisor import (
     _independent_review_required_for_project_root,
 )
-from argus_skill.skills import stage_machine
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.skills import stage_machine
+from argus.skills.vertical_select import persist_vertical
 
 
 def test_a_vertical_that_cannot_be_read_still_requires_review(tmp_path, monkeypatch):
     """"I cannot tell whether review is mandatory" is not "review is optional"."""
     persist_vertical(tmp_path, "math", research_target_level="exploratory")
-    import argus_skill.verticals._base as base
+    import argus.verticals._base as base
 
     def boom(*_a, **_k):
         raise RuntimeError("vertical module is from another framework revision")
@@ -81,7 +81,7 @@ def test_the_completion_records_which_framework_stamped_it(project):
 def test_the_rejection_names_the_stage_that_holds_the_disputed_record(project):
     """The old message hashed ``stages[-1]`` — ``review``, a stage this project
     never reached — while the comparison that failed was on ``scope``."""
-    from argus_skill.life.supervisor._planning_cycle_helpers import (
+    from argus.life.supervisor._planning_cycle_helpers import (
         _staged_goal_completion_issue,
     )
 
@@ -107,7 +107,7 @@ def test_the_rejection_names_the_stage_that_holds_the_disputed_record(project):
 
 
 def test_a_matching_certificate_still_passes_the_gate(project):
-    from argus_skill.life.supervisor._planning_cycle_helpers import (
+    from argus.life.supervisor._planning_cycle_helpers import (
         _staged_goal_completion_issue,
     )
 

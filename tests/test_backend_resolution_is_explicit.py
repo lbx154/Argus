@@ -27,17 +27,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.agent_cli.runner_backend import (
+from argus.agent_cli.runner_backend import (
     SUPPORTED_BACKENDS,
     normalize_runner_backend,
 )
-from argus_skill.core import knob_store
-from argus_skill.core.knobs import (
+from argus.core import knob_store
+from argus.core.knobs import (
     BackendResolutionError,
     resolve_role_backend,
     resolve_role_backend_with_source,
 )
-from argus_skill.core.paths import config_path
+from argus.core.paths import config_path
 
 # The autouse fixture in tests/conftest.py clears every ambient ARGUS_SKILL_*
 # var and repoints ARGUS_SKILL_HOME at a throwaway directory, so each test here
@@ -195,7 +195,7 @@ def test_the_source_vocabulary_matches_resolve_backend_profile() -> None:
     ``env:<VAR>`` / ``persisted:<VAR>`` / ``default``. The cockpit should not
     have to learn a second spelling to render the same fact.
     """
-    from argus_skill.core.backend_readiness import resolve_backend_profile
+    from argus.core.backend_readiness import resolve_backend_profile
 
     profile = resolve_backend_profile(env={"ARGUS_SKILL_RUNNER_BACKEND": "copilot"})
     _backend, source = resolve_role_backend_with_source(
@@ -259,7 +259,7 @@ def test_display_paths_that_guard_the_normalizer_still_show_the_raw_value() -> N
     Its guard must keep working after the normalizer got strict — otherwise the
     cockpit would crash instead of echoing back what the operator typed.
     """
-    from argus_skill.core.backend_readiness import resolve_backend_profile
+    from argus.core.backend_readiness import resolve_backend_profile
 
     profile = resolve_backend_profile(env={"ARGUS_SKILL_RUNNER_BACKEND": "copilto"})
     assert profile.backend == "copilto"
@@ -307,7 +307,7 @@ def test_absent_knob_store_is_still_normal() -> None:
 
 
 def _worker(tmp_path: Path, backend: str):
-    from argus_skill.daemon.life_worker import LifeWorker, LifeWorkerConfig
+    from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
 
     return LifeWorker(
         LifeWorkerConfig(
@@ -410,7 +410,7 @@ def test_the_export_runs_before_anything_resolves_a_role(tmp_path: Path) -> None
     """
     import inspect
 
-    from argus_skill.daemon._life_worker_boot import LifeWorkerBootMixin
+    from argus.daemon._life_worker_boot import LifeWorkerBootMixin
 
     boot = inspect.getsource(LifeWorkerBootMixin.run_forever)
     assert boot.index("_rf_bootstrap_environment") < boot.index("_rf_vault_preflight")
@@ -427,7 +427,7 @@ def test_the_export_runs_before_anything_resolves_a_role(tmp_path: Path) -> None
 def test_daemon_boot_records_each_role_backend_with_its_source(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.core.event_catalog import validate_event_envelope
+    from argus.core.event_catalog import validate_event_envelope
 
     worker = _worker(tmp_path, "copilot")
     worker._rf_export_configured_backend()
@@ -480,7 +480,7 @@ def test_a_typed_backend_flag_outranks_a_stale_ambient_env(monkeypatch) -> None:
     """
     import argparse
 
-    from argus_skill.core.knobs import resolve_role_backend
+    from argus.core.knobs import resolve_role_backend
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
     args = argparse.Namespace(backend="copilot")
@@ -518,7 +518,7 @@ def test_the_daemon_refuses_to_boot_on_a_corrupt_knob_file(tmp_path, monkeypatch
     """
     from types import SimpleNamespace
 
-    from argus_skill.daemon._life_worker_run import LifeWorkerRunMixin
+    from argus.daemon._life_worker_run import LifeWorkerRunMixin
 
     _corrupt_knob_store(tmp_path, monkeypatch)
     mixin = LifeWorkerRunMixin.__new__(LifeWorkerRunMixin)
@@ -538,7 +538,7 @@ def test_the_config_page_shows_the_corruption_instead_of_dying_of_it(
     render every persisted switch as "unset" — the silent revert this whole
     change removes. Report it, and render the defaults it is actually showing.
     """
-    from argus_skill.core.config_snapshot import (
+    from argus.core.config_snapshot import (
         build_config_snapshot,
         format_config_snapshot_markdown,
     )
@@ -557,7 +557,7 @@ def test_a_healthy_knob_file_carries_no_error_banner(tmp_path, monkeypatch) -> N
     """The negative control: the banner must mean something when it appears."""
     import json
 
-    from argus_skill.core.config_snapshot import (
+    from argus.core.config_snapshot import (
         build_config_snapshot,
         format_config_snapshot_markdown,
     )
@@ -582,7 +582,7 @@ def test_an_unresolvable_backend_reads_as_unavailable_supervision_not_as_health(
     not a crash, and above all not the fabricated "continue / healthy" that let
     a GPU run burn to completion with no supervision at all.
     """
-    from argus_skill.tools.subagent import _supervised_run as sr
+    from argus.tools.subagent import _supervised_run as sr
 
     for name in [k for k in os.environ if k.startswith("ARGUS_SKILL")]:
         monkeypatch.delenv(name, raising=False)

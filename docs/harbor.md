@@ -40,7 +40,7 @@ export OPENAI_API_KEY=...
 
 .venv/bin/harbor run \
   --dataset terminal-bench@2.0 \
-  --agent argus_skill.integrations.harbor:ArgusHarborAgent \
+  --agent argus.integrations.harbor:ArgusHarborAgent \
   --model openai/gpt-5.4-mini \
   --ak reasoning_effort=high
 ```
@@ -51,7 +51,7 @@ Harbor calls `ArgusHarborAgent.run(...)`. The adapter then:
 2. configures Harbor's model credentials for Argus's Codex backend;
 3. uploads the Harbor instruction as `argus-objective.txt`, without placing the
    objective in process arguments;
-4. starts `argus-skill --daemon-fg --continuous --bounded`;
+4. starts `argus --daemon-fg --continuous --bounded`;
 5. treats the one-shot task as stage-closing and requires the native independent
    Reviewer even for low-risk verticals;
 6. waits for the complete Argus runtime to finish;
@@ -79,9 +79,9 @@ checkout, point `argus_package` at an immutable wheel or Git revision:
 ```bash
 .venv/bin/harbor run \
   --dataset terminal-bench@2.0 \
-  --agent argus_skill.integrations.harbor:ArgusHarborAgent \
+  --agent argus.integrations.harbor:ArgusHarborAgent \
   --model openai/gpt-5.4-mini \
-  --ak 'argus_package=argus-skill @ https://packages.example/argus_skill.whl'
+  --ak 'argus_package=argus @ https://packages.example/argus.whl'
 ```
 
 The package reference is shell-quoted before it is passed to pip. Prefer an

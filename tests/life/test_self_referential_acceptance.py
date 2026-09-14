@@ -8,11 +8,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_backends import _Outcome
-from argus_skill.core.models import RunnerResult
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.apps._runtime_backends import _Outcome
+from argus.core.models import RunnerResult
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.skills.vertical_select import persist_vertical
 
 CLAUSE = "The final report must embed its current Reviewer done receipt and current closeout state."
 

@@ -5,10 +5,10 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 
-from argus_skill.trial.admin import import_cli_login
-from argus_skill.trial.copilot import Copilot
-from argus_skill.trial.secrets import Vault, write_private
-from argus_skill.trial.store import TrialError
+from argus.trial.admin import import_cli_login
+from argus.trial.copilot import Copilot
+from argus.trial.secrets import Vault, write_private
+from argus.trial.store import TrialError
 
 
 @pytest.mark.parametrize("valid", [True, False])

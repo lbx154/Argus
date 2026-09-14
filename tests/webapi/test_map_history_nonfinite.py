@@ -8,12 +8,12 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.json_codec import loads_finite_json
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi import map_history, map_narrative
-from argus_skill.webapi.map_view import read_map
-from argus_skill.webapi.server import create_app
+from argus.core.json_codec import loads_finite_json
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi import map_history, map_narrative
+from argus.webapi.map_view import read_map
+from argus.webapi.server import create_app
 
 
 def _project(root):

@@ -10,24 +10,24 @@ from typing import Any
 
 import pytest
 
-from argus_skill.core.event_catalog import EventType
-from argus_skill.core.models import RunnerResult
-from argus_skill.core.role_decision import encode_role_decision
-from argus_skill.life.context_packet import (
+from argus.core.event_catalog import EventType
+from argus.core.models import RunnerResult
+from argus.core.role_decision import encode_role_decision
+from argus.life.context_packet import (
     create_mission_context,
     record_reviewed_handoff,
 )
-from argus_skill.life.memory import BacklogItem, LifeMemory, MemoryBundle
-from argus_skill.life.supervisor._config import LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import (
+from argus.life.memory import BacklogItem, LifeMemory, MemoryBundle
+from argus.life.supervisor._config import LifeSupervisorConfig
+from argus.life.supervisor._constants import (
     PLAN_AWAITING,
     PLAN_ERROR,
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
 )
-from argus_skill.life.supervisor._core import LifeSupervisor
-from argus_skill.manager import Manager
-from argus_skill.planner import NO_CONCRETE_TASKS_ERROR
+from argus.life.supervisor._core import LifeSupervisor
+from argus.manager import Manager
+from argus.planner import NO_CONCRETE_TASKS_ERROR
 
 
 class _RecordingSink:
@@ -203,8 +203,8 @@ def _write_software_state(project: Path, *, done: bool) -> None:
     )
     if not done:
         return
-    from argus_skill.skills.stage_machine import completion_contract_fingerprint
-    from argus_skill.verticals._base import (
+    from argus.skills.stage_machine import completion_contract_fingerprint
+    from argus.verticals._base import (
         load_vertical,
         vertical_completion_contract_version,
     )
@@ -329,10 +329,10 @@ def test_review_purchase_hook_releases_stage_blocker_before_deferring(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.vertical_contract import PlannerReviewPurchaseDecision
-    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-    from argus_skill.planner import PlannerVerdict, TaskSpec
-    from argus_skill.verticals import _base
+    from argus.core.vertical_contract import PlannerReviewPurchaseDecision
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus.planner import PlannerVerdict, TaskSpec
+    from argus.verticals import _base
 
     supervisor, _backend, sink = _make_supervisor(
         tmp_path,
@@ -407,8 +407,8 @@ def test_direct_research_can_complete_its_bounded_deliverable(
     )
     supervisor.config.open_ended = False
     project = Path(supervisor.config.artifact_root)
-    from argus_skill.skills import stage_machine
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills import stage_machine
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(
         project,
@@ -444,8 +444,8 @@ def test_bounded_staged_research_still_requires_submission_journal(
     )
     supervisor.config.open_ended = False
     project = Path(supervisor.config.artifact_root)
-    from argus_skill.skills import stage_machine
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills import stage_machine
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(
         project,
@@ -498,7 +498,7 @@ def test_content_filtered_planner_disarms_campaign_instead_of_retrying(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.daemon.state import (
+    from argus.daemon.state import (
         read_continuous_state,
         write_continuous_config,
     )
@@ -528,7 +528,7 @@ def test_content_filtered_planner_disarms_campaign_instead_of_retrying(
 
 
 def test_execution_host_failure_pauses_planner_until_explicit_rearm(tmp_path, monkeypatch):
-    from argus_skill.daemon.state import read_continuous_state, write_continuous_config
+    from argus.daemon.state import read_continuous_state, write_continuous_config
 
     diagnostic = (
         "Code Mode is unavailable because failed to spawn code-mode host "
@@ -642,7 +642,7 @@ def test_nonterminal_empty_plan_repair_exhaustion_asks_operator(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     supervisor, backend, sink = _make_supervisor(
         tmp_path,
@@ -685,7 +685,7 @@ def test_nonterminal_empty_plan_does_not_park_when_questions_are_forbidden(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     supervisor, backend, sink = _make_supervisor(
         tmp_path,
@@ -888,8 +888,8 @@ def test_nonterminal_planning_replays_unassessed_current_stage_review_first(
 def test_reviewed_experiment_reaches_planner_before_paper(
     tmp_path: Path, monkeypatch, scale_sufficient: bool,
 ) -> None:
-    from argus_skill.skills.stage_machine import current_stage
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.stage_machine import current_stage
+    from argus.skills.vertical_select import persist_vertical
 
     target = "paper" if scale_sufficient else "experiment"
     title = "Write the paper" if scale_sufficient else "Expand released task coverage"
@@ -1155,7 +1155,7 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
     project = Path(supervisor.config.project_worktree)
     _write_reviewed_math_scope_state(project)
     monkeypatch.setattr(
-        "argus_skill.verticals._base.vertical_stage_completion_issues",
+        "argus.verticals._base.vertical_stage_completion_issues",
         lambda *_args, **_kwargs: ("scope evidence is incomplete",),
     )
     item = supervisor.memory.backlog.add(

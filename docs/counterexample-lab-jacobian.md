@@ -33,8 +33,8 @@ instructions, then expose the absolute path of that environment's executable:
 
 ```bash
 export ARGUS_SKILL_JACOBIAN_MCP_BIN="/path/to/jacobian-environment/bin/jacobian-mcp"
-python -m argus_skill.tools.jacobian status
-python -m argus_skill.tools.jacobian find --query "exact determinant"
+python -m argus.tools.jacobian status
+python -m argus.tools.jacobian find --query "exact determinant"
 ```
 
 The math Engineer and Reviewer receive the Jacobian capability note only when

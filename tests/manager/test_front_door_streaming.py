@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from argus_skill.manager.front_door import manager_triage
+from argus.manager.front_door import manager_triage
 
 
 class _StreamingRunner:

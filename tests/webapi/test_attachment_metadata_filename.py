@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.webapi.attachments import resolve_attachment_refs, upload_attachments
+from argus.core.session import SessionMeta, write_session_meta
+from argus.webapi.attachments import resolve_attachment_refs, upload_attachments
 
 
 @pytest.mark.parametrize("filename", ["notes.json", "metadata.json", "Metadata.JSON", "_metadata_.json"])

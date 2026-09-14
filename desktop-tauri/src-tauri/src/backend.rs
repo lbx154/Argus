@@ -813,7 +813,7 @@ impl BackendSupervisor {
                 command,
                 args: vec![
                     "-m".to_owned(),
-                    "argus_skill".to_owned(),
+                    "argus".to_owned(),
                     "--web".to_owned(),
                     "--web-host".to_owned(),
                     settings.host.clone(),

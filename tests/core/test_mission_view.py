@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.mission_view import (
+from argus.core.mission_view import (
     load_mission_view,
     snapshot_mission_view,
     update_mission_view_event,
@@ -902,7 +902,7 @@ def test_snapshot_corrects_old_review_projection_without_rewriting_it(tmp_path: 
 
 
 def test_review_replay_does_not_bridge_a_truncated_current_log(tmp_path: Path, monkeypatch) -> None:
-    from argus_skill.core.mission_view import _snapshot
+    from argus.core.mission_view import _snapshot
 
     view = emit(tmp_path, "life.mission.started", 1, item_id="current")
     view["bootstrapped"] = True

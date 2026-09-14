@@ -48,7 +48,7 @@ configure and no inbound port to open.
 4. Install the SDK and start the daemon:
 
 ```bash
-pip install 'argus-skill[feishu]'
+pip install 'argus[feishu]'
 
 export ARGUS_SKILL_ENABLE_FEISHU=1
 export ARGUS_SKILL_FEISHU_APP_ID=cli_xxx
@@ -74,13 +74,13 @@ nothing else about the daemon changes.
 into the running task if one is active, queued as a new task if the daemon is
 idle.
 
-They live in `argus_skill/life/chat/`, so a third channel only has to implement
+They live in `argus/life/chat/`, so a third channel only has to implement
 `ChatTransport` — it inherits every command.
 
 ## Web UI on a phone
 
 ```bash
-argus-skill --web --web-host 0.0.0.0
+argus --web --web-host 0.0.0.0
 ```
 
 This prints the reachable URL and a QR code. Scan it and the phone opens the
@@ -106,7 +106,7 @@ argus --web --no-open
 ssh -L 8799:127.0.0.1:8799 user@server
 ```
 
-`pip install 'argus-skill[qr]'` renders the QR code. Without it the URL is still
+`pip install 'argus[qr]'` renders the QR code. Without it the URL is still
 printed in full.
 
 The default `--web-host 127.0.0.1` is unchanged and still needs no token.

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.rl_training_health import (
+from argus.skills.rl_training_health import (
     TAIL_WINDOW,
     validate_rl_training_health,
 )

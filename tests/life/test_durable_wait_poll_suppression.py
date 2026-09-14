@@ -7,18 +7,18 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.engineer.external_work import ExternalWorkState, ExternalWorkStatus
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import (
+from argus.engineer.external_work import ExternalWorkState, ExternalWorkStatus
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import (
     IDLE_BACKOFF_CAP_SECONDS,
     OPERATOR_WAIT_TURN_REGRANT_SECONDS,
     PLAN_AWAITING,
 )
-from argus_skill.life.supervisor._planning_cycle import PlanningCycleMixin
-from argus_skill.planner import PlannerVerdict, TaskSpec, WaitingContract
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.life.supervisor._planning_cycle import PlanningCycleMixin
+from argus.planner import PlannerVerdict, TaskSpec, WaitingContract
+from argus.skills.vertical_select import persist_vertical
 
 
 class _Runner:
@@ -59,7 +59,7 @@ def test_status_only_task_becomes_deterministic_event_wait() -> None:
             TaskSpec(
                 title="Observe live data build",
                 objective=(
-                    "Run python -m argus_skill.tools.subagent status "
+                    "Run python -m argus.tools.subagent status "
                     "--task-id data-build. If it remains live, stop."
                 ),
             )
@@ -203,7 +203,7 @@ def test_status_check_inside_independent_task_is_not_suppressed() -> None:
             TaskSpec(
                 title="Implement parser while data build runs",
                 objective=(
-                    "Run argus_skill.tools.subagent status --task-id data-build once, "
+                    "Run argus.tools.subagent status --task-id data-build once, "
                     "if it remains live, independently implement and test the "
                     "manifest parser now."
                 ),
@@ -408,7 +408,7 @@ def test_parked_missions_wait_without_planner_and_resume_on_job_completion(
             ),
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan_next)
     original = supervisor.memory.backlog.active()
     assert supervisor.memory.backlog.next_pending(respect_running=True) is None
     for _ in range(3):
@@ -471,7 +471,7 @@ def test_startable_work_still_runs_beside_parked_missions(tmp_path: Path, monkey
             )],
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan_next)
     supervisor._enter_pause_backoff()
     supervisor._enter_pause_backoff()
     original = supervisor.memory.backlog.active()
@@ -515,14 +515,14 @@ def test_unchanged_live_job_skips_planner_across_restart(
                 TaskSpec(
                     title="Observe live data build",
                     objective=(
-                        "Run python -m argus_skill.tools.subagent status "
+                        "Run python -m argus.tools.subagent status "
                         "--task-id data-build. If it remains live, stop."
                     ),
                 )
             ],
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     first = _supervisor(project, life)
 
     # The first turn is where the Planner proposed the status probe that got
@@ -592,7 +592,7 @@ def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
             waiting_contract=_contract(),
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     supervisor = _supervisor(project, life)
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
@@ -659,11 +659,11 @@ def test_operator_wait_regrant_cadence_is_decoupled_from_idle_backoff_cap(
             ),
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     # The regrant check reads the module-level name in _planning_context (a
     # from-import), so the consuming module is what must be patched.
     monkeypatch.setattr(
-        "argus_skill.life.supervisor._planning_context."
+        "argus.life.supervisor._planning_context."
         "OPERATOR_WAIT_TURN_REGRANT_SECONDS",
         4 * IDLE_BACKOFF_CAP_SECONDS,
     )
@@ -719,7 +719,7 @@ def test_non_operator_event_wait_never_regrants_on_turn_age(
             ),
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     supervisor = _supervisor(project, life)
 
     assert supervisor._plan_next_work() == PLAN_AWAITING

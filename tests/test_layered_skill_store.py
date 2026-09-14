@@ -3,14 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.layered import (
+from argus.skills.layered import (
     LAYER_GLOBAL,
     LAYER_PROJECT,
     LAYER_VERTICAL,
     LayeredSkillStore,
     shared_skill_scope_dir,
 )
-from argus_skill.skills.store import Skill
+from argus.skills.store import Skill
 
 
 def _store(tmp_path: Path) -> LayeredSkillStore:

@@ -12,14 +12,14 @@ from unittest.mock import Mock
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend._budget_monitor import (
+from argus.adapters.agent_cli_backend._budget_monitor import (
     LiveBudgetMonitor,
     monitor_budget,
 )
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.copilot_acp import CopilotAcpClient
-from argus_skill.core.cost_control import cost_control_snapshot, reserve_call_budget
-from argus_skill.provider_integrations.copilot_usage import capture_copilot_usage_cursor
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.copilot_acp import CopilotAcpClient
+from argus.core.cost_control import cost_control_snapshot, reserve_call_budget
+from argus.provider_integrations.copilot_usage import capture_copilot_usage_cursor
 
 
 def _usage_database(path: Path) -> None:

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from argus_skill.cli.render import render_event_for_terminal
-from argus_skill.cli.theme import BOX, Theme
+from argus.cli.render import render_event_for_terminal
+from argus.cli.theme import BOX, Theme
 
 _PLAIN = Theme(enabled=False, width=80)
 _ANSI = Theme(enabled=True, width=80)

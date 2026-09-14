@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import (
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,

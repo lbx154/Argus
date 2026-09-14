@@ -25,10 +25,10 @@ from typing import Any, cast
 
 import pytest
 
-from argus_skill.apps._self_reply import build_status_snapshot_reply
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import (
+from argus.apps._self_reply import build_status_snapshot_reply
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
@@ -132,7 +132,7 @@ def _make_runner(backend: _FakeBackend) -> Any:
     bypass it and inject our fake backend / args directly so the
     chat-path can be tested in isolation.
     """
-    from argus_skill.apps._runtime import _SkillLoopRunner
+    from argus.apps._runtime import _SkillLoopRunner
 
     runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
     runner = cast(Any, runner)
@@ -155,7 +155,7 @@ def _make_runner(backend: _FakeBackend) -> Any:
     # The runner now holds the single Manager instance; ``_maybe_chat_outcome``
     # routes the chat-vs-task classification through it. Wire it to the fake
     # backend so the real classifier path is exercised end-to-end.
-    from argus_skill.manager import Manager
+    from argus.manager import Manager
 
     runner.manager = Manager(project_root=Path.cwd(), runner=backend)
     return runner
@@ -164,8 +164,8 @@ def _make_runner(backend: _FakeBackend) -> Any:
 def test_execute_config_loads_custom_vertical_from_session_state(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.apps._runtime_helpers import _ExecuteState
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.apps._runtime_helpers import _ExecuteState
+    from argus.verticals._data_domain import write_data_domain
 
     state_root = tmp_path / "life"
     workdir = tmp_path / "workspace"
@@ -178,7 +178,7 @@ def test_execute_config_loads_custom_vertical_from_session_state(
         purpose="physical archive restoration",
         require_independent_review=True,
     )
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     set_active_manager_directive(
         state_root,
@@ -190,7 +190,7 @@ def test_execute_config_loads_custom_vertical_from_session_state(
     runner._role_memory_maintenance_enabled = True
     runner._args.project_state_dir = str(state_root)
     runner._args.workdir = str(workdir)
-    from argus_skill.loop import SkillLoopConfig
+    from argus.loop import SkillLoopConfig
 
     runner._SkillLoopConfig = SkillLoopConfig
 
@@ -217,7 +217,7 @@ def test_execute_config_loads_custom_vertical_from_session_state(
         workdir / "research" / "DOMAINS" / "physical_archive_restoration.json"
     ).exists()
 
-    from argus_skill.reviewer import Reviewer
+    from argus.reviewer import Reviewer
 
     prompt = Reviewer(_FakeBackend())._build_prompt(
         objective="Review the condition assessment scaffold.",
@@ -235,8 +235,8 @@ def test_execute_config_loads_custom_vertical_from_session_state(
 
 
 def test_explicit_review_waiver_emits_a_visible_reason(tmp_path, caplog) -> None:
-    from argus_skill.apps._runtime_helpers import _ExecuteState
-    from argus_skill.loop import SkillLoopConfig
+    from argus.apps._runtime_helpers import _ExecuteState
+    from argus.loop import SkillLoopConfig
 
     workdir = tmp_path / "workspace"
     workdir.mkdir()
@@ -248,7 +248,7 @@ def test_explicit_review_waiver_emits_a_visible_reason(tmp_path, caplog) -> None
     runner._SkillLoopConfig = SkillLoopConfig
 
     state = _ExecuteState()
-    with caplog.at_level("WARNING", logger="argus_skill.apps._runtime_execute"):
+    with caplog.at_level("WARNING", logger="argus.apps._runtime_execute"):
         runner._build_execute_config(
             state,
             working_dir_override=str(workdir),
@@ -270,7 +270,7 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
     """English greeting → one Manager turn, no team pipeline."""
     monkeypatch.delenv("ARGUS_SKILL_SELF_REASONING_EFFORT", raising=False)
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.resolve_manager_reply_model",
+        "argus.apps._self_reply.resolve_manager_reply_model",
         lambda **_kwargs: "best-manager",
     )
     backend = _FakeBackend(response_message="Hi! How can I help?")
@@ -294,7 +294,7 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
 
 def test_message_only_self_reply_uses_manager_model_with_low_effort(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.resolve_manager_reply_model",
+        "argus.apps._self_reply.resolve_manager_reply_model",
         lambda **_kwargs: "persistent-manager-model",
     )
     backend = _FakeBackend(response_message="exact reply")
@@ -318,7 +318,7 @@ def test_message_only_self_reply_uses_manager_model_with_low_effort(monkeypatch)
 
 def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.resolve_role_reasoning_effort",
+        "argus.apps._self_reply.resolve_role_reasoning_effort",
         lambda *_args, **_kwargs: "high",
     )
     backend = _FakeBackend(response_message="done")
@@ -472,7 +472,7 @@ def test_status_like_self_turn_uses_manager_model(tmp_path: Path) -> None:
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
 def test_status_snapshot_merges_continuous_campaign_state(tmp_path: Path) -> None:
-    from argus_skill.core.mission_view import empty_mission_view
+    from argus.core.mission_view import empty_mission_view
 
     view = empty_mission_view()
     view.update({
@@ -545,8 +545,8 @@ def test_self_learning_review_runs_after_five_operator_turns(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.transcript import append_turn
-    from argus_skill.skills.layered import LayeredSkillStore
+    from argus.core.transcript import append_turn
+    from argus.skills.layered import LayeredSkillStore
 
     class _ImmediateThread:
         def __init__(self, *, target, **_kwargs):
@@ -574,7 +574,7 @@ def test_self_learning_review_runs_after_five_operator_turns(
             f"operator turn {index}",
         )
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.threading.Thread",
+        "argus.apps._self_reply.threading.Thread",
         _ImmediateThread,
     )
 
@@ -596,8 +596,8 @@ def test_self_learning_review_catches_up_after_missed_cadence(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.transcript import append_turn
-    from argus_skill.skills.layered import LayeredSkillStore
+    from argus.core.transcript import append_turn
+    from argus.skills.layered import LayeredSkillStore
 
     class _ImmediateThread:
         def __init__(self, *, target, **_kwargs):
@@ -621,7 +621,7 @@ def test_self_learning_review_catches_up_after_missed_cadence(
     for index in range(6):
         append_turn(runner._manager_session_root, "operator", f"turn {index}")
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.threading.Thread",
+        "argus.apps._self_reply.threading.Thread",
         _ImmediateThread,
     )
 
@@ -645,8 +645,8 @@ def test_self_learning_review_reports_applied_skill_changes(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.transcript import append_turn
-    from argus_skill.skills.layered import LayeredSkillStore
+    from argus.core.transcript import append_turn
+    from argus.skills.layered import LayeredSkillStore
 
     class _ImmediateThread:
         def __init__(self, *, target, **_kwargs):
@@ -682,11 +682,11 @@ def test_self_learning_review_reports_applied_skill_changes(
         return SimpleNamespace(exit_code=0, fatal_error="")
 
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.threading.Thread",
+        "argus.apps._self_reply.threading.Thread",
         _ImmediateThread,
     )
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.gateway_run_exec",
+        "argus.apps._self_reply.gateway_run_exec",
         _learn,
     )
 
@@ -887,14 +887,14 @@ def test_self_retries_empty_success_then_returns_explicit_error() -> None:
     ],
 )
 def test_self_never_retries_explicit_interrupts(fatal_error: str) -> None:
-    from argus_skill.apps._runtime import _self_retryable_transport_failure
+    from argus.apps._runtime import _self_retryable_transport_failure
 
     result = RunnerResult(exit_code=1, fatal_error=fatal_error)
     assert _self_retryable_transport_failure(result) is False
 
 
 def test_self_does_not_retry_after_tool_activity() -> None:
-    from argus_skill.apps._runtime import _self_retryable_transport_failure
+    from argus.apps._runtime import _self_retryable_transport_failure
 
     result = RunnerResult(
         exit_code=1,
@@ -1038,7 +1038,7 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert "Check the premise" in planned_tasks[0]
     assert any(event.get("type") == "life.planner.start" for event in sink.events)
     assert any(event.get("type") == "life.planner.verdict" for event in sink.events)
-    from argus_skill.skills.layered import LayeredSkillStore
+    from argus.skills.layered import LayeredSkillStore
 
     layered = loop_kwargs[0]["skill_store"]
     assert isinstance(layered, LayeredSkillStore)
@@ -1048,7 +1048,7 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert loop_kwargs[0]["config"].auto_init_wiki is True
     assert loop_kwargs[0]["config"].session_id == "mission-tree"
 
-    from argus_skill.apps import _runtime
+    from argus.apps import _runtime
 
     monkeypatch.setattr(
         _runtime,

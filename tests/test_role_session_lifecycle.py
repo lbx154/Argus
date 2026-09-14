@@ -4,14 +4,14 @@ import json
 import subprocess
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.core.models import RunnerResult
-from argus_skill.core.role_session import (
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.core.models import RunnerResult
+from argus.core.role_session import (
     RoleSessionCapsule,
     signal_role_session_file,
 )
-from argus_skill.planner import Planner, PlannerConfig
+from argus.planner import Planner, PlannerConfig
 
 
 def _review(status: str) -> str:

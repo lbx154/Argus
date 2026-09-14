@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.verticals.research.venue_profiles import (
+from argus.verticals.research.venue_profiles import (
     VenueProfile,
     venue_profile_path,
 )

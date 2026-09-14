@@ -15,8 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.core import process_stop
-from argus_skill.engineer.external_work import (
+from argus.core import process_stop
+from argus.engineer.external_work import (
     EXTERNAL_WORK_PROTOCOL_VERSION,
     wait_for_external_work_cadence,
 )
@@ -76,7 +76,7 @@ def test_cadence_wait_leaves_once_a_stop_is_requested(tmp_path) -> None:
 
 def test_daemon_stop_request_sets_the_process_flag() -> None:
     """The signal handler's cooperative stop is what long waits read."""
-    from argus_skill.daemon import life_worker
+    from argus.daemon import life_worker
 
     source = life_worker.__file__
     with open(source, encoding="utf-8") as handle:
@@ -120,8 +120,8 @@ def test_real_stop_wakes_default_external_wait_without_poll_delay(tmp_path, monk
 def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
     """A healthy long job keeps the cadence elapsing. Without a stop check the
     loop never returns, so the mission never ends and the signal never lands."""
-    from argus_skill.engineer import round_waits, runner
-    from argus_skill.engineer.round_state import RoundLoopState
+    from argus.engineer import round_waits, runner
+    from argus.engineer.round_state import RoundLoopState
 
     calls: list[int] = []
 
@@ -174,8 +174,8 @@ def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
     # The supervisor must keep the original task out of the terminal archive.
     from types import SimpleNamespace
 
-    from argus_skill.life.memory import BacklogItem, LifeMemory
-    from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 
     status, rounds, message, reason, _thread = control.terminal
 
@@ -221,7 +221,7 @@ def test_a_long_wait_says_how_long_it_has_been_waiting(monkeypatch, tmp_path) ->
     "resumed after 120s" lines and nothing saying how long this had gone on.
     One campaign held four GPUs through such a wait across five rounds and the
     cost was only visible by counting the events."""
-    from argus_skill.engineer import round_signals
+    from argus.engineer import round_signals
 
     monkeypatch.setattr(
         round_signals,

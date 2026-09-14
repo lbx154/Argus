@@ -19,10 +19,10 @@ from __future__ import annotations
 import json
 import re
 
-from argus_skill.manager.plan_challenge import adjudicate_plan_challenge
-from argus_skill.reviewer import Reviewer
-from argus_skill.reviewer._parsing import _PLAN_SIGNALS, parse_decision_text
-from argus_skill.skills.store import SkillStore
+from argus.manager.plan_challenge import adjudicate_plan_challenge
+from argus.reviewer import Reviewer
+from argus.reviewer._parsing import _PLAN_SIGNALS, parse_decision_text
+from argus.skills.store import SkillStore
 
 _SHOWN_SIGNAL = re.compile(r"(?im)^\s*PLAN_SIGNAL\s*=\s*([a-z_]+)")
 

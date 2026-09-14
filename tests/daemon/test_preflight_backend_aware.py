@@ -13,8 +13,8 @@ import os
 
 import pytest
 
-from argus_skill.daemon import life_worker
-from argus_skill.daemon.life_worker import (
+from argus.daemon import life_worker
+from argus.daemon.life_worker import (
     _effective_runner_backend,
     _preflight_route_on_codex,
     required_codex_routes,
@@ -80,7 +80,7 @@ def test_persisted_copilot_skips_without_env(monkeypatch) -> None:
     # exec, cron) never sources .bashrc, so the interactive-only export is
     # invisible and the daemon would otherwise wrongly probe the codex vault.
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs",
+        "argus.core.knob_store.read_persisted_knobs",
         lambda: {"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
     )
     assert required_codex_routes() == []
@@ -143,7 +143,7 @@ def test_missing_default_codex_uses_copilot_without_vault_probe(
 def test_effective_runner_backend_uses_instantiated_fallback() -> None:
     from types import SimpleNamespace
 
-    from argus_skill.adapters.agent_cli_backend import AgentCliBackend
+    from argus.adapters.agent_cli_backend import AgentCliBackend
 
     runner = SimpleNamespace(
         backend=AgentCliBackend(backend="copilot", runner_bin="copilot")

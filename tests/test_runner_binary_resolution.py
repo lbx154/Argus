@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.agent_cli import runner_backend
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
-from argus_skill.agent_cli.runner_backend import (
+from argus.agent_cli import runner_backend
+from argus.agent_cli.agent_cli_runner import AgentCliRunner
+from argus.agent_cli.runner_backend import (
     BACKEND_CODEX,
     BACKEND_COPILOT,
     BACKEND_GROK,
@@ -18,7 +18,7 @@ from argus_skill.agent_cli.runner_backend import (
     resolve_available_runner,
     resolve_runner_bin,
 )
-from argus_skill.core.knobs import resolve_runner_bin_setting
+from argus.core.knobs import resolve_runner_bin_setting
 
 
 def _write_runner_executable(path: Path, *, exit_code: int = 0) -> Path:

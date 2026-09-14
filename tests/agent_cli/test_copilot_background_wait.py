@@ -5,11 +5,11 @@ import json
 
 import pytest
 
-from argus_skill.agent_cli import _run_exec
-from argus_skill.agent_cli._env import _CAPTURE_JSON_EVENTS_ENV
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import BACKEND_COPILOT
-from argus_skill.core.runner_receipts import is_provider_background_wait_receipt
+from argus.agent_cli import _run_exec
+from argus.agent_cli._env import _CAPTURE_JSON_EVENTS_ENV
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import BACKEND_COPILOT
+from argus.core.runner_receipts import is_provider_background_wait_receipt
 
 
 class _Stdin:

@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from argus_skill.advisor.config import AdvisorConfigError, load_advisor_config, save_advisor_config
-from argus_skill.advisor.evidence import collect_evidence
+from argus.advisor.config import AdvisorConfigError, load_advisor_config, save_advisor_config
+from argus.advisor.evidence import collect_evidence
 
 
 def test_config_is_explicit_and_project_scoped(tmp_path):

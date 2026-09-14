@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.trial import client, desktop
-from argus_skill.trial.storage import write_private
+from argus.trial import client, desktop
+from argus.trial.storage import write_private
 
 KEY = "argus_trial_" + "a" * 64
 OLD_KEY = "argus_trial_" + "b" * 64
@@ -26,10 +26,10 @@ def home(tmp_path, monkeypatch):
 
 
 def test_prepare_never_changes_active_profile_or_model_knobs(home, monkeypatch):
-    from argus_skill.core import backend_readiness
-    from argus_skill.core.knob_store import read_persisted_knobs, write_persisted_knobs
-    from argus_skill.tools import setup
-    from argus_skill.trial import native_cli
+    from argus.core import backend_readiness
+    from argus.core.knob_store import read_persisted_knobs, write_persisted_knobs
+    from argus.tools import setup
+    from argus.trial import native_cli
 
     old = json.dumps({"base_url": "https://argusbot.cn/v1", "api_key": OLD_KEY}).encode()
     write_private(home / "copilot-trial.json", old)
@@ -53,9 +53,9 @@ def test_prepare_never_changes_active_profile_or_model_knobs(home, monkeypatch):
 
 
 def test_failed_prepare_leaves_personal_configuration_intact(home, monkeypatch):
-    from argus_skill.core import backend_readiness
-    from argus_skill.tools import setup
-    from argus_skill.trial import native_cli
+    from argus.core import backend_readiness
+    from argus.tools import setup
+    from argus.trial import native_cli
 
     monkeypatch.setattr(desktop, "query_status", lambda *_: {"tokens_remaining": 1, "token_limit": 100})
     monkeypatch.setattr(native_cli, "install_native_copilot", lambda **_kwargs: "copilot.exe")
@@ -115,8 +115,8 @@ def test_invalid_key_never_contacts_network(home, monkeypatch):
 
 
 def test_trial_usage_keeps_counts_without_personal_dollar_cost(home):
-    from argus_skill.core.token_usage import TokenUsage
-    from argus_skill.core.usage import build_usage_record
+    from argus.core.token_usage import TokenUsage
+    from argus.core.usage import build_usage_record
     record = build_usage_record(call_id="preview-test", project_root=home, mission_id=None,
         provider="copilot", model="argus-trial", run_label="test", started_at=1,
         completed_at=2, status="completed", hosted_trial=True,

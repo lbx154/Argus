@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest import mock
 
-from argus_skill.cli.theme import BOX, Theme
+from argus.cli.theme import BOX, Theme
 
 
 def test_theme_disabled_passes_text_through() -> None:
@@ -82,7 +82,7 @@ def test_truecolor_emits_24bit_sgr() -> None:
 
 
 def test_supports_truecolor_reads_colorterm(monkeypatch) -> None:
-    from argus_skill.cli import theme as theme_mod
+    from argus.cli import theme as theme_mod
 
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.setenv("COLORTERM", "truecolor")

@@ -7,8 +7,8 @@ from email.message import Message
 
 import pytest
 
-from argus_skill.apps import package_update
-from argus_skill.apps.update import UpdateError
+from argus.apps import package_update
+from argus.apps.update import UpdateError
 
 ZIP = "https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
 
@@ -55,7 +55,7 @@ class Distribution:
 
 @pytest.fixture
 def installation(tmp_path, monkeypatch):
-    prefix = tmp_path / "argus-skill"
+    prefix = tmp_path / "argus"
     prefix.mkdir()
     distribution = Distribution(prefix, direct={"url": ZIP, "archive_info": {}})
     monkeypatch.setattr(package_update.sys, "prefix", str(prefix))
@@ -77,7 +77,7 @@ def installation(tmp_path, monkeypatch):
     return distribution, calls, run
 
 
-def receipt(distribution, content='requirements = [{ name = "argus-skill" }]'):
+def receipt(distribution, content='requirements = [{ name = "argus" }]'):
     distribution.installer = "uv"
     (distribution.root / "uv-receipt.toml").write_text("[tool]\n" + content, encoding="utf-8")
 
@@ -128,7 +128,7 @@ def test_vcs_keeps_subdirectory(installation):
 
 @pytest.mark.parametrize("direct", [
     None,
-    {"url": "file:///tmp/argus_skill-0.1.1-py3-none-any.whl"},
+    {"url": "file:///tmp/argus-0.1.1-py3-none-any.whl"},
     {"url": "file:///tmp/argus-src", "dir_info": {}},
 ])
 @pytest.mark.parametrize("repository", ["lbx154/Argus", "lbx154/argus-skill", "microsoft/ArgusAgent"])
@@ -150,7 +150,7 @@ def test_wheel_uses_its_trusted_repository_with_explicit_main_note(installation,
     "https://github.com/lbx154/Argus/../other/archive/main.zip",
     "https://github.com/lbx154/Argus/%2e%2e/other/archive/main.zip",
     "https://github.com/lbx154/Argus/blob/main/setup.py",
-    "https://example.invalid/argus_skill.whl",
+    "https://example.invalid/argus.whl",
     "file:///tmp/arbitrary-source.zip",
 ])
 def test_unknown_direct_source_never_falls_back_to_repository_metadata(installation, source):
@@ -179,14 +179,14 @@ def test_uv_tool_upgrades_current_named_tool_using_receipt(installation):
     result = package_update.update_installed_package(runner=run)
     assert calls == [
         ["uv", "tool", "dir"],
-        ["uv", "tool", "upgrade", "argus-skill", "--reinstall-package", "argus-skill", "--no-cache"],
+        ["uv", "tool", "upgrade", "argus", "--reinstall-package", "argus", "--no-cache"],
     ]
     assert result.installer == "uv tool"
 
 
 def test_uv_tool_supports_older_string_receipt(installation):
     distribution, calls, run = installation
-    receipt(distribution, 'requirements = ["argus-skill @ ' + ZIP + '"]')
+    receipt(distribution, 'requirements = ["argus @ ' + ZIP + '"]')
     package_update.update_installed_package(runner=run)
     assert calls[-1][:3] == ["uv", "tool", "upgrade"]
 
@@ -194,11 +194,11 @@ def test_uv_tool_supports_older_string_receipt(installation):
 def test_uv_tool_local_wheel_migrates_same_tool_to_its_official_main(installation):
     distribution, calls, run = installation
     receipt(distribution)
-    distribution.direct = {"url": "file:///tmp/argus_skill.whl"}
+    distribution.direct = {"url": "file:///tmp/argus.whl"}
     result = package_update.update_installed_package(runner=run)
     assert calls[-1] == [
         "uv", "tool", "install", "--python", str(distribution.root.parent / "base-python"),
-        "--reinstall-package", "argus-skill", "--no-cache", ZIP,
+        "--reinstall-package", "argus", "--no-cache", ZIP,
     ]
     assert result.source_note
 
@@ -218,24 +218,87 @@ def test_uv_tool_pinned_revision_is_disclosed_and_not_migrated(installation):
 def test_uv_tool_migration_preserves_primary_extras_and_additional_requirements(installation):
     distribution, calls, run = installation
     receipt(distribution, '''requirements = [
-        { name = "argus-skill", path = "/tmp/argus.whl", extras = ["qr"] },
+        { name = "argus", path = "/tmp/argus.whl", extras = ["qr"] },
         { name = "colorama", specifier = "==0.4.6" },
         "httpx>=0.27",
     ]''')
-    distribution.direct = {"url": "file:///tmp/argus_skill.whl"}
+    distribution.direct = {"url": "file:///tmp/argus.whl"}
     package_update.update_installed_package(runner=run)
-    assert calls[-1][-5:] == ["--with", "colorama==0.4.6", "--with", "httpx>=0.27", f"argus-skill[qr] @ {ZIP}"]
+    assert calls[-1][-5:] == ["--with", "colorama==0.4.6", "--with", "httpx>=0.27", f"argus[qr] @ {ZIP}"]
     assert "--force" not in calls[-1]
     assert calls[-1][calls[-1].index("--python") + 1].endswith("base-python")
 
 
 def test_uv_tool_migration_does_not_silently_drop_custom_resolution_settings(installation):
     distribution, calls, run = installation
-    receipt(distribution, 'requirements = [{name="argus-skill"}]\n[tool.options]\nprerelease="allow"')
-    distribution.direct = {"url": "file:///tmp/argus_skill.whl"}
+    receipt(distribution, 'requirements = [{name="argus"}]\n[tool.options]\nprerelease="allow"')
+    distribution.direct = {"url": "file:///tmp/argus.whl"}
     with pytest.raises(UpdateError, match="preserve uv tool options"):
         package_update.update_installed_package(runner=run)
     assert calls == [["uv", "tool", "dir"]]
+
+
+def test_pre_rename_distribution_is_found_and_removed_before_the_new_one_is_installed(installation, monkeypatch):
+    """An install made as ``argus-skill`` updates itself to ``argus``.
+
+    The old distribution is uninstalled first: left behind, its full
+    ``argus_skill/`` tree would outlive the two-file alias and a later
+    ``pip uninstall argus-skill`` would delete the alias's own files.
+    """
+    distribution, calls, run = installation
+    distribution.metadata["Name"] = "argus-skill"
+
+    def lookup(name):
+        if name == "argus":
+            raise package_update.metadata.PackageNotFoundError(name)
+        assert name == "argus-skill"
+        return distribution
+
+    monkeypatch.setattr(package_update.metadata, "distribution", lookup)
+    monkeypatch.setattr(package_update.metadata, "version", lambda name: {"argus": "0.1.7"}[name])
+
+    result = package_update.update_installed_package(runner=run)
+
+    python = str(distribution.root / "python")
+    assert calls == [
+        [python, "-m", "pip", "uninstall", "-y", "argus-skill"],
+        [python, "-m", "pip", "install", "--upgrade", "--force-reinstall", "--no-cache-dir", ZIP],
+    ]
+    assert result.after_version == "0.1.7"
+
+
+def test_pre_rename_distribution_is_removed_before_a_uv_pip_install_too(installation, monkeypatch):
+    distribution, calls, run = installation
+    distribution.metadata["Name"] = "argus-skill"
+    distribution.installer = "uv"
+    monkeypatch.setattr(package_update.metadata, "distribution", lambda _name: distribution)
+    monkeypatch.setattr(package_update.metadata, "version", lambda name: {"argus": "0.1.7"}[name])
+
+    package_update.update_installed_package(runner=run)
+
+    python = str(distribution.root / "python")
+    assert calls[0] == ["uv", "pip", "uninstall", "--python", python, "argus-skill"]
+    assert calls[1][:6] == ["uv", "pip", "install", "--python", python, "--reinstall-package"]
+
+
+def test_uv_tool_installed_under_the_pre_rename_name_is_told_how_to_migrate(tmp_path, monkeypatch):
+    """``uv tool upgrade argus-skill`` cannot work once the project is named ``argus``."""
+    prefix = tmp_path / "argus-skill"
+    prefix.mkdir()
+    distribution = Distribution(prefix, direct={"url": ZIP, "archive_info": {}}, installer="uv")
+    distribution.metadata["Name"] = "argus-skill"
+    (prefix / "uv-receipt.toml").write_text(
+        '[tool]\nrequirements = [{ name = "argus-skill" }]\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(package_update.sys, "prefix", str(prefix))
+    monkeypatch.setattr(package_update.sys, "executable", str(prefix / "python"))
+    monkeypatch.setattr(package_update.metadata, "distribution", lambda _name: distribution)
+    monkeypatch.setattr(package_update.site, "ENABLE_USER_SITE", False)
+    calls = []
+
+    with pytest.raises(UpdateError, match="uv tool uninstall argus-skill"):
+        package_update.update_installed_package(runner=lambda *args, **kwargs: calls.append(args))
+    assert calls == []
 
 
 def test_editable_package_requires_source_updater(installation):
@@ -276,7 +339,7 @@ def test_uv_pip_targets_running_interpreter_without_requiring_pip(installation, 
     result = package_update.update_installed_package(runner=run)
     assert calls == [[
         "uv", "pip", "install", "--python", str(distribution.root / "python"),
-        "--reinstall-package", "argus-skill", "--upgrade-package", "argus-skill", "--no-cache", ZIP,
+        "--reinstall-package", "argus", "--upgrade-package", "argus", "--no-cache", ZIP,
     ]]
     assert result.installer == "uv pip"
 

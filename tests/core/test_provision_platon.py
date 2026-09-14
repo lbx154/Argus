@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from argus_skill.release_tools import provision_platon as tool
+from argus.release_tools import provision_platon as tool
 
 
 @pytest.fixture

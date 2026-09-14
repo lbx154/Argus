@@ -4,12 +4,12 @@ import json
 import pytest
 from test_training_runtime import training as training
 
-from argus_skill.trial.training_capture import (
+from argus.trial.training_capture import (
     HOSTED_PROFILE,
     _content_diagnostic,
     _hosted_sensitive,
 )
-from argus_skill.trial.training_public_assets import (
+from argus.trial.training_public_assets import (
     ROOT,
     check_public_skill_event,
     public_skill_body,

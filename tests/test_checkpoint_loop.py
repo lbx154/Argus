@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 
 SKILL_MD = (
     "## Title\nDemo skill\n\n"

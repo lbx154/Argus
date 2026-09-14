@@ -13,10 +13,10 @@ import queue
 
 import pytest
 
-from argus_skill.agent_cli import agent_cli_runner, copilot_acp
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.models import AgentRunResult
-from argus_skill.agent_cli.runner_backend import BACKEND_COPILOT
+from argus.agent_cli import agent_cli_runner, copilot_acp
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.models import AgentRunResult
+from argus.agent_cli.runner_backend import BACKEND_COPILOT
 
 
 class _FakeAcpProc:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core import project
+from argus.core import project
 
 
 @pytest.mark.parametrize(

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.life.supervisor._constants import PLAN_RETRY
-from argus_skill.life.supervisor._planning_context import PlanningContextMixin
-from argus_skill.life.supervisor._planning_cycle_completion import (
+from argus.life.supervisor._constants import PLAN_RETRY
+from argus.life.supervisor._planning_context import PlanningContextMixin
+from argus.life.supervisor._planning_cycle_completion import (
     PlanningCycleCompletionMixin,
 )
-from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-from argus_skill.planner import PlannerVerdict
+from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus.planner import PlannerVerdict
 
 
 class _CompletionHarness(PlanningCycleCompletionMixin):
@@ -161,7 +161,7 @@ def test_planner_cannot_complete_before_manager_finishes_final_stage(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.skills import vertical_select
+    from argus.skills import vertical_select
 
     monkeypatch.setattr(
         vertical_select,
@@ -188,7 +188,7 @@ def test_manager_reports_all_stages_after_project_completion(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.skills import vertical_select
+    from argus.skills import vertical_select
 
     monkeypatch.setattr(
         vertical_select,
@@ -225,7 +225,7 @@ def test_manager_reports_all_stages_after_project_completion(
         if event.get("type") == "life.manager.project_report"
     )
     assert project_event_index < report_event_index
-    from argus_skill.core.transcript import read_turns
+    from argus.core.transcript import read_turns
 
     assert "covering every stage" in read_turns(tmp_path)[-1]["text"]
     assert any(

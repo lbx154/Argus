@@ -491,7 +491,7 @@ function ConfigPanel({ c }: { c: ConfigSnapshot }) {
       ))}
       <Text> </Text>
       <Text dimColor>NL-editable: model · effort · backend · caps · safe_mode</Text>
-      <Text dimColor>full list: argus-skill --config-help</Text>
+      <Text dimColor>full list: argus --config-help</Text>
     </Frame>
   );
 }

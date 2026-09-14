@@ -9,10 +9,10 @@ from pathlib import Path
 
 import portalocker
 
-from argus_skill.apps.cli._follow import _merge_recent_event_rows
-from argus_skill.core import jsonl_reader
-from argus_skill.webapi import map_history
-from argus_skill.webapi.server import tail_events
+from argus.apps.cli._follow import _merge_recent_event_rows
+from argus.core import jsonl_reader
+from argus.webapi import map_history
+from argus.webapi.server import tail_events
 
 
 def _append(path, *numbers):

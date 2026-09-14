@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.secret_guard import known_secret_values, redact_secrets_text
-from argus_skill.tools import image_api
-from argus_skill.tools.capability_vault import ModelApiRoute
+from argus.core.secret_guard import known_secret_values, redact_secrets_text
+from argus.tools import image_api
+from argus.tools.capability_vault import ModelApiRoute
 
 
 def test_capability_vault_keys_are_known_secrets(tmp_path: Path) -> None:

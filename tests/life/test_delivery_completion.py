@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.core.planner_verdict import PlannerVerdictStatus
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.core.planner_verdict import PlannerVerdictStatus
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 
 
 class _Manager:
@@ -262,7 +262,7 @@ def test_terminal_delivery_picks_the_success_over_later_non_success_settlements(
 
 
 def test_terminal_delivery_recovers_accepted_handoff_files_for_its_own_goal(tmp_path):
-    from argus_skill.life.memory import BacklogItem
+    from argus.life.memory import BacklogItem
     supervisor, memory = _delivery_supervisor(tmp_path)
     workspace = str(supervisor._project_workdir())
     from pathlib import Path
@@ -306,7 +306,7 @@ def test_software_completion_context_includes_delivered_files_and_vertical_certi
 
 
 def test_plain_completion_filenames_and_report_links_remain_confined(tmp_path):
-    from argus_skill.life.delivery import linked_report_paths, referenced_delivery_paths
+    from argus.life.delivery import linked_report_paths, referenced_delivery_paths
     (tmp_path / "REPORT.md").write_text("Reviewed website: `index.html`; reproduce with `node validate.js`.\n")
     (tmp_path / "index.html").write_text("<h1>Reviewed</h1>")
     (tmp_path / "validate.js").write_text("console.log('ok')")
@@ -318,7 +318,7 @@ def test_plain_completion_filenames_and_report_links_remain_confined(tmp_path):
 
 
 def test_spreadsheet_completion_is_deliverable_without_markdown_link(tmp_path):
-    from argus_skill.life.delivery import referenced_delivery_paths
+    from argus.life.delivery import referenced_delivery_paths
 
     (tmp_path / "budget.xlsx").write_bytes(b"spreadsheet fixture")
     assert referenced_delivery_paths(tmp_path, ["Created budget.xlsx."]) == ["budget.xlsx"]
@@ -329,8 +329,8 @@ def test_spreadsheet_completion_is_deliverable_without_markdown_link(tmp_path):
 def test_software_delivery_retains_the_reviewed_product_ahead_of_source_files(tmp_path, monkeypatch):
     from pathlib import Path
 
-    from argus_skill.life.memory import BacklogItem
-    from argus_skill.skills import vertical_select
+    from argus.life.memory import BacklogItem
+    from argus.skills import vertical_select
     supervisor, memory = _delivery_supervisor(tmp_path)
     root = Path(supervisor._project_workdir())
     (root / "index.html").write_text("<h1>Product</h1>")

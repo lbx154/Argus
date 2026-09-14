@@ -14,8 +14,8 @@ from urllib.error import HTTPError
 
 import pytest
 
-from argus_skill.tools import image_api
-from argus_skill.tools.capability_vault import (
+from argus.tools import image_api
+from argus.tools.capability_vault import (
     ModelApiGrant,
     ModelApiRoute,
     save_model_api_grant,

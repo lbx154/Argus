@@ -2,7 +2,7 @@
   "name": "argus-tui",
   "version": "0.1.7",
   "private": true,
-  "description": "Ink terminal frontend for the argus-skill autonomous-research daemon. A client of the argus-skill webapi (events over WS, snapshots/commands over REST).",
+  "description": "Ink terminal frontend for the argus autonomous-research daemon. A client of the argus webapi (events over WS, snapshots/commands over REST).",
   "type": "module",
   "bin": {
     "argus": "bin/argus.mjs",
@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli.tsx",
-    "build": "python -m argus_skill.release_tools.generate_event_types --check && python -m argus_skill.release_tools.generate_event_fixtures --check && python -m argus_skill.release_tools.generate_resource_status --check && tsc -p tsconfig.json && npm run build:bundle",
+    "build": "python -m argus.release_tools.generate_event_types --check && python -m argus.release_tools.generate_event_fixtures --check && python -m argus.release_tools.generate_resource_status --check && tsc -p tsconfig.json && npm run build:bundle",
     "build:bundle": "node scripts/build-bundle.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/*.test.ts",

@@ -8,7 +8,7 @@ import time
 
 import portalocker
 
-from argus_skill.core.provider_quota import (
+from argus.core.provider_quota import (
     acquire_codex_permit,
     codex_quota_snapshot,
     provider_usage_snapshot,
@@ -70,7 +70,7 @@ def test_codex_daily_cap_is_atomic_across_processes(monkeypatch, tmp_path) -> No
     monkeypatch.setenv("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "3")
     env = os.environ.copy()
     script = (
-        "from argus_skill.core.provider_quota import acquire_codex_permit; "
+        "from argus.core.provider_quota import acquire_codex_permit; "
         "permit = acquire_codex_permit('parallel-test'); "
         "print('allowed' if permit.allowed else 'blocked', flush=True)"
     )

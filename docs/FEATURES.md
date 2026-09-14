@@ -225,7 +225,7 @@ diagnostic evidence, not a universal latency promise.
 ### Durable long commands and supervisor dialogue
 
 - On POSIX, a command expected to run for more than two minutes is submitted to
-  `argus_skill.tools.subagent`; a provider-native background task or a
+  `argus.tools.subagent`; a provider-native background task or a
   session-owned background shell is never its durable owner.
 - `direct` is the default mode for deterministic commands such as builds,
   evaluations, and test suites. It adds no Supervisor model calls.

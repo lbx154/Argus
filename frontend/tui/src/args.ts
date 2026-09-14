@@ -45,7 +45,7 @@ export interface ParseArgsRuntime {
   platform?: NodeJS.Platform;
 }
 
-/** Parse both the native Ink flags and the retained argus-skill compatibility flags. */
+/** Parse both the native Ink flags and the retained argus compatibility flags. */
 export function parseArgs(argv: string[], runtime: ParseArgsRuntime = {}): Args {
   const env = runtime.env ?? process.env;
   const platform = runtime.platform ?? process.platform;
@@ -144,7 +144,7 @@ export function withSelectedPort(args: Args, port: number): Args {
   };
 }
 
-export const HELP = `argus — the terminal cockpit for the argus-skill autonomous-research daemon
+export const HELP = `argus — the terminal cockpit for the argus autonomous-research daemon
 
 Usage: argus resume [SID] [--all]
        argus [--resume [SID]] [--host H] [--port P] [--project SID] [--token T]

@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.webapi.manager_dispatch import _dispatch_team_mission, _TurnEmitter
-from argus_skill.webapi.routes.manager import _ManagerStreamingResponse
+from argus.webapi.manager_dispatch import _dispatch_team_mission, _TurnEmitter
+from argus.webapi.routes.manager import _ManagerStreamingResponse
 
 
 def test_dispatch_emits_real_handoff_wait_phase_and_forwards_cancellation(tmp_path, monkeypatch):
-    from argus_skill.manager import dispatch, front_door
+    from argus.manager import dispatch, front_door
 
     prepared = SimpleNamespace(decision=SimpleNamespace(workflow_mode="staged"))
     monkeypatch.setattr(front_door, "prepare_manager_execution_task", lambda *args, **kwargs: prepared)

@@ -8,13 +8,13 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
-from argus_skill.agent_cli.models import AgentRunResult
-from argus_skill.core import cost_control
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.usage import UsageLedger, UsageRecord
-from argus_skill.webapi import map_model, map_narrative
-from argus_skill.webapi.server import create_app
+from argus.agent_cli.agent_cli_runner import AgentCliRunner
+from argus.agent_cli.models import AgentRunResult
+from argus.core import cost_control
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.usage import UsageLedger, UsageRecord
+from argus.webapi import map_model, map_narrative
+from argus.webapi.server import create_app
 
 
 def dataset(count=1):
@@ -181,7 +181,7 @@ def test_invalid_map_deadline_is_rejected_before_provider_construction(tmp_path,
 
 
 def test_provider_output_length_is_validated_not_just_requested(tmp_path, monkeypatch):
-    from argus_skill.core.models import RunnerResult
+    from argus.core.models import RunnerResult
 
     monkeypatch.setattr(map_model, "run_exec", lambda *args, **kwargs: RunnerResult(
         exit_code=0, agent_messages=['{"title":"a much too long title"}'],

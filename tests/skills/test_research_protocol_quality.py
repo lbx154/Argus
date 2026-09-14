@@ -3,19 +3,19 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import argus_skill
-from argus_skill.core.vertical_contract import VerticalLibraryContext
-from argus_skill.verticals.research.library_preparation import (
+import argus
+from argus.core.vertical_contract import VerticalLibraryContext
+from argus.verticals.research.library_preparation import (
     STAGE_PLAYBOOK_PATHS,
     prepare_skill_libraries,
 )
-from argus_skill.verticals.research.prompt_policy import render_role_prompt_fragment
-from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+from argus.verticals.research.prompt_policy import render_role_prompt_fragment
+from argus.verticals.research.stages import STAGE_CHECKLISTS
 
 
 def _skill(name: str) -> str:
     path = (
-        Path(argus_skill.__file__).parent
+        Path(argus.__file__).parent
         / "verticals"
         / "research"
         / "skills"
@@ -27,7 +27,7 @@ def _skill(name: str) -> str:
 
 def _playbook(stage: str) -> str:
     path = (
-        Path(argus_skill.__file__).parent
+        Path(argus.__file__).parent
         / "verticals"
         / "research"
         / "skills"
@@ -185,7 +185,7 @@ def test_each_stage_requires_exactly_one_shared_playbook(tmp_path: Path) -> None
 
 def test_every_role_is_directed_to_the_same_stage_playbook() -> None:
     skills_root = (
-        Path(argus_skill.__file__).parent
+        Path(argus.__file__).parent
         / "verticals"
         / "research"
         / "skills"
@@ -206,7 +206,7 @@ def test_every_role_is_directed_to_the_same_stage_playbook() -> None:
 
 
 def test_playbooks_progressively_disclose_existing_specialist_skills() -> None:
-    package_root = Path(argus_skill.__file__).parent
+    package_root = Path(argus.__file__).parent
     research_skills = package_root / "verticals" / "research" / "skills"
     builtin_skills = package_root / "builtin_skills"
 
@@ -228,7 +228,7 @@ def test_playbooks_progressively_disclose_existing_specialist_skills() -> None:
 
 def test_research_skills_do_not_reintroduce_parallel_workflow_artifacts() -> None:
     skills_root = (
-        Path(argus_skill.__file__).parent
+        Path(argus.__file__).parent
         / "verticals"
         / "research"
         / "skills"

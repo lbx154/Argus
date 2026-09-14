@@ -3,12 +3,12 @@ import copy
 import dataclasses
 import json
 
-from argus_skill.agent_cli.agent_cli_runner import (
+from argus.agent_cli.agent_cli_runner import (
     AgentCliRunner,
     PrivateRunnerEnvironment,
     RunnerOptions,
 )
-from argus_skill.trial import training_runtime
+from argus.trial import training_runtime
 
 
 def test_transport_survives_actual_sandbox_copy_without_repr_or_asdict_disclosure(monkeypatch):

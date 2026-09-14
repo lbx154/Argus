@@ -5,19 +5,19 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.core.operator_context import OperatorContextStore
-from argus_skill.core.operator_decision import build_operator_decision
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.memory import BacklogItem, MemoryBundle
-from argus_skill.manager import front_door
-from argus_skill.webapi import manager_pending_question
+from argus.core.operator_context import OperatorContextStore
+from argus.core.operator_decision import build_operator_decision
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.memory import BacklogItem, MemoryBundle
+from argus.manager import front_door
+from argus.webapi import manager_pending_question
 
 
 @pytest.mark.parametrize("asked_at", [100.0, None])
 def test_snapshot_preserves_question_time_without_backfilling_legacy_cards(
     tmp_path, asked_at,
 ) -> None:
-    from argus_skill.webapi.project_state import build_snapshot
+    from argus.webapi.project_state import build_snapshot
 
     mem, card = _blocked_project(tmp_path)
     if asked_at is None:

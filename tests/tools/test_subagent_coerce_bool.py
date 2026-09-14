@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from argus_skill.tools.subagent import _coerce_bool
+from argus.tools.subagent import _coerce_bool
 
 
 def test_coerce_bool_string_false_is_false():

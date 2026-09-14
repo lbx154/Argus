@@ -7,10 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.trial import journey_journal as journal_module
-from argus_skill.trial.analytics import Analytics, AnalyticsError
-from argus_skill.trial.interaction_capture import Capture
-from argus_skill.trial.journey_journal import Journal
+from argus.trial import journey_journal as journal_module
+from argus.trial.analytics import Analytics, AnalyticsError
+from argus.trial.interaction_capture import Capture
+from argus.trial.journey_journal import Journal
 
 
 @pytest.fixture
@@ -700,9 +700,9 @@ def test_user_payload_limits_and_runtime_ids_remain_exact(setup):
 def test_real_message_http_contract_links_input_response_and_runtime(setup, monkeypatch, stream):
     from fastapi.testclient import TestClient
 
-    from argus_skill.life.memory import BacklogItem
-    from argus_skill.webapi import manager_bridge, manager_pending_question, server
-    from argus_skill.webapi.manager_dispatch import _item_to_dict
+    from argus.life.memory import BacklogItem
+    from argus.webapi import manager_bridge, manager_pending_question, server
+    from argus.webapi.manager_dispatch import _item_to_dict
 
     analytics, journal, _, paths = setup
     path = paths["tenant-one"]

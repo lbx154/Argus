@@ -19,11 +19,11 @@ from pathlib import Path
 import pytest
 from test_training_runtime import training as training
 
-from argus_skill.daemon import _life_worker_admission as admission
-from argus_skill.daemon.config import LifeWorkerConfig
-from argus_skill.trial import training_runtime as runtime
-from argus_skill.trial.analytics import AnalyticsError
-from argus_skill.trial.training_bridge import (
+from argus.daemon import _life_worker_admission as admission
+from argus.daemon.config import LifeWorkerConfig
+from argus.trial import training_runtime as runtime
+from argus.trial.analytics import AnalyticsError
+from argus.trial.training_bridge import (
     PeerVerifier,
     TrainingBridge,
     _Handler,
@@ -66,12 +66,12 @@ def test_actual_fresh_helper_double_fork_registration_replay_and_restart(trainin
     (shim / "sitecustomize.py").write_text(r'''
 import json, os, time
 from pathlib import Path
-from argus_skill.daemon import life_worker
+from argus.daemon import life_worker
 class IsolatedNoModelWorker:
     def __init__(self, config): self.config=config
     def run_forever(self):
-        from argus_skill.trial import training_runtime as runtime
-        from argus_skill.trial.training_bridge import IMAGE_PACKAGE, EXTENSION_NAME
+        from argus.trial import training_runtime as runtime
+        from argus.trial.training_bridge import IMAGE_PACKAGE, EXTENSION_NAME
         time.sleep(0.15)
         path=os.environ[runtime.SOCKET_ENV]
         value={'sid':self.config.life_dir.name,'call_id':'first-real-call','run_label':'engineer-test',
@@ -173,8 +173,8 @@ if os.fork(): raise SystemExit(0)
 os.setsid()
 if os.fork(): raise SystemExit(0)
 time.sleep(0.15)
-from argus_skill.trial import training_runtime as runtime
-from argus_skill.trial.training_bridge import IMAGE_PACKAGE, EXTENSION_NAME
+from argus.trial import training_runtime as runtime
+from argus.trial.training_bridge import IMAGE_PACKAGE, EXTENSION_NAME
 value={'sid':'s-project','call_id':'forged-orphan-call','run_label':'engineer-test','mission_id':None,
        'command':['argus-pi','--no-extensions','--no-context-files','--extension',str(IMAGE_PACKAGE/EXTENSION_NAME)]}
 try:

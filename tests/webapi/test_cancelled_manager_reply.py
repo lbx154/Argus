@@ -8,13 +8,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import append_turn, read_turns
-from argus_skill.manager import config_intent, front_door
-from argus_skill.webapi import server
-from argus_skill.webapi.daemon_services import DaemonServices
-from argus_skill.webapi.manager_state import interrupt_manager_turns
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import append_turn, read_turns
+from argus.manager import config_intent, front_door
+from argus.webapi import server
+from argus.webapi.daemon_services import DaemonServices
+from argus.webapi.manager_state import interrupt_manager_turns
 
 
 @pytest.mark.parametrize("streaming", [False, True])

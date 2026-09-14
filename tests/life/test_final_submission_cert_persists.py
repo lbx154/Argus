@@ -4,10 +4,10 @@ import json
 import subprocess
 from pathlib import Path
 
-from argus_skill.core.manuscript_snapshot import manuscript_snapshot
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.terminal_state import build_project_state_signature
+from argus.core.manuscript_snapshot import manuscript_snapshot
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.terminal_state import build_project_state_signature
 
 
 def _make_supervisor(tmp_path: Path) -> LifeSupervisor:

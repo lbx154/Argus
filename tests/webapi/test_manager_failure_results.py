@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.manager import front_door
-from argus_skill.webapi.manager_dispatch import _run_triage_and_fallbacks, _TurnEmitter
+from argus.manager import front_door
+from argus.webapi.manager_dispatch import _run_triage_and_fallbacks, _TurnEmitter
 
 
 @pytest.fixture

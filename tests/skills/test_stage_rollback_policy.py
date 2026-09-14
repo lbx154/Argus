@@ -5,19 +5,19 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import ReviewDecision
-from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-from argus_skill.life.supervisor._planning_cycle_enqueue import _apply_planner_stage_request
-from argus_skill.manager import Manager
-from argus_skill.skills.stage_machine import (
+from argus.core.models import ReviewDecision
+from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.life.supervisor._planning_cycle_enqueue import _apply_planner_stage_request
+from argus.manager import Manager
+from argus.skills.stage_machine import (
     ChecklistItem,
     StageCompletionError,
     StageRollbackError,
     reset_stage_for_replacement_intent,
     rollback_stage,
 )
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals import _registry
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals import _registry
 
 
 @pytest.fixture(autouse=True)

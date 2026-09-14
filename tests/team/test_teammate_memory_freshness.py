@@ -7,18 +7,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.core.operator_context import (
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.core.operator_context import (
     OperatorContextStore,
     append_directive,
     append_revoke,
 )
-from argus_skill.life.failure_experience import FailureExperience, FailureExperienceStore
-from argus_skill.team import task_board, teammate_entry
+from argus.life.failure_experience import FailureExperience, FailureExperienceStore
+from argus.team import task_board, teammate_entry
 
 
 def test_teammate_replaces_revised_and_revoked_context_between_role_calls(tmp_path, monkeypatch):
-    import argus_skill.apps._runtime as runtime
+    import argus.apps._runtime as runtime
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -77,7 +77,7 @@ def test_teammate_replaces_revised_and_revoked_context_between_role_calls(tmp_pa
         backend.queue("reviewer", CannedResponse(message=json.dumps({
             "status": status, "reason": "offline independent review", "next_action": "verify quartz",
         })))
-    monkeypatch.setattr("argus_skill.adapters.agent_cli_backend.AgentCliBackend",
+    monkeypatch.setattr("argus.adapters.agent_cli_backend.AgentCliBackend",
                         lambda **_kwargs: backend)
 
     class OfflineRunner(runtime._SkillLoopRunner):
@@ -121,7 +121,7 @@ def test_teammate_replaces_revised_and_revoked_context_between_role_calls(tmp_pa
 
 
 def test_optional_recall_failure_preserves_current_teammate_policy(tmp_path, monkeypatch):
-    import argus_skill.apps._runtime as runtime
+    import argus.apps._runtime as runtime
 
     append_directive(tmp_path, "CURRENT_TEAM_POLICY", applies_to_roles=("teammate",),
                      lifetime="once", expected_revision=0)
@@ -140,7 +140,7 @@ def test_optional_recall_failure_preserves_current_teammate_policy(tmp_path, mon
         raise OSError("optional knowledge index is unavailable")
 
     monkeypatch.setattr(runtime, "_SkillLoopRunner", Runner)
-    monkeypatch.setattr("argus_skill.life.knowledge_recall.render_memory_recall", unavailable)
+    monkeypatch.setattr("argus.life.knowledge_recall.render_memory_recall", unavailable)
     assert teammate_entry.run_one_engineer_mission(
         "verify quartz", cwd=str(tmp_path), life_dir=tmp_path / "worker",
         prelude_context="STATIC_VERTICAL_POLICY", max_rounds=1,
@@ -152,8 +152,8 @@ def test_optional_recall_failure_preserves_current_teammate_policy(tmp_path, mon
 
 @pytest.mark.parametrize("revoked", [False, True])
 def test_explicit_reviewer_context_does_not_fall_back_to_an_older_root(tmp_path, revoked):
-    from argus_skill.engineer.round_config import SupervisedConfig
-    from argus_skill.engineer.round_reviewer import _active_manager_directive_for_reviewer
+    from argus.engineer.round_config import SupervisedConfig
+    from argus.engineer.round_reviewer import _active_manager_directive_for_reviewer
 
     current, stale = tmp_path / "current", tmp_path / "stale"
     append_directive(stale, "STALE_REVIEWER_GUIDANCE", expected_revision=0)
@@ -169,8 +169,8 @@ def test_explicit_reviewer_context_does_not_fall_back_to_an_older_root(tmp_path,
 @pytest.mark.parametrize("role", ["engineer", "reviewer"])
 @pytest.mark.parametrize("forbid", [False, True])
 def test_teammate_enforces_parent_question_policy_at_actual_role_boundary(tmp_path, monkeypatch, role, forbid):
-    import argus_skill.apps._runtime as runtime
-    from argus_skill.manager.directive import set_active_manager_directive
+    import argus.apps._runtime as runtime
+    from argus.manager.directive import set_active_manager_directive
 
     source = tmp_path / "parent"
     set_active_manager_directive(source, "parent question policy",
@@ -198,7 +198,7 @@ def test_teammate_enforces_parent_question_policy_at_actual_role_boundary(tmp_pa
     backend.queue("reviewer", CannedResponse(message=json.dumps({
         "status": "done", "reason": "verified", "next_action": "none",
     })))
-    monkeypatch.setattr("argus_skill.adapters.agent_cli_backend.AgentCliBackend", lambda **_kwargs: backend)
+    monkeypatch.setattr("argus.adapters.agent_cli_backend.AgentCliBackend", lambda **_kwargs: backend)
 
     class OfflineRunner(runtime._SkillLoopRunner):
         def _run_bounded_planning(self, *_args, **_kwargs):
@@ -219,9 +219,9 @@ def test_teammate_enforces_parent_question_policy_at_actual_role_boundary(tmp_pa
 
 
 def test_teammate_and_reviewer_once_consumption_survives_reopening(tmp_path, monkeypatch):
-    import argus_skill.apps._runtime as runtime
-    from argus_skill.engineer.round_config import SupervisedConfig
-    from argus_skill.engineer.round_reviewer import _active_manager_directive_for_reviewer
+    import argus.apps._runtime as runtime
+    from argus.engineer.round_config import SupervisedConfig
+    from argus.engineer.round_reviewer import _active_manager_directive_for_reviewer
 
     source = tmp_path / "parent"
     append_directive(source, "TEAM_ONCE", applies_to_roles=("teammate",), lifetime="once", expected_revision=0)
@@ -257,7 +257,7 @@ def test_teammate_and_reviewer_once_consumption_survives_reopening(tmp_path, mon
 
 @pytest.mark.parametrize("corruption", ["missing", "invalid"])
 def test_unavailable_required_context_stops_before_teammate_provider(tmp_path, monkeypatch, corruption):
-    import argus_skill.apps._runtime as runtime
+    import argus.apps._runtime as runtime
 
     source = tmp_path / "parent"
     append_directive(source, "REQUIRED_CURRENT_POLICY", expected_revision=0)
@@ -271,7 +271,7 @@ def test_unavailable_required_context_stops_before_teammate_provider(tmp_path, m
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "offline")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_MODEL", "offline")
     backend = MemoryBackend()
-    monkeypatch.setattr("argus_skill.adapters.agent_cli_backend.AgentCliBackend", lambda **_kwargs: backend)
+    monkeypatch.setattr("argus.adapters.agent_cli_backend.AgentCliBackend", lambda **_kwargs: backend)
 
     class OfflineRunner(runtime._SkillLoopRunner):
         def _run_bounded_planning(self, *_args, **_kwargs):
@@ -288,8 +288,8 @@ def test_unavailable_required_context_stops_before_teammate_provider(tmp_path, m
 
 @pytest.mark.parametrize("hook", ["extra_guidance_provider", "prelude_context_provider"])
 def test_required_policy_error_at_either_prompt_hook_stops_before_provider(tmp_path, hook):
-    from argus_skill import SkillLoop, SkillLoopConfig
-    from argus_skill.core.operator_context import OperatorContextUnavailable
+    from argus import SkillLoop, SkillLoopConfig
+    from argus.core.operator_context import OperatorContextUnavailable
 
     def unavailable():
         raise OperatorContextUnavailable("current policy unavailable")
@@ -308,8 +308,8 @@ def test_required_policy_error_at_either_prompt_hook_stops_before_provider(tmp_p
 
 
 def test_runtime_inbox_adapter_preserves_required_policy_error(tmp_path, monkeypatch):
-    from argus_skill.apps._runtime_execute import SkillLoopExecuteMixin
-    from argus_skill.core.operator_context import OperatorContextUnavailable
+    from argus.apps._runtime_execute import SkillLoopExecuteMixin
+    from argus.core.operator_context import OperatorContextUnavailable
 
     def unavailable(*_args, **_kwargs):
         raise OperatorContextUnavailable("current policy unavailable")
@@ -321,7 +321,7 @@ def test_runtime_inbox_adapter_preserves_required_policy_error(tmp_path, monkeyp
         _SkillLoop=lambda **kwargs: SimpleNamespace(**kwargs),
     )
     state = SimpleNamespace(workdir=tmp_path, config=SimpleNamespace(active_vertical="software"))
-    monkeypatch.setattr("argus_skill.apps._runtime_execute._engineer_guidance", unavailable)
+    monkeypatch.setattr("argus.apps._runtime_execute._engineer_guidance", unavailable)
     SkillLoopExecuteMixin._build_execute_skill_store_and_loop(
         runner, state, sink=SimpleNamespace(handle_event=lambda _event: None),
     )
@@ -332,9 +332,9 @@ def test_runtime_inbox_adapter_preserves_required_policy_error(tmp_path, monkeyp
 @pytest.mark.parametrize("corruption", ["missing", "invalid"])
 @pytest.mark.parametrize("inbox_pending", [False, True])
 def test_standard_runtime_stops_before_provider_when_required_context_is_unavailable(tmp_path, monkeypatch, corruption, inbox_pending):
-    from argus_skill.apps._inbox import queue_inbox_message
-    from argus_skill.apps._runtime import _SkillLoopRunner
-    from argus_skill.core.operator_context import OperatorContextUnavailable
+    from argus.apps._inbox import queue_inbox_message
+    from argus.apps._runtime import _SkillLoopRunner
+    from argus.core.operator_context import OperatorContextUnavailable
 
     source = tmp_path / "parent"
     append_directive(source, "REQUIRED_ENGINEER_POLICY", expected_revision=0)
@@ -351,7 +351,7 @@ def test_standard_runtime_stops_before_provider_when_required_context_is_unavail
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "offline")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_MODEL", "offline")
     backend = MemoryBackend()
-    monkeypatch.setattr("argus_skill.adapters.agent_cli_backend.AgentCliBackend", lambda **_kwargs: backend)
+    monkeypatch.setattr("argus.adapters.agent_cli_backend.AgentCliBackend", lambda **_kwargs: backend)
     namespace = teammate_entry._build_runner_ns(
         str(workspace), max_rounds=1, paper_mission=False, project_state_dir=source,
     )

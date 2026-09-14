@@ -15,13 +15,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor._constants import (
+from argus.life.memory import LifeMemory
+from argus.life.supervisor._constants import (
     planner_quarantine_max_age_hours,
     planner_quarantine_release_successes,
     planner_quarantine_settlement_window,
 )
-from argus_skill.life.supervisor._planner_orchestration import (
+from argus.life.supervisor._planner_orchestration import (
     PlannerOrchestrationMixin,
 )
 

@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-import argus_skill.daemon.life_worker as life_worker_mod
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.daemon.life_worker import (
+import argus.daemon.life_worker as life_worker_mod
+from argus.core.session import SessionMeta, write_session_meta
+from argus.daemon.life_worker import (
     ContinuousConfigState,
     DaemonStatus,
     LifeWorker,
@@ -32,14 +32,14 @@ from argus_skill.daemon.life_worker import (
     resolve_effective_budget,
     stop_daemon,
 )
-from argus_skill.daemon.state import (
+from argus.daemon.state import (
     DAEMON_UPGRADE_REQUEST_FILE,
     _daemon_status_payload,
     daemon_drain_requested,
     request_daemon_drain,
     request_daemon_stop,
 )
-from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus.life.memory import BacklogItem, LifeMemory
 
 _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG",
@@ -89,7 +89,7 @@ def test_max_active_daemons_defaults_to_64(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs",
+        "argus.core.knob_store.read_persisted_knobs",
         lambda: {},
     )
 
@@ -114,7 +114,7 @@ def test_daemon_source_root_preflight_fails_before_backend_probe(
 ) -> None:
     worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
     monkeypatch.setattr(
-        "argus_skill.core.runtime_identity.source_root_preflight_error",
+        "argus.core.runtime_identity.source_root_preflight_error",
         lambda: "source-root mismatch",
     )
 
@@ -162,7 +162,7 @@ def test_max_active_daemons_preserves_env_and_persisted_overrides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs",
+        "argus.core.knob_store.read_persisted_knobs",
         lambda: {"ARGUS_SKILL_MAX_ACTIVE_DAEMONS": "12"},
     )
     config = LifeWorkerConfig(life_dir=tmp_path)
@@ -235,7 +235,7 @@ def test_plain_stop_signal_interrupts_active_mission(
 
 
 def test_memory_runner_leaves_project_structure_to_agent(tmp_path: Path) -> None:
-    from argus_skill.apps._runtime_backends import _MemoryRunner
+    from argus.apps._runtime_backends import _MemoryRunner
 
     class Sink:
         def handle_event(self, _event: dict[str, Any]) -> None:
@@ -272,7 +272,7 @@ def test_read_daemon_status_treats_garbage_pid_file_as_dead(tmp_path: Path) -> N
 
 
 def test_read_daemon_status_parses_global_budget_cap(tmp_path: Path) -> None:
-    from argus_skill.core.daemon_lock import acquire_global_daemon_lock
+    from argus.core.daemon_lock import acquire_global_daemon_lock
 
     pid = os.getpid()
     with acquire_global_daemon_lock(pid_path=tmp_path / "daemon.pid"):
@@ -296,7 +296,7 @@ def test_read_daemon_status_parses_global_budget_cap(tmp_path: Path) -> None:
 def test_read_daemon_status_rejects_sidecar_from_different_pid(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.core.daemon_lock import acquire_global_daemon_lock
+    from argus.core.daemon_lock import acquire_global_daemon_lock
 
     with acquire_global_daemon_lock(pid_path=tmp_path / "daemon.pid") as lock:
         (tmp_path / "daemon.status.json").write_text(
@@ -387,7 +387,7 @@ def test_nonblocking_stop_request_revalidates_daemon_instance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.daemon.state as daemon_state
+    import argus.daemon.state as daemon_state
 
     started = "2026-08-13T08:00:00+00:00"
     status = SimpleNamespace(
@@ -429,7 +429,7 @@ def test_nonblocking_stop_request_refuses_stale_pid(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.daemon.state as daemon_state
+    import argus.daemon.state as daemon_state
 
     status = SimpleNamespace(
         alive=True,
@@ -462,13 +462,15 @@ def test_explicit_stop_cancels_pending_daemon_upgrade(tmp_path: Path) -> None:
     assert not request.exists()
 
 
+@pytest.mark.parametrize("shadow_name", ["argus", "argus_skill"])
 @pytest.mark.parametrize("frozen", [False, True])
 def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
     frozen: bool,
+    shadow_name: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.daemon._life_worker_admission as admission
+    import argus.daemon._life_worker_admission as admission
 
     monkeypatch.setattr(admission.sys, "frozen", frozen, raising=False)
     monkeypatch.setattr(admission, "spawn_detached_daemon", lambda *a, **kw: pytest.fail(
@@ -476,7 +478,9 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
     ))
     workdir = tmp_path / "workdir"
     workdir.mkdir()
-    shadow = workdir / "argus_skill"
+    # Either spelling could shadow the runtime: the package, or the alias
+    # package that older Skill copies still import.
+    shadow = workdir / shadow_name
     shadow.mkdir()
     (shadow / "__init__.py").write_text(
         "raise RuntimeError('workspace package shadow was imported')\n",
@@ -503,7 +507,7 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
     assert captured["command"] == [
         life_worker_mod.sys.executable,
         "-m",
-        "argus_skill.daemon.spawn_helper",
+        "argus.daemon.spawn_helper",
     ]
     assert captured["close_fds"] is True
     import_root = Path(life_worker_mod.__file__).resolve().parents[2]
@@ -534,7 +538,7 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
         [
             life_worker_mod.sys.executable,
             "-c",
-            "import argus_skill; print(argus_skill.__file__)",
+            "import argus, argus_skill; print(argus.__file__, argus_skill.__file__)",
         ],
         cwd=captured["cwd"],
         env=captured["env"],
@@ -554,7 +558,7 @@ def test_clean_spawn_preserves_helper_stderr_for_webapi(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    import argus_skill.daemon._life_worker_admission as admission
+    import argus.daemon._life_worker_admission as admission
 
     monkeypatch.setattr(admission.sys, "frozen", frozen, raising=False)
     monkeypatch.setattr(admission, "spawn_detached_daemon", lambda *a, **kw: 2)
@@ -634,7 +638,7 @@ def test_stop_daemon_does_not_sigkill_after_pid_identity_is_lost(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.daemon import state as daemon_state
+    from argus.daemon import state as daemon_state
 
     statuses = iter(
         [
@@ -825,7 +829,7 @@ def test_stop_daemon_force_kills_teammate_process_group(tmp_path: Path) -> None:
             "        sys.executable,\n"
             "        '-c',\n"
             f"        {teammate_script!r},\n"
-            "        'argus_skill.team.teammate_entry',\n"
+            "        'argus.team.teammate_entry',\n"
             "        '--root',\n"
             f"        {str(tmp_path / 'team')!r},\n"
             "        '--member-id',\n"
@@ -967,7 +971,7 @@ def test_multi_supervisor_pass_delegates_pipeline_lock_reentry(
     """
     import contextvars
 
-    from argus_skill.manager._session_ops import manager_pipeline_lock
+    from argus.manager._session_ops import manager_pipeline_lock
 
     outcomes: list[str] = []
     outcomes_mutex = threading.Lock()
@@ -1073,7 +1077,7 @@ def test_daemon_fails_running_item_when_executor_thread_dead(
         sink=SimpleNamespace(handle_event=events.append),
     )
     monkeypatch.setattr(
-        "argus_skill.daemon._life_worker_run._RUNNING_STALL_POLL_SECONDS",
+        "argus.daemon._life_worker_run._RUNNING_STALL_POLL_SECONDS",
         0.01,
     )
 
@@ -1141,8 +1145,8 @@ def test_life_worker_continues_when_telegram_poller_start_fails(
     monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", "token")
     monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", "123")
     monkeypatch.setenv("ARGUS_SKILL_ENABLE_TELEGRAM", "1")
-    monkeypatch.setattr("argus_skill.life.telegram_bot.TelegramPoller.start", _boom)
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.life.telegram_bot.TelegramPoller.start", _boom)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
     worker = LifeWorker(cfg)
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
@@ -1170,7 +1174,7 @@ def test_life_worker_exports_custom_global_root(
             return {}
 
     monkeypatch.delenv("ARGUS_SKILL_HOME", raising=False)
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=global_root / "projects" / "demo",
@@ -1211,8 +1215,8 @@ def test_life_worker_does_not_start_telegram_by_default(
     monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", "token")
     monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", "123")
     monkeypatch.delenv("ARGUS_SKILL_ENABLE_TELEGRAM", raising=False)
-    monkeypatch.setattr("argus_skill.life.telegram_bot.TelegramPoller.start", _start)
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.life.telegram_bot.TelegramPoller.start", _start)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
     worker = LifeWorker(cfg)
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
@@ -1229,7 +1233,7 @@ def test_life_worker_separates_boundary_stop_from_mission_interrupt(
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "1")
     monkeypatch.setattr(
-        "argus_skill.core.backend_readiness.check_backend_readiness",
+        "argus.core.backend_readiness.check_backend_readiness",
         lambda *_args, **_kwargs: SimpleNamespace(ok=True),
     )
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="codex", poll_interval=0.1)
@@ -1250,10 +1254,10 @@ def test_life_worker_separates_boundary_stop_from_mission_interrupt(
             return {}
 
     monkeypatch.setattr(
-        "argus_skill.apps._runtime.build_life_runner",
+        "argus.apps._runtime.build_life_runner",
         fake_build_life_runner,
     )
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
     worker = LifeWorker(cfg)
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
@@ -1266,7 +1270,7 @@ def test_life_worker_separates_boundary_stop_from_mission_interrupt(
 
 
 def test_format_short_duration() -> None:
-    from argus_skill.apps.cli._core import _format_short_duration
+    from argus.apps.cli._core import _format_short_duration
 
     assert _format_short_duration(0) == "0s"
     assert _format_short_duration(45) == "45s"
@@ -1374,7 +1378,7 @@ def test_workspace_start_rejects_another_session_on_adopted_child_repo(
 ) -> None:
     import subprocess
 
-    from argus_skill.core.campaign_workdir import adopt_campaign_workdir
+    from argus.core.campaign_workdir import adopt_campaign_workdir
 
     root = tmp_path / "state"
     target_life = root / "projects" / "s-target"
@@ -1729,7 +1733,7 @@ def test_failed_handoff_rolls_back_only_to_this_runs_prior_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.daemon.handoff as handoff_mod
+    import argus.daemon.handoff as handoff_mod
 
     cfg = LifeWorkerConfig(life_dir=tmp_path / "life", backend="memory")
     cfg.life_dir.mkdir(parents=True)
@@ -1750,7 +1754,7 @@ def test_failed_handoff_rolls_back_only_to_this_runs_prior_runtime(
     )
     monkeypatch.setattr(life_worker_mod, "_spawn_handoff_candidate", fake_gate_spawn)
     monkeypatch.setattr(
-        "argus_skill.core.runtime_identity.source_root",
+        "argus.core.runtime_identity.source_root",
         lambda: rollback,
     )
     worker = LifeWorker(cfg)
@@ -1795,7 +1799,7 @@ def test_failed_handoff_rolls_back_only_to_this_runs_prior_runtime(
 
 
 def test_daemon_pid_path(tmp_path: Path) -> None:
-    from argus_skill.daemon.life_worker import _daemon_pid_path
+    from argus.daemon.life_worker import _daemon_pid_path
 
     assert _daemon_pid_path(tmp_path).name == "daemon.pid"
 
@@ -1804,7 +1808,7 @@ def test_daemon_pid_path(tmp_path: Path) -> None:
 # Continuous config (disk-based hot-reload)
 # ---------------------------------------------------------------------------
 
-from argus_skill.daemon.life_worker import read_continuous_config, write_continuous_config
+from argus.daemon.life_worker import read_continuous_config, write_continuous_config
 
 
 def test_read_continuous_config_missing_file(tmp_path: Path) -> None:
@@ -1836,7 +1840,7 @@ def test_legacy_continuous_config_defaults_to_open_ended(tmp_path: Path) -> None
 def test_bounded_continuous_config_preserves_lifetime_across_disable(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.daemon.state import disable_continuous_config
+    from argus.daemon.state import disable_continuous_config
 
     write_continuous_config(
         tmp_path,
@@ -1894,7 +1898,7 @@ def test_write_continuous_config_atomic(tmp_path: Path) -> None:
 
 
 def test_continuous_config_cas_preserves_newer_command(tmp_path: Path) -> None:
-    from argus_skill.daemon.state import compare_and_swap_continuous_config
+    from argus.daemon.state import compare_and_swap_continuous_config
 
     write_continuous_config(tmp_path, enabled=True, objective="older objective")
     expected = read_continuous_state(tmp_path)
@@ -1916,7 +1920,7 @@ def test_continuous_config_cas_preserves_newer_command(tmp_path: Path) -> None:
 
 
 def test_continuous_config_cas_detects_same_value_command(tmp_path: Path) -> None:
-    from argus_skill.daemon.state import compare_and_swap_continuous_config
+    from argus.daemon.state import compare_and_swap_continuous_config
 
     write_continuous_config(tmp_path, enabled=False, objective="paused objective")
     expected = read_continuous_state(tmp_path)
@@ -1937,7 +1941,7 @@ def test_continuous_config_cas_detects_same_value_command(tmp_path: Path) -> Non
 def test_continuous_config_callback_rollback_restores_generation(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.daemon.state import compare_and_swap_continuous_config
+    from argus.daemon.state import compare_and_swap_continuous_config
 
     write_continuous_config(tmp_path, enabled=True, objective="objective")
     expected = read_continuous_state(tmp_path)
@@ -1993,7 +1997,7 @@ def test_life_worker_hot_reload_rejects_memory_continuous(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
     worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01))
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
@@ -2024,7 +2028,7 @@ def test_life_worker_retries_planning_after_planner_error(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda self, task, **kwargs: SimpleNamespace(
             execution_task=task,
             choice="existing",
@@ -2032,7 +2036,7 @@ def test_life_worker_retries_planning_after_planner_error(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
+        "argus.manager.Manager.commit_vertical_decision",
         lambda self, task, decision, **kwargs: SimpleNamespace(
             execution_task=decision.execution_task,
             vertical=decision.vertical,
@@ -2061,7 +2065,7 @@ def test_life_worker_retries_planning_after_planner_error(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
     worker = LifeWorker(
         # resume_continuous=True == a supervisor's crash/reboot self-heal launch:
@@ -2099,7 +2103,7 @@ def test_resume_continuous_adopts_persisted_manager_handoff_without_backend(
         enabled=True,
         objective="manager-clean execution objective",
     )
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "research")
     with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as fh:
@@ -2131,7 +2135,7 @@ def test_resume_continuous_adopts_persisted_manager_handoff_without_backend(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("persisted resume must not call Manager")
         ),
@@ -2148,7 +2152,7 @@ def test_resume_continuous_adopts_persisted_manager_handoff_without_backend(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2182,7 +2186,7 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
         enabled=True,
         objective="old execution objective",
     )
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "research")
     with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as fh:
@@ -2213,7 +2217,7 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
         )
 
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         decide_vertical,
     )
     commit_kwargs: list[dict[str, object]] = []
@@ -2228,7 +2232,7 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
         )
 
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
+        "argus.manager.Manager.commit_vertical_decision",
         commit_vertical_decision,
     )
     seen: dict[str, object] = {}
@@ -2244,7 +2248,7 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2298,7 +2302,7 @@ def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
         enabled=True,
         objective=original,
     )
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "research")
     with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as fh:
@@ -2319,7 +2323,7 @@ def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
 
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda _self, _task, **_kwargs: SimpleNamespace(
             execution_task=extended,
             choice="existing",
@@ -2338,7 +2342,7 @@ def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
         )
 
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
+        "argus.manager.Manager.commit_vertical_decision",
         commit_vertical_decision,
     )
 
@@ -2350,7 +2354,7 @@ def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2371,7 +2375,7 @@ def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
 def test_terminal_workspace_without_prior_handoff_reopens_for_new_daemon_intent(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "software")
     state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
@@ -2445,7 +2449,7 @@ def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda self, task, **kwargs: SimpleNamespace(
             execution_task=task,
             choice="existing",
@@ -2453,7 +2457,7 @@ def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
+        "argus.manager.Manager.commit_vertical_decision",
         lambda self, task, decision, **kwargs: SimpleNamespace(
             execution_task=decision.execution_task,
             vertical=decision.vertical,
@@ -2480,7 +2484,7 @@ def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
             self.config.stop_event.set()
             return {"stopped_by": "planner_terminal_idle", "suggested_sleep": 30.0}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
     worker = LifeWorker(
         # resume_continuous=True == a supervisor's crash/reboot self-heal launch:
@@ -2529,11 +2533,11 @@ def test_daemon_manager_handoff_does_not_overwrite_newer_continuous_command(
 
     commits = []
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         decide_vertical,
     )
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
+        "argus.manager.Manager.commit_vertical_decision",
         lambda self, task, decision, **kwargs: commits.append(task),
     )
     seen = {}
@@ -2548,7 +2552,7 @@ def test_daemon_manager_handoff_does_not_overwrite_newer_continuous_command(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2587,11 +2591,11 @@ def test_daemon_boot_uses_state_snapshot_that_produced_objective(
         return False
 
     monkeypatch.setattr(
-        "argus_skill.manager.reset_manager_session",
+        "argus.manager.reset_manager_session",
         reset_manager_session,
     )
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda self, task, **kwargs: SimpleNamespace(
             execution_task="cleaned older objective",
             choice="existing",
@@ -2600,7 +2604,7 @@ def test_daemon_boot_uses_state_snapshot_that_produced_objective(
     )
     commits = []
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
+        "argus.manager.Manager.commit_vertical_decision",
         lambda self, task, decision, **kwargs: commits.append(task),
     )
 
@@ -2612,7 +2616,7 @@ def test_daemon_boot_uses_state_snapshot_that_produced_objective(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2634,7 +2638,7 @@ def test_daemon_suppresses_rejected_objective_when_handoff_write_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.daemon import state as daemon_state
+    from argus.daemon import state as daemon_state
 
     LifeMemory.open(tmp_path).init()
     raw = "older objective; Manager owns the sidebar"
@@ -2643,7 +2647,7 @@ def test_daemon_suppresses_rejected_objective_when_handoff_write_fails(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda self, task, **kwargs: SimpleNamespace(
             execution_task="clean older objective",
             choice="existing",
@@ -2651,7 +2655,7 @@ def test_daemon_suppresses_rejected_objective_when_handoff_write_fails(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
+        "argus.manager.Manager.commit_vertical_decision",
         lambda self, task, decision, **kwargs: SimpleNamespace(
             execution_task=decision.execution_task,
             vertical=decision.vertical,
@@ -2684,7 +2688,7 @@ def test_daemon_suppresses_rejected_objective_when_handoff_write_fails(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2718,7 +2722,7 @@ def test_daemon_manager_decision_failure_preserves_persisted_campaign(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("backend unavailable")),
     )
     seen = {}
@@ -2735,7 +2739,7 @@ def test_daemon_manager_decision_failure_preserves_persisted_campaign(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2773,7 +2777,7 @@ def test_bounded_daemon_exits_when_manager_objective_is_not_dispatched(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             RuntimeError("invalid Manager route")
         ),
@@ -2786,7 +2790,7 @@ def test_bounded_daemon_exits_when_manager_objective_is_not_dispatched(
         def run(self) -> dict[str, Any]:
             raise AssertionError("bounded handoff failure must not drain")
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2824,7 +2828,7 @@ def test_daemon_boot_leaves_paused_objective_untouched(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("paused objective must not be processed at boot")
         ),
@@ -2847,7 +2851,7 @@ def test_daemon_boot_leaves_paused_objective_untouched(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2881,7 +2885,7 @@ def test_concluded_handoff_resume_does_not_repeat_disabled_objective(
         done_reason="planner declared project done",
     )
     before = read_continuous_state(tmp_path)
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "argus_maintenance")
     life_worker_mod._write_manager_handoff_identity(
@@ -2896,7 +2900,7 @@ def test_concluded_handoff_resume_does_not_repeat_disabled_objective(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("concluded objective must not be processed at boot")
         ),
@@ -2919,7 +2923,7 @@ def test_concluded_handoff_resume_does_not_repeat_disabled_objective(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -2952,7 +2956,7 @@ def test_project_done_does_not_disable_newer_same_value_rearm(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda self, task, **kwargs: SimpleNamespace(
             execution_task=task,
             choice="existing",
@@ -2960,7 +2964,7 @@ def test_project_done_does_not_disable_newer_same_value_rearm(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
+        "argus.manager.Manager.commit_vertical_decision",
         lambda self, task, decision, **kwargs: SimpleNamespace(
             execution_task=decision.execution_task,
             vertical=decision.vertical,
@@ -2982,7 +2986,7 @@ def test_project_done_does_not_disable_newer_same_value_rearm(
             self.config.stop_event.set()
             return {"stopped_by": "project_done"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=tmp_path,
@@ -3076,9 +3080,9 @@ def test_bounded_daemon_exits_after_plain_backlog_is_drained(
 def test_bounded_daemon_waits_for_background_work_then_finishes_same_task(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.life.event_log import JsonlEventSink
-    from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.life.event_log import JsonlEventSink
+    from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+    from argus.skills.vertical_select import persist_vertical
 
     life = tmp_path / "life"
     project = tmp_path / "project"
@@ -3242,7 +3246,7 @@ def test_operator_stop_freezes_adopted_generation_before_reload(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.decide_vertical",
+        "argus.manager.Manager.decide_vertical",
         lambda self, task, **kwargs: SimpleNamespace(
             execution_task=task,
             choice="existing",
@@ -3250,7 +3254,7 @@ def test_operator_stop_freezes_adopted_generation_before_reload(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.manager.Manager.commit_vertical_decision",
+        "argus.manager.Manager.commit_vertical_decision",
         lambda self, task, decision, **kwargs: SimpleNamespace(
             execution_task=decision.execution_task,
             vertical=decision.vertical,
@@ -3282,7 +3286,7 @@ def test_operator_stop_freezes_adopted_generation_before_reload(
             self.config.stop_event.set()
             return {"stopped_by": "backlog_empty"}
 
-    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0

@@ -6,8 +6,8 @@ import sys
 
 import pytest
 
-from argus_skill.core import plugin_manager as pm
-from argus_skill.core import vertical_contract
+from argus.core import plugin_manager as pm
+from argus.core import vertical_contract
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows plugin host compatibility")
 

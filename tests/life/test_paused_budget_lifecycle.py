@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from argus_skill.life.memory import BacklogItem, IllegalStateTransition, LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.memory import BacklogItem, IllegalStateTransition, LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
 
 class _Sink:
@@ -304,12 +304,12 @@ def test_budget_change_resumes_original_task_without_rebuilding_supervisor(
     monkeypatch: pytest.MonkeyPatch,
     new_cap: str,
 ) -> None:
-    from argus_skill.core.knob_store import write_persisted_knob
+    from argus.core.knob_store import write_persisted_knob
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", raising=False)
     monkeypatch.setattr(
-        "argus_skill.life.supervisor._config.global_daily_spend",
+        "argus.life.supervisor._config.global_daily_spend",
         lambda **_kwargs: 2.0,
     )
     assert write_persisted_knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
@@ -359,7 +359,7 @@ def test_live_budget_keeps_explicit_environment_override(tmp_path, monkeypatch) 
         json.dumps({"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "0"}),
     )
     monkeypatch.setattr(
-        "argus_skill.life.supervisor._config.global_daily_spend",
+        "argus.life.supervisor._config.global_daily_spend",
         lambda **_kwargs: 2.0,
     )
     budget = LifeBudget(global_daily_cap_usd=0.0, follow_operator_config=True)

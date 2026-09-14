@@ -15,24 +15,24 @@ from urllib.parse import quote
 
 import pytest
 
-from argus_skill.core.session import SessionMeta, touch_session, write_session_meta
-from argus_skill.daemon.state import write_continuous_config
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.manager import config_intent, front_door
-from argus_skill.manager.front_door import (
+from argus.core.session import SessionMeta, touch_session, write_session_meta
+from argus.daemon.state import write_continuous_config
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.manager import config_intent, front_door
+from argus.manager.front_door import (
     ManagerHandoffError,
     ManagerHandoffSupersededError,
 )
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.webapi import (
+from argus.skills.vertical_select import persist_vertical
+from argus.webapi import (
     daemon_lifecycle,
     manager_dispatch,
     manager_state,
     project_state,
     server,
 )
-from argus_skill.webapi.daemon_services import DaemonServices
+from argus.webapi.daemon_services import DaemonServices
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -486,7 +486,7 @@ def test_post_nudge_queues_inbox_and_emits_event(ctx) -> None:
     client = TestClient(server.create_app(global_root=root))
     r = client.post(f"/api/projects/{sid}/nudge", json={"text": "don't nudge, fix the framework"})
     assert r.status_code == 200 and r.json()["ok"] is True
-    from argus_skill.apps._inbox import claim_inbox_message, release_inbox_claim
+    from argus.apps._inbox import claim_inbox_message, release_inbox_claim
 
     claim = claim_inbox_message(life)
     assert claim is not None and claim.text == "don't nudge, fix the framework"
@@ -497,8 +497,8 @@ def test_post_nudge_queues_inbox_and_emits_event(ctx) -> None:
 
 
 def test_nudge_pressure_rejects_without_a_success_receipt(ctx, monkeypatch):
-    from argus_skill.apps import _inbox_protocol
-    from argus_skill.apps._inbox import count_pending_inbox_messages
+    from argus.apps import _inbox_protocol
+    from argus.apps._inbox import count_pending_inbox_messages
 
     root, sid, life = ctx
     monkeypatch.setattr(_inbox_protocol, "MAX_PENDING_MESSAGES", 0)
@@ -512,8 +512,8 @@ def test_nudge_pressure_rejects_without_a_success_receipt(ctx, monkeypatch):
 def test_nudge_busy_retries_without_duplicate_acceptance(ctx):
     import sqlite3
 
-    from argus_skill.apps._inbox import count_pending_inbox_messages, queue_inbox_message
-    from argus_skill.apps._inbox_protocol import PROTOCOL_DIR
+    from argus.apps._inbox import count_pending_inbox_messages, queue_inbox_message
+    from argus.apps._inbox_protocol import PROTOCOL_DIR
 
     root, sid, life = ctx
     queue_inbox_message(life, "Earlier accepted input", source="test")
@@ -534,8 +534,8 @@ def test_nudge_acknowledgement_does_not_wait_for_advisory_event_writer(ctx):
     import threading
     import time
 
-    from argus_skill.apps._inbox import count_pending_inbox_messages
-    from argus_skill.core.mission_view._replay import events_locked
+    from argus.apps._inbox import count_pending_inbox_messages
+    from argus.core.mission_view._replay import events_locked
 
     root, sid, life = ctx
     client = TestClient(server.create_app(global_root=root))
@@ -672,7 +672,7 @@ def test_disable_continuous_surfaces_persistence_failure(
     bridge_state["config"]["continuous"] = True
     bridge_state["continuous_objective"] = "still active"
     monkeypatch.setattr(
-        "argus_skill.daemon.state.disable_continuous_config",
+        "argus.daemon.state.disable_continuous_config",
         lambda life_dir: SimpleNamespace(enabled=True),
     )
 
@@ -1084,7 +1084,7 @@ def test_daemon_start_does_not_retry_deterministic_rc1(
     def fake_spawn(config, *, quiet=False):
         nonlocal attempts
         attempts += 1
-        config.last_spawn_error = "ModuleNotFoundError: No module named argus_skill"
+        config.last_spawn_error = "ModuleNotFoundError: No module named argus"
         return 1
 
     monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
@@ -1912,7 +1912,7 @@ def test_project_delete_refuses_live_daemon(ctx, monkeypatch) -> None:
 def test_plan_preview_delegates_to_manager_planner(ctx, monkeypatch) -> None:
     root, sid, _ = ctx
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_plan",
+        "argus.webapi.manager_bridge.manager_plan",
         lambda sid, text, *, global_root=None: {
             "steps": [{"title": "Check premise", "detail": "first"}],
             "notes": [],
@@ -1947,7 +1947,7 @@ def test_config_set_does_not_report_success_when_persistence_fails(
     ctx,
     monkeypatch,
 ) -> None:
-    from argus_skill.core import knob_store
+    from argus.core import knob_store
 
     root, sid, _ = ctx
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
@@ -2037,7 +2037,7 @@ def test_budget_config_does_not_report_success_when_persistence_fails(
     monkeypatch,
     tmp_path,
 ) -> None:
-    from argus_skill.core import knob_store
+    from argus.core import knob_store
 
     monkeypatch.setattr(knob_store, "write_persisted_knobs", lambda values: False)
     with pytest.raises(RuntimeError, match="could not be persisted"):
@@ -2059,7 +2059,7 @@ def test_identity_set_and_skills_and_reset(ctx, monkeypatch) -> None:
     root, sid, life = ctx
     monkeypatch.setattr(server, "run_skill_command", lambda tokens, **_kwargs: "skills:" + " ".join(tokens))
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_state.reset_manager_context",
+        "argus.webapi.manager_state.reset_manager_context",
         lambda sid, *, global_root=None: True,
     )
     client = TestClient(server.create_app(global_root=root))

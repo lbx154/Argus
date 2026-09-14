@@ -6,8 +6,8 @@ import pytest
 from test_training_data import grant
 from test_training_data import training as training
 
-from argus_skill.trial import training_recovery as module
-from argus_skill.trial.training_capture import HOSTED_PROFILE, OBSERVED_POLICY
+from argus.trial import training_recovery as module
+from argus.trial.training_capture import HOSTED_PROFILE, OBSERVED_POLICY
 
 SESSION = "12345678-1234-7234-8234-123456789abc"
 

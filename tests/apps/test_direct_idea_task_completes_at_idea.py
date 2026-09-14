@@ -14,11 +14,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_stage_transition import StageTransitionMixin
-from argus_skill.core.models import ReviewDecision
-from argus_skill.core.pipeline_state import read_pipeline_state
-from argus_skill.manager import Manager
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.apps._runtime_stage_transition import StageTransitionMixin
+from argus.core.models import ReviewDecision
+from argus.core.pipeline_state import read_pipeline_state
+from argus.manager import Manager
+from argus.skills.vertical_select import persist_vertical
 
 
 class _Sink:

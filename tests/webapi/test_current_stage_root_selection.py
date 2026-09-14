@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.webapi.project_state import current_stage_for_session
+from argus.webapi.project_state import current_stage_for_session
 
 WORKDIR_ONLY_OBJECTIVE = {
     "math_goal": "characterise the universal moduli",

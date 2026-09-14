@@ -1,4 +1,4 @@
-"""M0 tests for the web/TUI backend API (argus_skill/webapi/server.py).
+"""M0 tests for the web/TUI backend API (argus/webapi/server.py).
 
 Uses a temp global_root with a hand-built fake project so no daemon is needed.
 Skips cleanly if the ``[web]`` extra (fastapi) is not installed.
@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.cost_control import CostControlLockBusyError
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import append_turn
-from argus_skill.core.usage import UsageLedger, UsageRecord
-from argus_skill.webapi import project_state, server
-from argus_skill.webapi.protocol import (
+from argus.core.cost_control import CostControlLockBusyError
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import append_turn
+from argus.core.usage import UsageLedger, UsageRecord
+from argus.webapi import project_state, server
+from argus.webapi.protocol import (
     API_CAPABILITIES,
     API_PROTOCOL_MAJOR,
     API_PROTOCOL_MINOR,
@@ -271,7 +271,7 @@ def test_snapshot_reuses_host_cost_and_usage_across_projects(
         calls["usage"] += 1
         return project_state._empty_usage_summary()
 
-    import argus_skill.life.supervisor as supervisor_module
+    import argus.life.supervisor as supervisor_module
 
     monkeypatch.setattr(project_state, "cost_control_snapshot", cost)
     monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", usage)
@@ -306,7 +306,7 @@ def test_compact_snapshot_never_reports_global_usage_below_project_usage(
         calls += 1
         return project_usage
 
-    import argus_skill.life.supervisor as supervisor_module
+    import argus.life.supervisor as supervisor_module
 
     monkeypatch.setattr(project_state, "project_usage_summary", lambda _root: project_usage)
     monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", global_usage)
@@ -345,7 +345,7 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
     def usage(*, global_root, now=None):
         return project_state._empty_usage_summary()
 
-    import argus_skill.life.supervisor as supervisor_module
+    import argus.life.supervisor as supervisor_module
 
     monkeypatch.setattr(project_state, "cost_control_snapshot", slow_cost)
     monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", usage)
@@ -385,7 +385,7 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
 def test_project_index_and_routes_span_machine_session_roots(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.life.memory import BacklogItem, LifeMemory
+    from argus.life.memory import BacklogItem, LifeMemory
 
     primary = tmp_path / "private"
     machine = tmp_path / "machine"
@@ -551,7 +551,7 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout(
 
 def test_web_serve_refuses_a_mismatched_source_root(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.runtime_identity.source_root_preflight_error",
+        "argus.core.runtime_identity.source_root_preflight_error",
         lambda: "source-root mismatch",
     )
 
@@ -994,7 +994,7 @@ def test_system_doctor_probes_its_bound_address_not_default_or_host_header(
         probes.append((host, port))
         return "compatible", {"service": "argus-skill-webapi"}
 
-    monkeypatch.setattr("argus_skill.maintenance.doctor._probe_web", probe_web)
+    monkeypatch.setattr("argus.maintenance.doctor._probe_web", probe_web)
     app = server.create_app(global_root=tmp_path, auth_token="secret")
     with TestClient(app, base_url="http://127.0.0.1:55418") as doctor_client:
         response = doctor_client.get(
@@ -1013,7 +1013,7 @@ def test_system_resources_requires_auth_and_redacts_status(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.tools.resource_ledger import ledger as resource_ledger
+    from argus.tools.resource_ledger import ledger as resource_ledger
 
     now = time.time()
     long_reason = "please   release\n" + "x" * 400

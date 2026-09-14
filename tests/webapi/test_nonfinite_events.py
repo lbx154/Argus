@@ -8,12 +8,12 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.json_codec import loads_finite_json
-from argus_skill.core.mission_view import load_mission_view, snapshot_mission_view
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.webapi.server import create_app, tail_events
+from argus.core.json_codec import loads_finite_json
+from argus.core.mission_view import load_mission_view, snapshot_mission_view
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import Backlog, BacklogItem
+from argus.webapi.server import create_app, tail_events
 
 
 def _review(event_id, ts):

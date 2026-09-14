@@ -10,7 +10,7 @@ present in the engineer prompt, for both paper and non-paper missions.
 
 import pytest
 
-from argus_skill.loop import SkillLoop
+from argus.loop import SkillLoop
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +69,7 @@ def test_long_experiment_protocol_is_in_every_engineer_turn():
     )
 
     for out in (full, compact):
-        assert "argus_skill.tools.subagent submit" in out
+        assert "argus.tools.subagent submit" in out
         assert "--mode direct" in out
         assert "--mode supervised" in out
         assert "launch a supervised subagent" not in out

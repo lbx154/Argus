@@ -4,8 +4,8 @@ from importlib.resources import files
 
 import pytest
 
-from argus_skill.verticals.research.timeline import estimate
-from argus_skill.verticals.research.timeline_store import record
+from argus.verticals.research.timeline import estimate
+from argus.verticals.research.timeline_store import record
 
 
 def task(key, duration, **extra):
@@ -124,7 +124,7 @@ def test_running_task_is_never_shortened_by_deadline_adaptation():
 
 def test_example_shorter_and_longer_deadlines_change_work_and_range():
     data = json.loads(
-        files("argus_skill.verticals.research").joinpath("timeline_example.json").read_text()
+        files("argus.verticals.research").joinpath("timeline_example.json").read_text()
     )
     data["adapt_to_deadline"] = True
     data["deadline_hours"] = 120

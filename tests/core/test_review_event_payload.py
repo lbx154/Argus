@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.core.models import ReviewDecision
+from argus.core.models import ReviewDecision
 
 
 def test_review_event_carries_minimal_verdict() -> None:

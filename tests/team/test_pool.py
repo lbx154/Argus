@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.team import pool
+from argus.team import pool
 
 
 def test_read_default_when_missing(tmp_path: Path) -> None:

@@ -12,12 +12,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_construction import _inbox_drainer_for
-from argus_skill.core.models import RunnerResult
-from argus_skill.life.supervisor._idle_cycle import IdleCycleMixin
-from argus_skill.messaging.handler import process_peer_messages
-from argus_skill.messaging.store import PeerMailbox, mailbox_for_project
-from argus_skill.messaging.transport import PeerBridge, PeerToolService, request
+from argus.apps._runtime_construction import _inbox_drainer_for
+from argus.core.models import RunnerResult
+from argus.life.supervisor._idle_cycle import IdleCycleMixin
+from argus.messaging.handler import process_peer_messages
+from argus.messaging.store import PeerMailbox, mailbox_for_project
+from argus.messaging.transport import PeerBridge, PeerToolService, request
 
 
 def projects(tmp_path):
@@ -48,7 +48,7 @@ def fake_manager(project_root):
 
 @pytest.fixture(autouse=True)
 def no_provider_or_credentials(monkeypatch):
-    from argus_skill.core import secret_guard
+    from argus.core import secret_guard
 
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "fake-manager")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_TRIAL", "0")
@@ -104,8 +104,8 @@ def test_native_transport_cannot_forge_sender_root_or_request_identity(tmp_path)
 
 
 def test_peer_text_never_enters_operator_ledger_and_operator_nudge_still_works(tmp_path, monkeypatch):
-    from argus_skill.apps._inbox import queue_inbox_message
-    from argus_skill.core.operator_context import OperatorContextStore
+    from argus.apps._inbox import queue_inbox_message
+    from argus.core.operator_context import OperatorContextStore
 
     root = projects(tmp_path)
     state = root / "projects" / "project-b"
@@ -157,7 +157,7 @@ def test_wrong_project_manager_cannot_author_a_reply(tmp_path):
 
 @pytest.mark.parametrize("stopped,foreground", [(False, False), (True, False), (False, True)])
 def test_reply_fork_isolates_streams_and_preserves_parent_interrupt(tmp_path, monkeypatch, stopped, foreground):
-    from argus_skill.manager import _session_ops, session_context
+    from argus.manager import _session_ops, session_context
 
     root = projects(tmp_path)
     receiver = root / "projects/project-b"
@@ -200,12 +200,12 @@ WORKER = r'''
 import json, os, sys, threading, time
 from pathlib import Path
 from types import SimpleNamespace
-from argus_skill.core import secret_guard
+from argus.core import secret_guard
 secret_guard.known_secret_values = lambda *a, **k: ()
-from argus_skill.core.models import RunnerResult
-from argus_skill.apps._runtime_construction import _inbox_drainer_for
-from argus_skill.life.supervisor._idle_cycle import IdleCycleMixin
-from argus_skill.messaging.store import PeerMailbox
+from argus.core.models import RunnerResult
+from argus.apps._runtime_construction import _inbox_drainer_for
+from argus.life.supervisor._idle_cycle import IdleCycleMixin
+from argus.messaging.store import PeerMailbox
 root, sid, mode = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 state = root / 'projects' / sid
 class Session:

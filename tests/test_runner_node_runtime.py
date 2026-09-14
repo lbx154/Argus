@@ -5,7 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from argus_skill.agent_cli.runner_backend import runner_child_environment
+from argus.agent_cli.runner_backend import runner_child_environment
 
 
 def _node_path(env: dict[str, str]) -> list[Path]:
@@ -71,7 +71,7 @@ def test_backend_readiness_probes_npm_runner_with_repaired_environment(
     tmp_path: Path,
 ) -> None:
     """Doctor must validate the same Node path a real turn will inherit."""
-    from argus_skill.core import backend_readiness
+    from argus.core import backend_readiness
 
     runner = tmp_path / "npm" / "codex.cmd"
     runner.parent.mkdir()

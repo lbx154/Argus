@@ -47,7 +47,7 @@ class _Probe:
     """The real reconciliation, with only its Manager call and stage stubbed."""
 
     def __init__(self, *, stage: str = "scope") -> None:
-        from argus_skill.life.supervisor._planning_cycle import PlanningCycleMixin
+        from argus.life.supervisor._planning_cycle import PlanningCycleMixin
 
         self._reconcile = PlanningCycleMixin._reconcile_open_ended_planner_waiting.__get__(
             self
@@ -65,7 +65,7 @@ class _Probe:
 
     @staticmethod
     def _waiting_contract_key(contract):
-        from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+        from argus.life.supervisor._planning_context import PlanningContextMixin
 
         return PlanningContextMixin._waiting_contract_key(contract)
 

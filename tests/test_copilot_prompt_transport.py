@@ -5,7 +5,7 @@ must still travel over stdin so they neither leak through argv nor hit E2BIG.
 """
 from __future__ import annotations
 
-from argus_skill.agent_cli.agent_cli_runner import (
+from argus.agent_cli.agent_cli_runner import (
     BACKEND_COPILOT,
     AgentCliRunner,
     RunnerOptions,

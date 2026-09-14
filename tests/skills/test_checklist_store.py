@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.checklist_store import store_items_for_stage
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.skills.checklist_store import store_items_for_stage
+from argus.skills.vertical_select import persist_vertical
 
 
 def _store(root: Path, vertical: str, stage: str) -> Path:

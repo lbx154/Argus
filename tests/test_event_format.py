@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from argus_skill.cli.event_format import (
+from argus.cli.event_format import (
     annotate_progress_result,
     format_event_message,
     format_progress_command,

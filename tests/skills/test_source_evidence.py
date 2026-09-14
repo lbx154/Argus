@@ -6,7 +6,7 @@ import json
 
 def _module():
     return importlib.import_module(
-        "argus_skill.verticals.research.source_evidence"
+        "argus.verticals.research.source_evidence"
     )
 
 

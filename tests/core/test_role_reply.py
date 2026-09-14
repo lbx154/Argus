@@ -13,7 +13,7 @@ model naturally does around those lines.
 
 from __future__ import annotations
 
-from argus_skill.core.role_reply import (
+from argus.core.role_reply import (
     legacy_json_object,
     read_bool,
     read_float,
@@ -233,8 +233,8 @@ def test_a_verbatim_live_model_reply_routes() -> None:
     A hand-written fixture proves the parser; only a real reply proves the
     prompt. This is the actual text the model produced, unedited.
     """
-    from argus_skill.manager.domain_author import parse_fast_vertical_decision
-    from argus_skill.skills import vertical_select
+    from argus.manager.domain_author import parse_fast_vertical_decision
+    from argus.skills import vertical_select
 
     reply = (
         "CHOICE=existing\n"
@@ -267,8 +267,8 @@ def test_a_daemon_still_answering_in_json_is_not_broken() -> None:
     JSON is no longer asked for, but refusing it would have made this change a
     breaking one for every run already in progress.
     """
-    from argus_skill.manager.domain_author import parse_fast_vertical_decision
-    from argus_skill.skills import vertical_select
+    from argus.manager.domain_author import parse_fast_vertical_decision
+    from argus.skills import vertical_select
 
     route = parse_fast_vertical_decision(
         '{"choice":"existing","vertical":"kernel_engineering",'
@@ -280,7 +280,7 @@ def test_a_daemon_still_answering_in_json_is_not_broken() -> None:
 
 
 def test_the_routing_prompt_no_longer_demands_json() -> None:
-    from argus_skill.roles.prompts.manager import (
+    from argus.roles.prompts.manager import (
         build_vertical_decision_prompt,
     )
 
@@ -302,7 +302,7 @@ _VERDICT = ("STATUS", "REASON", "NEXT_ACTION", "OPERATOR_QUESTION")
 
 def test_a_multi_paragraph_reason_is_kept_whole() -> None:
     """A Reviewer writing several paragraphs is writing well, not wrongly."""
-    from argus_skill.core.role_reply import read_block
+    from argus.core.role_reply import read_block
 
     reply = """STATUS=continue
 REASON=The kernel is 1.2x, not the 1.5x the operator asked for.
@@ -338,7 +338,7 @@ def test_internal_handoff_lines_are_removed_from_visible_speech() -> None:
 
 
 def test_a_block_stops_at_the_next_key_not_at_the_end() -> None:
-    from argus_skill.core.role_reply import read_block
+    from argus.core.role_reply import read_block
 
     reply = "REASON=first\nstill first\nSTATUS=done\nnot the reason"
 
@@ -346,7 +346,7 @@ def test_a_block_stops_at_the_next_key_not_at_the_end() -> None:
 
 
 def test_a_missing_block_is_empty_not_the_whole_reply() -> None:
-    from argus_skill.core.role_reply import read_block
+    from argus.core.role_reply import read_block
 
     assert read_block("STATUS=done", "REASON", _VERDICT) == ""
 
@@ -361,7 +361,7 @@ def test_a_verbatim_live_stage_verdict_parses() -> None:
     Manager may reason out loud around its verdict — a fixture that omitted the
     prose would not be testing the thing that changed.
     """
-    from argus_skill.manager.stage_decider import parse_stage_decision
+    from argus.manager.stage_decider import parse_stage_decision
 
     reply = (
         "ADVANCE is both illegal (no next stage) and unsupported. HOLD is the "
@@ -386,7 +386,7 @@ def test_a_verbatim_live_stage_verdict_parses() -> None:
 
 
 def test_the_same_reply_carries_the_live_view_choice() -> None:
-    from argus_skill.manager.live_view import parse_live_view_response
+    from argus.manager.live_view import parse_live_view_response
 
     decided, view = parse_live_view_response(
         "ACTION=hold\n"
@@ -403,7 +403,7 @@ def test_the_same_reply_carries_the_live_view_choice() -> None:
 
 def test_an_empty_live_view_line_clears_the_panel() -> None:
     """Distinct from never mentioning it, which must leave the panel alone."""
-    from argus_skill.manager.live_view import parse_live_view_response
+    from argus.manager.live_view import parse_live_view_response
 
     cleared, view = parse_live_view_response("ACTION=hold\nLIVE_VIEW_PATHS=\n")
     untouched, _ = parse_live_view_response("ACTION=hold\n")
@@ -413,7 +413,7 @@ def test_an_empty_live_view_line_clears_the_panel() -> None:
 
 
 def test_a_stage_verdict_still_parses_from_volunteered_json() -> None:
-    from argus_skill.manager.stage_decider import parse_stage_decision
+    from argus.manager.stage_decider import parse_stage_decision
 
     decision = parse_stage_decision(
         '{"action":"hold","target_stage":"delivery","reason":"not yet"}',
@@ -427,7 +427,7 @@ def test_a_stage_verdict_still_parses_from_volunteered_json() -> None:
 def test_the_stage_prompt_no_longer_demands_json() -> None:
     from types import SimpleNamespace
 
-    from argus_skill.roles.prompts.manager import build_stage_decision_prompt
+    from argus.roles.prompts.manager import build_stage_decision_prompt
 
     review = SimpleNamespace(
         status="done", reason="r", next_action="", operator_question="", checklist=[]
@@ -452,7 +452,7 @@ def test_the_stage_prompt_no_longer_demands_json() -> None:
 def test_stage_prompt_exposes_dynamic_later_stage_choices() -> None:
     from types import SimpleNamespace
 
-    from argus_skill.roles.prompts.manager import build_stage_decision_prompt
+    from argus.roles.prompts.manager import build_stage_decision_prompt
 
     prompt = build_stage_decision_prompt(
         current_stage="research",
@@ -484,7 +484,7 @@ def test_a_verbatim_live_rewrite_parses_with_its_questions() -> None:
     standing instruction — propose a metric constraint by asking, never by
     assuming — and this fixture is the evidence it survives the format change.
     """
-    from argus_skill.manager.prompt_rewrite import parse_rewrite_text
+    from argus.manager.prompt_rewrite import parse_rewrite_text
 
     reply = (
         "REWRITTEN=Optimise \"the kernel\" so it runs faster than it does today. "
@@ -514,7 +514,7 @@ def test_a_verbatim_live_rewrite_parses_with_its_questions() -> None:
 
 def test_a_plain_prose_reply_is_still_used_as_the_rewrite() -> None:
     """Models sometimes just answer; throwing that away is worse than using it."""
-    from argus_skill.manager.prompt_rewrite import parse_rewrite_text
+    from argus.manager.prompt_rewrite import parse_rewrite_text
 
     rewrite = parse_rewrite_text("Make the attention kernel at least 1.5x faster.")
 
@@ -522,7 +522,7 @@ def test_a_plain_prose_reply_is_still_used_as_the_rewrite() -> None:
 
 
 def test_a_volunteered_json_rewrite_still_parses() -> None:
-    from argus_skill.manager.prompt_rewrite import parse_rewrite_text
+    from argus.manager.prompt_rewrite import parse_rewrite_text
 
     rewrite = parse_rewrite_text(
         '{"rewritten":"do the thing","changes":["a"],"questions":["b"]}'
@@ -536,7 +536,7 @@ def test_a_volunteered_json_rewrite_still_parses() -> None:
 
 
 def _rule(text: str):
-    from argus_skill.webapi.manager_pending_question import (
+    from argus.webapi.manager_pending_question import (
         _parse_pending_question_decision,
     )
 
@@ -612,7 +612,7 @@ def test_authored_panel_content_survives_its_own_blank_lines() -> None:
     It is multi-line and may contain anything, so a flat `KEY=value` cannot
     carry it. A fenced block is what a model writes for file content anyway.
     """
-    from argus_skill.manager.live_view import parse_manager_presentations
+    from argus.manager.live_view import parse_manager_presentations
 
     presentations = parse_manager_presentations(_PANEL)
 
@@ -623,7 +623,7 @@ def test_authored_panel_content_survives_its_own_blank_lines() -> None:
 
 
 def test_the_same_reply_also_carries_the_panel_selection() -> None:
-    from argus_skill.manager.live_view import parse_live_view_response
+    from argus.manager.live_view import parse_live_view_response
 
     decided, view = parse_live_view_response(_PANEL)
 
@@ -638,13 +638,13 @@ def test_a_path_with_no_content_block_is_dropped_not_guessed() -> None:
     Inventing content would put Manager-attributed prose in front of the
     operator that the Manager never wrote.
     """
-    from argus_skill.manager.live_view import parse_manager_presentations
+    from argus.manager.live_view import parse_manager_presentations
 
     assert parse_manager_presentations("PRESENTATION=.argus/live/a.md\n") == ()
 
 
 def test_a_path_outside_the_managed_directory_is_refused() -> None:
-    from argus_skill.manager.live_view import parse_manager_presentations
+    from argus.manager.live_view import parse_manager_presentations
 
     assert parse_manager_presentations(
         "PRESENTATION=/etc/passwd\n```\nx\n```\n"
@@ -652,7 +652,7 @@ def test_a_path_outside_the_managed_directory_is_refused() -> None:
 
 
 def test_volunteered_json_presentations_still_parse() -> None:
-    from argus_skill.manager.live_view import parse_manager_presentations
+    from argus.manager.live_view import parse_manager_presentations
 
     presentations = parse_manager_presentations(
         '{"presentations":[{"path":".argus/live/a.md","content":"x"}]}'
@@ -666,7 +666,7 @@ def test_volunteered_json_presentations_still_parse() -> None:
 
 def test_several_verdicts_are_read_as_separate_records() -> None:
     """`read_key_values` keeps the last occurrence, which is wrong for a list."""
-    from argus_skill.core.role_reply import read_records
+    from argus.core.role_reply import read_records
 
     reply = (
         "Here is how I would file them.\n"
@@ -692,13 +692,13 @@ def test_several_verdicts_are_read_as_separate_records() -> None:
 
 
 def test_a_reply_with_no_records_reads_as_none_of_them() -> None:
-    from argus_skill.core.role_reply import read_records
+    from argus.core.role_reply import read_records
 
     assert read_records("nothing here", ("A", "B"), start_key="A") == []
 
 
 def test_skill_placements_keep_their_shape_and_their_fallback() -> None:
-    from argus_skill.manager.skill_review import _named_placements
+    from argus.manager.skill_review import _named_placements
 
     named = _named_placements(
         "CANDIDATE_ID=sk-1\nPLACEMENT=stay\nVERTICAL=\nWHY=too specific\n"
@@ -712,7 +712,7 @@ def test_skill_placements_keep_their_shape_and_their_fallback() -> None:
 
 
 def test_a_single_placement_uses_the_batch_contract(monkeypatch) -> None:
-    from argus_skill.manager import skill_review
+    from argus.manager import skill_review
 
     calls: list[dict] = []
 

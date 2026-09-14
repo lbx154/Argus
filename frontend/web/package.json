@@ -3,10 +3,10 @@
   "version": "0.1.7",
   "private": true,
   "type": "module",
-  "description": "React web cockpit for the argus-skill autonomous-research daemon — a client of the argus-skill webapi.",
+  "description": "React web cockpit for the argus autonomous-research daemon — a client of the argus webapi.",
   "scripts": {
     "dev": "vite",
-    "build": "python -m argus_skill.release_tools.generate_event_types --check && python -m argus_skill.release_tools.generate_event_fixtures --check && python -m argus_skill.release_tools.generate_resource_status --check && tsc --noEmit && vite build",
+    "build": "python -m argus.release_tools.generate_event_types --check && python -m argus.release_tools.generate_event_fixtures --check && python -m argus.release_tools.generate_resource_status --check && tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "preview": "vite preview"

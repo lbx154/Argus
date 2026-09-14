@@ -20,7 +20,7 @@ import numpy as np
 sys.dont_write_bytecode = True
 
 
-STYLE_HELPER = Path(os.environ.get("PAPER_CHART_STYLE", Path(__file__).resolve().parents[3] / "argus_skill/verticals/research/skills/engineer/figure_spec_scripts/paper_chart_style.py"))
+STYLE_HELPER = Path(os.environ.get("PAPER_CHART_STYLE", Path(__file__).resolve().parents[3] / "argus/verticals/research/skills/engineer/figure_spec_scripts/paper_chart_style.py"))
 BENCHMARKS = ("ImageNet", "CIFAR-100", "COCO")
 VARIANTS = ("Full Model", "w/o Attention", "w/o Residual", "w/o Normalization")
 HATCHES = ("", "///", "\\\\", "xx")

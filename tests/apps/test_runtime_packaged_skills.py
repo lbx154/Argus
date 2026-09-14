@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_execute import SkillLoopExecuteMixin
-from argus_skill.apps._runtime_helpers import _ExecuteState
+from argus.apps._runtime_execute import SkillLoopExecuteMixin
+from argus.apps._runtime_helpers import _ExecuteState
 
 
 @pytest.fixture

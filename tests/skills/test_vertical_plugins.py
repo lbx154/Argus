@@ -5,11 +5,11 @@ from types import ModuleType
 
 import pytest
 
-from argus_skill.skills import vertical_select
-from argus_skill.skills.builtins import iter_vertical_skill_texts
-from argus_skill.skills.stage_machine import ChecklistItem
-from argus_skill.verticals import _registry
-from argus_skill.verticals._base import load_vertical
+from argus.skills import vertical_select
+from argus.skills.builtins import iter_vertical_skill_texts
+from argus.skills.stage_machine import ChecklistItem
+from argus.verticals import _registry
+from argus.verticals._base import load_vertical
 
 
 @pytest.fixture(autouse=True)
@@ -78,7 +78,7 @@ def test_invalid_plugins_are_not_advertised(tmp_path, monkeypatch) -> None:
 
 
 def test_builtin_name_cannot_be_replaced(tmp_path, monkeypatch) -> None:
-    from argus_skill.skills.builtins import vertical_skill_parents
+    from argus.skills.builtins import vertical_skill_parents
 
     before = dict(iter_vertical_skill_texts("research"))
     impostor = module(tmp_path)
@@ -102,7 +102,7 @@ def _with_parents(mod: ModuleType, *parents: object) -> ModuleType:
 
 
 def test_plugin_inherits_a_builtin_parents_skills_first(tmp_path, monkeypatch) -> None:
-    from argus_skill.skills.builtins import vertical_skill_parents
+    from argus.skills.builtins import vertical_skill_parents
 
     plugin = _with_parents(module(tmp_path), "kernel_engineering")
     install(monkeypatch, [Entry("bench", plugin)])
@@ -159,26 +159,61 @@ def test_entry_points_are_scanned_once_until_refreshed(tmp_path, monkeypatch) ->
     entries = [Entry("first_lab", module(tmp_path / "a"))]
 
     def fake_entry_points(group):
-        scans.append(1)
+        scans.append(group)
         return list(entries)
 
     monkeypatch.setattr(_registry, "entry_points", fake_entry_points)
     _registry.refresh_vertical_plugins()
 
+    # One scan reads the current group and the pre-rename group, once each.
+    one_scan = [_registry.ENTRY_POINT_GROUP, _registry.LEGACY_ENTRY_POINT_GROUP]
     assert "first_lab" in vertical_select.available_verticals()
     vertical_select.available_vertical_purposes()
     _registry.vertical_plugin("first_lab")
-    assert scans == [1]
+    assert scans == one_scan
 
     entries.append(Entry("second_lab", module(tmp_path / "b")))
     assert "second_lab" not in vertical_select.available_verticals()  # memoised
     _registry.refresh_vertical_plugins()
     assert "second_lab" in vertical_select.available_verticals()
-    assert scans == [1, 1]
+    assert scans == one_scan * 2
+
+
+def test_pre_rename_entry_point_group_is_read_and_loses_to_the_new_group(tmp_path, monkeypatch, caplog) -> None:
+    """``argus-verticals`` releases registered under ``argus_skill.verticals`` keep working.
+
+    A name present in both groups comes from the new group; a name only in the
+    old group is registered and warned about once, by name, so the maintainer
+    of the distribution knows what to change.
+    """
+    import logging
+
+    current = module(tmp_path / "current", purpose="Registered under the current group")
+    legacy_only = module(tmp_path / "legacy", purpose="Registered under the old group only")
+    legacy_duplicate = module(tmp_path / "duplicate", purpose="Old-group copy of a current plugin")
+    groups = {
+        _registry.ENTRY_POINT_GROUP: [Entry("shared_lab", current)],
+        _registry.LEGACY_ENTRY_POINT_GROUP: [
+            Entry("shared_lab", legacy_duplicate), Entry("old_lab", legacy_only),
+        ],
+    }
+    monkeypatch.setattr(_registry, "entry_points", lambda group: list(groups[group]))
+    _registry.refresh_vertical_plugins()
+
+    with caplog.at_level(logging.WARNING, logger="argus.verticals._registry"):
+        plugins = _registry.vertical_plugins()
+
+    assert plugins["shared_lab"].module is current
+    assert plugins["old_lab"].module is legacy_only
+    legacy_warnings = [r.getMessage() for r in caplog.records if "pre-rename group" in r.getMessage()]
+    assert len(legacy_warnings) == 1
+    assert "old_lab" in legacy_warnings[0] and "shared_lab" not in legacy_warnings[0]
+    assert _registry.LEGACY_ENTRY_POINT_GROUP in legacy_warnings[0]
+    assert not any("duplicate" in r.getMessage() for r in caplog.records)
 
 
 def test_a_broken_managed_plugin_does_not_hide_entry_point_plugins(tmp_path, monkeypatch) -> None:
-    from argus_skill.core import plugin_manager
+    from argus.core import plugin_manager
 
     class Broken:
         def vertical_module(self):
@@ -197,9 +232,9 @@ def test_a_broken_managed_plugin_does_not_hide_entry_point_plugins(tmp_path, mon
 def test_manager_treats_an_installed_plugin_as_a_vertical_not_a_data_domain(
     tmp_path, monkeypatch
 ) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.manager.domain_author import VerticalDecision
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.manager import Manager
+    from argus.manager.domain_author import VerticalDecision
+    from argus.verticals._data_domain import write_data_domain
 
     install(monkeypatch, [Entry("external_lab", module(tmp_path / "plugin"))])
     project = tmp_path / "project"
@@ -248,7 +283,7 @@ def test_a_traversable_vertical_skills_is_accepted(tmp_path, monkeypatch) -> Non
     from importlib import resources
 
     plugin = module(tmp_path)
-    plugin.VERTICAL_SKILLS = resources.files("argus_skill.verticals.software") / "skills"
+    plugin.VERTICAL_SKILLS = resources.files("argus.verticals.software") / "skills"
     install(monkeypatch, [Entry("traversable", plugin)])
 
     names = dict(iter_vertical_skill_texts("traversable"))
@@ -261,7 +296,7 @@ def test_a_parent_that_resolves_nowhere_is_warned_about_and_skipped(tmp_path, mo
     plugin = _with_parents(module(tmp_path), "no_such_vertical")
     install(monkeypatch, [Entry("orphan_child", plugin)])
 
-    with caplog.at_level(logging.WARNING, logger="argus_skill.skills.builtins"):
+    with caplog.at_level(logging.WARNING, logger="argus.skills.builtins"):
         names = [name for name, _ in iter_vertical_skill_texts("orphan_child")]
 
     assert names == ["engineer/plugin.md"]
@@ -286,17 +321,17 @@ def test_a_plugin_that_reads_the_registry_while_loading_does_not_trigger_a_secon
     entries = [ReentrantEntry("reentrant", plugin)]
 
     def fake_entry_points(group):
-        scans.append(1)
+        scans.append(group)
         return list(entries)
 
     monkeypatch.setattr(_registry, "entry_points", fake_entry_points)
     _registry.refresh_vertical_plugins()
 
-    with caplog.at_level(logging.WARNING, logger="argus_skill.verticals._registry"):
+    with caplog.at_level(logging.WARNING, logger="argus.verticals._registry"):
         available = vertical_select.available_verticals()
 
     assert "reentrant" in available
-    assert scans == [1]
+    assert scans == [_registry.ENTRY_POINT_GROUP, _registry.LEGACY_ENTRY_POINT_GROUP]
     assert not any("incompatible contract" in r.getMessage() for r in caplog.records)
 
 
@@ -304,7 +339,7 @@ def test_a_plugin_that_reads_the_registry_while_loading_does_not_trigger_a_secon
 
 
 def test_builtin_name_cannot_hijack_skill_seeding(tmp_path, monkeypatch) -> None:
-    from argus_skill.skills.builtins import vertical_skill_parents
+    from argus.skills.builtins import vertical_skill_parents
 
     before = dict(iter_vertical_skill_texts("research"))
     impostor = _with_parents(module(tmp_path), "software")
@@ -318,7 +353,7 @@ def test_builtin_name_cannot_hijack_skill_seeding(tmp_path, monkeypatch) -> None
 
 
 def test_managed_plugin_named_like_a_builtin_is_ignored(tmp_path, monkeypatch) -> None:
-    from argus_skill.core import plugin_manager
+    from argus.core import plugin_manager
 
     impostor = module(tmp_path)
 

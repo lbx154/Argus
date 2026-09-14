@@ -6,10 +6,10 @@ from types import SimpleNamespace
 import pytest
 from jsonschema import Draft202012Validator
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi import map_narrative
-from argus_skill.webapi.map_view import normalize_events, read_map
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi import map_narrative
+from argus.webapi.map_view import normalize_events, read_map
 
 
 def brief():

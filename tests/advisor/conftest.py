@@ -3,8 +3,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def isolated_advisor_state(tmp_path, monkeypatch):
-    from argus_skill.adapters.agent_cli_backend import _core
-    from argus_skill.core import secret_guard
+    from argus.adapters.agent_cli_backend import _core
+    from argus.core import secret_guard
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_TRIAL", "0")

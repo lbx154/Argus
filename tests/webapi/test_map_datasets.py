@@ -2,7 +2,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from argus_skill.webapi.server import create_app
+from argus.webapi.server import create_app
 
 
 def test_map_samples_are_separate_from_runnable_projects(tmp_path, monkeypatch):
@@ -15,7 +15,7 @@ def test_map_samples_are_separate_from_runnable_projects(tmp_path, monkeypatch):
     client = TestClient(create_app(global_root=tmp_path / "state", auth_token="test-token"))
     assert client.get("/api/map-datasets/example").status_code == 401
     headers = {"Authorization": "Bearer test-token"}
-    from argus_skill.webapi.map_view import with_revisions
+    from argus.webapi.map_view import with_revisions
     assert client.get("/api/map-datasets/example", headers=headers).json() == with_revisions(data)
     assert json.loads((folder / "example.json").read_text()) == data
     for method in ("post", "put", "patch", "delete"):

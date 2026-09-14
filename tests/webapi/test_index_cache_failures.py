@@ -7,8 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.webapi import index_cache
-from argus_skill.webapi.index_cache import IndexCache
+from argus.webapi import index_cache
+from argus.webapi.index_cache import IndexCache
 
 
 def _cohort(cache, monkeypatch, count):

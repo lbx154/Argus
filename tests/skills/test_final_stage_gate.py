@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.vertical_select import resolve_checklist_vertical
+from argus.skills.vertical_select import resolve_checklist_vertical
 
-_VERTICALS = Path(__file__).resolve().parents[2] / "argus_skill" / "verticals"
+_VERTICALS = Path(__file__).resolve().parents[2] / "argus" / "verticals"
 
 
 def _selectable_verticals() -> list[str]:
@@ -34,7 +34,7 @@ def _selectable_verticals() -> list[str]:
 
 
 def _final_stage_checklist(name: str) -> tuple[str, int, bool]:
-    module = importlib.import_module(f"argus_skill.verticals.{name}.stages")
+    module = importlib.import_module(f"argus.verticals.{name}.stages")
     order = list(
         getattr(module, "CHECKLIST_STAGE_ORDER", None)
         or getattr(module, "STAGE_ORDER", [])
@@ -81,7 +81,7 @@ def test_a_verticals_protected_floor_is_a_subset_of_its_own_checklist() -> None:
 
     checked = 0
     for name in _selectable_verticals():
-        module = importlib.import_module(f"argus_skill.verticals.{name}.stages")
+        module = importlib.import_module(f"argus.verticals.{name}.stages")
         protected = getattr(module, "PROTECTED_ITEM_IDS", frozenset()) or frozenset()
         if not protected:
             continue

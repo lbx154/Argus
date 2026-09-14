@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import argus_skill.reviewer._core as reviewer_core
-from argus_skill.reviewer import parse_decision_text
+import argus.reviewer._core as reviewer_core
+from argus.reviewer import parse_decision_text
 
 
 def test_named_reviewer_verdict_parses_with_multiline_reason() -> None:

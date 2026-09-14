@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life import runtime_failure_circuit as circuit_module
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.runtime_failure_circuit import (
+from argus.life import runtime_failure_circuit as circuit_module
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.runtime_failure_circuit import (
     CIRCUIT_FILENAME,
     active_runtime_failure_circuit,
     clear_runtime_failure_circuit,
@@ -16,9 +16,9 @@ from argus_skill.life.runtime_failure_circuit import (
     record_runtime_failure_circuit,
     runtime_failure_fingerprint,
 )
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_AWAITING
-from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_AWAITING
+from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
 
 
 def _checkpoint_error(mission_id: str) -> FileNotFoundError:
@@ -49,6 +49,49 @@ def test_checkpoint_failure_fingerprint_ignores_per_mission_path() -> None:
     assert first["callsite"] == second["callsite"]
     assert "<mission-id>/CHECKPOINT.md" in first["normalized_error"]
     assert "aaaaaaaaaaaa" not in first["normalized_error"]
+
+
+def test_callsite_is_package_relative_for_either_package_spelling() -> None:
+    """Frames inside the package (either spelling) become ``argus/<path>:<function>``."""
+    own = str(Path(circuit_module.__file__))
+    assert circuit_module._package_relative_filename(own) == "argus/life/runtime_failure_circuit.py"
+    assert circuit_module._package_relative_filename(
+        "/opt/argus/argus_skill/life/supervisor/_helpers.py"
+    ) == "argus/life/supervisor/_helpers.py"
+    assert circuit_module._package_relative_filename(
+        "C:\\Users\\a\\argus_skill\\daemon\\state.py"
+    ) == "argus/daemon/state.py"
+    # A checkout that merely has ``argus`` in its path is not the package.
+    assert circuit_module._package_relative_filename("/home/me/argus/tests/test_x.py") is None
+    # A frozen build records build-time paths that do not start with the runtime
+    # package root; ``/argus/<subpackage>/`` and ``/argus/<root module>.py`` still count.
+    assert circuit_module._package_relative_filename(
+        "C:\\actions-runner\\_work\\Argus\\argus\\life\\supervisor\\_helpers.py"
+    ) == "argus/life/supervisor/_helpers.py"
+    assert circuit_module._package_relative_filename("/build/src/argus/loop.py") == "argus/loop.py"
+    assert circuit_module._package_relative_filename("/home/argus/argus/core/paths.py") == "argus/core/paths.py"
+    assert circuit_module._package_relative_filename("/build/src/argus/_frontend/web/dist/x.js") is None
+    assert circuit_module._package_relative_filename("/build/src/argus/README.md") is None
+
+    namespace: dict = {}
+    exec(  # noqa: S102 - a frame whose filename is the pre-rename layout
+        compile("def boom():\n    raise ValueError('x')\n", "/opt/argus/argus_skill/life/legacy.py", "exec"),
+        namespace,
+    )
+    try:
+        namespace["boom"]()
+    except ValueError as exc:
+        assert circuit_module._exception_callsite(exc) == "argus/life/legacy.py:boom"
+
+    frozen: dict = {}
+    exec(  # noqa: S102 - a frame whose filename is a build-time path of a frozen backend
+        compile("def frozen_boom():\n    raise ValueError('x')\n", "C:\\build\\Argus\\argus\\daemon\\state.py", "exec"),
+        frozen,
+    )
+    try:
+        frozen["frozen_boom"]()
+    except ValueError as exc:
+        assert circuit_module._exception_callsite(exc) == "argus/daemon/state.py:frozen_boom"
 
 
 def test_runtime_failure_circuit_persists_and_counts_same_identity(

@@ -36,9 +36,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.tools import lean_check
-from argus_skill.tools.lean_check import audit_lean_tools
-from argus_skill.verticals.math.lean_evidence import (
+from argus.tools import lean_check
+from argus.tools.lean_check import audit_lean_tools
+from argus.verticals.math.lean_evidence import (
     MAX_DISCOVERED_SOURCES,
     CompiledArtifactChangedError,
     classify_environment_failure,
@@ -48,8 +48,8 @@ from argus_skill.verticals.math.lean_evidence import (
     validate_lean_evidence,
     verify_lean_source,
 )
-from argus_skill.verticals.math.objective_mode import set_objective
-from argus_skill.verticals.math.stages import stage_completion_issues
+from argus.verticals.math.objective_mode import set_objective
+from argus.verticals.math.stages import stage_completion_issues
 
 CORE_THEOREM = (
     "theorem argus_add_comm (a b : Nat) : a + b = b + a := Nat.add_comm a b\n"
@@ -210,7 +210,7 @@ def test_a_project_without_lean_never_loads_the_checker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Formalization is optional, so its cost must be optional too."""
-    import argus_skill.verticals.math.lean_evidence as module
+    import argus.verticals.math.lean_evidence as module
 
     def explode(*_args, **_kwargs):  # pragma: no cover - must not run
         raise AssertionError("the Lean checker was imported without any Lean")
@@ -841,7 +841,7 @@ def test_repeated_checks_do_not_repeat_the_work(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.verticals.math.lean_evidence as module
+    import argus.verticals.math.lean_evidence as module
 
     root = _project(tmp_path)
     _sound(root)
@@ -869,7 +869,7 @@ def test_the_cache_cannot_be_fooled_by_restoring_the_timestamp(
     and `os.utime` puts the timestamp back, so every piece of metadata the old
     key looked at is unchanged. Only the content differs.
     """
-    import argus_skill.verticals.math.lean_evidence as module
+    import argus.verticals.math.lean_evidence as module
 
     root = _project(tmp_path)
     source = _sound(root)
@@ -897,7 +897,7 @@ def test_the_cache_notices_a_fidelity_document_above_the_source(
     tmp_path: Path,
 ) -> None:
     """Review point 6: an ancestor document was consulted but never keyed."""
-    import argus_skill.verticals.math.lean_evidence as module
+    import argus.verticals.math.lean_evidence as module
 
     root = _project(tmp_path)
     _write_source(root)
@@ -920,7 +920,7 @@ def test_the_cache_notices_a_fidelity_document_above_the_source(
 
 
 def test_the_cache_notices_a_replaced_result(tmp_path: Path) -> None:
-    import argus_skill.verticals.math.lean_evidence as module
+    import argus.verticals.math.lean_evidence as module
 
     root = _project(tmp_path)
     _sound(root)
@@ -1560,8 +1560,8 @@ def test_a_raced_run_records_nothing_in_the_claim_ledger(
     three — a record citing a compile that describes different text is exactly
     the citation the archive exists to make trustworthy.
     """
-    from argus_skill.proof_ledger import load_state
-    from argus_skill.verticals.math.math_state import main as state_main
+    from argus.proof_ledger import load_state
+    from argus.verticals.math.math_state import main as state_main
 
     lean_bin = _bare_lean(tmp_path, monkeypatch)
     root = _project(tmp_path)

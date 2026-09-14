@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from argus_skill.verticals.research import figure_tool
+from argus.verticals.research import figure_tool
 
 _PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
@@ -51,7 +51,7 @@ def test_review_prompt_has_no_builtin_venue_literals() -> None:
 
 
 def test_review_prompt_uses_researched_venue_persona() -> None:
-    from argus_skill.verticals.research.venue_profiles import VenueProfile
+    from argus.verticals.research.venue_profiles import VenueProfile
 
     profile = VenueProfile(
         key="NEURIPS",
@@ -114,8 +114,8 @@ def test_review_image_threads_rubric_into_authoritative_prompt(
 
         return _FakeResponse()
 
-    monkeypatch.setattr("argus_skill.tools.image_api._urlopen", fake_urlopen)
-    from argus_skill.tools.capability_vault import ModelApiGrant, save_model_api_grant
+    monkeypatch.setattr("argus.tools.image_api._urlopen", fake_urlopen)
+    from argus.tools.capability_vault import ModelApiGrant, save_model_api_grant
 
     vault = tmp_path / "vault.json"
     save_model_api_grant(
@@ -171,8 +171,8 @@ def test_review_cli_builds_paper_prompt_and_calls_generic_reviewer(
 
         return _FakeResponse()
 
-    monkeypatch.setattr("argus_skill.tools.image_api._urlopen", fake_urlopen)
-    from argus_skill.tools.capability_vault import ModelApiGrant, save_model_api_grant
+    monkeypatch.setattr("argus.tools.image_api._urlopen", fake_urlopen)
+    from argus.tools.capability_vault import ModelApiGrant, save_model_api_grant
 
     vault = tmp_path / "vault.json"
     save_model_api_grant(

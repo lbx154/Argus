@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.manager.plan_mode import Plan, PlanStep
-from argus_skill.webapi import manager_bridge, manager_state
+from argus.manager.plan_mode import Plan, PlanStep
+from argus.webapi import manager_bridge, manager_state
 
 
 def test_plan_preview_uses_lightweight_role_config_and_caches_exact_repeat(
@@ -21,7 +21,7 @@ def test_plan_preview_uses_lightweight_role_config_and_caches_exact_repeat(
     )
     backend = object()
     monkeypatch.setattr(
-        "argus_skill.manager.front_door._ensure_manager_runner",
+        "argus.manager.front_door._ensure_manager_runner",
         lambda *_args, **_kwargs: SimpleNamespace(planner_backend=backend),
     )
     calls: list[dict] = []
@@ -33,7 +33,7 @@ def test_plan_preview_uses_lightweight_role_config_and_caches_exact_repeat(
             steps=[PlanStep("Inspect", "find the constraint")],
         )
 
-    monkeypatch.setattr("argus_skill.manager.plan_mode.draft_plan", draft)
+    monkeypatch.setattr("argus.manager.plan_mode.draft_plan", draft)
 
     first = manager_bridge.manager_plan(
         sid,
@@ -61,7 +61,7 @@ def test_plan_preview_effort_has_explicit_override(tmp_path, monkeypatch) -> Non
     monkeypatch.setenv("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "preview-model")
     monkeypatch.setenv("ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT", "medium")
     monkeypatch.setattr(
-        "argus_skill.manager.front_door._ensure_manager_runner",
+        "argus.manager.front_door._ensure_manager_runner",
         lambda *_args, **_kwargs: SimpleNamespace(planner_backend=object()),
     )
     seen: dict = {}
@@ -70,7 +70,7 @@ def test_plan_preview_effort_has_explicit_override(tmp_path, monkeypatch) -> Non
         seen.update(kwargs)
         return Plan(objective=objective, steps=[PlanStep("Draft")])
 
-    monkeypatch.setattr("argus_skill.manager.plan_mode.draft_plan", draft)
+    monkeypatch.setattr("argus.manager.plan_mode.draft_plan", draft)
 
     manager_bridge.manager_plan(sid, "draft it", global_root=tmp_path)
 
@@ -89,7 +89,7 @@ def test_plan_preview_auto_inherits_planner_model_on_claude(
     monkeypatch.setenv("ARGUS_SKILL_PLAN_MODEL", "claude-sonnet-test")
     monkeypatch.delenv("ARGUS_SKILL_PLAN_PREVIEW_MODEL", raising=False)
     monkeypatch.setattr(
-        "argus_skill.manager.front_door._ensure_manager_runner",
+        "argus.manager.front_door._ensure_manager_runner",
         lambda *_args, **_kwargs: SimpleNamespace(planner_backend=object()),
     )
     seen: dict = {}
@@ -98,7 +98,7 @@ def test_plan_preview_auto_inherits_planner_model_on_claude(
         seen.update(kwargs)
         return Plan(objective=objective, steps=[PlanStep("Draft")])
 
-    monkeypatch.setattr("argus_skill.manager.plan_mode.draft_plan", draft)
+    monkeypatch.setattr("argus.manager.plan_mode.draft_plan", draft)
 
     manager_bridge.manager_plan(sid, "draft it", global_root=tmp_path)
 

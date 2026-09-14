@@ -9,8 +9,8 @@ one. Observed live in run 7 (s-2962d053): 7.5 GB of Mathlib re-fetched into the
 project while a built v4.34.0-rc1 workspace sat unread.
 
 Citations:
-- argus_skill/verticals/math/stages.py — ``_lean_workspace_note``
-- argus_skill/tools/lean_check.py — ``_resolve_lake_workspace`` search order
+- argus/verticals/math/stages.py — ``_lean_workspace_note``
+- argus/tools/lean_check.py — ``_resolve_lake_workspace`` search order
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.math import stages
+from argus.verticals.math import stages
 
 
 @pytest.fixture
@@ -71,7 +71,7 @@ def test_note_never_fails_a_mission(monkeypatch: pytest.MonkeyPatch) -> None:
         raise RuntimeError("workspace probe blew up")
 
     monkeypatch.setattr(
-        "argus_skill.verticals.math.lean_evidence.resolved_mathlib_workspace",
+        "argus.verticals.math.lean_evidence.resolved_mathlib_workspace",
         explode,
     )
     assert stages.role_banner("engineer").strip()

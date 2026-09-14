@@ -4,9 +4,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from argus_skill.trial.analytics import Analytics, AnalyticsError
-from argus_skill.trial.analytics_routes import register_analytics
-from argus_skill.trial.interaction_capture import Capture, get_interaction, list_interactions
+from argus.trial.analytics import Analytics, AnalyticsError
+from argus.trial.analytics_routes import register_analytics
+from argus.trial.interaction_capture import Capture, get_interaction, list_interactions
 
 
 @pytest.fixture

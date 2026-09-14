@@ -5,27 +5,27 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.operator_context import (
+from argus.core.operator_context import (
     OperatorContextStore,
     append_directive,
     append_operator_context,
     append_preference,
     build_operator_context_block,
 )
-from argus_skill.roles.prompts import (
+from argus.roles.prompts import (
     ChecklistMode,
     RoleName,
     RolePromptRequest,
     resolve_role_prompt,
 )
-from argus_skill.roles.prompts.engineer import (
+from argus.roles.prompts.engineer import (
     assemble_round_prompt as assemble_engineer_prompt,
 )
-from argus_skill.roles.prompts.engineer import (
+from argus.roles.prompts.engineer import (
     build_mission_prompt,
     mission_request,
 )
-from argus_skill.roles.prompts.manager import (
+from argus.roles.prompts.manager import (
     FRONT_DOOR,
     build_front_door_prompt,
     build_pending_question_prompt,
@@ -33,23 +33,23 @@ from argus_skill.roles.prompts.manager import (
     build_vertical_decision_prompt,
     stage_decision_request,
 )
-from argus_skill.roles.prompts.planner import (
+from argus.roles.prompts.planner import (
     build_bounded_dag_prompt,
     build_continuous_prompt,
     build_continuous_resume_prompt,
     continuous_request,
     preview_request,
 )
-from argus_skill.roles.prompts.reviewer import (
+from argus.roles.prompts.reviewer import (
     assemble_reviewer_prompt,
     evaluate_request,
     render_reviewer_prompt,
 )
-from argus_skill.skills.stage_machine import (
+from argus.skills.stage_machine import (
     format_stage_checklist,
 )
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import load_vertical, vertical_role_banner
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals._base import load_vertical, vertical_role_banner
 
 
 def _set_stage(project_root, stage: str) -> None:

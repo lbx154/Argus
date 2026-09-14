@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps.cli._follow import _format_follow_mission_context
-from argus_skill.manager.config_intent import _front_door_classify
-from argus_skill.manager.front_door import (
+from argus.apps.cli._follow import _format_follow_mission_context
+from argus.manager.config_intent import _front_door_classify
+from argus.manager.front_door import (
     _derive_session_name,
     _maybe_name_session,
 )
@@ -35,7 +35,7 @@ def test_maybe_name_session_is_idempotent_and_failsoft():
 
 
 def test_maybe_name_session_names_a_fresh_session(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
@@ -45,7 +45,7 @@ def test_maybe_name_session_names_a_fresh_session(tmp_path):
 
 
 def test_maybe_name_session_uses_concise_manager_title(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
@@ -58,7 +58,7 @@ def test_maybe_name_session_uses_concise_manager_title(tmp_path):
 
 
 def test_maybe_name_session_never_overwrites_persisted_name(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session, touch_session
+    from argus.core.session import read_session_meta, resolve_session, touch_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     touch_session(tmp_path, sid, display_name="已有名称")
@@ -69,7 +69,7 @@ def test_maybe_name_session_never_overwrites_persisted_name(tmp_path):
 
 
 def test_first_team_task_replaces_provisional_greeting_name(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
@@ -87,7 +87,7 @@ def test_first_team_task_replaces_provisional_greeting_name(tmp_path):
 
 
 def test_team_task_does_not_replace_manual_name_after_greeting(tmp_path):
-    from argus_skill.core.session import (
+    from argus.core.session import (
         read_session_meta,
         resolve_session,
         update_session_meta,
@@ -115,7 +115,7 @@ def test_team_task_does_not_replace_manual_name_after_greeting(tmp_path):
 
 @pytest.mark.parametrize("route", ["simple", "complex"])
 def test_front_door_names_first_message_for_every_route(tmp_path, route):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
@@ -139,7 +139,7 @@ def test_front_door_names_first_message_for_every_route(tmp_path, route):
 
 
 def test_pure_greeting_does_not_claim_the_session_name(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
@@ -168,7 +168,7 @@ def test_pure_greeting_does_not_claim_the_session_name(tmp_path):
 
 
 def test_front_door_names_first_message_when_classifier_is_unavailable(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}

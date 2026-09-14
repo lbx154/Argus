@@ -1,4 +1,4 @@
-"""Unit tests for Manager Plan mode (``argus_skill.manager.plan_mode``).
+"""Unit tests for Manager Plan mode (``argus.manager.plan_mode``).
 
 Plan mode previews a SHORT step-by-step plan BEFORE any task is queued
 (Codex / Claude-Code / Cursor parity). These tests target the pure parser
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.manager.plan_mode import (
+from argus.manager.plan_mode import (
     build_plan_prompt,
     draft_plan,
     parse_plan_notes,

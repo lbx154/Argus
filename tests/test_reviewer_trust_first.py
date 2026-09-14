@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.reviewer import Reviewer
-from argus_skill.reviewer._core import _verification_directive
-from argus_skill.verticals.research.prompt_policy import academic_paper_review_block
+from argus.reviewer import Reviewer
+from argus.reviewer._core import _verification_directive
+from argus.verticals.research.prompt_policy import academic_paper_review_block
 
 
 def _prompt(*, measured: bool, monkeypatch) -> str:
@@ -69,7 +69,7 @@ def test_paper_review_requires_idea_and_built_artifact_quality():
 
 
 def _persist_review_stage(tmp_path, vertical: str) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, vertical)
     state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"

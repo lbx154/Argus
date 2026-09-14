@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps._runtime import (
+from argus.apps._runtime import (
     _build_supervisor_config as _build_runtime_supervisor_config,
 )
-from argus_skill.daemon.life_worker import (
+from argus.daemon.life_worker import (
     LifeWorkerConfig,
 )
-from argus_skill.daemon.life_worker import (
+from argus.daemon.life_worker import (
     _build_supervisor_config as _build_worker_supervisor_config,
 )
 
@@ -99,7 +99,7 @@ def test_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
 
 
 def _config_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = True):
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     root = tmp_path / "life"
     persist_vertical(root, vertical)  # the Manager's decision, persisted
@@ -136,7 +136,7 @@ def test_worker_supervisor_enables_paper_mode_only_after_research_resolution(
     tmp_path: Path,
     monkeypatch,
 ):
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
@@ -173,8 +173,8 @@ def test_direct_research_revision_guidance_preserves_bounded_stage(
     stage: str,
     has_paper_guidance: bool,
 ) -> None:
-    from argus_skill.core.pipeline_state import read_pipeline_state
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.core.pipeline_state import read_pipeline_state
+    from argus.skills.vertical_select import persist_vertical
 
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)

@@ -8,12 +8,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.daemon.state import DaemonStatus
-from argus_skill.life.memory import LifeMemory
-from argus_skill.webapi import manager_dispatch, mission_items, project_crud, server
-from argus_skill.webapi.daemon_services import DaemonServices
-from argus_skill.webapi.index_cache import CacheWaitTimeout
+from argus.core.session import SessionMeta, write_session_meta
+from argus.daemon.state import DaemonStatus
+from argus.life.memory import LifeMemory
+from argus.webapi import manager_dispatch, mission_items, project_crud, server
+from argus.webapi.daemon_services import DaemonServices
+from argus.webapi.index_cache import CacheWaitTimeout
 
 
 def _project(root: Path, sid: str = "s-service-probe") -> Path:

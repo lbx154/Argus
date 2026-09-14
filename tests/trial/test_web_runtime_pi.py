@@ -4,13 +4,13 @@ from unittest.mock import patch
 
 import pytest
 
-from argus_skill.core.knob_store import read_persisted_knobs, write_persisted_knobs
-from argus_skill.trial import DEFAULT_UPSTREAM_MODEL
-from argus_skill.trial.web_runtime import configure_provider
+from argus.core.knob_store import read_persisted_knobs, write_persisted_knobs
+from argus.trial import DEFAULT_UPSTREAM_MODEL
+from argus.trial.web_runtime import configure_provider
 
 
 def test_pi_registers_the_same_explicit_models_used_by_the_trial_gateway(tmp_path, monkeypatch):
-    from argus_skill.trial.model_catalog import configured_model_ids
+    from argus.trial.model_catalog import configured_model_ids
 
     monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
     monkeypatch.setenv("ARGUS_TRIAL_MODELS", "expert-model,fast-model,expert-model")
@@ -24,7 +24,7 @@ def test_pi_registers_the_same_explicit_models_used_by_the_trial_gateway(tmp_pat
 def test_pi_profile_selects_all_roles_and_own_provider(tmp_path, monkeypatch):
     saved = {}
     monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
-    monkeypatch.setattr("argus_skill.core.knob_store.write_persisted_knobs",
+    monkeypatch.setattr("argus.core.knob_store.write_persisted_knobs",
                         lambda values: saved.update(values) or True)
     configure_provider(tmp_path, {"api_key": "test-only-credential"})
     assert saved["ARGUS_SKILL_RUNNER_BACKEND"] == "pi"

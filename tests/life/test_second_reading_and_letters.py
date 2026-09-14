@@ -5,16 +5,16 @@ import json
 import time
 from pathlib import Path
 
-from argus_skill.core.operator_presence import (
+from argus.core.operator_presence import (
     UNATTENDED_AFTER_SECONDS,
     operator_presence,
 )
-from argus_skill.roles.prompts.letter import build_letter_prompt
-from argus_skill.verticals.research.notes import (
+from argus.roles.prompts.letter import build_letter_prompt
+from argus.verticals.research.notes import (
     RESEARCH_NOTES_FILENAME,
     read_research_notes,
 )
-from argus_skill.verticals.research.second_reading import (
+from argus.verticals.research.second_reading import (
     SECTION_TITLE,
     build_second_reading_prompt,
     insert_second_reading_into_notes,
@@ -205,8 +205,8 @@ class _Sink:
 
 
 def _supervisor_stub(tmp_path: Path, manager: _Manager, *, stage: str = "experiment"):
-    from argus_skill.life.supervisor._letters import LettersMixin
-    from argus_skill.life.supervisor._second_reading import SecondReadingMixin
+    from argus.life.supervisor._letters import LettersMixin
+    from argus.life.supervisor._second_reading import SecondReadingMixin
 
     life_dir = tmp_path / "life"
     workdir = tmp_path / "work"
@@ -261,7 +261,7 @@ def _supervisor_stub(tmp_path: Path, manager: _Manager, *, stage: str = "experim
 
 
 def test_repeated_doubt_earns_a_reading_that_reshapes_the_plan(tmp_path: Path, monkeypatch) -> None:
-    import argus_skill.skills.vertical_select as vertical_select
+    import argus.skills.vertical_select as vertical_select
 
     monkeypatch.setattr(vertical_select, "resolve_vertical", lambda root: "research")
     manager = _Manager(
@@ -296,7 +296,7 @@ def test_repeated_doubt_earns_a_reading_that_reshapes_the_plan(tmp_path: Path, m
 
 
 def test_no_reading_outside_the_research_experiment_stage(tmp_path: Path, monkeypatch) -> None:
-    import argus_skill.skills.vertical_select as vertical_select
+    import argus.skills.vertical_select as vertical_select
 
     monkeypatch.setattr(vertical_select, "resolve_vertical", lambda root: "research")
     manager = _Manager("unused")
@@ -344,8 +344,8 @@ def test_letters_can_be_switched_off(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_letter_uses_current_review_and_work_instead_of_archived_blockers(tmp_path: Path) -> None:
-    from argus_skill.life.event_log import JsonlEventSink
-    from argus_skill.life.memory import BacklogItem, LifeMemory
+    from argus.life.event_log import JsonlEventSink
+    from argus.life.memory import BacklogItem, LifeMemory
 
     manager = _Manager("unused")
     stub, life_dir, workdir = _supervisor_stub(tmp_path, manager, stage="review")

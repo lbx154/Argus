@@ -11,21 +11,21 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.engineer.round_stop_signals import (
+from argus.core.models import RunnerResult
+from argus.engineer.round_stop_signals import (
     authentication_review_decision,
     backend_failure_cause,
     backend_failure_signature,
     fatal_error_looks_like_auth_failure,
     infrastructure_failure_review_decision,
 )
-from argus_skill.engineer.runner import (
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.engineer.runner import fatal_error_looks_like_backend_failure as _is_bf
-from argus_skill.reviewer import ReviewerConfig
+from argus.engineer.runner import fatal_error_looks_like_backend_failure as _is_bf
+from argus.reviewer import ReviewerConfig
 
 
 def test_codex_subprocess_death_is_backend_failure() -> None:
@@ -223,7 +223,7 @@ def test_oauth_failure_pauses_once_without_opening_a_new_round(tmp_path: Path) -
 def test_forbidden_policy_strips_stop_kind_operator_question(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     set_active_manager_directive(
         tmp_path,
@@ -257,7 +257,7 @@ def test_forbidden_policy_strips_stop_kind_operator_question(
 
 
 def test_forbidden_policy_strips_model_question_event(tmp_path: Path) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     set_active_manager_directive(
         tmp_path,

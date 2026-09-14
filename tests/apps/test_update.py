@@ -7,8 +7,8 @@ from typing import Sequence
 
 import pytest
 
-from argus_skill.apps import update
-from argus_skill.apps.update import (
+from argus.apps import update
+from argus.apps.update import (
     UpdateError,
     inspect_source_checkout,
     update_source_checkout,
@@ -56,7 +56,7 @@ def _runner(
 
 
 def test_update_pulls_matching_published_branch_and_reinstalls(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus-skill'\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus'\n")
     python = "/venv/bin/python"
     calls: list[tuple[str, ...]] = []
     responses = {
@@ -116,7 +116,7 @@ def test_update_pulls_matching_published_branch_and_reinstalls(tmp_path: Path) -
 
 
 def test_update_refuses_dirty_checkout(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus-skill'\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus'\n")
     calls: list[tuple[str, ...]] = []
     runner = _runner(
         {
@@ -137,7 +137,7 @@ def test_update_refuses_dirty_checkout(tmp_path: Path) -> None:
 
 
 def test_update_reinstalls_when_current_to_repair_failed_attempt(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus-skill'\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus'\n")
     python = "/venv/bin/python"
     calls: list[tuple[str, ...]] = []
     responses = {
@@ -174,7 +174,7 @@ def test_update_reinstalls_when_current_to_repair_failed_attempt(tmp_path: Path)
 def test_inspect_source_checkout_compares_matching_published_branch_without_mutation(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus-skill'\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus'\n")
     calls: list[tuple[str, ...]] = []
     responses = {
         ("git", "rev-parse", "--show-toplevel"): (0, str(tmp_path), ""),
@@ -212,7 +212,7 @@ def test_source_updater_real_git_smoke_follows_branch_and_refuses_divergence(
     upstream = tmp_path / "published"
     upstream.mkdir()
     git(upstream, "init", "-b", "feature/lab")
-    (upstream / "pyproject.toml").write_text("[project]\nname='argus-skill'\n")
+    (upstream / "pyproject.toml").write_text("[project]\nname='argus'\n")
     git(upstream, "add", "pyproject.toml")
     git(upstream, "commit", "-m", "initial")
     checkout = tmp_path / "checkout"
@@ -303,7 +303,7 @@ def test_source_update_supports_uv_without_pip(tmp_path, monkeypatch):
 
 
 def test_source_update_missing_installer_does_not_pull(tmp_path, monkeypatch):
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus-skill'\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='argus'\n")
     monkeypatch.setattr(update.shutil, "which", lambda _name: None)
     calls = []
     runner = _runner({

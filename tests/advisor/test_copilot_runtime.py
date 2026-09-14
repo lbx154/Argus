@@ -15,12 +15,12 @@ from mcp.client.stdio import stdio_client
 from mcp.shared.exceptions import McpError
 from mcp.types import CancelledNotification, CancelledNotificationParams, ClientNotification
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend, _exec
-from argus_skill.advisor import runtime
-from argus_skill.advisor.config import save_advisor_config
-from argus_skill.advisor.copilot import TOOL_NAME
-from argus_skill.advisor.transport import TOKEN_ENV, request
-from argus_skill.core.models import RunnerOptions, RunnerResult
+from argus.adapters.agent_cli_backend import AgentCliBackend, _exec
+from argus.advisor import runtime
+from argus.advisor.config import save_advisor_config
+from argus.advisor.copilot import TOOL_NAME
+from argus.advisor.transport import TOKEN_ENV, request
+from argus.core.models import RunnerOptions, RunnerResult
 
 
 class RecordingService:
@@ -73,7 +73,7 @@ def mcp_parameters(command):
 @pytest.mark.parametrize("role", ["manager", "planner", "engineer", "reviewer"])
 def test_readonly_copilot_gateway_loads_only_bound_advisor_over_stdio(tmp_path, monkeypatch, role):
     """Use actual admission/options/CLI construction and MCP transport, with no provider inference."""
-    from argus_skill.adapters.agent_cli_backend._exec_finalize import finalize_result
+    from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
 
     state, workspace = tmp_path / "state", tmp_path / "workspace"
     workspace.mkdir()
@@ -119,7 +119,7 @@ def test_readonly_copilot_gateway_loads_only_bound_advisor_over_stdio(tmp_path, 
         environments.append(dict(ctx.options.extension_env))
         assert params.env[TOKEN_ENV] != os.environ[TOKEN_ENV]
         assert params.env[TOKEN_ENV] not in ctx.prompt
-        assert TOOL_NAME in ctx.prompt and "python -m argus_skill.tools.advisor consult" not in ctx.prompt
+        assert TOOL_NAME in ctx.prompt and "python -m argus.tools.advisor consult" not in ctx.prompt
         result = asyncio.run(call_tool(params))
         assert result["parent_call_id"] == ctx.call_id and result["caller_role"] == role
         assert services[0].context.mission_id == "bound-mission"

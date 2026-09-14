@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps import tui_launcher
+from argus.apps import tui_launcher
 
 
 @pytest.fixture(autouse=True)

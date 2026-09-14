@@ -3,16 +3,16 @@ from pathlib import Path
 import pytest
 import yaml
 
-from argus_skill.skills.builtins import (
+from argus.skills.builtins import (
     iter_vertical_skill_texts,
     seed_builtin_skills,
     seed_vertical_skills,
 )
-from argus_skill.skills.layered import LayeredSkillStore
+from argus.skills.layered import LayeredSkillStore
 
 ROOT = (
     Path(__file__).resolve().parents[2]
-    / "argus_skill"
+    / "argus"
     / "verticals"
     / "research"
     / "skills"
@@ -109,7 +109,7 @@ def test_router_points_at_a_renderer_that_exists() -> None:
     assert "browser_render.py" in router
 
     root = Path(__file__).resolve().parents[2]
-    skills = root / "argus_skill/verticals/research/skills/engineer"
+    skills = root / "argus/verticals/research/skills/engineer"
     assert (skills / "research_visual_scripts/browser_render.py").is_file()
 
 
@@ -129,10 +129,10 @@ def test_figure_spec_renderer_is_reachable() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
     spec = texts["engineer/figure-spec.md"]
 
-    assert "argus_skill/builtin_skills/" not in spec
+    assert "argus/builtin_skills/" not in spec
 
     root = Path(__file__).resolve().parents[2]
-    skills = root / "argus_skill/verticals/research/skills/engineer"
+    skills = root / "argus/verticals/research/skills/engineer"
     assert (skills / "figure_spec_scripts/figure_renderer.py").is_file()
 
 

@@ -4,11 +4,11 @@ import dataclasses
 import subprocess
 from pathlib import Path
 
-from argus_skill.core.models import ReviewDecision, RoundRecord
-from argus_skill.loop import SkillLoopConfig
-from argus_skill.skills.loop_review_hooks import ReviewedRoundHooksMixin
-from argus_skill.skills.loop_state import MissionContext
-from argus_skill.skills.round_checkpoint import checkpoint_round
+from argus.core.models import ReviewDecision, RoundRecord
+from argus.loop import SkillLoopConfig
+from argus.skills.loop_review_hooks import ReviewedRoundHooksMixin
+from argus.skills.loop_state import MissionContext
+from argus.skills.round_checkpoint import checkpoint_round
 
 
 def git(root: Path, *args: str, env=None):

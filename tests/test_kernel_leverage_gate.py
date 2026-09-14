@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.kernel_engineering.leverage_gate import (
+from argus.verticals.kernel_engineering.leverage_gate import (
     analyze_leverage,
     main,
     validate_leverage,

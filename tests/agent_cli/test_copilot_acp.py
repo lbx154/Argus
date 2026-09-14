@@ -15,8 +15,8 @@ import time
 
 import pytest
 
-from argus_skill.agent_cli import copilot_acp
-from argus_skill.agent_cli.copilot_acp import CopilotAcpClient
+from argus.agent_cli import copilot_acp
+from argus.agent_cli.copilot_acp import CopilotAcpClient
 
 
 class _Opt:

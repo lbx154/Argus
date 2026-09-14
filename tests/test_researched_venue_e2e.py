@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_machine import format_stage_checklist
-from argus_skill.verticals.research.paper_layout_review import _deterministic_assessment
-from argus_skill.verticals.research.venue_profiles import (
+from argus.skills.stage_machine import format_stage_checklist
+from argus.verticals.research.paper_layout_review import _deterministic_assessment
+from argus.verticals.research.venue_profiles import (
     resolve_venue_profile,
     venue_profile_path,
 )
@@ -85,7 +85,7 @@ def test_review_checklist_and_reviewer_skill_are_venue_neutral(tmp_path: Path) -
     assert profile.review_skill_path == "reviewer/venue-academic-language-review.md"
     format_skill = (
         Path(__file__).parents[1]
-        / "argus_skill/verticals/research/skills/engineer/venue-format-preflight.md"
+        / "argus/verticals/research/skills/engineer/venue-format-preflight.md"
     ).read_text(encoding="utf-8")
     assert "selected venue" in format_skill
     assert "official author kit" in format_skill
@@ -108,7 +108,7 @@ def test_unresearched_venue_fails_closed(tmp_path: Path) -> None:
 
 
 def test_venue_language_reviews_describe_claims_without_sentence_templates() -> None:
-    root = Path(__file__).parents[1] / "argus_skill/verticals/research/skills/reviewer"
+    root = Path(__file__).parents[1] / "argus/verticals/research/skills/reviewer"
     text = (root / "venue-academic-language-review.md").read_text(encoding="utf-8")
     assert "what is studied, what is claimed, under which conditions" in text
     assert "X is better for Y in Z because W" not in text

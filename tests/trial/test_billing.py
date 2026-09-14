@@ -2,13 +2,13 @@ import time
 
 import pytest
 
-from argus_skill.core.cost_control import reserve_call_budget
-from argus_skill.core.token_usage import TokenUsage
-from argus_skill.core.usage import UsageLedger, build_usage_record
+from argus.core.cost_control import reserve_call_budget
+from argus.core.token_usage import TokenUsage
+from argus.core.usage import UsageLedger, build_usage_record
 
 
 def test_trial_usage_reads_its_own_cli_store(tmp_path, monkeypatch):
-    from argus_skill.provider_integrations.copilot_usage import (
+    from argus.provider_integrations.copilot_usage import (
         capture_copilot_usage_cursor,
         copilot_usage_db_candidates,
     )

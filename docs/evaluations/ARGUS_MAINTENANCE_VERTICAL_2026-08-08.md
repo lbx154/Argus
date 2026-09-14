@@ -10,14 +10,14 @@ inspect → change → verify
 
 Implementation:
 
-- `argus_skill/verticals/argus_maintenance/stages.py`
-- `argus_skill/verticals/argus_maintenance/architecture_audit.py`
+- `argus/verticals/argus_maintenance/stages.py`
+- `argus/verticals/argus_maintenance/architecture_audit.py`
 - one Engineer Skill and one Reviewer Skill
 
 Run the audit with:
 
 ```bash
-python -m argus_skill.verticals.argus_maintenance.architecture_audit
+python -m argus.verticals.argus_maintenance.architecture_audit
 ```
 
 The report lists candidates. It does not automatically edit code or turn counts into gates.

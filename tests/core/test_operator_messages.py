@@ -4,13 +4,13 @@ import json
 
 import pytest
 
-from argus_skill.core.operator_messages import (
+from argus.core.operator_messages import (
     budget_refusal_reply,
     humanize_runtime_reason,
     publish_operator_message,
     render_operator_update,
 )
-from argus_skill.core.transcript import read_turns
+from argus.core.transcript import read_turns
 
 
 def test_budget_reply_explains_known_limit_without_claiming_backend_failure() -> None:

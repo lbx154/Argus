@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life.supervisor.pending_notify import (
+from argus.life.supervisor.pending_notify import (
     notify_pending_question,
     pending_question_message,
     should_report_pending_wait,
@@ -44,11 +44,11 @@ def channel(monkeypatch):
     """Capture what would have been sent, without touching a network."""
     sent: list[str] = []
     monkeypatch.setattr(
-        "argus_skill.life.supervisor.pending_notify._send_telegram",
+        "argus.life.supervisor.pending_notify._send_telegram",
         lambda message: sent.append(message) or True,
     )
     monkeypatch.setattr(
-        "argus_skill.life.supervisor.pending_notify._send_feishu",
+        "argus.life.supervisor.pending_notify._send_feishu",
         lambda _message: False,
     )
     return sent
@@ -183,10 +183,10 @@ def test_a_failing_channel_does_not_raise(project: Path, monkeypatch) -> None:
         raise RuntimeError("telegram is down")
 
     monkeypatch.setattr(
-        "argus_skill.life.supervisor.pending_notify._send_telegram", explode
+        "argus.life.supervisor.pending_notify._send_telegram", explode
     )
     monkeypatch.setattr(
-        "argus_skill.life.supervisor.pending_notify._send_feishu", lambda _m: False
+        "argus.life.supervisor.pending_notify._send_feishu", lambda _m: False
     )
 
     # The mission already paused correctly; a notification problem must not
@@ -201,10 +201,10 @@ def test_one_channel_failing_does_not_stop_the_other(project: Path, monkeypatch)
         raise RuntimeError("down")
 
     monkeypatch.setattr(
-        "argus_skill.life.supervisor.pending_notify._send_telegram", explode
+        "argus.life.supervisor.pending_notify._send_telegram", explode
     )
     monkeypatch.setattr(
-        "argus_skill.life.supervisor.pending_notify._send_feishu",
+        "argus.life.supervisor.pending_notify._send_feishu",
         lambda message: delivered.append(message) or True,
     )
 
@@ -218,7 +218,7 @@ def test_a_garbage_item_is_survivable(project: Path, channel) -> None:
 
 def test_an_unwritable_ledger_still_sends(tmp_path: Path, channel, monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.life.supervisor.pending_notify._record_sent",
+        "argus.life.supervisor.pending_notify._record_sent",
         lambda *_a: (_ for _ in ()).throw(OSError("read-only")),
     )
 
@@ -231,7 +231,7 @@ def test_an_unwritable_ledger_still_sends(tmp_path: Path, channel, monkeypatch) 
 # -- the wiring -------------------------------------------------------------
 
 def test_the_settlement_path_notifies_when_it_parks_a_mission() -> None:
-    from argus_skill.life.supervisor import _mission_execution_settlement as mod
+    from argus.life.supervisor import _mission_execution_settlement as mod
 
     source = inspect.getsource(mod)
     park_at = source.index("pending_question=operator_question")

@@ -4,8 +4,8 @@ import subprocess
 
 import pytest
 
-from argus_skill.apps.update import UpdateError
-from argus_skill.apps.update_install import validate_pip_target
+from argus.apps.update import UpdateError
+from argus.apps.update_install import validate_pip_target
 
 
 @pytest.fixture(autouse=True)

@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.event_catalog import validate_event_envelope
-from argus_skill.life import BacklogItem, MemoryBundle
-from argus_skill.manager import dispatch, front_door
+from argus.core.event_catalog import validate_event_envelope
+from argus.life import BacklogItem, MemoryBundle
+from argus.manager import dispatch, front_door
 
 
 @pytest.fixture()
@@ -43,8 +43,8 @@ def test_bounded_dispatch_persists_nested_workdir(
     memory,
     monkeypatch,
 ):
-    from argus_skill.core.models import RunnerResult
-    from argus_skill.planner.bounded_dag import BoundedDagNode, plan_bounded_dag
+    from argus.core.models import RunnerResult
+    from argus.planner.bounded_dag import BoundedDagNode, plan_bounded_dag
 
     older = memory.backlog.add(
         BacklogItem.new(title="older", objective="older", priority=100)
@@ -198,7 +198,7 @@ def test_bounded_dispatch_fails_closed_without_planner_backend(memory) -> None:
 
 
 def test_manager_workdir_prefers_persisted_session_metadata(tmp_path) -> None:
-    from argus_skill.core.session import SessionMeta, write_session_meta
+    from argus.core.session import SessionMeta, write_session_meta
 
     global_root = tmp_path / "root"
     wrong_worktree = tmp_path / "server-process-cwd"
@@ -227,10 +227,10 @@ def test_bounded_dispatch_uses_nested_node_worktree_as_its_only_contract_root(
     memory,
     monkeypatch,
 ):
-    from argus_skill.core.campaign_workdir import adopt_campaign_workdir
-    from argus_skill.core.pipeline_state import write_pipeline_state
-    from argus_skill.skills.vertical_select import persist_vertical
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.core.campaign_workdir import adopt_campaign_workdir
+    from argus.core.pipeline_state import write_pipeline_state
+    from argus.skills.vertical_select import persist_vertical
+    from argus.verticals._data_domain import write_data_domain
 
     base = memory.project_worktree
     campaign = base / "campaign"
@@ -597,8 +597,8 @@ def test_contextual_continuous_title_uses_manager_execution_task_in_every_status
     memory,
     monkeypatch,
 ):
-    from argus_skill.webapi.manager_session_intent import contextualize_operator_turn
-    from argus_skill.webapi.project_state import compact_backlog_item
+    from argus.webapi.manager_session_intent import contextualize_operator_turn
+    from argus.webapi.project_state import compact_backlog_item
 
     execution_task = "修复上下文化连续任务的标题，并保留目标、依赖与状态行为。"
     routing_body = contextualize_operator_turn(
@@ -656,7 +656,7 @@ def test_contextual_continuous_title_uses_manager_execution_task_in_every_status
 
 
 def test_continuous_replacement_queues_operator_task_after_running_work(memory):
-    from argus_skill.daemon.state import (
+    from argus.daemon.state import (
         read_continuous_state,
         write_continuous_config,
     )
@@ -714,7 +714,7 @@ def test_lifetime_promotion_sets_pending_handoff(memory):
 def test_lifetime_promotion_revalidates_existing_continuous_state(
     memory, monkeypatch,
 ):
-    from argus_skill.daemon.state import write_continuous_config
+    from argus.daemon.state import write_continuous_config
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
     write_continuous_config(
@@ -822,7 +822,7 @@ def test_lifetime_promotion_validates_the_life_backend(memory, monkeypatch):
 def test_lifetime_promotion_validates_the_active_daemon_backend(
     memory, monkeypatch,
 ):
-    from argus_skill.daemon import life_worker
+    from argus.daemon import life_worker
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "0")
@@ -948,7 +948,7 @@ def test_the_operator_mission_gets_an_independent_reviewer(memory):
     ``round_self_review`` settles the mission on the Engineer's own
     MILESTONE_STATUS=DONE and no Reviewer ever runs.
     """
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     item, _, _ = dispatch.enqueue_mission(
         memory,
@@ -965,7 +965,7 @@ def test_the_operator_item_keeps_stage_authority_with_the_manager(memory):
     ``skip_stage_transition`` only alongside ``require_independent_review`` on a
     bounded scope, and otherwise falls through to the self-review arm and moves
     the stage anyway."""
-    from argus_skill.apps._runtime_helpers import _should_run_stage_transition
+    from argus.apps._runtime_helpers import _should_run_stage_transition
 
     item, _, _ = dispatch.enqueue_mission(
         memory,
@@ -993,8 +993,8 @@ def test_the_operator_item_keeps_stage_authority_with_the_manager(memory):
 
 
 def test_new_finite_campaign_persists_real_planner_dependencies(memory, monkeypatch):
-    from argus_skill.daemon.state import read_continuous_state
-    from argus_skill.planner.bounded_dag import BoundedDagNode, BoundedDagPlan
+    from argus.daemon.state import read_continuous_state
+    from argus.planner.bounded_dag import BoundedDagNode, BoundedDagPlan
 
     plan = BoundedDagPlan(tasks=(
         BoundedDagNode(key='data', deps=(), title='Create city data', objective='Write validated city.json'),
@@ -1026,7 +1026,7 @@ def test_new_finite_campaign_persists_real_planner_dependencies(memory, monkeypa
 
 
 def test_failed_new_campaign_plan_does_not_publish_an_atomic_fallback(memory, monkeypatch):
-    from argus_skill.daemon.state import read_continuous_state
+    from argus.daemon.state import read_continuous_state
     state = {'backend': 'codex', 'config': {'continuous': True}, '_continuous_pending_manager_handoff': True, '_continuous_open_ended': False}
     def fail(*args, **kwargs):
         raise front_door.ManagerHandoffError('Planner unavailable')

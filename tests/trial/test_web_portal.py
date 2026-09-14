@@ -11,10 +11,10 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from argus_skill.trial import web_portal as portal
-from argus_skill.trial.secrets import Vault
-from argus_skill.trial.store import Store
-from argus_skill.trial.training_data import COMBINED_NOTICE_VERSION, NOTICE_VERSION
+from argus.trial import web_portal as portal
+from argus.trial.secrets import Vault
+from argus.trial.store import Store
+from argus.trial.training_data import COMBINED_NOTICE_VERSION, NOTICE_VERSION
 
 ORIGIN = "https://portal.test"
 
@@ -94,8 +94,8 @@ def test_http_observation_separates_headers_from_eof_and_preserves_capture(tmp_p
     from starlette.background import BackgroundTask
     from starlette.requests import ClientDisconnect
 
-    from argus_skill.trial.analytics import Analytics
-    from argus_skill.trial.analytics_routes import (
+    from argus.trial.analytics import Analytics
+    from argus.trial.analytics_routes import (
         HTTP_OBSERVATION,
         HttpResponseObservation,
         RequestObservation,
@@ -217,7 +217,7 @@ def test_http_observation_separates_headers_from_eof_and_preserves_capture(tmp_p
 
 
 def test_portal_records_map_copy_and_other_responses_once_through_body_completion(provisioned, tmp_path):
-    from argus_skill.trial.analytics import Analytics
+    from argus.trial.analytics import Analytics
 
     config, vault, _ = provisioned
     analytics = Analytics(
@@ -295,10 +295,10 @@ def test_private_training_policy_supports_eleven_members_and_requires_analytics(
 
 
 def test_private_training_policy_only_fills_selected_member_and_preserves_browser_grants(provisioned, tmp_path):
-    from argus_skill.trial.analytics import Analytics
-    from argus_skill.trial.journey_journal import Journal
-    from argus_skill.trial.research_controls import ResearchControls
-    from argus_skill.trial.training_data import TrainingData
+    from argus.trial.analytics import Analytics
+    from argus.trial.journey_journal import Journal
+    from argus.trial.research_controls import ResearchControls
+    from argus.trial.training_data import TrainingData
 
     config, vault, store = provisioned
     now = [2_000_000_000.0]
@@ -348,7 +348,7 @@ def test_private_training_policy_only_fills_selected_member_and_preserves_browse
 def test_offline_member_can_redeem_invitation_without_fabricating_browser_acceptance(
     provisioned, tmp_path, tenant,
 ):
-    from argus_skill.trial.analytics import Analytics
+    from argus.trial.analytics import Analytics
 
     config, vault, store = provisioned
     analytics = Analytics(
@@ -451,7 +451,7 @@ def test_login_page_and_unauthenticated_routes(provisioned):
 
 
 def test_analytics_requires_explicit_versioned_notice_and_guards_old_sessions(provisioned, tmp_path):
-    from argus_skill.trial.analytics import Analytics
+    from argus.trial.analytics import Analytics
 
     config, vault, _ = provisioned
     analytics = Analytics(
@@ -499,8 +499,8 @@ def test_analytics_requires_explicit_versioned_notice_and_guards_old_sessions(pr
 
 @pytest.mark.parametrize("clarification", [False, True])
 def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(provisioned, tmp_path, clarification):
-    from argus_skill.trial.analytics import Analytics
-    from argus_skill.trial.interaction_capture import get_interaction, list_interactions
+    from argus.trial.analytics import Analytics
+    from argus.trial.interaction_capture import get_interaction, list_interactions
 
     config, vault, _ = provisioned
     analytics = Analytics(
@@ -543,7 +543,7 @@ def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(pr
 
 
 def test_research_lifespan_replay_feedback_export_deletion_and_restart(provisioned, tmp_path, monkeypatch):
-    from argus_skill.trial.analytics import Analytics
+    from argus.trial.analytics import Analytics
 
     config, vault, _ = provisioned
     analytics = Analytics(
@@ -650,7 +650,7 @@ def test_research_lifespan_replay_feedback_export_deletion_and_restart(provision
 
 
 def test_research_invitation_disable_expiry_and_readonly(provisioned, tmp_path):
-    from argus_skill.trial.analytics import Analytics
+    from argus.trial.analytics import Analytics
 
     config, vault, _ = provisioned
     analytics = Analytics(
@@ -687,7 +687,7 @@ def test_team_training_and_optional_sharing_use_real_registered_routes(provision
     import zipfile
     from pathlib import Path
 
-    from argus_skill.trial.analytics import Analytics
+    from argus.trial.analytics import Analytics
 
     config, vault, _ = provisioned
     source = tmp_path / "tenant/home/.argus-skill/projects/s-training"
@@ -1769,7 +1769,7 @@ def test_authenticated_launcher_links_workspace_compute_quota_and_logout(provisi
 
 @pytest.mark.parametrize("readonly", [False, True])
 def test_compute_dashboard_and_external_script_authentication(provisioned, readonly):
-    from argus_skill.trial.compute_page import PAGE, SCRIPT
+    from argus.trial.compute_page import PAGE, SCRIPT
 
     compute_config(provisioned)
     _, vault, _ = provisioned
@@ -2006,7 +2006,7 @@ def test_same_invitation_resumes_same_workspace_on_different_devices(provisioned
 
 
 def test_team_training_notice_requires_submission_and_keeps_external_choice_separate(provisioned, tmp_path):
-    from argus_skill.trial.analytics import Analytics
+    from argus.trial.analytics import Analytics
 
     config, vault, _ = provisioned
     analytics = Analytics(

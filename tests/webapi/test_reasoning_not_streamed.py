@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.webapi.server import tail_events
+from argus.webapi.server import tail_events
 
 _LEAK = "**Considering file edits and testing**\n\nI'm thinking about editing files."
 

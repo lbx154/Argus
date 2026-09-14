@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from argus_skill.core.progress_step import (
+from argus.core.progress_step import (
     describe_progress_step,
     strip_shell_wrapper,
 )

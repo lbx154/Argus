@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.life.event_log import JsonlEventSink
+from argus.life.event_log import JsonlEventSink
 
 
 class _Capture:

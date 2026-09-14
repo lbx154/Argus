@@ -11,16 +11,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import (
+from argus.core.models import RunnerResult
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
 )
-from argus_skill.planner import PlannerConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.planner import PlannerConfig
+from argus.skills.vertical_select import persist_vertical
 
 
 class _MissionRunner:
@@ -110,7 +110,7 @@ def test_absent_notes_file_renders_nothing_and_reads_nothing(
     life = tmp_path / "life"
     supervisor = _supervisor(project, life)
 
-    import argus_skill.life.memory as memory_module
+    import argus.life.memory as memory_module
 
     reads: list[Path] = []
     original = memory_module._read_jsonl_tail

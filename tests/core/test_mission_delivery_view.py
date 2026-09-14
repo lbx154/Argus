@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.core.mission_view import (
+from argus.core.mission_view import (
     MISSION_VIEW_SCHEMA_VERSION,
     load_mission_view,
     update_mission_view_event,

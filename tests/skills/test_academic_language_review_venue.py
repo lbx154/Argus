@@ -5,7 +5,7 @@ abstract guidance remains venue-independent.
 """
 from __future__ import annotations
 
-from argus_skill.verticals.research.academic_language_review import (
+from argus.verticals.research.academic_language_review import (
     _parse_review_text,
     _review_prompt,
 )

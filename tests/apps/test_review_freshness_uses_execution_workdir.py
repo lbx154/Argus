@@ -11,9 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.apps._runtime_execute import SkillLoopExecuteMixin
-from argus_skill.core.manuscript_snapshot import manuscript_snapshot
-from argus_skill.core.models import ReviewDecision
+from argus.apps._runtime_execute import SkillLoopExecuteMixin
+from argus.core.manuscript_snapshot import manuscript_snapshot
+from argus.core.models import ReviewDecision
 
 
 def _settle(state_root: Path, workdir: Path, review: ReviewDecision) -> SimpleNamespace:

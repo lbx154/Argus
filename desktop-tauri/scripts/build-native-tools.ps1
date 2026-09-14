@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 $desktop = Split-Path -Parent $PSScriptRoot
 $repo = Split-Path -Parent $desktop
 $source = Join-Path $PSScriptRoot "platon-headless.rs"
-$output = Join-Path $repo "argus_skill\_native"
+$output = Join-Path $repo "argus\_native"
 $tests = Join-Path $desktop "build\native-tests"
 New-Item -ItemType Directory -Path $output, $tests -Force | Out-Null
 $compiler = (Get-Command rustc -ErrorAction Stop).Source

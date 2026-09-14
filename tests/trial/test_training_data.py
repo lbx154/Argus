@@ -9,15 +9,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from argus_skill.trial import training_data as module
-from argus_skill.trial.analytics import Analytics, AnalyticsError
-from argus_skill.trial.interaction_capture import Capture
-from argus_skill.trial.journey_journal import Journal
-from argus_skill.trial.research_controls import ResearchControls
-from argus_skill.trial.store import Store
-from argus_skill.trial.training_capture import PI_EXTENSION_SOURCE
-from argus_skill.trial.training_data import COMBINED_NOTICE_VERSION, NOTICE_VERSION, TrainingData
-from argus_skill.trial.training_routes import register_training_routes
+from argus.trial import training_data as module
+from argus.trial.analytics import Analytics, AnalyticsError
+from argus.trial.interaction_capture import Capture
+from argus.trial.journey_journal import Journal
+from argus.trial.research_controls import ResearchControls
+from argus.trial.store import Store
+from argus.trial.training_capture import PI_EXTENSION_SOURCE
+from argus.trial.training_data import COMBINED_NOTICE_VERSION, NOTICE_VERSION, TrainingData
+from argus.trial.training_routes import register_training_routes
 
 
 @pytest.fixture
@@ -1107,7 +1107,7 @@ def test_unspecified_review_stays_unspecified_and_reviewer_fields_are_validated(
     "100 1000 5000\n-100 -1000 -5000", "iterations=13800138000",
 ])
 def test_scientific_metrics_are_not_classified_as_phone_numbers(text):
-    from argus_skill.trial.training_capture import _hosted_sensitive
+    from argus.trial.training_capture import _hosted_sensitive
 
     assert module._SENSITIVE.search(text) is None
     assert not _hosted_sensitive({"content": text})
@@ -1119,7 +1119,7 @@ def test_scientific_metrics_are_not_classified_as_phone_numbers(text):
     "手机号：13800138000", "alice@example.org", "password=secret123", "/home/alice/private.txt",
 ])
 def test_specific_phone_and_other_sensitive_indicators_still_quarantine(text):
-    from argus_skill.trial.training_capture import _hosted_sensitive
+    from argus.trial.training_capture import _hosted_sensitive
 
     assert module._SENSITIVE.search(text) is not None
     assert _hosted_sensitive({"content": text})

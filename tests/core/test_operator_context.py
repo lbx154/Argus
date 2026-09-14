@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.operator_context import (
+from argus.core.operator_context import (
     DirectiveRecord,
     OperatorContextStore,
     StaleOperatorContextWrite,
@@ -341,9 +341,9 @@ def test_unclassified_pending_message_does_not_become_an_engineer_directive(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.core.transcript import append_turn, read_turns
-    from argus_skill.manager import front_door
-    from argus_skill.webapi.manager_pending_question import (
+    from argus.core.transcript import append_turn, read_turns
+    from argus.manager import front_door
+    from argus.webapi.manager_pending_question import (
         _resolve_pending_question_with_manager,
     )
 
@@ -382,7 +382,7 @@ def test_credential_import_keeps_raw_key_out_of_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.tools import capability_vault
+    from argus.tools import capability_vault
 
     vault = tmp_path / "capabilities" / "model_api.json"
     monkeypatch.setattr(

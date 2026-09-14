@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import argus_skill
-from argus_skill.skills.role_context import load_builtin_skill_text
+import argus
+from argus.skills.role_context import load_builtin_skill_text
 
-ROOT = Path(argus_skill.__file__).resolve().parent
+ROOT = Path(argus.__file__).resolve().parent
 
 # The specific agent-facing shell recipe the prompts used to emit. Its absence is
 # the regression guard (a passing comment mentioning rollback_stage won't match

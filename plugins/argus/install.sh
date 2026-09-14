@@ -39,7 +39,7 @@ else
   "$python" -m pip install --upgrade "$source_url"
 fi
 
-"$python" -c 'from argus_skill.plugin.mcp_server import mcp; assert mcp.name == "argus"'
+"$python" -c 'from argus.plugin.mcp_server import mcp; assert mcp.name == "argus"'
 
 installed=0
 if [ "$target" = "codex" ] || { [ "$target" = "all" ] && command -v codex >/dev/null 2>&1; }; then

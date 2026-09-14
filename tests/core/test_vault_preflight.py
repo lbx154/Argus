@@ -1,15 +1,15 @@
-"""Tests for argus_skill.core.vault_preflight."""
+"""Tests for argus.core.vault_preflight."""
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 
-from argus_skill.core.vault_preflight import (
+from argus.core.vault_preflight import (
     DEFAULT_REQUIRED_ROUTES,
     check_routes,
     format_report,
 )
-from argus_skill.core.vault_preflight import (
+from argus.core.vault_preflight import (
     main as preflight_main,
 )
 
@@ -191,12 +191,12 @@ def test_format_report_marks_fail_with_specific_404_hint() -> None:
 def test_cli_exit_code_2_on_failure(monkeypatch, capsys) -> None:
     # Monkeypatch the default network probe so test doesn't hit the wire
     monkeypatch.setattr(
-        "argus_skill.core.vault_preflight.default_probe",
+        "argus.core.vault_preflight.default_probe",
         _probe_always_404,
     )
     # Also stub the default loader to one that returns a usable route
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.load_model_api_route",
+        "argus.tools.capability_vault.load_model_api_route",
         _route_loader_all_present,
     )
 
@@ -208,11 +208,11 @@ def test_cli_exit_code_2_on_failure(monkeypatch, capsys) -> None:
 
 def test_cli_exit_code_0_on_success(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.vault_preflight.default_probe",
+        "argus.core.vault_preflight.default_probe",
         _probe_always_ok,
     )
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.load_model_api_route",
+        "argus.tools.capability_vault.load_model_api_route",
         _route_loader_all_present,
     )
 
@@ -224,11 +224,11 @@ def test_cli_exit_code_0_on_success(monkeypatch, capsys) -> None:
 
 def test_cli_json_output(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.vault_preflight.default_probe",
+        "argus.core.vault_preflight.default_probe",
         _probe_always_ok,
     )
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.load_model_api_route",
+        "argus.tools.capability_vault.load_model_api_route",
         _route_loader_all_present,
     )
 

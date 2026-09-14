@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 
 
 def _done_review() -> str:

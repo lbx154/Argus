@@ -30,8 +30,8 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.manager.stage_decider import final_stage_completion_decision
-from argus_skill.verticals._base import (
+from argus.manager.stage_decider import final_stage_completion_decision
+from argus.verticals._base import (
     load_vertical,
     vertical_checklist_stage_order,
     vertical_completion_gate,
@@ -46,7 +46,7 @@ class _CertifiedReview:
 
 
 def _every_vertical() -> list[str]:
-    from argus_skill.skills import vertical_select
+    from argus.skills import vertical_select
 
     return sorted(vertical_select.VERTICALS)
 
@@ -138,14 +138,14 @@ def test_a_non_final_stage_never_completes() -> None:
 
 def test_an_unreadable_vertical_keeps_the_strict_rule() -> None:
     """Fail closed: an unreadable declaration demands the strict transport."""
-    from argus_skill.manager.stage_decider import _mission_scope_can_complete
+    from argus.manager.stage_decider import _mission_scope_can_complete
 
     assert _mission_scope_can_complete("final_submission", "no-such-vertical") is True
     assert _mission_scope_can_complete("bounded", "no-such-vertical") is False
 def test_project_local_vertical_completion_uses_project_root(tmp_path) -> None:
     """A data-domain gate must not silently fall back to research."""
-    from argus_skill.manager.stage_decider import _mission_scope_can_complete
-    from argus_skill.verticals import _data_domain as data_domain
+    from argus.manager.stage_decider import _mission_scope_can_complete
+    from argus.verticals import _data_domain as data_domain
 
     data_domain.write_data_domain(
         tmp_path,
@@ -176,7 +176,7 @@ def test_a_completion_that_overrode_a_hold_does_not_read_as_a_hold() -> None:
     reading it cannot tell whether the stage completed or was held, which is the
     one question stage_history exists to answer.
     """
-    from argus_skill.manager.stage_decider import completion_trigger_reason
+    from argus.manager.stage_decider import completion_trigger_reason
 
     overridden = completion_trigger_reason("hold", "manager held (default)")
 
@@ -188,7 +188,7 @@ def test_a_completion_that_overrode_a_hold_does_not_read_as_a_hold() -> None:
 
 
 def test_a_trigger_that_agreed_keeps_its_own_words() -> None:
-    from argus_skill.manager.stage_decider import completion_trigger_reason
+    from argus.manager.stage_decider import completion_trigger_reason
 
     agreed = "delivery checklist satisfied by reviewer-run pytest"
 
@@ -196,6 +196,6 @@ def test_a_trigger_that_agreed_keeps_its_own_words() -> None:
 
 
 def test_a_hold_with_no_reason_still_reads_as_an_override() -> None:
-    from argus_skill.manager.stage_decider import completion_trigger_reason
+    from argus.manager.stage_decider import completion_trigger_reason
 
     assert "overriding" in completion_trigger_reason("hold", "")

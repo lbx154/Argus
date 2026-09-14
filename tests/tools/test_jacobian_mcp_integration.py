@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.tools import jacobian
+from argus.tools import jacobian
 
 
 def _installed_sidecar() -> Path | None:

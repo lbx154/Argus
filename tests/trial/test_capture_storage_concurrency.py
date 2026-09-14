@@ -9,9 +9,9 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 from fastapi import FastAPI
 
-from argus_skill.trial.analytics_routes import register_analytics
-from argus_skill.trial.training_bridge import TrainingBridge
-from argus_skill.trial.training_data import COMBINED_NOTICE_VERSION
+from argus.trial.analytics_routes import register_analytics
+from argus.trial.training_bridge import TrainingBridge
+from argus.trial.training_data import COMBINED_NOTICE_VERSION
 from tests.trial.test_analytics import consent
 from tests.trial.test_analytics import setup as setup
 from tests.trial.test_training_runtime import registration, verifier
@@ -133,7 +133,7 @@ def test_registration_database_outage_is_reported_as_storage_failure(training, m
         raise sqlite3.OperationalError("database is locked")
 
     monkeypatch.setattr(training.journal, "ensure_project", unavailable)
-    from argus_skill.trial.analytics import AnalyticsError
+    from argus.trial.analytics import AnalyticsError
 
     try:
         bridge.dispatch(registration(), (10, 0, 0))

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.life.delivery import (
+from argus.life.delivery import (
     build_delivery_receipt,
     referenced_delivery_paths,
     reviewed_change_paths,

@@ -11,9 +11,9 @@ import anyio
 import httpx
 import pytest
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.webapi import server
-from argus_skill.webapi.index_cache import (
+from argus.core.session import SessionMeta, write_session_meta
+from argus.webapi import server
+from argus.webapi.index_cache import (
     CacheWaitTimeout,
     IndexCache,
     QueryExecutor,

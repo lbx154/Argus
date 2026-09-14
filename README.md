@@ -273,7 +273,7 @@ and select **Add Python to PATH** in the installer. Then open a new PowerShell:
 py --version
 node --version
 py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 $Argus = Join-Path $Scripts "argus.exe"
 if (-not (Test-Path $Argus)) { throw "Argus entry point not found at $Argus" }
@@ -312,7 +312,7 @@ then:
 uv --version
 node --version
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 ARGUS_BIN="$(uv tool dir --bin)/argus"
 test -x "$ARGUS_BIN"
 "$ARGUS_BIN" --version
@@ -519,7 +519,7 @@ dial out, so a daemon behind NAT needs no tunnel and no public URL:
 
 ```bash
 # Feishu / Lark — WebSocket long connection, no request URL to configure
-pip install 'argus-skill[feishu]'
+pip install 'argus[feishu]'
 export ARGUS_SKILL_ENABLE_FEISHU=1
 export ARGUS_SKILL_FEISHU_APP_ID=cli_xxx ARGUS_SKILL_FEISHU_APP_SECRET=xxx
 
@@ -580,7 +580,7 @@ Seven verticals ship with Argus itself: `research`, `software`, `argus_maintenan
 `digital_circuit_benchmark`, `medical`, `materials`, `physics`, `ale_last_exam`,
 `fiction_writing`, `prose`, `modern_poetry`, `classical_poetry`, `literary_editor` — live in
 the community package **[argus-verticals](https://github.com/Argus-AiTeam/argus-verticals)**
-and are discovered through the `argus_skill.verticals` entry-point group. Install them into
+and are discovered through the `argus.verticals` entry-point group. Install them into
 the same Python environment that runs Argus:
 
 ```bash
@@ -649,7 +649,7 @@ installation). Subsequent upgrades can use `argus update`.
 Windows bootstrap:
 
 ```powershell
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Argus = Join-Path (py -c "import sysconfig; print(sysconfig.get_path('scripts'))") "argus.exe"
 & $Argus --version
 & $Argus doctor --advisor none --verify
@@ -659,7 +659,7 @@ macOS bootstrap:
 
 ```bash
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 "$(uv tool dir --bin)/argus" --version
 "$(uv tool dir --bin)/argus" doctor --advisor none --verify
 ```
@@ -682,16 +682,70 @@ with `--advisor none --verify` does not spend a model call.
 Packaged Desktop EXEs use the separate signed desktop update channel. The CLI
 updater does not replace a signed EXE; see [Windows Desktop](docs/windows-desktop.md).
 
+## Renamed: argus-skill → argus
+
+On 2026-09-14 the Python package `argus_skill` became `argus`, the pip
+distribution `argus-skill` became `argus`, and the `argus-skill` command was
+folded into `argus`. `argus` was already the cockpit launcher; its admin flags
+and subcommands (`argus --status`, `argus doctor`, `argus --daemon`,
+`argus --web --web-host H --web-port P`, ...) now reach the Python CLI, while
+mission-start and daemon-client flags (`--objective`, `--resume`, `--continue`,
+`--new`, `--drain`, `--trial`, `--json`, `--host/--port`) still belong to the
+cockpit. Headless automation should call `python -m argus ...`: the plain
+command-line interface, which never starts the Node cockpit.
+
+**What did not change.** Every `ARGUS_SKILL_*` environment variable and knob
+(the keys in `~/.argus-skill/config.json`), the state root `~/.argus-skill`
+with its projects, seeded Skills and logs, the Web API's `argus-skill-webapi`
+service id, and the other on-disk markers (`/tmp/argus-skill-role-slots`,
+`~/argus-skill-tasks`, `~/.local/share/argus-skill`, ...). Nothing under
+`~/.argus-skill` moves.
+
+**Kept for one release.** `import argus_skill` is the same package object as
+`import argus` (a two-file alias, not a copy), `python -m argus_skill ...` runs
+the same modules, the `argus-skill` command still exists and prints one
+deprecation line on stderr, teammates and trial containers started under the
+old name are still recognised, and community verticals registered under the
+pre-rename entry-point group are still discovered (with a warning).
+
+**Migrating an install.** Uninstall the old distribution before installing the
+new one, then restart any running daemon or `--web` server:
+
+```bash
+# editable checkout (Linux / macOS venv)
+"$HOME/Argus/.venv/bin/python" -m pip uninstall -y argus-skill && "$HOME/Argus/.venv/bin/python" -m pip install -e "$HOME/Argus"
+```
+
+```bash
+# macOS uv tool
+uv tool uninstall argus-skill
+uv tool install --force --python 3.12 \
+  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+```
+
+`argus update` on a pip install that is still named `argus-skill` does the
+uninstall itself; a `uv tool` environment under the old name is refused with
+the two commands above. The name `argus` on PyPI belongs to an unrelated
+project: Argus is installed from Git, as everywhere in this README.
+
+A cockpit launched right after the upgrade may still find the Web API that the
+old `argus-skill` launcher started. It treats `argus` and `argus-skill` in the
+same venv as the same backend, so its ownership record keeps working; if it
+nevertheless reports `incompatible Argus API at <host>:<port>: ... — ownership
+could not be proven`, stop the old `--web` backend (its PID is recorded in
+`~/.argus-skill/runtime/webapi-<host>-<port>.owner.json`; `kill <pid>`) or
+start the cockpit on another port.
+
 ## Uninstall
 
 ```powershell
 # Windows
-py -m pip uninstall argus-skill
+py -m pip uninstall argus
 ```
 
 ```bash
 # macOS
-uv tool uninstall argus-skill
+uv tool uninstall argus
 ```
 
 On Linux, stop Argus, preserve any work you need, then remove the
@@ -732,15 +786,15 @@ logs.
 
 ## Repository layout
 
-- `argus_skill/` — the Python package; everything `argus`, `argus-skill` and the daemon run.
-- `argus_skill/core/`, `proof_ledger/` — kernel: models, ports, contracts, paths. Intended leaf: must import nothing above itself; today's remaining upward edges are pinned in the invariants test (`tests/test_architecture_invariants.py`) and removed in phase 1.
-- `argus_skill/agent_cli/`, `adapters/`, `provider_integrations/`, `advisor/` — drivers for the model CLIs (codex, claude, copilot, ...).
-- `argus_skill/skills/`, `tools/`, `wiki/`, `cli/` — capabilities: the Skill library, operator-approved tools, the project Wiki, terminal rendering.
-- `argus_skill/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 7 built-in verticals (17 more arrive as entry points from `argus-verticals`), overlays, seeded Skills.
-- `argus_skill/roles/`, `planner/`, `engineer/`, `reviewer/` — the persistent roles: the prompt catalog (`roles/`) plus the Planner, Engineer and Reviewer code (the Manager's code is in `manager/`).
-- `argus_skill/life/`, `manager/`, `messaging/` — runtime: project memory, backlog, supervisor, the Manager control plane, cross-project messages.
-- `argus_skill/daemon/`, `team/` — the detached 7x24 worker and agent teams.
-- `argus_skill/apps/`, `webapi/`, `plugin/`, `maintenance/`, `trial/` — delivery: CLI, web API, host plugin, Doctor, hosted trial.
+- `argus/` — the Python package; everything `argus`, `argus` and the daemon run.
+- `argus/core/`, `proof_ledger/` — kernel: models, ports, contracts, paths. Intended leaf: must import nothing above itself; today's remaining upward edges are pinned in the invariants test (`tests/test_architecture_invariants.py`) and removed in phase 1.
+- `argus/agent_cli/`, `adapters/`, `provider_integrations/`, `advisor/` — drivers for the model CLIs (codex, claude, copilot, ...).
+- `argus/skills/`, `tools/`, `wiki/`, `cli/` — capabilities: the Skill library, operator-approved tools, the project Wiki, terminal rendering.
+- `argus/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 7 built-in verticals (17 more arrive as entry points from `argus-verticals`), overlays, seeded Skills.
+- `argus/roles/`, `planner/`, `engineer/`, `reviewer/` — the persistent roles: the prompt catalog (`roles/`) plus the Planner, Engineer and Reviewer code (the Manager's code is in `manager/`).
+- `argus/life/`, `manager/`, `messaging/` — runtime: project memory, backlog, supervisor, the Manager control plane, cross-project messages.
+- `argus/daemon/`, `team/` — the detached 7x24 worker and agent teams.
+- `argus/apps/`, `webapi/`, `plugin/`, `maintenance/`, `trial/` — delivery: CLI, web API, host plugin, Doctor, hosted trial.
 - `frontend/` — Ink terminal cockpit (`tui`), React web cockpit (`web`), shared TypeScript (`core`).
 - `desktop-tauri/` — Tauri desktop shell (Windows release; four CI targets); `plugins/` — installable host plugin; `tests/` — pytest suite.
 

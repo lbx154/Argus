@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from argus_skill.core import jsonl_reader
+from argus.core import jsonl_reader
 
 
 class CountedReader:

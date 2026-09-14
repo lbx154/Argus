@@ -9,8 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.life.project_lifecycle_io import lifecycle_path
-from argus_skill.life.supervisor import (
+from argus.life.project_lifecycle_io import lifecycle_path
+from argus.life.supervisor import (
     _IDLE_BACKOFF_BASE_SECONDS,
     _IDLE_BACKOFF_CAP_SECONDS,
     LifeSupervisor,

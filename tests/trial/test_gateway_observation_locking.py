@@ -12,10 +12,10 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 
-from argus_skill.trial.gateway import Settings, create_app
-from argus_skill.trial.gateway_observation import GatewayAttempt
-from argus_skill.trial.secrets import Vault, write_private
-from argus_skill.trial.store import Store
+from argus.trial.gateway import Settings, create_app
+from argus.trial.gateway_observation import GatewayAttempt
+from argus.trial.secrets import Vault, write_private
+from argus.trial.store import Store
 
 
 @contextmanager

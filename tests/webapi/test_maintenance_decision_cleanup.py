@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.operator_decision import build_operator_decision
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.daemon.state import GRACEFUL_STOP_REASON, write_continuous_config
-from argus_skill.life.memory import BacklogItem, MemoryBundle
-from argus_skill.webapi.manager_pending_question import manager_resolve_operator_decision
+from argus.core.operator_decision import build_operator_decision
+from argus.core.session import SessionMeta, write_session_meta
+from argus.daemon.state import GRACEFUL_STOP_REASON, write_continuous_config
+from argus.life.memory import BacklogItem, MemoryBundle
+from argus.webapi.manager_pending_question import manager_resolve_operator_decision
 
 
 def _git(root: Path, *args: str) -> str:
@@ -83,8 +83,8 @@ def _pending_maintenance(tmp_path: Path, *, layout: str = "global"):
 
 @pytest.mark.parametrize('layout', ['global', 'project'])
 def test_adopt_publishes_once_and_handoff_is_project_scoped(tmp_path, monkeypatch, layout):
-    from argus_skill.daemon.handoff import _consume_deployment_handoff
-    from argus_skill.maintenance import publication
+    from argus.daemon.handoff import _consume_deployment_handoff
+    from argus.maintenance import publication
 
     mem, card, sidecar, worktree = _pending_maintenance(tmp_path, layout=layout)
     publish = publication.publish_reviewed_change
@@ -110,7 +110,7 @@ def test_adopt_publishes_once_and_handoff_is_project_scoped(tmp_path, monkeypatc
 
 
 def test_publication_failure_retains_same_decision_and_authoring_evidence(tmp_path, monkeypatch):
-    from argus_skill.maintenance import publication
+    from argus.maintenance import publication
 
     mem, card, sidecar, worktree = _pending_maintenance(tmp_path)
     before = sidecar.read_bytes()
@@ -133,8 +133,8 @@ def test_publication_failure_retains_same_decision_and_authoring_evidence(tmp_pa
 
 
 def test_handoff_failure_retries_same_decision_without_republishing(tmp_path, monkeypatch):
-    from argus_skill.daemon import handoff
-    from argus_skill.maintenance import publication
+    from argus.daemon import handoff
+    from argus.maintenance import publication
 
     mem, card, sidecar, worktree = _pending_maintenance(tmp_path)
     (worktree / 'tracked.txt').write_text('new reviewed content\n')
@@ -180,7 +180,7 @@ def test_handoff_failure_retries_same_decision_without_republishing(tmp_path, mo
 
 
 def test_adopt_cannot_switch_to_a_commit_changed_after_review(tmp_path, monkeypatch):
-    from argus_skill.maintenance import publication
+    from argus.maintenance import publication
 
     mem, card, sidecar, _worktree = _pending_maintenance(tmp_path)
     metadata = json.loads(sidecar.read_text())
@@ -267,7 +267,7 @@ def test_http_decline_does_not_start_a_daemon(
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
-    from argus_skill.webapi import server
+    from argus.webapi import server
 
     mem, card, _sidecar, _worktree = _pending_maintenance(tmp_path)
     before = (mem.project_root / "continuous.json").read_bytes()

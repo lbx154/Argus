@@ -1,7 +1,7 @@
 """Exercise the shipped operator JavaScript with synthetic DOM and API responses."""
 import subprocess
 
-from argus_skill.trial.admin_page import SCRIPT
+from argus.trial.admin_page import SCRIPT
 
 DOM = r"""
 import assert from 'node:assert/strict';

@@ -1,7 +1,7 @@
 """Environment forwarding contract; native process lifecycle is tested separately."""
 from types import SimpleNamespace
 
-from argus_skill.core import windows_job
+from argus.core import windows_job
 
 
 def test_explicit_empty_environment_does_not_reintroduce_host_credentials(monkeypatch):

@@ -1,6 +1,6 @@
 """External fact guidance is available without treating metadata as permission."""
-from argus_skill.skills.builtins import iter_builtin_skill_texts
-from argus_skill.verticals._base import load_vertical, vertical_role_banner
+from argus.skills.builtins import iter_builtin_skill_texts
+from argus.verticals._base import load_vertical, vertical_role_banner
 
 
 def test_mutable_fact_skill_remains_global_and_separates_readiness_conditions():

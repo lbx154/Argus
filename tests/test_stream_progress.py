@@ -20,8 +20,8 @@ from typing import Any
 
 import pytest
 
-from argus_skill.adapters.stream_progress import make_stream_progress_callback
-from argus_skill.life.event_log import JsonlEventSink
+from argus.adapters.stream_progress import make_stream_progress_callback
+from argus.life.event_log import JsonlEventSink
 
 
 class _RecordingSink:
@@ -549,7 +549,7 @@ def _delta_line(content: str, mid: str = "m1") -> str:
 
 
 def test_relay_reuses_callback_so_deltas_accumulate() -> None:
-    from argus_skill.adapters.stream_progress import StreamProgressRelay
+    from argus.adapters.stream_progress import StreamProgressRelay
 
     sink = _RecordingSink()
     relay = StreamProgressRelay(min_delta_interval_s=0, min_delta_chars=0)
@@ -581,7 +581,7 @@ def test_rebuilding_callback_per_line_breaks_accumulation() -> None:
 def test_relay_rebuilds_on_sink_change() -> None:
     # A new mission (new sink) must start a FRESH accumulation buffer, never
     # leaking the previous message's text into the new one.
-    from argus_skill.adapters.stream_progress import StreamProgressRelay
+    from argus.adapters.stream_progress import StreamProgressRelay
 
     relay = StreamProgressRelay()
     sink1 = _RecordingSink()
@@ -685,7 +685,7 @@ def test_skill_maintenance_streams_stay_hidden() -> None:
 
 def test_copilot_tool_lines_are_forwarded_for_live_progress() -> None:
     """The io-log gate must not drop tool events before they reach the parser."""
-    from argus_skill.adapters.agent_cli_backend._io_log import _needed_for_live_progress
+    from argus.adapters.agent_cli_backend._io_log import _needed_for_live_progress
 
     assert _needed_for_live_progress("stdout", _tool_start_line("view", {"path": "/a"}))
     assert _needed_for_live_progress("simple-1.stdout", _tool_complete_line())

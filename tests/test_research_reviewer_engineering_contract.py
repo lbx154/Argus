@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from argus_skill.reviewer import Reviewer
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import load_vertical, vertical_role_banner
+from argus.reviewer import Reviewer
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals._base import load_vertical, vertical_role_banner
 
 
 def test_research_reviewer_requires_engineering_audit() -> None:

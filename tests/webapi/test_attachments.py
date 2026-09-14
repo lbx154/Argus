@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-import argus_skill.webapi.attachments as attachment_store
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.webapi import server
-from argus_skill.webapi.attachments import resolve_attachment_refs, upload_attachments
-from argus_skill.webapi.routes.manager import (
+import argus.webapi.attachments as attachment_store
+from argus.core.session import SessionMeta, write_session_meta
+from argus.webapi import server
+from argus.webapi.attachments import resolve_attachment_refs, upload_attachments
+from argus.webapi.routes.manager import (
     _UPLOAD_READ_CHUNK_BYTES,
     _read_uploaded_attachments,
 )
@@ -210,7 +210,7 @@ def test_message_route_resolves_attachment_metadata(
         seen["attachments"] = attachments
         return {"kind": "chat", "reply": "ok"}
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", fake_message)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", fake_message)
 
     response = client.post(
         "/api/projects/s-upload0/message",
@@ -287,7 +287,7 @@ def test_message_stream_route_resolves_attachment_metadata(
         on_fragment("delta", {"text": "ok", "message_id": "m-1"})
         return {"kind": "chat", "reply": "ok"}
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", fake_message)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", fake_message)
 
     response = client.post(
         "/api/projects/s-upload0/message/stream",
@@ -317,7 +317,7 @@ def test_message_route_rejects_other_sessions_upload(
     )
     attachment_id = upload["attachments"][0]["attachment_id"]
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus.webapi.manager_bridge.manager_message",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not dispatch")),
     )
 

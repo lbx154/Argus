@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.operator_context import append_directive, append_revoke
-from argus_skill.life.memory import BacklogItem, MemoryBundle
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._mission_execution_helpers import _MissionRunState
+from argus.core.operator_context import append_directive, append_revoke
+from argus.life.memory import BacklogItem, MemoryBundle
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._mission_execution_helpers import _MissionRunState
 
 
 def test_legacy_runner_refreshes_after_mission_preparation(tmp_path, monkeypatch):
@@ -46,7 +46,7 @@ def test_legacy_runner_refreshes_after_mission_preparation(tmp_path, monkeypatch
 
     monkeypatch.setattr(supervisor, "_prepare_mission_context", prepare)
     monkeypatch.setattr(
-        "argus_skill.life.supervisor._mission_execution.ensure_manager_decision",
+        "argus.life.supervisor._mission_execution.ensure_manager_decision",
         lambda _host, item, *_args, **_kwargs: item,
     )
     # Stop after the actual execute boundary; settlement is outside this test.

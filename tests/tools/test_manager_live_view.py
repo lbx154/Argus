@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.manager.live_view import (
+from argus.manager.live_view import (
     load_live_view_decision,
     manager_workspace_capability_prompt,
 )
-from argus_skill.tools.manager_live_view import clear_view, set_view
+from argus.tools.manager_live_view import clear_view, set_view
 
 
 def test_manager_tool_sets_workspace_artifact_and_emits_event(tmp_path) -> None:

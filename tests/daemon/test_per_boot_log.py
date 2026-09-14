@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.daemon.life_worker import (
+from argus.daemon.life_worker import (
     _daemon_log_path,
     _new_boot_id,
     _point_active_daemon_log,
@@ -98,7 +98,7 @@ def test_redirect_std_to_log_captures_stdout_and_stderr(tmp_path: Path):
         f"""
         import sys
         from pathlib import Path
-        from argus_skill.daemon.life_worker import _redirect_std_to_log
+        from argus.daemon.life_worker import _redirect_std_to_log
         _redirect_std_to_log(Path({str(log)!r}), keep_console=False)
         sys.stdout.write("hello-stdout\\n"); sys.stdout.flush()
         sys.stderr.write("hello-stderr\\n"); sys.stderr.flush()
@@ -126,8 +126,8 @@ def test_foreground_log_tee_preserves_console_encoding(tmp_path: Path, encoding,
         import logging
         import sys
         from pathlib import Path
-        from argus_skill.daemon.config import LifeWorkerConfig
-        from argus_skill.daemon.process import run_foreground_process
+        from argus.daemon.config import LifeWorkerConfig
+        from argus.daemon.process import run_foreground_process
 
         sys.stderr.reconfigure(encoding={encoding!r}, errors={errors!r})
         root = Path({str(tmp_path)!r})

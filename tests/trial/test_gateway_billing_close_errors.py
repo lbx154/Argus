@@ -9,9 +9,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from argus_skill.trial import gateway, gateway_accounting, gateway_observation
-from argus_skill.trial import store as store_module
-from argus_skill.trial.gateway import create_app, prepare
+from argus.trial import gateway, gateway_accounting, gateway_observation
+from argus.trial import store as store_module
+from argus.trial.gateway import create_app, prepare
 from tests.trial.test_gateway_billing_responsiveness import (
     KEY_ID,
     PAYLOAD,

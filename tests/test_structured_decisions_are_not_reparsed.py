@@ -18,21 +18,21 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.core.models import ReviewDecision
-from argus_skill.core.operator_decision import (
+from argus.core.models import ReviewDecision
+from argus.core.operator_decision import (
     build_operator_decision,
     selected_decision_text,
 )
-from argus_skill.core.role_decision import encode_role_decision, latest_role_decision
-from argus_skill.core.role_handoff import (
+from argus.core.role_decision import encode_role_decision, latest_role_decision
+from argus.core.role_handoff import (
     decision_engineer_handoff,
     parse_engineer_handoff,
 )
-from argus_skill.engineer.round_self_review import (
+from argus.engineer.round_self_review import (
     _milestone_is_done,
     _round_handoff,
 )
-from argus_skill.life.router import classify_front_door
+from argus.life.router import classify_front_door
 
 
 def _manager_result(**payload):
@@ -328,7 +328,7 @@ def test_both_handoff_readers_agree_on_the_same_fields() -> None:
 
 def test_a_reviewer_decision_is_read_without_a_json_round_trip() -> None:
     """The flat event shape is what the Reviewer is asked for; read it as such."""
-    from argus_skill.reviewer._parsing import decision_from_payload
+    from argus.reviewer._parsing import decision_from_payload
 
     decision = decision_from_payload({
         "status": "continue",
@@ -345,7 +345,7 @@ def test_a_reviewer_decision_is_read_without_a_json_round_trip() -> None:
 
 
 def test_string_options_in_a_reviewer_decision_are_normalized() -> None:
-    from argus_skill.reviewer._parsing import decision_from_payload
+    from argus.reviewer._parsing import decision_from_payload
 
     decision = decision_from_payload({
         "status": "blocked",
@@ -367,7 +367,7 @@ def test_string_options_in_a_reviewer_decision_are_normalized() -> None:
 
 
 def test_a_reviewer_payload_missing_a_control_field_yields_no_verdict() -> None:
-    from argus_skill.reviewer._parsing import decision_from_payload
+    from argus.reviewer._parsing import decision_from_payload
 
     assert decision_from_payload({"status": "done", "reason": "", "next_action": ""}) is None
     assert decision_from_payload({"status": "invented", "reason": "x", "next_action": ""}) is None

@@ -32,17 +32,17 @@ Reviewer 的语义判断和 Host 的状态提交发生在不同位置；定位�
 
 | 要修改的行为 | 从这里读起 | 必须保持的边界 |
 | --- | --- | --- |
-| 操作者意图入队、修改目标 | [`manager/front_door.py`](../argus_skill/manager/front_door.py) | 目标版本和任务入队一起核对，陈旧模型结果不能覆盖新目标 |
-| 项目调度、等待、规划 | [`life/supervisor/_core.py`](../argus_skill/life/supervisor/_core.py) 的 `run` / `tick` | 调度拥有何时运行；单任务执行拥有如何结束 |
-| 单任务执行与早退 | [`_mission_execution.py`](../argus_skill/life/supervisor/_mission_execution.py) 的 `_run_one` | 先 claim；先核对 claim 是否失效，再结算任务 |
-| 任务到角色循环的组装 | [`apps/_runtime.py`](../argus_skill/apps/_runtime.py)、[`apps/_runtime_execute.py`](../argus_skill/apps/_runtime_execute.py) | `_SkillLoopRunner` 实现 supervisor 所需的执行接口，`SkillLoop` 驱动角色回合 |
-| 单任务临时字段 | [`_mission_execution_helpers.py`](../argus_skill/life/supervisor/_mission_execution_helpers.py) 的 `_MissionRunState` | 字段显式声明，临时结果不能直接充当持久完成证据 |
-| 任务领取、状态、终态归档 | [`life/memory.py`](../argus_skill/life/memory.py) 的 `Backlog` | 所有读改写遵循同一个 Backlog 锁与恢复协议 |
-| 阶段推进与回退 | [`manager/_stage_ops.py`](../argus_skill/manager/_stage_ops.py)、[`skills/stage_machine.py`](../argus_skill/skills/stage_machine.py) | Manager 决策及提交，Vertical 提供规则，状态机执行规则 |
-| 模型调用与后端 | [`core/run_gateway.py`](../argus_skill/core/run_gateway.py)、[`core/ports.py`](../argus_skill/core/ports.py) | provider 进程与解析细节留在 adapter / agent_cli |
-| 项目/任务 HTTP 服务依赖 | [`webapi/daemon_services.py`](../argus_skill/webapi/daemon_services.py)、`create_app` / `ServerContext` | 每个 app 持有自己的状态读取和启动服务；业务函数仅接收所需操作 |
-| 并发查询合并、失败、等待超时 | [`webapi/index_cache.py`](../argus_skill/webapi/index_cache.py) | 一轮查询共享结果或失败；超时不启动重复扫描 |
-| 展示状态与事件回放 | [`life/event_log.py`](../argus_skill/life/event_log.py)、[`core/mission_view`](../argus_skill/core/mission_view) | 展示投影不负责决定任务或项目完成 |
+| 操作者意图入队、修改目标 | [`manager/front_door.py`](../argus/manager/front_door.py) | 目标版本和任务入队一起核对，陈旧模型结果不能覆盖新目标 |
+| 项目调度、等待、规划 | [`life/supervisor/_core.py`](../argus/life/supervisor/_core.py) 的 `run` / `tick` | 调度拥有何时运行；单任务执行拥有如何结束 |
+| 单任务执行与早退 | [`_mission_execution.py`](../argus/life/supervisor/_mission_execution.py) 的 `_run_one` | 先 claim；先核对 claim 是否失效，再结算任务 |
+| 任务到角色循环的组装 | [`apps/_runtime.py`](../argus/apps/_runtime.py)、[`apps/_runtime_execute.py`](../argus/apps/_runtime_execute.py) | `_SkillLoopRunner` 实现 supervisor 所需的执行接口，`SkillLoop` 驱动角色回合 |
+| 单任务临时字段 | [`_mission_execution_helpers.py`](../argus/life/supervisor/_mission_execution_helpers.py) 的 `_MissionRunState` | 字段显式声明，临时结果不能直接充当持久完成证据 |
+| 任务领取、状态、终态归档 | [`life/memory.py`](../argus/life/memory.py) 的 `Backlog` | 所有读改写遵循同一个 Backlog 锁与恢复协议 |
+| 阶段推进与回退 | [`manager/_stage_ops.py`](../argus/manager/_stage_ops.py)、[`skills/stage_machine.py`](../argus/skills/stage_machine.py) | Manager 决策及提交，Vertical 提供规则，状态机执行规则 |
+| 模型调用与后端 | [`core/run_gateway.py`](../argus/core/run_gateway.py)、[`core/ports.py`](../argus/core/ports.py) | provider 进程与解析细节留在 adapter / agent_cli |
+| 项目/任务 HTTP 服务依赖 | [`webapi/daemon_services.py`](../argus/webapi/daemon_services.py)、`create_app` / `ServerContext` | 每个 app 持有自己的状态读取和启动服务；业务函数仅接收所需操作 |
+| 并发查询合并、失败、等待超时 | [`webapi/index_cache.py`](../argus/webapi/index_cache.py) | 一轮查询共享结果或失败；超时不启动重复扫描 |
+| 展示状态与事件回放 | [`life/event_log.py`](../argus/life/event_log.py)、[`core/mission_view`](../argus/core/mission_view) | 展示投影不负责决定任务或项目完成 |
 
 ## 状态所有权
 
@@ -177,7 +177,7 @@ Web Manager 请求在打开项目之前记录控制版本；停止或更新目�
 
 ### 事件投影恢复
 
-恢复实现集中在 [`core/mission_view/_replay.py`](../argus_skill/core/mission_view/_replay.py)。
+恢复实现集中在 [`core/mission_view/_replay.py`](../argus/core/mission_view/_replay.py)。
 `JsonlEventSink` 先追加并同步日志，释放日志锁，再请求投影读取已落盘事件；回调参数不会被重复应用。
 reader 和 writer 都遵循 `events.lock` → `mission-view.lock` 的顺序。
 
@@ -239,7 +239,7 @@ tail 保留旧日志句柄，先排空未读数据再跟进保留世代；超长
 ## 修改后的验证
 
 第一批整合验证（2026-09-12，Linux / Python 3.12）：运行时与架构回归 **560 项通过**，
-Web/终端回归 **86 项通过**；全仓 `ruff check argus_skill tests` 与 `git diff --check` 通过。
+Web/终端回归 **86 项通过**；全仓 `ruff check argus tests` 与 `git diff --check` 通过。
 存储与显式运行状态还经过交叉代码审查；故障恢复测试使用临时目录中的真实子进程退出。
 
 第二批主回归：`core` / `life` / `manager` / `daemon` 与关联集成测试 **2,954 项通过、4 项跳过**；

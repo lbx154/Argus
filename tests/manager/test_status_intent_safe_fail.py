@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from argus_skill.manager.front_door import manager_triage
+from argus.manager.front_door import manager_triage
 
 
 class _RaisingRunner:

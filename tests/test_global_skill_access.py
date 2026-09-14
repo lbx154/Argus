@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import BACKEND_PI
-from argus_skill.skills import role_library
-from argus_skill.skills.builtins import builtin_skill_source_path
-from argus_skill.skills.layered import LayeredSkillStore
-from argus_skill.skills.store import SkillStore
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import BACKEND_PI
+from argus.skills import role_library
+from argus.skills.builtins import builtin_skill_source_path
+from argus.skills.layered import LayeredSkillStore
+from argus.skills.store import SkillStore
 
 
 @pytest.mark.parametrize("role", ["self", "manager", "planner", "engineer", "reviewer"])

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.knobs import resolve_cheap_route_model, resolve_role_model
+from argus.core.knobs import resolve_cheap_route_model, resolve_role_model
 
 
 @pytest.fixture(autouse=True)
@@ -116,7 +116,7 @@ def test_role_model_can_use_the_actual_fallback_backend() -> None:
 
 
 def test_manager_routes_use_the_actual_runtime_backend() -> None:
-    from argus_skill.core.knobs import (
+    from argus.core.knobs import (
         resolve_manager_classify_model,
         resolve_manager_reply_model,
     )
@@ -129,8 +129,8 @@ def test_manager_routes_use_the_actual_runtime_backend() -> None:
 def test_explicit_shared_model_beats_persisted_manager_route_models(
     monkeypatch,
 ) -> None:
-    from argus_skill.core import knob_store
-    from argus_skill.core.knobs import (
+    from argus.core import knob_store
+    from argus.core.knobs import (
         resolve_manager_classify_model,
         resolve_manager_reply_model,
     )
@@ -150,8 +150,8 @@ def test_explicit_shared_model_beats_persisted_manager_route_models(
 
 
 def test_claude_command_omits_openai_model_when_unconfigured() -> None:
-    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-    from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+    from argus.agent_cli.runner_backend import BACKEND_CLAUDE
 
     model = resolve_role_model(
         "manager",
@@ -240,7 +240,7 @@ def test_auto_sentinels_are_not_treated_as_model_ids(sentinel: str) -> None:
 
 
 def test_front_door_classify_route_uses_the_shared_rule(monkeypatch) -> None:
-    from argus_skill.core.knobs import resolve_manager_classify_model
+    from argus.core.knobs import resolve_manager_classify_model
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "pi")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "deepseek-chat")
@@ -253,7 +253,7 @@ def test_front_door_classify_route_uses_the_shared_rule(monkeypatch) -> None:
 
 
 def test_bounded_dag_route_uses_the_shared_rule(monkeypatch) -> None:
-    from argus_skill.manager.dispatch import _bounded_dag_model
+    from argus.manager.dispatch import _bounded_dag_model
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "pi")
     monkeypatch.setenv("ARGUS_SKILL_PLAN_MODEL", "deepseek-chat")
@@ -266,7 +266,7 @@ def test_bounded_dag_route_uses_the_shared_rule(monkeypatch) -> None:
 
 
 def test_plan_preview_route_uses_the_shared_rule(monkeypatch) -> None:
-    from argus_skill.webapi.manager_bridge import _plan_preview_model
+    from argus.webapi.manager_bridge import _plan_preview_model
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "pi")
     monkeypatch.setenv("ARGUS_SKILL_PLAN_MODEL", "deepseek-chat")
@@ -279,7 +279,7 @@ def test_plan_preview_route_uses_the_shared_rule(monkeypatch) -> None:
 
 
 def test_prompt_rewrite_route_uses_the_shared_rule(monkeypatch) -> None:
-    from argus_skill.webapi.manager_bridge import _rewrite_model_and_effort
+    from argus.webapi.manager_bridge import _rewrite_model_and_effort
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "gpt-5.6-sol")
@@ -295,7 +295,7 @@ def test_prompt_rewrite_route_uses_the_shared_rule(monkeypatch) -> None:
 def test_provider_knobs_normalize_to_a_single_catalog_name() -> None:
     """The cockpit can set these, so a provider/model pair typed into the box
     must be rejected rather than silently producing ``a/b/model``."""
-    from argus_skill.core.knobs import normalize_cockpit_knob_value
+    from argus.core.knobs import normalize_cockpit_knob_value
 
     assert (
         normalize_cockpit_knob_value("ARGUS_SKILL_PI_PROVIDER", " deepseek ")

@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.token_usage import TokenUsage, extract_token_usage
-from argus_skill.core.usage import (
+from argus.core.token_usage import TokenUsage, extract_token_usage
+from argus.core.usage import (
     UsageLedger,
     UsageRecord,
     build_usage_record,
@@ -19,9 +19,9 @@ from argus_skill.core.usage import (
     project_usage_summary,
     usage_recorded_event,
 )
-from argus_skill.life.supervisor import global_daily_spend
-from argus_skill.life.supervisor._cost import _CostTrackingSink
-from argus_skill.webapi.server import _settled_spend
+from argus.life.supervisor import global_daily_spend
+from argus.life.supervisor._cost import _CostTrackingSink
+from argus.webapi.server import _settled_spend
 
 
 class _Sink:
@@ -48,7 +48,7 @@ def test_usage_process_caches_are_bounded(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core import usage
+    from argus.core import usage
 
     monkeypatch.setattr(usage, "_CALL_ID_CACHE_MAX_PROJECTS", 2)
     monkeypatch.setattr(usage, "_CALL_ID_CACHE_MAX_IDS", 2)
@@ -201,7 +201,7 @@ def test_pi_empty_failure_usage_does_not_settle_unknown_cost(
 def test_pending_tokens_are_reconciled_and_persisted_when_pricing_becomes_available(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    from argus_skill.core.pricing import MODEL_PRICES_USD_PER_MTOK
+    from argus.core.pricing import MODEL_PRICES_USD_PER_MTOK
 
     model = "test-newly-priced-model"
     project = tmp_path / "project"
@@ -278,7 +278,7 @@ def test_token_reconciliation_does_not_guess_or_overwrite_provider_billing(
 def test_usage_reconciliation_uses_a_process_lock_without_fcntl(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    from argus_skill.core import usage
+    from argus.core import usage
 
     calls = []
     monkeypatch.setattr(usage, "fcntl", None)
@@ -957,11 +957,11 @@ def test_copilot_reconcile_does_not_reprice_settled_premium_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.usage._copilot_reconcile_enabled_for",
+        "argus.core.usage._copilot_reconcile_enabled_for",
         lambda _project_root: True,
     )
     monkeypatch.setattr(
-        "argus_skill.core.usage.find_copilot_usage_near",
+        "argus.core.usage.find_copilot_usage_near",
         lambda **_kwargs: None,
     )
     project = tmp_path / "projects" / "p1"
@@ -1011,10 +1011,10 @@ def test_partial_token_charge_never_falls_back_to_a_premium_request_estimate(
     tmp_path: Path, monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.usage._copilot_reconcile_enabled_for", lambda _root: True,
+        "argus.core.usage._copilot_reconcile_enabled_for", lambda _root: True,
     )
     monkeypatch.setattr(
-        "argus_skill.core.usage.find_copilot_usage_near", lambda **_kwargs: None,
+        "argus.core.usage.find_copilot_usage_near", lambda **_kwargs: None,
     )
     ledger = UsageLedger(tmp_path, migrate_legacy=False)
     record = build_usage_record(

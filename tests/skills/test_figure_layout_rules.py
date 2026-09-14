@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.verticals.research.paper_layout_review import (
+from argus.verticals.research.paper_layout_review import (
     _deterministic_assessment,
     _single_column_wide_role_figures,
     _vision_prompt,
 )
-from argus_skill.verticals.research.venue_profiles import VenueProfile
+from argus.verticals.research.venue_profiles import VenueProfile
 from tests.skills.researched_venues import (
     EIGHT_PAGE_CONFERENCE,
     SEVEN_PAGE_CONFERENCE,

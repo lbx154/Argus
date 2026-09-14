@@ -12,7 +12,7 @@ from dataclasses import replace
 
 import pytest
 
-from argus_skill.verticals.research.paper_layout_review import (
+from argus.verticals.research.paper_layout_review import (
     _deterministic_assessment,
     _parse_review_text,
     _vision_prompt,

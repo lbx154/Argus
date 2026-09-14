@@ -8,10 +8,10 @@ import time
 import httpx
 import pytest
 
-from argus_skill.trial.gateway import create_app, prepare
-from argus_skill.trial.gateway_accounting import GatewayAccounting, RequestMonitor
-from argus_skill.trial.gateway_observation import GatewayAttempt
-from argus_skill.trial.store import Store
+from argus.trial.gateway import create_app, prepare
+from argus.trial.gateway_accounting import GatewayAccounting, RequestMonitor
+from argus.trial.gateway_observation import GatewayAttempt
+from argus.trial.store import Store
 from tests.trial.test_gateway_billing_lifecycle import asgi_request, issue, offline_settings
 from tests.trial.test_gateway_billing_responsiveness import KEY_ID, PAYLOAD, response_data
 

@@ -39,8 +39,8 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.core.role_reply import read_block, read_key_values, read_records
-from argus_skill.reviewer._parsing import (
+from argus.core.role_reply import read_block, read_key_values, read_records
+from argus.reviewer._parsing import (
     _find_decision_in_messages,
     describe_unparsed_verdict,
 )

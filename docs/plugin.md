@@ -45,3 +45,5 @@ curl -fsSL https://raw.githubusercontent.com/lbx154/Argus/main/plugins/argus/ins
 - “用 `target-disease-research` 研究 EGFR 与肺癌。”
 
 医学能力是 `argus-verticals` 社区包提供的 `medical` vertical（需在 Argus 运行环境 `pip install argus-verticals`），不提供诊断或治疗建议。
+
+编写 vertical 插件时，请在 `argus.verticals` entry-point 组注册；用重命名前的包名 `argus_skill` 拼写的旧组在一个发布周期内仍会被读取，但会打一条 warning。

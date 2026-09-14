@@ -1,6 +1,6 @@
 import json
 
-from argus_skill.apps.cli._follow import (
+from argus.apps.cli._follow import (
     _follow_layer_from_event,
     _format_follow_command,
     _format_follow_event,

@@ -4,17 +4,17 @@ import json
 
 import pytest
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-from argus_skill.core.venue_review import current_venue_acceptance_issue
-from argus_skill.life.context_packet import (
+from argus.core.models import RunnerResult
+from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.core.venue_review import current_venue_acceptance_issue
+from argus.life.context_packet import (
     create_mission_context,
     record_reviewed_handoff,
     render_mission_brief,
 )
-from argus_skill.reviewer import Reviewer, ReviewerConfig
-from argus_skill.reviewer._prose_decision import decision_from_prose_control
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer._prose_decision import decision_from_prose_control
+from argus.skills.vertical_select import persist_vertical
 
 ACCEPTANCE = "作为 ICLR 审稿人，我对当前版本的明确建议是 weak accept。"
 FEEDBACK = (
@@ -145,7 +145,7 @@ def test_strong_accept_objective_does_not_promote_an_aspirational_rating(paper):
 
 
 def test_reviewer_edits_its_file_each_round_and_acknowledgement_is_not_the_review(paper):
-    from argus_skill.reviewer.review_file import ReviewFileStore
+    from argus.reviewer.review_file import ReviewFileStore
 
     class WritingReviewer(ProseRunner):
         backend = "copilot"

@@ -16,12 +16,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.webapi.map_notes import append_note, list_notes, notes_path
+from argus.webapi.map_notes import append_note, list_notes, notes_path
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from argus_skill.webapi import server  # noqa: E402
+from argus.webapi import server  # noqa: E402
 
 _SID = "s-notes"
 

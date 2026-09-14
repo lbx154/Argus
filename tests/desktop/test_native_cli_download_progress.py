@@ -6,7 +6,7 @@ import urllib.error
 
 import pytest
 
-from argus_skill.trial import native_cli
+from argus.trial import native_cli
 
 
 class Response(io.BytesIO):

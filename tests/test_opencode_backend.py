@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _needed_for_live_progress
-from argus_skill.agent_cli import _run_exec
-from argus_skill.agent_cli import _sandbox_commands as sandbox_commands
-from argus_skill.agent_cli import agent_cli_runner as runner_mod
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import BACKEND_OPENCODE
-from argus_skill.core.token_usage import extract_token_usage
+from argus.adapters.agent_cli_backend import _needed_for_live_progress
+from argus.agent_cli import _run_exec
+from argus.agent_cli import _sandbox_commands as sandbox_commands
+from argus.agent_cli import agent_cli_runner as runner_mod
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import BACKEND_OPENCODE
+from argus.core.token_usage import extract_token_usage
 
 
 def _runner() -> AgentCliRunner:
@@ -166,7 +166,7 @@ def test_opencode_delivers_plain_prompt_on_stdin() -> None:
 
 
 def test_opencode_event_consumer_tracks_session_text_and_completion() -> None:
-    from argus_skill.agent_cli._event_consumers import _OpenCodeWriteState
+    from argus.agent_cli._event_consumers import _OpenCodeWriteState
 
     runner = _runner()
     messages: list[str] = []
@@ -203,7 +203,7 @@ def test_opencode_event_consumer_tracks_session_text_and_completion() -> None:
 
 
 def test_opencode_tool_step_is_not_terminal() -> None:
-    from argus_skill.agent_cli._event_consumers import _OpenCodeWriteState
+    from argus.agent_cli._event_consumers import _OpenCodeWriteState
 
     state = _runner()._consume_opencode_event(
         event={"type": "step_finish", "part": {"reason": "tool-calls"}},
@@ -220,7 +220,7 @@ def test_opencode_tool_step_is_not_terminal() -> None:
 
 @pytest.mark.parametrize("reason", ["length", "content-filter", "error", "unknown"])
 def test_opencode_non_success_finish_reasons_fail_closed(reason: str) -> None:
-    from argus_skill.agent_cli._event_consumers import _OpenCodeWriteState
+    from argus.agent_cli._event_consumers import _OpenCodeWriteState
 
     state = _runner()._consume_opencode_event(
         event={"type": "step_finish", "part": {"reason": reason}},
@@ -516,7 +516,7 @@ def test_opencode_recovers_from_database_when_export_is_truncated(
 
 
 def test_opencode_nested_error_is_preserved() -> None:
-    from argus_skill.agent_cli._event_consumers import _OpenCodeWriteState
+    from argus.agent_cli._event_consumers import _OpenCodeWriteState
 
     state = _runner()._consume_opencode_event(
         event={

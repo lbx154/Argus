@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.reviewer.review_file import ReviewFileStore
+from argus.reviewer.review_file import ReviewFileStore
 
 
 def test_only_an_authored_current_report_is_used(tmp_path: Path):
@@ -52,7 +52,7 @@ def test_mcp_tool_revises_the_same_file_without_a_review_schema(tmp_path: Path):
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
         server = StdioServerParameters(
             command=sys.executable,
-            args=["-m", "argus_skill.reviewer.review_file", "--path", str(report), "--receipt", str(marker)],
+            args=["-m", "argus.reviewer.review_file", "--path", str(report), "--receipt", str(marker)],
             env=env,
         )
         async with stdio_client(server) as (reader, writer), ClientSession(reader, writer) as session:

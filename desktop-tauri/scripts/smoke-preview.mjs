@@ -92,9 +92,9 @@ for (const key of ['ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE', 'ARGUS_WORKBENCH_HOS
 // map API/UI without running a daemon or spending any provider/model credit.
 const seed = `from pathlib import Path
 import time
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import append_turn
-from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import append_turn
+from argus.life.memory import BacklogItem, LifeMemory
 root = Path(${JSON.stringify(home)})
 workspace = ${JSON.stringify(workspace)}
 now = time.time()
@@ -317,7 +317,7 @@ try {
 
   await verifyReadingExperience(page, frame, stage, record);
 
-  const assetDir = join(stage, 'argus-backend', '_internal', 'argus_skill', '_frontend', 'web', 'dist', 'assets');
+  const assetDir = join(stage, 'argus-backend', '_internal', 'argus', '_frontend', 'web', 'dist', 'assets');
   const mapChunk = readdirSync(assetDir).find((name) => name.startsWith('MapPanel-') && name.endsWith('.js'));
   assert(mapChunk, 'Packaged MapPanel chunk is missing.');
   const moduleCheck = await frame.evaluate(async (name) => {

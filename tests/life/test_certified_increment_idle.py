@@ -8,21 +8,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.transcript import read_turns
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.planner_verdict_outbox import load_planner_verdict_outbox
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import (
+from argus.core.transcript import read_turns
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.planner_verdict_outbox import load_planner_verdict_outbox
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import (
     PLAN_AWAITING,
     PLAN_ERROR,
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
 )
-from argus_skill.planner import PlannerVerdict, TaskSpec, WaitingContract
-from argus_skill.skills.stage_machine import completion_contract_fingerprint
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import load_vertical, vertical_completion_contract_version
+from argus.planner import PlannerVerdict, TaskSpec, WaitingContract
+from argus.skills.stage_machine import completion_contract_fingerprint
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals._base import load_vertical, vertical_completion_contract_version
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def campaign(tmp_path, monkeypatch):
     def unexpected_plan(*_args, **_kwargs):
         pytest.fail("Certified unchanged state must not call Planner")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", unexpected_plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", unexpected_plan)
 
     def make(*, open_ended=True):
         memory = LifeMemory.open(life)
@@ -113,7 +113,7 @@ def _reports(life: Path):
 
 
 def _legacy_handoff(campaign):
-    from argus_skill.core.operator_context import OperatorContextStore
+    from argus.core.operator_context import OperatorContextStore
 
     instruction = "Keep the certified artifact unchanged; report and await new explicit direction."
     (campaign.life / "STEERING.jsonl").write_text(json.dumps({
@@ -157,7 +157,7 @@ def test_legacy_certified_wait_reports_once_without_recertification(
             ),
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert campaign.supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
     assert len(calls) == 1 and instruction in calls[0]
     if fresh_inbox:
@@ -180,9 +180,9 @@ def test_legacy_certified_wait_reports_once_without_recertification(
 def test_certified_handoff_delivery_failure_does_not_repeat_planning(
     campaign, monkeypatch, failure, once,
 ):
-    from argus_skill.core import operator_messages
-    from argus_skill.core.operator_context import OperatorContextStore, append_directive
-    from argus_skill.life.supervisor import _core
+    from argus.core import operator_messages
+    from argus.core.operator_context import OperatorContextStore, append_directive
+    from argus.life.supervisor import _core
 
     if once:
         append_directive(
@@ -204,7 +204,7 @@ def test_certified_handoff_delivery_failure_does_not_repeat_planning(
     def fail(*_args, **_kwargs):
         raise OSError("injected handoff delivery failure")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     with monkeypatch.context() as delivery:
         if failure == "report":
             delivery.setattr(campaign.manager, "report_project_completion", lambda **_kw: "")
@@ -236,7 +236,7 @@ def test_certified_handoff_delivery_failure_does_not_repeat_planning(
 def test_certified_handoff_never_consumes_newer_work_after_failure(
     campaign, monkeypatch, arrival,
 ):
-    from argus_skill.core.operator_context import append_directive
+    from argus.core.operator_context import append_directive
 
     _, store = _legacy_handoff(campaign)
     newer_instruction = "Evaluate the newly requested experiment, not the old increment."
@@ -263,7 +263,7 @@ def test_certified_handoff_never_consumes_newer_work_after_failure(
             return ""
         return original_report(**kwargs)
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     campaign.manager.report_project_completion = report
     campaign.supervisor._plan_next_work()
     if arrival == "after_report_failure":
@@ -276,7 +276,7 @@ def test_certified_handoff_never_consumes_newer_work_after_failure(
         return PlannerVerdict(project_done=False, reason="Backend failed", error="injected failure")
 
     campaign.manager.report_project_completion = original_report
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", failed_new_work)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", failed_new_work)
     for _ in range(2):
         assert campaign.make()._plan_next_work() == PLAN_ERROR
     assert len(calls) == 2 and all(newer_instruction in call for call in calls)
@@ -296,7 +296,7 @@ def test_certified_handoff_never_consumes_newer_work_after_failure(
     "Waiting for new operator direction while the experiment is still running.",
 ])
 def test_uncontracted_wait_is_not_blindly_acknowledged(campaign, monkeypatch, reason):
-    from argus_skill.core.operator_context import OperatorContextStore, append_directive
+    from argus.core.operator_context import OperatorContextStore, append_directive
 
     instruction = "Run the new experiment even though the previous attempt failed."
     append_directive(campaign.life, instruction, lifetime="once", expected_revision=0)
@@ -312,7 +312,7 @@ def test_uncontracted_wait_is_not_blindly_acknowledged(campaign, monkeypatch, re
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(project_done=False, waiting=True, reason=reason)
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     for _ in range(2):
         assert campaign.make()._plan_next_work() == PLAN_AWAITING
     store = OperatorContextStore(campaign.life)
@@ -328,7 +328,7 @@ def test_uncontracted_wait_is_not_blindly_acknowledged(campaign, monkeypatch, re
 def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypatch, blocker):
     from dataclasses import replace
 
-    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
 
     supervisor = campaign.supervisor
     state = _PlanCycleState(None)
@@ -374,19 +374,19 @@ def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypat
 def test_certified_wait_cannot_ack_past_completion_gate(campaign, monkeypatch, gate):
     _, store = _legacy_handoff(campaign)
     monkeypatch.setattr(
-        "argus_skill.planner.Planner.plan_next",
+        "argus.planner.Planner.plan_next",
         lambda *_args, **_kw: PlannerVerdict(
             project_done=False, waiting=True, reason="Waiting for new operator direction.",
         ),
     )
     if gate == "external":
         monkeypatch.setattr(
-            "argus_skill.core.external_completion_gate.external_completion_gate_issue",
+            "argus.core.external_completion_gate.external_completion_gate_issue",
             lambda _root: "external acceptance remains unsatisfied",
         )
     else:
         monkeypatch.setattr(
-            "argus_skill.life.supervisor._planning_cycle_completion._research_project_done_issue",
+            "argus.life.supervisor._planning_cycle_completion._research_project_done_issue",
             lambda *_args, **_kw: "research target remains unsatisfied",
         )
     assert campaign.supervisor._plan_next_work() == PLAN_RETRY
@@ -423,8 +423,8 @@ def test_certified_increment_reports_once_and_survives_restart(campaign):
 
 @pytest.mark.parametrize("failure", ["empty", "raise", "publish", "verdict", "ack"])
 def test_report_and_verdict_failures_retry_durably(campaign, monkeypatch, failure):
-    from argus_skill.core import operator_messages
-    from argus_skill.life.supervisor import _core
+    from argus.core import operator_messages
+    from argus.life.supervisor import _core
 
     original_report = campaign.manager.report_project_completion
     original_publish = operator_messages.publish_operator_message
@@ -482,7 +482,7 @@ def test_new_operator_input_wakes_even_after_restart(campaign, monkeypatch, pend
         calls.append(kwargs)
         return PlannerVerdict(project_done=True, reason="injected planner completion")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert restarted._plan_next_work() == PLAN_RETRY
     assert len(calls) == 1
     assert load_planner_verdict_outbox(campaign.life) is None
@@ -494,7 +494,7 @@ def test_new_operator_input_wakes_even_after_restart(campaign, monkeypatch, pend
 def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
     campaign, monkeypatch, restart, failure,
 ):
-    from argus_skill.core.operator_context import OperatorContextStore
+    from argus.core.operator_context import OperatorContextStore
 
     supervisor = campaign.supervisor
     assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
@@ -524,7 +524,7 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
             ),
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", fail)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", fail)
     assert supervisor._plan_next_work() != PLAN_TERMINAL_IDLE
     assert supervisor._journal_has_final_certification()
     store = OperatorContextStore(campaign.life)
@@ -547,7 +547,7 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
             )],
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", succeed)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", succeed)
     monkeypatch.setattr(backlog_type, "add_many", original_commit)
     assert supervisor._plan_next_work() is True
     assert store.acknowledged_revision("planner") == store.revision
@@ -563,7 +563,7 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
 def test_second_inbox_drain_reenters_intake_before_certification(
     campaign, monkeypatch, restart,
 ):
-    from argus_skill.core.operator_context import OperatorContextStore
+    from argus.core.operator_context import OperatorContextStore
 
     supervisor = campaign.supervisor
     assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
@@ -590,7 +590,7 @@ def test_second_inbox_drain_reenters_intake_before_certification(
             project_done=False, reason="test failure", error="injected Planner failure",
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     for _ in range(2):
         assert supervisor._plan_next_work() == PLAN_ERROR
     assert len(calls) == 2
@@ -601,7 +601,7 @@ def test_second_inbox_drain_reenters_intake_before_certification(
 
 @pytest.mark.parametrize("event_wait", [False, True])
 def test_handled_wait_preserves_waiting_and_report_dedup(campaign, monkeypatch, event_wait):
-    from argus_skill.core.operator_context import OperatorContextStore
+    from argus.core.operator_context import OperatorContextStore
 
     supervisor = campaign.supervisor
     assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
@@ -630,7 +630,7 @@ def test_handled_wait_preserves_waiting_and_report_dedup(campaign, monkeypatch, 
             ),
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     for _ in range(3):
         assert supervisor._plan_next_work() == PLAN_AWAITING
     assert len(calls) == (1 if event_wait else 2)
@@ -645,7 +645,7 @@ def test_handled_wait_preserves_waiting_and_report_dedup(campaign, monkeypatch, 
 
 
 def test_failed_routing_still_persists_unhandled_input(campaign, monkeypatch):
-    from argus_skill.core.operator_context import OperatorContextStore
+    from argus.core.operator_context import OperatorContextStore
 
     supervisor = campaign.supervisor
     assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
@@ -664,7 +664,7 @@ def test_failed_routing_still_persists_unhandled_input(campaign, monkeypatch):
             project_done=False, reason="test failure", error="injected Planner failure",
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert supervisor._plan_next_work() == PLAN_ERROR
     assert campaign.make()._plan_next_work() == PLAN_ERROR
     assert len(calls) == 2
@@ -674,7 +674,7 @@ def test_failed_routing_still_persists_unhandled_input(campaign, monkeypatch):
 
 
 def test_input_arriving_during_planning_is_not_acknowledged(campaign, monkeypatch):
-    from argus_skill.core.operator_context import OperatorContextStore, append_directive
+    from argus.core.operator_context import OperatorContextStore, append_directive
 
     supervisor = campaign.supervisor
     assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
@@ -692,7 +692,7 @@ def test_input_arriving_during_planning_is_not_acknowledged(campaign, monkeypatc
             new_tasks=[TaskSpec(title="First instruction", objective="Investigate the first instruction")],
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert supervisor._plan_next_work() is True
     store = OperatorContextStore(campaign.life)
     assert store.acknowledged_revision("planner") == first.revision < store.revision
@@ -705,7 +705,7 @@ def test_input_arriving_during_planning_is_not_acknowledged(campaign, monkeypatc
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(project_done=False, reason="test failure", error="injected failure")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", fail)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", fail)
     assert campaign.make()._plan_next_work() == PLAN_ERROR
     assert len(calls) == 1
     assert "Investigate the newer instruction" in calls[0]
@@ -713,15 +713,15 @@ def test_input_arriving_during_planning_is_not_acknowledged(campaign, monkeypatc
 
 
 def test_rejected_completion_terminal_idle_does_not_consume_once_input(campaign, monkeypatch):
-    from argus_skill.core.operator_context import OperatorContextStore, append_directive
-    from argus_skill.life.supervisor._planning_cycle_helpers import (
+    from argus.core.operator_context import OperatorContextStore, append_directive
+    from argus.life.supervisor._planning_cycle_helpers import (
         load_completion_rejection_circuit,
     )
 
     instruction = "Investigate this unexecuted one-shot instruction."
     append_directive(campaign.life, instruction, lifetime="once", expected_revision=0)
     monkeypatch.setattr(
-        "argus_skill.core.external_completion_gate.external_completion_gate_issue",
+        "argus.core.external_completion_gate.external_completion_gate_issue",
         lambda _root: "external acceptance is not satisfied",
     )
     calls = []
@@ -730,7 +730,7 @@ def test_rejected_completion_terminal_idle_does_not_consume_once_input(campaign,
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(project_done=True, reason="Rejected completion", error="")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     supervisor = campaign.supervisor
     assert supervisor._plan_next_work() == PLAN_RETRY
     assert supervisor._plan_next_work() == PLAN_RETRY
@@ -758,8 +758,8 @@ def test_rejected_completion_terminal_idle_does_not_consume_once_input(campaign,
 def test_durable_input_wakes_holds_once_per_revision_after_restart(
     campaign, monkeypatch, hold, legacy, arrives_during_planning,
 ):
-    from argus_skill.core.operator_context import OperatorContextStore, append_directive
-    from argus_skill.life.supervisor._planning_cycle_helpers import (
+    from argus.core.operator_context import OperatorContextStore, append_directive
+    from argus.life.supervisor._planning_cycle_helpers import (
         load_completion_rejection_circuit,
     )
 
@@ -767,16 +767,16 @@ def test_durable_input_wakes_holds_once_per_revision_after_restart(
     # missed wake or a repeated reset in the hold being tested.
     if hold == "feedback":
         monkeypatch.setattr(
-            "argus_skill.life.supervisor._planning_cycle_completion."
+            "argus.life.supervisor._planning_cycle_completion."
             "COMPLETION_REJECTION_CIRCUIT_THRESHOLD", 100,
         )
     else:
         monkeypatch.setattr(
-            "argus_skill.life.supervisor._planning_cycle_intake."
+            "argus.life.supervisor._planning_cycle_intake."
             "MANAGER_FEEDBACK_REPLAN_LIMIT", 100,
         )
     monkeypatch.setattr(
-        "argus_skill.core.external_completion_gate.external_completion_gate_issue",
+        "argus.core.external_completion_gate.external_completion_gate_issue",
         lambda _root: "external acceptance is not satisfied",
     )
     calls = []
@@ -792,7 +792,7 @@ def test_durable_input_wakes_holds_once_per_revision_after_restart(
             )
         return PlannerVerdict(project_done=True, reason="Rejected completion", error="")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     supervisor = campaign.supervisor
     first = append_directive(
         campaign.life, "Investigate the first instruction.", lifetime="once", expected_revision=0,
@@ -857,7 +857,7 @@ def test_durable_input_wakes_holds_once_per_revision_after_restart(
 
 
 def test_accepted_bounded_completion_acknowledges_once_input(campaign, monkeypatch):
-    from argus_skill.core.operator_context import OperatorContextStore, append_directive
+    from argus.core.operator_context import OperatorContextStore, append_directive
 
     instruction = "Accept this certified result as the bounded deliverable."
     append_directive(campaign.life, instruction, lifetime="once", expected_revision=0)
@@ -867,7 +867,7 @@ def test_accepted_bounded_completion_acknowledges_once_input(campaign, monkeypat
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(project_done=True, reason="Accepted bounded completion")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert campaign.make(open_ended=False)._plan_next_work() is False
     assert len(calls) == 1
     assert instruction in calls[0]
@@ -877,7 +877,7 @@ def test_accepted_bounded_completion_acknowledges_once_input(campaign, monkeypat
 
 
 def test_once_instruction_survives_failed_fresh_and_resumed_prompts(campaign, monkeypatch):
-    from argus_skill.core.operator_context import OperatorContextStore, append_directive
+    from argus.core.operator_context import OperatorContextStore, append_directive
 
     assert campaign.supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
     instruction = "Investigate this one-shot instruction."
@@ -895,7 +895,7 @@ def test_once_instruction_survives_failed_fresh_and_resumed_prompts(campaign, mo
         ))
         return PlannerVerdict(project_done=False, reason="test failure", error="injected failure")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert campaign.supervisor._plan_next_work() == PLAN_ERROR
     assert campaign.make()._plan_next_work() == PLAN_ERROR
     assert len(prompts) == 2
@@ -929,7 +929,7 @@ def test_meaningful_state_change_invalidates_idle(campaign, monkeypatch, change)
         calls.append(kwargs)
         return PlannerVerdict(project_done=False, error="test stops after genuine replanning")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     result = restarted._plan_next_work()
     if change == "certificate":
         assert result == PLAN_TERMINAL_IDLE
@@ -962,14 +962,14 @@ def test_manager_completion_authority_still_required(campaign, monkeypatch):
 def test_certified_increment_does_not_bypass_completion_gates(campaign, monkeypatch, gate):
     if gate == "research":
         target = (
-            "argus_skill.life.supervisor._planning_cycle_completion."
+            "argus.life.supervisor._planning_cycle_completion."
             "_research_project_done_issue"
         )
     elif gate == "external":
-        target = "argus_skill.core.external_completion_gate.external_completion_gate_issue"
+        target = "argus.core.external_completion_gate.external_completion_gate_issue"
     else:
         target = (
-            "argus_skill.life.supervisor._planning_cycle_completion."
+            "argus.life.supervisor._planning_cycle_completion."
             "_staged_goal_completion_issue"
         )
     monkeypatch.setattr(target, lambda *_args, **_kwargs: "required evidence missing")
@@ -988,7 +988,7 @@ def test_changed_state_discards_pending_report_before_replanning(campaign, monke
         calls.append(kwargs)
         return PlannerVerdict(project_done=False, error="test stops at replanning")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert campaign.make()._plan_next_work() != PLAN_TERMINAL_IDLE
     assert len(calls) == 1
     assert not _reports(campaign.life)
@@ -997,7 +997,7 @@ def test_changed_state_discards_pending_report_before_replanning(campaign, monke
 
 @pytest.mark.parametrize("objective", ["keep improving", "继续改进"])
 def test_increment_report_fallback_preserves_standing_campaign(objective):
-    from argus_skill.manager._stage_ops import _StageDecisionMixin
+    from argus.manager._stage_ops import _StageDecisionMixin
 
     manager = SimpleNamespace(_build_stage_run_exec=lambda *_args: (None, None))
     text = _StageDecisionMixin.report_project_completion(
@@ -1014,7 +1014,7 @@ def test_increment_report_fallback_preserves_standing_campaign(objective):
 
 
 def test_increment_prompt_does_not_close_campaign():
-    from argus_skill.roles.prompts.manager import build_project_completion_report_prompt
+    from argus.roles.prompts.manager import build_project_completion_report_prompt
 
     prompt = build_project_completion_report_prompt(
         objective="keep improving",
@@ -1030,8 +1030,8 @@ def test_increment_prompt_does_not_close_campaign():
 def test_project_report_routes_and_deduplicates_in_project_conversation(
     campaign, monkeypatch, route,
 ):
-    from argus_skill.core.transcript import append_turn
-    from argus_skill.life.memory import GlobalMemory, MemoryBundle, ProjectMemory
+    from argus.core.transcript import append_turn
+    from argus.life.memory import GlobalMemory, MemoryBundle, ProjectMemory
 
     supervisor = campaign.supervisor
     global_root = campaign.life
@@ -1083,8 +1083,8 @@ def test_completion_context_separates_current_artifacts_from_historical_reviews(
 ):
     import hashlib
 
-    from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-    from argus_skill.roles.prompts.manager import build_project_completion_report_prompt
+    from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+    from argus.roles.prompts.manager import build_project_completion_report_prompt
 
     supervisor = campaign.supervisor
     state_root = campaign.life / "projects" / "project-a"
@@ -1156,7 +1156,7 @@ def test_completion_context_separates_current_artifacts_from_historical_reviews(
 def test_completion_evidence_is_bounded_and_confined(
     campaign, monkeypatch, require_symlink_support,
 ):
-    from argus_skill.life import delivery
+    from argus.life import delivery
 
     paper = campaign.project / "paper"
     paper.mkdir()
@@ -1175,8 +1175,8 @@ def test_completion_evidence_is_bounded_and_confined(
 
 
 def test_failed_project_report_publish_cannot_use_global_dedup(campaign, monkeypatch):
-    from argus_skill.core import operator_messages
-    from argus_skill.core.transcript import append_turn
+    from argus.core import operator_messages
+    from argus.core.transcript import append_turn
 
     supervisor = campaign.supervisor
     project_root = campaign.life / "projects" / "project-a"

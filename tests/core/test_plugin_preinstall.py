@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from argus_skill.core import plugin_manager as pm
+from argus.core import plugin_manager as pm
 
 
 @pytest.fixture
@@ -172,7 +172,7 @@ def test_declared_plugins_are_marked_managed_and_keep_their_place(host, monkeypa
 def test_web_server_prepares_declared_plugins_once_at_startup(host, monkeypatch):
     from fastapi.testclient import TestClient
 
-    from argus_skill.webapi.server import create_app
+    from argus.webapi.server import create_app
 
     calls = []
     monkeypatch.setattr(pm, "preinstall", lambda root, **kw: calls.append((root, kw["logger"].name)))
@@ -188,7 +188,7 @@ def test_web_server_prepares_declared_plugins_once_at_startup(host, monkeypatch)
 
 
 def test_image_build_command_installs_and_reports(host, slow_install, capsys):
-    from argus_skill.release_tools import preinstall_plugins
+    from argus.release_tools import preinstall_plugins
 
     release, calls = slow_install
     release.set()

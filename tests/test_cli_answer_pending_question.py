@@ -17,8 +17,8 @@ import argparse
 
 import pytest
 
-from argus_skill.apps.cli import _core
-from argus_skill.life.memory import Backlog, BacklogItem
+from argus.apps.cli import _core
+from argus.life.memory import Backlog, BacklogItem
 
 
 def _backlog(tmp_path):
@@ -144,7 +144,7 @@ def test_framework_deployment_answer_uses_the_decision_boundary(
 
     monkeypatch.setattr(_core, "_resolve_project_bundle", lambda args: _Bundle())
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_pending_question.manager_resolve_operator_decision",
+        "argus.webapi.manager_pending_question.manager_resolve_operator_decision",
         resolve,
     )
 
@@ -162,7 +162,7 @@ def test_answering_does_not_need_a_terminal() -> None:
     """The whole point is unblocking an unattended box, so the launcher must
     route --answer to the Python CLI rather than treating it as a request to
     open the cockpit — which fails without a tty."""
-    from argus_skill.apps.tui_launcher import _uses_python_admin
+    from argus.apps.tui_launcher import _uses_python_admin
 
     assert _uses_python_admin(["--answer", "yes"])
     assert _uses_python_admin(["--answer=yes"])

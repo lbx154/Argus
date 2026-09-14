@@ -6,7 +6,7 @@ import threading
 import time
 from types import SimpleNamespace
 
-from argus_skill.apps import _inbox, _inbox_delivery
+from argus.apps import _inbox, _inbox_delivery
 
 
 def test_late_heartbeat_failure_cannot_poison_same_identity_new_owner(

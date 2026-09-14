@@ -11,11 +11,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_backends import _Outcome
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.apps._runtime_backends import _Outcome
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.skills.vertical_select import persist_vertical
 
 
 def _supervisor(root: Path, *, stop_event=None, stop_after_execute=False, allow_execute=True):
@@ -90,7 +90,7 @@ def test_process_exit_after_real_settlement_replays_learning_without_execution(t
     script = r'''
 import importlib.util, os, sys
 from pathlib import Path
-from argus_skill.life import memory as module
+from argus.life import memory as module
 spec = importlib.util.spec_from_file_location("settlement_fixture", sys.argv[2])
 fixture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture)
@@ -104,7 +104,7 @@ def crash(path, rows):
         os._exit(73)
 module._atomic_rewrite_jsonl = crash
 if sys.argv[3] == "capture":
-    from argus_skill.life.failure_experience_storage import ExperienceRepository
+    from argus.life.failure_experience_storage import ExperienceRepository
     save = ExperienceRepository.save
     def captured(repository, *args, **kwargs):
         save(repository, *args, **kwargs)
@@ -131,7 +131,7 @@ raise AssertionError("the real completion commit boundary was not reached")
 
 @pytest.mark.parametrize("failure", ["unwritable", "corrupt"])
 def test_learning_storage_failure_keeps_delivery_and_next_mission_independent(tmp_path, monkeypatch, failure):
-    from argus_skill.life.failure_experience_storage import ExperienceRepository
+    from argus.life.failure_experience_storage import ExperienceRepository
 
     supervisor = _supervisor(tmp_path)
     first = _enqueue(supervisor)
@@ -168,8 +168,8 @@ def test_learning_storage_failure_keeps_delivery_and_next_mission_independent(tm
 
 @pytest.mark.parametrize("correction", ["revise", "retract", "merge", "capacity"])
 def test_recovery_never_overwrites_later_canonical_lifecycle(tmp_path, monkeypatch, correction):
-    from argus_skill.life.failure_experience import FailureExperience, FailureExperienceStore
-    from argus_skill.life.failure_experience_storage import ExperienceRepository
+    from argus.life.failure_experience import FailureExperience, FailureExperienceStore
+    from argus.life.failure_experience_storage import ExperienceRepository
 
     supervisor = _supervisor(tmp_path)
     _enqueue(supervisor)
@@ -208,8 +208,8 @@ def test_recovery_never_overwrites_later_canonical_lifecycle(tmp_path, monkeypat
 
 
 def test_stop_capture_has_no_embedding_or_optional_model_work(tmp_path, monkeypatch):
-    from argus_skill.life.http_embedding import HttpEmbeddingAdapter
-    from argus_skill.life.recall_embedding import save_embedding_config
+    from argus.life.http_embedding import HttpEmbeddingAdapter
+    from argus.life.recall_embedding import save_embedding_config
 
     stop = threading.Event()
     supervisor = _supervisor(tmp_path, stop_event=stop, stop_after_execute=True)
@@ -267,7 +267,7 @@ def test_rejected_or_unfinished_verdict_is_not_successful_memory(tmp_path, statu
 
 @pytest.mark.parametrize("damage", ["nan", "missing_identity", "missing_capsule"])
 def test_bad_learning_payload_does_not_block_other_completed_missions(tmp_path, monkeypatch, damage):
-    from argus_skill.life.failure_experience import FailureExperienceStore
+    from argus.life.failure_experience import FailureExperienceStore
 
     supervisor = _supervisor(tmp_path)
     first = _enqueue(supervisor)
@@ -290,8 +290,8 @@ def test_bad_learning_payload_does_not_block_other_completed_missions(tmp_path, 
 
 
 def test_learning_marker_failure_does_not_block_confirmed_delivery(tmp_path, monkeypatch):
-    from argus_skill.life import memory as memory_module
-    from argus_skill.life.failure_experience import FailureExperienceStore
+    from argus.life import memory as memory_module
+    from argus.life.failure_experience import FailureExperienceStore
 
     supervisor = _supervisor(tmp_path)
     _enqueue(supervisor)
@@ -316,10 +316,10 @@ def test_learning_marker_failure_does_not_block_confirmed_delivery(tmp_path, mon
 
 @pytest.mark.parametrize("limit", ["count", "bytes"])
 def test_prolonged_learning_failure_retains_a_bounded_window_without_blocking_work(tmp_path, monkeypatch, caplog, limit):
-    from argus_skill.life import mission_delivery
-    from argus_skill.life.failure_experience import FailureExperienceStore
+    from argus.life import mission_delivery
+    from argus.life.failure_experience import FailureExperienceStore
 
-    caplog.set_level("CRITICAL", logger="argus_skill.life.mission_delivery")
+    caplog.set_level("CRITICAL", logger="argus.life.mission_delivery")
     supervisor = _supervisor(tmp_path)
     execute = supervisor.runner.execute
     if limit == "bytes":
@@ -353,8 +353,8 @@ def test_prolonged_learning_failure_retains_a_bounded_window_without_blocking_wo
 
 
 def test_retention_watermark_survives_exit_before_delete_and_old_envelope_replay(tmp_path, monkeypatch):
-    from argus_skill.life import mission_delivery
-    from argus_skill.life.failure_experience import FailureExperienceStore
+    from argus.life import mission_delivery
+    from argus.life.failure_experience import FailureExperienceStore
 
     class ProcessStopped(BaseException):
         pass
@@ -396,7 +396,7 @@ def test_retention_watermark_survives_exit_before_delete_and_old_envelope_replay
 
 
 def test_confirmed_learning_cleanup_failure_does_not_pause_new_work(tmp_path, monkeypatch):
-    from argus_skill.life.failure_experience import FailureExperienceStore
+    from argus.life.failure_experience import FailureExperienceStore
 
     supervisor = _supervisor(tmp_path)
     _enqueue(supervisor)
@@ -424,7 +424,7 @@ def test_confirmed_learning_cleanup_failure_does_not_pause_new_work(tmp_path, mo
 def test_learning_lock_contention_never_waits_for_the_default_storage_timeout(tmp_path, monkeypatch):
     import time
 
-    from argus_skill.life.failure_experience import FailureExperienceStore
+    from argus.life.failure_experience import FailureExperienceStore
 
     supervisor = _supervisor(tmp_path)
     _enqueue(supervisor)
@@ -444,10 +444,10 @@ def test_learning_lock_contention_never_waits_for_the_default_storage_timeout(tm
 def test_dispatch_contention_distinguishes_learning_from_unpersisted_delivery(tmp_path, monkeypatch):
     import portalocker
 
-    from argus_skill.life import mission_delivery
-    from argus_skill.life.event_log import event_log_paths
-    from argus_skill.life.failure_experience import FailureExperienceStore
-    from argus_skill.life.mission_event_index import mission_event_index
+    from argus.life import mission_delivery
+    from argus.life.event_log import event_log_paths
+    from argus.life.failure_experience import FailureExperienceStore
+    from argus.life.mission_event_index import mission_event_index
 
     supervisor = _supervisor(tmp_path)
     _enqueue(supervisor)
@@ -473,8 +473,8 @@ def test_dispatch_contention_distinguishes_learning_from_unpersisted_delivery(tm
 
 
 def test_valid_multilingual_capsule_uses_utf8_size_and_does_not_block_commit(tmp_path):
-    from argus_skill.life.failure_experience import experience_from_settled_mission
-    from argus_skill.life.mission_delivery import drain_mission_deliveries, prepare_mission_delivery
+    from argus.life.failure_experience import experience_from_settled_mission
+    from argus.life.mission_delivery import drain_mission_deliveries, prepare_mission_delivery
 
     supervisor = _supervisor(tmp_path)
     _enqueue(supervisor)
@@ -494,7 +494,7 @@ def test_valid_multilingual_capsule_uses_utf8_size_and_does_not_block_commit(tmp
 
 
 def test_retention_numeric_overflow_does_not_block_delivery_or_new_work(tmp_path, monkeypatch):
-    from argus_skill.life.mission_delivery import EXPERIENCE_RETENTION
+    from argus.life.mission_delivery import EXPERIENCE_RETENTION
 
     supervisor = _supervisor(tmp_path)
     first = _enqueue(supervisor)

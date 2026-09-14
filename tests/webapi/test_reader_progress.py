@@ -11,13 +11,13 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.webapi import map_narrative, reader_foundation, reader_progress
-from argus_skill.webapi.map_history import history_path, indexed_evidence
-from argus_skill.webapi.map_view import with_revisions
-from argus_skill.webapi.reader_clarification import ReaderSourceUnavailable
-from argus_skill.webapi.server import create_app
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import Backlog, BacklogItem
+from argus.webapi import map_narrative, reader_foundation, reader_progress
+from argus.webapi.map_history import history_path, indexed_evidence
+from argus.webapi.map_view import with_revisions
+from argus.webapi.reader_clarification import ReaderSourceUnavailable
+from argus.webapi.server import create_app
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def project(tmp_path, monkeypatch):
     monkeypatch.setattr(reader_foundation, "resolve_map_model", lambda: model)
     monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: model)
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
-    monkeypatch.setattr("argus_skill.webapi.map_history.indexed_evidence", lambda *a, **k: [])
+    monkeypatch.setattr("argus.webapi.map_history.indexed_evidence", lambda *a, **k: [])
     return sid, life, workspace
 
 
@@ -186,7 +186,7 @@ def test_full_record_resolution_reuses_readonly_history_index_without_replacing_
     with sqlite3.connect(path) as db:
         db.execute("CREATE TABLE events (seq INTEGER PRIMARY KEY, id TEXT UNIQUE, body TEXT)")
         db.execute("INSERT INTO events VALUES (1, ?, ?)", (full["id"], json.dumps(saved)))
-    monkeypatch.setattr("argus_skill.webapi.map_history.indexed_evidence", indexed_evidence)
+    monkeypatch.setattr("argus.webapi.map_history.indexed_evidence", indexed_evidence)
     ref = retain(tmp_path, sid, card)
     record = reader_progress.read_progress_source(tmp_path, sid, ref["source_id"])
     assert record["source_snapshot"] == card["source_snapshot"]
@@ -305,9 +305,9 @@ def test_first_progress_question_uses_exact_source_and_shared_artifact_request_l
     source_before = (workspace / ref["path"]).read_bytes()
     backlog_before = (life / "backlog.jsonl").read_bytes()
     for target in (
-        "argus_skill.webapi.manager_bridge.manager_message",
-        "argus_skill.apps._inbox.queue_inbox_message",
-        "argus_skill.core.transcript.append_turn",
+        "argus.webapi.manager_bridge.manager_message",
+        "argus.apps._inbox.queue_inbox_message",
+        "argus.core.transcript.append_turn",
     ):
         monkeypatch.setattr(target, lambda *a, **k: pytest.fail("Reader question entered the research pipeline"))
     calls = []

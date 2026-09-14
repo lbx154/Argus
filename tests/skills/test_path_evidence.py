@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.verticals.path_evidence import PathEvidenceError, validate_any_file
+from argus.verticals.path_evidence import PathEvidenceError, validate_any_file
 
 
 def test_path_evidence_requires_nonempty_project_file(tmp_path):

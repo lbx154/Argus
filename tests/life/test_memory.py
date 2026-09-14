@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from argus_skill.life.memory import (
+from argus.life.memory import (
     Backlog,
     BacklogItem,
     EventJournal,
@@ -162,14 +162,14 @@ def test_event_journal_rg_tail_decodes_utf8_independent_of_system_locale(
         ensure_ascii=False,
     )
 
-    monkeypatch.setattr("argus_skill.life.memory.shutil.which", lambda _name: "rg")
+    monkeypatch.setattr("argus.life.memory.shutil.which", lambda _name: "rg")
 
     def _run(argv, **kwargs):  # noqa: ANN001, ANN003
         assert kwargs["encoding"] == "utf-8"
         assert kwargs["errors"] == "replace"
         return subprocess.CompletedProcess(argv, 0, stdout=output + "\n", stderr="")
 
-    monkeypatch.setattr("argus_skill.life.memory.subprocess.run", _run)
+    monkeypatch.setattr("argus.life.memory.subprocess.run", _run)
 
     tail = EventJournal(path).tail(1)
 
@@ -196,7 +196,7 @@ def test_event_journal_tail_prefilters_non_journal_json_before_decoding(
         calls += 1
         return original(value, *args, **kwargs)
 
-    monkeypatch.setattr("argus_skill.life.memory.json.loads", _counted)
+    monkeypatch.setattr("argus.life.memory.json.loads", _counted)
     tail = EventJournal(path).tail(1)
 
     assert [entry.summary for entry in tail] == ["keep me"]
@@ -787,7 +787,7 @@ def test_identity_default_is_idempotent(tmp_path: Path) -> None:
     assert card.read() == ""
     assert card.ensure_default() is True
     body1 = card.read()
-    assert "argus-skill" in body1
+    assert "argus" in body1
     # Idempotent — second call returns False, doesn't overwrite.
     assert card.ensure_default() is False
     assert card.read() == body1
@@ -806,6 +806,45 @@ def test_default_identity_is_not_model_context(tmp_path: Path) -> None:
     card = IdentityCard(tmp_path / "identity.md")
     card.ensure_default()
     assert card.prompt_text() == ""
+
+
+def test_untouched_pre_rename_default_identity_is_still_the_default(tmp_path: Path) -> None:
+    """An install seeded before the rename must not start injecting the template as operator text.
+
+    The pre-rename card differs from the current one only in its heading
+    (``# argus-skill -- operator identity card``); ``prompt_text()`` treats both
+    as "no identity" and ``ensure_default()`` upgrades the byte-identical old
+    default to the current template.
+    """
+    from argus.life.memory import _DEFAULT_IDENTITY, _LEGACY_DEFAULT_IDENTITY
+
+    assert _LEGACY_DEFAULT_IDENTITY.startswith("# argus-skill — operator identity card\n")
+    assert _DEFAULT_IDENTITY.startswith("# argus — operator identity card\n")
+    assert _LEGACY_DEFAULT_IDENTITY.split("\n", 1)[1] == _DEFAULT_IDENTITY.split("\n", 1)[1]
+
+    path = tmp_path / "identity.md"
+    path.write_text(_LEGACY_DEFAULT_IDENTITY, encoding="utf-8")  # the on-disk card of an old install
+    card = IdentityCard(path)
+    assert card.prompt_text() == ""
+
+    assert card.ensure_default() is True
+    assert card.read() == _DEFAULT_IDENTITY
+    assert card.prompt_text() == ""
+    assert card.ensure_default() is False
+
+
+def test_edited_pre_rename_identity_is_kept_and_injected(tmp_path: Path) -> None:
+    from argus.life.memory import _LEGACY_DEFAULT_IDENTITY
+
+    edited = _LEGACY_DEFAULT_IDENTITY.replace("<!-- fill in -->", "Alex", 1)
+    assert edited != _LEGACY_DEFAULT_IDENTITY
+    path = tmp_path / "identity.md"
+    path.write_text(edited, encoding="utf-8")
+    card = IdentityCard(path)
+
+    assert card.ensure_default() is False
+    assert card.read() == edited
+    assert "Alex" in card.prompt_text()
 
 
 # ---------- LifeMemory facade + retrieval ----------------------------------

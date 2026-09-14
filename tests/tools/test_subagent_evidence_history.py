@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.tools.subagent._registry import (
+from argus.tools.subagent._registry import (
     EXPERIMENT_HISTORY_REL,
     _append_experiment_history,
     append_experiment_correction,

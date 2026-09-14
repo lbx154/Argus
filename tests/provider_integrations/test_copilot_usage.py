@@ -9,12 +9,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.agent_cli.models import AgentRunResult
-from argus_skill.core.models import RunnerOptions
-from argus_skill.core.usage import UsageLedger, build_usage_record
-from argus_skill.provider_integrations import copilot_usage
-from argus_skill.provider_integrations.copilot_usage import (
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.agent_cli.models import AgentRunResult
+from argus.core.models import RunnerOptions
+from argus.core.usage import UsageLedger, build_usage_record
+from argus.provider_integrations import copilot_usage
+from argus.provider_integrations.copilot_usage import (
     NANO_AIU_PER_USD,
     capture_copilot_usage_cursor,
     copilot_store_supports_token_billing,
@@ -423,7 +423,7 @@ def test_modern_missing_usage_is_pending_and_reconciles_late_wal_write(
     def unexpected_event_scan(_root):
         pytest.fail("modern ledger thread_id must not require raw event history")
 
-    monkeypatch.setattr("argus_skill.core.usage._legacy_call_threads", unexpected_event_scan)
+    monkeypatch.setattr("argus.core.usage._legacy_call_threads", unexpected_event_scan)
     if not store_exists:
         # A first invocation with a store that has not appeared yet cannot be
         # declared legacy. Preserve pending status until the late DB arrives.

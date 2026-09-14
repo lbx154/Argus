@@ -6,9 +6,9 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.advisor.config import load_advisor_config, save_advisor_config
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.webapi.server import create_app
+from argus.advisor.config import load_advisor_config, save_advisor_config
+from argus.core.session import SessionMeta, write_session_meta
+from argus.webapi.server import create_app
 
 
 @pytest.fixture

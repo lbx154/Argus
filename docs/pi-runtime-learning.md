@@ -34,7 +34,7 @@ runtime extension. Other backends retain their existing behavior.
 Source defines a synchronous `run(value)` function that consumes and returns JSON.
 It supports ordinary control flow, selected builtins and explicit `from math`,
 `from re` or `from json` imports of the pure functions listed in
-[`runtime_worker.py`](../argus_skill/skills/runtime_worker.py). General imports,
+[`runtime_worker.py`](../argus/skills/runtime_worker.py). General imports,
 interpreter reflection, decorators, classes and file/network/process APIs are
 unavailable. Use existing task tools to read files and write outputs, passing
 bounded JSON values to the learned function. The pilot's general-purpose Python

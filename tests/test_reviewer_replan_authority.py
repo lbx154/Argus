@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 
-from argus_skill import SkillLoop
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.engineer.runner import (
+from argus import SkillLoop
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer import Reviewer, ReviewerConfig
 
 
 def _review_json(status: str, reason: str, *, next_action: str = "") -> str:

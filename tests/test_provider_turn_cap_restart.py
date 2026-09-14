@@ -17,14 +17,14 @@ from typing import Any, cast
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.engineer.runner import (
+from argus.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.reviewer import ReviewerConfig
+from argus.reviewer import ReviewerConfig
 
 _CAP_RECEIPT = (
     "Provider turn cap reached: this engineer-r1 call used 40 provider turns "
@@ -233,7 +233,7 @@ def test_a_run_of_capped_calls_stops_the_mission_truthfully(
 def test_final_review_rotates_beyond_three_sessions_and_keeps_real_stops(
     tmp_path: Path, stop_kind: str | None, expected: str,
 ) -> None:
-    from argus_skill.core.venue_review import configure_venue_revisions
+    from argus.core.venue_review import configure_venue_revisions
 
     class LongRepair(_AlwaysCappedEngineer):
         def run_exec(self, **kwargs):

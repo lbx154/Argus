@@ -4,8 +4,8 @@ import threading
 import time
 from pathlib import Path
 
-from argus_skill.daemon.life_worker import LifeWorker, LifeWorkerConfig
-from argus_skill.life.memory import LifeMemory
+from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
+from argus.life.memory import LifeMemory
 
 
 def _cfg(tmp_path: Path, *, workdir: Path | None) -> LifeWorkerConfig:

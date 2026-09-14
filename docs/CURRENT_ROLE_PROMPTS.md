@@ -511,7 +511,7 @@ PREVIOUS_ANSWER:
 {{CURRENT_RUNTIME_STATE}}
 
 ## 运行时卫生
-使用当前有效的项目文件、项目本地 skills，以及 `python -m argus_skill ...` 或 `ARGUS_SKILL_PYTHON`；不要从历史记录复制过期 host 路径。
+使用当前有效的项目文件、项目本地 skills，以及 `python -m argus ...` 或 `ARGUS_SKILL_PYTHON`；不要从历史记录复制过期 host 路径。
 
 这是规划周期 #{{PLANNING_CYCLE}}。
 
@@ -586,7 +586,7 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 端到端负责此任务。自行规划步骤、使用工具并迭代，直到任务通过检查或遇到真实 blocker。在当前目录工作；没有 artifact 或 measurement 的纯阅读不算进展。只编写此任务需要的代码；没有具体要求时，不要添加 hash、UUID、retry、fallback、lock 或 abstraction。除非必要，不要编写 planning/spec/brief 文档、初始化 Git、创建 branch/worktree、commit 或生成 subagent。操作员要求并行，或独立工作确实有用时，可以使用 subagent。
 绝不要重复未变化的检查/读取；批量使用工具，并将结果限制在 200 行以内。达到 18 次工具调用时，进行综合或写 checkpoint/yield；绝不能超过 24 次。
 外部行为确实重要时使用一手来源。反复尝试失败时，重新检查底层假设，而不是再做一次表面调整。
-对于超过两分钟的命令，使用 Argus 的持久 runner。非 Windows 命令：`"${ARGUS_SKILL_PYTHON:-python3}" -m argus_skill.tools.subagent submit --task-id <id> --mode direct --timeout <seconds> --command '<command>'`。native Windows 命令：`& '.\\.venv\\Scripts\\python.exe' -m argus_skill.tools.subagent submit --task-id '<id>' --mode direct --timeout '<seconds>' --command '<command>'`。只有需要语义监控时才使用 `--mode supervised`。绝不能使用 `task(mode="background")` 或 session 持有的后台 shell。保留 `state=submitted`、`task_id`、`run_id` 和 `check_with` receipt。遇到 `state=discussing` 时，使用 `reply_with` 回答；不要在前台轮询。
+对于超过两分钟的命令，使用 Argus 的持久 runner。非 Windows 命令：`"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.subagent submit --task-id <id> --mode direct --timeout <seconds> --command '<command>'`。native Windows 命令：`& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit --task-id '<id>' --mode direct --timeout '<seconds>' --command '<command>'`。只有需要语义监控时才使用 `--mode supervised`。绝不能使用 `task(mode="background")` 或 session 持有的后台 shell。保留 `state=submitted`、`task_id`、`run_id` 和 `check_with` receipt。遇到 `state=discussing` 时，使用 `reply_with` 回答；不要在前台轮询。
 
 {{DURABLE_LEARNING_CONTRACT}}
 
@@ -617,7 +617,7 @@ Host 会保存事件；后续自然语言不解析。
 
 ## 后续轮
 读取 CHECKPOINT.md，然后执行 Reviewer 的 next action。不要重复未变化的失败；使用成本最低的决定性诊断。原始任务仍然有效。
-对于超过两分钟的命令，使用 Argus 的持久 runner。非 Windows 命令：`"${ARGUS_SKILL_PYTHON:-python3}" -m argus_skill.tools.subagent submit --task-id <id> --mode direct --timeout <seconds> --command '<command>'`。native Windows 命令：`& '.\\.venv\\Scripts\\python.exe' -m argus_skill.tools.subagent submit --task-id '<id>' --mode direct --timeout '<seconds>' --command '<command>'`。只有需要语义监控时才使用 `--mode supervised`。绝不能使用 `task(mode="background")` 或 session 持有的后台 shell。保留 `state=submitted`、`task_id`、`run_id` 和 `check_with` receipt。遇到 `state=discussing` 时，使用 `reply_with` 回答；不要在前台轮询。
+对于超过两分钟的命令，使用 Argus 的持久 runner。非 Windows 命令：`"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.subagent submit --task-id <id> --mode direct --timeout <seconds> --command '<command>'`。native Windows 命令：`& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit --task-id '<id>' --mode direct --timeout '<seconds>' --command '<command>'`。只有需要语义监控时才使用 `--mode supervised`。绝不能使用 `task(mode="background")` 或 session 持有的后台 shell。保留 `state=submitted`、`task_id`、`run_id` 和 `check_with` receipt。遇到 `state=discussing` 时，使用 `reply_with` 回答；不要在前台轮询。
 
 {{DURABLE_LEARNING_CONTRACT}}
 
@@ -765,7 +765,7 @@ Session ID：{{SESSION_ID}}
 
 ## 关联 Skill
 
-**路径：** `argus_skill/builtin_skills/engineer/minimal-coding-agent.md`
+**路径：** `argus/builtin_skills/engineer/minimal-coding-agent.md`
 
 以下为该 Skill 全文，供用户与角色 Prompt 一并审阅：
 

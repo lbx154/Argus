@@ -5,7 +5,7 @@ use std::{env, fs, path::{Path, PathBuf}, sync::OnceLock};
 // The host's expected identity is part of the executable, not a file reread on
 // every heartbeat. A disappearing/replaced manifest is a package error, never
 // evidence that an already authenticated listener changed its identity.
-const BUILD_MANIFEST: &str = include_str!("../../../argus_skill/release_manifest.json");
+const BUILD_MANIFEST: &str = include_str!("../../../argus/release_manifest.json");
 
 #[derive(Clone)]
 pub struct ReleaseContext {
@@ -42,10 +42,10 @@ fn build_manifest() -> &'static ReleaseManifest {
 impl ReleaseContext {
     pub fn manifest_path(&self) -> Option<PathBuf> {
         if self.development {
-            return Some(self.repo_root.join("argus_skill/release_manifest.json"));
+            return Some(self.repo_root.join("argus/release_manifest.json"));
         }
         self.resource_dir.as_ref().map(|resources|
-            resources.join("argus-backend/_internal/argus_skill/release_manifest.json"))
+            resources.join("argus-backend/_internal/argus/release_manifest.json"))
     }
 
     pub fn backend_executable(&self) -> Option<PathBuf> {

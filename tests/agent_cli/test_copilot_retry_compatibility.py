@@ -6,8 +6,8 @@ import sys
 
 import pytest
 
-from argus_skill.agent_cli import copilot_acp
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli import copilot_acp
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 
 
 @pytest.mark.parametrize("acp_enabled", [False, True])

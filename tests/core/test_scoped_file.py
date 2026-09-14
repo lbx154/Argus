@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from argus_skill.core.scoped_file import open_regular_file
+from argus.core.scoped_file import open_regular_file
 
 
 def test_pinned_parent_prevents_cross_project_link_swap_during_open(tmp_path, monkeypatch):

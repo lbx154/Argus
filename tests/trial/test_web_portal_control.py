@@ -9,10 +9,10 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from argus_skill.trial import web_portal as portal
-from argus_skill.trial.secrets import Vault
-from argus_skill.trial.store import Store
-from argus_skill.trial.training_data import COMBINED_NOTICE_VERSION
+from argus.trial import web_portal as portal
+from argus.trial.secrets import Vault
+from argus.trial.store import Store
+from argus.trial.training_data import COMBINED_NOTICE_VERSION
 
 ORIGIN = "https://portal.test"
 
@@ -51,7 +51,7 @@ async def login(client, vault, tenant="trial-01", *, readonly=False):
 def test_slow_authorization_leaves_event_loop_and_other_tenant_control_available(
     provisioned, tmp_path, monkeypatch, with_analytics,
 ):
-    from argus_skill.trial.analytics import Analytics
+    from argus.trial.analytics import Analytics
 
     config, vault, store = provisioned
     analytics = Analytics(

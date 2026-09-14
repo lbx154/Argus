@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.core.role_tool_bridge import (
+from argus.core.role_tool_bridge import (
     MAX_ACTIVE_OPERATIONS,
     MAX_HANDLER_THREADS,
     CallBoundBridge,

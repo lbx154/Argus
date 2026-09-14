@@ -1,4 +1,4 @@
-"""Regression tests for ``argus-skill --watch`` state tracking."""
+"""Regression tests for ``argus --watch`` state tracking."""
 from __future__ import annotations
 
 import json
@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps._inbox import format_inbox_event
-from argus_skill.apps._watch import (
+from argus.apps._inbox import format_inbox_event
+from argus.apps._watch import (
     _BudgetLineCache,
     _JournalTailCache,
     _mission_context_lines,
@@ -22,9 +22,9 @@ from argus_skill.apps._watch import (
     _select_current_backlog_row,
     _WatchState,
 )
-from argus_skill.core import project
-from argus_skill.core.usage import UsageLedger, build_usage_record
-from argus_skill.daemon.life_worker import read_continuous_state
+from argus.core import project
+from argus.core.usage import UsageLedger, build_usage_record
+from argus.daemon.life_worker import read_continuous_state
 
 
 def _subprocess_env() -> dict[str, str]:
@@ -98,7 +98,7 @@ def _run_watch_until_output(
             [
                 sys.executable,
                 "-m",
-                "argus_skill",
+                "argus",
                 "--watch",
                 "--life-dir",
                 str(global_root),
@@ -347,7 +347,7 @@ def test_budget_line_cache_reuses_previous_result_until_inputs_change(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.apps._watch as watch_mod
+    import argus.apps._watch as watch_mod
 
     cache = _BudgetLineCache()
     journal_path = tmp_path / "events.jsonl"
@@ -658,7 +658,7 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
             [
                 sys.executable,
                 "-m",
-                "argus_skill",
+                "argus",
                 "--watch",
                 "--life-dir",
                 str(global_root),
@@ -685,7 +685,7 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
 
     output = output_path.read_text(encoding="utf-8")
     assert proc.returncode == 0, proc
-    assert "argus-skill watch" in output
+    assert "argus watch" in output
     assert "budget   :" in output
     assert "daemon" in output
     assert "alive" in output

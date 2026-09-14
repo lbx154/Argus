@@ -34,7 +34,7 @@ token 不可能够*。这个 Agent 是**孤立地、机械地**推理的：它�
 
 **我们做了什么。** 把那个缺失的全局核对，作为一条**明确规则**补上，而不是指望它自己有判断
 力。技能
-[`suspect-the-setup.md`](../argus_skill/verticals/research/skills/engineer/suspect-the-setup.md)
+[`suspect-the-setup.md`](../argus/verticals/research/skills/engineer/suspect-the-setup.md)
 把默认姿态反了过来：*一个远离该模型、该方法或该基准已知表现的结果，在被证明之前都是一份缺
 陷报告。* 具体做法是**强制它做那个它自己不会做的比较**：生成预算必须**从正确完成的长度分布
 推导出来**，而不是随手取一个整数；并且运行必须报告撞到上限的生成比例——只要显著大于零，你测
@@ -62,14 +62,14 @@ id 在预训练数据里的分布，取决于它们被写过多少次，而这�
 的路。
 
 **禁止凭记忆。** 模型时效性是一条**规则**而不是判断题，写在
-[`training-infrastructure-guide.md`](../argus_skill/builtin_skills/engineer/training-infrastructure-guide.md)：
+[`training-infrastructure-guide.md`](../argus/builtin_skills/engineer/training-infrastructure-guide.md)：
 
 > **只用当代。** Backbone 必须来自一个**当前、正在活跃发布的开源模型家族**（决策当时的最新
 > 一代，例如最近约 12 个月内发布或更新）。**不要**仅仅因为熟悉或下载快，就默认选用上一代或
 > 遗留的小模型。
 
 时效性必须在**决策当时**对着模型 hub 或近期榜单**去查**。文献路径由
-[Research Idea Playbook](../argus_skill/verticals/research/skills/research-idea-playbook.md)
+[Research Idea Playbook](../argus/verticals/research/skills/research-idea-playbook.md)
 统一定义：使用当前一手来源和独立 prior-art 审阅，书目信息来自实际取回的来源，而不是模型记忆。
 
 **然后给它一条真的能去查的路。** 运行时会建立**十二条隔离的 source-only 路线和十二个独立
@@ -77,9 +77,9 @@ id 在预训练数据里的分布，取决于它们被写过多少次，而这�
 
 | 机制 | 它去查什么 |
 | --- | --- |
-| [`idea_portfolio.py`](../argus_skill/verticals/research/idea_portfolio.py) | 建立固定 source-only 路线/评审组合，24 个任务完成后才允许一次 selector |
-| [`venue_research.py`](../argus_skill/verticals/research/venue_research.py) | 会议的官方投稿事实，是取回来的而不是回忆出来的 |
-| [`frontier_watch.py`](../argus_skill/verticals/kernel_engineering/frontier_watch.py) | 按阶段持久化并校验持续的前沿搜索，覆盖目标仓库、官方工具链和研究前沿 |
+| [`idea_portfolio.py`](../argus/verticals/research/idea_portfolio.py) | 建立固定 source-only 路线/评审组合，24 个任务完成后才允许一次 selector |
+| [`venue_research.py`](../argus/verticals/research/venue_research.py) | 会议的官方投稿事实，是取回来的而不是回忆出来的 |
+| [`frontier_watch.py`](../argus/verticals/kernel_engineering/frontier_watch.py) | 按阶段持久化并校验持续的前沿搜索，覆盖目标仓库、官方工具链和研究前沿 |
 
 **这条的普遍教训。** Agent 从预训练里知道的一切，按其构造方式就是过时的。凡是时效性重要的地
 方，运行时必须**强制它去查**，而不是信任它的回忆；每条候选路线还必须接受独立 prior-art
@@ -207,7 +207,7 @@ Reviewer 在同一轮里也被改了：它按来源质量、综合能力和决�
 
 **为什么会这样。** 恰恰是那面让人类可以离开房间的承重墙。Reviewer 是被刻意做弱的——只读、
 可以返回 `blocked`、不能认证自己的工作——而且它被要求
-[把诚实的负结果或零结果当作证据](../argus_skill/builtin_skills/reviewer/argus-reviewer-role.md)，
+[把诚实的负结果或零结果当作证据](../argus/builtin_skills/reviewer/argus-reviewer-role.md)，
 而不是失败。这是对的，也正是这个系统的数字可以被信任的原因。但**只对"过度声称"施加惩罚、而
 对"声称不足"没有对应惩罚**，会造出一个"什么都不说时最安全"的系统。
 
@@ -218,7 +218,7 @@ Reviewer 在同一轮里也被改了：它按来源质量、综合能力和决�
 > 是否存在 underclaim（漏掉了数据里一个有意思的发现）？
 
 并且要确认零结果"被诚实呈现，而不至于把论文变成一份详尽的失败日志"。随后
-[`result-to-claim.md`](../argus_skill/verticals/research/skills/engineer/result-to-claim.md)
+[`result-to-claim.md`](../argus/verticals/research/skills/engineer/result-to-claim.md)
 直接掐断那个失败循环：
 
 > 同一条声明上多轮 `partial` → 结晶出被支持的边界并推进到论文，而不是继续打转

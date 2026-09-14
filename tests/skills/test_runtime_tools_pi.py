@@ -6,8 +6,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.core.models import RunnerOptions
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.core.models import RunnerOptions
 
 PI_CLI = os.environ.get('ARGUS_PI_TEST_CLI')
 

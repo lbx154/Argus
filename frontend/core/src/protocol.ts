@@ -10,7 +10,7 @@ export const API_PROTOCOL = {
 } as const;
 export const SNAPSHOT_SCHEMA_VERSION = 7;
 export const RELEASE_ARTIFACT_DRIFT_WARNING =
-  'python -m argus_skill.release_tools.build_release';
+  'python -m argus.release_tools.build_release';
 export const REQUIRED_API_CAPABILITIES = [
   'daemon.admission.v1',
   'daemon.status.protocol.v1',

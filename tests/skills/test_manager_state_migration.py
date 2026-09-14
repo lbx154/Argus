@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.pipeline_state import read_pipeline_state
-from argus_skill.skills.vertical_select import (
+from argus.core.pipeline_state import read_pipeline_state
+from argus.skills.vertical_select import (
     VerticalResolutionError,
     migrate_legacy_manager_state,
     resolve_vertical_if_decided,
@@ -155,7 +155,7 @@ def test_importing_undecided_state_does_not_seat_a_vertical(tmp_path: Path) -> N
 def test_the_objective_survives_the_import(tmp_path: Path) -> None:
     """End of the chain this was blocking: the mode the operator chose has to
     be readable from the root the Manager was handed."""
-    from argus_skill.verticals.math.objective_mode import resolve_objective, set_objective
+    from argus.verticals.math.objective_mode import resolve_objective, set_objective
 
     state_root, workdir = _roots(tmp_path)
     set_objective(workdir, mode="targeted", goal="the pentagon bound is sharp")

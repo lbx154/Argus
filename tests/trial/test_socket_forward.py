@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from argus_skill.trial.socket_forward import create_forward_server
+from argus.trial.socket_forward import create_forward_server
 
 
 def test_concurrent_forwarding_and_half_close_do_not_fork(tmp_path, monkeypatch):

@@ -14,17 +14,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import (
+from argus.core.models import RunnerResult
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
 )
-from argus_skill.planner import PlannerConfig
-from argus_skill.roles.prompts.planner import build_continuous_prompt
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.planner import PlannerConfig
+from argus.roles.prompts.planner import build_continuous_prompt
+from argus.skills.vertical_select import persist_vertical
 
 
 class _MissionRunner:

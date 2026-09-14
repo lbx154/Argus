@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.daemon.state import (
+from argus.daemon.state import (
     _process_alive as process_alive,
 )
-from argus_skill.daemon.state import (
+from argus.daemon.state import (
     _terminate_windows_process_tree as terminate_windows_process_tree,
 )
 
@@ -41,7 +41,7 @@ def test_direct_job_survives_worker_owner_death(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "argus_skill.tools.subagent",
+            "argus.tools.subagent",
             "submit",
             "--task-id",
             "durable",
@@ -77,7 +77,7 @@ def test_direct_job_survives_worker_owner_death(tmp_path: Path) -> None:
     status_command = [
         sys.executable,
         "-m",
-        "argus_skill.tools.subagent",
+        "argus.tools.subagent",
         "status",
         "--task-id",
         "durable",
@@ -118,7 +118,7 @@ def test_windows_direct_worker_owner_loss_reconciles_exit_sidecar(
         [
             sys.executable,
             "-m",
-            "argus_skill.tools.subagent",
+            "argus.tools.subagent",
             "_worker",
             "--task-id",
             "durable-win",
@@ -162,7 +162,7 @@ def test_windows_direct_worker_owner_loss_reconciles_exit_sidecar(
         status_command = [
             sys.executable,
             "-m",
-            "argus_skill.tools.subagent",
+            "argus.tools.subagent",
             "status",
             "--task-id",
             "durable-win",
@@ -222,7 +222,7 @@ def test_windows_submit_cwd_keeps_registry_in_submitter_cwd(
     base_command = [
         sys.executable,
         "-m",
-        "argus_skill.tools.subagent",
+        "argus.tools.subagent",
     ]
 
     submit = subprocess.run(
@@ -315,7 +315,7 @@ def test_subagent_cpu_lease_is_inherited_by_command(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "argus_skill.tools.subagent",
+            "argus.tools.subagent",
             "submit",
             "--task-id",
             "cpu-affinity",
@@ -358,7 +358,7 @@ def test_submit_releases_capture_pipes_before_long_job_finishes(tmp_path: Path) 
         [
             sys.executable,
             "-m",
-            "argus_skill.tools.subagent",
+            "argus.tools.subagent",
             "submit",
             "--task-id",
             "detached-capture",
@@ -392,7 +392,7 @@ def test_detach_reopens_previously_closed_standard_descriptors(tmp_path: Path) -
     script = (
         "import os\n"
         "from pathlib import Path\n"
-        "from argus_skill.tools.subagent._cli import _detach_child_stdio\n"
+        "from argus.tools.subagent._cli import _detach_child_stdio\n"
         "for fd in (0, 1, 2):\n"
         "    try: os.close(fd)\n"
         "    except OSError: pass\n"

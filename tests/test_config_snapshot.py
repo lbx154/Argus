@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from argus_skill.core.config_snapshot import (
+from argus.core.config_snapshot import (
     build_config_snapshot,
     format_config_snapshot_markdown,
     write_config_snapshot,
@@ -80,7 +80,7 @@ def test_config_snapshot_markdown_names_argus_native_controls() -> None:
 
 
 def test_trial_snapshot_identifies_hosted_model_without_exposing_key() -> None:
-    from argus_skill.core.knob_store import write_persisted_knobs
+    from argus.core.knob_store import write_persisted_knobs
 
     write_persisted_knobs({"ARGUS_SKILL_COPILOT_TRIAL": "1", "ARGUS_SKILL_MODEL": "argus-trial"})
     snapshot = build_config_snapshot(env={})
@@ -92,7 +92,7 @@ def test_trial_snapshot_identifies_hosted_model_without_exposing_key() -> None:
 
 
 def test_config_snapshot_reports_persisted_values_and_sources() -> None:
-    from argus_skill.core.knob_store import write_persisted_knob
+    from argus.core.knob_store import write_persisted_knob
 
     write_persisted_knob("ARGUS_SKILL_MODEL", "claude-sonnet-5")
     write_persisted_knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "75")

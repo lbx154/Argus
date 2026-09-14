@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.roles.prompts import engineer as engineer_prompts
-from argus_skill.roles.prompts import planner as planner_prompts
-from argus_skill.roles.task_contract import (
+from argus.roles.prompts import engineer as engineer_prompts
+from argus.roles.prompts import planner as planner_prompts
+from argus.roles.task_contract import (
     format_native_shell_command,
     native_shell_contract,
     native_shell_summary,
@@ -153,7 +153,7 @@ def test_npx_cmd_avoids_blocked_powershell_wrapper_without_changing_policy(tmp_p
 
 @pytest.mark.skipif(os.name != "nt", reason="native PowerShell expression preflight regression")
 def test_powershell_static_expression_is_not_treated_as_missing_executable(tmp_path) -> None:
-    from argus_skill.tools.subagent._experiment_preflight import experiment_launch_preflight
+    from argus.tools.subagent._experiment_preflight import experiment_launch_preflight
 
     marker = tmp_path / "expression-output"
     path = str(marker).replace("'", "''")

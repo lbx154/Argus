@@ -4,13 +4,13 @@ from typing import Any
 
 import pytest
 
-from argus_skill.life.router import (
+from argus.life.router import (
     _IDENTITY_GUARD,
     build_route_prompt,
     build_simple_prompt,
     classify_route,
 )
-from argus_skill.roles.prompts.manager import build_quick_reply_prompt
+from argus.roles.prompts.manager import build_quick_reply_prompt
 
 
 class _FakeResult:
@@ -105,7 +105,7 @@ def test_reads_last_of_agent_messages_when_no_last_message() -> None:
 
 def test_build_quick_reply_prompt_names_the_worker_and_guards_identity() -> None:
     out = build_quick_reply_prompt(objective="你好")
-    from argus_skill.core.role_config import runner_backend_label
+    from argus.core.role_config import runner_backend_label
 
     assert "You are Argus Manager" in out
     assert f"{runner_backend_label()} worker" in out
@@ -140,7 +140,7 @@ def test_build_simple_prompt_is_minimal() -> None:
     out = build_simple_prompt(objective="17*23=?")
     assert "17*23" in out
     assert "Argus Manager" in out
-    from argus_skill.core.role_config import runner_backend_label
+    from argus.core.role_config import runner_backend_label
 
     assert f"{runner_backend_label()} worker" in out
     assert "identify only as Argus Manager" in out

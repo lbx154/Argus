@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.maintenance import advisor
-from argus_skill.maintenance import repair as repair_module  # noqa: F401
-from argus_skill.maintenance.doctor import DoctorContext
-from argus_skill.maintenance.models import DoctorFinding, DoctorReport
+from argus.maintenance import advisor
+from argus.maintenance import repair as repair_module  # noqa: F401
+from argus.maintenance.doctor import DoctorContext
+from argus.maintenance.models import DoctorFinding, DoctorReport
 
 
 def _report(detail: str = "codex was not found") -> DoctorReport:
@@ -31,10 +31,10 @@ def _report(detail: str = "codex was not found") -> DoctorReport:
 
 def _context(tmp_path: Path) -> DoctorContext:
     checkout = tmp_path / "checkout"
-    (checkout / "argus_skill").mkdir(parents=True)
-    (checkout / "argus_skill" / "__init__.py").write_text("", encoding="utf-8")
+    (checkout / "argus").mkdir(parents=True)
+    (checkout / "argus" / "__init__.py").write_text("", encoding="utf-8")
     (checkout / "pyproject.toml").write_text(
-        "[project]\nname = \"argus-skill\"\nversion = \"0.1.1\"\n",
+        "[project]\nname = \"argus\"\nversion = \"0.1.1\"\n",
         encoding="utf-8",
     )
     global_root = tmp_path / "argus-home"
@@ -47,6 +47,19 @@ def _context(tmp_path: Path) -> DoctorContext:
     )
 
 
+def test_advisor_recognises_a_checkout_from_before_the_package_rename(tmp_path: Path) -> None:
+    from argus.maintenance.advisor import _is_argus_checkout
+
+    old = tmp_path / "old"
+    (old / "argus_skill").mkdir(parents=True)
+    (old / "argus_skill" / "__init__.py").write_text("", encoding="utf-8")
+    (old / "pyproject.toml").write_text('[project]\nname = "argus-skill"\n', encoding="utf-8")
+
+    assert _is_argus_checkout(old) is True
+    assert _is_argus_checkout(_context(tmp_path).checkout) is True
+    assert _is_argus_checkout(tmp_path) is False
+
+
 def test_doctor_advisor_uses_installed_agent_to_repair(
     monkeypatch,
     tmp_path,
@@ -57,7 +70,7 @@ def test_doctor_advisor_uses_installed_agent_to_repair(
         lambda _requested: (("claude", "/usr/bin/claude"),),
     )
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_role_model",
+        "argus.core.knobs.resolve_role_model",
         lambda *_args, **_kwargs: "",
     )
     captured: dict[str, object] = {}
@@ -72,11 +85,11 @@ def test_doctor_advisor_uses_installed_agent_to_repair(
         )
 
     monkeypatch.setattr(
-        "argus_skill.core.agent_probe.run_agent_repair_prompt",
+        "argus.core.agent_probe.run_agent_repair_prompt",
         probe,
     )
     monkeypatch.setattr(
-        "argus_skill.maintenance.doctor.run_full_doctor",
+        "argus.maintenance.doctor.run_full_doctor",
         lambda *_args, **_kwargs: DoctorReport(
             schema_version=1,
             target_fingerprint="target",
@@ -103,13 +116,13 @@ def test_doctor_advisor_uses_installed_agent_to_repair(
 
 def test_doctor_advisor_uses_configured_manager_executable(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_role_backend",
+        "argus.core.knobs.resolve_role_backend",
         # **_kw: the real resolver now takes a keyword-only `default=`, which
         # advisor._advisor_selections passes explicitly.
         lambda _role, **_kw: "claude",
     )
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_runner_bin_setting",
+        "argus.core.knobs.resolve_runner_bin_setting",
         lambda _role, *, backend: (
             "/opt/agents/claude-custom" if backend == "claude" else ""
         ),
@@ -121,7 +134,7 @@ def test_doctor_advisor_uses_configured_manager_executable(monkeypatch) -> None:
         return requested
 
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        "argus.agent_cli.runner_backend.resolve_runner_bin",
         resolve,
     )
 
@@ -136,17 +149,17 @@ def test_doctor_advisor_uses_configured_manager_executable(monkeypatch) -> None:
 
 def test_doctor_advisor_accepts_qoder_and_dsh(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_role_backend",
+        "argus.core.knobs.resolve_role_backend",
         # **_kw: the real resolver now takes a keyword-only `default=`, which
         # advisor._advisor_selections passes explicitly.
         lambda _role, **_kw: "codex",
     )
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_runner_bin_setting",
+        "argus.core.knobs.resolve_runner_bin_setting",
         lambda _role, *, backend: "",
     )
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        "argus.agent_cli.runner_backend.resolve_runner_bin",
         lambda backend, _requested=None: f"/usr/bin/{backend}",
     )
 
@@ -158,13 +171,13 @@ def test_doctor_advisor_retries_path_when_configured_executable_is_stale(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_role_backend",
+        "argus.core.knobs.resolve_role_backend",
         # **_kw: the real resolver now takes a keyword-only `default=`, which
         # advisor._advisor_selections passes explicitly.
         lambda _role, **_kw: "claude",
     )
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_runner_bin_setting",
+        "argus.core.knobs.resolve_runner_bin_setting",
         lambda _role, *, backend: (
             "/missing/claude" if backend == "claude" else ""
         ),
@@ -176,7 +189,7 @@ def test_doctor_advisor_retries_path_when_configured_executable_is_stale(
         return None
 
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        "argus.agent_cli.runner_backend.resolve_runner_bin",
         resolve,
     )
 
@@ -187,17 +200,17 @@ def test_doctor_advisor_uses_configured_codex_for_repair(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_role_backend",
+        "argus.core.knobs.resolve_role_backend",
         # **_kw: the real resolver now takes a keyword-only `default=`, which
         # advisor._advisor_selections passes explicitly.
         lambda _role, **_kw: "codex",
     )
     monkeypatch.setattr(
-        "argus_skill.core.knobs.resolve_runner_bin_setting",
+        "argus.core.knobs.resolve_runner_bin_setting",
         lambda _role, *, backend: "",
     )
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        "argus.agent_cli.runner_backend.resolve_runner_bin",
         lambda backend, _configured=None: (
             "/usr/bin/pi"
             if backend == "pi"
@@ -241,7 +254,7 @@ def test_doctor_advisor_falls_back_to_another_installed_agent(
         )
 
     monkeypatch.setattr(
-        "argus_skill.core.agent_probe.run_agent_repair_prompt",
+        "argus.core.agent_probe.run_agent_repair_prompt",
         repair,
     )
     verification_reports = iter((
@@ -254,7 +267,7 @@ def test_doctor_advisor_falls_back_to_another_installed_agent(
         ),
     ))
     monkeypatch.setattr(
-        "argus_skill.maintenance.doctor.run_full_doctor",
+        "argus.maintenance.doctor.run_full_doctor",
         lambda *_args, **_kwargs: next(verification_reports),
     )
 
@@ -348,7 +361,7 @@ def test_doctor_advisor_redacts_agent_output(monkeypatch, tmp_path) -> None:
         lambda _requested: (("claude", "/usr/bin/claude"),),
     )
     monkeypatch.setattr(
-        "argus_skill.core.agent_probe.run_agent_repair_prompt",
+        "argus.core.agent_probe.run_agent_repair_prompt",
         lambda **_kwargs: SimpleNamespace(
             ok=True,
             output=f"fixed using {secret}",
@@ -357,7 +370,7 @@ def test_doctor_advisor_redacts_agent_output(monkeypatch, tmp_path) -> None:
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.maintenance.doctor.run_full_doctor",
+        "argus.maintenance.doctor.run_full_doctor",
         lambda *_args, **_kwargs: DoctorReport(
             schema_version=1,
             target_fingerprint="target",
@@ -402,11 +415,11 @@ def test_doctor_advisor_redacts_custom_life_dir_vault_secret(
         )
 
     monkeypatch.setattr(
-        "argus_skill.core.agent_probe.run_agent_repair_prompt",
+        "argus.core.agent_probe.run_agent_repair_prompt",
         repair,
     )
     monkeypatch.setattr(
-        "argus_skill.maintenance.doctor.run_full_doctor",
+        "argus.maintenance.doctor.run_full_doctor",
         lambda *_args, **_kwargs: DoctorReport(
             schema_version=1,
             target_fingerprint="target",
@@ -457,7 +470,7 @@ def test_healthy_verification_does_not_accept_tool_free_advice(
         lambda _requested: (("claude", "/usr/bin/claude"),),
     )
     monkeypatch.setattr(
-        "argus_skill.core.agent_probe.run_agent_repair_prompt",
+        "argus.core.agent_probe.run_agent_repair_prompt",
         lambda **_kwargs: SimpleNamespace(
             ok=False,
             output="Everything looks fine.",
@@ -466,7 +479,7 @@ def test_healthy_verification_does_not_accept_tool_free_advice(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.maintenance.doctor.run_full_doctor",
+        "argus.maintenance.doctor.run_full_doctor",
         lambda *_args, **_kwargs: DoctorReport(
             schema_version=1,
             target_fingerprint="target",
@@ -503,7 +516,7 @@ def test_doctor_reruns_deterministic_checks_after_agent_repair(
     tmp_path,
     capsys,
 ) -> None:
-    from argus_skill.apps.cli import _core
+    from argus.apps.cli import _core
 
     broken = _report()
     fixed = DoctorReport(
@@ -524,7 +537,7 @@ def test_doctor_reruns_deterministic_checks_after_agent_repair(
     reports = iter((broken, fixed))
     monkeypatch.setattr(_core, "_maintenance_context", lambda _args: _context(tmp_path))
     monkeypatch.setattr(
-        "argus_skill.maintenance.doctor.run_full_doctor",
+        "argus.maintenance.doctor.run_full_doctor",
         lambda *_args, **_kwargs: next(reports),
     )
     monkeypatch.setattr(
@@ -561,7 +574,7 @@ def test_doctor_reruns_checks_and_fails_when_agent_repair_fails(
     tmp_path,
     capsys,
 ) -> None:
-    from argus_skill.apps.cli import _core
+    from argus.apps.cli import _core
 
     fixed = DoctorReport(
         schema_version=1,
@@ -586,7 +599,7 @@ def test_doctor_reruns_checks_and_fails_when_agent_repair_fails(
         return fixed
 
     monkeypatch.setattr(_core, "_maintenance_context", lambda _args: _context(tmp_path))
-    monkeypatch.setattr("argus_skill.maintenance.doctor.run_full_doctor", doctor)
+    monkeypatch.setattr("argus.maintenance.doctor.run_full_doctor", doctor)
     monkeypatch.setattr(
         advisor,
         "run_doctor_advisor",
@@ -622,7 +635,7 @@ def test_final_verification_recovers_transient_agent_failure(
     tmp_path,
     capsys,
 ) -> None:
-    from argus_skill.apps.cli import _core
+    from argus.apps.cli import _core
 
     fixed = DoctorReport(
         schema_version=1,
@@ -632,7 +645,7 @@ def test_final_verification_recovers_transient_agent_failure(
     )
     monkeypatch.setattr(_core, "_maintenance_context", lambda _args: _context(tmp_path))
     monkeypatch.setattr(
-        "argus_skill.maintenance.doctor.run_full_doctor",
+        "argus.maintenance.doctor.run_full_doctor",
         lambda *_args, **_kwargs: fixed,
     )
     monkeypatch.setattr(

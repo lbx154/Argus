@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+from argus.core.models import RunnerResult
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._planning_context import PlanningContextMixin
 
 
 def _note(diagnostic: str, reason: str = "gate held") -> str:

@@ -1,18 +1,18 @@
 """Role Agents receive bounded recall plus library paths for discovery."""
 from pathlib import Path
 
-from argus_skill.adapters.memory_backend import MemoryBackend
-from argus_skill.core.event_catalog import validate_event_envelope
-from argus_skill.skills.builtins import builtin_skill_source_path
-from argus_skill.skills.layered import LayeredSkillStore
-from argus_skill.skills.missions import (
+from argus.adapters.memory_backend import MemoryBackend
+from argus.core.event_catalog import validate_event_envelope
+from argus.skills.builtins import builtin_skill_source_path
+from argus.skills.layered import LayeredSkillStore
+from argus.skills.missions import (
     EngineerMission,
     ManagerMission,
     PlannerMission,
     ReviewerMission,
 )
-from argus_skill.skills.role_library import role_skill_libraries
-from argus_skill.skills.store import SkillStore
+from argus.skills.role_library import role_skill_libraries
+from argus.skills.store import SkillStore
 
 
 def test_role_receives_path_without_matcher_call_or_content(tmp_path: Path) -> None:

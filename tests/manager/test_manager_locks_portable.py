@@ -13,14 +13,14 @@ from typing import Iterator
 import portalocker
 import pytest
 
-from argus_skill.manager._session_ops import (
+from argus.manager._session_ops import (
     ManagerLockCancelled,
     _acquire_session_lock,
     _ManagerSession,
     manager_pipeline_lock,
     manager_session_lock,
 )
-from argus_skill.manager.control_state import CampaignControlStore
+from argus.manager.control_state import CampaignControlStore
 
 _CHILD_LOCK_HOLDER = r"""
 import sys
@@ -32,13 +32,13 @@ root = Path(root_raw)
 marker = Path(marker_raw)
 release = Path(release_raw)
 if kind == "session":
-    from argus_skill.manager._session_ops import manager_session_lock
+    from argus.manager._session_ops import manager_session_lock
     lock = manager_session_lock(root)
 elif kind == "pipeline":
-    from argus_skill.manager._session_ops import manager_pipeline_lock
+    from argus.manager._session_ops import manager_pipeline_lock
     lock = manager_pipeline_lock(root)
 elif kind == "control":
-    from argus_skill.manager.control_state import CampaignControlStore
+    from argus.manager.control_state import CampaignControlStore
     lock = CampaignControlStore(root).locked()
 else:
     raise ValueError(kind)
@@ -220,9 +220,9 @@ def test_lock_failures_are_reported_without_contention_retry(
         calls.append(True)
         raise error
 
-    monkeypatch.setattr("argus_skill.manager._session_ops.portalocker.lock", fail_lock)
+    monkeypatch.setattr("argus.manager._session_ops.portalocker.lock", fail_lock)
     monkeypatch.setattr(
-        "argus_skill.manager._session_ops.time.sleep",
+        "argus.manager._session_ops.time.sleep",
         lambda _seconds: pytest.fail("a lock failure must not be retried as contention"),
     )
     with (tmp_path / "failed.lock").open("a+b") as handle:

@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.skills import builtins
-from argus_skill.skills.role_library import role_skill_libraries
-from argus_skill.skills.store import SkillStore
-from argus_skill.tools.subagent import _direct_run
+from argus.life.event_log import JsonlEventSink
+from argus.skills import builtins
+from argus.skills.role_library import role_skill_libraries
+from argus.skills.store import SkillStore
+from argus.tools.subagent import _direct_run
 
 
 @pytest.mark.parametrize("verbosity,expected", [("full", 1), ("signal", 0)])

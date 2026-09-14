@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.manager.prompt_rewrite import (
+from argus.manager.prompt_rewrite import (
     parse_rewrite_text,
     rewrite_prompt,
 )
-from argus_skill.roles.prompts.manager import build_prompt_rewrite_prompt
-from argus_skill.webapi.manager_bridge import _rewrite_model_and_effort
+from argus.roles.prompts.manager import build_prompt_rewrite_prompt
+from argus.webapi.manager_bridge import _rewrite_model_and_effort
 
 
 class _Backend:

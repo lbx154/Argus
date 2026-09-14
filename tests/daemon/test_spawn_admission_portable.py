@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.daemon._life_worker_admission import (
+from argus.daemon._life_worker_admission import (
     _acquire_daemon_spawn_lock,
     _release_daemon_spawn_lock,
 )
@@ -20,7 +20,7 @@ def test_spawn_admission_lock_serializes_processes(tmp_path: Path) -> None:
         "from pathlib import Path\n"
         "from types import SimpleNamespace\n"
         "import time\n"
-        "from argus_skill.daemon._life_worker_admission import "
+        "from argus.daemon._life_worker_admission import "
         "_acquire_daemon_spawn_lock, _release_daemon_spawn_lock\n"
         f"config = SimpleNamespace(global_root={str(tmp_path)!r})\n"
         "lock = _acquire_daemon_spawn_lock(config)\n"

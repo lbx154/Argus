@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.trial.analytics import Analytics, AnalyticsError
-from argus_skill.trial.interaction_capture import (
+from argus.trial.analytics import Analytics, AnalyticsError
+from argus.trial.interaction_capture import (
     MAX_BYTES,
     Capture,
     get_interaction,

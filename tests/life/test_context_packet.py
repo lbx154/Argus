@@ -6,18 +6,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.life.context_packet import (
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.life.context_packet import (
     create_mission_context,
     record_engineer_handoff,
     record_reviewed_handoff,
     render_mission_brief,
     render_mission_contract,
 )
-from argus_skill.life.memory import BacklogItem
-from argus_skill.life.supervisor import LifeSupervisor
-from argus_skill.planner.planner import hydrate_task_context_refs
+from argus.life.memory import BacklogItem
+from argus.life.supervisor import LifeSupervisor
+from argus.planner.planner import hydrate_task_context_refs
 
 
 def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> None:
@@ -221,7 +221,7 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
         acceptance_check="python -m pytest tests/life/test_context_packet.py",
         execution_workdir=str(workdir),
         owns_paths=[
-            "argus_skill/life/context_packet.py",
+            "argus/life/context_packet.py",
             "tests/life/test_context_packet.py",
         ],
         context_refs=[{
@@ -242,7 +242,7 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
             frontier_report={
                 "change": "artifact_improved",
                 "summary": "Focused behavior now works.",
-                "artifacts": ["argus_skill/life/context_packet.py"],
+                "artifacts": ["argus/life/context_packet.py"],
                 "evidence": ["focused pytest"],
                 "remaining_work": ["public entry-point trial"],
             },
@@ -260,9 +260,9 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
         f"- Workdir: `{workdir}`\n"
         "- Stage: change\n"
         "- Owned paths (authoritative write boundary; Reviewer must not request "
-        "edits outside it): argus_skill/life/context_packet.py; "
+        "edits outside it): argus/life/context_packet.py; "
         "tests/life/test_context_packet.py\n"
-        "- Changed surface: argus_skill/life/context_packet.py\n"
+        "- Changed surface: argus/life/context_packet.py\n"
         "- Tools/resources: tool: tools/native_check.py (public native verifier)\n"
         "- Native check: python -m pytest tests/life/test_context_packet.py\n"
         "- Last review: continue: The focused check passed but one condition remains.\n"
@@ -340,7 +340,7 @@ def test_pending_engineer_work_is_not_replaced_by_an_older_reviewed_account(tmp_
 def test_refresh_rebinds_initial_contract_without_overwriting_checkpoint_or_handoff(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    from argus_skill.life import context_packet
+    from argus.life import context_packet
 
     args = dict(life_dir=tmp_path, mission_id="strong-target", stage="review")
     mission = create_mission_context(**args, objective="Old drawing route", acceptance_check="weak accept")
@@ -409,7 +409,7 @@ def test_invalid_optional_work_reference_does_not_break_the_brief(tmp_path: Path
 
 
 def test_contract_refresh_preserves_reviewed_science(tmp_path: Path) -> None:
-    from argus_skill.core.task_frontier import load_task_frontier, save_task_frontier
+    from argus.core.task_frontier import load_task_frontier, save_task_frontier
 
     args = dict(life_dir=tmp_path, mission_id="learned-state", stage="review")
     mission = create_mission_context(**args, objective="Earlier goal", acceptance_check="old minimum")

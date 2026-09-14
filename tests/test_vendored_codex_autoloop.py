@@ -1,25 +1,25 @@
 """Sanity tests for the vendored ``agent_cli`` module.
 
-argus-skill drives the codex/claude/copilot/cursor/opencode/pi/grok CLI using nothing more
-than its own wheel — the bundled ``argus_skill.agent_cli`` package is the
+argus drives the codex/claude/copilot/cursor/opencode/pi/grok CLI using nothing more
+than its own wheel — the bundled ``argus.agent_cli`` package is the
 only supported runtime. These tests fail loudly if the vendored copy ever
 gets dropped or its public surface diverges from what
-``argus_skill.adapters.agent_cli_backend`` expects.
+``argus.adapters.agent_cli_backend`` expects.
 """
 from __future__ import annotations
 
 
 def test_vendored_agent_cli_runner_importable() -> None:
-    from argus_skill.agent_cli.agent_cli_runner import (
+    from argus.agent_cli.agent_cli_runner import (
         AgentCliRunner,
         RunnerOptions,
     )
-    assert AgentCliRunner.__module__ == "argus_skill.agent_cli.agent_cli_runner"
-    assert RunnerOptions.__module__ == "argus_skill.agent_cli.agent_cli_runner"
+    assert AgentCliRunner.__module__ == "argus.agent_cli.agent_cli_runner"
+    assert RunnerOptions.__module__ == "argus.agent_cli.agent_cli_runner"
 
 
 def test_vendored_runner_backend_constants() -> None:
-    from argus_skill.agent_cli.runner_backend import (
+    from argus.agent_cli.runner_backend import (
         BACKEND_CLAUDE,
         BACKEND_CODEX,
         BACKEND_COPILOT,
@@ -54,13 +54,13 @@ def test_vendored_runner_backend_constants() -> None:
 
 
 def test_agent_cli_backend_resolver_uses_vendored_module() -> None:
-    from argus_skill.adapters.agent_cli_backend._runtime import (
+    from argus.adapters.agent_cli_backend._runtime import (
         load_agent_cli_runtime,
     )
     deps = load_agent_cli_runtime()
     runner_cls = deps["AgentCliRunner"]
     # The resolver only ever imports the bundled copy that ships with us.
-    assert runner_cls.__module__.startswith("argus_skill.agent_cli"), (
+    assert runner_cls.__module__.startswith("argus.agent_cli"), (
         f"expected vendored agent_cli_runner; got {runner_cls.__module__}"
     )
     for required in (
@@ -86,7 +86,7 @@ def test_agent_cli_package_init_is_thin() -> None:
     survives; importing the package must not pull in an orchestrator,
     telegram/feishu daemon, or a second reviewer/planner.
     """
-    import argus_skill.agent_cli as pkg
+    import argus.agent_cli as pkg
 
     assert pkg.__all__ == []
     for legacy in (
@@ -99,8 +99,8 @@ def test_agent_cli_package_init_is_thin() -> None:
 
 
 def test_claude_command_has_no_retired_output_schema_flags() -> None:
-    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-    from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+    from argus.agent_cli.runner_backend import BACKEND_CLAUDE
 
     runner = AgentCliRunner(agent_bin="claude", backend=BACKEND_CLAUDE)
     command = runner._build_command(

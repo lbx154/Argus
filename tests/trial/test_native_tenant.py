@@ -4,8 +4,8 @@ import json
 import pytest
 from test_training_data import training as training
 
-from argus_skill.trial.analytics import Analytics, AnalyticsError
-from argus_skill.trial.journey_journal import Journal
+from argus.trial.analytics import Analytics, AnalyticsError
+from argus.trial.journey_journal import Journal
 
 
 def test_eleventh_native_workspace_uses_explicit_root_and_keeps_tenant_scope(tmp_path):
@@ -71,7 +71,7 @@ def test_explicit_global_root_preserves_path_and_operator_index_boundaries(tmp_p
 def test_session_recovery_uses_explicit_native_root_without_rearranging_files(training, tmp_path):
     from test_training_recovery import SESSION, iso, legacy, native
 
-    from argus_skill.trial.training_recovery import recover_episode
+    from argus.trial.training_recovery import recover_episode
 
     data, _, now = training
     episode = legacy(training)

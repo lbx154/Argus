@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.core.event_catalog import validate_event_envelope
-from argus_skill.core.json_codec import loads_finite_json
+from argus.core.event_catalog import validate_event_envelope
+from argus.core.json_codec import loads_finite_json
 
 
 @pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity", "1e400", "-1e400"])

@@ -5,7 +5,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from argus_skill.verticals.research.figure_provenance import (
+from argus.verticals.research.figure_provenance import (
     FIGURE_PROVENANCE_PATH,
     _normalized_resolved_path,
     register_figure,

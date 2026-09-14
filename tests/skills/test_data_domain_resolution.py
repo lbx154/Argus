@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.skills import stage_machine as sc
-from argus_skill.skills import vertical_select as vs
-from argus_skill.verticals import _data_domain as dd
+from argus.skills import stage_machine as sc
+from argus.skills import vertical_select as vs
+from argus.verticals import _data_domain as dd
 
 
 def _write_store(root, *, vertical: str, stages: dict) -> None:

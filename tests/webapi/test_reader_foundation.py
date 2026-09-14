@@ -12,12 +12,12 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.mission_view import update_mission_view_event
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.webapi import reader_foundation as foundation
-from argus_skill.webapi.artifacts import get_project_artifact, list_project_artifacts
-from argus_skill.webapi.server import create_app
+from argus.core.mission_view import update_mission_view_event
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import Backlog, BacklogItem
+from argus.webapi import reader_foundation as foundation
+from argus.webapi.artifacts import get_project_artifact, list_project_artifacts
+from argus.webapi.server import create_app
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def test_fixed_workspace_survives_campaign_change_and_registration_remains_sessi
     alternate.mkdir()
     (alternate / artifact["path"]).parent.mkdir(parents=True)
     (alternate / artifact["path"]).write_text("OTHER CAMPAIGN CONTENT")
-    monkeypatch.setattr("argus_skill.webapi.artifacts._effective_workspace", lambda *_: alternate)
+    monkeypatch.setattr("argus.webapi.artifacts._effective_workspace", lambda *_: alternate)
     assert client.get(f"/api/projects/{sid}/artifact/raw", params={"path": artifact["path"]}).text.startswith("# Feasible")
     record = foundation.read_foundation(tmp_path, sid, body["request_id"])
     assert record["workspace"] == str(workspace) and record["markdown"].startswith("# Feasible")
@@ -171,7 +171,7 @@ def test_version_upgrade_preserves_terminal_request_and_only_versions_new_ids(pr
     with monkeypatch.context() as replay:
         replay.setattr(foundation, "generate_foundation", lambda *a, **k: pytest.fail("Old request was readmitted"))
         replay.setattr(foundation, "Backlog", lambda *a, **k: pytest.fail("Replay reread its source task"))
-        replay.setattr("argus_skill.webapi.artifacts.artifact_workspace", lambda *a, **k: pytest.fail("Replay reserved a new workspace"))
+        replay.setattr("argus.webapi.artifacts.artifact_workspace", lambda *a, **k: pytest.fail("Replay reserved a new workspace"))
         assert client.post(url, json=body).json() == retained
     assert manifest.read_bytes() == before and len(calls) == 1
     new_body = {**body, "request_id": str(uuid4())}
@@ -227,7 +227,7 @@ def test_live_owner_past_deadline_stays_generating_without_a_read_mutation(proje
 
 @pytest.mark.parametrize("reused_pid", [False, True])
 def test_dead_or_reused_owner_pid_is_failed_without_regenerating(project, tmp_path, monkeypatch, reused_pid):
-    from argus_skill.core import process_identity
+    from argus.core import process_identity
 
     sid, life, _, body = project
     record, _ = foundation.reserve_foundation(tmp_path, sid, **body)
@@ -304,7 +304,7 @@ def test_permissions_request_validation_and_no_arbitrary_file_write(project, tmp
 def test_failed_worker_dispatch_cannot_leave_a_live_owner_reservation(project, tmp_path, monkeypatch):
     from fastapi import HTTPException
 
-    from argus_skill.webapi.routes import reader_foundation as routes
+    from argus.webapi.routes import reader_foundation as routes
 
     sid, life, _, body = project
 
@@ -325,7 +325,7 @@ def completed_reading(client, sid, body):
 
 @pytest.mark.parametrize("stream", [False, True])
 def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(project, tmp_path, monkeypatch, stream):
-    from argus_skill.webapi.reader_clarification import QUESTION_MARKER, SOURCES_MARKER
+    from argus.webapi.reader_clarification import QUESTION_MARKER, SOURCES_MARKER
 
     sid, life, workspace, root_body = project
     calls = []
@@ -342,9 +342,9 @@ def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(
     original = root_path.read_bytes()
     backlog_before = (life / "backlog.jsonl").read_bytes()
     for target in (
-        "argus_skill.webapi.manager_bridge.manager_message",
-        "argus_skill.apps._inbox.queue_inbox_message",
-        "argus_skill.core.transcript.append_turn",
+        "argus.webapi.manager_bridge.manager_message",
+        "argus.apps._inbox.queue_inbox_message",
+        "argus.core.transcript.append_turn",
     ):
         monkeypatch.setattr(target, lambda *a, **k: pytest.fail("Reading entered the research message pipeline"))
     request = {"request_id": str(uuid4()), "question": "Why must the two bounds be for the same objective?", "locale": "en-US"}
@@ -512,7 +512,7 @@ def test_existing_clarification_replays_terminal_after_source_loss_without_readm
     (workspace / root["path"]).unlink()
     monkeypatch.setattr(foundation, "run_map_model", lambda *a, **k: pytest.fail("Terminal clarification regenerated"))
     monkeypatch.setattr(foundation, "generate_foundation", lambda *a, **k: pytest.fail("Terminal clarification was readmitted"))
-    monkeypatch.setattr("argus_skill.webapi.reader_clarification.clarification_sources", lambda *a, **k: pytest.fail("Replay reread its parent"))
+    monkeypatch.setattr("argus.webapi.reader_clarification.clarification_sources", lambda *a, **k: pytest.fail("Replay reread its parent"))
     replay = client.post(url, params={"stream": stream}, json=request)
     assert replay.status_code == 200
     if stream:

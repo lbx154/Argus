@@ -1,13 +1,13 @@
-"""Tests for ``argus_skill.adapters.agent_cli_backend``.
+"""Tests for ``argus.adapters.agent_cli_backend``.
 
 We do NOT spawn a real codex / claude CLI in CI. Instead we monkey-patch
 the underlying ``AgentCliRunner.run_exec`` to return a synthetic
 ``AgentRunResult``, then verify our adapter:
 
-  * Translates argus-skill ``RunnerOptions`` → the bundled runner's own
+  * Translates argus ``RunnerOptions`` → the bundled runner's own
     ``RunnerOptions`` correctly (model, reasoning_effort, working_dir,
     extra_args, full_auto, skip_git_repo_check, dangerous_yolo).
-  * Translates ``AgentRunResult`` → argus-skill ``RunnerResult``
+  * Translates ``AgentRunResult`` → argus ``RunnerResult``
     correctly, including agent_messages, stdout/stderr lines, thread_id,
     fatal_error.
   * Sums token counts from the JSON event stream (last non-zero wins).
@@ -32,17 +32,17 @@ from typing import Any
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import (
+from argus.adapters.agent_cli_backend import (
     AgentCliBackend,
     build_agent_cli_backend_from_env,
 )
-from argus_skill.adapters.agent_cli_backend._core import _RepeatedToolCallGuard
-from argus_skill.core.models import RunnerOptions
-from argus_skill.core.token_usage import extract_token_usage, sum_token_counts
-from argus_skill.provider_integrations.authorization_retry import (
+from argus.adapters.agent_cli_backend._core import _RepeatedToolCallGuard
+from argus.core.models import RunnerOptions
+from argus.core.token_usage import extract_token_usage, sum_token_counts
+from argus.provider_integrations.authorization_retry import (
     BackendLoginRequired,
 )
-from argus_skill.provider_integrations.copilot_usage import (
+from argus.provider_integrations.copilot_usage import (
     CopilotCallUsage,
     CopilotModelUsage,
 )
@@ -159,16 +159,16 @@ class AgentCliRunner:
 
 @pytest.fixture(autouse=True)
 def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
-    pkg = ModuleType("argus_skill.agent_cli")
+    pkg = ModuleType("argus.agent_cli")
     # Fake the runner boundary while allowing newly imported supervisor
     # helpers to resolve untouched bundled modules such as process control.
-    setattr(pkg, "__path__", [str(Path(__file__).resolve().parents[1] / "argus_skill" / "agent_cli")])
+    setattr(pkg, "__path__", [str(Path(__file__).resolve().parents[1] / "argus" / "agent_cli")])
 
-    runner_mod = ModuleType("argus_skill.agent_cli.agent_cli_runner")
+    runner_mod = ModuleType("argus.agent_cli.agent_cli_runner")
     runner_mod.__dict__["AgentCliRunner"] = AgentCliRunner
     runner_mod.__dict__["RunnerOptions"] = FakeCliRunnerOptions
 
-    backend_mod = ModuleType("argus_skill.agent_cli.runner_backend")
+    backend_mod = ModuleType("argus.agent_cli.runner_backend")
     backend_mod.__dict__["BACKEND_CLAUDE"] = "claude"
     backend_mod.__dict__["BACKEND_CODEX"] = "codex"
     backend_mod.__dict__["BACKEND_COPILOT"] = "copilot"
@@ -186,7 +186,7 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     backend_mod.__dict__["default_runner_bin"] = default_runner_bin
     backend_mod.__dict__["normalize_runner_backend"] = normalize_runner_backend
 
-    models_mod = ModuleType("argus_skill.agent_cli.models")
+    models_mod = ModuleType("argus.agent_cli.models")
     models_mod.__dict__["AgentRunResult"] = AgentRunResult
 
     setattr(pkg, "agent_cli_runner", runner_mod)
@@ -194,22 +194,22 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     setattr(pkg, "models", models_mod)
 
     # ``load_agent_cli_runtime()`` only ever imports from the bundled
-    # ``argus_skill.agent_cli`` package, so that is the only surface we
+    # ``argus.agent_cli`` package, so that is the only surface we
     # need to mock here.
-    monkeypatch.setitem(sys.modules, "argus_skill.agent_cli", pkg)
+    monkeypatch.setitem(sys.modules, "argus.agent_cli", pkg)
     monkeypatch.setitem(
         sys.modules,
-        "argus_skill.agent_cli.agent_cli_runner",
+        "argus.agent_cli.agent_cli_runner",
         runner_mod,
     )
     monkeypatch.setitem(
         sys.modules,
-        "argus_skill.agent_cli.runner_backend",
+        "argus.agent_cli.runner_backend",
         backend_mod,
     )
     monkeypatch.setitem(
         sys.modules,
-        "argus_skill.agent_cli.models",
+        "argus.agent_cli.models",
         models_mod,
     )
 
@@ -248,7 +248,7 @@ def _configure_relay_credential(
     *,
     environment_token: str | None = None,
 ) -> Path:
-    from argus_skill.provider_integrations import authorization_retry
+    from argus.provider_integrations import authorization_retry
 
     codex_home = tmp_path / "codex"
     codex_home.mkdir()
@@ -662,11 +662,11 @@ def test_run_exec_passes_global_budget_root_to_cost_control(
         return None, "captured reservation"
 
     monkeypatch.setattr(
-        "argus_skill.core.cost_control.cost_control_enabled",
+        "argus.core.cost_control.cost_control_enabled",
         lambda: True,
     )
     monkeypatch.setattr(
-        "argus_skill.core.cost_control.reserve_call_budget",
+        "argus.core.cost_control.reserve_call_budget",
         deny_after_capture,
     )
 
@@ -713,7 +713,7 @@ def test_completed_run_exec_counts_after_mission_process_is_killed(
 
     # No life.mission.completed event is written: this models SIGKILL after the
     # completed call returned. The daily aggregate still reads the durable call.
-    from argus_skill.life.supervisor import global_daily_spend
+    from argus.life.supervisor import global_daily_spend
 
     assert result.cost_usd == pytest.approx(0.008)
     assert global_daily_spend(global_root=root) == pytest.approx(result.cost_usd)
@@ -880,7 +880,7 @@ def test_unpriced_call_blocks_provider_spawn_and_acknowledged_risk_still_obeys_c
     assert second.pricing_status == "not_billed"
     state = json.loads((root / "cost-control.json").read_text())
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
-    from argus_skill.core.cost_control import acknowledge_unpriced_call
+    from argus.core.cost_control import acknowledge_unpriced_call
 
     acknowledge_unpriced_call(
         global_root=root, project_id=project.name, call_id=first.call_id,
@@ -908,11 +908,11 @@ def test_missing_copilot_resume_target_does_not_poison_cost_control(
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
+        "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: None,
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
+        "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
         lambda *args, **kwargs: None,
     )
     backend = AgentCliBackend(backend="copilot")
@@ -1056,7 +1056,7 @@ def test_full_agent_io_batches_raw_stream_writes(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.adapters.agent_cli_backend import _io_log
+    from argus.adapters.agent_cli_backend import _io_log
 
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
@@ -1211,11 +1211,11 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     )
     monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
+        "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
+        "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
         lambda cursor, session_id: exact,
     )
 
@@ -1270,11 +1270,11 @@ def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
 
     monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
+        "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
+        "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
         lambda cursor, session_id: None,
     )
     options = RunnerOptions(model="gpt-5.6-sol", working_dir=str(tmp_path))
@@ -1352,11 +1352,11 @@ def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
         )
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
+        "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
+        "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
         lambda cursor, session_id: mislabeled,
     )
 
@@ -1581,7 +1581,7 @@ def test_copilot_policy_denial_with_exit_zero_sets_auth_failure(
 
     assert result.fatal_error == "Error: Access denied by policy settings"
     assert backend._auth_failure_detected is True
-    from argus_skill.provider_integrations.copilot_guard import copilot_guard_snapshot
+    from argus.provider_integrations.copilot_guard import copilot_guard_snapshot
 
     assert copilot_guard_snapshot()["blocked_until"] > 0
 
@@ -2009,7 +2009,7 @@ def test_run_exec_forwards_ordered_native_skill_roots(
 def test_run_exec_forwards_watchdog_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Watchdog hooks on argus-skill RunnerOptions must reach the bundled runner.
+    """Watchdog hooks on argus RunnerOptions must reach the bundled runner.
 
     A MissionDaemon-driven supervisor passes ``external_interrupt_reason_provider``
     so it can interrupt a long-running engineer turn promptly when an
@@ -2484,8 +2484,8 @@ def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
 def test_build_backend_default_does_not_reuse_persisted_dsh_runner(
     monkeypatch,
 ):
-    from argus_skill.adapters.agent_cli_backend import _core
-    from argus_skill.core import knob_store
+    from argus.adapters.agent_cli_backend import _core
+    from argus.core import knob_store
 
     monkeypatch.setattr(
         knob_store,
@@ -2523,11 +2523,11 @@ def test_context_parser_failure_uses_trusted_completion_receipt(tmp_path, monkey
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
+        "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: None,
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
+        "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
         lambda *args, **kwargs: None,
     )
     backend = AgentCliBackend(backend="copilot")

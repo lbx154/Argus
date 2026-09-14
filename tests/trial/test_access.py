@@ -1,6 +1,6 @@
 import pytest
 
-from argus_skill.trial.store import Store, TrialError
+from argus.trial.store import Store, TrialError
 
 
 def test_tester_identity_is_stable_and_not_the_invitation(tmp_path):

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.manager.front_door import (
+from argus.manager.front_door import (
     _maybe_name_session,
     objective_update_requires_stage_reset,
 )
@@ -25,7 +25,7 @@ def _state(tmp_path: Path, sid: str = "s-1") -> dict:
     # Create the session through the real path helper: touch_session refuses to
     # write metadata for a session directory that does not exist, so a
     # hand-made fixture would silently test nothing.
-    from argus_skill.core import paths as core_paths
+    from argus.core import paths as core_paths
 
     core_paths.session_state_root(sid, root=tmp_path).mkdir(parents=True, exist_ok=True)
     return {
@@ -36,7 +36,7 @@ def _state(tmp_path: Path, sid: str = "s-1") -> dict:
 
 
 def _name(tmp_path: Path, sid: str = "s-1") -> str:
-    from argus_skill.core.session import read_session_meta
+    from argus.core.session import read_session_meta
 
     meta = read_session_meta(tmp_path, sid)
     return "" if meta is None else meta.display_name

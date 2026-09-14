@@ -43,7 +43,7 @@ function powershell(script, args = []) {
 
 // Refresh source identity and both frontends together before freezing Python.
 // External plugin wheels remain independently published and checksum-pinned.
-run(python, ['-m', 'argus_skill.release_tools.build_release']);
+run(python, ['-m', 'argus.release_tools.build_release']);
 powershell('build-backend.ps1', ['-SkipInstall', '-PythonExecutable', python]);
 powershell('prepare-backend.ps1');
 const base = JSON.parse(readFileSync(join(desktop, 'src-tauri', 'tauri.conf.json'), 'utf8'));
@@ -58,7 +58,7 @@ run(process.execPath, [
   'build', '--no-bundle', '--no-sign', '--features', 'preview', '--config', JSON.stringify(config),
 ], desktop);
 
-const manifest = JSON.parse(readFileSync(join(repo, 'argus_skill', 'release_manifest.json'), 'utf8'));
+const manifest = JSON.parse(readFileSync(join(repo, 'argus', 'release_manifest.json'), 'utf8'));
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
 const name = `Argus-${base.version}-${manualPreview ? 'manual-test' : 'integration'}-preview-${stamp}-win-x64`;
 const stage = join(desktop, 'build', 'previews', name);
@@ -144,9 +144,9 @@ if (manualPreview) {
   run(process.execPath, [join(desktop, 'scripts', 'smoke-preview.mjs'), join(stage, 'Argus.exe'), '--soak-seconds', soakSeconds], desktop);
 }
 // A long native check must not certify source changed by another build/session.
-run(python, ['-m', 'argus_skill.release_tools.generate_manifest', '--check']);
-run(python, ['-m', 'argus_skill.release_tools.check_artifacts']);
-const stagedManifest = JSON.parse(readFileSync(join(stage, 'argus-backend', '_internal', 'argus_skill', 'release_manifest.json'), 'utf8'));
+run(python, ['-m', 'argus.release_tools.generate_manifest', '--check']);
+run(python, ['-m', 'argus.release_tools.check_artifacts']);
+const stagedManifest = JSON.parse(readFileSync(join(stage, 'argus-backend', '_internal', 'argus', 'release_manifest.json'), 'utf8'));
 if (stagedManifest.release_id !== manifest.release_id || stagedManifest.source_digest !== manifest.source_digest) {
   throw new Error('Staged backend identity changed during verification; preview not packaged.');
 }

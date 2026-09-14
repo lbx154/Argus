@@ -20,23 +20,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.session import (
+from argus.core.session import (
     SessionMeta,
     read_session_meta,
     write_session_meta,
 )
-from argus_skill.core.transcript import append_turn
-from argus_skill.life.memory import Backlog, BacklogItem, LifeMemory
-from argus_skill.manager import Manager, config_intent, dispatch, front_door
-from argus_skill.manager.domain_author import VerticalDecision
-from argus_skill.webapi import (
+from argus.core.transcript import append_turn
+from argus.life.memory import Backlog, BacklogItem, LifeMemory
+from argus.manager import Manager, config_intent, dispatch, front_door
+from argus.manager.domain_author import VerticalDecision
+from argus.webapi import (
     manager_bridge,
     manager_dispatch,
     manager_state,
     project_state,
     server,
 )
-from argus_skill.webapi.daemon_services import DaemonServices, ProjectDaemonStarter
+from argus.webapi.daemon_services import DaemonServices, ProjectDaemonStarter
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -94,7 +94,7 @@ def _install_manager(monkeypatch, execution_for) -> None:
 
 def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus.webapi.manager_bridge.manager_message",
         lambda sid, text, *, global_root=None, cancelled=None, defer_dispatch_ack=False: {"kind": "chat", "reply": "你好呀 👋"},
     )
     r = client.post("/api/projects/s-msgtest0/message", json={"text": "你好"})
@@ -109,7 +109,7 @@ def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None
 def test_self_steps_reach_the_map_with_or_without_streaming(
     client: TestClient, tmp_path: Path, monkeypatch, streaming: bool, failed: bool,
 ) -> None:
-    from argus_skill.webapi.map_view import read_map
+    from argus.webapi.map_view import read_map
 
     def classify(_mem, _body, state, **_kwargs):
         state["_frontdoor_self_mode"] = "implement"
@@ -417,7 +417,7 @@ def test_recent_identical_raw_team_request_survives_manager_rewording(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.transcript import append_turn
+    from argus.core.transcript import append_turn
 
     sid = "s-team-reworded-replay"
     life = _make_project(tmp_path, sid)
@@ -457,7 +457,7 @@ def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
     life = _make_project(tmp_path, sid)
     workdir = tmp_path / "workspace"
     workdir.mkdir()
-    from argus_skill.manager.control_state import CampaignControlStore
+    from argus.manager.control_state import CampaignControlStore
 
     (life / "continuous.json").write_text(
         json.dumps({"objective": "repair terminal gate", "generation": 2}),
@@ -542,7 +542,7 @@ def test_validator_authorization_allows_exact_repair_under_watched_parent(
     validator.write_text("def test_contract(): pass\n", encoding="utf-8")
     sibling = workdir / "tests" / "test_science_gate.py"
     sibling.write_text("def test_science(): pass\n", encoding="utf-8")
-    from argus_skill.manager.control_state import CampaignControlStore
+    from argus.manager.control_state import CampaignControlStore
 
     (life / "continuous.json").write_text(
         json.dumps({"objective": "repair terminal gate", "generation": 2}),
@@ -727,7 +727,7 @@ def test_advertised_what_are_you_doing_query_uses_frontdoor_manager_path(
 def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    from argus_skill.daemon.state import read_continuous_state, write_continuous_config
+    from argus.daemon.state import read_continuous_state, write_continuous_config
 
     sid = "s-natural-pause"
     life = _make_project(tmp_path, sid)
@@ -1117,7 +1117,7 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert result["continuous"] is True
     assert "我已调整团队方向" in result["reply"]
     assert "已升级为持续任务" in result["reply"]
-    from argus_skill.apps._inbox import claim_inbox_message, release_inbox_claim
+    from argus.apps._inbox import claim_inbox_message, release_inbox_claim
 
     claim = claim_inbox_message(life)
     assert claim is not None
@@ -1125,14 +1125,14 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert "检索最接近的前人研究" in claim.text
     assert "发明新的数学工具" not in claim.text
     release_inbox_claim(life, claim)
-    from argus_skill.manager.directive import load_active_manager_directive
+    from argus.manager.directive import load_active_manager_directive
 
     active = load_active_manager_directive(life)
     assert active is not None
     assert "检索最接近的前人研究" in active.text
     assert "发明新的数学工具" not in active.text
     assert active.operator_question_policy == "forbid"
-    from argus_skill.daemon.state import read_continuous_state
+    from argus.daemon.state import read_continuous_state
 
     continuous = read_continuous_state(life)
     assert continuous.enabled is True
@@ -1142,7 +1142,7 @@ def test_manager_steer_persists_high_priority_live_directive(
 
 def test_message_task_lazily_spawns_daemon(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus.webapi.manager_bridge.manager_message",
         lambda sid, text, *, global_root=None, cancelled=None, defer_dispatch_ack=False: {
             "kind": "task", "reply": None,
             "item": {"id": "x1", "title": "optimize kernel"}, "daemon_alive": False,
@@ -1695,7 +1695,7 @@ def test_message_empty_400(client: TestClient) -> None:
 
 def test_message_unknown_project_404(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus.webapi.manager_bridge.manager_message",
         lambda sid, text, *, global_root=None: {"kind": "chat", "reply": "x"},
     )
     assert client.post("/api/projects/s-nope/message", json={"text": "hi"}).status_code == 404
@@ -1756,7 +1756,7 @@ def test_explicit_pending_answer_continues_without_a_model_call(
         "paper", "operator-reply", "manager-approved", "review:required",
     ]
     assert continuation.manager_decision == {"routed": True}
-    from argus_skill.apps._inbox import claim_inbox_message, release_inbox_claim
+    from argus.apps._inbox import claim_inbox_message, release_inbox_claim
 
     claim = claim_inbox_message(life)
     assert claim is not None and "MANAGER OPERATOR-ANSWER DECISION" in claim.text
@@ -1992,7 +1992,7 @@ def _parse_sse(text: str) -> list[dict]:
 
 
 def test_turn_emitter_reports_the_role_that_owns_a_phase(tmp_path: Path) -> None:
-    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+    from argus.webapi.manager_dispatch import _TurnEmitter
 
     frames: list[tuple[str, dict]] = []
     emitter = _TurnEmitter(
@@ -2015,7 +2015,7 @@ def test_turn_emitter_reports_the_role_that_owns_a_phase(tmp_path: Path) -> None
 
 
 def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
-    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+    from argus.webapi.manager_dispatch import _TurnEmitter
 
     reviewed: list[str] = []
     emitter = _TurnEmitter(
@@ -2032,7 +2032,7 @@ def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
 
 
 def test_turn_emitter_persists_solo_delivery_metadata(tmp_path: Path) -> None:
-    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+    from argus.webapi.manager_dispatch import _TurnEmitter
 
     delivery = {
         "delivery_id": "delivery:solo:task_completed",
@@ -2133,7 +2133,7 @@ def test_manager_stream_heartbeat_defaults_to_five_seconds(monkeypatch) -> None:
 
 
 def test_turn_emitter_schedules_learning_only_after_chat_reply(tmp_path) -> None:
-    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+    from argus.webapi.manager_dispatch import _TurnEmitter
 
     learned: list[str] = []
     emitter = _TurnEmitter(
@@ -2161,7 +2161,7 @@ def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) 
         on_fragment("delta", {"text": "需要帮忙吗?", "message_id": "m1"})
         return {"kind": "chat", "reply": "你好\n需要帮忙吗?"}
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _streaming)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", _streaming)
     r = client.post("/api/projects/s-msgtest0/message/stream", json={"text": "你好"})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/event-stream")
@@ -2184,7 +2184,7 @@ def test_message_stream_task_spawns_and_reports(tmp_path: Path, monkeypatch) -> 
         return {"kind": "task", "reply": None,
                 "item": {"id": "x9", "title": "optimize kernel"}, "daemon_alive": False}
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _streaming)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", _streaming)
     spawned: dict[str, object] = {}
     client = _client_with_starter(
         tmp_path,
@@ -2218,7 +2218,7 @@ def test_message_stream_standing_task_starts_continuous_executor(
             "continuous": True,
         }
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _streaming)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", _streaming)
     spawned: dict[str, object] = {}
     client = _client_with_starter(
         tmp_path,
@@ -2237,7 +2237,7 @@ def test_message_stream_keeps_startup_exception_in_diagnostic(
     tmp_path: Path, monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus.webapi.manager_bridge.manager_message",
         lambda sid, text, *, global_root=None, on_fragment=None, **kwargs: {
             "kind": "task",
             "reply": None,
@@ -2269,7 +2269,7 @@ def test_message_stream_keeps_ack_exception_in_diagnostic(
     client: TestClient, monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus.webapi.manager_bridge.manager_message",
         lambda sid, text, *, global_root=None, on_fragment=None, **kwargs: {
             "kind": "task",
             "reply": None,
@@ -2278,7 +2278,7 @@ def test_message_stream_keeps_ack_exception_in_diagnostic(
         },
     )
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_pending_question.record_task_dispatch_ack",
+        "argus.webapi.manager_pending_question.record_task_dispatch_ack",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             RuntimeError("private transcript path")
         ),
@@ -2302,7 +2302,7 @@ def test_message_stream_error_frame(client: TestClient, monkeypatch) -> None:
     def _boom(sid, text, *, global_root=None, on_fragment=None, cancelled=None, defer_dispatch_ack=False):
         raise RuntimeError("kaboom")
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _boom)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", _boom)
     r = client.post("/api/projects/s-msgtest0/message/stream", json={"text": "你好"})
     assert r.status_code == 200
     frames = _parse_sse(r.text)
@@ -2565,7 +2565,7 @@ def test_fresh_idle_daemon_survives_concurrent_startup_gc(tmp_path: Path) -> Non
     """Regression: another user's daemon/REPL startup may run project GC in the
     gap between POST /api/daemons and this TUI's first snapshot. A freshly
     created empty session must survive that sweep."""
-    from argus_skill.core.project_gc import gc_stale_projects
+    from argus.core.project_gc import gc_stale_projects
 
     created = server.create_daemon(global_root=tmp_path)
     sid = created["sid"]
@@ -2723,7 +2723,7 @@ def test_web_daemon_config_honors_persisted_runner_backend(
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs",
+        "argus.core.knob_store.read_persisted_knobs",
         lambda: {"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
     )
 

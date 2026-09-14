@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.planner.planner import Planner
-from argus_skill.roles.prompts.engineer import build_mission_prompt
-from argus_skill.roles.prompts.manager import build_simple_prompt
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.wiki.bootstrap import init_wiki
+from argus.planner.planner import Planner
+from argus.roles.prompts.engineer import build_mission_prompt
+from argus.roles.prompts.manager import build_simple_prompt
+from argus.skills.vertical_select import persist_vertical
+from argus.wiki.bootstrap import init_wiki
 
 
 def test_manager_engineer_and_planner_share_direct_wiki_contract(

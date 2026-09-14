@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.builtins import iter_vertical_skill_texts
-from argus_skill.verticals.research.prompt_policy import render_role_prompt_fragment
-from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+from argus.skills.builtins import iter_vertical_skill_texts
+from argus.verticals.research.prompt_policy import render_role_prompt_fragment
+from argus.verticals.research.stages import STAGE_CHECKLISTS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RETIRED_MODULE = "argus_skill.verticals.research.pipeline_figure"
+RETIRED_MODULE = "argus.verticals.research.pipeline_figure"
 
 
 def _run_cli(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -50,7 +50,7 @@ def test_retired_render_creates_no_files_and_provides_runnable_migration(
     # --help avoids installing or changing the operator's existing toolkit.
     command_line = next(line.strip() for line in result.stderr.splitlines() if line.startswith("  "))
     command = shlex.split(command_line)
-    assert command == [sys.executable, "-m", "argus_skill.tools.ppt_master", "status"]
+    assert command == [sys.executable, "-m", "argus.tools.ppt_master", "status"]
     replacement = subprocess.run(
         [*command, "--help"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=15,
     )
@@ -109,7 +109,7 @@ def test_svg_workflow_is_removed_and_paper_uses_method_d_with_b_fallback() -> No
     assert "native editable PPT" in prompt
     assert "ECharts" in prompt
     assert "TikZ" not in prompt
-    assert "argus_skill.tools.ppt_master status" in prompt
+    assert "argus.tools.ppt_master status" in prompt
     assert "pipeline_figure" not in prompt
     assert "Reuse an existing suitable figure" in prompt
     assert "after the Introduction" in prompt

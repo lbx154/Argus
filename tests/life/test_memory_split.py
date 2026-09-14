@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps.cli import main
-from argus_skill.core import project
-from argus_skill.life import (
+from argus.apps.cli import main
+from argus.core import project
+from argus.life import (
     BacklogItem,
     GlobalMemory,
     JournalEntry,
@@ -300,7 +300,7 @@ def test_memory_bundle_uses_core_paths_project_root(
 
 def test_life_memory_still_works(tmp_path: Path) -> None:
     """The LifeMemory facade uses the canonical event timeline."""
-    from argus_skill.life import LifeMemory
+    from argus.life import LifeMemory
 
     mem = LifeMemory.open(tmp_path)
     mem.init()
@@ -347,7 +347,7 @@ def test_cli_status_and_prelude_are_project_scoped(
     assert "alpha memory" not in prelude_b
 
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_daemon_status",
+        "argus.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
             alive=False,
             pid=None,
@@ -355,7 +355,7 @@ def test_cli_status_and_prelude_are_project_scoped(
             backend=None,
         ),
     )
-    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
 
     monkeypatch.chdir(repo_a)
     rc_a = main(["--status"])

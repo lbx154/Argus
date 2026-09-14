@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.verticals.research.notes import (
+from argus.verticals.research.notes import (
     LEGACY_NOTES_FILENAME,
     RESEARCH_NOTES_FILENAME,
     clear_research_notes,
@@ -11,7 +11,7 @@ from argus_skill.verticals.research.notes import (
     read_research_notes,
     research_notes_path,
 )
-from argus_skill.verticals.research.prompt_policy import (
+from argus.verticals.research.prompt_policy import (
     active_context_paths,
     active_research_context,
 )
@@ -65,7 +65,7 @@ def test_stage_context_loads_the_notes_under_the_new_name(tmp_path: Path) -> Non
 def test_team_workers_read_the_notes_and_leave_them_to_the_dispatching_mission(
     monkeypatch,
 ) -> None:
-    from argus_skill.verticals.research import stages
+    from argus.verticals.research import stages
 
     monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
     solo = stages.role_banner("engineer")

@@ -7,8 +7,8 @@ import pytest
 from test_training_data import grant
 from test_training_data import training as training
 
-from argus_skill.trial.analytics import AnalyticsError
-from argus_skill.trial.training_capture import HOSTED_PROFILE, OBSERVED_POLICY
+from argus.trial.analytics import AnalyticsError
+from argus.trial.training_capture import HOSTED_PROFILE, OBSERVED_POLICY
 
 
 def begin(training, *, role="planner.cycle0", session="continued-session", tools=(), task="task-real", tenant="tenant-one"):
@@ -84,7 +84,7 @@ def test_private_structured_blocks_are_excluded_without_erasing_public_io(traini
 
 
 def test_v2_has_no_legacy_episode_event_or_cumulative_storage_gate(training, monkeypatch):
-    from argus_skill.trial import training_capture
+    from argus.trial import training_capture
 
     data, _, _ = training
     for name in ("MAX_EPISODES", "HOSTED_OBSERVATIONS", "HOSTED_EPISODE_BYTES", "MAX_CAPTURE_BYTES"):
@@ -97,7 +97,7 @@ def test_v2_has_no_legacy_episode_event_or_cumulative_storage_gate(training, mon
 
 
 def test_oversized_single_event_records_gap_and_next_events_continue(training, monkeypatch):
-    from argus_skill.trial import training_capture
+    from argus.trial import training_capture
 
     data, _, _ = training
     episode = begin(training)
@@ -216,7 +216,7 @@ def test_raw_view_and_export_recheck_purpose_tenant_and_deletion(training):
 
 
 def test_observed_summary_counts_real_pairs_without_promoting_quality(training):
-    from argus_skill.trial.collaboration_data import CollaborationData
+    from argus.trial.collaboration_data import CollaborationData
 
     data, _, _ = training
     episode = begin(training, tools=["custom_simulator"])
@@ -258,7 +258,7 @@ def test_legacy_approved_sample_and_raw_source_are_preserved(training):
 
 
 def test_export_revocation_after_read_discards_archive_and_abandoned_iterator_cleans_up(training, monkeypatch, tmp_path):
-    from argus_skill.trial import training_observations
+    from argus.trial import training_observations
 
     data, _, _ = training
     episode = begin(training)

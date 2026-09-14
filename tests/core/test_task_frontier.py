@@ -4,7 +4,7 @@ import inspect
 
 import pytest
 
-from argus_skill.core.task_frontier import (
+from argus.core.task_frontier import (
     FRONTIER_CUMULATIVE_FIELD_LIMIT,
     FRONTIER_HISTORY_LIMIT,
     FRONTIER_TRANSITION_ITEM_LIMIT,

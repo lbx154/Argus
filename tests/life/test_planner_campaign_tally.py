@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.life.supervisor._planner_rendering import (
+from argus.life.supervisor._planner_rendering import (
     _TALLY_WINDOW_MISSIONS,
     PlannerRenderingMixin,
 )

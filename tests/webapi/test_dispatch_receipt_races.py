@@ -10,11 +10,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import read_turns
-from argus_skill.daemon.commands import daemon_command_execution_lock
-from argus_skill.webapi import manager_bridge, server
-from argus_skill.webapi.daemon_services import DaemonServices
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import read_turns
+from argus.daemon.commands import daemon_command_execution_lock
+from argus.webapi import manager_bridge, server
+from argus.webapi.daemon_services import DaemonServices
 
 
 def _response_result(response, streaming):
@@ -128,7 +128,7 @@ def test_duplicate_without_pending_work_ignores_unrelated_control_lock(
 def test_cancel_during_chat_status_read_suppresses_the_stale_terminal_result(
     tmp_path, monkeypatch, streaming,
 ):
-    from argus_skill.core.transcript import append_turn
+    from argus.core.transcript import append_turn
 
     sid = "s-review-chat-status"
     life = tmp_path / "projects" / sid
@@ -170,10 +170,10 @@ def test_cancel_during_chat_status_read_suppresses_the_stale_terminal_result(
 
 @pytest.mark.parametrize("streaming", [False, True])
 def test_natural_pause_keeps_its_own_control_confirmation(tmp_path, monkeypatch, streaming):
-    from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-    from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-    from argus_skill.manager import config_intent
-    from argus_skill.webapi import manager_state
+    from argus.adapters.agent_cli_backend import AgentCliBackend
+    from argus.daemon.state import read_continuous_state, write_continuous_config
+    from argus.manager import config_intent
+    from argus.webapi import manager_state
 
     sid = f"s-review-own-pause-{streaming}"
     life = tmp_path / "projects" / sid

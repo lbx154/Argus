@@ -4,7 +4,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from argus_skill.life import (
+from argus.life import (
     FailureAnnotation,
     FailureExperience,
     FailureExperienceStore,

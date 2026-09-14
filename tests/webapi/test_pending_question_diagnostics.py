@@ -6,19 +6,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.agent_cli.models import AgentRunResult
-from argus_skill.core.models import RunnerOptions
-from argus_skill.core.operator_context import OperatorContextStore
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.manager._session_ops import _ManagerSession
-from argus_skill.webapi.manager_pending_question import (
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.agent_cli.models import AgentRunResult
+from argus.core.models import RunnerOptions
+from argus.core.operator_context import OperatorContextStore
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.manager._session_ops import _ManagerSession
+from argus.webapi.manager_pending_question import (
     _resolve_pending_question_with_manager,
 )
 
 
 def _relay_backend(tmp_path, monkeypatch) -> AgentCliBackend:
-    from argus_skill.provider_integrations import authorization_retry
+    from argus.provider_integrations import authorization_retry
 
     codex_home = tmp_path / "codex"
     codex_home.mkdir()
@@ -188,7 +188,7 @@ def test_pending_question_contract_failure_carries_reply_snippet(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.manager import front_door
+    from argus.manager import front_door
 
     reply = "IS_ANSWER=maybe\nRESOLVED=true\nDECISION=continue"
     monkeypatch.setattr(
@@ -218,7 +218,7 @@ def test_pending_question_contract_failure_carries_reply_snippet(
 
 @pytest.mark.parametrize("is_answer", [False, True])
 def test_answer_directive_is_written_only_after_positive_classification(tmp_path, monkeypatch, is_answer):
-    from argus_skill.manager import front_door
+    from argus.manager import front_door
 
     mem, item = _pending_memory(tmp_path)
     answer = "Use one of the available cards."

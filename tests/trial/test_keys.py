@@ -5,10 +5,10 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from argus_skill.trial.admin import issue_keys
-from argus_skill.trial.gateway import Settings, create_app
-from argus_skill.trial.secrets import Vault, write_private
-from argus_skill.trial.store import Store
+from argus.trial.admin import issue_keys
+from argus.trial.gateway import Settings, create_app
+from argus.trial.secrets import Vault, write_private
+from argus.trial.store import Store
 
 
 @pytest.fixture

@@ -5,12 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.manager import Manager
-from argus_skill.manager.domain_author import (
+from argus.manager import Manager
+from argus.manager.domain_author import (
     ManagerClassificationContractError,
     VerticalDecisionError,
 )
-from argus_skill.manager.front_door import PreparedManagerHandoff
+from argus.manager.front_door import PreparedManagerHandoff
 
 
 class _Result:

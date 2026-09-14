@@ -35,8 +35,8 @@ function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> 
       manifest_source_digest: RELEASE_SOURCE_DIGEST,
       runtime_source_digest: RELEASE_SOURCE_DIGEST,
       release_matches_source: true,
-      source_root: '/home/dev/current/argus-skill',
-      configured_source_root: '/home/dev/current/argus-skill',
+      source_root: '/home/dev/current/argus',
+      configured_source_root: '/home/dev/current/argus',
       source_root_matches_config: true,
       revision: 'abc123',
       pid: 123,
@@ -52,8 +52,8 @@ test('repository backend path follows the platform venv layout', () => {
   const windows = repoBackendPath('/repo', 'win32').replaceAll('\\', '/');
   const posix = repoBackendPath('/repo', 'linux').replaceAll('\\', '/');
 
-  assert.match(windows, /\/repo\/\.venv\/Scripts\/argus-skill\.exe$/);
-  assert.match(posix, /\/repo\/\.venv\/bin\/argus-skill$/);
+  assert.match(windows, /\/repo\/\.venv\/Scripts\/argus\.exe$/);
+  assert.match(posix, /\/repo\/\.venv\/bin\/argus$/);
 });
 
 test('protocol contract accepts the current server and rejects missing capabilities', () => {
@@ -70,7 +70,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
     runtime: {
       ...(meta().runtime as Record<string, unknown>),
       source_root_matches_config: false,
-      configured_source_root: '/home/dev/other/argus-skill',
+      configured_source_root: '/home/dev/other/argus',
     },
   }));
   assert.equal(wrongCheckout.compatible, false);
@@ -318,7 +318,7 @@ const ownedRecord = {
   pid: 4321,
   host: '127.0.0.1',
   port: 8899,
-  backendBin: '/repo/.venv/bin/argus-skill',
+  backendBin: '/repo/.venv/bin/argus',
   startedAt: '2026-07-14T00:00:00Z',
 };
 
@@ -664,7 +664,7 @@ test('spawn cleanup verifies and signals both Windows listener and launcher PIDs
     rootPid: 7777,
     host: '127.0.0.1',
     port: 8899,
-    backendBin: 'C:\\repo\\.venv\\Scripts\\argus-skill.exe',
+    backendBin: 'C:\\repo\\.venv\\Scripts\\argus.exe',
     startedAt: '2026-07-14T00:00:00Z',
   };
   const signals: Array<[number, NodeJS.Signals]> = [];
@@ -702,7 +702,7 @@ test('spawn cleanup refuses changed ownership and PID reuse without signalling',
     rootPid: 7777,
     host: '127.0.0.1',
     port: 8899,
-    backendBin: 'C:\\repo\\.venv\\Scripts\\argus-skill.exe',
+    backendBin: 'C:\\repo\\.venv\\Scripts\\argus.exe',
     startedAt: '2026-07-14T00:00:00Z',
   };
   const ensured = {
@@ -762,7 +762,7 @@ test('spawn cleanup never inspects or signals a non-loopback receipt', async () 
           rootPid: 7777,
           host: '10.0.0.5',
           port: 8899,
-          backendBin: '/repo/.venv/bin/argus-skill',
+          backendBin: '/repo/.venv/bin/argus',
           startedAt: '2026-07-14T00:00:00Z',
         },
       },

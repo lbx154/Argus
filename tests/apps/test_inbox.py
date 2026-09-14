@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.apps import _inbox
+from argus.apps import _inbox
 
 
 def test_raw_drain_cannot_bypass_durable_acceptance(tmp_path) -> None:

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core import plugin_manager as pm
+from argus.core import plugin_manager as pm
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows PLATON setup")
 
@@ -97,7 +97,7 @@ def test_default_repair_job_marks_incomplete_health_as_failure(host, monkeypatch
     pm.write_json(pm.install_root(host) / "crystalpilot/operation.json", {"status": "running", "action": "repair"})
     monkeypatch.setattr(pm, "state_entry", lambda *a: {"python": "fixture-python"})
     monkeypatch.setattr(pm, "load_plugin", lambda *a, **k: None)
-    from argus_skill.core import plugin_runtime
+    from argus.core import plugin_runtime
     monkeypatch.setattr(plugin_runtime, "run", lambda *a, **k: "")
     pm._setup_job("crystalpilot", pm.catalog()["crystalpilot"], host, "repair", {})
     result = pm.read_json(pm.install_root(host) / "crystalpilot/operation.json")
@@ -106,7 +106,7 @@ def test_default_repair_job_marks_incomplete_health_as_failure(host, monkeypatch
 
 
 def test_host_managed_adapter_is_rechecked_for_upgrade_even_if_old_clean_probe_passes(host, monkeypatch):
-    from argus_skill.core import platon_windows
+    from argus.core import platon_windows
 
     resources = pm.install_root(host) / "crystalpilot/resources"
     old = resources / "software/old/platon-headless.exe"
@@ -124,7 +124,7 @@ def test_host_managed_adapter_is_rechecked_for_upgrade_even_if_old_clean_probe_p
 
 
 def test_a_working_user_supplied_platon_is_not_replaced_by_the_host_recipe(host, monkeypatch):
-    from argus_skill.core import platon_windows
+    from argus.core import platon_windows
 
     resources = pm.install_root(host) / "crystalpilot/resources"
     existing = host / "user-tool/platon.exe"

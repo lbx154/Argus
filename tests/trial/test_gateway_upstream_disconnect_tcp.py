@@ -12,7 +12,7 @@ import httpx
 import pytest
 import uvicorn
 
-from argus_skill.trial import gateway, gateway_accounting
+from argus.trial import gateway, gateway_accounting
 from tests.trial.test_gateway_billing_responsiveness import KEY_ID, PAYLOAD, response_data
 from tests.trial.test_gateway_billing_shutdown import lock_available, settings_for
 

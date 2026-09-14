@@ -10,19 +10,19 @@ from contextlib import contextmanager
 
 import pytest
 
-from argus_skill.manager import Division, Manager
-from argus_skill.manager.domain_author import (
+from argus.manager import Division, Manager
+from argus.manager.domain_author import (
     VerticalDecision,
     VerticalDecisionError,
     parse_vertical_decision,
 )
-from argus_skill.roles.prompts.manager import (
+from argus.roles.prompts.manager import (
     build_fast_vertical_decision_prompt,
     build_vertical_decision_prompt,
 )
-from argus_skill.skills.stage_machine import ChecklistItem
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
+from argus.skills.stage_machine import ChecklistItem
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
 
 class _DecisionResult:
@@ -489,7 +489,7 @@ def test_plan_stages_propagates_vertical_load_failure(monkeypatch):
     LifeSupervisor._resolve_vertical_once's documented FAIL-HARD contract.
     Silently degrading here would turn e.g. a math_synth mission into the
     paper pipeline with no visible error."""
-    from argus_skill.verticals import _base
+    from argus.verticals import _base
 
     def _boom(name, project_root=None):
         raise RuntimeError("simulated broken vertical import")
@@ -501,8 +501,8 @@ def test_plan_stages_propagates_vertical_load_failure(monkeypatch):
 
 def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
     """Missing stages fail visibly instead of becoming another vertical."""
-    from argus_skill.core.vertical_contract import VerticalContractError
-    from argus_skill.verticals import _base
+    from argus.core.vertical_contract import VerticalContractError
+    from argus.verticals import _base
 
     class _BareModule:
         pass
@@ -587,7 +587,7 @@ def test_vertical_commit_persists_generic_research_target_contract(
 ) -> None:
     from types import SimpleNamespace
 
-    from argus_skill.verticals import _base
+    from argus.verticals import _base
 
     monkeypatch.setattr(
         _base,
@@ -690,15 +690,15 @@ def test_new_math_intent_rejects_prior_same_target_certification(
     monkeypatch,
     completed: bool,
 ) -> None:
-    from argus_skill.life.memory import EventJournal
-    from argus_skill.life.supervisor._planning_cycle_helpers import (
+    from argus.life.memory import EventJournal
+    from argus.life.supervisor._planning_cycle_helpers import (
         _research_project_done_issue,
     )
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "work"
     workdir.mkdir()
-    monkeypatch.setattr("argus_skill.skills.vertical_select.time.time", lambda: 100.0)
+    monkeypatch.setattr("argus.skills.vertical_select.time.time", lambda: 100.0)
     persist_vertical(state_root, "math", research_target_level="exploratory")
     state_path = state_root / ".argus" / "PIPELINE_STATE.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -722,7 +722,7 @@ def test_new_math_intent_rejects_prior_same_target_certification(
         state_root, journal.all(), evidence_root=workdir
     ) == ""
 
-    monkeypatch.setattr("argus_skill.skills.vertical_select.time.time", lambda: 300.0)
+    monkeypatch.setattr("argus.skills.vertical_select.time.time", lambda: 300.0)
     Manager(project_root=state_root, execution_workdir=workdir).commit_vertical_decision(
         "prove a different theorem",
         VerticalDecision(
@@ -783,7 +783,7 @@ def test_replacement_intent_can_commit_a_supplied_locked_idea(tmp_path) -> None:
 def test_completed_paper_artifact_revision_keeps_direction_and_selected_start(
     tmp_path, monkeypatch, start_stage,
 ) -> None:
-    from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
+    from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 
     persist_vertical(
         tmp_path, "research", workflow_mode="staged",
@@ -802,7 +802,7 @@ def test_completed_paper_artifact_revision_keeps_direction_and_selected_start(
     # The completed-paper certificate is an input to this dispatch test;
     # certificate validation has independent coverage.
     monkeypatch.setattr(
-        "argus_skill.manager._vertical_ops.vertical_select.vertical_reached_own_terminal_stage",
+        "argus.manager._vertical_ops.vertical_select.vertical_reached_own_terminal_stage",
         lambda *_args: True,
     )
     manager = Manager(project_root=tmp_path)
@@ -834,7 +834,7 @@ def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
         execution_task="run the synthesis pipeline",
     )
     monkeypatch.setattr(
-        "argus_skill.manager._vertical_ops.vertical_select.reset_stage_for_new_intent",
+        "argus.manager._vertical_ops.vertical_select.reset_stage_for_new_intent",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("reset failed")),
     )
 
@@ -906,7 +906,7 @@ def test_root_task_id_scopes_manager_front_door_call(tmp_path):
 
 
 def test_root_task_id_scopes_manager_stage_call(tmp_path):
-    from argus_skill.core.models import ReviewDecision
+    from argus.core.models import ReviewDecision
 
     transitions: list[tuple[str, str]] = []
 
@@ -1623,8 +1623,8 @@ def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(
     brand-new project. After the fix, ``divide`` must reset ``current_stage``
     to research's FIRST stage.
     """
-    from argus_skill.skills.stage_machine import current_stage
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.skills.stage_machine import current_stage
+    from argus.verticals._data_domain import write_data_domain
 
     old_stage_order = ("investigate", "configure", "dry_run", "document", "review")
     write_data_domain(
@@ -1655,7 +1655,7 @@ def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(
 
 def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
     """Regression: a second research task must not immediately become planner done."""
-    from argus_skill.skills.vertical_select import vertical_reached_own_terminal_stage
+    from argus.skills.vertical_select import vertical_reached_own_terminal_stage
 
     (tmp_path / ".argus").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(

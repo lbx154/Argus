@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.core import role_session as role_session_module
-from argus_skill.core.role_session import _checkpoint_open_items
-from argus_skill.planner import Planner, PlannerConfig
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.core import role_session as role_session_module
+from argus.core.role_session import _checkpoint_open_items
+from argus.planner import Planner, PlannerConfig
 
 
 def _review(status: str) -> str:

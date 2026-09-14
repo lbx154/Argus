@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from argus_skill.core import log_view as lv
+from argus.core import log_view as lv
 
 # ── gap_str ───────────────────────────────────────────────────────────────
 

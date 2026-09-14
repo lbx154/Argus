@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from argus_skill.agent_cli._run_exec import _consume_pipe_lines
+from argus.agent_cli._run_exec import _consume_pipe_lines
 
 
 @pytest.mark.parametrize("error", [OSError(errno.EBADF, "closed"), ValueError("closed stream")])

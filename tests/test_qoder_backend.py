@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import (
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import (
     BACKEND_QODER,
     CLAUDE_FAMILY,
     default_runner_bin,
@@ -55,7 +55,7 @@ def test_qoder_command_matches_claude_headless_shape_without_verbose() -> None:
 def test_qoder_flag_dialect_differs_from_claude() -> None:
     # qodercli's three argv divergences from claude: no --verbose,
     # --reasoning-effort (not --effort), snake_case permission modes.
-    from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE
+    from argus.agent_cli.runner_backend import BACKEND_CLAUDE
 
     def build(backend: str, **opts) -> list[str]:
         return AgentCliRunner(agent_bin="x", backend=backend)._build_command(

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import argparse
 
-from argus_skill.apps import _runtime
-from argus_skill.apps._runtime import _resolve_runner_backend_name
+from argus.apps import _runtime
+from argus.apps._runtime import _resolve_runner_backend_name
 
 
 def _ns(backend: object) -> argparse.Namespace:
@@ -71,7 +71,7 @@ def test_blank_env_value_is_ignored() -> None:
 
 def test_persisted_role_backend_overrides_resolved_default(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs",
+        "argus.core.knob_store.read_persisted_knobs",
         lambda: {"ARGUS_SKILL_ENGINEER_BACKEND": "claude"},
     )
 
@@ -85,7 +85,7 @@ def test_persisted_role_backend_overrides_resolved_default(monkeypatch) -> None:
 
 def test_explicit_shared_env_overrides_persisted_role_backend(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs",
+        "argus.core.knob_store.read_persisted_knobs",
         lambda: {"ARGUS_SKILL_ENGINEER_BACKEND": "codex"},
     )
 

@@ -22,12 +22,12 @@ from typing import Any
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import (
+from argus.adapters.agent_cli_backend import (
     AgentCliBackend,
     resolve_codex_execution_model,
     resolve_pricing_model,
 )
-from argus_skill.core.models import RunnerOptions
+from argus.core.models import RunnerOptions
 
 from .test_agent_cli_backend import _make_cli_result
 

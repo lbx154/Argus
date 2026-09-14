@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.manager.reviewed_facts import review_and_append_fact
+from argus.core.models import RunnerResult
+from argus.manager.reviewed_facts import review_and_append_fact
 
 _POINTER_RE = re.compile(r"(/\S+\.json)")
 

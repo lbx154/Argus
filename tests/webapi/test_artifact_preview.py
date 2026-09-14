@@ -5,10 +5,10 @@ from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import append_turn
-from argus_skill.webapi.artifact_preview import HtmlPackage
-from argus_skill.webapi.server import create_app
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import append_turn
+from argus.webapi.artifact_preview import HtmlPackage
+from argus.webapi.server import create_app
 
 
 def site(root: Path) -> Path:
@@ -85,7 +85,7 @@ def test_module_imports_and_css_cycles_are_bounded(tmp_path):
 
 
 def test_large_assets_are_not_read_into_the_preview(tmp_path, monkeypatch):
-    import argus_skill.webapi.artifact_preview as module
+    import argus.webapi.artifact_preview as module
 
     monkeypatch.setattr(module, "MAX_BYTES", 300)
     entry = tmp_path / "index.html"

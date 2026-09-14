@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps import tui_launcher
+from argus.apps import tui_launcher
 
 
 class _Stdin:
@@ -54,7 +54,7 @@ def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> No
     bundle.write_text("// bundle", encoding="utf-8")
     venv_bin = tmp_path / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
-    backend = venv_bin / ("argus-skill.exe" if os.name == "nt" else "argus-skill")
+    backend = venv_bin / ("argus.exe" if os.name == "nt" else "argus")
     backend.write_text("#!/bin/sh\n", encoding="utf-8")
     seen = {}
     monkeypatch.setattr(tui_launcher.sys, "executable", str(venv_bin / "python"))
@@ -73,6 +73,27 @@ def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> No
     assert seen["executable"] == "/usr/bin/node"
     assert seen["argv"] == ["/usr/bin/node", str(bundle), "--project", "wiki"]
     assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == str(backend)
+
+
+def test_launcher_falls_back_to_the_pre_rename_backend_launcher(monkeypatch, tmp_path: Path) -> None:
+    """A venv that only has ``argus-skill`` (installed before the rename) still gets a backend."""
+    venv_bin = tmp_path / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    suffix = ".exe" if os.name == "nt" else ""
+    legacy = venv_bin / f"argus-skill{suffix}"
+    legacy.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(tui_launcher.sys, "executable", str(venv_bin / "python"))
+    monkeypatch.delenv("ARGUS_SKILL_BIN", raising=False)
+    monkeypatch.delenv("ARGUS_BINARY_DISTRIBUTION", raising=False)
+
+    tui_launcher._configure_tui_backend_bin()
+    assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == str(legacy)
+
+    current = venv_bin / f"argus{suffix}"
+    current.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.delenv("ARGUS_SKILL_BIN")
+    tui_launcher._configure_tui_backend_bin()
+    assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == str(current)
 
 
 def test_binary_launcher_points_tui_at_real_frozen_backend(
@@ -266,14 +287,14 @@ def test_admin_subcommands_stay_on_python_admin_path(monkeypatch) -> None:
     assert seen == [["wiki", "init", "demo"], ["update"], ["--update"], ["-update"]]
 
 
-@pytest.mark.parametrize("entrypoint", ["argus", "argus-skill"])
+@pytest.mark.parametrize("entrypoint", ["argus", "argus"])
 @pytest.mark.parametrize("spelling", ["update", "--update", "-update"])
 @pytest.mark.parametrize("with_life_dir", [False, True])
 def test_update_spellings_reach_the_updater_without_a_terminal(
     monkeypatch, tmp_path: Path, entrypoint: str, spelling: str, with_life_dir: bool,
 ) -> None:
-    from argus_skill.__main__ import main as backend_main
-    from argus_skill.apps import update
+    from argus.__main__ import main as backend_main
+    from argus.apps import update
 
     calls = []
     monkeypatch.setattr(tui_launcher.sys, "stdin", _Stdin(tty=False))

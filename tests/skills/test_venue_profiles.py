@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.research.venue_profiles import (
+from argus.verticals.research.venue_profiles import (
     VenueProfile,
     load_local_venue_profile,
     resolve_venue_profile,
@@ -63,7 +63,7 @@ def _write_profile(root: Path, payload: dict) -> Path:
 
 
 def test_no_builtin_venue_profiles_exist() -> None:
-    import argus_skill.verticals.research.venue_profiles as vp
+    import argus.verticals.research.venue_profiles as vp
 
     # No registry of shipped venues, no get-by-key lookup: the only way to a
     # profile is the researched project-local file.

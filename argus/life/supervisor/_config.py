@@ -1,0 +1,208 @@
+from __future__ import annotations
+
+import threading
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Protocol
+
+from ...core.ports import EventSink
+from ...core.usage import UsageSummary
+
+
+class _MemoryView(Protocol):
+    @property
+    def root(self) -> Path: ...
+
+    @property
+    def backlog(self) -> Any: ...
+
+    @property
+    def journal(self) -> Any: ...
+
+    def render_prelude(self, *, objective: str = "") -> str: ...
+
+def global_daily_usage_summary(
+    *,
+    global_root: Path | None = None,
+    now: float | None = None,
+) -> UsageSummary:
+    """Use the call gateway's complete, deduplicated daily ledger view."""
+    from ...core.cost_control import global_daily_usage_summary as admission_usage
+
+    return admission_usage(global_root=global_root, now=now)
+
+
+def global_daily_spend(*, global_root: Path | None = None, now: float | None = None) -> float:
+    """Known call-ledger spend across all projects since local midnight."""
+    return global_daily_usage_summary(
+        global_root=global_root,
+        now=now,
+    ).known_cost_usd
+
+
+@dataclass
+class LifeBudget:
+    """Host-global daily cost limit plus an optional mission guard."""
+
+    global_daily_cap_usd: float = 0.0
+    max_missions: int = 0
+    # Long-lived hosts follow changes to the operator's budget without a
+    # restart. Explicit standalone LifeBudget values remain supported.
+    follow_operator_config: bool = False
+
+    def can_start(
+        self,
+        *,
+        now: float | None = None,
+        global_root: Path | None = None,
+    ) -> tuple[bool, str]:
+        """Follow current caps and recheck the same strict gate as call admission."""
+        from ...core.cost_control import cost_admission_reason, cost_control_enabled
+
+        if self.follow_operator_config:
+            from ...core.knobs import resolve_budget_caps
+
+            self.global_daily_cap_usd = resolve_budget_caps(
+                global_root=global_root,
+            ).global_daily_cap_usd
+        global_cap = float(self.global_daily_cap_usd or 0.0)
+        if cost_control_enabled():
+            reason = cost_admission_reason(global_root=global_root, cap=global_cap, now=now)
+            return not reason, reason
+        if global_cap > 0:
+            spent = global_daily_spend(global_root=global_root, now=now)
+            if spent >= global_cap:
+                return False, (
+                    f"global daily budget exhausted "
+                    f"(${spent:.2f} spent / ${global_cap:.2f})"
+                )
+        return True, ""
+
+@dataclass
+class LifeSupervisorConfig:
+    """Knobs for one ``LifeSupervisor`` run."""
+
+    budget: LifeBudget = field(default_factory=LifeBudget)
+    poll_interval_seconds: float = 5.0
+    # The real repository worktree for this project. When present, the
+    # supervisor should run engineer / planner work there instead of in
+    # the life metadata directory.
+    project_worktree: Path | None = None
+    # Highest-level kill switch — the supervisor checks this between
+    # missions. The CLI sets it on SIGTERM/SIGINT.
+    stop_event: threading.Event | None = None
+    # Optional callable consulted at the start of every mission; should
+    # return one pending operator nudge per call (or ``None`` when the
+    # bus is empty). The supervisor splices each message into the
+    # prelude_context so the engineer sees it as live operator
+    # guidance. The default ``None`` disables the bus.
+    user_inbox: Any = None  # Callable[[], str | None] | None
+    # Manager-mediated resolver for one durable pending question. The callback
+    # receives ``(blocked_item, operator_message)`` and returns the authoritative
+    # answer result. Hosts wire the same resolver used by the web answer path.
+    pending_question_resolver: Any = None
+    # Runtime context injected into the prelude of every mission so
+    # the agent knows its own backend, models, and budget constraints.
+    # Set by the cockpit / daemon worker; empty string disables injection.
+    runtime_context: str = ""
+    # A/B switch shared by all four roles' direct project-layer Skill edits.
+    role_skill_maintenance_enabled: bool = True
+    # Optional cycle count for planner tasks; zero leaves legitimate work open-ended.
+    planner_task_iteration_max_cycles: int = 0
+    # Subagent family failure circuit breaker (F6). A planner-generated task
+    # is reworded from scratch every cycle, so the exact-text dedup below
+    # (``_planner_task_signature``) cannot catch "the SAME underlying
+    # experiment keeps failing" across differently-worded retries — and the
+    # mission itself is often graded a success (the engineer DID resubmit +
+    # monitor + document real work) even while the subagent job it launched
+    # keeps erroring. ``_recent_subagent_family_failures`` reads the subagent
+    # registry directly (``.argus_subagents/*.json``) and flags an experiment
+    # family once it has failed this many times in a row, unresolved, within
+    # the trailing window — independent of mission-level wording or grading.
+    # See ``life/supervisor/_subagent_family_failures.py`` for the observed
+    # pathology (SWE-bench full-canary retried ~20x/2 days before this fix).
+    subagent_family_failure_streak_limit: int = 3
+    subagent_family_failure_window_hours: float = 72.0
+    # --- Continuous improvement mode -----------------------------------
+    # When enabled, the supervisor does not exit when the backlog is
+    # empty. Instead it invokes the planner to inspect the
+    # project and generate the next batch of tasks. The supervisor
+    # only stops when the planner declares the project done, or when
+    # budget / stop_event fires.
+    continuous: bool = False
+    continuous_objective: str = ""
+    # Explicit mission-type signals (replace the old keyword sniffing of the
+    # objective text). ``paper_mission`` toggles the long-horizon paper guidance
+    # the planner hands to bounded items; ``final_certification_gate`` requires the L2
+    # reviewer's full-pipeline checklist to be certified before ``project_done``
+    # is honoured (and drives the auto-stop once that gate passes). Both default
+    # False: callers enable these only after the Manager has resolved
+    # a vertical whose completion gate is explicitly ``certified``.
+    paper_mission: bool = False
+    final_certification_gate: bool = False
+    # ``open_ended`` controls what happens when the planner certifies
+    # ``project_done`` on a continuous mission: when True the supervisor does
+    # NOT hard-stop — it logs a planner retry and keeps the mission alive so the
+    # 7×24 lifetime agent keeps generating new work. Replaces the old keyword
+    # sniffing of the objective text ("ongoing"/"perpetual"/"7×24"/…). Defaults
+    # False at this low level (honour project_done); the daemon/cockpit entry paths
+    # default it True unless ``--bounded`` is passed.
+    open_ended: bool = False
+    # Optional callback returning ``(enabled, objective, open_ended)`` — the
+    # supervisor calls it each iteration to hot-reload from disk or
+    # elsewhere. When ``None``, the static ``continuous`` /
+    # ``continuous_objective`` fields are used unchanged.
+    continuous_config_provider: Any = None
+    # Optional mission-boundary yield signal. A live operator Manager request
+    # uses this to make ``run()`` return before the next tick/planner cycle so
+    # the host can release its outer pipeline lock and commit configuration.
+    manager_pipeline_yield_provider: Any = None  # Callable[[], bool] | None
+    # Optional callback consulted immediately before each continuous
+    # planner cycle. Return a non-empty stop reason to let the host
+    # process defer planning and yield control, e.g. for daemon handoff.
+    planner_cycle_gate: Any = None  # Callable[[], str] | None
+    # Optional mission-boundary hook. The host may use this to perform
+    # process-level actions that are only safe between missions (for example
+    # blue/green handoff after the agent modifies its own daemon/runtime
+    # architecture). Return a non-empty stop reason to end this drain pass.
+    post_mission_hook: Any = None  # Callable[[dict[str, Any]], str] | None
+    # Session-scoped directory for supervisor state sidecars.
+    project_state_dir: Path | None = None
+    # Session-scoped root for pipeline/checklist/domain artifacts. The command
+    # working tree may be a git repo, but harness state must not leak across
+    # sessions that share that repo.
+    artifact_root: Path | None = None
+    # Auxiliary supervisors only claim explicitly parallel-safe, path-disjoint
+    # backlog items and never write pipeline stage state.
+    parallel_worker: bool = False
+    holds_stage_authority: bool = True
+    worker_id: str = "primary"
+    coordinate_parallel_claims: bool = False
+    # Campaign-wide mission slot count (the daemon's effective width). The
+    # Planner digest reads it so plans can deliberately fill spare slots.
+    mission_slots: int = 1
+
+
+class _MissionRunner(Protocol):
+    """Structural type for the mission runner the supervisor drives.
+
+    Production uses ``argus.apps._runtime._SkillLoopRunner`` (assembled
+    from the ``_runtime_*`` mixins and built by ``build_life_runner`` in
+    ``argus.apps._runtime_construction``; phase 5 of docs/LAYOUT.md moves
+    it to ``mission_runner/``). Tests can substitute an executor without
+    constructing its backend or role loop.
+    """
+
+    def execute(
+        self,
+        *,
+        objective: str,
+        original_objective: str = "",
+        sink: EventSink,
+        preload_injects: list[str] | None = None,
+        prelude_context: str = "",
+        planner_context: str = "",
+        scope: str = "",
+        preplanned: bool = False,
+    ) -> Any:  # MissionOutcome
+        raise NotImplementedError

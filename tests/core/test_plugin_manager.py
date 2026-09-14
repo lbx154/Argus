@@ -3,7 +3,7 @@ import zipfile
 import portalocker
 import pytest
 
-from argus_skill.core import plugin_manager as pm
+from argus.core import plugin_manager as pm
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def empty_host(tmp_path, monkeypatch):
 
 
 def test_default_does_not_load_optional_vertical(empty_host):
-    from argus_skill.skills.vertical_select import available_verticals
+    from argus.skills.vertical_select import available_verticals
 
     assert pm.installed(empty_host) == {}
     assert "crystalpilot" not in available_verticals()
@@ -29,7 +29,7 @@ def test_default_does_not_load_optional_vertical(empty_host):
 def test_supported_matrix(backend, system, monkeypatch):
     from types import SimpleNamespace
 
-    from argus_skill.core import role_config
+    from argus.core import role_config
 
     # Simulate the target architecture instead of inheriting arm64 on macOS CI.
     monkeypatch.setattr(pm.platform, "machine", lambda: "x86_64")
@@ -45,7 +45,7 @@ def test_supported_matrix(backend, system, monkeypatch):
 def test_unsupported_mixed_roles_are_reported(monkeypatch):
     from types import SimpleNamespace
 
-    from argus_skill.core import role_config
+    from argus.core import role_config
 
     monkeypatch.setattr(
         role_config,
@@ -126,7 +126,7 @@ def test_install_constrains_nested_pip_and_requires_real_scientific_imports(
 def test_manage_requires_auth_and_does_not_launch_missing_plugin(empty_host):
     from fastapi.testclient import TestClient
 
-    from argus_skill.webapi.server import create_app
+    from argus.webapi.server import create_app
 
     client = TestClient(create_app(global_root=empty_host, auth_token="test"))
     assert client.post("/api/plugins/crystalpilot/manage/install").status_code == 401
@@ -142,7 +142,7 @@ def test_manage_requires_auth_and_does_not_launch_missing_plugin(empty_host):
 def test_unsupported_primary_is_blocked_even_with_supported_roles(monkeypatch):
     from types import SimpleNamespace
 
-    from argus_skill.core import role_config
+    from argus.core import role_config
 
     monkeypatch.setattr(
         role_config,
@@ -156,8 +156,8 @@ def test_unsupported_primary_is_blocked_even_with_supported_roles(monkeypatch):
 
 
 def test_auxiliary_backend_can_follow_role_instead_of_global(monkeypatch, empty_host):
-    from argus_skill.adapters.agent_cli_backend import build_agent_cli_backend_from_env
-    from argus_skill.agent_cli import runner_backend
+    from argus.adapters.agent_cli_backend import build_agent_cli_backend_from_env
+    from argus.agent_cli import runner_backend
 
     monkeypatch.setattr(
         runner_backend, "resolve_available_runner",
@@ -221,7 +221,7 @@ def test_selected_python_can_create_a_real_scientific_environment(tmp_path, monk
 def test_native_plugin_requires_this_sessions_enabled_binding(empty_host, monkeypatch):
     from types import SimpleNamespace
 
-    from argus_skill.core.workbench_plugins import prepare_plugin_run
+    from argus.core.workbench_plugins import prepare_plugin_run
 
     shared = empty_host / "shared"
     first, second = shared / "state/s-first", shared / "state/s-second"
@@ -264,9 +264,9 @@ def test_workbench_daemon_keeps_the_plugin_installation_root(empty_host, monkeyp
     import os
     from types import SimpleNamespace
 
-    from argus_skill.daemon import _life_worker_boot
-    from argus_skill.daemon.life_worker import LifeWorker
-    from argus_skill.tools import capability_vault
+    from argus.daemon import _life_worker_boot
+    from argus.daemon.life_worker import LifeWorker
+    from argus.tools import capability_vault
 
     monkeypatch.delenv("ARGUS_WORKBENCH_HOST_ROOT", raising=False)
     workbench = empty_host / "plugins/crystalpilot/workbench"
@@ -291,7 +291,7 @@ def test_workbench_daemon_keeps_the_plugin_installation_root(empty_host, monkeyp
 def test_host_software_consent_is_typed_and_authenticated(empty_host, monkeypatch, value):
     from fastapi.testclient import TestClient
 
-    from argus_skill.webapi.server import create_app
+    from argus.webapi.server import create_app
 
     monkeypatch.setattr(pm, "mutate", lambda *a, **k: pytest.fail("invalid consent must not reach a job"))
     client = TestClient(create_app(global_root=empty_host, auth_token="test"))

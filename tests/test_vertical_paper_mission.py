@@ -11,13 +11,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime import (
+from argus.apps._runtime import (
     _final_certification_for_project_root,
     _paper_mission_for_project_root,
 )
-from argus_skill.skills.stage_machine import ChecklistItem
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import (
+from argus.skills.stage_machine import ChecklistItem
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals._base import (
     load_vertical,
     vertical_is_paper_mission,
 )

@@ -16,10 +16,10 @@ def main():
         os.environ["ARGUS_SKILL_HOME"] = str(root)
         # Layout tests use real project APIs without depending on installed CLIs.
         os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = "memory"
-        from argus_skill.core.session import SessionMeta, write_session_meta
-        from argus_skill.core.transcript import append_turn
-        from argus_skill.life.memory import BacklogItem, LifeMemory
-        from argus_skill.webapi.server import create_app
+        from argus.core.session import SessionMeta, write_session_meta
+        from argus.core.transcript import append_turn
+        from argus.life.memory import BacklogItem, LifeMemory
+        from argus.webapi.server import create_app
 
         workspace = root / "workspace"
         workspace.mkdir()

@@ -4,8 +4,8 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
-from argus_skill.adapters.agent_cli_backend._result import _raw_backend_stop_kind
-from argus_skill.agent_cli._event_consumers import EventConsumerMixin
+from argus.adapters.agent_cli_backend._result import _raw_backend_stop_kind
+from argus.agent_cli._event_consumers import EventConsumerMixin
 
 
 def consume(event, *, messages=None):
@@ -47,7 +47,7 @@ def test_new_tool_metadata_keeps_the_local_error_scope():
 
 
 def test_actual_nonzero_cli_exit_preserves_the_stderr_cause(tmp_path, monkeypatch):
-    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path))
@@ -64,8 +64,8 @@ def test_actual_nonzero_cli_exit_preserves_the_stderr_cause(tmp_path, monkeypatc
 
 
 def test_provider_fence_requires_explicit_recovery_even_in_continuous_mode(tmp_path, monkeypatch):
-    from argus_skill.life.memory import BacklogItem, LifeMemory
-    from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path))

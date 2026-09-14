@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 
 
 class _UnusedRunner:

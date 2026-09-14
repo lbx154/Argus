@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.life.router import (
+from argus.life.router import (
     ConfigIntent,
     build_front_door_prompt,
     classify_front_door,
 )
-from argus_skill.roles.prompts.planner import build_continuous_prompt
-from argus_skill.roles.prompts.voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
+from argus.roles.prompts.planner import build_continuous_prompt
+from argus.roles.prompts.voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
 
 
 class _FakeResult:

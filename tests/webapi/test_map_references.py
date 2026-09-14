@@ -21,13 +21,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi.map_references import (
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi.map_references import (
     CONTEXT_BLOCK_MAX_CHARS,
     expand_operator_references,
     parse_card_reference,
 )
-from argus_skill.webapi.map_view import digest
+from argus.webapi.map_view import digest
 
 
 def _marker(task_id: str = "task-a", **overrides) -> str:

@@ -10,7 +10,7 @@ These tests pin that the runner forwards ``run_exec`` to the manager backend
 """
 from __future__ import annotations
 
-from argus_skill.apps._runtime import _SkillLoopRunner
+from argus.apps._runtime import _SkillLoopRunner
 
 
 class _StubBackend:

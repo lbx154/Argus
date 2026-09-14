@@ -5,8 +5,8 @@ import copy
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
-from argus_skill.webapi import map_narrative
-from argus_skill.webapi.map_model import MapModel
+from argus.webapi import map_narrative
+from argus.webapi.map_model import MapModel
 
 
 def _capture_prompt(monkeypatch) -> str:

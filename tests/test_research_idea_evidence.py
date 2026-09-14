@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.research import idea_evidence as mod
+from argus.verticals.research import idea_evidence as mod
 
 
 def record(**overrides):
