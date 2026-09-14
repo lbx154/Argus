@@ -32,6 +32,7 @@ import { readableRecord } from '../map/submap';
 import { WorkStatusBar } from './WorkStatusBar';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
+import type { ConversationHistoryStatus } from '../useConversationHistory';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
@@ -674,6 +675,9 @@ export function EventStream({
   onOpenDelivery,
   snapshot,
   missionView,
+  historyStatus = 'ready',
+  historyRefreshing = false,
+  onRetryHistory,
 }: {
   events: EventMsg[];
   connected: boolean;
@@ -689,10 +693,14 @@ export function EventStream({
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
   snapshot?: Snapshot;
   missionView?: MissionView | null;
+  historyStatus?: ConversationHistoryStatus;
+  historyRefreshing?: boolean;
+  onRetryHistory?: () => void;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);
+  const lastScrollTop = useRef(0);
   const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -770,7 +778,10 @@ export function EventStream({
   useEffect(() => {
     if (!following) return;
     const frame = window.requestAnimationFrame(() => {
-      if (followingRef.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+      if (followingRef.current && scroller.current) {
+        scroller.current.scrollTop = scroller.current.scrollHeight;
+        lastScrollTop.current = scroller.current.scrollTop;
+      }
     });
     return () => window.cancelAnimationFrame(frame);
   }, [rows.list.length, tailContentLength, following]);
@@ -779,7 +790,12 @@ export function EventStream({
     const el = scroller.current;
     if (!el) return;
     const onScroll = () => {
-      followingRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      // Scroll anchoring can move down during layout growth before the resize
+      // callback catches up. Only an upward movement leaves an active follow;
+      // reaching the bottom resumes it, including after a viewport clamp.
+      followingRef.current = atBottom || (followingRef.current && el.scrollTop >= lastScrollTop.current - 1);
+      lastScrollTop.current = el.scrollTop;
       setFollowing(followingRef.current);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
@@ -791,7 +807,10 @@ export function EventStream({
         frame = null;
         // Reflow can move the bottom without adding an event. A reader who
         // scrolled into history while this frame was queued still takes priority.
-        if (followingRef.current) el.scrollTop = el.scrollHeight;
+        if (followingRef.current) {
+          el.scrollTop = el.scrollHeight;
+          lastScrollTop.current = el.scrollTop;
+        }
       });
     });
     observer.observe(el);
@@ -806,7 +825,10 @@ export function EventStream({
   const jump = () => {
     followingRef.current = true;
     setFollowing(true);
-    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' });
+    if (scroller.current) {
+      scroller.current.scrollTo({ top: scroller.current.scrollHeight, behavior: 'auto' });
+      lastScrollTop.current = scroller.current.scrollTop;
+    }
   };
   const viewProjectWork = () => {
     followingRef.current = false;
@@ -852,10 +874,18 @@ export function EventStream({
           </span>
         </div>
       ) : null}
-      <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin">
+      {historyStatus !== 'ready' ? <div className="flex shrink-0 items-center gap-3 px-4 py-3 text-sm text-ink-faint"
+          role={historyStatus === 'error' ? 'alert' : 'status'} data-conversation-history={historyStatus}>
+          <span>{t(historyStatus === 'error' ? 'stream.historyError' : 'stream.historyLoading')}</span>
+          {historyStatus === 'error' && onRetryHistory ? <button type="button" onClick={onRetryHistory}
+            disabled={historyRefreshing} className="shrink-0 rounded px-2 py-1 text-blue-sky hover:bg-bg disabled:opacity-50">
+            {t('stream.historyRetry')}
+          </button> : null}
+      </div> : null}
+      <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin" aria-busy={historyStatus === 'loading'}>
         <div ref={content} className="flow-root" data-event-stream-content>
         {rows.list.length === 0 ? (
-          <EmptyHint>{t('stream.ready')}</EmptyHint>
+          historyStatus === 'ready' ? <EmptyHint>{t('stream.ready')}</EmptyHint> : null
         ) : (
           <>
             {conversations.projectWork.length > 0 ? (

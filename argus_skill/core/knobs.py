@@ -478,12 +478,12 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
     if name in {"ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "ARGUS_SKILL_MAP_BATCH_SIZE", "ARGUS_SKILL_MAP_RETRY_SECONDS", "ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS"}:
         maximum = 8 if name == "ARGUS_SKILL_MAP_BATCH_SIZE" else 3600
         try:
-            number = int(raw)
+            bounded_integer = int(raw)
         except ValueError as exc:
             raise ValueError(f"{name} must be an integer from 1 to {maximum}") from exc
-        if not 1 <= number <= maximum:
+        if not 1 <= bounded_integer <= maximum:
             raise ValueError(f"{name} must be an integer from 1 to {maximum}")
-        return str(number)
+        return str(bounded_integer)
     if name == "ARGUS_SKILL_UNPRICED_COST_POLICY":
         policy = raw.lower()
         if policy not in {"block", "allow"}:

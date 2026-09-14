@@ -2,7 +2,7 @@ import type { MissionView, Snapshot } from '../../../core/src/types';
 import type { MapSelection } from '../map/incremental';
 import { mapCopyKey, readerPreview } from '../map/copyMode';
 import type { Dataset, MapEvent, MapTask } from '../map/model';
-import { needsCardCopy, referenceText, type CardRequest, type MapCopy, type ReaderBrief } from '../map/presentation';
+import { needsCardCopy, referenceText, type CardCopy, type CardRequest, type MapCopy, type ReaderBrief } from '../map/presentation';
 
 /** Compatible display schema; the server's copy.version controls regeneration. */
 export const READER_BRIEF_VERSION = 14;
@@ -66,6 +66,15 @@ export function briefInputSignature(task: MapTask | undefined, events: readonly 
     },
     events: events.map(event => [event.id, event.revision ?? event]),
   });
+}
+
+/** This reader retains only its own task. The full-source cursor lets the
+ * server recheck saved neighbors without adding their records to this view.
+ * Bind the receipt to this card too: a late replacement can contain old sources.
+ */
+export function briefRelatedInputSignature(data: Dataset | undefined, card: CardCopy | undefined): string | null {
+  if (!data?.cursor || !card || card.source_snapshot?.version !== 2 || !card.source_snapshot.related_tasks?.length) return null;
+  return JSON.stringify([data.cursor, card.copy_revision, card.generated_at, card.model_revision]);
 }
 
 export function isReaderBrief(value: unknown): value is ReaderBrief {

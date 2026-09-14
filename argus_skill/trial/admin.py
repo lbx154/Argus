@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 
-from . import CLIENT_MODEL, TRIAL_KEY_COUNT
+from . import DEFAULT_UPSTREAM_MODEL, TRIAL_KEY_COUNT
 from .secrets import Vault, write_private
 from .store import TrialError
 
@@ -112,7 +112,7 @@ def main() -> int:
     parser.add_argument("--key-count", type=int, default=TRIAL_KEY_COUNT,
                         help="Explicit invitation pool size for issue-keys (default: 10)")
     parser.add_argument("--copilot-home", type=Path, default=Path(os.environ.get("COPILOT_HOME") or Path.home() / ".copilot"))
-    parser.add_argument("--model", default=CLIENT_MODEL, help="Copilot model supporting Responses with high reasoning")
+    parser.add_argument("--model", default=DEFAULT_UPSTREAM_MODEL, help="Copilot model supporting Responses with high reasoning")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=18765)
     parser.add_argument("--keys-output", type=Path, help="Private operator export for issue-keys")

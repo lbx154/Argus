@@ -33,6 +33,22 @@ addEventListener('message',event=>{
   return frame;
 }
 
+test.afterEach(async ({ page }, info) => {
+  if (info.status === info.expectedStatus) return;
+  const frame = page.frames().find(item => item.url().startsWith(pluginOrigin));
+  const diagnostics = {
+    requests: await page.evaluate(() => (window as any).requests).catch(() => null),
+    state: await frame?.evaluate(() => ({
+      path: document.querySelector('input')?.value,
+      changedPath: (window as any).changedPath,
+      fallbackClicks: (window as any).fallbackClicks,
+      disabled: document.querySelector('button')?.disabled,
+      status: document.querySelector('[data-argus-picker-status]')?.textContent,
+    })).catch(() => null),
+  };
+  await info.attach('picker-fixture-state', { body: JSON.stringify(diagnostics), contentType: 'application/json' });
+});
+
 test('plugin Browse uses the native folder request and updates the public form without submitting', async ({ page }) => {
   const frame = await open(page);
   await frame.locator('[data-testid="browse-folder"]').click();

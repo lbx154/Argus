@@ -1,7 +1,9 @@
 {
   "bundle": {
     "resources": {
-      "../resources/WebView2Loader.dll": "WebView2Loader.dll"
+      "../resources/WebView2Loader.dll": "WebView2Loader.dll",
+      "installer-template.LICENSE": "licenses/tauri-installer.txt",
+      "../../LICENSE": "licenses/Argus.txt"
     },
     "icon": [
       "icons/icon.ico"

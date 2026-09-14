@@ -84,6 +84,8 @@ def test_install_constrains_nested_pip_and_requires_real_scientific_imports(
     import subprocess
     import sys
     from pathlib import Path
+    from urllib.parse import urlsplit
+    from urllib.request import url2pathname
 
     spec = {**pm.catalog()["crystalpilot"], "setup": {"automatic": False}}
     prior = {"old-plugin": {"enabled": True}}
@@ -114,7 +116,9 @@ def test_install_constrains_nested_pip_and_requires_real_scientific_imports(
         assert pm.registry(empty_host) == prior
     else:
         assert operation["status"] == "completed"
-        constraint_file = Path(install_calls[0]["env"]["PIP_CONSTRAINT"].split()[-1])
+        constraint_uri = urlsplit(install_calls[0]["env"]["PIP_CONSTRAINT"].split()[-1])
+        assert constraint_uri.scheme == "file" and not constraint_uri.netloc
+        constraint_file = Path(url2pathname(constraint_uri.path))
         assert constraint_file.read_text() == "numpy<2\n"
         assert pm.registry(empty_host)["crystalpilot"]["python_constraints"] == ["numpy<2"]
 
@@ -237,7 +241,7 @@ def test_native_plugin_requires_this_sessions_enabled_binding(empty_host, monkey
     plugin = SimpleNamespace(owns_workdir=lambda _path: True, prepare_run=prepare)
     monkeypatch.setattr(pm, "installed", lambda root=None: {"crystalpilot": plugin})
     monkeypatch.setattr(pm, "load_plugin", lambda *a, **k: plugin)
-    options = SimpleNamespace(working_dir=shared)
+    options = SimpleNamespace(working_dir=shared, disable_tools=False)
     with portalocker.Lock(str(pm.install_root(empty_host) / "crystalpilot/manage.lock"), timeout=0):
         for project in (None, second, shared / "state/s-unbound"):
             assert prepare_plugin_run(

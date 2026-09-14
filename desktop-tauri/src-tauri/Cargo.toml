@@ -1,13 +1,13 @@
 [package]
 name = "argus-desktop"
-version = "0.1.6"
+version = "0.1.7"
 description = "Argus desktop host"
 authors = ["lbx154"]
 edition = "2021"
 rust-version = "1.77"
 
 [features]
-preview = []
+preview = ["tauri/devtools"]
 
 [lib]
 name = "argus_desktop_lib"

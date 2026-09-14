@@ -115,6 +115,9 @@ def _opencode_full_access_env() -> dict[str, str]:
 
 
 class PromptDeliveryMixin:
+    backend: str
+    agent_bin: str
+
     """Deliver large role prompts without exposing them in process arguments."""
 
     @staticmethod

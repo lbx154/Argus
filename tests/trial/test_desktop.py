@@ -100,7 +100,7 @@ def test_download_reports_received_bytes_and_distinct_install_stages(tmp_path, m
     monkeypatch.setattr(native_cli, "verify_cli", lambda _: None)
     events, stages = [], []
     native_cli.install_native_copilot(progress=stages.append, download_progress=lambda *event: events.append(event))
-    assert events[0] == (0, None)
+    assert events[0] == (0, total)
     assert events[-1] == (len(content), total)
     assert any(0 < received < len(content) for received, _ in events)
     assert [received for received, _ in events] == sorted(received for received, _ in events)
@@ -137,20 +137,20 @@ def test_desktop_protocol_never_relays_key_or_setup_stdout(monkeypatch):
     # Match the frozen helper's redirected Windows stdout.
     monkeypatch.setattr(desktop.sys, "stdout", io.TextIOWrapper(wire, encoding="cp1252"))
 
-    def setup(_url, **kwargs):
-        assert kwargs["api_key"] == key and kwargs["desktop"]
+    def prepare(api_key, **kwargs):
+        assert api_key == key
         print(key)
         kwargs["progress"]("验证中")
         kwargs["download_progress"](1024, 2048)
-        return 0
+        return "/用户/copilot", {"tokens_remaining": 123}
 
-    monkeypatch.setattr(desktop, "setup_trial", setup)
-    monkeypatch.setattr(knob_store, "read_persisted_knobs", lambda: {"ARGUS_SKILL_RUNNER_BIN": "/用户/copilot"})
+    monkeypatch.setattr(desktop, "prepare", prepare)
+    monkeypatch.setattr(knob_store, "write_persisted_knobs", lambda *_a, **_kw: pytest.fail("preparation must not switch active settings"))
     assert desktop.main() == 0
     output = wire.getvalue().decode("ascii")
     assert key not in output
     events = [json.loads(line) for line in output.splitlines()]
-    assert events[-1] == {"event": "complete", "runner_bin": "/用户/copilot"}
+    assert events[-1] == {"event": "complete", "runner_bin": "/用户/copilot", "balance": {"tokens_remaining": 123}}
     assert any(event.get("message") == "验证中" for event in events)
     assert {"event": "download", "downloaded_bytes": 1024, "total_bytes": 2048} in events
 

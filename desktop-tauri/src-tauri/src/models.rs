@@ -59,17 +59,6 @@ pub enum AppearanceTheme {
     Dark,
 }
 
-/// The requested preview opts the original eye into motion independently of
-/// Windows accessibility preferences. System/Off remain explicit user choices.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum StartupEyeMotion {
-    #[default]
-    On,
-    System,
-    Off,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OwnAccountSettings {
@@ -102,8 +91,6 @@ pub struct DesktopSettings {
     pub own_account: Option<OwnAccountSettings>,
     #[serde(default)]
     pub appearance_theme: AppearanceTheme,
-    #[serde(default)]
-    pub startup_eye_motion: StartupEyeMotion,
 }
 
 fn default_host() -> String {
@@ -127,7 +114,6 @@ impl Default for DesktopSettings {
             trial_mode: false,
             own_account: None,
             appearance_theme: AppearanceTheme::default(),
-            startup_eye_motion: StartupEyeMotion::default(),
         }
     }
 }
@@ -257,7 +243,6 @@ impl SetupResult {
 pub struct DesktopAppearance {
     pub theme: AppearanceTheme,
     pub resolved_theme: String,
-    pub startup_eye_motion: StartupEyeMotion,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

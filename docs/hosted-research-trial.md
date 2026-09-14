@@ -278,6 +278,12 @@ observer profile requires Pi 0.85.1 and its checked runtime implementation; arbi
 distributions are not automatically trusted. `pi.Dockerfile` and
 `compute.Dockerfile` accept `--build-arg WEB_BASE_IMAGE=YOUR_WEB_IMAGE` so each layer
 can reference the base image built from the same source and Python dependencies.
+Pass `--build-arg ARGUS_SKILL_BUILD_REVISION=<full source commit>` to both the web
+and Pi image builds. These images copy source without `.git`; without this value,
+`/api/meta` reports an unknown revision. The Pi layer resets the value so an older
+base image cannot silently supply the wrong source identity. Native processes
+can set the same environment variable at launch. Verify the served revision
+after cutover, including trial-11.
 Set the generated deployment configurations to the selected image tags.
 
 Start newly provisioned workspace containers with the capture image:

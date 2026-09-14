@@ -10,8 +10,9 @@ from pathlib import Path
 
 import httpx
 
-from . import CLIENT_MODEL, MAP_REASONING_DEFAULTS
+from . import DEFAULT_UPSTREAM_MODEL, MAP_REASONING_DEFAULTS
 from .copilot import BASE_URL, HEADERS, Copilot
+from .model_catalog import configured_model_ids
 from .secrets import Vault, write_private
 
 
@@ -30,11 +31,12 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str
         "baseUrl": f"http://127.0.0.1:{model_port}/v1" if tenant else BASE_URL,
         "api": "openai-completions" if tenant else "openai-responses",
         "apiKey": token if tenant else "$ARGUS_ADMIN_PROVIDER_TOKEN",
-        "models": [{"id": CLIENT_MODEL, "reasoning": True}],
+        "models": [{"id": model, "reasoning": True} for model in configured_model_ids()],
     }
     if not tenant:
         provider["headers"] = {**HEADERS, "X-Initiator": "agent"}
-        provider["models"][0]["compat"] = {"supportsStrictMode": True}
+        for model in provider["models"]:
+            model["compat"] = {"supportsStrictMode": True}
     write_private(agent_dir / "models.json", json.dumps({"providers": {"argus": provider}}).encode())
     knobs = {
         "ARGUS_SKILL_RUNNER_BACKEND": "pi",
@@ -44,7 +46,7 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str
         "ARGUS_SKILL_PI_PROVIDER": "argus",
         "ARGUS_SKILL_COPILOT_TRIAL": "0",
         **{name: resolve_knob(name, default).value for name, default in MAP_REASONING_DEFAULTS.items()},
-        **{knob.name: CLIENT_MODEL for knob in KNOBS if knob.name.endswith("_MODEL")},
+        **{knob.name: DEFAULT_UPSTREAM_MODEL for knob in KNOBS if knob.name.endswith("_MODEL")},
     }
     for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR", "CURATOR"):
         knobs[f"ARGUS_SKILL_{role}_BACKEND"] = "pi"

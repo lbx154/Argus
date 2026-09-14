@@ -25,15 +25,56 @@ pub struct ExpectedPriorBackendOwnership {
     pub token_sha256: String,
 }
 
+/// Enable native inspection only for an explicitly isolated preview QA process.
+pub fn preview_qa_enabled(preview: bool, namespace: Option<&str>) -> bool {
+    preview && namespace.is_some_and(|value| (16..=64).contains(&value.len())
+        && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
 /// Isolate preview smoke mutexes while retaining real single-instance behavior.
 /// Release builds ignore this test namespace; user-facing preview defaults stay
 /// unchanged. The caller also supplies a fresh AppData/WebView directory.
 pub fn preview_instance_identifier(base: &str, preview: bool, namespace: Option<&str>) -> String {
     match namespace {
-        Some(value) if preview && (16..=64).contains(&value.len())
-            && value.bytes().all(|byte| byte.is_ascii_hexdigit()) => format!("{base}.test{value}"),
+        Some(value) if preview_qa_enabled(preview, Some(value)) => format!("{base}.test{value}"),
         _ => base.to_owned(),
     }
+}
+
+/// A production host may bypass its instance mutex only for a fully isolated
+/// packaged-host test. An ambient flag alone must not duplicate a real profile.
+fn isolated_host_qa_paths(
+    namespace: &str,
+    root: &std::path::Path,
+    temporary: &std::path::Path,
+    homes: &[std::path::PathBuf],
+) -> bool {
+    if !preview_qa_enabled(true, Some(namespace)) || homes.len() != 9 {
+        return false;
+    }
+    if !root.file_name().is_some_and(|name| name.to_string_lossy().starts_with("argus-tauri-host-smoke-")) {
+        return false;
+    }
+    let (Ok(root), Ok(temporary)) = (root.canonicalize(), temporary.canonicalize()) else {
+        return false;
+    };
+    if root == temporary || !root.starts_with(&temporary) || !root.is_dir() {
+        return false;
+    }
+    homes.iter().all(|home| home.canonicalize().is_ok_and(|home| {
+        home != root && home.starts_with(&root) && home.is_dir()
+    }))
+}
+
+pub fn isolated_host_qa_from_env() -> bool {
+    let Some(root) = std::env::var_os("ARGUS_DESKTOP_QA_ROOT") else { return false; };
+    let Ok(namespace) = std::env::var("ARGUS_DESKTOP_TEST_INSTANCE") else { return false; };
+    let names = ["APPDATA", "LOCALAPPDATA", "HOME", "USERPROFILE", "ARGUS_SKILL_HOME",
+                 "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR", "CLAUDE_CONFIG_DIR"];
+    let homes: Option<Vec<_>> = names.iter().map(|name| std::env::var_os(name).map(std::path::PathBuf::from)).collect();
+    homes.is_some_and(|homes| isolated_host_qa_paths(
+        &namespace, &std::path::PathBuf::from(root), &std::env::temp_dir(), &homes,
+    ))
 }
 
 /// Canonicalize Windows comparison spelling without changing the path's target.
@@ -202,12 +243,43 @@ mod tests {
     #[test]
     fn test_instance_is_preview_only_and_validated() {
         let nonce = "a123456789abcdef";
+        assert!(preview_qa_enabled(true, Some(nonce)));
+        assert!(!preview_qa_enabled(false, Some(nonce)));
+        assert!(!preview_qa_enabled(true, None));
         assert_eq!(preview_instance_identifier("cn.argus.preview", true, Some(nonce)),
                    "cn.argus.preview.testa123456789abcdef");
         assert_eq!(preview_instance_identifier("cn.argus", false, Some(nonce)), "cn.argus");
         for value in ["", "short", "../../another-app", "not a valid namespace"] {
+            assert!(!preview_qa_enabled(true, Some(value)));
             assert_eq!(preview_instance_identifier("cn.argus", true, Some(value)), "cn.argus");
         }
+    }
+
+    #[test]
+    fn host_qa_requires_every_home_inside_one_temporary_root() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("argus-tauri-host-smoke-fixture");
+        std::fs::create_dir(&root).unwrap();
+        let mut homes: Vec<_> = (0..9).map(|index| root.join(format!("home-{index}"))).collect();
+        for home in &homes { std::fs::create_dir(home).unwrap(); }
+        let nonce = "a123456789abcdef";
+        assert!(isolated_host_qa_paths(nonce, &root, temporary.path(), &homes));
+        assert!(!isolated_host_qa_paths("invalid", &root, temporary.path(), &homes));
+        assert!(!isolated_host_qa_paths(nonce, &root, temporary.path(), &homes[..8]));
+        homes[0] = temporary.path().to_path_buf();
+        assert!(!isolated_host_qa_paths(nonce, &root, temporary.path(), &homes));
+        homes[0] = root.join("does-not-exist");
+        assert!(!isolated_host_qa_paths(nonce, &root, temporary.path(), &homes));
+    }
+
+    #[test]
+    fn qa_root_cannot_be_a_real_profile_or_the_temp_directory_itself() {
+        let temporary = tempfile::tempdir().unwrap();
+        let home = temporary.path().join("ordinary-profile");
+        std::fs::create_dir(&home).unwrap();
+        let homes = vec![home.clone(); 9];
+        assert!(!isolated_host_qa_paths("a123456789abcdef", &home, temporary.path(), &homes));
+        assert!(!isolated_host_qa_paths("a123456789abcdef", temporary.path(), temporary.path(), &homes));
     }
 
     #[test]

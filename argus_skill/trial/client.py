@@ -11,6 +11,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -33,7 +34,7 @@ def profile_path() -> Path:
     return Path(candidate) if candidate else trial_home() / "copilot-trial.json"
 
 
-def trial_enabled(env: dict[str, str] | None = None) -> bool:
+def trial_enabled(env: Mapping[str, str] | None = None) -> bool:
     from ..core.knob_store import read_persisted_knobs
 
     source = os.environ if env is None else env
@@ -44,7 +45,7 @@ def trial_enabled(env: dict[str, str] | None = None) -> bool:
 
 
 def trial_model_options(
-    model: str | None, effort: str | None, *, env: dict[str, str] | None = None,
+    model: str | None, effort: str | None, *, env: Mapping[str, str] | None = None,
 ) -> tuple[str | None, str | None]:
     """Normalize a trial selector consistently for one-shot and ACP workers.
 

@@ -93,7 +93,7 @@ def _download_archive(request, archive: Path, expected: str, progress=None):
             if progress:
                 progress(received, total)
     except (TimeoutError, urllib.error.URLError, ConnectionError, ssl.SSLError, http.client.HTTPException):
-        raise ValueError("Copilot 下载中断或等待网络响应超时；请检查网络后重试，原设置未更改，不会自动重复下载。") from None
+        raise ValueError("Copilot 下载中断或等待网络响应超时；原设置未更改，不会自动重复下载。" + DOWNLOAD_HELP) from None
     if digest.hexdigest() != expected:
         raise ValueError("Copilot 下载校验失败，请重试。")
 

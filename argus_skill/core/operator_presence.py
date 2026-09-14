@@ -82,6 +82,12 @@ def _last_operator_turn(life_dir: Path) -> float | None:
 
 def _last_inbox_note(life_dir: Path) -> float | None:
     latest: float | None = None
+    from ..apps._inbox import latest_durable_inbox_timestamp
+
+    try:
+        latest = latest_durable_inbox_timestamp(life_dir)
+    except (OSError, RuntimeError):
+        pass  # Presence is advisory; authority intake reports its own failures.
     for path in sorted(Path(life_dir).glob("inbox*.jsonl")):
         try:
             lines = path.read_text(encoding="utf-8").splitlines()

@@ -25,6 +25,9 @@ from argus_skill.core.usage import UsageLedger, build_usage_record
 def _budget_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1000")
+    # These inherited concurrency/accounting cases exercise explicit allow.
+    # Strict admission and operator acknowledgement remain covered separately.
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
 
 
 def _reserve(root: Path, project: Path, call_id: str, **kwargs):
@@ -216,8 +219,11 @@ def test_uncertain_settlement_preserves_observed_floor_until_reconciliation(
 
     for _ in range(2):
         snapshot = cost_control_snapshot(global_root=tmp_path)
-        assert snapshot["active_reservations"] == 1
-        assert snapshot["in_flight_cost_usd"] == max(0, 10 - (partial_cost or 0))
+        # v2 transfers closed observations to unresolved liabilities; no
+        # provider is still running, but its monetary lower bound remains.
+        assert snapshot["active_reservations"] == 0
+        assert snapshot["in_flight_cost_usd"] == 0
+        assert snapshot["unacknowledged_observed_cost_usd"] == max(0, 10 - (partial_cost or 0))
         assert snapshot["unresolved_calls"] == 1
         assert snapshot["blocking_unresolved_calls"] == 0
         denied, reason = _reserve(tmp_path, project, "after-finalization")
@@ -231,7 +237,7 @@ def test_uncertain_settlement_preserves_observed_floor_until_reconciliation(
     assert above_floor is not None and reason == ""
     above_floor.release(reason="test")
     state = json.loads((tmp_path / cost_control.COST_CONTROL_STATE_FILE).read_text())
-    assert state["reservations"][0]["observed_cost_usd"] == 10
+    assert state["unresolved"][0]["observed_cost_usd"] == 10
     if pricing_status != "unknown":
         assert ledger.records()[0].cost_usd == partial_cost
         assert ledger.records()[0].pricing_status == pricing_status
@@ -287,7 +293,8 @@ def test_partial_copilot_events_overlap_observed_cost(
 
     assert ledger.summary().known_cost_usd == 8
     snapshot = cost_control_snapshot(global_root=tmp_path)
-    assert snapshot["in_flight_cost_usd"] == observed_cost - 8
+    assert snapshot["in_flight_cost_usd"] == 0
+    assert snapshot["unacknowledged_observed_cost_usd"] == observed_cost - 8
     assert snapshot["blocking_unresolved_calls"] == 0
     next_call, reason = _reserve(tmp_path, project, "next")
     if observed_cost < 10:
@@ -339,7 +346,8 @@ def test_legacy_unresolved_flags_never_block_even_during_lock_contention(tmp_pat
         assert snapshot["blocking_unresolved_calls"] == 0
         assert snapshot["unresolved"][0]["blocking"] is False
     cost_control_snapshot(global_root=tmp_path)
-    assert json.loads(path.read_text())["unresolved"][0]["blocking"] is False
+    # Historical flags are metadata, not authority over the explicit policy.
+    assert json.loads(path.read_text())["unresolved"][0]["blocking"] is True
     admitted.release(reason="test")
 
 
@@ -370,10 +378,13 @@ def test_observation_recovers_tracking_after_admission_lock_contention(tmp_path:
     reservation.settle_unknown(reason="final usage unavailable")
 
     snapshot = cost_control_snapshot(global_root=tmp_path)
-    assert snapshot["active_reservations"] == 1
-    assert snapshot["in_flight_cost_usd"] == 25
+    assert snapshot["active_reservations"] == 0
+    assert snapshot["in_flight_cost_usd"] == 0
+    assert snapshot["unacknowledged_observed_cost_usd"] == 25
     assert snapshot["unresolved_calls"] == 1
     assert snapshot["blocking_unresolved_calls"] == 0
+    denied, reason = _reserve(tmp_path, project, "over-floor", global_daily_cap_usd=25)
+    assert denied is None and "budget exhausted" in reason
 
 
 def test_external_project_unknown_settlement_resolves_globally(tmp_path: Path) -> None:

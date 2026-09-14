@@ -724,13 +724,11 @@ class _StageDecisionMixin:
 
         from .stage_decider import StageDecision
 
-        if _completion_vertical == "research" and decision.action == "rollback":
-            decision = StageDecision(
-                "hold",
-                cur,
-                "research stages are forward-only; schedule repair work in Review",
-                "research_rollback_rejected",
-            )
+        if decision.action == "rollback":
+            from ..skills.stage_machine import stage_rollback_error
+
+            if error := stage_rollback_error(root):
+                decision = StageDecision("hold", cur, str(error), error.diagnostic)
 
         if (
             planner_wait_reconciliation
@@ -755,7 +753,7 @@ class _StageDecisionMixin:
     ) -> "StageTransition":  # noqa: F821
         """Phase 5: write the chosen action to ``PIPELINE_STATE.json`` and return a
         ``StageTransition`` describing what happened."""
-        from ..skills.stage_machine import StageCompletionError
+        from ..skills.stage_machine import StageCompletionError, StageRollbackError
         from ..skills.stage_machine import (
             advance_stage as _advance,
         )
@@ -821,22 +819,15 @@ class _StageDecisionMixin:
                                    decision.resolves_wait)
 
         if decision.action == "rollback":
-            from ..skills.vertical_select import resolve_vertical
-
-            if resolve_vertical(root) == "research":
-                return StageTransition(
-                    "hold",
-                    cur,
-                    "research stages are forward-only; schedule repair work in "
-                    "the current stage",
-                    current_stage=cur,
-                    source="illegal_target_hold",
-                    diagnostic="research_rollback_rejected",
-                )
             try:
                 _rollback(root, target_stage=decision.target_stage,
                           reason=decision.reason, rolled_back_by="manager",
                           evidence_root=self.execution_workdir)
+            except StageRollbackError as exc:
+                return StageTransition(
+                    "hold", cur, str(exc), current_stage=cur,
+                    source="illegal_target_hold", diagnostic=exc.diagnostic,
+                )
             except ValueError:
                 return StageTransition(
                     "hold", cur, "illegal rollback target", current_stage=cur,
@@ -1137,10 +1128,8 @@ class _StageDecisionMixin:
                 build_stage_decision_prompt,
                 stage_decision_request,
             )
-            from ..skills.vertical_select import (
-                resolve_vertical,
-                resolve_workflow_mode,
-            )
+            from ..skills.stage_machine import stage_rollback_error
+            from ..skills.vertical_select import resolve_workflow_mode
 
             allow_direct_completion = (
                 not open_ended and resolve_workflow_mode(root) == "direct"
@@ -1163,7 +1152,7 @@ class _StageDecisionMixin:
                     planner_verdict=planner_verdict,
                     open_ended=open_ended,
                     continuous_objective=continuous_objective,
-                    allow_rollback=resolve_vertical(root) != "research",
+                    allow_rollback=stage_rollback_error(root) is None,
                     allow_early_completion=allow_direct_completion,
                 ),
                 role_banner=prompt_context.role_banner,

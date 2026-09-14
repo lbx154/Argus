@@ -1,94 +1,98 @@
-"""Small pure helpers + the mutable scratch state for one mission run.
+"""The process-local data contract for one claimed mission.
 
 ``_MissionRunState`` is threaded through the lifecycle phase methods in
 ``_mission_execution_runtime.py`` and ``_mission_execution_settlement.py``. It
-exists only to avoid re-deriving/re-threading dozens of interdependent locals
-through method signatures; it is process-local scratch state for a single
-``_run_one`` call, never persisted.
+contains only values that cross phase boundaries. It is never serialized;
+backlog rows, usage records, context packets, and events own durable state.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..memory import BacklogItem
 
+if TYPE_CHECKING:
+    from ...core.stop_kinds import StopKind
+    from ...core.usage import UsageLedger, UsageSummary
+    from ...manager.control_state import CampaignControlStore, CampaignIdentity
+    from ._cost import _CostTrackingSink
 
+
+@dataclass(slots=True, eq=False, repr=False)
 class _MissionRunState:
-    """Mutable scratch state threaded through one ``_run_one`` lifecycle.
+    """Explicit shared fields, grouped by the phase that first supplies them.
 
-    Fields are populated progressively by each phase method (claim/context ->
-    runner invocation -> repair capability -> outcome settlement/journal); the
-    final phase reads whatever it needs off this object to build the event
-    payload and the return dict. Attribute set is intentionally open (no
-    ``__slots__``) because different phases set optional fields.
+    ``_prepare_mission_context`` fills the context group before returning this
+    object. Execution supplies the raw outcome; derivation meters it before any
+    settlement branch can return. Settlement may revise the derived result, and
+    final emission refreshes usage after post-mission learning. Fields used only
+    inside one phase stay local to that phase.
+
+    ``outcome`` deliberately accepts the production runner, guard, and test
+    outcome shapes. JSON payloads retain their existing format; they are not
+    additional runtime object extension points. Slots reject undeclared fields
+    so a new cross-phase dependency must be added to this contract explicitly.
     """
 
-    def __init__(self, item: BacklogItem) -> None:
-        self.item = item
+    item: BacklogItem
 
-        # Set by ``_prepare_mission_context``.
-        self.prelude: str = ""
-        self.pipeline_stage_at_start: str = ""
-        self.usage_attempt_id: str = ""
-        self.item_scope: str = ""
-        self.usage_root: Path | None = None
-        self.context_packet_path: Path | None = None
-        self.usage_ledger: Any = None
-        self.cost_sink: Any = None
-        self.item_tags: set[str] = set()
-        self.plan_revision_witness: dict[str, Any] = {}
-        self.execution_workdir: Path | None = None
-        self.configured_execution_workdir: str = ""
+    # Context: _prepare_mission_context. Optional services/packet may be absent.
+    prelude: str = ""
+    pipeline_stage_at_start: str = ""
+    usage_attempt_id: str = ""
+    item_scope: str = ""
+    usage_root: Path | None = None
+    context_packet_path: Path | None = None
+    usage_ledger: UsageLedger | None = None
+    cost_sink: _CostTrackingSink | None = None
+    item_tags: set[str] = field(default_factory=set)
+    plan_revision_witness: dict[str, Any] = field(default_factory=dict)
+    execution_workdir: Path | None = None
+    vertical_root: Path | None = None
+    configured_execution_workdir: str = ""
 
-        # Set by ``_invoke_mission_runner``.
-        self.t0: float = 0.0
-        self.outcome: Any = None
-        self.exc_str: str | None = None
-        self.repair_store: Any = None
-        self.repair_identity: Any = None
-        self.repair_capability: dict[str, Any] | None = None
-        self.recovered_repair_settlement: dict[str, Any] | None = None
-        self.elapsed: float = 0.0
+    # Execution: _invoke_mission_runner, including acceptance/repair guards.
+    t0: float = 0.0
+    outcome: object | None = None
+    exc_str: str | None = None
+    repair_store: CampaignControlStore | None = None
+    repair_identity: CampaignIdentity | None = None
+    repair_capability: dict[str, Any] | None = None
+    recovered_repair_settlement: dict[str, Any] | None = None
+    elapsed: float = 0.0
 
-        # Set by ``_derive_basic_outcome_fields``.
-        self.success: bool = False
-        self.status: str = "error"
-        self.rounds: int = 0
-        self.stop_reason: str = ""
-        self.stop_kind: str | None = None
-        self.usage_summary: Any = None
-        self.usd: float = 0.0
-        self.known_usd: float = 0.0
-        self.auth_failure: bool = False
+    # Derivation: _derive_basic_outcome_fields; settlement can revise these.
+    success: bool = False
+    status: str = "error"
+    rounds: int = 0
+    stop_reason: str = ""
+    stop_kind: StopKind | None = None
+    usage_summary: UsageSummary | None = None
+    usd: float | None = 0.0
+    known_usd: float = 0.0
+    auth_failure: bool = False
 
-        # Set by ``_settle_repair_capability``.
-        self.repair_settlement: dict[str, Any] | None = None
+    # Repair and stage settlement: _settle_repair_capability, then stage guard.
+    repair_settlement: dict[str, Any] | None = None
+    stage_transition: dict[str, Any] = field(default_factory=dict)
+    stage_action: str = ""
+    planner_bounded_node: bool = False
 
-        # Set by ``_apply_dynamic_plan_stage_guard`` /
-        # ``_maybe_short_circuit_for_stage_transition``.
-        self.stage_transition: dict[str, Any] = {}
-        self.stage_action: str = ""
-        self.planner_bounded_node: bool = False
+    # Iteration: _run_one asks the vertical before considering a stage HOLD.
+    iteration: dict[str, Any] | None = None
+    iteration_requeued: bool = False
 
-        # Set by ``_finalize_mission_status``.
-        self.research_pause: bool = False
-        self.replan_requested: bool = False
-        self.intentional_abort: bool = False
-        self.stage_reconciled_replan: bool = False
-        self.err: str = ""
-        self.resumable: bool = False
-        self.outcome_dimensions: Any = None
-        self.iteration: dict[str, Any] | None = None
-        self.iteration_requeued: bool = False
-
-        # Set by ``_emit_mission_outcome_and_build_result``.
-        self.kind: str = ""
-        self.final_submission_certified: bool = False
-        self.final_submission_signature: str = ""
-        self.scientist_totals: Any = None
-        self.scientist_usage_by_model: Any = None
+    # Finalization: _finalize_mission_status supplies the durable outcome fields.
+    replan_requested: bool = False
+    intentional_abort: bool = False
+    err: str = ""
+    resumable: bool = False
+    outcome_dimensions: dict[str, object] | None = None
+    # Finalization atomically binds this envelope to the backlog update.
+    completion_delivery: dict[str, Any] | None = None
 
 
 __all__ = ["_MissionRunState"]

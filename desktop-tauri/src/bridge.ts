@@ -12,7 +12,6 @@ export type RunnerKind =
   | 'qoder'
   | 'dsh';
 export type AppearanceTheme = 'system' | 'light' | 'dark';
-export type StartupEyeMotion = 'on' | 'system' | 'off';
 export type LaunchState = 'idle' | 'starting' | 'ready' | 'error' | 'stopped';
 
 export interface DesktopStatus {
@@ -62,7 +61,6 @@ export interface DesktopSetup {
 export interface DesktopAppearance {
   theme: AppearanceTheme;
   resolvedTheme: 'light' | 'dark';
-  startupEyeMotion: StartupEyeMotion;
 }
 
 export interface TrialBalance {
@@ -148,8 +146,6 @@ export const desktopBridge = {
   getAppearance: (): Promise<DesktopAppearance> => invoke('get_appearance'),
   setAppearance: (appearance: { theme: AppearanceTheme }): Promise<DesktopAppearance> =>
     invoke('set_appearance', { input: appearance }),
-  setStartupEyeMotion: (motion: StartupEyeMotion): Promise<DesktopAppearance> =>
-    invoke('set_startup_eye_motion', { motion }),
   setWindowTheme: (theme: AppearanceTheme): Promise<void> =>
     invoke('set_window_theme', { theme }),
   setLargePreview: (active: boolean): Promise<void> =>

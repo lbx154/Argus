@@ -62,6 +62,41 @@ def test_stale_healthy_record_downgrades_without_becoming_progress(tmp_path: Pat
     assert "stale" in status.reason
 
 
+@pytest.mark.parametrize("heartbeat", [float("nan"), float("inf"), float("-inf"), "nan", "1e400", 10 ** 400, True])
+def test_invalid_heartbeat_cannot_keep_a_job_waitable(tmp_path: Path, heartbeat) -> None:
+    _write_external(tmp_path, "invalid", heartbeat_at=heartbeat)
+    _write_external(tmp_path, "healthy", heartbeat_at=100)
+
+    statuses = {status.work_id: status for status in scan_external_work(tmp_path, now=110)}
+
+    assert statuses["invalid"].state is ExternalWorkState.STALLED
+    assert not statuses["invalid"].waitable
+    assert statuses["healthy"].waitable
+    slept = []
+    reason, waited = wait_for_external_work_cadence(
+        tmp_path, "invalid", sleep=slept.append, now=lambda: 110,
+    )
+    assert (reason, waited, slept) == ("stalled", 0.0, [])
+
+
+@pytest.mark.parametrize("duration", [float("nan"), float("inf"), "1e400", 10 ** 400])
+def test_bad_wait_durations_use_finite_defaults(tmp_path: Path, duration) -> None:
+    import math
+
+    _write_external(tmp_path, "job", heartbeat_at="100", stale_after_seconds=duration,
+                    activity_stale_after_seconds=duration, poll_after_seconds=duration,
+                    started_at=duration)
+    status = inspect_external_work(tmp_path, "job", now=110)
+
+    assert status is not None and status.waitable
+    assert all(math.isfinite(value) for value in (
+        status.heartbeat_at, status.stale_after_seconds, status.activity_stale_after_seconds,
+        status.poll_after_seconds, status.started_at,
+    ))
+    assert status.started_at == 0
+    assert inspect_external_work(tmp_path, "job", now=2000).state is ExternalWorkState.STALLED
+
+
 def test_fresh_heartbeat_with_quiet_declared_activity_stays_waitable(
     tmp_path: Path,
 ) -> None:

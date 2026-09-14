@@ -9,6 +9,8 @@ Current storage shapes:
   Status field on each row toggles ``pending`` → ``running`` → ``done``
   / ``failed`` / ``skipped`` / ``superseded``. We rewrite the whole file on status
   changes; the file is small (tens-to-hundreds of items).
+  ``backlog.commit.json`` commits archive/live changes together and records the
+  storage version once recovery has finished. All Backlog access uses its lock.
 - ``IdentityCard``: a single ``identity.md`` markdown file the user
   edits freely. We just read it.
 The :class:`LifeMemory` facade bundles the global files plus a small
@@ -44,6 +46,7 @@ from typing import Any, Callable, Iterable, Iterator
 import portalocker
 
 from ..core.event_catalog import EventType, canonical_event_type
+from ..core.json_codec import loads_finite_json
 from ..core.prompt_example_tasks import is_prompt_example_task
 
 _BACKLOG_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
@@ -87,7 +90,7 @@ def _read_jsonl_tail(
     raw_predicate: Callable[[bytes], bool] | None = None,
     raw_markers: tuple[bytes, ...] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return the last ``n`` matching JSONL rows without a full-file scan."""
+    """Return the last ``n`` matching finite JSONL rows without a full-file scan."""
     if n <= 0 or not path.exists():
         return []
     if raw_markers:
@@ -122,8 +125,8 @@ def _read_jsonl_tail(
                     if raw_predicate is not None and not raw_predicate(raw):
                         continue
                     try:
-                        row = json.loads(raw.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        row = loads_finite_json(raw)
+                    except (UnicodeDecodeError, ValueError):
                         continue
                     if predicate is not None and not predicate(row):
                         continue
@@ -136,10 +139,10 @@ def _read_jsonl_tail(
                     try:
                         if raw_predicate is not None and not raw_predicate(raw):
                             return list(reversed(rows_rev))
-                        row = json.loads(raw.decode("utf-8"))
+                        row = loads_finite_json(raw)
                         if predicate is None or predicate(row):
                             rows_rev.append(row)
-                    except (UnicodeDecodeError, json.JSONDecodeError):
+                    except (UnicodeDecodeError, ValueError):
                         pass
     except OSError:
         return []
@@ -186,8 +189,8 @@ def _read_jsonl_tail_marked(
                         raw = mapped[line_start:line_end].strip()
                         if raw:
                             try:
-                                row = json.loads(raw.decode("utf-8"))
-                            except (UnicodeDecodeError, json.JSONDecodeError):
+                                row = loads_finite_json(raw)
+                            except (UnicodeDecodeError, ValueError):
                                 row = None
                             if row is not None and (predicate is None or predicate(row)):
                                 rows_rev.append(row)
@@ -314,7 +317,7 @@ def _read_jsonl_tail_rg(
     rows: deque[dict[str, Any]] = deque(maxlen=n)
     for raw in result.stdout.splitlines():
         try:
-            row = json.loads(raw)
+            row = loads_finite_json(raw)
         except ValueError:
             continue
         if predicate is None or predicate(row):
@@ -352,13 +355,27 @@ def _atomic_rewrite_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
             tmp_path = Path(fh.name)
             for row in rows:
                 fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp_path, path)
+        _fsync_parent(path)
     finally:
         if tmp_path is not None and tmp_path.exists():
             try:
                 tmp_path.unlink()
             except OSError:
                 pass
+
+
+def _fsync_parent(path: Path) -> None:
+    """Persist renames/creation on POSIX; Windows has no directory fsync API."""
+    if os.name == "nt":
+        return
+    fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _append_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -979,6 +996,9 @@ class BacklogItem:
     parallel_safe: bool = False
     owns_paths: list[str] = field(default_factory=list)
     outcome: dict[str, Any] = field(default_factory=dict)
+    # Optional durable return receipt; kept separate from public outcome dimensions.
+    mission_result: dict[str, Any] | None = None
+    mission_delivery_id: str = ""
 
     @classmethod
     def new_id(cls) -> str:
@@ -1062,7 +1082,12 @@ class BacklogItem:
         )
 
     def to_jsonable(self) -> dict[str, Any]:
-        return asdict(self)
+        row = asdict(self)
+        if self.mission_result is None:
+            row.pop("mission_result")
+        if not self.mission_delivery_id:
+            row.pop("mission_delivery_id")
+        return row
 
     @classmethod
     def from_jsonable(cls, row: dict[str, Any]) -> "BacklogItem":
@@ -1153,6 +1178,8 @@ class BacklogItem:
                 if isinstance(row.get("outcome"), dict)
                 else {}
             ),
+            mission_result=(dict(row["mission_result"]) if isinstance(row.get("mission_result"), dict) else None),
+            mission_delivery_id=str(row.get("mission_delivery_id") or ""),
         )
 
 
@@ -1168,12 +1195,31 @@ class Backlog:
     state (``failed`` / ``skipped`` / ``superseded`` / missing) is
     cascade-skipped on the
     next ``claim_next`` so a dead dependency can't wedge the queue.
+
+    Storage authority: a pending ``backlog.commit.json`` is the committed next
+    archive/live state, even when its caller saw an I/O error. Every public read
+    and mutation recovers it under the same lock before accessing rows. Once
+    applied, the record contains only its version and archive/live are current.
+    Terminal corrections append new revisions; stable item ids cannot be reused.
+    This protocol assumes every writer uses this version; stop older runtimes
+    before upgrading a shared backlog. It does not make external work exactly-once.
     """
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self.archive_path = self.path.with_name(f"{self.path.stem}.archive.jsonl")
+        self._commit_path = self.path.with_name(f"{self.path.stem}.commit.json")
         self._lock_path = self.path.parent / f"{self.path.name}.lock"
+        from .mission_delivery import EXPERIENCE_RETENTION, PENDING_DIRECTORY
+
+        self._mission_deliveries_path = self.path.parent / PENDING_DIRECTORY
+        self._mission_experience_retention_path = self.path.parent / EXPERIENCE_RETENTION
+
+    @property
+    def storage_paths(self) -> tuple[Path, ...]:
+        """State files for cache invalidation and complete backups, including recovery."""
+        return (self.path, self.archive_path, self._commit_path, self._mission_deliveries_path,
+                self._mission_experience_retention_path)
 
     # --- io ---
     def _load(self) -> list[BacklogItem]:
@@ -1185,19 +1231,160 @@ class Backlog:
             for r in _read_jsonl(self.archive_path)
         ]
 
-    def _save(self, items: Iterable[BacklogItem]) -> None:
-        # This partition is also the lazy migration: the first mutation of a
-        # legacy mixed backlog appends its terminal rows to the archive and
-        # rewrites only live rows to backlog.jsonl.
-        live: list[BacklogItem] = []
-        terminal: list[BacklogItem] = []
+    def _save(
+        self, items: Iterable[BacklogItem], *, mission_delivery: dict[str, Any] | None = None,
+    ) -> None:
+        """Commit under _locked; the small record is the cross-file commit point."""
+        live: list[dict[str, Any]] = []
+        terminal: list[dict[str, Any]] = []
         for item in items:
-            (terminal if item.status in _TERMINAL_STATUSES else live).append(item)
-        _append_jsonl(
-            self.archive_path,
-            (item.to_jsonable() for item in terminal),
-        )
-        _atomic_rewrite_jsonl(self.path, (item.to_jsonable() for item in live))
+            partition = terminal if item.status in _TERMINAL_STATUSES else live
+            partition.append(item.to_jsonable())
+        if not terminal and mission_delivery is None:
+            _atomic_rewrite_jsonl(self.path, live)
+            return
+        record: dict[str, Any] = {
+            "version": 2 if mission_delivery is not None else 1,
+            "archive_offset": self.archive_path.stat().st_size if self.archive_path.exists() else 0,
+            "live": live,
+            "terminal": terminal,
+        }
+        if mission_delivery is not None:
+            from .mission_delivery import validate_mission_delivery
+
+            validate_mission_delivery(mission_delivery)
+            record["mission_deliveries"] = [mission_delivery]
+        # File fsync, rename, then parent fsync: after this point recovery must
+        # finish this state rather than retrying the old running mission.
+        _atomic_rewrite_jsonl(self._commit_path, [record])
+        self._apply_commit(record)
+
+    def _apply_commit(self, record: dict[str, Any]) -> None:
+        """Replay only this transaction's archive suffix; caller owns _locked."""
+        offset = record["archive_offset"]
+        size = self.archive_path.stat().st_size if self.archive_path.exists() else 0
+        if size < offset:
+            raise RuntimeError("backlog archive is shorter than its committed offset")
+        fd = os.open(self.archive_path, os.O_RDWR | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "r+b") as handle:
+            # A previous replay may have stopped in a JSON row. Replacing from
+            # the saved offset makes partial/multiple replays idempotent, without
+            # scanning history. No other writer can append until recovery ends.
+            handle.seek(offset)
+            if offset:
+                handle.seek(offset - 1)
+                if handle.read(1) != b"\n":
+                    handle.write(b"\n")
+            for row in record["terminal"]:
+                handle.write((json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode())
+            handle.truncate()
+            handle.flush()
+            os.fsync(handle.fileno())
+        _fsync_parent(self.archive_path)
+        _atomic_rewrite_jsonl(self.path, record["live"])
+        for delivery in record.get("mission_deliveries", []):
+            _atomic_rewrite_jsonl(
+                self._mission_deliveries_path / f"{delivery['id']}.json", [delivery],
+            )
+        # Keep a version marker so legacy overlap reconciliation happens once,
+        # not on each daemon restart or each normal mission claim.
+        _atomic_rewrite_jsonl(self._commit_path, [{"version": 1}])
+
+    def _recover_commit(self) -> None:
+        """Single recovery/migration entry, always called with the backlog lock."""
+        if not self._commit_path.exists():
+            # Older writers could archive a terminal row but leave a running
+            # copy behind. Terminal archive wins over a live nonterminal copy.
+            # Mixed legacy files can also contain newer terminal corrections.
+            items = self._load()
+            archived = {item.id: item for item in self._load_archive()}
+            latest: dict[str, BacklogItem] = {}
+            for item in items:
+                previous = latest.get(item.id)
+                if (
+                    previous is not None
+                    and previous.status in _TERMINAL_STATUSES
+                    and item.status not in _TERMINAL_STATUSES
+                ):
+                    continue
+                latest[item.id] = item
+            reconciled = [
+                item for item in latest.values()
+                if item.status in _TERMINAL_STATUSES
+                or item.id not in archived
+                or archived[item.id].status not in _TERMINAL_STATUSES
+            ]
+            if len(reconciled) != len(items) or any(
+                item.status in _TERMINAL_STATUSES for item in reconciled
+            ):
+                self._save(reconciled)
+            _atomic_rewrite_jsonl(self._commit_path, [{"version": 1}])
+            return
+        try:
+            record = json.loads(self._commit_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(record, dict)
+                or type(record.get("version")) is not int
+                or record["version"] not in {1, 2}
+            ):
+                raise ValueError("unsupported commit version")
+            if record == {"version": 1}:
+                return
+            expected_fields = {"version", "archive_offset", "live", "terminal"}
+            if record["version"] == 2:
+                expected_fields.add("mission_deliveries")
+                from .mission_delivery import validate_mission_delivery
+
+                deliveries = record.get("mission_deliveries")
+                if not isinstance(deliveries, list) or not deliveries:
+                    raise ValueError("missing committed mission deliveries")
+                for delivery in deliveries:
+                    validate_mission_delivery(delivery)
+                if len({delivery["id"] for delivery in deliveries}) != len(deliveries):
+                    raise ValueError("duplicate committed mission delivery")
+            if set(record) != expected_fields:
+                raise ValueError("incomplete commit record")
+            if type(record["archive_offset"]) is not int or record["archive_offset"] < 0:
+                raise ValueError("invalid archive offset")
+            if (
+                not isinstance(record["live"], list)
+                or not isinstance(record["terminal"], list)
+                or (not record["terminal"] and record["version"] != 2)
+            ):
+                raise ValueError("invalid commit rows")
+            ids: set[str] = set()
+            for terminal, rows in ((False, record["live"]), (True, record["terminal"])):
+                for row in rows:
+                    if (
+                        not isinstance(row, dict)
+                        or not {"id", "ts", "title", "objective", "status"}.issubset(row)
+                        or not isinstance(row["id"], str)
+                        or not row["id"]
+                        or row["id"] in ids
+                    ):
+                        raise ValueError("invalid or duplicate committed item id")
+                    ids.add(row["id"])
+                    if (
+                        row["status"] not in _BACKLOG_STATUSES
+                        or (row["status"] in _TERMINAL_STATUSES) != terminal
+                    ):
+                        raise ValueError("invalid committed item status")
+                    BacklogItem.from_jsonable(row)
+            for delivery in record.get("mission_deliveries", []):
+                bound = next(
+                    (row for row in [*record["live"], *record["terminal"]] if row["id"] == delivery["item_id"]),
+                    None,
+                )
+                if (
+                    bound is None
+                    or bound.get("mission_delivery_id") != delivery["id"]
+                    or bound.get("mission_result") != delivery["result"]
+                    or bound.get("attempt") != delivery["attempt"]
+                ):
+                    raise ValueError("mission delivery is not bound to a committed row")
+        except (ValueError, TypeError, KeyError) as exc:
+            raise RuntimeError(f"invalid backlog commit record: {self._commit_path}") from exc
+        self._apply_commit(record)
 
     def _dependency_history(self, items: Iterable[BacklogItem]) -> list[BacklogItem]:
         live = list(items)
@@ -1415,32 +1602,56 @@ class Backlog:
         return changed
 
     @contextmanager
-    def _locked(self) -> Iterator[None]:
+    def _locked(
+        self, *, timeout_seconds: float | None = None, cancelled: Callable[[], bool] | None = None,
+    ) -> Iterator[None]:
         """Serialize backlog read-modify-write operations across processes."""
+        from ..core.file_lock import current_file_lock_wait_budget
+
+        budget = current_file_lock_wait_budget()
+        if budget is not None:
+            inherited_timeout = max(0.0, budget[0] - time.monotonic())
+            timeout_seconds = inherited_timeout if timeout_seconds is None else min(timeout_seconds, inherited_timeout)
+            original_cancelled = cancelled
+            cancelled = lambda: bool((original_cancelled and original_cancelled()) or (budget[1] and budget[1]()))
         key = os.path.normcase(str(self._lock_path.resolve()))
         with _BACKLOG_THREAD_LOCKS_GUARD:
             thread_lock = _BACKLOG_THREAD_LOCKS.setdefault(key, threading.Lock())
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with thread_lock:
+        if timeout_seconds is None and cancelled is None:
+            # Preserve the existing writer/recovery protocol for every caller
+            # that did not explicitly request a bounded, cancellable read.
+            with thread_lock:
+                with self._lock_path.open("a+b") as fh:
+                    portalocker.lock(fh, portalocker.LOCK_EX)
+                    try:
+                        self._recover_commit()
+                        yield
+                    finally:
+                        portalocker.unlock(fh)
+            return
+        from ..core.file_lock import FileLockCancelled, exclusive_file_lock
+
+        deadline = time.monotonic() + (30.0 if timeout_seconds is None else max(0.0, timeout_seconds))
+        while not thread_lock.acquire(blocking=False):
+            if cancelled is not None and cancelled():
+                raise FileLockCancelled("cancelled while acquiring backlog thread lock")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("timed out acquiring backlog thread lock")
+            time.sleep(min(0.05, remaining))
+        try:
             with self._lock_path.open("a+b") as fh:
-                portalocker.lock(fh, portalocker.LOCK_EX)
-                try:
+                with exclusive_file_lock(fh, timeout_seconds=max(0.0, deadline - time.monotonic()),
+                                         cancelled=cancelled, lock_name="backlog file lock"):
+                    self._recover_commit()
                     yield
-                finally:
-                    portalocker.unlock(fh)
+        finally:
+            thread_lock.release()
 
     # --- write ---
     def add(self, item: BacklogItem) -> BacklogItem:
-        with self._locked():
-            items = self._load()
-            # A freshly enqueued item has no journal history to migrate, so
-            # its zero streak is authoritative from the start. The dataclass
-            # default stays False: it marks pre-upgrade rows loaded from disk.
-            item.replan_streak_tracked = True
-            items.append(item)
-            self._validate_no_dependency_cycles(items)
-            self._save(items)
-        return item
+        return self.add_many([item])[0]
 
     def add_many(self, new_items: Iterable[BacklogItem]) -> list[BacklogItem]:
         """Atomically append one validated batch (used for Planner DAGs)."""
@@ -1738,7 +1949,18 @@ class Backlog:
             added_ids=(),
         )
 
-    def update(self, item_id: str, **fields: Any) -> BacklogItem | None:
+    def update(
+        self, item_id: str, *, _mission_delivery: dict[str, Any] | None = None,
+        **fields: Any,
+    ) -> BacklogItem | None:
+        if _mission_delivery is not None:
+            from .mission_delivery import validate_mission_delivery
+
+            validate_mission_delivery(_mission_delivery)
+            if _mission_delivery["item_id"] != item_id:
+                raise ValueError("mission delivery belongs to another backlog item")
+            fields["mission_delivery_id"] = _mission_delivery["id"]
+            fields["mission_result"] = dict(_mission_delivery["result"])
         with self._locked():
             items = self._load()
             out: BacklogItem | None = None
@@ -1775,7 +1997,7 @@ class Backlog:
                     out = it
                     break
             if out is not None:
-                self._save(items)
+                self._save(items, mission_delivery=_mission_delivery)
                 return out
             archived = next(
                 (
@@ -1786,6 +2008,8 @@ class Backlog:
                 None,
             )
             if archived is not None:
+                if _mission_delivery is not None and archived.mission_delivery_id == _mission_delivery["id"]:
+                    return archived
                 if "status" in fields:
                     new_status = str(fields.get("status") or "pending")
                     if new_status not in _TERMINAL_STATUSES:
@@ -1799,8 +2023,42 @@ class Backlog:
                         setattr(archived, key, value)
                 if archived.status in _TERMINAL_STATUSES:
                     _expire_unanswered_operator_question(archived)
-                _append_jsonl(self.archive_path, [archived.to_jsonable()])
+                self._save([*items, archived], mission_delivery=_mission_delivery)
             return archived
+
+    def pending_mission_deliveries(self) -> list[dict[str, Any]]:
+        """Recover the commit, then read only unacknowledged completion records."""
+        from .mission_delivery import validate_mission_delivery
+
+        with self._locked():
+            records = []
+            for path in sorted(self._mission_deliveries_path.glob("*.json")):
+                record = json.loads(path.read_text(encoding="utf-8"))
+                validate_mission_delivery(record)
+                if path.stem != record["id"]:
+                    raise RuntimeError("mission delivery filename does not match its identity")
+                records.append(record)
+            return sorted(records, key=lambda row: (float(row["event"].get("ts") or 0), row["id"]))
+
+    def acknowledge_mission_delivery(self, delivery_id: str, *, keep_for_experience: bool = False) -> None:
+        if len(delivery_id) != 64 or any(c not in "0123456789abcdef" for c in delivery_id):
+            raise ValueError("invalid mission delivery acknowledgement")
+        with self._locked():
+            path = self._mission_deliveries_path / f"{delivery_id}.json"
+            if keep_for_experience:
+                from .mission_delivery import validate_mission_delivery
+
+                record = json.loads(path.read_text(encoding="utf-8"))
+                validate_mission_delivery(record)
+                if record["version"] != 2 or record["id"] != delivery_id:
+                    raise ValueError("only owned v2 deliveries can retain pending experience")
+                if record.get("publication_acknowledged") is not True:
+                    record["publication_acknowledged"] = True
+                    _atomic_rewrite_jsonl(path, [record])
+                return
+            path.unlink(missing_ok=True)
+            if path.parent.exists():
+                _fsync_parent(path)
 
     def record_acceptance_dependency_assessment(
         self,
@@ -2283,6 +2541,46 @@ class Backlog:
             updates["outcome"] = dict(outcome)
         return self.update(item_id, **updates)
 
+    def park_after_manager_wait(
+        self,
+        item_id: str,
+        *,
+        expected_question: str,
+        reason: str,
+        outcome: dict[str, Any] | None = None,
+        wait_current: bool = True,
+    ) -> BacklogItem | None:
+        """Settle an interrupted turn only while its exact Manager question remains.
+
+        An answer or replacement can win before the old turn reaches settlement.
+        Keep the current row's contract and result; that old WAIT cannot park it.
+        """
+        if wait_current and (
+            not isinstance(expected_question, str) or not expected_question.strip()
+        ):
+            raise ValueError("Manager WAIT requires a non-empty question witness")
+        with self._locked():
+            items = self._load()
+            item = next((row for row in items if row.id == item_id), None)
+            if item is None:
+                return next(
+                    (row for row in reversed(self._load_archive()) if row.id == item_id),
+                    None,
+                )
+            if item.status != "running":
+                return item
+            if wait_current and item.pending_question == expected_question:
+                item.status = "paused_operator"
+                item.last_error = str(reason)
+                if outcome is not None:
+                    item.outcome = dict(outcome)
+            else:
+                item.status = "pending"
+                item.started_ts = None
+                item.finished_ts = None
+            self._save(items)
+            return item
+
     def resume_paused(self, item_id: str) -> BacklogItem | None:
         """Start a fresh metering attempt for one recoverable paused item."""
         with self._locked():
@@ -2374,11 +2672,13 @@ class Backlog:
 
     def active(self) -> list[BacklogItem]:
         """Read only the compact live backlog."""
-        return self._load()
+        with self._locked():
+            return self._load()
 
     def history(self) -> list[BacklogItem]:
         """Read terminal archive plus current live rows, oldest group first."""
-        rows = [*self._load_archive(), *self._load()]
+        with self._locked():
+            rows = [*self._load_archive(), *self._load()]
         # Terminal corrections are appended, never rewritten. Present the
         # latest state for each stable item id while retaining first-seen order.
         latest = {item.id: item for item in rows}
@@ -2386,7 +2686,8 @@ class Backlog:
         return [latest[item_id] for item_id in order]
 
     def pending(self) -> list[BacklogItem]:
-        items = [it for it in self._load() if it.status == "pending"]
+        with self._locked():
+            items = [it for it in self._load() if it.status == "pending"]
         items.sort(key=lambda it: (it.priority, it.ts))
         return items
 
@@ -2399,8 +2700,9 @@ class Backlog:
         dep-less item is always ready, so for a flat (no-deps) backlog
         ``ready()`` and ``pending()`` return the same list.
         """
-        items = self._load()
-        history = self._dependency_history(items)
+        with self._locked():
+            items = self._load()
+            history = self._dependency_history(items)
         done = self._done_ids([*history, *items])
         out = [it for it in items if self._is_ready(it, done)]
         out.sort(key=lambda it: (it.priority, it.ts))
@@ -2610,6 +2912,15 @@ class LifeMemory:
 
         return FailureExperienceStore(self.root / "failure_experiences.jsonl")
 
+    def render_recall_context(
+        self, objective: str, *, max_entries: int = 4, max_chars: int = 6_000,
+    ) -> str:
+        from .knowledge_recall import render_memory_recall
+
+        return render_memory_recall(
+            self, objective, max_entries=max_entries, max_chars=max_chars,
+        )
+
     def render_failure_experience_context(
         self,
         objective: str,
@@ -2649,7 +2960,7 @@ class LifeMemory:
             else []
         )
 
-        failure_context = self.render_failure_experience_context(objective)
+        failure_context = self.render_recall_context(objective)
 
         if not identity and not relevant and not failure_context:
             return ""
@@ -3096,7 +3407,7 @@ class MemoryBundle:
             else []
         )
 
-        failure_context = self.render_failure_experience_context(objective)
+        failure_context = self.render_recall_context(objective)
 
         if not (identity or project_hits or failure_context):
             return ""
@@ -3128,6 +3439,15 @@ class MemoryBundle:
     @property
     def failure_experiences(self):
         return self.project.failure_experiences
+
+    def render_recall_context(
+        self, objective: str, *, max_entries: int = 4, max_chars: int = 6_000,
+    ) -> str:
+        from .knowledge_recall import render_memory_recall
+
+        return render_memory_recall(
+            self, objective, max_entries=max_entries, max_chars=max_chars,
+        )
 
     def render_failure_experience_context(
         self,

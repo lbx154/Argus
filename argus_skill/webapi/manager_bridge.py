@@ -31,6 +31,7 @@ from .manager_dispatch import (
     _handle_pending_question_turn,
     _handle_steer_control,
     _item_to_dict,
+    _manager_request_scope,
     _maybe_apply_config_intent,
     _maybe_greeting_reply,
     _run_triage_and_fallbacks,
@@ -106,6 +107,9 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
     from ..core.run_gateway import run_exec as gateway_run_exec
     from ..life.memory import LifeMemory
     from ..manager.front_door import _ensure_manager_runner
+    from ..manager.observation import observe_project
+    from ..manager.session_context import conversation_backend
+    from ..manager.stage_decider import extract_answer
     from ..roles.prompts.manager import build_quick_reply_prompt
 
     try:
@@ -128,17 +132,25 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
         )
         prompt = build_quick_reply_prompt(objective=question)
         prompt = append_operator_context(prompt, operator_context)
+        prompt += "\n\n" + observe_project(Path(life_dir)).render()
+        from ..core.knobs import resolve_manager_reply_model
+
         result = gateway_run_exec(
-            chat_state.get("manager_session") or runner,
+            conversation_backend(runner),
             prompt=prompt,
-            options=RunnerOptions(skip_git_repo_check=True),
+            options=RunnerOptions(model=resolve_manager_reply_model(), skip_git_repo_check=True,
+                                 sandbox_mode="read-only", force_safe_mode=True, working_dir=str(
+                getattr(getattr(runner, "manager", None), "execution_workdir", life_dir)
+            )),
             run_label="manager-ask",
         )
     except Exception:  # noqa: BLE001 - never turn a question into a task
         log.exception("ask: inline reply failed")
         return "Could not answer inline just now; nothing was queued."
 
-    reply = str(getattr(result, "stdout", "") or "").strip()
+    if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
+        return "Could not answer inline just now; nothing was queued."
+    reply = extract_answer(result).strip()
     return reply or "The Manager returned an empty reply; nothing was queued."
 
 
@@ -153,6 +165,42 @@ def manager_message(
     source_channel: str = "web",
     source_message_id: str = "",
     route_override: str = "",
+    defer_dispatch_ack: bool = False,
+) -> dict[str, Any]:
+    """Run a Manager turn with request-scoped provider interruption."""
+    from ..core.run_gateway import run_interrupt_scope
+
+    generation = manager_control_generation(sid)
+
+    def is_cancelled() -> bool:
+        if manager_control_generation(sid) != generation:
+            return True
+        try:
+            return callable(cancelled) and bool(cancelled())
+        except Exception:  # noqa: BLE001 - retain the existing cancellation callback contract
+            return False
+
+    with run_interrupt_scope(lambda: "operator interrupted Manager request" if is_cancelled() else None):
+        return _manager_message(
+            sid, text, global_root=global_root, attachments=attachments,
+            on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
+            source_message_id=source_message_id, route_override=route_override,
+            defer_dispatch_ack=defer_dispatch_ack,
+        )
+
+
+def _manager_message(
+    sid: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
+    on_fragment: Any = None,
+    cancelled: Any = None,
+    source_channel: str = "web",
+    source_message_id: str = "",
+    route_override: str = "",
+    defer_dispatch_ack: bool = False,
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -210,6 +258,10 @@ def manager_message(
     turn_steps: list[dict[str, Any]] = []
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
+        # A provider can emit buffered output after its interrupt was accepted.
+        # Do not let that old turn reappear in the operator's current stream.
+        if _cancelled():
+            return
         if kind == "phase":
             record_turn_step(turn_steps, payload)
         if not callable(on_fragment):
@@ -263,6 +315,8 @@ def manager_message(
     # Native domain commands stay on this session and do not run a classifier.
     from ..core.workbench_plugins import native_plugin_command
     with _lock_for(sid):
+        if _cancelled():
+            return _cancelled_result()
         plugin_reply = native_plugin_command(operator_text, sid=sid,
             life_dir=life_dir, global_root=mem.global_root)
         if plugin_reply is not None:
@@ -396,7 +450,8 @@ def manager_message(
                 or operator_text
                 or body
             )
-            emitter.emit_only(f"Already queued · {title}")
+            if not defer_dispatch_ack:
+                emitter.emit_only(f"Already queued · {title}")
             return {
                 "kind": "task",
                 "reply": None,
@@ -539,6 +594,7 @@ def manager_message(
             frontdoor_failure,
             on_fragment,
             emitter,
+            cancelled=_cancelled,
         )
         if triage_result is not None:
             if _cancelled():
@@ -564,6 +620,7 @@ def manager_message(
                 emitter,
                 attachment_context_refs=message_attachment_refs,
                 reference_deps=reference_deps,
+                public_objective=operator_text,
             )
         except Exception as exc:  # noqa: BLE001
             if _cancelled():
@@ -624,7 +681,14 @@ def manager_message(
         or operator_text
         or body
     )
-    if result.get("dispatch_state") == "planner_pending":
+    if defer_dispatch_ack:
+        from ..core.operator_messages import uses_cjk
+
+        emitter.phase(
+            "已保存，正在确认执行状态" if uses_cjk(text)
+            else "Saved; checking executor status"
+        )
+    elif result.get("dispatch_state") == "planner_pending":
         emitter.emit_only(
             "Campaign updated · Planner will sequence this objective after "
             f"current work · {title}"
@@ -635,6 +699,14 @@ def manager_message(
 
 
 def manager_plan(
+    sid: str, text: str, *, global_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Keep plan previews interruptible while they own the Manager session."""
+    with _manager_request_scope(sid):
+        return _manager_plan(sid, text, global_root=global_root)
+
+
+def _manager_plan(
     sid: str,
     text: str,
     *,
@@ -784,6 +856,14 @@ def _rewrite_model_and_effort() -> tuple[str, str]:
 
 
 def manager_rewrite(
+    sid: str, text: str, *, global_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Keep prompt previews interruptible while they own the Manager session."""
+    with _manager_request_scope(sid):
+        return _manager_rewrite(sid, text, global_root=global_root)
+
+
+def _manager_rewrite(
     sid: str,
     text: str,
     *,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import subprocess
 import sys
 import threading
@@ -9,9 +10,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Iterator
 
+import portalocker
 import pytest
 
 from argus_skill.manager._session_ops import (
+    ManagerLockCancelled,
+    _acquire_session_lock,
     _ManagerSession,
     manager_pipeline_lock,
     manager_session_lock,
@@ -180,3 +184,49 @@ def test_campaign_control_lock_blocks_until_real_peer_process_releases(
         releaser.join(timeout=2)
 
     assert elapsed >= 0.25
+
+
+def test_pipeline_wait_cancels_while_peer_keeps_the_lock(tmp_path: Path) -> None:
+    root = tmp_path / "cancel-pipeline"
+    cancelled = threading.Event()
+    with _held_by_child(root, "pipeline") as release:
+        timer = threading.Timer(0.1, cancelled.set)
+        timer.start()
+        started = time.monotonic()
+        try:
+            with pytest.raises(ManagerLockCancelled):
+                with manager_pipeline_lock(root, cancelled=cancelled.is_set):
+                    pytest.fail("cancelled waiter entered the mission boundary")
+        finally:
+            timer.join(timeout=2)
+        assert time.monotonic() - started < 1.0
+        assert not release.exists()
+        with (root / ".manager_pipeline.lock").open("a+b") as handle:
+            assert _acquire_session_lock(handle, timeout=0) is False
+    with manager_pipeline_lock(root):
+        pass
+
+
+@pytest.mark.parametrize("error_code", [errno.EBADF, errno.ENOLCK, errno.EIO])
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_lock_failures_are_reported_without_contention_retry(
+    tmp_path, monkeypatch, error_code, wrapped,
+) -> None:
+    cause = OSError(error_code, "locking unavailable")
+    error = portalocker.exceptions.LockException(cause) if wrapped else cause
+    calls = []
+
+    def fail_lock(*_args):
+        calls.append(True)
+        raise error
+
+    monkeypatch.setattr("argus_skill.manager._session_ops.portalocker.lock", fail_lock)
+    monkeypatch.setattr(
+        "argus_skill.manager._session_ops.time.sleep",
+        lambda _seconds: pytest.fail("a lock failure must not be retried as contention"),
+    )
+    with (tmp_path / "failed.lock").open("a+b") as handle:
+        with pytest.raises(type(error)) as caught:
+            _acquire_session_lock(handle)
+    assert caught.value is error
+    assert len(calls) == 1

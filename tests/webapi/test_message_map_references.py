@@ -277,7 +277,7 @@ def test_bounded_direct_dispatch_attaches_reference_deps(
     workdir.mkdir()
     monkeypatch.setattr(dispatch, "_resolve_manager_workdir", lambda _mem: workdir)
 
-    def handoff(mem_arg, body, chat_state, persist, *, root_task_id=None,
+    def handoff(mem_arg, body, chat_state, persist, *, root_task_id=None, cancelled=None,
                 prepare_persist=None, validate_persist=None, prepared_handoff=None):
         prepare_persist(body)
         validate_persist(body)

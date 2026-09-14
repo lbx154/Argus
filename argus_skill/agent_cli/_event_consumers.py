@@ -463,9 +463,6 @@ class EventConsumerMixin:
         fatal_error: str | None,
         write_state: _CopilotWriteState | None = None,
     ) -> tuple[str | None, bool, bool, str | None]:
-        # Native delegates share stdout but cannot finish the parent response.
-        if str(event.get("agentId") or "").strip():
-            return thread_id, turn_completed, turn_failed, fatal_error
         event_type = str(event.get("type") or "").strip()
         data = event.get("data")
         # A stream can report an error after HTTP 200. Only inspect structured

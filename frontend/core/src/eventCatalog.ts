@@ -1,5 +1,15 @@
 /** Canonical event names shared by the Web and terminal frontends. */
 export const EVENT_TYPES = {
+  ADVISOR_CONSULTATION_REQUESTED: 'advisor.consultation.requested',
+  ADVISOR_CONSULTATION_COMPLETED: 'advisor.consultation.completed',
+  ADVISOR_CONSULTATION_FAILED: 'advisor.consultation.failed',
+  ADVISOR_CONSULTATION_CANCELLED: 'advisor.consultation.cancelled',
+  ADVISOR_CONSULTATION_TIMED_OUT: 'advisor.consultation.timed_out',
+  ADVISOR_CONSULTATION_MODEL_MISMATCH: 'advisor.consultation.model_mismatch',
+  LIFE_MANAGER_SUPERVISION_ISSUED: 'life.manager.supervision.issued',
+  LIFE_MANAGER_SUPERVISION_APPLIED: 'life.manager.supervision.applied',
+  LIFE_MANAGER_SUPERVISION_FAILED: 'life.manager.supervision.failed',
+  LIFE_PEER_MESSAGE_PROCESSED: 'life.peer.message.processed',
   AGENT_IO_START: 'agent.io.start',
   AGENT_IO_STREAM: 'agent.io.stream',
   AGENT_IO_COMPLETE: 'agent.io.complete',
@@ -185,6 +195,14 @@ export const LEGACY_EVENT_ALIASES: Readonly<Record<string, CatalogEventType>> = 
 };
 
 export const SIGNAL_EVENT_TYPES = new Set<CatalogEventType>([
+  EVENT_TYPES.ADVISOR_CONSULTATION_COMPLETED,
+  EVENT_TYPES.ADVISOR_CONSULTATION_FAILED,
+  EVENT_TYPES.ADVISOR_CONSULTATION_CANCELLED,
+  EVENT_TYPES.ADVISOR_CONSULTATION_TIMED_OUT,
+  EVENT_TYPES.ADVISOR_CONSULTATION_MODEL_MISMATCH,
+  EVENT_TYPES.LIFE_MANAGER_SUPERVISION_APPLIED,
+  EVENT_TYPES.LIFE_MANAGER_SUPERVISION_FAILED,
+  EVENT_TYPES.LIFE_PEER_MESSAGE_PROCESSED,
   EVENT_TYPES.LIFE_MANAGER_BACKEND_RESOLVED,
   EVENT_TYPES.LIFE_PLANNER_BACKEND_RESOLVED,
   EVENT_TYPES.LIFE_ENGINEER_BACKEND_RESOLVED,

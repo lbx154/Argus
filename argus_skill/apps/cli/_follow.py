@@ -15,9 +15,11 @@ from typing import Any, Callable, Sequence
 from urllib.parse import urlencode
 
 from ...core import paths as core_paths
+from ...core.json_codec import loads_finite_json
 from ...core.operator_messages import uses_cjk
 from ...core.role_reply import strip_named_lines
 from ...core.secret_guard import known_secret_values, redact_secrets_text
+from ...life.memory import Backlog
 from .._inbox import format_inbox_event
 from ..tui_launcher import _bundle_path
 from . import _core
@@ -202,22 +204,14 @@ def _select_backlog_row_by_id(
 
 
 def _read_backlog_rows(backlog_path: Path) -> list[dict[str, Any]]:
-    import json
-
-    rows: list[dict[str, Any]] = []
+    """Resolve event context from live and terminal rows after commit recovery."""
     try:
-        with backlog_path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rows.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+        backlog = Backlog(backlog_path)
+        if not any(path.exists() for path in backlog.storage_paths):
+            return []
+        return [item.to_jsonable() for item in backlog.history()]
     except OSError:
         return []
-    return rows
 
 
 def _format_follow_mission_context(
@@ -517,8 +511,8 @@ def _read_recent_jsonl_events(
         if not line:
             continue
         try:
-            event = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            event = loads_finite_json(line)
+        except (UnicodeDecodeError, ValueError):
             continue
         if isinstance(event, dict):
             rows.append(event)

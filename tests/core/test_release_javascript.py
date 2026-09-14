@@ -10,6 +10,10 @@ from argus_skill.release import _source_files, compute_source_digest
     "argus_skill/webapi/plugin_desktop.js",
     "argus_skill/agent_cli/pi_output_schema_extension.mjs",
     "argus_skill/trial/pi_training_extension.mjs",
+    "argus_skill/advisor/pi_extension.mjs",
+    "argus_skill/core/role_tool_bridge.mjs",
+    "argus_skill/life/experience_extension.mjs",
+    "argus_skill/messaging/pi_tools.mjs",
     "desktop-tauri/src-tauri/tauri.macos.conf.json",
 ])
 def test_adapter_only_edit_changes_release_digest(tmp_path: Path, relative: str) -> None:

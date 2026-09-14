@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from ..core import process_stop
 from ..core.daemon_lock import is_pid_running
+from ..core.json_codec import is_finite_number
 from ..core.process_identity import process_identity_is_running
 
 EXTERNAL_WORK_REGISTRY = ".argus_external_work"
@@ -65,10 +66,15 @@ class ExternalWorkStatus:
 
 
 def _coerce_float(value: object, default: float) -> float:
-    try:
-        return float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    if isinstance(value, bool):
         return default
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        return default
+    # Invalid liveness timestamps must not bypass stale-heartbeat comparisons;
+    # invalid durations must not turn a bounded wait into an infinite one.
+    return number if is_finite_number(number) else default
 
 
 def _safe_relative_paths(value: object) -> tuple[str, ...]:
@@ -508,7 +514,6 @@ def wait_for_external_work_cadence(
 ) -> tuple[str, float]:
     """Wait one cadence while healthy, waking on any explicit state transition."""
     clock = now if now is not None else time.time
-    sleeper = sleep if sleep is not None else time.sleep
     target = inspect_external_work(workdir, work_id, now=clock())
     if target is None:
         return ("unknown", 0.0)
@@ -519,8 +524,13 @@ def wait_for_external_work_cadence(
     waited = 0.0
     while waited < budget:
         chunk = min(step, budget - waited)
-        sleeper(chunk)
-        waited += chunk
+        if sleep is None:
+            started = time.monotonic()
+            process_stop.wait_for_stop(chunk)
+            waited += min(chunk, max(0.0, time.monotonic() - started))
+        else:
+            sleep(chunk)
+            waited += chunk
         # Read the work first: if it finished during that sleep, that outcome is
         # what the round needs to hear. A pending stop still ends the wait, but
         # it must not overwrite a result that already arrived.

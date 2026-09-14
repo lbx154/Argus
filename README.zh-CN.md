@@ -10,7 +10,7 @@
 
 让长期 Agent 能够规划、执行、验证、暂停，并在一次模型调用之后继续推进。
 
-**Argus v0.1.5 · 源码更新与桌面预览安装包是不同的安装渠道。**
+**Argus v0.1.6 · 源码更新与桌面预览安装包是不同的安装渠道。**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -506,6 +506,8 @@ export ARGUS_SKILL_AUTONOMY_MODE=autonomous
 与之配套的实测版本是 **[系统审计：六条抱怨，逐条拿代码核对](docs/system-audit.zh-CN.md)** —— 过度防御、验证门槛过严、不必要的人类打扰、指令遵循弱、冗余，以及 schema 乱用，每条都用代码树上的实测数字给出成立与否。
 
 后续的 **[架构精简规划](docs/architecture-simplification-plan.md)** 把普通工程短链与完整研究团队分开，设计由 Host 生成的单一任务上下文，并规划兼容优先的 Vertical 拆库路径。
+
+维护者可从 **[Runtime 维护地图与重构任务](docs/runtime-maintainability.md)** 查找代码入口、状态所有权、恢复边界和当前分批任务。
 
 由那份审计推出的是 **[精简计划](docs/simplification-plan.zh-CN.md)**：一组排好序的删除、一条用来机械分拣 2,277 个异常处理器的判据、一份明确的"不能删"清单，以及要避开的陷阱——把删掉的机械换成一个"统一系统"，那会变成同一个错误。
 

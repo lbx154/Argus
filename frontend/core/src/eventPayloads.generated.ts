@@ -3,6 +3,201 @@ import type { EventMsg } from './types.js';
 
 export const EVENT_PAYLOAD_SCHEMA_VERSION = 2;
 
+export interface LifePeerMessageProcessedEvent extends EventMsg {
+  type: "life.peer.message.processed";
+  payload_schema_version?: 1;
+  "message_id": string;
+  "sender_project_id": string;
+  "recipient_project_id": string;
+  "message_kind": "request" | "reply";
+  "authority": "peer_advisory";
+  "reply_to"?: string;
+  "reply_message_id"?: string;
+  "call_id"?: string;
+  "text": string;
+}
+
+export interface AdvisorConsultationRequestedEvent extends EventMsg {
+  type: "advisor.consultation.requested";
+  payload_schema_version?: 1;
+  "consultation_id": string;
+  "parent_call_id": string;
+  "caller_role": "manager" | "planner" | "engineer" | "reviewer";
+  "agent_layer"?: "advisor";
+  "mission_id"?: string | null;
+  "call_id"?: string;
+  "requested_model": string;
+  "reported_model"?: string;
+  "evidence_refs": Array<Record<string, unknown>>;
+  "question"?: string;
+  "summary"?: string;
+  "summary_truncated"?: boolean;
+  "error"?: string;
+  "text"?: string;
+}
+
+export interface AdvisorConsultationCompletedEvent extends EventMsg {
+  type: "advisor.consultation.completed";
+  payload_schema_version?: 1;
+  "consultation_id": string;
+  "parent_call_id": string;
+  "caller_role": "manager" | "planner" | "engineer" | "reviewer";
+  "agent_layer"?: "advisor";
+  "mission_id"?: string | null;
+  "call_id"?: string;
+  "requested_model": string;
+  "reported_model"?: string;
+  "evidence_refs": Array<Record<string, unknown>>;
+  "question"?: string;
+  "summary"?: string;
+  "summary_truncated"?: boolean;
+  "error"?: string;
+  "text"?: string;
+}
+
+export interface AdvisorConsultationFailedEvent extends EventMsg {
+  type: "advisor.consultation.failed";
+  payload_schema_version?: 1;
+  "consultation_id": string;
+  "parent_call_id": string;
+  "caller_role": "manager" | "planner" | "engineer" | "reviewer";
+  "agent_layer"?: "advisor";
+  "mission_id"?: string | null;
+  "call_id"?: string;
+  "requested_model": string;
+  "reported_model"?: string;
+  "evidence_refs": Array<Record<string, unknown>>;
+  "question"?: string;
+  "summary"?: string;
+  "summary_truncated"?: boolean;
+  "error"?: string;
+  "text"?: string;
+}
+
+export interface AdvisorConsultationCancelledEvent extends EventMsg {
+  type: "advisor.consultation.cancelled";
+  payload_schema_version?: 1;
+  "consultation_id": string;
+  "parent_call_id": string;
+  "caller_role": "manager" | "planner" | "engineer" | "reviewer";
+  "agent_layer"?: "advisor";
+  "mission_id"?: string | null;
+  "call_id"?: string;
+  "requested_model": string;
+  "reported_model"?: string;
+  "evidence_refs": Array<Record<string, unknown>>;
+  "question"?: string;
+  "summary"?: string;
+  "summary_truncated"?: boolean;
+  "error"?: string;
+  "text"?: string;
+}
+
+export interface AdvisorConsultationTimedOutEvent extends EventMsg {
+  type: "advisor.consultation.timed_out";
+  payload_schema_version?: 1;
+  "consultation_id": string;
+  "parent_call_id": string;
+  "caller_role": "manager" | "planner" | "engineer" | "reviewer";
+  "agent_layer"?: "advisor";
+  "mission_id"?: string | null;
+  "call_id"?: string;
+  "requested_model": string;
+  "reported_model"?: string;
+  "evidence_refs": Array<Record<string, unknown>>;
+  "question"?: string;
+  "summary"?: string;
+  "summary_truncated"?: boolean;
+  "error"?: string;
+  "text"?: string;
+}
+
+export interface AdvisorConsultationModelMismatchEvent extends EventMsg {
+  type: "advisor.consultation.model_mismatch";
+  payload_schema_version?: 1;
+  "consultation_id": string;
+  "parent_call_id": string;
+  "caller_role": "manager" | "planner" | "engineer" | "reviewer";
+  "agent_layer"?: "advisor";
+  "mission_id"?: string | null;
+  "call_id"?: string;
+  "requested_model": string;
+  "reported_model"?: string;
+  "evidence_refs": Array<Record<string, unknown>>;
+  "question"?: string;
+  "summary"?: string;
+  "summary_truncated"?: boolean;
+  "error"?: string;
+  "text"?: string;
+}
+
+export interface LifeManagerSupervisionIssuedEvent extends EventMsg {
+  type: "life.manager.supervision.issued";
+  payload_schema_version?: 1;
+  "supervision_id": string;
+  "evidence_revision": string;
+  "control_revision": string;
+  "trigger_type": string;
+  "status": string;
+  "action": string;
+  "reason": string;
+  "summary": string;
+  "agent_layer": "manager";
+  "evidence_refs": Array<Record<string, unknown>>;
+  "effects"?: Record<string, unknown>;
+  "item_id"?: string;
+  "call_id"?: string;
+  "consultation_id"?: string;
+  "advisor_disposition"?: string;
+  "error_type"?: string;
+}
+
+export interface LifeManagerSupervisionAppliedEvent extends EventMsg {
+  type: "life.manager.supervision.applied";
+  payload_schema_version?: 1;
+  "supervision_id": string;
+  "evidence_revision": string;
+  "control_revision": string;
+  "trigger_type": string;
+  "status": string;
+  "action": string;
+  "reason": string;
+  "summary": string;
+  "agent_layer": "manager";
+  "evidence_refs": Array<Record<string, unknown>>;
+  "effects"?: Record<string, unknown>;
+  "item_id"?: string;
+  "call_id"?: string;
+  "consultation_id"?: string;
+  "advisor_disposition"?: string;
+  "error_type"?: string;
+}
+
+export interface LifeManagerSupervisionFailedEvent extends EventMsg {
+  type: "life.manager.supervision.failed";
+  payload_schema_version?: 1;
+  "supervision_id": string;
+  "evidence_revision": string;
+  "control_revision": string;
+  "trigger_type": string;
+  "status": string;
+  "action": string;
+  "reason": string;
+  "summary": string;
+  "agent_layer": "manager";
+  "evidence_refs": Array<Record<string, unknown>>;
+  "effects"?: Record<string, unknown>;
+  "item_id"?: string;
+  "call_id"?: string;
+  "consultation_id"?: string;
+  "advisor_disposition"?: string;
+  "error_type"?: string;
+  "failure_stage"?: "provider" | "decision" | "commit";
+  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error";
+  "error_code"?: "trial_quota_exceeded" | "timeout" | "cancelled" | "superseded" | "observation_incomplete";
+  "backend_exit_code"?: number;
+}
+
 export interface AgentIoStartEvent extends EventMsg {
   type: "agent.io.start";
   payload_schema_version?: 1;
@@ -1778,6 +1973,16 @@ export interface UiArgusEvent extends EventMsg {
 }
 
 export interface EventPayloadByType {
+  "life.peer.message.processed": LifePeerMessageProcessedEvent;
+  "advisor.consultation.requested": AdvisorConsultationRequestedEvent;
+  "advisor.consultation.completed": AdvisorConsultationCompletedEvent;
+  "advisor.consultation.failed": AdvisorConsultationFailedEvent;
+  "advisor.consultation.cancelled": AdvisorConsultationCancelledEvent;
+  "advisor.consultation.timed_out": AdvisorConsultationTimedOutEvent;
+  "advisor.consultation.model_mismatch": AdvisorConsultationModelMismatchEvent;
+  "life.manager.supervision.issued": LifeManagerSupervisionIssuedEvent;
+  "life.manager.supervision.applied": LifeManagerSupervisionAppliedEvent;
+  "life.manager.supervision.failed": LifeManagerSupervisionFailedEvent;
   "agent.io.start": AgentIoStartEvent;
   "agent.io.stream": AgentIoStreamEvent;
   "agent.io.complete": AgentIoCompleteEvent;

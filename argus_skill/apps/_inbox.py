@@ -2,24 +2,42 @@
 
 The CLI, Web API, and cockpit all need the same inbox semantics:
 
-* queue guidance to ``inbox.jsonl``
+* durably queue guidance in the bounded SQLite inbox protocol
 * emit a structured ``life.inbox.queued`` event to ``events.jsonl``
-* count unread guidance without advancing ``inbox.offset``
-* drain pending messages for the supervisor without crashing on bad lines
+* count pending messages and retained delivery envelopes
+* claim, freeze, accept, acknowledge, and settle messages explicitly
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
-import tempfile
-import time
 from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
 from ..life.event_log import JsonlEventSink
+from ._inbox_protocol import (  # noqa: F401 — shared public inbox protocol
+    InboxBusy,
+    InboxClaim,
+    InboxError,
+    InboxLeaseLost,
+    InboxMigrationRequired,
+    InboxPartialLine,
+    InboxPressure,
+    InboxProtocolError,
+    accept_inbox_claim,
+    acknowledge_inbox_claim,
+    claim_inbox_message,
+    count_durable_inbox_messages,
+    enqueue_inbox_message,
+    freeze_inbox_decision,
+    latest_durable_inbox_timestamp,
+    migrate_legacy_inbox,
+    pending_inbox_status,
+    release_inbox_claim,
+    renew_inbox_claim,
+    settle_inbox_claim,
+)
 
 INBOX_FILE = "inbox.jsonl"
 OFFSET_FILE = "inbox.offset"
@@ -40,40 +58,6 @@ def inbox_offset_path(life_dir: Path | str, stage: str = "") -> Path:
     return Path(life_dir) / (f"inbox.{token}.offset" if token else OFFSET_FILE)
 
 
-def _read_offset(path: Path) -> int:
-    try:
-        return max(0, int(path.read_text(encoding="utf-8").strip() or "0"))
-    except (OSError, ValueError):
-        return 0
-
-
-def _write_offset(path: Path, offset: int) -> bool:
-    tmp: Path | None = None
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-        )
-        tmp = Path(tmp_name)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(str(max(0, offset)))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
-        return True
-    except OSError:
-        log.warning("failed to persist inbox offset: %s", path)
-        return False
-    finally:
-        if tmp is not None:
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-
 def _truncate(text: str, limit: int) -> str:
     text = text.strip()
     if len(text) <= limit:
@@ -88,51 +72,12 @@ def _read_inbox_messages(
     limit: int | None = None,
     stage: str = "",
 ) -> list[str]:
-    inbox = inbox_path(life_dir, stage)
-    offset_file = inbox_offset_path(life_dir, stage)
-    if not inbox.exists():
-        return []
-    offset = _read_offset(offset_file)
-    messages: list[str] = []
-    try:
-        with inbox.open("rb") as fh:
-            fh.seek(offset)
-            while True:
-                raw = fh.readline()
-                if not raw:
-                    break
-                new_offset = fh.tell()
-                if advance and not _write_offset(offset_file, new_offset):
-                    break
-                try:
-                    obj = json.loads(raw.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                text = obj.get("text") if isinstance(obj, dict) else None
-                if not isinstance(text, str):
-                    continue
-                text = text.strip()
-                if not text:
-                    continue
-                messages.append(text)
-                if limit is not None and len(messages) >= limit:
-                    break
-    except OSError:
-        return []
-    return messages
+    """Legacy raw draining cannot prove durable acceptance."""
+    raise InboxProtocolError("raw inbox reads are disabled; use the claim/accept/ACK protocol")
 
 
 def count_pending_inbox_messages(life_dir: Path | str) -> int:
-    total = len(_read_inbox_messages(life_dir, advance=False))
-    root = Path(life_dir)
-    try:
-        staged = list(root.glob("inbox.*.jsonl"))
-    except OSError:
-        staged = []
-    for path in staged:
-        stage = path.name[len("inbox.") : -len(".jsonl")]
-        total += len(_read_inbox_messages(life_dir, advance=False, stage=stage))
-    return total
+    return count_durable_inbox_messages(life_dir)
 
 
 def drain_inbox_messages(
@@ -141,20 +86,12 @@ def drain_inbox_messages(
     limit: int = 10,
     current_stage: str | None = None,
 ) -> list[str]:
-    messages = _read_inbox_messages(
-        life_dir,
-        advance=True,
-        limit=max(1, limit),
-    )
-    remaining = max(0, max(1, limit) - len(messages))
-    if remaining and str(current_stage or "").strip():
-        messages.extend(_read_inbox_messages(
-            life_dir,
-            advance=True,
-            limit=remaining,
-            stage=str(current_stage or "").strip(),
-        ))
-    return messages
+    """Reject the pre-acceptance cursor advance used by older built-in consumers.
+
+    Host-supplied plain callbacks retain their own weaker delivery contract;
+    they must not use this durable source as an implicit destructive reader.
+    """
+    raise InboxProtocolError("raw inbox drain is disabled; use the claim/accept/ACK protocol")
 
 
 def queue_inbox_message(
@@ -177,17 +114,22 @@ def queue_inbox_message(
         text,
         global_root=global_root,
     )
-    inbox = inbox_path(life_dir, stage)
-    inbox.parent.mkdir(parents=True, exist_ok=True)
-    record = {"ts": time.time(), "text": text}
-    with inbox.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-    JsonlEventSink(None, life_dir=Path(life_dir)).append({
-        "type": EventType.LIFE_INBOX_QUEUED,
-        "text": text,
-        "source": source,
-        "stage": stage.strip().lower(),
-    })
+    enqueue_inbox_message(root, text, source=source, stage=stage)
+    try:
+        from ..core.file_lock import bounded_file_lock_wait
+
+        with bounded_file_lock_wait(timeout_seconds=0.2):
+            recorded = JsonlEventSink(None, life_dir=Path(life_dir)).append({
+                "type": EventType.LIFE_INBOX_QUEUED,
+                "text": text,
+                "source": source,
+                "stage": stage.strip().lower(),
+            })
+        if not recorded:
+            log.warning("inbox accepted; advisory event was not written")
+    except Exception:  # noqa: BLE001 — enqueue already committed durably
+        log.warning("inbox queued but advisory event could not be written", exc_info=True)
+
 
 
 def format_inbox_event(event: dict[str, Any]) -> str | None:

@@ -91,10 +91,12 @@ def _enforce_operator_question_policy(
 
 
 def enforce_terminal_question_policy(
-    terminal: tuple,
+    terminal: tuple | None,
     supervised_config: "SupervisedConfig",
 ) -> tuple:
     """Remove forbidden questions from terminal records without losing metadata."""
+    if terminal is None:
+        raise ValueError("A terminal round control must include its outcome")
     if _operator_questions_allowed(supervised_config):
         return terminal
     status, rounds, final_message, reason, thread_id = terminal
@@ -418,6 +420,11 @@ class RoundSettlementMixin:
                     "the Reviewer's explicit progress judgment"
                 ),
             })
+        from .round_manager_wait import manager_wait_terminal
+
+        paused = manager_wait_terminal(supervised_config, state)
+        if paused is not None:
+            return control_return(paused)
         terminal_status, reason = self._classify(
             review=review,
             no_progress_streak=state.no_progress_streak,

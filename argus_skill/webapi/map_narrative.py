@@ -14,14 +14,20 @@ from weakref import WeakValueDictionary
 
 from ..core.file_lock import exclusive_file_lock
 from .map_model import (
-    MapGenerationError, MapModel, MapProgress, map_limit, map_timeout_seconds,
-    resolve_map_model, run_map_model,
+    MapGenerationError,
+    MapModel,
+    MapProgress,
+    map_limit,
+    map_timeout_seconds,
+    resolve_map_model,
+    run_map_model,
 )
 from .map_outcomes import project_task_outcome
 from .map_teaching_review import (
     BRIEF_LIMITS,
     CARD_TEXT_LIMITS,
     CONCEPT_LIMITS,
+    RELATED_TASK_SOURCE_LIMITS,
     TEACHING_GUIDANCE,
     TEACHING_REVIEW_VERSION,
     checked_text_fields,
@@ -382,6 +388,26 @@ def generation_context_tasks(all_tasks: list[dict], documents: list[dict], known
     return [by_id[task_id] for task_id in (selected + neighbors)[:16] if task_id in by_id]
 
 
+def _related_sources_changed(saved: dict, current_tasks: dict[str, dict]) -> bool:
+    """The v2 source snapshot is also the exact, bounded dependency contract.
+
+    Recheck only neighbors actually supplied to this card, without selecting a
+    new neighborhood or relabeling historical sources as current evidence.
+    Pre-snapshot cards remain readable until their own inputs need refreshing.
+    """
+    snapshot = saved.get("source_snapshot")
+    if not isinstance(snapshot, dict) or snapshot.get("version") != 2:
+        return False
+    related = snapshot.get("related_tasks")
+    if not isinstance(related, list):
+        return False
+    for source in related:
+        task = current_tasks.get(source.get("id")) if isinstance(source, dict) else None
+        if task is None or teaching_context({"related_tasks": [task]})["related_tasks"] != [source]:
+            return True
+    return False
+
+
 def enrich(
     root: Path, dataset: dict, cards: list[dict], locale: str, *,
     project_root: Path | None = None,
@@ -390,6 +416,9 @@ def enrich(
     foundation: dict | None = None,
 ) -> dict:
     documents = card_evidence(dataset, cards)
+    # generation_context_tasks indexes projected IDs as well. Long IDs must
+    # not make an unchanged supplied source look deleted on every cache read.
+    current_tasks = {task["id"][:RELATED_TASK_SOURCE_LIMITS["id"]]: task for task in dataset["tasks"]}
     foundation_ref = None
     if preview == "question-foundation":
         from .reader_application import PROCESS_VERSION, foundation_reference, generate_application
@@ -437,6 +466,7 @@ def enrich(
             d
             for d in documents
             if existing.get(d["key"], {}).get("input_revision") != fingerprints[d["key"]]
+            or _related_sources_changed(existing.get(d["key"], {}), current_tasks)
         ]
         if not todo:
             return {"cards": existing, "relations": cache.get("relations", []), "cached": True,

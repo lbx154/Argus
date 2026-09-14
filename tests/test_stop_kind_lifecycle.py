@@ -104,7 +104,7 @@ def test_copilot_trial_quota_error_pauses_after_one_attempt(tmp_path: Path) -> N
             event=event, thread_id=state[0], agent_messages=[],
             turn_completed=state[1], turn_failed=state[2], fatal_error=state[3],
         )
-    assert state == ("trial-session", False, True, f"HTTP 402: {message}")
+    assert state == ("trial-session", False, True, f"query: HTTP 402: {message}")
     stop_kind = _raw_backend_stop_kind(fatal_error=state[3], exit_code=1)
     assert stop_kind == "provider_fence"
     status, backend, events = _run_engineer(tmp_path, stop_kind)

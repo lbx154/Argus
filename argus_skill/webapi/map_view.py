@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
+from ..core.json_codec import loads_finite_json
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
 from ..life.memory import LifeMemory, _jsonl_history_paths
@@ -492,7 +493,7 @@ def read_map(
                     continue
                 consumed += len(line)
                 try:
-                    row = json.loads(line)
+                    row = loads_finite_json(line)
                     if isinstance(row, dict):
                         rows.append(row)
                 except ValueError:

@@ -148,7 +148,7 @@ def test_copy_preview_get_reads_only_its_cache_and_reports_its_version(tmp_path,
     path = f"/api/map-copy/project/{sid}"
     normal = client.get(path).json()
     candidate = client.get(path, params={"preview": "true" if mode == "source-first" else mode}).json()
-    assert normal["cards"] == main["cards"] and normal["version"] == 24
+    assert normal["cards"] == main["cards"] and normal["version"] == copy.PROMPT_VERSION
     assert candidate["cards"] == preview["cards"] and candidate["version"] == version
     assert candidate["cache_revision"] == preview["cache_revision"] and normal["cache_revision"] == 7
     assert reads == [source, source + ":" + mode]

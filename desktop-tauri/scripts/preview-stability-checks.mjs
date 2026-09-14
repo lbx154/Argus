@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect } from '@playwright/test';
+import { selectWorkspaceView } from './preview-reading-checks.mjs';
 
 export async function verifyRuntimeStability({ page, frame, stage, dataDir, native, request, reveal, seconds, record }) {
   const initial = await native('get_status');
@@ -26,6 +27,32 @@ export async function verifyRuntimeStability({ page, frame, stage, dataDir, nati
   } finally { writeFileSync(ownershipPath, ownership); }
   record('Corrupted on-disk ownership does not invalidate the already verified live session');
 
+  const manifestPath = join(stage, 'argus-backend', '_internal', 'argus_skill', 'release_manifest.json');
+  const manifest = readFileSync(manifestPath);
+  const savedPath = `${manifestPath}.native-qa-original`;
+  assert(!existsSync(savedPath), 'A previous manifest fault injection has not been restored.');
+  for (const fault of ['missing', 'corrupt', 'mismatched']) {
+    try {
+      if (fault === 'missing') renameSync(manifestPath, savedPath);
+      else if (fault === 'corrupt') writeFileSync(manifestPath, '{partial manifest');
+      else writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(manifest), source_digest: '0'.repeat(64) }));
+      await expect.poll(async () => Boolean((await native('get_status')).warning), { timeout: 20_000 }).toBe(true);
+      await assertLive();
+      assert.equal((await request('/api/meta')).status, 200);
+      let refused = false;
+      try { await native('restart_backend'); } catch { refused = true; }
+      assert(refused, `A ${fault} payload must be rejected before stopping a verified backend.`);
+      await assertLive();
+    } finally {
+      if (fault === 'missing') renameSync(savedPath, manifestPath);
+      else writeFileSync(manifestPath, manifest);
+    }
+    assert(readFileSync(manifestPath).equals(manifest), 'Fault injection did not restore exact manifest bytes.');
+    await expect.poll(async () => Boolean((await native('get_status')).warning), { timeout: 20_000 }).toBe(false);
+    await assertLive();
+    record(`Manifest ${fault}: same authenticated PID stays live, invalid restart refused, exact bytes restored`);
+  }
+
   const started = Date.now();
   let probes = 0;
   let hidden = false;
@@ -37,8 +64,8 @@ export async function verifyRuntimeStability({ page, frame, stage, dataDir, nati
     assert.equal(response.status, 200);
     if (probes % 12 === 0) {
       // Read-only pages: never enqueue a task or trigger map-summary generation.
-      await frame.locator('.workspace-tab').nth(0).click();
-      await frame.locator('.workspace-tab').nth(3).click();
+      await selectWorkspaceView(frame, 'mission');
+      await selectWorkspaceView(frame, 'map');
       assert.equal((await request('/api/projects/s-preview-smoke/map')).status, 200);
       console.log(`SOAK ${Math.floor((Date.now() - started) / 1000)}s / ${seconds}s, same authenticated PID`);
     }

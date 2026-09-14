@@ -12,7 +12,6 @@ import {
   type PiConfiguration,
   type RunnerKind,
   type TrialDownloadProgress,
-  type StartupEyeMotion,
   type UpdateStatus,
 } from './bridge';
 
@@ -131,9 +130,6 @@ const desktopMenuActions = Array.from(
   document.querySelectorAll<HTMLButtonElement>('[data-menu-action]'),
 );
 
-const startupEyeButtons = Array.from(
-  document.querySelectorAll<HTMLButtonElement>('button[data-startup-eye-motion]'),
-);
 const STEP_LABELS = ['Agent CLI', '本地服务', '确认设置'];
 
 let cockpitOpening = false;
@@ -157,8 +153,6 @@ let releaseIdentity: DesktopReleaseIdentity = {
 let runtimeIdentity: DesktopRuntimeIdentity = { state: 'idle' };
 let port = 8799;
 let appearanceTheme: AppearanceTheme = 'light';
-let startupEyeMotion: StartupEyeMotion = 'on';
-let startupPreferenceLoaded = false;
 let cockpitTheme: 'light' | 'dark' | null = null;
 let updateStatus: UpdateStatus | null = null;
 let splashHideTimer: number | undefined;
@@ -167,26 +161,14 @@ let splashGeneration = 0;
 let coldStart = true;
 let cockpitLoaded = false;
 let returnFocus: HTMLElement | null = null;
-const splashMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-function eyeMotionEnabled(): boolean {
-  return startupEyeMotion === 'on' || (startupEyeMotion === 'system' && !splashMotion.matches);
-}
-function applyStartupEyeMotion(motion: StartupEyeMotion): void {
-  startupEyeMotion = motion;
-  startupPreferenceLoaded = true;
-  document.documentElement.dataset.startupEyeMotion = motion;
-  for (const button of startupEyeButtons) {
-    button.setAttribute('aria-checked', String(button.dataset.startupEyeMotion === motion));
-  }
-}
 // A DOM paint is not proof that the native window was exposed. Count actual
 // visible frames, including when a second EXE launch reactivates a resident host.
 function newEyeCycle() {
   return visibleEyeCycle({
     eye: document.querySelector('.argus-splash-eye') as SVGElement,
     nativeVisible: () => desktopBridge.isWindowVisible(),
-    enabled: () => startupPreferenceLoaded && !wizardOpen && !splashEl.hidden && document.body.dataset.state !== 'error',
-    motionEnabled: eyeMotionEnabled,
+    enabled: () => !wizardOpen && !splashEl.hidden && document.body.dataset.state !== 'error',
+    motionEnabled: () => true,
   });
 }
 let eyeCycle = newEyeCycle();
@@ -199,10 +181,6 @@ function cancelSplashTransition(): void {
   splashRevealTimer = undefined;
   splashHideTimer = undefined;
 }
-
-splashMotion.addEventListener('change', () => {
-  if (cockpitLoaded && !splashEl.hidden) void hideSplashAfterCockpitLoad();
-});
 
 function resolvedSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -218,14 +196,8 @@ function currentResolvedTheme(): 'light' | 'dark' {
 
 async function loadAppearance(): Promise<void> {
   const result = await capture(() => desktopBridge.getAppearance());
-  if (!result.ok) {
-    // A failed preference read must not leave the visual gate waiting forever
-    // or silently force animation against an unknown saved choice.
-    applyStartupEyeMotion('system');
-    return;
-  }
+  if (!result.ok) return;
   const appearance: DesktopAppearance = result.value;
-  applyStartupEyeMotion(appearance.startupEyeMotion ?? 'on');
   appearanceTheme = appearance.theme;
   const resolved = appearance.theme === 'system'
     ? resolvedSystemTheme()
@@ -373,7 +345,7 @@ async function hideSplashAfterCockpitLoad(): Promise<void> {
     splashHideTimer = window.setTimeout(() => {
       if (canReveal()) splashEl.hidden = true;
       splashHideTimer = undefined;
-    }, splashMotion.matches ? 0 : 180);
+    }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180);
   }, 0);
 }
 
@@ -703,7 +675,7 @@ function updateMessage(status: UpdateStatus): {
     return {
       kicker: '发现新版本',
       title: `Argus ${status.availableVersion || '更新'} 已准备好`,
-      detail: `${notes}\n\n请在合适的任务边界查看并安装；安装前会验证更新包签名。`,
+      detail: `${notes}\n\n请在任务边界安装；签名验证通过后会停止当前安装拥有的后端。其他安装和预览不受影响。`,
       showInstall: true,
       showSecurity: true,
     };
@@ -713,7 +685,7 @@ function updateMessage(status: UpdateStatus): {
     return {
       kicker: '正在准备更新',
       title: `正在下载${progress}`,
-      detail: '下载完成后将校验签名，并交给系统安装程序完成更新。',
+      detail: '下载并验证签名后才停止当前安装的后端，再交给安装程序；下载或验签失败不会中断任务。',
       showInstall: false,
       showSecurity: true,
     };
@@ -1118,22 +1090,6 @@ for (const button of desktopMenuActions) {
     void capture(() => runDesktopMenuAction(action)).then((result) => {
       if (!result.ok) window.alert(`桌面操作失败：${result.detail}`);
     });
-  });
-}
-for (const button of startupEyeButtons) {
-  button.addEventListener('click', async () => {
-    const motion = button.dataset.startupEyeMotion;
-    if (motion !== 'on' && motion !== 'off' && motion !== 'system') return;
-    startupEyeButtons.forEach(control => { control.disabled = true; });
-    const result = await capture(() => desktopBridge.setStartupEyeMotion(motion));
-    startupEyeButtons.forEach(control => { control.disabled = false; });
-    closeDesktopMenus();
-    if (!result.ok) {
-      window.alert('无法保存眼睛动画设置，原设置未更改。');
-      return;
-    }
-    applyStartupEyeMotion(result.value.startupEyeMotion);
-    if (cockpitLoaded && !splashEl.hidden) void hideSplashAfterCockpitLoad();
   });
 }
 document.addEventListener('pointerdown', (event) => {

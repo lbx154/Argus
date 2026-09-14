@@ -45,6 +45,32 @@ class StageCompletionError(ValueError):
         super().__init__(f"stage {self.stage!r} completion blocked: {preview}")
 
 
+class StageRollbackError(ValueError):
+    """The active vertical requires repairs within the current stage."""
+
+    def __init__(self, vertical: str) -> None:
+        self.diagnostic = f"{vertical}_rollback_rejected"
+        super().__init__(
+            f"{vertical} stages are forward-only; schedule repair work in the current stage"
+        )
+
+
+def stage_rollback_error(project_root: Path | str) -> StageRollbackError | None:
+    """One rollback policy for prompts, decisions, and stage writes.
+
+    Providers opt out through ``ALLOW_STAGE_ROLLBACK = False``. An undeclared
+    policy preserves rollback support. Replacement-objective resets are a
+    separate operation and do not pass through this guard.
+    """
+    from ..verticals._base import load_vertical_contract
+    from .vertical_select import resolve_vertical
+
+    contract = load_vertical_contract(resolve_vertical(project_root), project_root=project_root)
+    if contract.allow_stage_rollback:
+        return None
+    return StageRollbackError(contract.name)
+
+
 @dataclass(frozen=True)
 class StageChecklistContract:
     stage: str
@@ -313,6 +339,8 @@ def _set_stage(
     (target strictly earlier). Atomic write (sibling tmp file + ``os.replace``),
     ``indent=2, sort_keys=True`` + trailing newline. Raises
     ``ValueError`` on an unknown target or one that violates ``direction``.
+    ``StageRollbackError`` rejects a legal earlier target when the active
+    vertical requires forward-only progress, before any state is written.
     """
     import datetime as _dt
 
@@ -356,6 +384,8 @@ def _set_stage(
             f"rollback target {target!r} must be strictly earlier than current "
             f"stage {previous!r}"
         )
+    if direction == "rollback" and (error := stage_rollback_error(project_root)):
+        raise error
     # ``reset`` is reserved for a Manager-confirmed replacement objective. It
     # may legally land on the same first stage to clear stale completion state.
 
@@ -584,14 +614,6 @@ def rollback_stage(
     the legacy ``rollback_history`` entry for back-compat. The unified
     ``stage_history`` log is written too.
     """
-
-    from .vertical_select import resolve_vertical
-
-    if resolve_vertical(project_root) == "research":
-        raise ValueError(
-            "research stages are forward-only; schedule repair work in the "
-            "current stage"
-        )
 
     return _set_stage(
         project_root,

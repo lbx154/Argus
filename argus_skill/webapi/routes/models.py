@@ -25,10 +25,15 @@ class AttachmentRefIn(BaseModel):
 
 class MessageIn(BaseModel):
     text: str
+    request_id: str = Field(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")
     attachments: list[AttachmentRefIn] = Field(default_factory=list)
     # Explicit Task/Chat is operator authority and skips only the category
     # classifier. Task still follows Manager -> Planner -> Engineer -> Reviewer.
     route_override: Literal["auto", "chat", "task"] = "auto"
+
+
+class CancelMessageIn(BaseModel):
+    request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class AnswerIn(BaseModel):

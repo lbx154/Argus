@@ -10,7 +10,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import CLIENT_MODEL
+from . import DEFAULT_UPSTREAM_MODEL
 from .admin import issue_keys
 from .secrets import Vault, write_private
 
@@ -367,7 +367,7 @@ def serve_meter(root: Path) -> None:
     uvicorn.run(
         create_app(Settings(
             root / "meter", root / "secrets/master.key",
-            model=CLIENT_MODEL, token_limit=None,
+            model=DEFAULT_UPSTREAM_MODEL, token_limit=None,
         )),
         uds=str(root / "model-socket/gateway.sock"), access_log=False,
         proxy_headers=False, timeout_graceful_shutdown=15,

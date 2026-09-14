@@ -4,13 +4,63 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass
-from typing import Any
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
+from threading import Lock
+from typing import Any, Callable, Iterator
 
-from .models import RunnerResult
+from .models import RunnerOptions, RunnerResult
 from .ports import RunnerBackend
 
 _RESUME_UNSET = object()
+_INTERRUPT: ContextVar[Callable[[], str | None] | None] = ContextVar("argus_run_interrupt", default=None)
+
+
+@contextmanager
+def run_interrupt_scope(
+    provider: Callable[[], str | None], *, retain_first_reason: bool = False,
+) -> Iterator[None]:
+    """Attach request cancellation without mutating cached runners.
+
+    A caller that polls during preparation can retain its first reason until
+    this scope exits, so a one-shot abort also reaches subsequent provider calls.
+    """
+    previous = _INTERRUPT.get()
+    first_reason: str | None = None
+    reason_lock = Lock()
+
+    def interrupt_reason() -> str | None:
+        nonlocal first_reason
+        if retain_first_reason:
+            with reason_lock:
+                if first_reason:
+                    return first_reason
+        # Poll outside the lock: a slow inherited state read must not prevent
+        # another thread in a copied context from observing the current Stop.
+        reason = provider() or (previous() if previous else None)
+        if retain_first_reason:
+            with reason_lock:
+                first_reason = first_reason or reason
+                return first_reason
+        return reason
+
+    token = _INTERRUPT.set(interrupt_reason)
+    try:
+        yield
+    finally:
+        _INTERRUPT.reset(token)
+
+
+def current_run_interrupt_reason() -> str | None:
+    """Let synchronous call preparation observe the active cancellation scope."""
+    provider = _INTERRUPT.get()
+    return provider() if provider is not None else None
+
+
+def current_run_interrupt_provider() -> Callable[[], str | None] | None:
+    """Capture this scope's provider without polling or losing its identity."""
+    return _INTERRUPT.get()
 
 
 @dataclass(frozen=True)
@@ -34,14 +84,24 @@ class RunExecGateway:
 
     def execute(self, request: RunExecRequest) -> Any:
         started_at = time.time()
+        options = request.options
+        interrupt = _INTERRUPT.get()
+        if interrupt is not None and (options is None or isinstance(options, RunnerOptions)):
+            options = options or RunnerOptions()
+            original = options.external_interrupt_reason_provider
+            options = replace(options, external_interrupt_reason_provider=(
+                lambda: interrupt() or (original() if original else None)
+            ))
         kwargs = {
             "prompt": str(request.prompt),
-            "options": request.options,
+            "options": options,
             "run_label": str(request.run_label),
         }
         if request.resume_thread_id is not _RESUME_UNSET:
             kwargs["resume_thread_id"] = request.resume_thread_id
-        result = self.backend.run_exec(**kwargs)
+        reason = interrupt() if interrupt is not None else None
+        result = (RunnerResult(exit_code=130, fatal_error=f"External interrupt: {reason}")
+                  if reason else self.backend.run_exec(**kwargs))
         completed_at = time.time()
         if not isinstance(result, RunnerResult):
             return result
@@ -85,4 +145,4 @@ def run_exec(
     )
 
 
-__all__ = ["RunExecGateway", "RunExecRequest", "run_exec"]
+__all__ = ["RunExecGateway", "RunExecRequest", "run_exec", "run_interrupt_scope", "current_run_interrupt_reason", "current_run_interrupt_provider"]

@@ -424,12 +424,16 @@ def set_active_manager_directive(
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        from ..daemon.state import _fsync_directory
+
+        _fsync_directory(path.parent)
     finally:
         try:
             temporary.unlink()
         except OSError:
             pass
-    append_steering_directive(state_root, normalized, source=record.source)
+    if not record.source.startswith("manager.supervision"):
+        append_steering_directive(state_root, normalized, source=record.source)
     return record
 
 

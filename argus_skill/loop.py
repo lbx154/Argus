@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core.event_catalog import EventType
-from .core.models import LoopOutcome, RoundRecord
+from .core.models import LoopOutcome, LoopStatus, RoundRecord
 from .core.ports import RunnerBackend
 from .core.role_session import configured_role_session_policy
 from .engineer.runner import (
@@ -199,19 +199,22 @@ class SkillLoop(
         skill_store: Any | None = None,
         on_event: Callable[[dict], None] | None = None,
         extra_guidance_provider: Callable[[], list[str]] | None = None,
+        prelude_context_provider: Callable[[], str] | None = None,
     ) -> None:
         self.config = config or SkillLoopConfig()
         self.skills_dir = Path(skills_dir)
         self.engineer_runner = engineer_runner
         self.reviewer_runner = reviewer_runner or engineer_runner
         self.on_event = on_event
-        self.pre_settlement_guard: Callable[..., tuple[str, str, str]] | None = None
+        self.pre_settlement_guard: Callable[..., tuple[LoopStatus, str, str]] | None = None
         self.canonical_playground_engineer_skill: Any | None = None
         self.canonical_playground_reviewer_skill: Any | None = None
         # Optional callable consulted at the start of each engineer round.
         # Returns a list of additional guidance strings to append to the
         # prompt (used by the daemon to honour /inject between rounds).
         self.extra_guidance_provider = extra_guidance_provider
+        # Host-owned recall is a current projection, not a frozen part of task.
+        self.prelude_context_provider = prelude_context_provider
 
         self.skill_store = skill_store or SkillStore(self.skills_dir)
         self.engineer_mission = EngineerMission(

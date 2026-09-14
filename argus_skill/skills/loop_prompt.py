@@ -28,6 +28,34 @@ class PromptContextMixin:
     """Prompt-assembly phase methods for ``SkillLoop``."""
 
     def _build_round_prompt(self, mission: MissionContext, state: SkillLibraryState, next_action: str | None, include_static: bool = True) -> str:
+        from ..core.operator_context import OperatorContextUnavailable
+        from ..core.run_gateway import current_run_interrupt_reason
+
+        provider = self.extra_guidance_provider
+        settle = getattr(provider, "settle", None)
+        release = getattr(provider, "release", None)
+        try:
+            prompt = self._assemble_round_prompt(mission, state, next_action, include_static)
+            if callable(settle) and not current_run_interrupt_reason():
+                messages = list(getattr(provider, "selected", ()))
+                try:
+                    settle()
+                except Exception as exc:
+                    raise OperatorContextUnavailable("Engineer inbox delivery could not be settled") from exc
+                if messages:
+                    self._emit({
+                        "type": EventType.LIFE_INBOX_DRAINED, "count": len(messages),
+                        "messages": messages, "source": "engineer_round",
+                        "delivery_boundary": "prompt_assembled",
+                    })
+            return prompt
+        finally:
+            if callable(release):
+                release()
+
+    def _assemble_round_prompt(self, mission: MissionContext, state: SkillLibraryState, next_action: str | None, include_static: bool = True) -> str:
+        from ..core.operator_context import OperatorContextUnavailable
+
         compact_team = (
             str(getattr(self.config, "workflow_mode", "") or "") == "direct"
         )
@@ -50,9 +78,11 @@ class PromptContextMixin:
                     for item in self.extra_guidance_provider()
                     if str(item).strip()
                 ]
-            except Exception:  # noqa: BLE001 — steering must fail soft
+            except OperatorContextUnavailable:
+                raise
+            except Exception:  # noqa: BLE001 — optional steering must fail soft
                 log.exception("live Manager guidance provider failed")
-        if guidance:
+        if guidance and not callable(getattr(self.extra_guidance_provider, "settle", None)):
             self._emit({
                 "type": EventType.LIFE_INBOX_DRAINED,
                 "count": len(guidance),
@@ -72,6 +102,27 @@ class PromptContextMixin:
             compact_team=compact_team,
             operator_context="\n\n".join(guidance),
         )
+        prelude_provider = getattr(self, "prelude_context_provider", None)
+        if prelude_provider is not None:
+            from ..roles.prompts.engineer import assemble_round_prompt
+
+            try:
+                current = str(prelude_provider() or "").strip()
+            except OperatorContextUnavailable:
+                # Required current policy cannot degrade to optional recall.
+                raise
+            except Exception:  # noqa: BLE001 — unavailable recall must fail closed
+                log.warning("current mission memory unavailable", exc_info=True)
+                current = "Current recalled memory is unavailable."
+            context = (
+                "## Current host context\n"
+                "This block replaces earlier host-recalled memory for this round. "
+                "An experience omitted here is not current guidance; inspect its "
+                "current state and revision before reusing it. Recalled experiences "
+                "remain advisory and never change the task, acceptance or permissions.\n\n"
+                + (current or "No current recalled memory.")
+            )
+            prompt = assemble_round_prompt(prompt, background_advisory=context)
         return prompt
 
     @staticmethod

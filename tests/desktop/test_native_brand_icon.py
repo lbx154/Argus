@@ -14,7 +14,7 @@ SIZES = {16, 24, 32, 48, 64, 128, 256}
 def test_active_desktop_icon_uses_the_approved_rounded_square_not_the_old_circle():
     config = json.loads((ICONS.parent / "tauri.conf.json").read_text(encoding="utf-8"))
     expected = "icons/icon-light-rounded.ico"
-    assert config["bundle"]["icon"] == [expected]
+    assert config["bundle"]["icon"] == ["icons/icon-light-rounded.png", expected]
     assert config["bundle"]["windows"]["nsis"]["installerIcon"] == expected
     assert config["bundle"]["windows"]["nsis"]["uninstallerIcon"] == expected
 

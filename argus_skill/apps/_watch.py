@@ -12,9 +12,9 @@ Tails the current project's ``events.jsonl``, ``daemon.status.json``, and
   | (last 10 entries) | (pending/running)  |
   +-------------------+--------------------+
 
-Multiple operators can attach simultaneously — this process never
-writes to anything in life-dir; it's purely a presentation layer over
-the existing on-disk state.
+Multiple operators can attach simultaneously. The presentation layer does not
+schedule or settle work; Backlog reads can finish an already-committed storage
+recovery before returning the current rows.
 """
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ from typing import Any, Sequence
 
 from ..core.usage import format_usage_cost
 from ..daemon.life_worker import read_continuous_state, read_daemon_status, resolve_effective_budget
+from ..life.memory import Backlog
 from ..life.status import describe_continuous_state, select_current_running_item
 from ..life.supervisor import global_daily_spend, global_daily_usage_summary
 from ._inbox import count_pending_inbox_messages, format_inbox_event
@@ -80,20 +81,14 @@ def _clean_text(text: str, *, limit: int = 120) -> str:
 
 
 def _read_backlog_rows(backlog_path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+    """Read live rows through their owner, including pending commit recovery."""
     try:
-        with backlog_path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rows.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+        backlog = Backlog(backlog_path)
+        if not any(path.exists() for path in backlog.storage_paths):
+            return []
+        return [item.to_jsonable() for item in backlog.active()]
     except OSError:
         return []
-    return rows
 
 
 def _select_current_backlog_row(rows: Sequence[dict[str, Any]]) -> dict[str, Any] | None:

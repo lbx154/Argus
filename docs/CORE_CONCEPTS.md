@@ -6,6 +6,10 @@ at commit `ae2daa1fbc2c918b4e7126151fe55eb68fd0cb98`
 `plugins/argus/CONTEXT.md` glossary, which can link here for this runtime model.
 Chosen model: `Operator -> Projects -> Missions -> Roles -> role/provider sessions or turns`.
 
+For current implementation entry points, state ownership, recovery boundaries,
+and the staged refactoring work, see the
+[runtime maintenance map](runtime-maintainability.md).
+
 The OperatorContext storage-root clarification below was updated against main
 on 2026-09-06; the original source references retain their baseline revision.
 

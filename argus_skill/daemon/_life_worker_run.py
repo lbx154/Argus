@@ -14,7 +14,6 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +35,9 @@ _RUNNING_STALL_POLL_SECONDS = 1.0
 
 class LifeWorkerRunMixin:
     """``run_forever``'s post-boot phases: main loop and shutdown."""
+
+    # Constructed by LifeWorker; every run/lock wait observes this same signal.
+    _stop: threading.Event
 
     def _fail_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
         """Fail durable running claims whose executor thread is no longer alive."""
@@ -142,7 +144,10 @@ class LifeWorkerRunMixin:
         # anyway would silently revert every persisted switch at once (the
         # backend of every role, the model of every route, the budget cap).
         from ..core.knob_store import KnobStoreCorruptError, read_persisted_knobs
-        from ..core.runtime_identity import release_match_preflight_error, source_root_preflight_error
+        from ..core.runtime_identity import (
+            release_match_preflight_error,
+            source_root_preflight_error,
+        )
 
         release_error = release_match_preflight_error()
         if release_error:
@@ -284,15 +289,16 @@ class LifeWorkerRunMixin:
                 summary: dict = {}
                 self._supervisor_execution_active.set()
                 try:
-                    from ..manager._session_ops import manager_pipeline_yield_requested
+                    from ..manager._session_ops import (
+                        manager_pipeline_boundary,
+                        manager_pipeline_yield_requested,
+                    )
 
                     if manager_pipeline_yield_requested(rf_state.runtime_root):
                         self._stop.wait(0.2)
                         continue
                     manager = getattr(rf_state.runner, "manager", None)
-                    lock_factory = getattr(manager, "pipeline_lock", None)
-                    pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
-                    with pipeline_lock:
+                    with manager_pipeline_boundary(manager, cancelled=self._stop.is_set):
                         supervisors = getattr(
                             rf_state,
                             "supervisors",
@@ -408,6 +414,9 @@ class LifeWorkerRunMixin:
                     ),
                 )
         finally:
+            from ..manager.supervision import shutdown_supervision
+
+            shutdown_supervision(rf_state.runtime_root)
             self._stop_running_stall_watcher()
             if self._curator is not None:
                 self._curator.stop()
@@ -492,8 +501,7 @@ class LifeWorkerRunMixin:
         """Sleep until stop, inbox input, recovery, or configuration changes.
 
         The sleep is chunked into ``poll_interval`` slices so a stop request or
-        a freshly ``/add``'d / ``/nudge``'d message (which appends to the
-        project ``inbox.jsonl``) interrupts a long backoff promptly.
+        newly queued operator guidance interrupts a long backoff promptly.
         Ready work wakes provider-fence waits only: budget preflight can leave
         pending missions that must still observe their budget backoff.
         """
@@ -502,6 +510,7 @@ class LifeWorkerRunMixin:
         chunk = max(0.5, float(poll_interval))
         inbox = Path(runtime_root) / "inbox.jsonl"
         offset_file = Path(runtime_root) / "inbox.offset"
+        from ..apps._inbox import count_pending_inbox_messages, latest_durable_inbox_timestamp
         from ..core.paths import config_path
 
         operator_config = config_path(self.config.global_root)
@@ -520,7 +529,7 @@ class LifeWorkerRunMixin:
 
         def _inbox_size() -> int:
             try:
-                return inbox.stat().st_size
+                return inbox.stat().st_size if inbox.is_file() else 0
             except OSError:
                 return 0
 
@@ -533,9 +542,20 @@ class LifeWorkerRunMixin:
             except (OSError, ValueError):
                 return 0
 
+        def _durable_input() -> tuple[float | None, int]:
+            try:
+                return latest_durable_inbox_timestamp(runtime_root), count_pending_inbox_messages(runtime_root)
+            except (OSError, RuntimeError):
+                # Wake the ordinary intake path to report the required-state
+                # failure; a read error must not look like an empty inbox.
+                return None, 1
+
         baseline = _inbox_size()
+        durable_baseline = _durable_input()
         config_baseline = _config_version()
-        if _inbox_offset() < baseline:
+        previously_observed = getattr(self, "_last_inbox_wake_observation", None)
+        self._last_inbox_wake_observation = durable_baseline
+        if _inbox_offset() < baseline or (durable_baseline[1] and durable_baseline != previously_observed):
             return
         remaining = float(total_seconds)
         while remaining > 0 and not self._stop.is_set():
@@ -546,6 +566,10 @@ class LifeWorkerRunMixin:
                 return
             if _inbox_size() != baseline:
                 return  # new user input — re-drain immediately
+            durable_now = _durable_input()
+            if durable_now != durable_baseline:
+                self._last_inbox_wake_observation = durable_now
+                return
             if _config_version() != config_baseline:
                 return  # a budget increase/removal must wake paused work
             remaining -= chunk

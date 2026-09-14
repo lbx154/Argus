@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from argus_skill.core.operator_context import OperatorContextStore
 from argus_skill.core.operator_decision import build_operator_decision
 from argus_skill.daemon.state import read_continuous_state, write_continuous_config
 from argus_skill.life.memory import BacklogItem, MemoryBundle
@@ -197,8 +198,8 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
     assert first["resume_requested"] is True
     assert len(mem.backlog.all()) == 2
     assert (mem.project_root / "operator_context.jsonl").read_bytes() == answer_ledger
-    directives = [json.loads(line) for line in answer_ledger.splitlines()]
-    assert len(directives) == 1 and directives[0]["source"] == "operator.explicit_answer"
+    directives = OperatorContextStore(mem.project_root).records()
+    assert len(directives) == 1 and directives[0].source == "operator.explicit_answer"
 
     stale = manager_pending_question.manager_resolve_operator_decision(
         "s-decision",

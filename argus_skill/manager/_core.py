@@ -13,7 +13,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ._front_door_ops import _FrontDoorMixin
 from ._session_ops import _ManagerSession, manager_pipeline_lock
@@ -180,7 +180,9 @@ class Manager(
             enabled=self.memory_maintenance_enabled,
         )
 
-    def pipeline_lock(self, *, timeout=None, cancelled=None):
+    def pipeline_lock(
+        self, *, timeout: float | None = None, cancelled: Callable[[], bool] | None = None,
+    ):
         return manager_pipeline_lock(self.manager_session_root, timeout=timeout, cancelled=cancelled)
 
     def adjudicate_plan_challenge(self, planner_report: Any, **context: Any):

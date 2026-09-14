@@ -212,7 +212,10 @@ class LifeSupervisor(
         self.memory = memory
         self.runner = runner
         self.manager = getattr(runner, "manager", None)
-        self.sink = sink
+        from ...manager.supervision import SupervisionSink, start_supervision
+
+        start_supervision(getattr(self.memory, "project_root", self.memory.root))
+        self.sink = SupervisionSink(sink, self)
         self.config = config or LifeSupervisorConfig()
         self.engineer_model = engineer_model
         self.reviewer_model = reviewer_model
@@ -272,6 +275,11 @@ class LifeSupervisor(
         # escalates to the operator (surface, don't loop invisibly).
         self._consecutive_no_progress_missions = 0
         self._reap_orphans_on_startup()
+        if self.manager is not None:
+            from ...manager.supervision import recover_issued_supervision
+
+            state_root = getattr(self.manager, "manager_session_root", None) or getattr(self.memory, "project_root", None) or self.memory.root
+            recover_issued_supervision(self.manager, state_root)
 
     def _bound_manager(self) -> Any:
         if self.manager is None:
@@ -697,10 +705,21 @@ class LifeSupervisor(
 
     def run(self) -> dict[str, Any]:
         """Drive missions until a stop condition. Returns a summary."""
+        try:
+            return self._run_with_inbox()
+        finally:
+            self._release_operator_inbox()
+
+    def _run_with_inbox(self) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         stopped_by: str = ""
         self._resume_automatic_pauses()
         while True:
+            self._drain_peer_inbox()
+            if not self._drain_mission_completions():
+                stopped_by = "mission_delivery_pending"
+                self._suggested_sleep_s = 1.0
+                break
             yield_provider = getattr(
                 self.config,
                 "manager_pipeline_yield_provider",
@@ -913,6 +932,10 @@ class LifeSupervisor(
                     stopped_by = "backlog_empty"
                     break
                 continue
+            if outcome.get("status") == "mission_delivery_pending":
+                stopped_by = "mission_delivery_pending"
+                self._suggested_sleep_s = 1.0
+                break
             if outcome.get("status") != "claim_lost":
                 results.append(outcome)
             if outcome.get("status") in {
@@ -1154,6 +1177,9 @@ class LifeSupervisor(
     def tick(self) -> dict[str, Any] | None:
         """Process at most one backlog item. Returns its result dict or
         ``None`` if nothing was eligible to run."""
+        self._drain_peer_inbox()
+        if not self._drain_mission_completions():
+            return {"status": "mission_delivery_pending", "recoverable": True}
         parallel_worker = getattr(self.config, "parallel_worker", False)
         coordinate_claims = getattr(
             self.config,
@@ -1275,6 +1301,22 @@ class LifeSupervisor(
                         )
                     else:
                         self.memory.backlog.update(item.id, execution_workdir="")
+
+    def _drain_mission_completions(self) -> bool:
+        """Recover completion delivery before planning or claiming more work."""
+        from ..mission_delivery import drain_mission_deliveries
+
+        stop_event = getattr(self.config, "stop_event", None)
+        if stop_event is not None and stop_event.is_set():
+            return True
+        backlog = getattr(self.memory, "backlog", None)
+        if not callable(getattr(backlog, "pending_mission_deliveries", None)):
+            return True
+        try:
+            return drain_mission_deliveries(backlog, self._emit, self._confirm_mission_completion_receipt)
+        except Exception:
+            log.exception("mission completion recovery is awaiting durable storage")
+            return False
 
     def _budget_global_root(self) -> Path:
         configured = getattr(self.memory, "global_root", None)
@@ -1558,10 +1600,10 @@ class LifeSupervisor(
             # The validated handoff is now a durable decision, even if report
             # delivery fails below. Checkpoint only the input Planner actually
             # handled so retry can drain the outbox, not repeat planning.
-            from ...core.operator_context import OperatorContextStore
+            from ...core.operator_context import OperatorContextStore, operator_context_state_root
 
             try:
-                OperatorContextStore(self.memory.root).acknowledge("planner", handled_revision)
+                OperatorContextStore(operator_context_state_root(self.memory)).acknowledge("planner", handled_revision)
             except (OSError, ValueError):
                 log.exception("failed to checkpoint certified Planner handoff")
                 return False
@@ -1805,6 +1847,11 @@ class LifeSupervisor(
             item_id = str(event.get("item_id") or "").strip()
             if not item_id:
                 return
+            stable_delivery_id = str(event.get("mission_delivery_id") or "")
+
+            def _message_id(legacy: str) -> str:
+                return f"mission-result-{stable_delivery_id}" if stable_delivery_id else legacy
+
             from ...core.transcript import read_turns
 
             language_hint = next(
@@ -1847,7 +1894,7 @@ class LifeSupervisor(
                         status=status,
                         language_hint=language_hint,
                     ),
-                    message_id=f"mission-wait-{item_id}-{work_id}",
+                    message_id=_message_id(f"mission-wait-{item_id}-{work_id}"),
                     event_fields={
                         "mission_result": False,
                         "item_id": item_id,
@@ -2016,7 +2063,7 @@ class LifeSupervisor(
                             for part in (title, summary_line, operator_question)
                             if part
                         ),
-                        message_id=f"mission-result-{item_id}-{status}",
+                        message_id=_message_id(f"mission-result-{item_id}-{status}"),
                         event_fields={
                             "mission_result": True,
                             "item_id": item_id,
@@ -2037,7 +2084,7 @@ class LifeSupervisor(
                 publish_operator_message(
                     life_dir,
                     text="\n".join(part for part in (text, summary_line) if part),
-                    message_id=f"mission-result-{item_id}-{status}",
+                    message_id=_message_id(f"mission-result-{item_id}-{status}"),
                     event_fields={
                         "mission_result": True,
                         "item_id": item_id,
@@ -2096,7 +2143,7 @@ class LifeSupervisor(
                     )
                     if part
                 ),
-                message_id=(
+                message_id=_message_id(
                     f"mission-result-{item_id}-"
                     f"{str(event.get('message_kind') or ('continued' if campaign_continues else 'completed' if overall_complete and delivery_ready else 'ended'))}"
                 ),
@@ -2117,6 +2164,30 @@ class LifeSupervisor(
             )
         except Exception:  # noqa: BLE001 - notification must not break supervision
             log.exception("life supervisor: failed to publish mission completion")
+
+    def _confirm_mission_completion_receipt(self, event: dict[str, Any]) -> bool:
+        """Repair the minimal Web/chat receipt before acknowledging completion.
+
+        Transcript message ids make retry safe even when the process died after
+        publishing the message. External letters/notifications remain separate.
+        """
+        from ...core.transcript import read_turns
+        from ..memory import _fsync_parent
+
+        delivery_id = str(event.get("mission_delivery_id") or "")
+        if not delivery_id:
+            return True
+        project = getattr(self.memory, "project", None)
+        root = Path(getattr(project, "root", None) or self.memory.root)
+        message_id = f"mission-result-{delivery_id}"
+        if not any(turn.get("message_id") == message_id for turn in read_turns(root)):
+            self._publish_mission_completion_message(event)
+            if not any(turn.get("message_id") == message_id for turn in read_turns(root)):
+                return False
+        with (root / "transcript.jsonl").open("r+b") as handle:
+            os.fsync(handle.fileno())
+        _fsync_parent(root / "transcript.jsonl")
+        return True
 
     def _publish_budget_pause_message(self, event: dict[str, Any]) -> None:
         """Surface a durable, deduplicated budget pause in the Manager chat."""

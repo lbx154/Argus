@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { MapModelSettings } from '../map/MapModelSettings';
+import { AdvisorSettings } from './AdvisorSettings';
 import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner, EmptyHint, RawDisclosure } from './primitives';
@@ -324,6 +325,7 @@ export function ConfigModal({
             </section>}
 
             <MapModelSettings sid={sid} config={data} onSaved={refreshSettings} />
+            <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />
 
             <section className="rounded-lg border border-gold/40 bg-gold/5 p-3">
               <div className="flex items-center justify-between gap-3">

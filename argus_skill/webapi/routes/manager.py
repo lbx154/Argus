@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
 from .context import ServerContext
-from .models import MessageIn
+from .models import CancelMessageIn, MessageIn
 
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 
@@ -134,6 +134,32 @@ async def _read_uploaded_attachments(
 
 
 def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
+    from ..manager_state import manager_control_generation
+    from ..message_requests import (
+        MessageRequestCancelled,
+        MessageRequestCapacityError,
+        MessageRequestConflict,
+        MessageRequestRegistry,
+    )
+
+    requests = MessageRequestRegistry()
+
+    def _begin_message(sid: str, request_id: str):
+        try:
+            return requests.begin(sid, request_id)
+        except (MessageRequestCancelled, MessageRequestConflict, MessageRequestCapacityError) as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/projects/{sid}/message/cancel", dependencies=[Depends(ctx.require_auth)])
+    async def _cancel_message(sid: str, body: CancelMessageIn) -> dict[str, Any]:
+        ctx.project_root_or_404(sid)
+        try:
+            # Memory-only cancellation: no model/session lock or shared HTTP
+            # worker is needed to interrupt a blocked foreground request.
+            return requests.cancel(sid, body.request_id)
+        except MessageRequestCapacityError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     def _visible_daemon(sid: str) -> dict[str, Any]:
         from ..project_state import daemon_dict
 
@@ -153,6 +179,82 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             result["daemon_pid"] = visible["pid"]
         if "control_available" in visible:
             result["daemon_control_available"] = bool(visible["control_available"])
+
+    def _finish_message(
+        sid: str, result: dict[str, Any], generation: int, *,
+        global_root, text: str, request_cancelled, on_fragment=None,
+    ) -> dict[str, Any]:
+        """Deliver the handoff without restarting work superseded by Stop.
+
+        Slow status reads run outside the lifecycle lock. Only startup and its
+        acknowledgement share the same lock as daemon control commands.
+        """
+        from ...core.operator_messages import uses_cjk
+        from ...daemon.commands import daemon_command_execution_lock
+        from ..manager_pending_question import record_task_dispatch_ack
+
+        def superseded() -> bool:
+            if not request_cancelled() and manager_control_generation(sid) == generation:
+                return False
+            result.update(kind="cancelled", reply=(
+                "这次请求已取消。" if uses_cjk(text) else "This request was cancelled."
+            ))
+            return True
+
+        if request_cancelled() and superseded():
+            return result
+        starts_executor = (
+            result.get("kind") == "task"
+            and (result.get("dispatch_state") != "already_queued"
+                 or str((result.get("item") or {}).get("status") or "") == "pending")
+        ) or (result.get("kind") == "pending_question" and bool(result.get("resolved")))
+        daemon_view = _visible_daemon(sid)
+        result["daemon_alive"] = daemon_view["alive"]
+        result["daemon_control_available"] = daemon_view["control_available"]
+        if not starts_executor and result.get("kind") != "task":
+            # A control reply can itself advance the generation (natural
+            # language Pause). Only explicit request cancellation supersedes
+            # that successful reply while its final status read was pending.
+            if request_cancelled():
+                superseded()
+            return result
+
+        if superseded():
+            return result
+        with daemon_command_execution_lock(ctx.resolve_or_404(sid), blocking=False) as acquired:
+            if superseded():
+                return result
+            if not acquired and starts_executor:
+                result["daemon"] = {
+                    "rc": 3, "control_busy": True, "error": "Daemon control is busy; retry shortly.",
+                }
+            elif starts_executor and not result.get("daemon_alive"):
+                try:
+                    spawned = ctx.daemon_services.start(
+                        sid, global_root=global_root,
+                        resume_continuous=bool(result.get("continuous")), reclaim_idle=True,
+                    )
+                    _record_spawn_result(result, spawned)
+                except Exception as exc:  # noqa: BLE001 — report startup failure in both transports
+                    result["daemon"] = {
+                        "rc": 2, "error": "The background worker could not start.",
+                        "diagnostic": f"{type(exc).__name__}: {exc}",
+                    }
+            # Cancellation can arrive while startup is blocked. A late success
+            # must not publish an acknowledgement for a superseded request.
+            if superseded():
+                return result
+            if result.get("kind") == "task":
+                try:
+                    record_task_dispatch_ack(
+                        sid, result, global_root=global_root, on_fragment=on_fragment, operator_text=text,
+                        cancelled=superseded,
+                    )
+                except Exception as exc:  # noqa: BLE001 — preserve the task if its ACK write fails
+                    result["ack_error"] = "The task was queued, but its confirmation could not be saved."
+                    result["ack_diagnostic"] = f"{type(exc).__name__}: {exc}"
+            superseded()
+        return result
 
     async def _resolve_message_attachments(
         sid: str,
@@ -202,54 +304,50 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         """
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty message")
+        generation = manager_control_generation(sid)
         project_root = ctx.project_root_or_404(sid)
         from ..manager_bridge import manager_message
-        from ..manager_pending_question import record_task_dispatch_ack
-        attachments = await _resolve_message_attachments(
-            sid,
-            body,
-            global_root=project_root,
-        )
+        lease = _begin_message(sid, body.request_id)
+        handoff = threading.Lock()
+        started = abandoned = False
 
-        kwargs = {"global_root": project_root}
-        if attachments:
-            kwargs["attachments"] = attachments
-        if body.route_override != "auto":
-            kwargs["route_override"] = body.route_override
-
-        result = await run_in_threadpool(
-            manager_message, sid, body.text, **kwargs,
-        )
-        # A task classification lazily spawns the executor, mirroring /tasks.
-        starts_executor = (
-            (
-                result.get("kind") == "task"
-                and (
-                    result.get("dispatch_state") != "already_queued"
-                    or str((result.get("item") or {}).get("status") or "")
-                    == "pending"
+        def _run() -> dict[str, Any]:
+            nonlocal started
+            with handoff:
+                if abandoned:
+                    return {"kind": "cancelled", "reply": "This request was cancelled."}
+                started = True
+            try:
+                result = manager_message(sid, body.text, **kwargs)
+                return _finish_message(
+                    sid, result, generation, global_root=project_root,
+                    text=body.text, request_cancelled=lease.cancelled,
                 )
-            )
-            or (
-                result.get("kind") == "pending_question"
-                and bool(result.get("resolved"))
-            )
-        )
-        daemon_view = await run_in_threadpool(_visible_daemon, sid)
-        result["daemon_alive"] = daemon_view["alive"]
-        result["daemon_control_available"] = daemon_view["control_available"]
-        if starts_executor and not result.get("daemon_alive"):
-            spawned = await run_in_threadpool(
-                server_mod.start_project_daemon, sid, global_root=project_root,
-                resume_continuous=bool(result.get("continuous")),
-                reclaim_idle=True,
-            )
-            _record_spawn_result(result, spawned)
-        if result.get("kind") == "task":
-            await run_in_threadpool(
-                record_task_dispatch_ack, sid, result, global_root=project_root,
-            )
-        return result
+            finally:
+                # HTTP cancellation can leave this thread running. Its request
+                # must remain cancellable until the provider actually returns.
+                lease.finish()
+
+        try:
+            attachments = await _resolve_message_attachments(sid, body, global_root=project_root)
+            kwargs: dict[str, Any] = {
+                "global_root": project_root,
+                "defer_dispatch_ack": True,
+                "cancelled": lambda: lease.cancelled() or manager_control_generation(sid) != generation,
+            }
+            if attachments:
+                kwargs["attachments"] = attachments
+            if body.route_override != "auto":
+                kwargs["route_override"] = body.route_override
+
+            return await run_in_threadpool(_run)
+        except BaseException:
+            requests.cancel(sid, lease.request_id)
+            with handoff:
+                if not started:
+                    abandoned = True
+                    lease.finish()
+            raise
 
     @app.post("/api/projects/{sid}/message/stream", dependencies=[Depends(ctx.require_auth)])
     async def _post_message_stream(sid: str, body: MessageIn):
@@ -270,27 +368,38 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         """
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty message")
+        generation = manager_control_generation(sid)
         project_root = ctx.project_root_or_404(sid)
         from ..manager_bridge import manager_message
-        from ..manager_pending_question import record_task_dispatch_ack
-        attachments = await _resolve_message_attachments(
-            sid,
-            body,
-            global_root=project_root,
-        )
+        lease = _begin_message(sid, body.request_id)
+        try:
+            attachments = await _resolve_message_attachments(sid, body, global_root=project_root)
+        except BaseException:
+            lease.finish()
+            raise
 
         q: "queue.Queue[dict | None]" = queue.Queue()
         cancel_event = threading.Event()
 
+        def request_cancelled() -> bool:
+            return cancel_event.is_set() or lease.cancelled() or manager_control_generation(sid) != generation
+
         def _run() -> None:
             def _on_fragment(kind: str, payload: dict) -> None:
-                if not cancel_event.is_set():
+                if not request_cancelled():
                     q.put({"type": kind, **payload})
+
+            def _on_terminal(payload: dict) -> None:
+                # Detach stale reads even if a cancelled request partially committed.
+                ctx.invalidate_read_caches()
+                q.put(payload)
+
             try:
-                kwargs = {
+                kwargs: dict[str, Any] = {
                     "global_root": project_root,
+                    "defer_dispatch_ack": True,
                     "on_fragment": _on_fragment,
-                    "cancelled": cancel_event.is_set,
+                    "cancelled": request_cancelled,
                 }
                 if attachments:
                     kwargs["attachments"] = attachments
@@ -301,60 +410,26 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                     body.text,
                     **kwargs,
                 )
-                # Mirror the blocking endpoint: a task classification lazily spawns
-                # the executor so streamed dispatch behaves like /message + /tasks.
-                starts_executor = (
-                    result.get("kind") == "task"
-                    or (
-                        result.get("kind") == "pending_question"
-                        and bool(result.get("resolved"))
-                    )
+                result = _finish_message(
+                    sid, result, generation, global_root=project_root, text=body.text, on_fragment=_on_fragment,
+                    request_cancelled=request_cancelled,
                 )
-                daemon_view = _visible_daemon(sid)
-                result["daemon_alive"] = daemon_view["alive"]
-                result["daemon_control_available"] = daemon_view["control_available"]
-                if (
-                    starts_executor
-                    and not result.get("daemon_alive")
-                ):
-                    try:
-                        spawned = server_mod.start_project_daemon(
-                            sid,
-                            global_root=project_root,
-                            resume_continuous=bool(result.get("continuous")),
-                            reclaim_idle=True,
-                        )
-                        _record_spawn_result(result, spawned)
-                    except Exception as exc:  # noqa: BLE001 — surface failure in done frame
-                        result["daemon"] = {
-                            "rc": 2,
-                            "error": "The background worker could not start.",
-                            "diagnostic": f"{type(exc).__name__}: {exc}",
-                        }
-                # Persist truthful dispatch acknowledgement for task results
-                if result.get("kind") == "task":
-                    try:
-                        record_task_dispatch_ack(
-                            sid, result,
-                            global_root=project_root,
-                            on_fragment=_on_fragment,
-                        )
-                    except Exception as exc:  # noqa: BLE001 — surface in done frame
-                        result["ack_error"] = (
-                            "The task was queued, but its confirmation could not be saved."
-                        )
-                        result["ack_diagnostic"] = f"{type(exc).__name__}: {exc}"
-                q.put({"type": "done", "result": result})
+                _on_terminal({"type": "done", "result": result})
             except Exception as exc:  # noqa: BLE001
-                q.put({
+                _on_terminal({
                     "type": "error",
                     "error": "I couldn't finish handling that request.",
                     "diagnostic": f"{type(exc).__name__}: {exc}",
                 })
             finally:
+                lease.finish()
                 q.put(None)  # sentinel: generator stops
 
-        threading.Thread(target=_run, name=f"manager-stream-{sid}", daemon=True).start()
+        try:
+            threading.Thread(target=_run, name=f"manager-stream-{sid}", daemon=True).start()
+        except BaseException:
+            lease.finish()
+            raise
 
         def _gen():
             for item in server_mod._iter_manager_stream_items(

@@ -32,13 +32,19 @@ class GatewayAttempt:
     Expected storage failures must not change routing, accounting or cleanup.
     """
 
-    def __init__(self, store: Store, key_id: str, estimated_tokens: int):
+    def __init__(self, store: Store, key_id: str, estimated_tokens: int, *, dispatch=None):
         self.store = store
+        self.key_id, self.estimated_tokens = key_id, estimated_tokens
+        self.started_at = store.clock()
+        self.dispatch = dispatch
         self.attempt_id = None
         self.finished = False
         self.fields = {"phase": "slot", "slot_wait_ms": 0, "tpm_wait_ms": 0}
         self.slot_start = time.monotonic()
         self.tpm_start = None
+        if dispatch is not None:
+            dispatch(self)
+            return
         try:
             self.attempt_id = store.begin_gateway_attempt(key_id, estimated_tokens)
         except sqlite3.Error:
@@ -46,6 +52,9 @@ class GatewayAttempt:
 
     def _write(self, **fields):
         self.fields.update(fields)
+        if self.dispatch is not None:
+            self.dispatch(self)
+            return
         if self.attempt_id is not None:
             try:
                 self.store.update_gateway_attempt(self.attempt_id, **self.fields)

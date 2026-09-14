@@ -1,7 +1,8 @@
 import type { DispatchObserver } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
-import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from './api';
+import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useGitDiff } from './hooks';
+import { useConversationHistory } from './useConversationHistory';
+import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride } from './api';
 import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
@@ -50,7 +51,6 @@ import { COMMANDS } from '../../core/src/commands';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
 import {
-  mergeConversationEvents,
   mergeOptimisticManagerDelta,
   mergeOptimisticManagerSteps,
   optimisticOperatorEvent,
@@ -81,6 +81,7 @@ import {
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 interface ActiveMessageRequest {
   id: number;
+  serverRequestId: string;
   sid: string;
   controller: AbortController;
 }
@@ -196,6 +197,7 @@ export default function App() {
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>(initialMessageRoute);
   const [chatPending, setChatPending] = useState(false);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
+  const localConversationSid = useRef<string | null>(null);
   const [managerSteps, setManagerSteps] = useState<PhaseStep[]>([]);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [previewPathRequest, setPreviewPathRequest] = useState({ path: '', token: 0 });
@@ -241,9 +243,19 @@ export default function App() {
   }, []);
 
   const stopWaiting = useCallback(() => {
-    if (!cancelActiveMessage()) return;
-    notify('info', 'Stopped waiting for this reply. Server-side work may still finish in the project timeline.');
-  }, [cancelActiveMessage, notify]);
+    const request = messageRequestRef.current;
+    if (!request || !cancelActiveMessage()) return;
+    const epoch = messageEpochRef.current;
+    notify('info', t('chat.stoppingReply'));
+    // This POST has its own lifetime: aborting the SSE connection must not
+    // abort the cancellation that tells the server to release the Manager.
+    void api.cancelMessage(request.sid, request.serverRequestId).then((receipt) => {
+      if (messageEpochRef.current !== epoch) return;
+      notify('info', t(receipt.requested ? 'chat.stopReplyRequested' : 'chat.replyAlreadyFinished'));
+    }).catch((error: unknown) => {
+      if (messageEpochRef.current === epoch) notify('error', t('chat.stopReplyFailed', { error: errorText(error) }));
+    });
+  }, [cancelActiveMessage, notify, t]);
   const {
     activeSid,
     clearProjectSelection,
@@ -356,18 +368,17 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [loadedSid, queryClient, snapshotRefreshKey]);
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
-  const transcriptQ = useTranscript(loadedSid, standardWorkspaceView === 'activity', 120);
+  const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
+    loadedSid, standardWorkspaceView === 'activity', events, localConversationEvents, localConversationSid.current,
+  );
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
-  const activityEvents = useMemo(() => {
-    return mergeConversationEvents(
-      events,
-      transcriptQ.data ?? [],
-      localConversationEvents,
-    );
-  }, [events, localConversationEvents, transcriptQ.data]);
   // The map view follows the stream at a beat, not per token.
-  const mapEvents = useThrottledValue(events, 250);
-  const mapConversationEvents = useThrottledValue(activityEvents, 250);
+  const mapInput = useMemo(() => ({ sid: loadedSid, events, conversation: activityEvents }), [loadedSid, events, activityEvents]);
+  const mapHistory = useThrottledValue(mapInput, 250);
+  // A pending throttle belongs to its original project, even when the next
+  // project's snapshot is already cached and renders synchronously.
+  const mapEvents = mapHistory.sid === loadedSid ? mapHistory.events : [];
+  const mapConversationEvents = mapHistory.sid === loadedSid ? mapHistory.conversation : [];
   const missionView = useMemo(
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
@@ -599,6 +610,7 @@ export default function App() {
 
     messageSubmitLockRef.current = true;
     let requestId: number;
+    let serverRequestId: string;
     let controller: AbortController;
     try {
       if (!attachments.length) {
@@ -611,8 +623,9 @@ export default function App() {
       }
 
       requestId = ++messageEpochRef.current;
+      serverRequestId = newRequestId();
       controller = new AbortController();
-      messageRequestRef.current = { id: requestId, sid: requestSid, controller };
+      messageRequestRef.current = { id: requestId, serverRequestId, sid: requestSid, controller };
     } finally {
       messageSubmitLockRef.current = false;
     }
@@ -657,8 +670,10 @@ export default function App() {
         return false;
       }
     }
+    const sameConversation = localConversationSid.current === requestSid;
+    localConversationSid.current = requestSid;
     setLocalConversationEvents((current) => [
-      ...current,
+      ...(sameConversation ? current : []),
       optimisticOperatorEvent(requestSid, requestId, text),
     ]);
 
@@ -785,6 +800,7 @@ export default function App() {
             signal: controller.signal,
             attachments: attachmentRefs,
             routeOverride,
+            requestId: serverRequestId,
           });
         } catch (error) {
           if (isCurrent()) streamErr = error as Error;
@@ -993,10 +1009,10 @@ export default function App() {
               <div className="hidden h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3 lg:flex">
                 <div className="workspace-tabs" data-active={workspaceView}>
                   <span className="workspace-tab-indicator" aria-hidden="true" />
-                  <button type="button" onClick={() => setWorkspaceView('mission')} className="workspace-tab" data-selected={workspaceView === 'mission'}>{t('mobile.mission')}</button>
-                  <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
-                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{t('mobile.workbench')}</button>
-                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{t('mobile.map')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('mission')} className="workspace-tab" data-workspace-view="mission" data-selected={workspaceView === 'mission'}>{t('mobile.mission')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-workspace-view="activity" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-workspace-view="workbench" data-selected={workspaceView === 'workbench'}>{t('mobile.workbench')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-workspace-view="map" data-selected={workspaceView === 'map'}>{t('mobile.map')}</button>
                 </div>
                 <span className="ml-auto" />
                 {!kiosk && workspaceView !== 'map' ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-xs text-ink-faint hover:border-blue/50 hover:text-blue">{t('mission.operations')}</button> : null}
@@ -1035,16 +1051,21 @@ export default function App() {
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
                     onNotify={notify}
+                    onAsk={kiosk ? undefined : draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }}
                   />
                 ) : (
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
                   <EventStream
+                    key={loadedSid}
                     snapshot={snap}
                     missionView={missionView}
                     events={activityEvents}
                     connected={connected && !snapQ.isError}
                     showReasoning={showReasoning}
                     onToggleReasoning={() => setShowReasoning((value) => !value)}
+                    historyStatus={historyStatus}
+                    historyRefreshing={transcriptQ.isFetching}
+                    onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
                     filter={eventFilter}
                     query={eventQuery}

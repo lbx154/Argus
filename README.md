@@ -10,7 +10,7 @@
 
 Long-running agent work that can plan, execute, verify, pause, and continue beyond a single model turn.
 
-**Argus v0.1.5 · Source updates and packaged desktop previews are separate channels.**
+**Argus v0.1.6 · Source updates and packaged desktop previews are separate channels.**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -558,6 +558,8 @@ For the wider set, **[what goes wrong and what we did about it](docs/failure-mod
 A measured counterpart is **[system audit: six complaints, checked against the code](docs/system-audit.md)** — over-defensiveness, a rigorous verification bar, unnecessary operator questions, weak instruction following, redundancy, and schema abuse, each confirmed or refuted with counts from the tree.
 
 The follow-up **[architecture simplification plan](docs/architecture-simplification-plan.md)** separates a short direct-engineering lane from the full research team, proposes one Host-generated shared mission view, and outlines a compatibility-first Vertical package split.
+
+Maintainers can use the **[runtime maintenance map](docs/runtime-maintainability.md)** for code entry points, state ownership, recovery boundaries, and the current refactoring tasks.
 
 What follows from that audit is **[the simplification plan](docs/simplification-plan.md)**: an ordered set of deletions, a mechanical rule for sorting 2,277 exception handlers, an explicit list of what must not be removed, and the trap to avoid — replacing deleted machinery with a unified system that becomes the same mistake.
 

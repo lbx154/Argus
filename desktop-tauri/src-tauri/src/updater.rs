@@ -496,8 +496,8 @@ impl UpdateManager {
         let mut downloaded = 0_u64;
         let mut last_progress = Some(0_u8);
         let mut last_progress_emit = Instant::now();
-        let result = update
-            .download_and_install(
+        let verified_download = update
+            .download(
                 move |chunk_length, content_length| {
                     downloaded = downloaded.saturating_add(chunk_length as u64);
                     let progress = content_length
@@ -525,10 +525,22 @@ impl UpdateManager {
                         manager.set_status(status);
                     }
                 },
-            )
-            .await;
+            );
+        let result = crate::update_install::install_verified_update(
+            verified_download,
+            async {
+                #[cfg(windows)]
+                {
+                    // The supervisor already authenticates ownership. Never ask
+                    // NSIS to kill arbitrary processes with the same filename.
+                    let supervisor = Arc::clone(&crate::state(&self.inner.app).supervisor);
+                    supervisor.stop().await;
+                }
+            },
+            |bytes| update.install(bytes),
+        ).await;
         result.map_err(|error| {
-            let detail = format!("更新下载或签名验证失败：{error}");
+            let detail = format!("更新下载、签名验证或安装失败：{error}");
             self.inner.logger.warn(&detail);
             self.set_status(make_status(
                 UpdateState::Error,

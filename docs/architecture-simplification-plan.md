@@ -1,5 +1,9 @@
 # Argus 精简架构规划
 
+当前的代码入口、状态所有权、恢复边界和分批任务见
+[Runtime 维护地图与重构任务](runtime-maintainability.md)。下文保留工作流和
+Vertical 拆库的设计背景；实施状态以维护地图为准。
+
 Argus 不需要更多角色和 Gate，而需要按任务形状决定投入多少系统。
 
 普通、单仓库、单交付物的工程任务走短链：Manager 只确定权限、Vertical

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -22,8 +23,9 @@ from ..core.session import (
     update_session_meta,
 )
 from ..daemon.life_worker import read_continuous_state
+from ..daemon.state import ContinuousConfigState, read_daemon_status
 from . import project_state
-from ._server_module import server_module as _srv
+from .daemon_services import DaemonStatusReader, ProjectDaemonStarter
 
 _global_root = project_state.resolve_global_root
 project_life_dir = project_state.project_life_dir
@@ -69,6 +71,7 @@ def delete_project(
     *,
     global_root: Path | str | None = None,
     lifecycle_root: Path | str | None = None,
+    read_status: DaemonStatusReader = read_daemon_status,
 ) -> dict[str, Any] | None:
     """Reversibly remove a stopped session by moving it to projects_trash."""
     from .manager_state import manager_context_lock, release_manager_context
@@ -81,7 +84,7 @@ def delete_project(
                 life_dir = project_life_dir(sid, global_root=root)
                 if life_dir is None:
                     return None
-                status = _srv().read_daemon_status(life_dir)
+                status = read_status(life_dir)
                 if status.alive:
                     return {
                         "ok": False,
@@ -216,31 +219,90 @@ def restore_trashed_project(
         return {"ok": True, "sid": sid}
 
 
-def set_continuous(
+@dataclass(frozen=True)
+class ContinuousUpdateReceipt:
+    life_dir: Path
+    manager_generation: int
+    continuous: ContinuousConfigState
+
+
+def apply_continuous_update(
     sid: str,
     *,
     enabled: bool,
     objective: str = "",
     global_root: Path | str | None = None,
-) -> bool | None:
-    """Start/stop this project's continuous (self-directed) campaign by writing
-    the hot-reloadable ``continuous.json``."""
+) -> ContinuousUpdateReceipt | None:
+    """Apply a request and retain the identity needed to guard its later start."""
+    from ..daemon.commands import daemon_command_execution_lock
+    from ..manager.front_door import ManagerHandoffError, ManagerHandoffSupersededError
+    from .manager_state import interrupt_manager_turns, manager_control_generation
+
+    generation = manager_control_generation(sid)
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
     if not enabled:
         from .manager_dispatch import disable_manager_continuous
 
-        disable_manager_continuous(sid, life_dir=life_dir)
-        return True
+        interrupt_manager_turns(sid, clear_continuous=False, expected_generation=generation)
+        # Serialize the final stop with a previously committed request's start;
+        # neither classification nor pipeline waits hold this execution lock.
+        with daemon_command_execution_lock(life_dir, blocking=False) as acquired:
+            if not acquired:
+                raise ManagerHandoffError("Daemon control is busy; retry shortly")
+            disable_manager_continuous(sid, life_dir=life_dir)
+        return ContinuousUpdateReceipt(life_dir, manager_control_generation(sid), read_continuous_state(life_dir))
     from .manager_dispatch import manager_continuous_handoff
+
+    if objective.strip():
+        if objective.strip() != read_continuous_state(life_dir).objective.strip():
+            # A newer explicit objective supersedes an older web Manager call,
+            # including one currently blocked in its provider or at a boundary.
+            generation = interrupt_manager_turns(
+                sid, clear_continuous=False, expected_generation=generation,
+            )
+    if manager_control_generation(sid) != generation:
+        raise ManagerHandoffSupersededError("A newer control request superseded this request")
 
     manager_continuous_handoff(
         sid,
         objective.strip(),
         global_root=global_root,
+        control_generation=generation,
     )
-    return True
+    state = read_continuous_state(life_dir)
+    if manager_control_generation(sid) != generation or not state.enabled:
+        raise ManagerHandoffSupersededError("A newer control request superseded this result")
+    return ContinuousUpdateReceipt(life_dir, generation, state)
+
+
+def start_continuous_update(
+    sid: str, receipt: ContinuousUpdateReceipt, *, start: ProjectDaemonStarter,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    from ..daemon.commands import daemon_command_execution_lock
+    from ..manager.front_door import ManagerHandoffError, ManagerHandoffSupersededError
+    from .manager_state import manager_control_generation
+
+    with daemon_command_execution_lock(receipt.life_dir, blocking=False) as acquired:
+        if not acquired:
+            raise ManagerHandoffError("Daemon control is busy; retry shortly")
+        current = read_continuous_state(receipt.life_dir)
+        if (manager_control_generation(sid) != receipt.manager_generation
+                or current != receipt.continuous
+                or current.generation != receipt.continuous.generation
+                or not receipt.continuous.enabled):
+            raise ManagerHandoffSupersededError("A newer control request superseded daemon start")
+        return start(sid, global_root=global_root, resume_continuous=True)
+
+
+def set_continuous(
+    sid: str, *, enabled: bool, objective: str = "", global_root: Path | str | None = None,
+) -> bool | None:
+    """Compatibility entry point for callers that only need the applied status."""
+    receipt = apply_continuous_update(sid, enabled=enabled, objective=objective, global_root=global_root)
+    return True if receipt is not None else None
 
 
 # ---------------------------------------------------------------------------

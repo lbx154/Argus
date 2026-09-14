@@ -1288,26 +1288,14 @@ button {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  :root:not([data-startup-eye-motion='on']) .argus-splash-eye,
-  :root:not([data-startup-eye-motion='on']) .argus-wizard-eye {
-    animation: none !important;
-    transform: none !important;
-  }
 }
 
-/* Explicit application choice, limited to the original two eye groups. Keep
- * error/hidden play-state rules and every other reduced-motion rule intact. */
-:root[data-startup-eye-motion='on'] .argus-splash-eye,
-:root[data-startup-eye-motion='on'] .argus-wizard-eye {
+/* The original two eye groups always animate. There is no user preference;
+ * error/hidden lifecycle pauses and other reduced-motion rules stay intact. */
+.argus-splash-eye,
+.argus-wizard-eye {
   animation-duration: 1.05s !important;
   animation-iteration-count: infinite !important;
-}
-:root[data-startup-eye-motion='off'] .argus-splash-eye,
-:root[data-startup-eye-motion='off'] .argus-wizard-eye,
-:root[data-startup-eye-motion='pending'] .argus-splash-eye,
-:root[data-startup-eye-motion='pending'] .argus-wizard-eye {
-  animation: none !important;
-  transform: none !important;
 }
 
 /* The cockpit remains an authenticated loopback document in an isolated iframe.

@@ -57,5 +57,5 @@ it("keeps the selected attachment visible and disables removal while a send is p
   expect(html).toMatch(
     /<button[^>]*disabled=""[^>]*aria-label="remove attachment study.csv"/,
   );
-  expect(html).toContain("Stop waiting");
+  expect(html).toContain("Stop reply");
 });

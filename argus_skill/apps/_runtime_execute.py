@@ -18,6 +18,7 @@ import stat
 import tempfile
 import time
 from pathlib import Path
+from typing import Callable
 
 from ..core.knobs import resolve_role_reasoning_effort
 from ..core.ports import EventSink
@@ -48,26 +49,46 @@ def _engineer_guidance(
     state_root: Path | None,
     workdir: Path,
     manager: object | None = None,
+    *,
+    receiver=None,
+    delivery_messages: list[str] | None = None,
+    mission_id: str = "",
 ) -> list[str]:
     """Project the typed operator context after persisting fresh inbox input."""
     if state_root is None:
         return []
-    from ..core.operator_context import build_operator_context_block
-    from ..skills.stage_machine import current_stage
-    from ._inbox import drain_inbox_messages
-
-    transient = drain_inbox_messages(
-        state_root,
-        current_stage=current_stage(workdir),
+    from ..core.file_lock import FileLockCancelled, bounded_file_lock_wait
+    from ..core.operator_context import (
+        OperatorContextUnavailable,
+        build_operator_context_block,
     )
-    from ..manager.directive import record_operator_messages
+    from ..core.run_gateway import current_run_interrupt_reason
+    from ._inbox_delivery import DurableInboxReceiver, operator_live_turn
 
-    record_operator_messages(state_root, transient, manager=manager)
-    block, _revision = build_operator_context_block(
-        "engineer",
-        state_root,
-        live_turn="\n".join(transient),
-    )
+    owned_receiver = receiver is None
+    receiver = receiver or DurableInboxReceiver(state_root, consumer="engineer", project_root=workdir)
+
+    def cancelled() -> bool:
+        return bool(current_run_interrupt_reason())
+
+    try:
+        with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=cancelled):
+            transient = receiver.receive(manager=manager, mission_id=mission_id, cancelled=cancelled)
+            if delivery_messages is not None:
+                delivery_messages.extend(transient)
+            block, _revision = build_operator_context_block(
+                "engineer", state_root, mission_id=mission_id, live_turn=operator_live_turn(transient),
+            )
+    except FileLockCancelled as exc:
+        if current_run_interrupt_reason():
+            return []
+        raise OperatorContextUnavailable("Current Engineer OperatorContext read was cancelled") from exc
+    except Exception as exc:
+        raise OperatorContextUnavailable("Current Engineer OperatorContext is unavailable") from exc
+    finally:
+        if owned_receiver:
+            # Standalone callers have no complete-prompt settlement hook.
+            receiver.release_pending()
     return [block] if block else []
 
 
@@ -418,7 +439,9 @@ class SkillLoopExecuteMixin:
         sink: EventSink,
         preload_injects: list[str] | None = None,  # noqa: ARG002 — protocol parity
         prelude_context: str = "",
+        prelude_context_provider: Callable[[], str] | None = None,
         planner_context: str = "",
+        planner_context_provider: Callable[[], str] | None = None,
         seed_thread_id: str | None = None,
         scope: str = "",
         preplanned: bool = False,
@@ -436,67 +459,77 @@ class SkillLoopExecuteMixin:
         allow_skill_changes: bool = False,
         vertical_override: str = "",
     ) -> _Outcome:
-        # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
-        # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
-        # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) does
-        # not classify arbitrary autonomous work — agent-produced backlog work
-        # must not be second-guessed.
-        chat_outcome = self._execute_chat_fast_path(
-            objective=objective,
-            sink=sink,
-            seed_thread_id=seed_thread_id,
-            mission_id=mission_id,
-            usage_mission_id=usage_mission_id,
-        )
-        if chat_outcome is not None:
-            return chat_outcome
+        from ._runtime_interrupt import execution_interrupt_scope
 
-        ex_state = _ExecuteState()
-        # This is an explicitly shared projection. Engineer prelude_context may
-        # contain role-exclusive runtime instructions and must never be reused.
-        ex_state.planner_context = planner_context
-        self._build_execute_config(
-            ex_state,
-            working_dir_override=working_dir_override,
-            maintenance_mission=maintenance_mission,
-            vertical_override=vertical_override,
-            require_independent_review=require_independent_review,
-            max_rounds_override=max_rounds_override,
-            context_packet_path=context_packet_path,
-            mission_id=mission_id,
-            workflow_mode_override=workflow_mode_override,
-        )
-        self._build_execute_skill_store_and_loop(ex_state, sink=sink)
-        self._prepare_execute_mission_context(
-            ex_state,
-            objective=objective,
-            review_objective=review_objective,
-            prelude_context=prelude_context,
-            seed_thread_id=seed_thread_id,
-            scope=scope,
-        )
-        self._invoke_execute_loop(
-            ex_state,
-            sink=sink,
-            objective=objective,
-            original_objective=original_objective,
-            preplanned=preplanned,
-            mission_id=mission_id,
-            usage_mission_id=usage_mission_id,
-        )
-        self._extract_execute_outcome_fields(ex_state)
-        self._maybe_decide_stage_transition(
-            ex_state,
-            sink=sink,
-            mission_id=mission_id,
-            usage_mission_id=usage_mission_id,
-            maintenance_mission=maintenance_mission,
-            skip_stage_transition=skip_stage_transition,
-            preplanned=preplanned,
-            stage_closing=stage_closing,
-            holds_stage_authority=holds_stage_authority,
-        )
-        return self._build_execute_outcome(ex_state)
+        with execution_interrupt_scope(
+            stop_event=getattr(self, "_execution_stop_event", None),
+            state_root=getattr(self, "_manager_session_root", None),
+            mission_id=str(mission_id or getattr(self, "_active_mission_id", "") or ""),
+            enable_abort=bool(getattr(self, "_enable_mission_abort_signal", False)),
+        ):
+            # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
+            # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
+            # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) does
+            # not classify arbitrary autonomous work — agent-produced backlog work
+            # must not be second-guessed.
+            chat_outcome = self._execute_chat_fast_path(
+                objective=objective,
+                sink=sink,
+                seed_thread_id=seed_thread_id,
+                mission_id=mission_id,
+                usage_mission_id=usage_mission_id,
+            )
+            if chat_outcome is not None:
+                return chat_outcome
+
+            ex_state = _ExecuteState()
+            ex_state.prelude_context_provider = prelude_context_provider
+            # This is an explicitly shared projection. Engineer prelude_context may
+            # contain role-exclusive runtime instructions and must never be reused.
+            ex_state.planner_context = planner_context
+            ex_state.planner_context_provider = planner_context_provider
+            self._build_execute_config(
+                ex_state,
+                working_dir_override=working_dir_override,
+                maintenance_mission=maintenance_mission,
+                vertical_override=vertical_override,
+                require_independent_review=require_independent_review,
+                max_rounds_override=max_rounds_override,
+                context_packet_path=context_packet_path,
+                mission_id=mission_id,
+                workflow_mode_override=workflow_mode_override,
+            )
+            self._build_execute_skill_store_and_loop(ex_state, sink=sink)
+            self._prepare_execute_mission_context(
+                ex_state,
+                objective=objective,
+                review_objective=review_objective,
+                prelude_context=prelude_context,
+                seed_thread_id=seed_thread_id,
+                scope=scope,
+            )
+            self._invoke_execute_loop(
+                ex_state,
+                sink=sink,
+                objective=objective,
+                original_objective=original_objective,
+                preplanned=preplanned,
+                mission_id=mission_id,
+                usage_mission_id=usage_mission_id,
+            )
+            self._extract_execute_outcome_fields(ex_state)
+            self._maybe_decide_stage_transition(
+                ex_state,
+                sink=sink,
+                mission_id=mission_id,
+                usage_mission_id=usage_mission_id,
+                maintenance_mission=maintenance_mission,
+                skip_stage_transition=skip_stage_transition,
+                preplanned=preplanned,
+                stage_closing=stage_closing,
+                holds_stage_authority=holds_stage_authority,
+            )
+            return self._build_execute_outcome(ex_state)
 
     def _execute_chat_fast_path(
         self,
@@ -688,10 +721,14 @@ class SkillLoopExecuteMixin:
         )
         from ..manager.directive import active_operator_question_policy
 
-        config_kwargs["operator_questions_allowed"] = (
-            active_operator_question_policy(_project_state_dir) != "forbid"
+        explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()
+        operator_policy_root = (
+            Path(explicit_operator_root).expanduser() if explicit_operator_root else _project_state_dir
         )
-        config_kwargs["operator_question_policy_root"] = _project_state_dir
+        config_kwargs["operator_questions_allowed"] = (
+            active_operator_question_policy(operator_policy_root) != "forbid"
+        )
+        config_kwargs["operator_question_policy_root"] = operator_policy_root
         # Campaign lifetime metadata forwarded from the daemon namespace so the
         # Manager stage hook receives open_ended=True for daemon-created open-ended
         # campaigns, preventing final_stage_completion_decision from overwriting a
@@ -759,22 +796,17 @@ class SkillLoopExecuteMixin:
         self._refresh_manager_skill_store(args, workdir=workdir)
         # The per-project runtime state dir holds inbox.jsonl + events.jsonl.
         operator_state_dir = _project_state_dir_for(args, workdir)
-        # REAL operator inbox (Change A): drain queued ``--notify`` / ``/nudge``
-        # messages EACH engineer round — not just at mission start — so the
-        # operator can steer a long in-flight mission instead of being locked out
-        # until the next mission. Wired through the existing per-round
-        # ``extra_guidance_provider`` hook; shares ``inbox.offset`` with the
-        # supervisor's mission-start drain, so each message is delivered exactly
-        # once with no duplication. Never raises into a mission.
+        # Both built-in consumers share durable claims. Canonical acceptance is
+        # idempotent; ephemeral messages settle only after full prompt assembly.
         inbox_life_dir = operator_state_dir
+        from ._inbox_delivery import EngineerInboxGuidance
 
-        def _inbox_guidance_provider() -> list[str]:
-            try:
-                return _engineer_guidance(inbox_life_dir, workdir, self.manager)
-            except Exception:  # noqa: BLE001 — never break a mission
-                return []
-
-        extra_guidance_provider = _inbox_guidance_provider if inbox_life_dir is not None else None
+        extra_guidance_provider = (
+            EngineerInboxGuidance(
+                inbox_life_dir, workdir, lambda: getattr(self, "manager", None),
+                mission_id=str(getattr(config, "session_id", "") or ""),
+            ) if inbox_life_dir is not None else None
+        )
         engineer_backend = getattr(self, "engineer_backend", None) or self._backend
         global_skills_dir = Path(args.skills_dir)
         skill_store = None
@@ -823,6 +855,7 @@ class SkillLoopExecuteMixin:
             skill_store=skill_store,
             on_event=sink.handle_event,
             extra_guidance_provider=extra_guidance_provider,
+            prelude_context_provider=getattr(ex_state, "prelude_context_provider", None),
         )
 
     def _prepare_execute_mission_context(
@@ -839,7 +872,7 @@ class SkillLoopExecuteMixin:
         thread id to chain off of, and normalize the structural scope tag.
         """
         full_task = objective
-        if prelude_context:
+        if prelude_context and getattr(ex_state, "prelude_context_provider", None) is None:
             full_task = f"{prelude_context}\n---\n## Live objective\n{objective}"
         # Use the seed for the first execute() of this runner; subsequent
         # execute() calls (LifeSupervisor may run several missions in one
@@ -901,11 +934,26 @@ class SkillLoopExecuteMixin:
                     "text": "Planner project grounding and decomposition started",
                 }
             )
+            shared_context = ex_state.planner_context
+            context_provider = getattr(ex_state, "planner_context_provider", None)
+            if context_provider is not None:
+                try:
+                    shared_context = str(context_provider() or "").strip()
+                except Exception:  # noqa: BLE001 — never fall back to old recalled claims
+                    log.warning("current Planner memory unavailable", exc_info=True)
+                    shared_context = "Current shared memory is unavailable."
+                shared_context = (
+                    "## Current shared Planner context\n"
+                    "This projection replaces earlier recalled memory for this request. "
+                    "An omitted experience requires a fresh read of its current state "
+                    "and revision before reuse; omission alone does not mean revocation.\n\n"
+                    + (shared_context or "No current shared memory.")
+                )
             plan = draft_plan(
                 getattr(self, "planner_backend", None) or self._backend,
                 bounded_planner_request(
                     objective,
-                    shared_context=ex_state.planner_context,
+                    shared_context=shared_context,
                     checkpoint_path=getattr(config, "checkpoint_path", None),
                     operator_state_root=getattr(
                         config, "operator_question_policy_root", None

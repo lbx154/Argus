@@ -33,7 +33,6 @@ Command POSTs (task/nudge/daemon start-stop/config) land in M1.
 # unions are fine on the required Python >=3.11.
 
 import asyncio
-import json
 import logging
 import os
 import queue
@@ -45,7 +44,6 @@ from typing import Any
 
 from ..apps.cli._follow import (
     _merge_recent_event_rows,
-    _read_recent_jsonl_events,
     _read_recent_project_events,  # noqa: F401 - used via server_mod._read_recent_project_events in webapi/routes/projects.py
 )
 from ..core.event_catalog import EventType, canonical_event_type
@@ -69,7 +67,7 @@ from ..daemon.life_worker import (
     _active_workspace_owner,  # noqa: F401 - monkeypatched via server._active_workspace_owner; read by daemon_lifecycle._srv()
     _max_active_daemons,  # noqa: F401 - monkeypatched via server._max_active_daemons; read by daemon_lifecycle._srv()
     read_continuous_state,  # noqa: F401 - used via server.read_continuous_state in tests/webapi/test_commands_m1.py
-    read_daemon_status,  # noqa: F401 - monkeypatched via server.read_daemon_status; read by *._srv() in daemon_lifecycle/daemon_upgrade/mission_items/project_crud
+    read_daemon_status,  # also retained for daemon_lifecycle/daemon_upgrade compatibility
     stop_daemon,  # noqa: F401 - monkeypatched via server.stop_daemon; read by daemon_lifecycle/daemon_upgrade._srv()
     write_continuous_config,  # noqa: F401 - compatibility export
 )
@@ -323,6 +321,7 @@ from . import (
     mission_items,
     project_crud,
 )
+from .daemon_services import DaemonServices
 
 _SCHEDULED_DAEMON_UPGRADES = daemon_upgrade._SCHEDULED_DAEMON_UPGRADES
 _SCHEDULED_DAEMON_UPGRADES_LOCK = daemon_upgrade._SCHEDULED_DAEMON_UPGRADES_LOCK
@@ -400,44 +399,15 @@ def _read_replay_snapshot(
     limit: int,
     max_bytes: int = 256 * 1024,
 ) -> tuple[list[dict[str, Any]], int, int | None]:
-    """Read replay rows and their exact complete-line byte boundary once.
+    """Read replay and its byte boundary from one bounded file snapshot."""
+    from ..core.jsonl_reader import read_jsonl_replay
 
-    Reading from one open file description prevents an append from appearing
-    in the replay while the tail still starts at an older separately-statted
-    offset. The final unterminated JSONL record is deliberately left for the
-    live tail to finish.
-    """
-    limit = max(0, int(limit))
     try:
-        with path.open("rb") as fh:
-            inode = os.fstat(fh.fileno()).st_ino
-            size = fh.seek(0, os.SEEK_END)
-            start = max(0, size - max(1, int(max_bytes)))
-            fh.seek(start)
-            raw = fh.read(size - start)
+        with path.open("rb") as stream:
+            replay = read_jsonl_replay(stream, limit=limit, max_bytes=max_bytes)
+            return replay.rows, replay.offset, os.fstat(stream.fileno()).st_ino
     except OSError:
         return [], 0, None
-    last_newline = raw.rfind(b"\n")
-    if last_newline < 0:
-        return [], (0 if start == 0 else size), inode
-    offset = start + last_newline + 1
-    complete = raw[: last_newline + 1]
-    if start:
-        _, separator, complete = complete.partition(b"\n")
-        if not separator:
-            complete = b""
-    rows: list[dict[str, Any]] = []
-    for raw_line in complete.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        if isinstance(event, dict):
-            rows.append(event)
-    return ([] if limit == 0 else rows[-limit:]), offset, inode
 
 
 async def tail_events(
@@ -446,68 +416,32 @@ async def tail_events(
     replay_limit: int = 40,
     poll_interval: float = 0.25,
 ):
-    """Async generator: yield the last ``replay_limit`` events, then every new
-    ``events.jsonl`` line as it is appended.
+    """Yield bounded replay, then drain each retained generation before the next.
 
-    Roll-safe: ``events.jsonl`` rotates to ``.jsonl.1`` at 100MB (the daemon's
-    ``event_log`` writer), which shrinks/replaces the live file. We track
-    ``(st_ino, st_size)`` and, on a shrink or inode change, restart the byte
-    offset from 0 so the freshly-rotated log is followed without dropping or
-    duplicating a truncated line. A partial trailing line (no ``\\n`` yet) is
-    buffered until its newline arrives.
+    An open file description retains unread bytes when events.jsonl rotates.
+    Reads and generation selection briefly share the writer's events.lock; no
+    lock is held while yielding, sleeping, or sending WebSocket messages.
     """
-    path = life_dir / EVENT_FILE
+    from ..core.jsonl_reader import JsonlTail
 
-    current, offset, inode = _read_replay_snapshot(path, limit=replay_limit)
-    previous = _read_recent_jsonl_events(
-        path.with_name(path.name + ".1"),
-        limit=replay_limit,
-    ) if replay_limit > 0 else []
-    replay = _merge_recent_event_rows(previous, current, limit=replay_limit)
-
-    hide = _hides_inner_monologue()
-    for ev in replay:
-        if hide and _is_inner_monologue(ev):
-            continue
-        yield ev
-
-    buf = b""
-
-    while True:
-        await asyncio.sleep(poll_interval)
-        try:
-            stat = path.stat()
-        except OSError:
-            continue  # file gone mid-roll — wait for it to reappear
-        if stat.st_ino != inode or stat.st_size < offset:
-            offset, inode, buf = 0, stat.st_ino, b""  # rotated/truncated → restart
-        if stat.st_size <= offset:
-            continue
-        try:
-            with path.open("rb") as fh:
-                fh.seek(offset)
-                chunk = fh.read()
-                offset = fh.tell()
-        except OSError:
-            continue
-        buf += chunk
-        *complete, buf = buf.split(b"\n")  # keep the last (possibly partial) line
-        for raw in complete:
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                continue
-            if not isinstance(ev, dict):
-                continue
-            # The scratchpad is persisted to events.jsonl for debugging but is
-            # not pushed to a UI whose own README documents it as hidden by
-            # default. Re-read the knob each line so the setting is live.
-            if _is_inner_monologue(ev) and _hides_inner_monologue():
-                continue
-            yield ev
+    reader = JsonlTail(life_dir / EVENT_FILE)
+    try:
+        replay = reader.start(replay_limit=replay_limit, merge_rows=_merge_recent_event_rows)
+        hide = _hides_inner_monologue()
+        for event in replay:
+            if not (hide and _is_inner_monologue(event)):
+                yield event
+        while True:
+            batch = reader.read_batch()
+            for event in batch.rows:
+                # The reasoning knob remains live for newly appended records.
+                if not (_is_inner_monologue(event) and _hides_inner_monologue()):
+                    yield event
+            # Drain an existing backlog cooperatively, rather than imposing a
+            # poll delay per chunk. Idle and unfinished lines wait for an append.
+            await asyncio.sleep(0 if batch.more else poll_interval)
+    finally:
+        reader.close()
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +454,8 @@ def create_app(
     global_root: Path | str | None = None,
     auth_token: str | None = None,
     session_roots: list[Path | str] | None = None,
+    daemon_services: DaemonServices | None = None,
+    query_limits=None,
 ):
     """Build the FastAPI app. Requires the ``[web]`` extra (fastapi).
 
@@ -528,12 +464,19 @@ def create_app(
     upgrade needs ``?token=<token>`` (browsers cannot set WS headers). With no
     token configured the API is unauthenticated — safe only behind the default
     ``127.0.0.1`` bind.
+
+    ``daemon_services`` overrides project status/deletion and direct daemon
+    starts for this app only. Defaults are captured when the app is built.
+    ``query_limits`` accepts ``index_cache.QueryLimits`` for this app's isolated
+    scan pool, queue capacity and HTTP deadlines. The app owns its shutdown.
     """
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from starlette.middleware.gzip import GZipMiddleware
+    from starlette.responses import JSONResponse
 
     from . import server as server_mod
+    from .index_cache import CacheWaitTimeout, QueryExecutor, QueryUnavailable
 
     token = auth_token if auth_token is not None else os.environ.get("ARGUS_SKILL_WEB_TOKEN")
     primary_root = _global_root(global_root).expanduser().resolve()
@@ -558,6 +501,15 @@ def create_app(
         title="argus-skill web API",
         version=str(api_meta["runtime"]["package_version"]),
     )
+
+    @app.exception_handler(QueryUnavailable)
+    @app.exception_handler(CacheWaitTimeout)
+    async def _cache_wait_timeout(_request, exc):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": str(exc)},
+            headers={"Retry-After": "1"},
+        )
 
     @app.middleware("http")
     async def _add_protocol_headers(request, call_next):  # noqa: ANN001
@@ -640,6 +592,7 @@ def create_app(
     )
     app.add_middleware(GZipMiddleware, minimum_size=1024)
 
+    from .routes.advisor import register_advisor_routes
     from .routes.artifacts import register_artifact_routes
     from .routes.context import ServerContext
     from .routes.counterexamples import register_counterexample_routes
@@ -659,7 +612,20 @@ def create_app(
         list_project_costs=list_project_costs,
         list_trashed_projects=list_trashed_projects,
         project_life_dir=project_life_dir,
+        daemon_services=(
+            daemon_services if daemon_services is not None else DaemonServices(
+                read_status=read_daemon_status,
+                start=start_project_daemon,
+            )
+        ),
+        query_executor=QueryExecutor(query_limits),
     )
+    app.state.query_executor = ctx.query_executor
+    app.state.query_limits = ctx.query_executor.limits
+
+    @app.on_event("shutdown")
+    async def _shutdown_query_workers() -> None:
+        await ctx.query_executor.close()
 
     # Route registration is split by API domain so create_app() stays a thin
     # composition root: projects/sessions (listing, CRUD, snapshot/events,
@@ -667,11 +633,10 @@ def create_app(
     # continuous), artifacts/read-only (artifact + git-diff file serving),
     # Manager streaming/messages (chat, SSE stream, live event WebSocket), and
     # config/diagnostics (meta, metrics, per-project config/identity/doctor,
-    # operator config/budget/identity/reset/skills). Each registrar receives
-    # this same ``ctx`` (shared auth/project-root helpers) and the ``server``
-    # module itself so every endpoint keeps delegating to the exact same
-    # module-level functions as before — endpoint paths, payloads, and
-    # ordering are unchanged.
+    # operator config/budget/identity/reset/skills). Registrars share this
+    # app's auth/root helpers and narrow daemon services through ``ctx``.
+    # Project/work-item operations call their owning modules directly. The
+    # remaining legacy services still receive the server compatibility facade.
     register_project_routes(app, ctx, server_mod)
     register_workitem_routes(app, ctx, server_mod)
     register_counterexample_routes(app, ctx, server_mod)
@@ -682,6 +647,7 @@ def create_app(
     register_reader_foundation_routes(app, ctx)
     register_manager_routes(app, ctx, server_mod)
     register_meta_routes(app, ctx, server_mod)
+    register_advisor_routes(app, ctx)
     register_workspace_v2_routes(app, ctx, server_mod)
     from .routes.map_datasets import register_map_dataset_routes
 

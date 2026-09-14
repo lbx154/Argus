@@ -388,39 +388,20 @@ test('first-run pupil visibly orbits using only the original circles', async ({ 
 });
 
 for (const surface of ['splash', 'wizard']) {
-  test(`system mode respects reduced motion and leaves the ${surface} eye centered and still`, async ({ page }, testInfo) => {
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await launch(page, surface === 'splash', { eyeMotion: 'system', ...(surface === 'splash' ? { state: 'starting' } : {}) });
-    const eye = page.locator(`.argus-${surface}-eye`);
-    await expect(eye).toHaveCSS('animation-name', 'none');
-    await expect(eye).toHaveCSS('transform', 'none');
-    await verifyEyeMotion(page, `.argus-${surface}-eye`, {
-      directory: eyeOutput(testInfo), label: `reduced-${surface}`, duration: 350, moving: false,
+  for (const legacy of ['off', 'system'] as const) {
+    test(`fixed-on ${surface} ignores legacy ${legacy} even under reduced motion`, async ({ page }, testInfo) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await launch(page, surface === 'splash', { eyeMotion: legacy, ...(surface === 'splash' ? { state: 'starting' } : {}) });
+      await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', 'on');
+      await verifyEyeMotion(page, `.argus-${surface}-eye`, {
+        directory: eyeOutput(testInfo), label: `fixed-${surface}-${legacy}`, moving: true,
+      });
+      await expect(page.locator('.desktop-menu-trigger').first()).toHaveCSS('transition-duration', '1e-05s');
     });
-  });
+  }
 }
 
-test('system-mode reduced-motion cold start has no minimum animation delay', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await launch(page, true, { eyeMotion: 'system' });
-  const timing = await verifyColdStartupTiming(page);
-  expect(timing.visibleMilliseconds).toBeLessThan(1000);
-  await expect(page.locator('#splash')).toBeHidden();
-});
-
-for (const surface of ['splash', 'wizard']) {
-  test(`explicit eye On moves the ${surface} pupil even when the system reduces motion`, async ({ page }, testInfo) => {
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await launch(page, surface === 'splash', { eyeMotion: 'on', ...(surface === 'splash' ? { state: 'starting' } : {}) });
-    await verifyEyeMotion(page, `.argus-${surface}-eye`, {
-      directory: eyeOutput(testInfo), label: `enabled-${surface}`, moving: true,
-    });
-    // Other transitions are still reduced; only the original eye is opted in.
-    await expect(page.locator('.desktop-menu-trigger').first()).toHaveCSS('transition-duration', '1e-05s');
-  });
-}
-
-test('default On cold start keeps its full visible cycle under reduced motion', async ({ page }) => {
+test('fixed-on cold start keeps its full visible cycle under reduced motion', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await launch(page, true);
   const timing = await verifyColdStartupTiming(page);
@@ -428,43 +409,25 @@ test('default On cold start keeps its full visible cycle under reduced motion', 
   expect(timing.visibleMilliseconds).toBeGreaterThanOrEqual(1030);
 });
 
-test('Off stays still even when the system allows animation', async ({ page }, testInfo) => {
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await launch(page, true, { state: 'starting', eyeMotion: 'off' });
-  await verifyEyeMotion(page, '.argus-splash-eye', { directory: eyeOutput(testInfo), label: 'explicit-off', duration: 350, moving: false });
-});
-
-test('a saved Off choice cannot flash animation before its native preference arrives', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await launch(page, true, { eyeMotion: 'off', delayAppearance: true });
-  await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', 'pending');
-  await expect(page.locator('.argus-splash-eye')).toHaveCSS('animation-name', 'none');
+test('fixed-on animation does not wait for a legacy preference read', async ({ page }) => {
+  await launch(page, true, { state: 'starting', eyeMotion: 'off', delayAppearance: true });
+  await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', 'on');
+  await expect(page.locator('.argus-splash-eye')).toHaveCSS('animation-name', 'argus-splash-eye');
   await page.evaluate(() => (window as any).desktopTest.releaseAppearance());
-  await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', 'off');
-  await expect(page.locator('#cockpit')).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', 'on');
 });
 
-test('eye preference saves independently without restarting setup or losing a draft', async ({ page }) => {
+test('settings have no eye adjustment and retain the live draft', async ({ page }) => {
   await launch(page, true);
   await expect(page.locator('#splash')).toBeHidden();
   await page.frameLocator('#cockpitFrame').locator('#draft').fill('retain this draft');
   await page.locator('#fileMenuTrigger').click();
-  await expect(page.locator('button[data-startup-eye-motion="on"]')).toHaveAttribute('aria-checked', 'true');
-  await page.locator('button[data-startup-eye-motion="off"]').click();
-  await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', 'off');
+  await expect(page.locator('button[data-startup-eye-motion]')).toHaveCount(0);
+  await expect(page.getByRole('group', { name: '眼睛动画', exact: true })).toHaveCount(0);
+  await page.locator('[data-menu-action="settings"]').click();
+  await expect(page.locator('#wizard')).toBeVisible();
+  await page.locator('#wizardCancel').click();
   await expect(page.frameLocator('#cockpitFrame').locator('#draft')).toHaveValue('retain this draft');
-  expect(await page.evaluate(() => (window as any).desktopTest.motionSaves)).toBe(1);
-  expect(await page.evaluate(() => (window as any).desktopTest.saveCount)).toBe(0);
-});
-
-test('failed eye preference save preserves the previous motion choice', async ({ page }) => {
-  await launch(page, true);
-  await expect(page.locator('#splash')).toBeHidden();
-  await configure(page, { motionError: true });
-  page.once('dialog', dialog => dialog.accept());
-  await page.locator('#fileMenuTrigger').click();
-  await page.locator('button[data-startup-eye-motion="off"]').click();
-  await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', 'on');
   expect(await page.evaluate(() => (window as any).desktopTest.motionSaves)).toBe(0);
 });
 

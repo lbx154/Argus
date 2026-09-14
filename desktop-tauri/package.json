@@ -1,6 +1,6 @@
 {
   "name": "argus-desktop-tauri",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "Argus desktop host for macOS and Windows",
   "author": "lbx154",
@@ -13,6 +13,8 @@
     "ui:build": "vite build --config vite.config.ts",
     "ui:typecheck": "tsc --noEmit",
     "test:ui": "playwright test",
+    "test:copy": "node --test tests/verified-copy.node.mjs",
+    "test:release": "node --test tests/windows-release.node.mjs tests/windows-backend.node.mjs",
     "build:preview": "node scripts/build-preview.mjs",
     "smoke:preview": "node scripts/smoke-preview.mjs",
     "dev": "tauri dev --config src-tauri/tauri.conf.json",
@@ -24,8 +26,8 @@
     "prepare:backend": "node scripts/desktop-build.mjs prepare",
     "test:rust": "cargo check --manifest-path src-tauri/Cargo.toml && cargo test --manifest-path src-tauri/Cargo.toml --test core_tests",
     "smoke:host": "python scripts/smoke-host.py",
-    "test": "npm run ui:typecheck && npm run test:ui && npm run test:rust",
-    "dist": "npm run build:web && npm run build:backend && npm run build && powershell -ExecutionPolicy Bypass -File scripts/stage-release.ps1",
+    "test": "npm run ui:typecheck && npm run test:copy && npm run test:release && npm run test:ui && npm run test:rust",
+    "dist": "node scripts/desktop-build.mjs dist",
     "update:generate-key": "tauri signer generate -w .keys/argus-updater.key"
   },
   "dependencies": {
@@ -33,7 +35,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@tauri-apps/cli": "^2.11.4",
+    "@tauri-apps/cli": "2.11.4",
     "@types/node": "^22.10.0",
     "typescript": "^5.6.3",
     "vite": "^7.3.6"

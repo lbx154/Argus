@@ -7,7 +7,7 @@ when the mission ends.
 from __future__ import annotations
 
 from ..core.event_catalog import EventType
-from ..core.models import LoopOutcome
+from ..core.models import LoopOutcome, LoopStatus
 from ..core.stop_kinds import stop_kind_is_recoverable
 from .loop_state import MissionContext, SkillLibraryState
 
@@ -17,7 +17,7 @@ class MissionSettlementMixin:
         self,
         mission: MissionContext,
         state: SkillLibraryState,
-        status: str,
+        status: LoopStatus,
         rounds: list,
         final_message: str,
         reason: str,

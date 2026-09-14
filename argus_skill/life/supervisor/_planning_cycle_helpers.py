@@ -423,6 +423,8 @@ class _PlanCycleState:
         # Set by the intake/gate phase.
         self.operator_messages: list[str] = []
         self.fresh_operator_messages: list[str] = []
+        # Physical identities survive display/text deduplication until settlement.
+        self.inbox_delivery_messages: list[str] = []
         self.had_operator_messages = False
         self.operator_context_revision: int = 0
         self.has_unhandled_operator_input: bool = False

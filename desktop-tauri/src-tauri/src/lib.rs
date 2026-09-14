@@ -12,6 +12,7 @@ mod resilience;
 mod runner;
 mod settings;
 mod trial;
+mod update_install;
 mod update_policy;
 mod updater;
 
@@ -20,7 +21,7 @@ use diagnostics::export_diagnostics as write_diagnostics;
 use logger::DesktopLogger;
 use models::{
     AppearanceTheme, BackendState, CompleteSetupInput, DeliveryNotificationInput,
-    DesktopAppearance, DesktopSetup, SetupResult, StartupEyeMotion, UpdateStatus,
+    DesktopAppearance, DesktopSetup, SetupResult, UpdateStatus,
 };
 use release::{development_mode, repo_root, runtime_identity, ReleaseContext};
 use runner::{desktop_setup_complete, detect_pi_configuration, resolve_runner_configuration};
@@ -395,17 +396,6 @@ fn set_appearance(app: AppHandle, input: AppearanceInput) -> Result<DesktopAppea
 }
 
 #[tauri::command]
-fn set_startup_eye_motion(app: AppHandle, motion: StartupEyeMotion) -> Result<DesktopAppearance, String> {
-    let app_state = state(&app);
-    // Serialize with account/runner changes so a slower setup cannot overwrite
-    // this preference. This action never starts/stops a backend or changes OS settings.
-    let _operation = app_state.configuration_operation.try_lock()
-        .map_err(|_| "正在更新运行设置，请稍后再更改眼睛动画。".to_owned())?;
-    app_state.settings.set_startup_eye_motion(motion)
-        .map_err(|_| "无法保存眼睛动画设置，原设置未更改。".to_owned())
-}
-
-#[tauri::command]
 fn set_window_theme(app: AppHandle, theme: AppearanceTheme) {
     apply_window_appearance(&app, &theme);
 }
@@ -603,7 +593,6 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
     }
     let current_preferences = app_state.settings.snapshot();
     next.appearance_theme = current_preferences.appearance_theme;
-    next.startup_eye_motion = current_preferences.startup_eye_motion;
     let theme = next.appearance_theme.clone();
     if let Err(error) = app_state.settings.replace(next) {
         return SetupResult::error(error.to_string());
@@ -807,7 +796,11 @@ async fn check_for_update(app: AppHandle, manual: bool) -> UpdateStatus {
 
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
-    state(&app).updater.install().await
+    let app_state = state(&app);
+    // Do not race a Windows installer handoff with setup/restart commands.
+    #[cfg(windows)]
+    let _configuration = app_state.configuration_operation.lock().await;
+    app_state.updater.install().await
 }
 
 #[tauri::command]
@@ -816,10 +809,18 @@ fn dismiss_update(app: AppHandle) {
 }
 
 pub fn run() {
-    // Test-only escape hatch: the packaged smoke test owns an isolated AppData
-    // directory but must not interfere with a real operator's single instance.
-    // Production always remains single-instance.
-    let builder = if std::env::var("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE").as_deref() == Ok("1") {
+    // On Windows an ambient test flag alone must not duplicate a real profile.
+    let qa_requested = std::env::var("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE").as_deref() == Ok("1");
+    let isolated_qa = qa_requested && (!cfg!(windows) || identity::isolated_host_qa_from_env());
+    if qa_requested && !isolated_qa {
+        rfd::MessageDialog::new()
+            .set_title("Argus 测试环境未隔离")
+            .set_description("请移除单实例测试开关，或使用完整隔离的宿主验收脚本。未打开或修改现有用户配置。")
+            .set_level(rfd::MessageLevel::Error)
+            .show();
+        return;
+    }
+    let builder = if isolated_qa {
         tauri::Builder::default()
     } else {
         tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -830,10 +831,15 @@ pub fn run() {
     }
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .setup(|app| {
+    .setup(move |app| {
         let config = &app.config().app.windows[0];
         // Wry cancels macOS downloads unless a handler accepts them.
+        let qa_devtools = identity::preview_qa_enabled(
+            release::preview_mode(),
+            std::env::var("ARGUS_DESKTOP_TEST_INSTANCE").ok().as_deref(),
+        );
         let mut window = tauri::WebviewWindowBuilder::from_config(app, config)?
+            .devtools(qa_devtools)
             .initialization_script(include_str!("shell-init.js"))
             .on_download(|webview, event| match event {
                 tauri::webview::DownloadEvent::Requested { url, .. } =>
@@ -842,9 +848,7 @@ pub fn run() {
                     ),
                 _ => true,
             });
-        if release::preview_mode()
-            || std::env::var("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE").as_deref() == Ok("1")
-        {
+        if release::preview_mode() || isolated_qa {
             // WebView cookies/localStorage must be isolated as well as Python
             // state. Windows known-folder APIs do not follow a test APPDATA.
             window = window.data_directory(settings::desktop_data_dir().join("webview"));
@@ -870,7 +874,6 @@ pub fn run() {
         get_setup,
         get_appearance,
         set_appearance,
-        set_startup_eye_motion,
         set_window_theme,
         set_large_preview,
         choose_runner,

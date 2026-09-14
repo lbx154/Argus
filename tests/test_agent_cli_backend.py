@@ -24,6 +24,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -827,7 +828,7 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
     assert "global daily budget exhausted" in str(denied.fatal_error)
 
 
-def test_unpriced_call_does_not_block_next_provider_spawn(
+def test_unpriced_call_blocks_provider_spawn_and_acknowledged_risk_still_obeys_cap(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -879,13 +880,19 @@ def test_unpriced_call_does_not_block_next_provider_spawn(
     assert second.pricing_status == "not_billed"
     state = json.loads((root / "cost-control.json").read_text())
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", str(second.cost_usd))
+    from argus_skill.core.cost_control import acknowledge_unpriced_call
+
+    acknowledge_unpriced_call(
+        global_root=root, project_id=project.name, call_id=first.call_id,
+        liability_usd=1.0, reason="Operator accepts this one unresolved call",
+    )
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
     denied = backend.run_exec(
         prompt="known cap reached",
         options=RunnerOptions(model="gpt-5.6-sol"),
         run_label="engineer-r2",
     )
-    assert calls == ["engineer-r1", "reviewer"]
+    assert calls == ["engineer-r1"]
     assert denied.stop_kind == "budget_exhausted"
     assert denied.pricing_status == "not_billed"
     assert "global daily budget exhausted" in denied.fatal_error
@@ -955,6 +962,7 @@ def test_run_exec_writes_full_agent_io_log(
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
     backend = AgentCliBackend(backend="copilot")
+    provider_prompts: list[str] = []
 
     def fake_run_exec(
         self: Any,
@@ -964,6 +972,7 @@ def test_run_exec_writes_full_agent_io_log(
         options: Any,
         run_label: str,
     ) -> AgentRunResult:
+        provider_prompts.append(prompt)
         assert self.event_callback is not None
         thread = threading.Thread(
             target=self.event_callback,
@@ -1006,7 +1015,11 @@ def test_run_exec_writes_full_agent_io_log(
     ]
     assert [row["io_kind"] for row in rows[:-1]] == ["start", "complete"]
     assert [row["io_kind"] for row in raw_rows] == ["start", "stream", "stream"]
-    assert raw_rows[0]["prompt"] == "full prompt text"
+    # Call-bound tool instructions are part of the actual provider input. The
+    # trace must retain that complete input, including the original request.
+    assert len(provider_prompts) == 1
+    assert raw_rows[0]["prompt"] == provider_prompts[0]
+    assert raw_rows[0]["prompt"].startswith("full prompt text")
     assert rows[0]["run_label"] == "manager"
     assert [row["stream"] for row in raw_rows[1:]] == [
         "stdout",
@@ -1108,8 +1121,10 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "full")
     backend = AgentCliBackend(backend="copilot")
     prompt = "large prompt body that must be stored exactly once"
+    provider_prompts: list[str] = []
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        provider_prompts.append(kwargs["prompt"])
         assert self.event_callback is not None
         self.event_callback(
             "stdout",
@@ -1154,7 +1169,9 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     assert "prompt" not in start
     assert "prompt_sha256" not in start
     assert "prompt_sha256" not in raw_start
-    assert raw_start["prompt"] == prompt
+    assert len(provider_prompts) == 1
+    assert raw_start["prompt"] == provider_prompts[0]
+    assert raw_start["prompt"].startswith(prompt)
     assert len(streams) == 1
     assert "assistant.message_delta" in streams[0]["line"]
 
@@ -2015,11 +2032,14 @@ def test_run_exec_forwards_watchdog_hooks(
 
     monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
-    interrupt_calls: list[None] = []
+    request_identity = ContextVar("watchdog_request", default="outside")
+    stopped = threading.Event()
+    interrupt_calls: list[str] = []
 
     def interrupt_provider() -> str | None:
-        interrupt_calls.append(None)
-        return None
+        identity = request_identity.get()
+        interrupt_calls.append(identity)
+        return f"stop {identity}" if stopped.is_set() else None
 
     def inactivity_callback(snapshot: Any) -> str | None:  # noqa: ARG001
         return None
@@ -2032,10 +2052,23 @@ def test_run_exec_forwards_watchdog_hooks(
         watchdog_stalled_idle_seconds=300,
         watchdog_hard_idle_seconds=600,
     )
-    backend.run_exec(prompt="x", options=options, run_label="main")
+    token = request_identity.set("current-request")
+    try:
+        backend.run_exec(prompt="x", options=options, run_label="main")
+    finally:
+        request_identity.reset(token)
 
     forwarded = captured["options"]
-    assert forwarded.external_interrupt_reason_provider is interrupt_provider
+    callback = forwarded.external_interrupt_reason_provider
+    assert callable(callback)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        assert pool.submit(request_identity.get).result(timeout=1) == "outside"
+        assert pool.submit(callback).result(timeout=1) is None
+        stopped.set()
+        assert pool.submit(callback).result(timeout=1) == "stop current-request"
+        assert pool.submit(request_identity.get).result(timeout=1) == "outside"
+    assert interrupt_calls and set(interrupt_calls) == {"current-request"}
+    assert request_identity.get() == "outside"
     assert forwarded.inactivity_callback is inactivity_callback
     assert forwarded.watchdog_soft_idle_seconds == 120
     assert forwarded.watchdog_stalled_idle_seconds == 300
@@ -2081,7 +2114,15 @@ def test_consumed_interrupt_returns_canonical_result_without_starting_provider(
 def test_run_exec_applies_default_watchdog_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    default_interrupt = lambda: None
+    request_identity = ContextVar("default_watchdog_request", default="outside")
+    stopped = threading.Event()
+    interrupt_calls: list[str] = []
+
+    def default_interrupt() -> str | None:
+        identity = request_identity.get()
+        interrupt_calls.append(identity)
+        return f"stop {identity}" if stopped.is_set() else None
+
     backend = AgentCliBackend(
         backend="codex",
         default_interrupt_reason_provider=default_interrupt,
@@ -2104,14 +2145,27 @@ def test_run_exec_applies_default_watchdog_hooks(
 
     monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
-    backend.run_exec(
-        prompt="x",
-        options=RunnerOptions(model="gpt-5.4-mini"),
-        run_label="main",
-    )
+    token = request_identity.set("default-request")
+    try:
+        backend.run_exec(
+            prompt="x",
+            options=RunnerOptions(model="gpt-5.4-mini"),
+            run_label="main",
+        )
+    finally:
+        request_identity.reset(token)
 
     forwarded = captured["options"]
-    assert forwarded.external_interrupt_reason_provider is default_interrupt
+    callback = forwarded.external_interrupt_reason_provider
+    assert callable(callback)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        assert pool.submit(request_identity.get).result(timeout=1) == "outside"
+        assert pool.submit(callback).result(timeout=1) is None
+        stopped.set()
+        assert pool.submit(callback).result(timeout=1) == "stop default-request"
+        assert pool.submit(request_identity.get).result(timeout=1) == "outside"
+    assert interrupt_calls and set(interrupt_calls) == {"default-request"}
+    assert request_identity.get() == "outside"
     assert forwarded.watchdog_soft_idle_seconds == 300
     assert forwarded.watchdog_stalled_idle_seconds == 900
     assert forwarded.watchdog_hard_idle_seconds == 1800
@@ -2376,6 +2430,23 @@ def test_fork_creates_independent_runner_with_same_usage_context(tmp_path: Path)
     assert forked._runner.default_extra_args == ["--trace"]
     assert forked._usage_context_snapshot() == backend._usage_context_snapshot()
     forked.close_acp_clients()
+
+
+def test_background_forks_do_not_publish_into_the_foreground_role(tmp_path: Path) -> None:
+    foreground, background = [], []
+    backend = AgentCliBackend(backend="pi", runner_bin="/bin/echo", event_callback=lambda *event: foreground.append(event))
+    backend.set_usage_context(project_root=tmp_path / "project", mission_id="mission", global_root=tmp_path)
+    inherited = backend.fork()
+    isolated = backend.fork(event_callback=None)
+    redirected = backend.fork(event_callback=lambda *event: background.append(event))
+    line = '{"type":"tool_execution_start","toolName":"read"}'
+    for target in (inherited, isolated, redirected):
+        target._io_logger.stream_event_callback("engineer.stdout", line, backend_name="pi", known_secret_values=())
+        assert target._usage_context_snapshot() == backend._usage_context_snapshot()
+        target.close_acp_clients()
+    assert foreground == [("engineer.stdout", line)]
+    assert background == [("engineer.stdout", line)]
+    assert backend._io_logger.external_event_callback is inherited._io_logger.external_event_callback
 
 
 def test_build_agent_cli_backend_from_env_strips_legacy_auto_max_profile(

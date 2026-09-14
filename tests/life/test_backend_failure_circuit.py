@@ -24,6 +24,8 @@ import time as real_time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from argus_skill.core.models import ReviewDecision, RunnerResult
 from argus_skill.engineer import round_execution as round_execution_module
 from argus_skill.engineer.round_stop_signals import (
@@ -226,7 +228,8 @@ def test_third_identical_failure_opens_the_circuit_with_an_hour_scale_hold(
     assert backoffs[0]["seconds"] == 60.0
     assert "times in a row" in backoffs[0]["text"]
     # The hold sleeps in short slices so a stop or abort signal can wake it.
-    assert sleeps == [10.0] * 6
+    assert sum(sleeps) == pytest.approx(60.0)
+    assert all(0 < seconds <= 0.2 for seconds in sleeps)
 
 
 def test_two_identical_failures_do_not_open_the_circuit_and_recovery_resets(
@@ -325,7 +328,8 @@ def test_a_successful_round_restarts_the_same_cause_count(
     assert reviewer.calls == 2
     assert [e["same_cause_streak"] for e in _backoff_events(events)] == [1, 2, 1, 2]
     assert all(not e.get("operator_alert") for e in _backoff_events(events))
-    assert sleeps == [0.5] * 4
+    assert sum(sleeps) == pytest.approx(2.0)
+    assert all(0 < seconds <= 0.2 for seconds in sleeps)
 
 
 def test_a_wait_round_restarts_the_same_cause_count(
@@ -388,7 +392,8 @@ def test_a_wait_round_restarts_the_same_cause_count(
     assert reviewer.calls == 1
     assert [e["same_cause_streak"] for e in _backoff_events(events)] == [1, 2, 1, 2]
     assert all(not e.get("operator_alert") for e in _backoff_events(events))
-    assert sleeps == [0.5] * 4
+    assert sum(sleeps) == pytest.approx(2.0)
+    assert all(0 < seconds <= 0.2 for seconds in sleeps)
 
 
 _TURN_CAP_RECEIPT = (
@@ -440,7 +445,8 @@ def test_a_turn_cap_restart_restarts_the_same_cause_count(
     assert [e["streak"] for e in restarts] == [1]
     assert [e["same_cause_streak"] for e in _backoff_events(events)] == [1, 2, 1, 2]
     assert all(not e.get("operator_alert") for e in _backoff_events(events))
-    assert sleeps == [0.5] * 4
+    assert sum(sleeps) == pytest.approx(2.0)
+    assert all(0 < seconds <= 0.2 for seconds in sleeps)
 
 
 # --------------------------------------------------------------------------- #
@@ -563,12 +569,12 @@ def test_operator_abort_wakes_the_hold_mid_sleep(
         max_rounds=8,
     )
 
-    # The abort arrives two slices into a 60-second hold: the hold wakes at
-    # the next check instead of sleeping the remaining 40 seconds, and the
-    # mission ends as aborted with the operator's reason.
+    # The abort arrives two slices into a 60-second hold. It must be observed
+    # within a fraction of a second, without waiting out the remaining hold.
     assert engineer.calls == 3
     assert status == "aborted"
-    assert sleeps == [10.0, 10.0]
+    assert len(sleeps) == 2 and sum(sleeps) <= 0.4
+    assert all(0 < seconds <= 0.2 for seconds in sleeps)
     interrupted = _hold_interrupt_events(events)
     assert len(interrupted) == 1
     assert interrupted[0]["stop_kind"] == "operator_abort"

@@ -12,7 +12,7 @@ fast path.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
@@ -32,11 +32,22 @@ from ._planning_cycle_helpers import (
     resume_completion_rejection_circuit,
 )
 
+if TYPE_CHECKING:
+    from ._config import _MemoryView
+
 _TERMINAL_TASK_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
 
 
 class PlanningCycleIntakeMixin:
     """Gate checks + preflight short-circuits run before planner invocation."""
+
+    if TYPE_CHECKING:
+        memory: _MemoryView
+
+        def _emit_status(self, text: str) -> None: ...
+        def _enter_idle_backoff(self) -> float: ...
+        def _enter_pause_backoff(self) -> float: ...
+        def _reset_idle_backoff(self) -> None: ...
 
     def _emit_bounded_project_completion(self, reason: str) -> bool | str:
         """Record bounded completion, then deliver the Manager project report."""
@@ -191,21 +202,29 @@ class PlanningCycleIntakeMixin:
         immediately; returns ``None`` to continue the cycle.
         """
         revision_request = state.revision_request
-        from ...core.operator_context import OperatorContextStore, build_operator_context_block
+        from ...core.operator_context import (
+            OperatorContextStore,
+            build_operator_context_block,
+            operator_context_state_root,
+        )
 
         transient_messages = (
             self._take_operator_guidance_carryover() + self._drain_user_inbox()
             if revision_request is None
             else []
         )
+        from ...apps._inbox_delivery import operator_live_turn, unique_operator_messages
+
+        transient_messages = unique_operator_messages(transient_messages)
         state.had_operator_messages = bool(transient_messages)
+        state.inbox_delivery_messages = list(transient_messages)
         # Draining appends fresh messages to the durable ledger. Re-render after
         # the drain so this same planning turn sees the complete standing block
         # as well as the legacy one-shot operator note below.
         operator_context, _revision = build_operator_context_block(
             "planner",
-            self.memory.root,
-            live_turn="\n".join(transient_messages),
+            operator_context_state_root(self.memory),
+            live_turn=operator_live_turn(transient_messages),
             consume_once=False,
         )
         state.operator_context_revision = _revision
@@ -213,7 +232,7 @@ class PlanningCycleIntakeMixin:
         # revision that might arrive while Planner or Manager is running.
         self._planning_operator_context_revision = _revision
         state.has_unhandled_operator_input = (
-            _revision > OperatorContextStore(self.memory.root).acknowledged_revision("planner")
+            _revision > OperatorContextStore(operator_context_state_root(self.memory)).acknowledged_revision("planner")
         )
         state.fresh_operator_messages = list(dict.fromkeys(transient_messages))
         state.operator_messages = list(
@@ -221,6 +240,13 @@ class PlanningCycleIntakeMixin:
                 ([operator_context] if operator_context else [])
             )
         )
+        if not state.had_operator_messages and not state.has_unhandled_operator_input:
+            from ...manager.supervision import waiting_for_evidence
+
+            if waiting_for_evidence(operator_context_state_root(self.memory)):
+                self._enter_idle_backoff()
+                self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
+                return PLAN_AWAITING
         if transient_messages:
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()
