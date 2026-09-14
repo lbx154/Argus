@@ -2,6 +2,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../research-workbench/api';
 import { TimelinePage } from '../research-workbench/timeline/TimelinePage';
+import { TaskEditor } from '../research-workbench/timeline/TaskEditor';
 import { WORKBENCH_MODULES } from '../research-workbench/modules';
 import type { TimelineEntry, TimelineInput, TimelineReport } from '../research-workbench/timeline/types';
 
@@ -71,4 +72,37 @@ it('invalid estimates disable saving and surface the actual error', async () => 
   await settleEstimate();
   expect(button('保存计划版本').props.disabled).toBe(true);
   expect(JSON.stringify(renderer.toJSON())).toContain('dependency cycle');
+});
+
+it('deadline edits render the new range, changed schedule and execution tradeoffs', async () => {
+  vi.mocked(api.timelineExample).mockResolvedValue({ ...example, adapt_to_deadline: true });
+  vi.mocked(api.timelineEstimate).mockImplementation(async (input) => input.deadline_hours === 3 ? {
+    ...report, proposals: [{ ...report.proposals[0], finish_hours: { lower: 1, expected: 2, upper: 4 },
+      schedule: [{ ...report.proposals[0].schedule[0], finish_hours: 2 }],
+      adaptation: { enabled: true, target_hours: 3, status: 'fits', baseline_finish_hours: { lower: 2, expected: 5, upper: 12 },
+        changes: [{ kind: 'execution_option', id: 'pilot', title: '验证假设', option_title: '复用实现', reason: '已有可复用实现', tradeoff: '减少实现自由度', from_duration_hours: [2, 4, 12], to_duration_hours: [1, 2, 4] }] },
+    }],
+  } : report);
+  await mount();
+  await act(async () => { await button('加载论文示例').props.onClick(); });
+  await settleEstimate();
+  act(() => labelInput('期望完成时间（小时）').props.onChange({ target: { value: '3' } }));
+  await settleEstimate();
+  const rendered = JSON.stringify(renderer.toJSON());
+  expect(renderer.root.findAllByType('p').map((p) => p.children.join('')).join(' ')).toContain('1.0–4.0 h');
+  expect(rendered).toContain('复用实现');
+  expect(rendered).toContain('减少实现自由度');
+  expect(renderer.root.findAllByProps({ role: 'img' })[0].props['aria-label']).toContain('0.0–2.0 h');
+  act(() => labelInput('期望完成时间（小时）').props.onChange({ target: { value: '120' } }));
+  await settleEstimate();
+  expect(renderer.root.findAllByType('p').map((p) => p.children.join('')).join(' ')).toContain('2.0–12.0 h');
+});
+
+it('starting work adopts the forecast execution option instead of the original resource estimate', () => {
+  const update = vi.fn();
+  const forecast = { ...report.proposals[0], schedule: [{ ...report.proposals[0].schedule[0], duration_hours: [1, 2, 4] as [number, number, number], resources: { gpu: 2 }, execution_option_id: 'parallel' }] };
+  act(() => { renderer = create(<TaskEditor input={{ ...example, adapt_to_deadline: true }} forecast={forecast} onChange={update} text={(zh) => zh} />); });
+  act(() => renderer.root.findByProps({ 'aria-label': '进展状态' }).props.onChange({ target: { value: 'running' } }));
+  const started = update.mock.lastCall![0].proposals[0].tasks[0];
+  expect(started).toMatchObject({ status: 'running', resources: { gpu: 2 }, duration_hours: [1, 2, 4], remaining_hours: [1, 2, 4], execution_option_id: 'parallel' });
 });

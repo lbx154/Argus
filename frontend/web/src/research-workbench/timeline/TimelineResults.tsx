@@ -12,6 +12,20 @@ export function TimelineResults({ report, selectedId, text }: { report: Timeline
       {p.deadline_gap_hours != null && <p className={`mt-2 text-xs ${p.deadline_gap_hours > 0 ? 'text-red' : 'text-ink-faint'}`}>{text('预计超期', 'Forecast overrun')} {p.deadline_gap_hours.toFixed(1)} h</p>}
     </div>)}</div>
     <p className="text-xs text-ink-faint">{text('初步估计，非成功承诺。区间覆盖已列出的工作；验证失败后的新增实验可能超出上限。各方案作为备选单独计算。', 'Preliminary estimates, not success guarantees. New experiments after a failed premise can exceed the range. Proposals are estimated as alternatives.')}</p>
+    {selected.adaptation && <section className="space-y-3 rounded-xl border border-blue/40 bg-blue/5 p-4" aria-label={text('根据期限重排', 'Deadline adaptation')}>
+      <h3 className="text-sm font-medium">{text('根据期限重排', 'Deadline adaptation')}</h3>
+      {selected.adaptation.baseline_finish_hours && selected.finish_hours && <p className="text-sm">{text('调整前', 'Before')} <strong>{selected.adaptation.baseline_finish_hours.expected.toFixed(1)} h</strong> → {text('当前方案', 'Current plan')} <strong>{selected.finish_hours.expected.toFixed(1)} h</strong></p>}
+      {selected.adaptation.status === 'gap' && <p className="text-sm text-red">{text('已尝试可用的重排方式，仍无法满足期限。需要增加资源、提出新的执行方案，或调整交付目标。', 'Available adjustments still miss the deadline. More resources, another execution option, or a revised deliverable are needed.')}</p>}
+      {selected.adaptation.status === 'fits' && selected.finish_hours && selected.adaptation.target_hours != null && selected.finish_hours.upper > selected.adaptation.target_hours && <p className="text-xs text-ink-faint">{text('点估计可按期；悲观情景仍可能超期，请留意区间上限。', 'The point estimate fits; the upper scenario can still miss the deadline.')}</p>}
+      {selected.adaptation.changes.length === 0 && <p className="text-xs text-ink-faint">{text('沿用原 proposal 的任务与做法；当前期限无需进一步调整，或尚无可用的替代做法。', 'Keeping the original tasks and approaches; no further adjustment is needed or no usable alternative is available.')}</p>}
+      {selected.adaptation.changes.map((change) => <div key={`${change.kind}:${change.id}`} className="border-t border-line/60 pt-2 text-xs">
+        <p className="font-medium">{change.title}{change.option_title ? ` → ${change.option_title}` : ''}</p>
+        {change.from_duration_hours && change.to_duration_hours && <p className="mt-1">{text('任务估计（下限 / 最可能 / 上限）', 'Task estimate (lower / likely / upper)')}: {change.from_duration_hours.join(' / ')} → {change.to_duration_hours.join(' / ')} h</p>}
+        {change.from_start_hours != null && change.to_start_hours != null && <p className="mt-1">{text('开始时间', 'Start time')}: {change.from_start_hours.toFixed(1)} → {change.to_start_hours.toFixed(1)} h</p>}
+        <p className="mt-1 text-ink-faint">{change.reason}</p>
+        {change.tradeoff && <p className="mt-1">{text('取舍 / 条件', 'Tradeoff / prerequisites')}: {change.tradeoff}</p>}
+      </div>)}
+    </section>}
     <section className="rounded-xl border border-line p-4">
       <h3 className="mb-4 text-sm font-medium">{text('实验排布', 'Experiment schedule')} · {text('从项目开始计时', 'Hours from project start')}</h3>
       <div className="space-y-3">{selected.schedule.map((row) => <div key={row.id}>

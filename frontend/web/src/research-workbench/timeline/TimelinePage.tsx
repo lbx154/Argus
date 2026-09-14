@@ -114,15 +114,17 @@ export function TimelinePage({ sid }: { sid: string }) {
             {Object.entries(input.resources).map(([name, count]) => <label className="text-xs" key={name}>{name} {text('可用槽位', 'available slots')}<input className={field} type="number" min="1" step="1" value={count} onChange={(e) => setInput({ ...input, resources: { ...input.resources, [name]: Number(e.target.value) } })} /></label>)}
           </div>
           <p className="text-xs text-ink-faint">{text('所有时间从项目开始计时；例如 120 小时 = 第 5 天。资源按持续可用计算。', 'All times count from project start; 120 hours means day 5. Resources are assumed continuously available.')}</p>
+          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={input.adapt_to_deadline ?? false} onChange={(e) => setInput({ ...input, adapt_to_deadline: e.target.checked })} />{text('根据期限自动重排任务、选择替代做法并更新区间', 'Adapt task order, execution options and estimate ranges to the deadline')}</label>
+          <p className="text-xs text-ink-faint">{text('缩短期限时优先调整关键路径；延长期限时恢复原做法和可选工作。替代做法可在任务中编辑。', 'Tighter deadlines prioritize the critical path; longer deadlines restore preferred approaches and optional work. Edit alternatives inside each task.')}</p>
           <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={input.defer_optional} onChange={(e) => setInput({ ...input, defer_optional: e.target.checked })} />{text('超期时延后可选任务，保留必需实验', 'Defer optional tasks when over deadline; keep required experiments')}</label>
           <button className={button} onClick={() => {
             let n = input.proposals.length + 1; while (input.proposals.some((p) => p.id === `idea-${n}`)) n++;
             const id = `idea-${n}`; setInput({ ...input, selected_proposal_id: id, proposals: [...input.proposals, { id, title: text('新 proposal', 'New proposal'), tasks: [{ id: 'validation', title: text('关键假设验证', 'Validate the key premise'), phase: 'validation', duration_hours: [2, 4, 16], basis: text('初步估计，待校准', 'Preliminary, uncalibrated estimate') }] }] });
           }}>{text('添加候选方案', 'Add proposal')}</button>
         </section>
-        <TaskEditor input={input} onChange={setInput} text={text} />
+        <TaskEditor input={input} onChange={setInput} text={text} forecast={computing ? undefined : report?.proposals.find((p) => p.id === input.selected_proposal_id)} />
         <section className="space-y-3 rounded-xl border border-line p-4">
-          <label className="block text-xs">{text('本次保存 / 调整原因', 'Reason for this revision')}<textarea className={field} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={text('说明为什么改变计划；延期请在具体任务中填写证据', 'Explain the change; add delay evidence on the affected task')} /></label>
+          <label className="block text-xs">{text('本次保存 / 调整原因', 'Reason for this revision')}<textarea aria-label={text('本次保存 / 调整原因', 'Reason for this revision')} className={field} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={text('说明为什么改变计划；延期请在具体任务中填写证据', 'Explain the change; add delay evidence on the affected task')} /></label>
           <div className="flex items-center justify-between gap-2"><span className="text-xs text-ink-faint">{saved ? text(`已保存 v${saved.version}`, `Saved v${saved.version}`) : text('未保存', 'Not saved')}{dirty ? text(' · 有未保存修改', ' · Unsaved changes') : ''}</span>
             <button className={`${button} border-blue bg-blue/10`} disabled={!ready || !dirty || !report || computing || Boolean(estimateError) || !reason.trim()} onClick={save}>{text('保存计划版本', 'Save timeline version')}</button></div>
           <p className="text-xs text-ink-faint">{text('保存计划不会启动实验。实际进展和失败原因由实验结果或操作者更新。', 'Saving a timeline does not start experiments. Update progress and failure reasons from actual results.')}</p>

@@ -46,6 +46,15 @@ research completion gate. Keep existing stage ownership and selection policy.
    experiments. A deadline is a target, not permission to weaken the claim.
    Set `defer_optional=true` only for work the operator/Planner already treats
    as optional; the tool protects required dependency closure.
+   For interactive deadline adaptation, set `adapt_to_deadline=true` and provide
+   task `execution_options` only where a real alternative exists: `id`, `title`,
+   `duration_hours`, `resources`, `basis`, `tradeoff`, `preserves_acceptance`.
+   Establish the prerequisites and scope preservation before declaring the last
+   field true. The tool reorders the critical path and chooses fitting options;
+   it never invents shorter durations or silently removes required controls.
+   Explain the selected option and updated range. Relaxing the deadline starts
+   again from the original proposal, restoring preferred approaches and optional
+   work; already running or completed tasks retain their executed approach.
 5. Record the original forecast by adding `--project-root . --expected-version 0
    --reason 'Initial proposal'`. Revisions use the most recent version.
    `.argus/timeline/000001.json` and later numbered files are immutable

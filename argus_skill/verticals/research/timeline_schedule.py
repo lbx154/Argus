@@ -88,6 +88,8 @@ def schedule(
             difficulty=task.difficulty,
             reason=task.reason,
             evidence=list(task.evidence),
+            duration_hours=[task.duration.lower, task.duration.likely, task.duration.upper],
+            execution_option_id=task.execution_option_id,
         )
     # A failed task remains evidence, never something to schedule again. A revised
     # proposal can retire it (optional=true) and add replacement work with new IDs.

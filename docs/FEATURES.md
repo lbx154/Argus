@@ -6,7 +6,11 @@ visibility, and the reliability scenarios used to verify them.
 Research proposal forecasts are available under **Workbench → Research timeline**,
 through a CLI, Python API, and authenticated preview/save endpoints. The web
 editor compares proposals, updates schedules as inputs change, and retains
-project forecast revisions across refreshes. See [proposal timelines](research-timeline.md)
+project forecast revisions across refreshes. Deadline adaptation reorders the
+critical path and chooses declared execution alternatives, recomputing both
+the schedule and uncertainty range with explicit tradeoffs. Relaxing a deadline
+restores preferred approaches and optional tasks where work has not started.
+See [proposal timelines](research-timeline.md)
 for three-point estimates, resource schedules, deadline adaptation, immutable
 revisions, and delay explanations. This is advisory planning; runtime dispatch
 and research verdict ownership are unchanged.

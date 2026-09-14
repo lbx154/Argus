@@ -68,7 +68,13 @@ def _revision(payload, report, previous, baseline, reason):
         if old.get("status") in {"completed", "failed", "running"}:
             if new is None or new.get("status", "pending") == "pending":
                 raise ValueError(f"executed task {key} cannot be removed or requeued")
-            immutable = ["actual_start_hours", "resources", "depends_on", "duration_hours"]
+            immutable = [
+                "actual_start_hours",
+                "resources",
+                "depends_on",
+                "duration_hours",
+                "execution_option_id",
+            ]
             if old.get("status") in {"completed", "failed"}:
                 immutable += ["status", "actual_finish_hours"]
             elif new.get("status") not in {"running", "completed", "failed"}:

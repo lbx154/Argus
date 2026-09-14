@@ -62,6 +62,37 @@ class Duration:
 
 
 @dataclass(frozen=True)
+class ExecutionOption:
+    id: str
+    title: str
+    duration: Duration
+    resources: dict[str, int]
+    basis: str
+    tradeoff: str
+    preserves_acceptance: bool
+
+    @classmethod
+    def parse(cls, row: Any) -> ExecutionOption:
+        if not isinstance(row, dict):
+            raise ValueError("execution option must be an object")
+        preserves = row.get("preserves_acceptance")
+        if not isinstance(preserves, bool):
+            raise ValueError("execution option requires preserves_acceptance boolean")
+        key = label(row.get("id"), "execution option id")
+        if key == "standard":
+            raise ValueError("standard is reserved for the original execution option")
+        return cls(
+            key,
+            label(row.get("title"), "option title"),
+            Duration.parse(row.get("duration_hours"), "option duration_hours"),
+            resources(row.get("resources", {})),
+            label(row.get("basis"), "option basis"),
+            label(row.get("tradeoff"), "option tradeoff"),
+            preserves,
+        )
+
+
+@dataclass(frozen=True)
 class Task:
     id: str
     title: str
@@ -78,6 +109,8 @@ class Task:
     reason: str
     evidence: tuple[str, ...]
     difficulty: str
+    execution_options: tuple[ExecutionOption, ...] = ()
+    execution_option_id: str = "standard"
 
     @classmethod
     def parse(cls, row: Any, capacities: dict[str, int], now: float) -> Task:
@@ -118,6 +151,12 @@ class Task:
             raise ValueError(f"{key}: reason and difficulty must be text")
         if status in {"failed", "blocked"} and not reason.strip():
             raise ValueError(f"{key}: {status} requires a reason")
+        option_rows = row.get("execution_options", [])
+        if not isinstance(option_rows, list) or len(option_rows) > 8:
+            raise ValueError("execution_options must be a list of at most 8 alternatives")
+        options = tuple(ExecutionOption.parse(option) for option in option_rows)
+        if len({option.id for option in options}) != len(options):
+            raise ValueError(f"{key}: duplicate execution option id")
         return cls(
             key,
             label(row.get("title"), f"{key}.title"),
@@ -134,6 +173,8 @@ class Task:
             reason.strip(),
             strings(row.get("evidence", []), f"{key}.evidence"),
             difficulty,
+            options,
+            label(row.get("execution_option_id", "standard"), "execution_option_id"),
         )
 
 

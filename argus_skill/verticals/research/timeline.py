@@ -27,6 +27,12 @@ def estimate(payload: dict[str, Any]) -> dict[str, Any]:
     defer = payload.get("defer_optional", False)
     if not isinstance(defer, bool):
         raise ValueError("defer_optional must be boolean")
+    adaptive = payload.get("adapt_to_deadline", False)
+    if not isinstance(adaptive, bool):
+        raise ValueError("adapt_to_deadline must be boolean")
+    if adaptive:
+        from .timeline_adaptation import adapt
+    scheduler = adapt if adaptive else forecast
     parsed = [Proposal.parse(row, capacity, now) for row in proposals]
     if len({p.id for p in parsed}) != len(parsed):
         raise ValueError("duplicate proposal id")
@@ -48,7 +54,7 @@ def estimate(payload: dict[str, Any]) -> dict[str, Any]:
             "Candidate proposals are alternatives, not concurrent resource reservations.",
             "Model difficulty affects supplied durations and rationale, not a hidden multiplier.",
         ],
-        proposals=[forecast(p, capacity, now, deadline, defer) for p in parsed],
+        proposals=[scheduler(p, capacity, now, deadline, defer) for p in parsed],
     )
     # Finite inputs can still overflow when many durations are added together.
     json.dumps(report, allow_nan=False)
@@ -86,6 +92,14 @@ def render_markdown(report: dict) -> str:
             lines.append(
                 "Deferred optional work / 延后可选项：" + ", ".join(proposal["deferred_task_ids"])
             )
+        if adjustment := proposal.get("adaptation"):
+            before = adjustment["baseline_finish_hours"]
+            if before is not None:
+                lines.append(f"Before deadline adaptation / 重排前：{before['expected']:.1f} h.")
+            for change in adjustment["changes"]:
+                lines.append(
+                    f"\n- {cell(change['title'])}: {cell(change['reason'])}; {cell(change['tradeoff'])}"
+                )
         lines.extend(
             [
                 "",

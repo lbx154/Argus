@@ -13,13 +13,23 @@
 1. 点击 **加载论文示例**。显示两个候选 proposal、点估计与区间，以及实验时间条。
    默认示例第一个方案预计 **103.0 小时**，区间 **38–252 小时**。
 2. 把 **期望完成时间（小时）** 从 `120` 改为 `60`，排期自动更新；第一个方案
-   显示 **预计超期 43.0 小时**，必需实验没有被缩短。
+   会重排为 **58.0 小时**，区间变为 **22–142 小时**。页面的“根据期限重排”
+   列出复用实现、等价缓存、并行确认等替代做法，以及每项工期变化和适用条件。
+   这是演示估计：点估计满足期限，悲观情景仍可能超期。
 3. 切换 **选择 idea / proposal** 或修改可用资源；展开具体任务可编辑三点工期、
    实现难度、资源占用、依赖和进展状态。也可添加候选方案与实验任务。
 4. 填写 **本次保存 / 调整原因**，点击 **保存计划版本**，然后刷新页面，确认
    原来的输入、排期和版本仍在。
 5. 修改任务工期，在该任务填写 **变化 / 延期原因** 与 **证据引用**，保存下一版。
    结果底部显示 **版本对照与延期原因**，包括相对初版的变化和逐任务偏差。
+6. 再把期限放宽到 `300` 小时，原做法与可选实验会恢复；预计 **183 小时**，
+   区间 **62–420 小时**。改为 `20` 小时则保留当前最佳候选 **58 小时**及
+   **38 小时缺口**，不会把估计机械缩放成 20 小时。
+
+**根据期限自动重排** 开关控制任务顺序与执行做法的调整；
+**超期时延后可选任务** 单独控制可选范围。两者都启用时，每次编辑期限都会从
+原 proposal 重新计算，而不是在上一次删减后的结果上继续删减。旧版已保存的
+proposal 不会被自动补造替代方案，可加载新版示例或在任务内“添加替代做法”。
 
 未保存修改不会自动落盘。版本冲突时保留当前草稿：先导出 proposal，再点击
 “重新载入已保存计划”取得最新版本。保存计划不会启动实验。
@@ -101,6 +111,30 @@ Authorization: Bearer <configured-token>
 - `defer_optional=true` 只在预期超期时，从依赖图末端延后明确可选且未开始的任务。
   必需任务依赖的可选节点仍被保留。排期结果列出延后项；若仍超期，保留真实
   `deadline_gap_hours`，不压缩时长、减少必需实验或改写 GoalContract。
+- `adapt_to_deadline=true` 在预计超期时尝试关键路径优先排序，并为未开始的任务
+  选择声明好的 `execution_options`。每个做法有自己的三点工期、资源、依据、
+  取舍，以及 `preserves_acceptance` 声明。仅选择声明保留必需验收目标且资源
+  可满足的做法；不通过缩放原工期制造“刚好按时”。采用贪心列表调度，
+  不是全局最优搜索；无法满足期限时仍展示缺口。
+- 替代做法的适用性和验收范围由任务作者 / Agent 判断，运行时只负责排程。
+  同一任务可以声明多个做法，例如复用已有实现、更多 GPU 并行执行相同测试。
+  可直接在网页展开任务后编辑，不需要写 JSON；没有可用做法时不会编造。
+
+示例替代做法（任务的 `execution_options` 数组元素）：
+
+```json
+{"id":"parallel","title":"并行执行相同确认实验",
+ "duration_hours":[2,6,18],"resources":{"gpu":2},
+ "basis":"按可用双 GPU 的同规模吞吐估计，包含汇总检查时间",
+ "tradeoff":"同时占用两个 GPU 槽，可能增加其他任务排队",
+ "preserves_acceptance":true}
+```
+
+`adaptation` 返回重排前的区间、调整条目、依据与取舍。最终三种情景都使用同一组
+选中做法重新排程，区间不会由 deadline 截断。任务一旦开始，不能因放宽期限切回
+另一个实现；网页记录开始状态时会采用当前排期的实际做法与资源，并冻结身份。
+CLI/API 调用者同样应把选中行的 `duration_hours`、`resources`、`execution_option_id`
+写入已启动任务，再记录实际进展。
 
 ## 记录与动态调整
 
@@ -151,10 +185,11 @@ Engineer 在实验里程碑或用户修改约束后更新预测；Planner 使用
 ## 实现与验证
 
 `timeline_models.py` 校验输入；`timeline_schedule.py` 计算依赖与资源排期；
+`timeline_adaptation.py` 根据期限选择已声明做法并重排；
 `timeline.py` 提供报告与 CLI；`timeline_store.py` 负责版本记录和偏差对照。
 
 ```bash
-python -m pytest tests/skills/test_research_timeline.py tests/webapi/test_research_timeline.py
+python -m pytest tests/skills/test_research_timeline.py tests/skills/test_timeline_adaptation.py tests/webapi/test_research_timeline.py
 cd frontend/web
 npm test -- src/test/researchTimeline.test.tsx src/test/researchWorkbenchApi.test.ts
 npm run typecheck

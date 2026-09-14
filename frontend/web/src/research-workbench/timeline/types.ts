@@ -14,6 +14,12 @@ export interface TimelineTask {
   remaining_hours?: [number, number, number];
   reason?: string;
   evidence?: string[];
+  execution_option_id?: string;
+  execution_options?: ExecutionOption[];
+}
+export interface ExecutionOption {
+  id: string; title: string; duration_hours: [number, number, number];
+  resources: Record<string, number>; basis: string; tradeoff: string; preserves_acceptance: boolean;
 }
 export interface TimelineInput {
   selected_proposal_id: string;
@@ -21,6 +27,7 @@ export interface TimelineInput {
   now_hours: number;
   deadline_hours?: number | null;
   defer_optional: boolean;
+  adapt_to_deadline?: boolean;
   proposals: Array<{ id: string; title: string; assumptions?: string[]; tasks: TimelineTask[] }>;
 }
 export interface TimelineForecast {
@@ -32,10 +39,21 @@ export interface TimelineForecast {
   deferred_task_ids: string[];
   blocked_tasks: Array<{ id: string; reason: string }>;
   failed_tasks: Array<{ id: string; reason: string }>;
+  adaptation?: {
+    enabled: boolean; target_hours: number | null; status: 'fits' | 'gap' | 'blocked';
+    baseline_finish_hours: { lower: number; expected: number; upper: number } | null;
+    changes: Array<{
+      kind: 'execution_option' | 'rescheduled' | 'deferred'; id: string; title: string;
+      reason: string; tradeoff: string; option_title?: string;
+      from_duration_hours?: number[]; to_duration_hours?: number[];
+      from_start_hours?: number; to_start_hours?: number;
+    }>;
+  };
   schedule: Array<{
     id: string; title: string; phase: string; status: string;
     start_hours: number; finish_hours: number; resource_wait_hours: number;
     resources: Record<string, number>; basis: string; reason: string;
+    duration_hours?: [number, number, number]; execution_option_id?: string;
   }>;
 }
 export interface TimelineReport {
