@@ -3,7 +3,7 @@
 This document describes implemented behavior, role transitions, learning
 visibility, and the reliability scenarios used to verify them.
 
-Research proposal forecasts are available under **Workbench → Research timeline**,
+Research proposal forecasts are available under **More → Workbench → Research timeline**,
 through a CLI, Python API, and authenticated preview/save endpoints. The web
 editor compares proposals, updates schedules as inputs change, and retains
 project forecast revisions across refreshes. Deadline adaptation reorders the
