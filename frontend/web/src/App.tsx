@@ -37,6 +37,7 @@ import { SplitHandle } from './components/SplitHandle';
 import { Modal, ModalHeader } from './components/Modal';
 import { MissionControl } from './components/MissionControl';
 import { OperationsModal } from './components/OperationsModal';
+import { VerticalStore } from './components/VerticalStore';
 import { Landing } from './components/Landing';
 import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
@@ -77,7 +78,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading' | 'skills';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading' | 'skills' | 'verticals';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -899,6 +900,7 @@ export default function App() {
       { id: 'transcript', label: t('palette.openTranscript'), hint: '/transcript', group: t('palette.view'), run: () => setOverlay('transcript') },
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: () => setOverlay('operations') },
+      { id: 'verticals', label: t('verticals.openStore'), hint: t('verticals.paletteHint'), group: t('palette.view'), run: () => setOverlay('verticals') },
       { id: 'help', label: t('help.title'), hint: '?', group: t('palette.view'), run: () => setOverlay('help') },
       {
         id: 'reasoning',
@@ -1003,6 +1005,7 @@ export default function App() {
           resumingId={resumingSid}
           onOpenPanel={(panel) => setOverlay(panel)}
           onOpenSkills={openSkillLibrary}
+          onOpenVerticals={() => setOverlay('verticals')}
           onNew={startNewSession}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
@@ -1244,6 +1247,7 @@ export default function App() {
         </> : <p className="px-6 pb-6 text-sm text-ink-dim">{locale === 'zh-CN' ? '开始任务后，可以在这里查看说明和依据。' : 'Task explanations and evidence appear here once work begins.'}</p>}
       </Modal>
       <CommandPalette open={overlay === 'palette'} onClose={() => setOverlay('none')} items={paletteItems} />
+      <VerticalStore open={overlay === 'verticals'} onClose={() => setOverlay('none')} />
       <KeybindingHelp open={overlay === 'help'} onClose={() => setOverlay('none')} />
       {activeSid && <DoctorModal sid={activeSid} open={overlay === 'doctor'} onClose={() => setOverlay('none')} />}
       {activeSid && (

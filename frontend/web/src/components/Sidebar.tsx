@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectRow, SkillLibraryItem } from '../api';
 import { SkillLibraryEntry } from './SkillLibrary';
 import { PluginLauncher } from './PluginLauncher';
+import { VerticalStoreEntry } from './VerticalStore';
 import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
@@ -57,6 +58,7 @@ export function Sidebar({
   resumingId,
   onOpenPanel,
   onOpenSkills,
+  onOpenVerticals,
   onNew,
   loading,
   creating = false,
@@ -79,6 +81,7 @@ export function Sidebar({
   resumingId?: string | null;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onOpenSkills?: (item?: SkillLibraryItem) => void;
+  onOpenVerticals?: () => void;
   onNew: () => void;
   loading: boolean;
   creating?: boolean;
@@ -147,6 +150,7 @@ export function Sidebar({
       ) : null}
 
       {slim ? <PluginLauncher compact /> : null}
+      {slim && onOpenVerticals ? <VerticalStoreEntry compact onOpen={onOpenVerticals} /> : null}
       {slim && onOpenSkills ? <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} compact /> : null}
       {!slim ? (
         <>
@@ -325,6 +329,7 @@ export function Sidebar({
           <details className="sidebar-tools mx-3 mb-2 border-t border-line/60 pt-2">
             <summary className="cursor-pointer px-2 py-2 text-xs text-ink-dim">{locale === 'zh-CN' ? '工具与资源' : 'Tools and resources'}</summary>
             <PluginLauncher />
+            {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
           {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
             <a href="/invite/compute" className="mx-3 mb-2 flex items-center gap-2 rounded-md border border-line/50 px-3 py-2 text-xs text-blue hover:bg-bg">
               <FontAwesomeIcon icon={faMicrochip} className="h-3.5 w-3.5" />
