@@ -383,9 +383,9 @@ class LifeSupervisor(
         """Read current stage through the active vertical contract.
 
         Do not trust raw ``PIPELINE_STATE.current_stage`` blindly: a project can
-        carry ``vertical=kernelbench`` with a stale paper stage like
-        ``research``. The stage-checklist helper clamps that to the vertical's
-        first valid stage (``setup`` for kernelbench/speedrun).
+        carry an optimize vertical such as ``math_synth`` with a stale paper
+        stage like ``research``. The stage-checklist helper clamps that to the
+        vertical's first valid stage (``setup`` for the optimize verticals).
         """
         try:
             root = self._artifact_root()

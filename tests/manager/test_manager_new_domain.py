@@ -159,7 +159,7 @@ def test_new_domain_requires_tools_for_inaccessible_or_contradictory_snapshot(
     assert _decision_requires_agent_grounding(
         decision,
         snapshot=snapshot,
-        builtin_verticals={"software"},
+        known_verticals={"software"},
         project_domains=set(),
     )
 

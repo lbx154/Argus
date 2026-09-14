@@ -194,7 +194,7 @@ def _decision_requires_agent_grounding(
     decision: VerticalDecision,
     *,
     snapshot: dict[str, Any],
-    builtin_verticals: set[str],
+    known_verticals: set[str],
     project_domains: set[str],
 ) -> bool:
     """Whether this decision needs evidence beyond the Host snapshot."""
@@ -218,7 +218,7 @@ def _decision_requires_agent_grounding(
         return True
     if decision.choice != "existing":
         return not exact_empty
-    if decision.vertical in project_domains or decision.vertical not in builtin_verticals:
+    if decision.vertical in project_domains or decision.vertical not in known_verticals:
         return True
     return False
 
@@ -904,7 +904,7 @@ class _VerticalDecisionMixin:
         grounding_required = _decision_requires_agent_grounding(
             decision,
             snapshot=workspace_snapshot,
-            builtin_verticals=set(known_verticals),
+            known_verticals=set(known_verticals),
             project_domains=set(all_domain_names),
         )
         if grounding_required and not tool_activity:

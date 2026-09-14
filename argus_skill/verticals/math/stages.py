@@ -22,8 +22,8 @@ VERIFICATION_STAGE_PROFILES = {
 RESEARCH_TARGET_LEVELS = ("exploratory", "publishable", "doctoral")
 
 # A proof is the one deliverable whose author cannot certify it. Every sibling
-# research vertical already declares this (``research``, ``materials``,
-# ``chip_design``); math was the omission, and defaulting to ``False`` is what
+# research vertical already declares this (``research`` here; ``materials`` and
+# ``chip_design`` in argus-verticals); math was the omission, and defaulting to ``False`` is what
 # let a testbed run close an open conjecture on the Engineer's own verdict:
 # "Engineer reported the requested milestone complete; independent review was
 # not required for this mission." One round, no Reviewer, no artifact, no proof

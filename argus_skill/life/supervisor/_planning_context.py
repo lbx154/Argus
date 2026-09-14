@@ -407,11 +407,12 @@ class PlanningContextMixin:
         Returns ``self.config.final_certification_gate`` AND the active vertical's
         completion gate requiring independent final certification. The
         final-submission completion gate only makes sense for a *research*
-        vertical: a ``speedrun`` mission runs just the optimize+measure stages
-        and has no submission package to certify, so requiring the gate would
-        wedge it forever. AND-ing with the vertical's own completion gate keeps
-        research behavior identical (gate stays on) while letting speedrun
-        missions accept ``project_done`` straight from the run loop (gate off).
+        vertical: an optimize mission (``math_synth``, or the community
+        ``speedrun``) runs just the optimize+measure stages and has no
+        submission package to certify, so requiring the gate would wedge it
+        forever. AND-ing with the vertical's own completion gate keeps research
+        behavior identical (gate stays on) while letting optimize missions
+        accept ``project_done`` straight from the run loop (gate off).
         The read side is deterministic and exception-free, so this never spends
         a token.
         """
@@ -457,7 +458,7 @@ class PlanningContextMixin:
         ``item_scope`` is ``final_submission``. Keying the enqueue-time
         downgrade on the *first* gate alone therefore stranded every vertical
         that declares research targets without a certified completion gate:
-        ``math`` and ``materials`` demand a scope the enqueue boundary refuses
+        ``math`` (and the community ``materials``) demand a scope the enqueue boundary refuses
         to persist, so no project in either could reach ``project_done``.
         Testbed runs 8, 9 and 10 all died here — once fixes #45 and #46 landed
         the Planner did emit ``TASK_SCOPE=final_submission``, and the item was
