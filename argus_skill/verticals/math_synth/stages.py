@@ -30,6 +30,9 @@ CHECKLIST_ITEMS = _BASE.checklist_items
 #: Mechanical metric gate (not a paper): the supervisor stops when the score
 #: stops improving, not on paper-completeness.
 completion_gate = "metric"
+#: The Manager's coarse mission kind (``Division.kind`` label): a number to
+#: move, not a paper to write and not a custom data domain.
+MISSION_KIND = "optimize"
 
 STAGE_ORDER = ["setup", "optimize", "measure", "report"]
 
@@ -359,6 +362,6 @@ def search_altitude_context(project_root: object) -> str:
 __all__ = [
     "STAGE_ORDER",
     "CHECKLIST_STAGE_ORDER", "CHECKLIST_ITEMS",
-    "completion_gate", "role_banner", "search_altitude_context",
+    "completion_gate", "MISSION_KIND", "role_banner", "search_altitude_context",
     "stage_completion_issues",
 ]

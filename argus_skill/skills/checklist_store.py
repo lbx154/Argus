@@ -19,7 +19,7 @@ BEFORE the seed constants. It returns:
   empty;
 * ``None`` when the stage is absent from the store — the signal to FALL BACK to
   the seed constant. This ``None`` is what preserves byte-identical rendering for
-  research/quant/speedrun when no project checklist exists.
+  every registered vertical when no project checklist exists.
 
 A missing/corrupt store reads as empty. ``ChecklistItem`` and the
 active-vertical seed lookup are late-imported to avoid the module-load cycle

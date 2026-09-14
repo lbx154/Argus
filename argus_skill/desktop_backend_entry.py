@@ -41,7 +41,12 @@ def _install_windows_signal_zero_guard(*, platform_name: str | None = None) -> N
 
 
 def verify_runtime_providers() -> dict[str, Any]:
-    """Import every registered dynamic provider and return a JSON-safe report."""
+    """Import every built-in dynamic provider and return a JSON-safe report.
+
+    Built-in inventory (``VERTICALS``) on purpose: the frozen bundle ships the
+    in-tree providers, and community verticals (``argus-verticals``) are a
+    separately installed distribution that is not part of the desktop build.
+    """
     from argus_skill.domains import BUILTIN_DOMAINS, load_domain
     from argus_skill.skills.vertical_select import VERTICALS
     from argus_skill.verticals._base import load_vertical

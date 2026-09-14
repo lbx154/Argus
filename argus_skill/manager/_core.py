@@ -28,7 +28,7 @@ from ._vertical_ops import _VerticalDecisionMixin
 class Division:
     """The Manager's verdict on how to divide a Task."""
     task: str
-    vertical: str            # research | speedrun | … | a Manager-authored data domain
+    vertical: str            # research | software | … | an installed plugin vertical | a Manager-authored data domain
     kind: str                # research | optimize | software | custom
     stages: list[str]        # the vertical's Stage template (engine advances current_stage)
     domain: str = ""         # optional built-in overlay, currently for research

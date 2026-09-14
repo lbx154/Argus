@@ -1162,13 +1162,16 @@ class _VerticalDecisionMixin:
             start_stage=decision.start_stage,
             execution_task=decision.execution_task,
             require_independent_review=decision.require_independent_review,
+            # Anything that is neither built in nor an installed plugin vertical
+            # is a Manager-authored data domain; ``VERTICALS`` alone would
+            # misclassify a community vertical (``quant``, ``medical``, ...).
             learned_vertical_status=(
                 getattr(
                     load_data_domain(vertical, self.project_root),
                     "status",
                     "",
                 )
-                if vertical not in vertical_select.VERTICALS
+                if vertical not in vertical_select.available_verticals()
                 else ""
             ),
         )
