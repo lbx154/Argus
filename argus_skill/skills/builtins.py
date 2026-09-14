@@ -93,16 +93,8 @@ _RETIRED_BUILTIN_SEED_HASHES = {
         "5986a1df8ca519f1ad4a20b9c175647922711b1bad0cf1855c0fdfa30a7d3b46"
     ),
 }
-_VERTICAL_SKILL_INHERITANCE = {
-    "digital_circuit_benchmark": ("digital_circuit",),
-    "chip_design": ("digital_circuit",),
-    # SOL work additionally needs general GPU-kernel priors. NanoGPT is the
-    # concrete H100 speedrun represented by the speedrun playbooks. NanoChat's
-    # fixed-budget quality objective must not inherit those machine-specific
-    # H100 traces; it follows the current project's frozen harness instead.
-    "kernelbench": ("kernel_engineering",),
-    "nanogpt_speedrun": ("speedrun",),
-}
+
+
 def builtin_skill_source_path() -> Path:
     """Return the filesystem path for bundled skill markdown when available."""
     return Path(__file__).resolve().parents[1] / "builtin_skills"
@@ -143,24 +135,55 @@ def domain_skill_source_path(domain: str) -> Path:
     return Path(__file__).resolve().parents[1] / "domains" / domain / "skills"
 
 
+def vertical_skill_parents(vertical: str) -> tuple[str, ...]:
+    """Verticals whose skill trees are seeded before ``vertical``'s own, in order.
+
+    A vertical declares its own parents: an entry-point plugin exposes
+    ``VERTICAL_SKILL_PARENTS`` (validated by ``verticals._registry``); the
+    built-in verticals declare none. A parent may itself be a plugin
+    (``nanogpt_speedrun <- speedrun``) or built in (``kernelbench <-
+    kernel_engineering``); ``_vertical_skill_roots`` resolves both the same way.
+    """
+    from ..verticals._registry import vertical_plugin
+
+    plugin = vertical_plugin(vertical)
+    return plugin.skill_parents if plugin is not None else ()
+
+
+def _vertical_skill_roots(vertical: str) -> list[Traversable]:
+    """Existing ``skills/`` roots for ``vertical``'s parents and then itself.
+
+    A plugin vertical serves its tree from ``VerticalPlugin.skills_root``; a
+    built-in one from ``verticals/<name>/skills`` inside this package.
+    """
+    from ..verticals._registry import vertical_plugin
+
+    roots: list[Traversable] = []
+    for source in (*vertical_skill_parents(vertical), vertical):
+        plugin = vertical_plugin(source)
+        root = (
+            plugin.skills_root
+            if plugin is not None and plugin.skills_root is not None
+            else vertical_skill_source_path(source)
+        )
+        if root.is_dir():
+            roots.append(root)
+    return roots
+
+
 def iter_vertical_skill_texts(vertical: str) -> Iterable[tuple[str, str]]:
     """Yield ``(relative_filename, markdown)`` for a vertical's own skills.
 
     Relative names are rooted at the vertical's ``skills/`` dir (e.g.
-    ``reviewer/quant-factor-report-review.md``) so they match the
+    ``reviewer/kernel-engineering-review.md``) so they match the
     ``<role>/<name>.md`` layout the vertical's checklist prose and
     ``role_banner`` reference verbatim, and overlay the same layout as the
-    bundled builtins. Fail-open: an unknown vertical or one with no
-    ``skills/`` dir yields nothing.
+    bundled builtins. Parents' skills come first; the vertical's own file of
+    the same relative name wins nothing -- the first emitted name is kept.
+    Fail-open: an unknown vertical or one with no ``skills/`` dir yields nothing.
     """
-    from ..verticals._registry import vertical_plugin
-
     emitted: set[str] = set()
-    for source_vertical in (*_VERTICAL_SKILL_INHERITANCE.get(vertical, ()), vertical):
-        plugin = vertical_plugin(source_vertical)
-        root = plugin.skills_root if plugin and plugin.skills_root is not None else vertical_skill_source_path(source_vertical)
-        if not root.is_dir():
-            continue
+    for root in _vertical_skill_roots(vertical):
         for filename, text in _iter_builtin_skill_resources(root):
             if filename in emitted:
                 continue
@@ -220,21 +243,9 @@ def iter_context_skill_assets(
     seeder too left the owning Skill pointing at files that did not exist:
     run-01 had 43 of 94 research resources and none of the 51 ideation cards.
     """
-    from ..verticals._registry import vertical_plugin
-
     merged: dict[str, str] = {}
-    for source_vertical in (
-        *_VERTICAL_SKILL_INHERITANCE.get(vertical, ()),
-        vertical,
-    ):
-        plugin = vertical_plugin(source_vertical)
-        root = (
-            plugin.skills_root
-            if plugin and plugin.skills_root is not None
-            else vertical_skill_source_path(source_vertical)
-        )
-        if root.is_dir():
-            merged.update(dict(_iter_reference_assets(root)))
+    for root in _vertical_skill_roots(vertical):
+        merged.update(dict(_iter_reference_assets(root)))
     if domain:
         root = domain_skill_source_path(domain)
         if root.is_dir():

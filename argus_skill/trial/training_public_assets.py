@@ -16,7 +16,6 @@ _PACKAGE = Path(__file__).resolve().parents[1]
 
 
 def _sources(path):
-    from ..skills.builtins import _VERTICAL_SKILL_INHERITANCE
     from ..verticals import builtin_verticals
 
     if path == ROOT:
@@ -30,12 +29,12 @@ def _sources(path):
     if any(part in {".", ".."} or part.startswith(".") for part in parts):
         return []
     if parts[0] == "_shared_verticals":
+        # Built-in inventory only, by design: this vouches for bytes a tenant
+        # may quote from the shipped package, so plugin skill trees (installed
+        # separately, outside this package) are never treated as public assets.
         if len(parts) < 2 or parts[1] not in builtin_verticals():
             return []
-        vertical = parts[1]
-        name = "/".join(parts[2:])
-        return [(_PACKAGE / "verticals" / source / "skills", name)
-                for source in (*_VERTICAL_SKILL_INHERITANCE.get(vertical, ()), vertical)]
+        return [(_PACKAGE / "verticals" / parts[1] / "skills", "/".join(parts[2:]))]
     return [(_PACKAGE / "builtin_skills", relative)]
 
 
