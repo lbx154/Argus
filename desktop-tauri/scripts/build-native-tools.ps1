@@ -13,8 +13,27 @@ $id = [Guid]::NewGuid().ToString("N")
 $testBinary = Join-Path $tests "platon-headless-tests-$id.exe"
 & $compiler @flags --test $source -o $testBinary
 if ($LASTEXITCODE -ne 0) { throw "PLATON adapter tests could not compile. Use a verified MSVC environment." }
-& $testBinary
-if ($LASTEXITCODE -ne 0) { throw "PLATON adapter argument tests failed." }
+# The release builder isolates TEMP below its work tree. On GitHub's Windows
+# disks, 8.3 aliases may be disabled, so that nested path cannot satisfy the
+# scientific adapter's strict <80-character contract. Use the runner-owned
+# short temporary root for these native tests only; every test still allocates
+# its own exclusive directory, and the build environment is restored afterward.
+$previousTemp = $env:TEMP
+$previousTmp = $env:TMP
+try {
+    if ($env:GITHUB_ACTIONS -eq "true" -and $env:RUNNER_TEMP) {
+        if (-not (Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)) {
+            throw "The Windows runner temporary directory is unavailable."
+        }
+        $env:TEMP = $env:RUNNER_TEMP
+        $env:TMP = $env:RUNNER_TEMP
+    }
+    & $testBinary
+    if ($LASTEXITCODE -ne 0) { throw "PLATON adapter argument tests failed." }
+} finally {
+    $env:TEMP = $previousTemp
+    $env:TMP = $previousTmp
+}
 $candidate = Join-Path $tests "platon-headless-$id.exe"
 & $compiler @flags -O -C panic=abort $source -o $candidate
 if ($LASTEXITCODE -ne 0) { throw "PLATON adapter build failed." }
