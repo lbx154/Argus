@@ -430,3 +430,77 @@ def test_seed_for_research_does_not_pull_another_verticals_skills(tmp_path) -> N
     for relative in MATH_SKILLS:
         assert not (tmp_path / relative).exists(), relative
     assert (tmp_path / "engineer" / "research-visualization-router.md").is_file()
+
+
+# --- seeds of verticals that left the package -------------------------------
+
+
+def test_moved_vertical_seed_table_names_only_departed_verticals() -> None:
+    import re
+
+    import argus_skill.skills.builtins as builtins
+    from argus_skill.skills.vertical_select import VERTICALS
+
+    table = builtins._MOVED_VERTICAL_SEED_HASHES
+    assert set(table) <= {
+        "quant", "kernelbench", "speedrun", "nanogpt_speedrun", "nanochat", "chip_design",
+        "digital_circuit", "digital_circuit_benchmark", "fiction_writing", "prose",
+        "modern_poetry", "classical_poetry", "literary_editor", "medical", "materials",
+        "physics", "ale_last_exam",
+    }
+    assert set(table).isdisjoint(VERTICALS)
+    current = {name for v in VERTICALS for name, _ in iter_vertical_skill_texts(v)}
+    current |= {name for name, _ in iter_builtin_skill_texts()}
+    for vertical, seeds in table.items():
+        assert seeds, vertical
+        for relative, digest in seeds.items():
+            assert re.fullmatch(r"[0-9a-f]{64}", digest), (vertical, relative)
+            assert relative not in current, f"{vertical}:{relative} is still shipped"
+
+
+def test_pre_split_seeds_of_an_uninstalled_vertical_are_pruned_but_edits_survive(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import argus_skill.skills.builtins as builtins
+
+    factory = "factory quant playbook as seeded on dev\n"
+    monkeypatch.setattr(builtins, "_MOVED_VERTICAL_SEED_HASHES", {
+        "quant": {
+            "engineer/quant-factor-loop.md": hashlib.sha256(factory.encode()).hexdigest(),
+            "engineer/kline-chart.md": hashlib.sha256(factory.encode()).hexdigest(),
+        },
+    })
+    pristine = tmp_path / "engineer" / "quant-factor-loop.md"
+    edited = tmp_path / "engineer" / "kline-chart.md"
+    pristine.parent.mkdir(parents=True)
+    pristine.write_text(factory.replace("\n", "\r\n"), encoding="utf-8", newline="")  # CRLF copy
+    edited.write_text(factory + "operator note\n", encoding="utf-8")
+
+    removed = builtins.retire_orphaned_builtin_seeds(tmp_path)
+
+    assert "engineer/quant-factor-loop.md" in removed
+    assert not pristine.exists()
+    assert edited.read_text(encoding="utf-8") == factory + "operator note\n"
+    assert not (tmp_path / "_retired_builtin_skills").exists()
+
+
+def test_seeds_of_an_installed_community_vertical_are_left_to_the_plugin(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import argus_skill.skills.builtins as builtins
+    from argus_skill.skills import vertical_select
+
+    factory = "factory quant playbook\n"
+    monkeypatch.setattr(builtins, "_MOVED_VERTICAL_SEED_HASHES", {
+        "quant": {"engineer/quant-factor-loop.md": hashlib.sha256(factory.encode()).hexdigest()},
+    })
+    monkeypatch.setattr(
+        vertical_select, "available_verticals",
+        lambda: (*vertical_select.VERTICALS, "quant"),
+    )
+    path = tmp_path / "engineer" / "quant-factor-loop.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(factory, encoding="utf-8")
+
+    assert builtins.retire_uninstalled_vertical_seeds(tmp_path) == []
+    assert path.exists()

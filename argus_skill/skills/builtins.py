@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
@@ -17,6 +18,7 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Iterable
 
+log = logging.getLogger(__name__)
 _BUILTIN_PACKAGE = "argus_skill.builtin_skills"
 DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
 _BUILTIN_SEED_STATE = ".argus-builtin-seeds.json"
@@ -95,6 +97,118 @@ _RETIRED_BUILTIN_SEED_HASHES = {
 }
 
 
+#: Factory digests of the skills the seventeen community verticals shipped
+#: while they were still in this package (as of the last in-tree release,
+#: ``origin/dev`` 4554450cd on 2026-09-14), keyed by vertical. Workspaces
+#: seeded before the split hold these bytes; where ``argus-verticals`` is
+#: installed they are pruned like any other inactive vertical's seeds, where
+#: it is not, nothing else enumerates them (``available_verticals()`` cannot
+#: name them) and they would stay behind as matcher candidates forever.
+#: Inherited built-in skills (kernelbench's kernel_engineering playbooks) are
+#: deliberately absent: those still ship here.
+_MOVED_VERTICAL_SEED_HASHES: dict[str, dict[str, str]] = {
+    "quant": {
+        "engineer/kline-chart.md": "5207776344f46c4a8772c3b0d61271f603833a172cf57f48d357b24b7ad9d423",
+        "engineer/model-selection-loop.md": "f728fb01023cbe09502caea6843a66d147607eed5712cacef68e970a69509581",
+        "engineer/quant-factor-loop.md": "007a427c256cb781907c823e43a1810b82bd5af3a7e851cc90a4f4495d747510",
+        "reviewer/quant-factor-report-review.md": "0e993b653e5923601a3cec7b0b1e7bc10c041b4b2f69aecdfd1bab58f6f8c2d4",
+    },
+    "kernelbench": {
+        "engineer/b200-kernelbench-runtime.md": "6d506cb21b2a820fb41791fdf07d4b74249a47d093d9980cd36a2f65dc106e83",
+        "engineer/official-sol-execbench-env.md": "18804dc6aefd16b95d03166e45ea8520ec2813fc3219618e5f2d3da2ff0fe628",
+        "engineer/sol-kernel-hands-on-trace.md": "e52878510d2dbb1eba8a117eb1ec2cc2647d42638f05aefccdb9bc52340feb52",
+        "engineer/sol-kernel-sota-optimization.md": "2250b9c5fb8efe2a27ad0b976ce9c0abf7ded2e1680cfc9dac52391b21abb72c",
+        "repair-governance-snapshot-verifier-drift.md": "3672f2f34c72e3a3c9996c62275241458e53b00fb6600e42d2fb3569ff4bebef",
+        "report-only-head-to-head-benchmark-evidence.md": "6ef644420f4593f55c10297ab8e54c0beba3902cea66d48eb70c9f77917ce561",
+        "sol-target-selection-without-execution.md": "8c377042931b4b1ad62bb420bfb0ecca7683bd24d368aafcf71c3b1d331bd2a6",
+    },
+    "speedrun": {
+        "engineer/speedrun-hands-on-trace.md": "01b83b4b0a983be5a8779719dba8454f917ebfe026c23fe82f0a618321d1868c",
+        "engineer/speedrun-sota-optimization.md": "0e15f62b91b452a400c7ccda928181258f179330ec7f2d89069bdc12c268aa06",
+    },
+    "nanogpt_speedrun": {
+        "engineer/nanogpt-speedrun-h100-sota.md": "b76745e60e2d2e5ca3f844f93e7313a584b4580003ed54c4908253d5b04f30b0",
+        "engineer/speedrun-hands-on-trace.md": "01b83b4b0a983be5a8779719dba8454f917ebfe026c23fe82f0a618321d1868c",
+        "engineer/speedrun-sota-optimization.md": "0e15f62b91b452a400c7ccda928181258f179330ec7f2d89069bdc12c268aa06",
+    },
+    "chip_design": {
+        "engineer/chip-design-environment-first.md": "1749dfe59ef5ea532c811de0292b4fdb9de9da886f5768217859cc766b6f1156",
+        "engineer/digital-circuit-benchmark-execution.md": "de03d306d4c940693710ae07ad2e02052ef9b2875ca8487952953c520b931c5b",
+        "engineer/digital-circuit-error-guided-repair.md": "23357ee12fcaa77cbd2834c289a6e4c52a4b6a1536aebed8aa68fa42eab6d629",
+        "engineer/digital-circuit-first-pass-contract-closure.md": "960c56e91d6f35b8843a87bdbffd2338ca29abbc881676b0e6c3720b848584fd",
+        "engineer/digital-circuit-rtl-verification.md": "ef7e355dacbf04e3ad9a9f66a217c227df60f366551b622dbbd15e2621e44a00",
+        "engineer/digital-circuit-spec-guidance-registry.md": "0ad5d6e1e9774e169dfb6baae4e31fed2b22e277770d02da56badfe41397d41e",
+        "reviewer/chip-design-signoff-review.md": "f031a3f469a94534eeb6ccacc297eb3b6bd1fe21cde7a181cc944bdafcf66df6",
+        "reviewer/digital-circuit-benchmark-review.md": "90f49ebfc6b13c7098b252577a8a0ac451c8b94d90b89044371c98e848af33ff",
+        "reviewer/digital-circuit-guidance-promotion-review.md": "2e8d431abae4953a2f32e7ba2376fd6a198755b97f5a496f18c5a2adf86e7cbb",
+        "reviewer/digital-circuit-signoff-review.md": "982ff813edacd00cc38a72154f85d3f0c70150d21c1ea7606030a7ddeba3d0c9",
+    },
+    "digital_circuit": {
+        "engineer/digital-circuit-benchmark-execution.md": "de03d306d4c940693710ae07ad2e02052ef9b2875ca8487952953c520b931c5b",
+        "engineer/digital-circuit-error-guided-repair.md": "23357ee12fcaa77cbd2834c289a6e4c52a4b6a1536aebed8aa68fa42eab6d629",
+        "engineer/digital-circuit-first-pass-contract-closure.md": "960c56e91d6f35b8843a87bdbffd2338ca29abbc881676b0e6c3720b848584fd",
+        "engineer/digital-circuit-rtl-verification.md": "ef7e355dacbf04e3ad9a9f66a217c227df60f366551b622dbbd15e2621e44a00",
+        "engineer/digital-circuit-spec-guidance-registry.md": "0ad5d6e1e9774e169dfb6baae4e31fed2b22e277770d02da56badfe41397d41e",
+        "reviewer/digital-circuit-benchmark-review.md": "90f49ebfc6b13c7098b252577a8a0ac451c8b94d90b89044371c98e848af33ff",
+        "reviewer/digital-circuit-guidance-promotion-review.md": "2e8d431abae4953a2f32e7ba2376fd6a198755b97f5a496f18c5a2adf86e7cbb",
+        "reviewer/digital-circuit-signoff-review.md": "982ff813edacd00cc38a72154f85d3f0c70150d21c1ea7606030a7ddeba3d0c9",
+    },
+    "digital_circuit_benchmark": {
+        "engineer/digital-circuit-benchmark-execution.md": "de03d306d4c940693710ae07ad2e02052ef9b2875ca8487952953c520b931c5b",
+        "engineer/digital-circuit-error-guided-repair.md": "23357ee12fcaa77cbd2834c289a6e4c52a4b6a1536aebed8aa68fa42eab6d629",
+        "engineer/digital-circuit-first-pass-contract-closure.md": "960c56e91d6f35b8843a87bdbffd2338ca29abbc881676b0e6c3720b848584fd",
+        "engineer/digital-circuit-rtl-verification.md": "ef7e355dacbf04e3ad9a9f66a217c227df60f366551b622dbbd15e2621e44a00",
+        "engineer/digital-circuit-spec-guidance-registry.md": "0ad5d6e1e9774e169dfb6baae4e31fed2b22e277770d02da56badfe41397d41e",
+        "reviewer/digital-circuit-benchmark-review.md": "90f49ebfc6b13c7098b252577a8a0ac451c8b94d90b89044371c98e848af33ff",
+        "reviewer/digital-circuit-guidance-promotion-review.md": "2e8d431abae4953a2f32e7ba2376fd6a198755b97f5a496f18c5a2adf86e7cbb",
+        "reviewer/digital-circuit-signoff-review.md": "982ff813edacd00cc38a72154f85d3f0c70150d21c1ea7606030a7ddeba3d0c9",
+    },
+    "fiction_writing": {
+        "engineer/chapter-drafting-and-continuation.md": "3d727fd292cce7190eeef96d1bec8b0607753ec859c8f0fe9ce03f525edadd98",
+        "engineer/creative-brief-and-style-profile.md": "6702aee825e99f4bcdb0bea9c05c4efbed55bc2f499a18dfb865f05539d4a3cc",
+        "engineer/story-and-chapter-planning.md": "a9bd8e636c30d291e3e765c5ee9fa302227700da61b619914d44a3428988f4e9",
+        "engineer/story-state-update.md": "217c58934839eab905cd58feebac5d5307a024162ea51cf6a5c9c131ad1b2ab0",
+        "engineer/targeted-fiction-revision.md": "f7e2d9e821ae9beb2f851fcd0be382636bb6511cd118760cede6287cfcf8030e",
+        "reviewer/continuity-style-and-plot-review.md": "e4dff16951b478ba73d9afc69b97840b0288cbca4c2aa8e0c935cea21e9b2470",
+    },
+    "prose": {
+        "reviewer/prose-review.md": "6571b39d6de6cc20f7c729c3cff391c07bdd9834e8e332b16d01864ad7b3d8db",
+    },
+    "modern_poetry": {
+        "reviewer/modern-verse-review.md": "12af6d2c80843fb43ae9ab0f0c0a3b8312cbb325cced0427571f98ce23919757",
+    },
+    "classical_poetry": {
+        "reviewer/prosody-and-conception-review.md": "f4774a1085b1751f07e44b7fa3612dca788f45b0f361a4fe11144dd523a315a0",
+    },
+    "literary_editor": {
+        "reviewer/edit-review.md": "4026c87167388cf5c3a3846b162d0fa28208c869eb13b71cc84fbff8712e91c8",
+    },
+    "medical": {
+        "engineer/target-disease-research.md": "22ed6c69a27379b7f494a85c71317b60cbe9d5176656dd2c3c6b7936c40a471f",
+        "manager/medical-manager.md": "df9437e0726ff66368a5fa1c17507df14880dae0b5a7b4419ef6c50f94b9930d",
+        "planner/medical-planning.md": "0d63fdbb93f55befffda8fd1c4f80acfa3f0603f6633b80a4df850d4b900ba66",
+        "reviewer/medical-evidence-review.md": "25d2e461064ae9bea1d33a19c44a3977dcc28386ac3e42eaa794d9d3cc719274",
+    },
+    "materials": {
+        "engineer/materials-atomistic-simulation.md": "f25b616dae6cb6b29bfeb40f1d511e2f360053afc4a7d10bf873ff284619c650",
+        "engineer/materials-cad-cae-process-simulation.md": "9aa47450cfa2afe18ee5099c8cfc052c4111e14157e64e8fb6967a3e0e15b22e",
+        "engineer/materials-data-literature-grounding.md": "354baed9452335c86256da4ee8d3cd2a7f8a029f827a8c41cd0fb05601296860",
+        "engineer/materials-ecosystem-routing.md": "4050aa1d0ad457847b5d769d6b2fdae9321244c5d414d93cbbe122986500f4ba",
+        "engineer/materials-experiment-loop.md": "217012b924203cc8cd9f99ac4b13b34a00ccefaf985bdcb2579ec1d16f1ebce2",
+        "engineer/materials-research-execution.md": "25900094642969566df9ad2b6497facc0b51d40c4a9d87c4801bf0fa818ae0c7",
+        "manager/materials-research-manager.md": "3b8133f2372ce1525ae68f8ee4457b081694a2495d1659773f77d128fae69463",
+        "planner/materials-research-planning.md": "aac59ffaad7276929a3f766f44eab8e9996c1b5087685a8ee3b34c1a33d97ae8",
+        "reviewer/materials-research-review.md": "ceb7c0caa00a89e641fe8f6b05a27d061b8b9c4c707e5b6b2d2f343ef608dbeb",
+        "reviewer/materials-simulation-signoff.md": "21461c5898dbc44d57a3d9a5fcb5456fbbe547e5cbc9364bbe85ca2977f2eb09",
+        "reviewer/materials-validation-review.md": "62230196f280f5538ea8b88207c83a025d9370492de42deea44e13eb59a07741",
+    },
+    "ale_last_exam": {
+        "engineer/ale-last-exam-execution.md": "ab531ddd28e7d49dbb97ce9e7436cd365725d62db2318308bc8de02da2f4d53a",
+        "reviewer/ale-last-exam-delivery-review.md": "04cf27944b1b3c13ab32ba6c45601a50fd3b53d69279aabad17a224c883ade73",
+    },
+}
+
+
 def builtin_skill_source_path() -> Path:
     """Return the filesystem path for bundled skill markdown when available."""
     return Path(__file__).resolve().parents[1] / "builtin_skills"
@@ -168,6 +282,12 @@ def _vertical_skill_roots(vertical: str) -> list[Traversable]:
         )
         if root.is_dir():
             roots.append(root)
+        elif source != vertical:
+            log.warning(
+                "vertical %r declares skill parent %r, which is neither an installed "
+                "plugin with skills nor a built-in vertical with a skills directory",
+                vertical, source,
+            )
     return roots
 
 
@@ -323,8 +443,48 @@ def _seed_content_digests(body: bytes) -> set[str]:
     }
 
 
+def retire_uninstalled_vertical_seeds(skills_dir: Path) -> list[str]:
+    """Remove factory copies of seeds whose vertical left the package and is not installed.
+
+    Only a byte-identical factory copy (``_MOVED_VERTICAL_SEED_HASHES``) is
+    removed; an operator's edited copy is left exactly where it is -- not
+    archived -- because the vertical may be installed later and the edit is
+    then its rightful project-layer skill. A vertical that *is* installed is
+    skipped entirely; its seeds are the plugin's to manage.
+    """
+    from .vertical_select import available_verticals
+
+    root = Path(skills_dir)
+    present = set(available_verticals())
+    removed: list[str] = []
+    for vertical, seeds in _MOVED_VERTICAL_SEED_HASHES.items():
+        if vertical in present:
+            continue
+        for relative_name, expected_digest in seeds.items():
+            if relative_name in removed:
+                continue
+            path = root / relative_name
+            try:
+                body = path.read_bytes()
+            except (FileNotFoundError, IsADirectoryError, OSError):
+                continue
+            if expected_digest not in _seed_content_digests(body):
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                continue
+            removed.append(relative_name)
+    return sorted(removed)
+
+
 def retire_orphaned_builtin_seeds(skills_dir: Path, *, include_moved: bool = True) -> list[str]:
-    """Remove retired seeds from matching, archiving any operator-edited copy."""
+    """Remove retired seeds from matching, archiving any operator-edited copy.
+
+    Also removes unmodified seeds of community verticals that are not
+    installed here (``retire_uninstalled_vertical_seeds``); those are never
+    archived.
+    """
     skills_dir = Path(skills_dir)
     state = _seed_state(skills_dir)
     retired = dict(_RETIRED_BUILTIN_SEED_HASHES)
@@ -372,8 +532,8 @@ def retire_orphaned_builtin_seeds(skills_dir: Path, *, include_moved: bool = Tru
                 except OSError:
                     continue
         removed.append(relative_name)
+    removed.extend(retire_uninstalled_vertical_seeds(skills_dir))
     return removed
-
 
 def _seed_state(skills_dir: Path) -> dict[str, str]:
     try:
