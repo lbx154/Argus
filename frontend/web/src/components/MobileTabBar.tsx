@@ -19,12 +19,14 @@ export function MobileTabBar({
   onOpenSessions,
   sidebarOpen = false,
   onRead,
+  onOpenSkills,
 }: {
   active: Exclude<MobileTab, 'sessions'>;
   onSelect: (tab: Exclude<MobileTab, 'sessions'>) => void;
   onOpenSessions?: () => void;
   sidebarOpen?: boolean;
   onRead?: () => void;
+  onOpenSkills?: () => void;
 }) {
   const { t, locale } = useI18n();
   const tabs: { id: Exclude<MobileTab, 'sessions'>; label: string; icon: IconDefinition }[] = [
@@ -78,6 +80,7 @@ export function MobileTabBar({
         <div className="workspace-more-menu" onClick={event => {
           if ((event.target as HTMLElement).closest('button')) event.currentTarget.closest('details')?.removeAttribute('open');
         }}>
+          {onOpenSkills && <button type="button" onClick={onOpenSkills}>{locale === 'zh-CN' ? '技能库' : 'Skill library'}</button>}
           <button type="button" onClick={() => onSelect('mission')}><FontAwesomeIcon icon={faListUl} />{t('mobile.mission')}</button>
           {onRead ? <button type="button" onClick={onRead}>{locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}</button> : null}
           <button type="button" onClick={() => onSelect('workbench')}><FontAwesomeIcon icon={faFlask} />{t('mobile.workbench')}</button>

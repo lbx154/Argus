@@ -83,6 +83,38 @@ tools, so this feature ships with the Argus package and needs no separate Pi for
 
 ## Verification
 
+### Seeing skills in the web UI
+
+The sidebar's **Skill library** opens recent updates across all three classes.
+The **Global → Vertical → Project** tabs browse each class, with search and the
+full Markdown document. On a phone, the library is also under **More**. Bare
+`/skills`, `/skills ls`, `/skills list`, and the system operations entry open
+the same browser on **Global**, including when recent updates are empty.
+
+The sidebar shows the three most recently changed saved skills. The catalog
+refreshes every 15 seconds while the page is visible, so a skill saved by an
+agent during work appears without reloading. Unchanged bundled defaults are
+excluded from recent updates, including installed copies. Update times are file
+modification times, not proof of authorship or quality. Project documents belong
+to the selected project; shared global and vertical documents may come from other
+projects, and their originating agent/project is not inferred from timestamps.
+
+The read-only `/api/skill-library` and `/api/skill-library/document` endpoints use
+the existing WebAPI authentication. Global and vertical libraries work without
+a selected project. Browsing makes no model calls or changes to skill files;
+documents larger than 256 KiB produce an explicit preview-limit message.
+
+The text `/skills` endpoint and chat commands use the same read-only catalog,
+bound to the selected profile/project rather than the server process's default
+home. Every configured role library also includes packaged global defaults as
+the final read-only fallback. Fresh profiles and ordinary conversations therefore
+receive the global paths in their prompts and Pi's native `--skill` arguments
+without first copying or seeding files. Saved project, vertical, and global
+overrides retain priority, including during bounded recall; skill bodies are
+still read on demand rather than all being added to every task.
+
+### Runtime tests
+
 ```bash
 python -m pytest -q tests/skills/test_runtime_tools.py tests/skills/test_runtime_tools_context.py
 ARGUS_PI_TEST_CLI=/path/to/pi/packages/coding-agent/dist/bundle/cli.js \

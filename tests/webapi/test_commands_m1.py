@@ -2057,7 +2057,7 @@ def test_budget_config_does_not_report_success_when_persistence_fails(
 
 def test_identity_set_and_skills_and_reset(ctx, monkeypatch) -> None:
     root, sid, life = ctx
-    monkeypatch.setattr(server, "run_skill_command", lambda tokens: "skills:" + " ".join(tokens))
+    monkeypatch.setattr(server, "run_skill_command", lambda tokens, **_kwargs: "skills:" + " ".join(tokens))
     monkeypatch.setattr(
         "argus_skill.webapi.manager_state.reset_manager_context",
         lambda sid, *, global_root=None: True,

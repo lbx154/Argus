@@ -8,6 +8,7 @@ limit; all JSON decoding applies the HTTP finite-number boundary.
 from __future__ import annotations
 
 import os
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -155,7 +156,8 @@ def open_jsonl_generation(path: Path) -> BinaryIO:
     This sharing policy is only for trusted append-only transport logs, not
     artifact/attachment security handles that deliberately prohibit replacement.
     """
-    if os.name != "nt":
+    # Static checkers also need the platform boundary for Win32-only APIs.
+    if sys.platform != "win32":
         return path.open("rb")
     import ctypes
     import msvcrt

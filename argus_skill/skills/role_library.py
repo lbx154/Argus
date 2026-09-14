@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..core.event_catalog import EventType
+from .builtins import builtin_skill_source_path
 from .store import ROLE_CROSS_READ_POOLS, ROLE_SKILL_POOLS
 
 
@@ -32,6 +33,11 @@ def skill_library_roots(skill_store: object | None) -> list[Path]:
     else:
         value = getattr(skill_store, "skills_dir", None)
         roots = [Path(value).resolve()] if value is not None else []
+    # Fresh profiles can have an empty shared directory. Packaged global
+    # defaults remain discoverable without copying files or starting a mission.
+    bundled = builtin_skill_source_path().resolve()
+    if bundled.is_dir():
+        roots.append(bundled)
     return list(dict.fromkeys(roots))
 
 
@@ -128,7 +134,7 @@ def _terms(text: str) -> set[str]:
     }
 
 
-def _recalled_paths(paths: list[Path], task: str) -> list[Path]:
+def _recalled_paths(paths: list[Path], task: str, *, library_roots: list[Path]) -> list[Path]:
     task_terms = _terms(task)
     if not task_terms:
         return []
@@ -140,6 +146,14 @@ def _recalled_paths(paths: list[Path], task: str) -> list[Path]:
             if resolved in seen or path.name.casefold() == "index.md":
                 continue
             seen.add(resolved)
+            # A saved project/vertical/global override must also win during
+            # bounded recall, not just when the agent opens a required path.
+            owner = next((index for index, library in enumerate(library_roots)
+                          if resolved.is_relative_to(library)), None)
+            if owner is not None:
+                relative_skill = resolved.relative_to(library_roots[owner])
+                if any((library / relative_skill).is_file() for library in library_roots[:owner]):
+                    continue
             name, description = _skill_header(path)
             if not description:
                 continue
@@ -208,6 +222,7 @@ def render_skill_library_paths(
     recalled = _recalled_paths(
         [*native_project_paths, *own_paths, *reference_paths],
         task,
+        library_roots=roots,
     )
     required_block = (
         "\nRequired for this mission (open these bodies before repository work):\n"
@@ -219,6 +234,8 @@ def render_skill_library_paths(
     discovery = (
         "## Skill libraries (on-demand)\n"
         f"Role: {role}. Order: project → vertical/domain → global; OWN > REFERENCE.\n"
+        "Global Skills are available to every task, including new projects and ordinary conversation. "
+        "Bundled defaults are read-only; save learning in project or shared libraries.\n"
         + "\n".join(lines)
         + required_block
         + "\n\nApply any recalled Skill bodies above before repository work. Then, "
@@ -260,6 +277,7 @@ def role_skill_libraries(
     recalled_paths = _recalled_paths(
         [*native_project_paths, *own_paths, *reference_paths],
         task,
+        library_roots=roots,
     )
     if on_event is not None and roots:
         on_event(
@@ -282,7 +300,15 @@ def role_skill_libraries(
         own_paths=own_paths,
         reference_paths=reference_paths,
         native_paths=list(
-            dict.fromkeys([*native_project_paths, *own_paths, *reference_paths])
+            dict.fromkeys([
+                *native_project_paths,
+                # Pi de-duplicates native Skills in argument order. Keep each
+                # saved layer ahead of the packaged root (which is recursive),
+                # even for a saved Skill in a role's reference pool.
+                *(path for root in role_scoped_roots
+                  for path in [*own_paths, *reference_paths]
+                  if path == root or path.parent == root),
+            ])
         ),
         required_paths=required_paths,
         recalled_paths=recalled_paths,

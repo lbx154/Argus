@@ -3,6 +3,7 @@ from pathlib import Path
 
 from argus_skill.adapters.memory_backend import MemoryBackend
 from argus_skill.core.event_catalog import validate_event_envelope
+from argus_skill.skills.builtins import builtin_skill_source_path
 from argus_skill.skills.layered import LayeredSkillStore
 from argus_skill.skills.missions import (
     EngineerMission,
@@ -77,7 +78,7 @@ def test_irrelevant_skill_body_is_not_injected(tmp_path: Path) -> None:
         task="Optimize ROCm model compilation.",
     )
 
-    assert result.recalled_paths == []
+    assert skill.resolve() not in result.recalled_paths
     assert "PRIVATE DATABASE BODY" not in result.block
 
 
@@ -134,11 +135,11 @@ def test_each_role_searches_same_library_independently(tmp_path: Path) -> None:
     assert "REFERENCE only: reviewer, self" in engineer.block
     assert "OWN: root, reviewer" in reviewer.block
     assert "REFERENCE only: engineer, self" in reviewer.block
-    assert engineer.native_paths == [
+    assert [path for path in engineer.native_paths if path.is_relative_to(store.skills_dir)] == [
         store.skills_dir.resolve() / "engineer",
         store.skills_dir.resolve() / "reviewer",
     ]
-    assert reviewer.native_paths == [
+    assert [path for path in reviewer.native_paths if path.is_relative_to(store.skills_dir)] == [
         store.skills_dir.resolve() / "reviewer",
         store.skills_dir.resolve() / "engineer",
     ]
@@ -164,13 +165,11 @@ def test_self_and_team_role_libraries_are_cross_visible(tmp_path: Path) -> None:
 
 def test_general_native_root_requires_a_direct_skill(tmp_path: Path) -> None:
     store = SkillStore(tmp_path / "skills")
-    assert role_skill_libraries(store, role="engineer").native_paths == []
+    assert store.skills_dir.resolve() not in role_skill_libraries(store, role="engineer").native_paths
 
     (store.skills_dir / "general-guidance.md").write_text("guidance", encoding="utf-8")
 
-    assert role_skill_libraries(store, role="engineer").native_paths == [
-        store.skills_dir.resolve()
-    ]
+    assert store.skills_dir.resolve() in role_skill_libraries(store, role="engineer").native_paths
 
 
 def test_general_skill_is_visible_to_every_runtime_role(tmp_path: Path) -> None:
@@ -193,7 +192,8 @@ def test_role_library_event_exposes_precedence_without_skill_content(
 
     result = role_skill_libraries(store, role="planner", on_event=events.append)
 
-    assert result.own_paths == [store.skills_dir.resolve() / "planner"]
+    assert result.own_paths[0] == store.skills_dir.resolve() / "planner"
+    assert builtin_skill_source_path() in result.library_roots
     assert events[0]["precedence"] == ["project", "vertical", "global"]
     assert events[0]["discovery"] == "native-or-path-fallback"
     assert validate_event_envelope(events[0]).valid

@@ -2,7 +2,8 @@ import type { DispatchObserver } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useGitDiff } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride } from './api';
+import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope } from './api';
+import { SkillLibrary } from './components/SkillLibrary';
 import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
@@ -76,7 +77,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading' | 'skills';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -146,6 +147,13 @@ export default function App() {
     .find((error) => isConnectionError(error));
 
   const [overlay, setOverlay] = useState<Overlay>('none');
+  const [skillSelection, setSkillSelection] = useState<SkillLibraryItem | null>(null);
+  const [skillScope, setSkillScope] = useState<SkillScope | 'recent'>('recent');
+  const openSkillLibrary = useCallback((item?: SkillLibraryItem, scope: SkillScope | 'recent' = 'recent') => {
+    setSkillSelection(item ?? null);
+    setSkillScope(scope);
+    setOverlay('skills');
+  }, []);
   const {
     cycleTheme,
     kiosk,
@@ -568,6 +576,7 @@ export default function App() {
     onOpenNewDaemon: startNewSession,
     onOpenOperations: () => setOverlay('operations'),
     onOpenSidebar: () => setSidebarOpen(true),
+    onOpenSkills: () => openSkillLibrary(undefined, 'global'),
     onReconnectEvents: () => dispatchEventView({ kind: 'reconnect' }),
     onRenameProject: renameCurrentProject,
     onRewriteDraft: rewriteDraft,
@@ -585,6 +594,7 @@ export default function App() {
     activeSid,
     notify,
     openPreview,
+    openSkillLibrary,
     renameCurrentProject,
     requestDispose,
     requestStopIteration,
@@ -964,6 +974,7 @@ export default function App() {
           onResume={(sid) => void resumeSession(sid)}
           resumingId={resumingSid}
           onOpenPanel={(panel) => setOverlay(panel)}
+          onOpenSkills={openSkillLibrary}
           onNew={startNewSession}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
@@ -1192,6 +1203,9 @@ export default function App() {
       </main>
 
       {/* global overlays */}
+      <Modal open={overlay === 'skills'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
+        {overlay === 'skills' && <SkillLibrary sid={activeSid} projectName={projects.find(project => project.id === activeSid)?.display_name} initialSelection={skillSelection} initialScope={skillScope} />}
+      </Modal>
       <Modal open={overlay === 'reading'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}>
         <ModalHeader title={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'} />
         {overlay === 'reading' && snap && missionView?.mission.id && activeSid ? <>
@@ -1228,6 +1242,7 @@ export default function App() {
       {activeSid && snap ? (
         <OperationsModal
           open={overlay === 'operations'}
+          onOpenSkills={() => openSkillLibrary(undefined, 'global')}
           sid={activeSid}
           snap={snap}
           onClose={() => setOverlay('none')}
@@ -1299,6 +1314,7 @@ export default function App() {
           }}
           onOpenSessions={() => setSidebarOpen(true)}
           onRead={() => setOverlay('reading')}
+          onOpenSkills={() => openSkillLibrary()}
         />
       ) : null}
     </WorkspaceShell>

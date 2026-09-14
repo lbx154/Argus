@@ -42,6 +42,38 @@ export type {
 } from '../../core/src/types';
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
+export type SkillScope = 'global' | 'vertical' | 'project';
+export interface SkillLibraryItem {
+  library: string;
+  scope: SkillScope;
+  vertical: string;
+  source: 'bundled' | 'shared' | 'project' | 'native';
+  path: string;
+  name: string;
+  description: string;
+  role: string;
+  is_default: boolean;
+  updated_at: number | null;
+}
+export interface SkillCatalog {
+  scopes: SkillScope[];
+  items: SkillLibraryItem[];
+  verticals: string[];
+  active_vertical: string;
+  errors: string[];
+}
+export interface SkillDocument {
+  name: string;
+  description: string;
+  content: string;
+  markdown: string;
+  path: string;
+  source: SkillLibraryItem['source'];
+  scope: SkillScope;
+  vertical: string;
+  role: string;
+}
+
 export interface JournalEntry {
   id: string;
   ts: number;
@@ -1029,6 +1061,10 @@ export const api = {
     postJson<{ ok: boolean }>(P(sid, '/reset')),
   skills: (sid: string, args = 'ls') =>
     postJson<{ text: string }>(P(sid, '/skills'), { args }).then((result) => result.text),
+  skillLibrary: (sid: string | null, signal?: AbortSignal) =>
+    getJson<SkillCatalog>(`/api/skill-library${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
+  skillDocument: (sid: string | null, library: string, path: string, signal?: AbortSignal) =>
+    getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
   setLaunchCwd: (sid: string, launchCwd: string) =>
     postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   setWorkdir: (sid: string, workdir: string) =>
