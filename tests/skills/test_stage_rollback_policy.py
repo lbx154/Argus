@@ -20,6 +20,15 @@ from argus_skill.skills.vertical_select import persist_vertical
 from argus_skill.verticals import _registry
 
 
+@pytest.fixture(autouse=True)
+def _fresh_plugin_registry():
+    # The entry-point scan is memoised per process: forget it before and after
+    # so the fake ``external_lab`` neither sees a stale scan nor leaks out.
+    _registry.refresh_vertical_plugins()
+    yield
+    _registry.refresh_vertical_plugins()
+
+
 def _external_project(tmp_path: Path, monkeypatch, policy: bool | None):
     """Register an external provider and use the normal persisted selection."""
     provider = ModuleType("external_lab.stages")
@@ -35,6 +44,7 @@ def _external_project(tmp_path: Path, monkeypatch, policy: bool | None):
         provider.ALLOW_STAGE_ROLLBACK = policy
     entry = SimpleNamespace(name="external_lab", value=provider.__name__, load=lambda: provider)
     monkeypatch.setattr(_registry, "entry_points", lambda group: [entry])
+    _registry.refresh_vertical_plugins()
     state = tmp_path / "state"
     workdir = tmp_path / "work"
     workdir.mkdir()

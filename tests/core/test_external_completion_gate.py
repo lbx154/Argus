@@ -43,7 +43,7 @@ def test_final_stage_certificate_cannot_override_external_gate() -> None:
         _DoneReview(),
         current_stage="report",
         stage_order=["setup", "report"],
-        vertical="speedrun",
+        vertical="math_synth",
         mission_scope="bounded",
         completion_blocker="external completion gate is not satisfied",
     )
@@ -51,7 +51,7 @@ def test_final_stage_certificate_cannot_override_external_gate() -> None:
         _DoneReview(),
         current_stage="report",
         stage_order=["setup", "report"],
-        vertical="speedrun",
+        vertical="math_synth",
         mission_scope="bounded",
     )
 
