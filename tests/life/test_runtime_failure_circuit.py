@@ -63,6 +63,15 @@ def test_callsite_is_package_relative_for_either_package_spelling() -> None:
     ) == "argus/daemon/state.py"
     # A checkout that merely has ``argus`` in its path is not the package.
     assert circuit_module._package_relative_filename("/home/me/argus/tests/test_x.py") is None
+    # A frozen build records build-time paths that do not start with the runtime
+    # package root; ``/argus/<subpackage>/`` and ``/argus/<root module>.py`` still count.
+    assert circuit_module._package_relative_filename(
+        "C:\\actions-runner\\_work\\Argus\\argus\\life\\supervisor\\_helpers.py"
+    ) == "argus/life/supervisor/_helpers.py"
+    assert circuit_module._package_relative_filename("/build/src/argus/loop.py") == "argus/loop.py"
+    assert circuit_module._package_relative_filename("/home/argus/argus/core/paths.py") == "argus/core/paths.py"
+    assert circuit_module._package_relative_filename("/build/src/argus/_frontend/web/dist/x.js") is None
+    assert circuit_module._package_relative_filename("/build/src/argus/README.md") is None
 
     namespace: dict = {}
     exec(  # noqa: S102 - a frame whose filename is the pre-rename layout
@@ -73,6 +82,16 @@ def test_callsite_is_package_relative_for_either_package_spelling() -> None:
         namespace["boom"]()
     except ValueError as exc:
         assert circuit_module._exception_callsite(exc) == "argus/life/legacy.py:boom"
+
+    frozen: dict = {}
+    exec(  # noqa: S102 - a frame whose filename is a build-time path of a frozen backend
+        compile("def frozen_boom():\n    raise ValueError('x')\n", "C:\\build\\Argus\\argus\\daemon\\state.py", "exec"),
+        frozen,
+    )
+    try:
+        frozen["frozen_boom"]()
+    except ValueError as exc:
+        assert circuit_module._exception_callsite(exc) == "argus/daemon/state.py:frozen_boom"
 
 
 def test_runtime_failure_circuit_persists_and_counts_same_identity(

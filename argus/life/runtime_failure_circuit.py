@@ -127,12 +127,35 @@ _PACKAGE_ROOTS = tuple(
 _LEGACY_PACKAGE_MARKER = "/argus_skill/"
 
 
+def _package_members() -> frozenset[str]:
+    """Top-level subpackages and modules of ``argus``: ``core``, ``life``, ..., ``loop.py``."""
+    try:
+        return frozenset(
+            entry.name for entry in Path(__file__).parents[1].iterdir()
+            if (entry.is_dir() and not entry.name.startswith((".", "_"))) or entry.suffix == ".py"
+        )
+    except OSError:
+        return frozenset()
+
+
+# A frozen (PyInstaller) build records build-time absolute paths in its code
+# objects, so frames need not start with the runtime package root; any
+# ``/argus/<member>/`` where ``<member>`` is one of this package's own
+# subpackages or root modules is still Argus's code.
+_PACKAGE_MEMBERS = _package_members()
+# Lookahead so consecutive markers may overlap (``/home/argus/argus/core/x.py``).
+_PACKAGE_MARKER = re.compile(r"(?=/argus/([^/]+))")
+
+
 def _package_relative_filename(filename: str) -> str | None:
     """``argus/<path>`` for a frame inside this package (either spelling), else ``None``."""
     normalized = filename.replace("\\", "/")
     for root in _PACKAGE_ROOTS:
         if normalized.startswith(root):
             return "argus/" + normalized[len(root):]
+    for match in reversed(list(_PACKAGE_MARKER.finditer(normalized))):
+        if match.group(1) in _PACKAGE_MEMBERS:
+            return "argus/" + normalized[match.start(1):]
     marker = normalized.rfind(_LEGACY_PACKAGE_MARKER)
     if marker >= 0:
         return "argus/" + normalized[marker + len(_LEGACY_PACKAGE_MARKER):]
