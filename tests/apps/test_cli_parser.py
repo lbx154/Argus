@@ -28,6 +28,8 @@ def test_public_help_distinguishes_human_and_automation_surfaces() -> None:
     assert "argus doctor" in help_text
     assert "argus repair --plan" in help_text
     assert "argus update" in help_text
+    assert "argus verticals list" in help_text
+    assert "argus verticals install NAME" in help_text
     assert "--status" not in help_text
     assert "dashboard" not in help_text.lower()
     assert "wiki" not in help_text

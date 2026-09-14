@@ -494,6 +494,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_migrate(args))
     if args.command == "learn":
         return _run_with_path_resolution_errors(lambda: _cmd_learn(args))
+    if args.command == "verticals":
+        from ._verticals import run_verticals_command
+
+        return _run_with_path_resolution_errors(lambda: run_verticals_command(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)

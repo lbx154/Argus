@@ -21,6 +21,10 @@ First-time setup and diagnostics:
   argus repair --plan
   argus update
 
+Vertical Store (community verticals, no pip):
+  argus verticals list
+  argus verticals install NAME
+
 Automation:
   argus --daemon-fg    supervised foreground worker (systemd/debugging)
   argus --daemon       persistent unattended background worker
@@ -674,4 +678,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provenance string for the ingested_by manifest field",
     )
 
+    _add_verticals_subcommand(subparsers)
+
     return parser
+
+
+def _add_verticals_subcommand(subparsers: argparse._SubParsersAction) -> None:
+    """``argus verticals``: the Vertical Store (install community verticals without pip)."""
+    verticals_parser = subparsers.add_parser(
+        "verticals",
+        help="Browse, install, update, enable/disable and remove community verticals",
+    )
+    commands = verticals_parser.add_subparsers(dest="verticals_cmd", required=True)
+    list_parser = commands.add_parser("list", help="Every vertical: built-in, installed, available")
+    list_parser.add_argument("--json", action="store_true", help="print the store payload as JSON")
+    info_parser = commands.add_parser("info", help="Details of one vertical")
+    info_parser.add_argument("name")
+    info_parser.add_argument("--json", action="store_true", help="print the row as JSON")
+    install_parser = commands.add_parser(
+        "install", help="Install verticals (and what they require) from the catalog",
+    )
+    install_parser.add_argument("names", nargs="+", metavar="NAME")
+    update_parser = commands.add_parser(
+        "update", help="Reinstall verticals whose catalog version changed (all when no NAME)",
+    )
+    update_parser.add_argument("names", nargs="*", metavar="NAME")
+    remove_parser = commands.add_parser("remove", help="Remove an installed vertical")
+    remove_parser.add_argument("name")
+    remove_parser.add_argument(
+        "--force", action="store_true",
+        help="remove even when a local session's PIPELINE_STATE.json still names it",
+    )
+    commands.add_parser("enable", help="Advertise an installed vertical again").add_argument("name")
+    commands.add_parser("disable", help="Hide an installed vertical without removing it").add_argument("name")
+    commands.add_parser("refresh", help="Fetch the catalog again")
