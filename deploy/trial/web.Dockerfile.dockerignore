@@ -5,6 +5,8 @@
 !argus_doctor.py
 !argus/
 !argus/**
+!argus_skill/
+!argus_skill/**
 !frontend/
 !frontend/web/
 !frontend/web/dist/

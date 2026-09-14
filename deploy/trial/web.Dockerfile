@@ -14,6 +14,9 @@ RUN apt-get update \
 WORKDIR /opt/argus
 COPY pyproject.toml README.md LICENSE argus_doctor.py ./
 COPY argus ./argus
+# Pre-rename import alias (argus_skill -> argus), kept for one release so seeded
+# tenant Skill copies and scripts that still run `python -m argus_skill.*` work.
+COPY argus_skill ./argus_skill
 COPY frontend/web/dist ./frontend/web/dist
 COPY frontend/tui/bundle/argus.mjs ./frontend/tui/bundle/argus.mjs
 RUN pip install --no-cache-dir '.[trial]'

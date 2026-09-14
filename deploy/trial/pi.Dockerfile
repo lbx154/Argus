@@ -8,6 +8,8 @@ COPY --from=argus-pi /package.json /opt/argus-pi/package.json
 COPY --from=argus-pi /node_modules /opt/argus-pi/node_modules
 COPY --from=argus-pi /packages /opt/argus-pi/packages
 COPY argus /opt/argus/argus
+# Pre-rename import alias (argus_skill -> argus), kept for one release.
+COPY argus_skill /opt/argus/argus_skill
 COPY frontend/web/dist /opt/argus/frontend/web/dist
 COPY frontend/tui/bundle/argus.mjs /opt/argus/frontend/tui/bundle/argus.mjs
 # WEB_BASE_IMAGE may be an older prepared image without the shared search tool.
@@ -17,7 +19,7 @@ RUN if ! command -v rg >/dev/null 2>&1; then \
         && apt-get clean; \
     fi \
     && pip install --no-cache-dir 'psutil>=5.9.8' \
-    && chmod -R a+rX /opt/argus/argus /opt/argus/frontend \
+    && chmod -R a+rX /opt/argus/argus /opt/argus/argus_skill /opt/argus/frontend \
     && ln -s /opt/argus-pi/packages/coding-agent/dist/bundle/cli.js /usr/local/bin/argus-pi \
     && ln -s /usr/local/bin/argus-pi /usr/local/bin/pi \
     && node --version && argus-pi --version && rg --version
