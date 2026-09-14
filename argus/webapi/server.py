@@ -657,6 +657,9 @@ def create_app(
     register_map_note_routes(app, ctx)
     from .routes.plugins import register_plugin_routes
     register_plugin_routes(app, ctx)
+    from .routes.verticals import register_vertical_routes
+
+    register_vertical_routes(app, ctx)
     from .routes.research_timeline import register_research_timeline_routes
 
     register_research_timeline_routes(app, ctx)

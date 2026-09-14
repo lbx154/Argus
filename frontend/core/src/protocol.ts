@@ -36,6 +36,7 @@ export const REQUIRED_API_CAPABILITIES = [
   'snapshot.schema.v1',
   'source.update.v1',
   'usage.recorded.v2',
+  'verticals.store.v1',
 ] as const;
 
 export interface ApiRuntimeIdentity {

@@ -150,6 +150,11 @@ PLUGIN_WRITES = re.compile(
     r"system/pick_folder|ui/diagnostics|"
     r"wb/refine/analysis/jobs(?:/[^/]+/(?:cancel|release))?)$"
 )
+# The Vertical Store on a hosted account: refresh the catalog and flip a vertical
+# on or off. Install, update and remove stay with the host (see verticals/store.py).
+VERTICAL_WRITES = re.compile(
+    r"^/api/verticals/(?:catalog/refresh|[a-z][a-z0-9_]{0,47}/manage/(?:enable|disable))$"
+)
 WS_ROUTE = re.compile(r"^/api/projects/[^/]+/stream$")
 # The website preview page ships its own content-security-policy that sandboxes
 # the delivered site and denies it every network destination; its policy is kept
@@ -485,7 +490,8 @@ def permitted(path: str, method: str) -> bool:
         return True
     if method == "POST":
         return bool(
-            PROJECT_WRITES.fullmatch(path) or PLUGIN_WRITES.fullmatch(path) or path == "/api/daemons"
+            PROJECT_WRITES.fullmatch(path) or PLUGIN_WRITES.fullmatch(path)
+            or VERTICAL_WRITES.fullmatch(path) or path == "/api/daemons"
             or re.fullmatch(r"/api/map-copy/(?:project|dataset)/[^/]+", path)
             or re.fullmatch(r"/api/trash/[^/]+/restore", path)
         )
