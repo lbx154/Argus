@@ -111,7 +111,7 @@ def test_the_paper_track_still_completes_on_its_own_transport() -> None:
     assert decision is not None and decision.action == "complete"
 
 
-@pytest.mark.parametrize("vertical", ["software", "kernelbench", "physics"])
+@pytest.mark.parametrize("vertical", ["software", "math_synth", "kernel_engineering"])
 def test_the_verticals_seen_livelocked_now_complete(vertical: str) -> None:
     """``software`` is the one caught live; the others share its gate shape."""
     decision, order = _decide(vertical, scope="bounded")

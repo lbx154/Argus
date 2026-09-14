@@ -21,13 +21,6 @@ from argus_skill.skills.builtins import (
     vertical_skill_source_path,
 )
 
-QUANT_SKILLS = {
-    "engineer/quant-factor-loop.md",
-    "engineer/model-selection-loop.md",
-    "engineer/kline-chart.md",
-    "reviewer/quant-factor-report-review.md",
-}
-
 MATH_SKILLS = {
     "manager/math-research-manager.md",
     "planner/math-research-planning.md",
@@ -94,11 +87,6 @@ RESEARCH_SKILLS = RESEARCH_BASE_SKILLS | RESEARCH_MOVED_SKILLS | {
 }
 
 
-def test_iter_vertical_skill_texts_quant() -> None:
-    got = {name for name, _ in iter_vertical_skill_texts("quant")}
-    assert got == QUANT_SKILLS
-
-
 def test_iter_vertical_skill_texts_math() -> None:
     got = {name for name, _ in iter_vertical_skill_texts("math")}
     assert got == MATH_SKILLS
@@ -131,8 +119,8 @@ def test_vertical_owned_skills_are_not_also_flat_builtins() -> None:
     # The flat builtin pool is seeded into every runtime layer and every
     # project workspace, so anything left there is a matcher candidate for
     # every project forever. A skill a vertical owns must therefore live in
-    # that vertical ONLY: a quant playbook or a B200 kernel trace must not
-    # cost a maths or paper project summary tokens on every match.
+    # that vertical ONLY: a kernel playbook or a Lean proof recipe must not
+    # cost a software or paper project summary tokens on every match.
     #
     # This used to be worked around with pointer stubs that stayed behind in
     # builtin_skills/. Stubs are candidates too — the seeding path already
@@ -173,10 +161,10 @@ def test_agent_team_lead_is_a_common_builtin() -> None:
     assert "Return the completed work to the normal mission" in common["agent-team-lead.md"]
 
 
-def test_machine_specific_nanochat_playbooks_are_retired() -> None:
-    packaged = {name for name, _text in iter_vertical_skill_texts("nanochat")}
-
-    assert packaged == set()
+def test_machine_specific_nanochat_playbook_seeds_stay_retired() -> None:
+    # The H100 nanochat traces once lived in the flat builtin pool; operator
+    # libraries seeded before they were retired still carry copies, so the
+    # retirement hashes must survive the vertical's move to argus-verticals.
     assert RETIRED_NANOCHAT_SKILLS <= _RETIRED_BUILTIN_SEED_HASHES.keys()
 
 
@@ -342,13 +330,6 @@ def test_global_seeding_retires_manifest_owned_moved_research_skill(
     assert not destination.exists()
 
 
-def test_quant_skills_are_owned_by_the_quant_vertical(tmp_path) -> None:
-    seed_builtin_skills_for_vertical(tmp_path, "quant", overwrite=True)
-    for rel in QUANT_SKILLS:
-        body = (tmp_path / rel).read_text(encoding="utf-8")
-        assert "MOVED" not in body, f"pointer stub leaked into workspace for {rel}"
-
-
 def test_all_builtins_valid_including_stubs() -> None:
     # Every bundled .md (stubs included) must parse with a name+description,
     # else the seeding pipeline's _validate_builtin would raise at runtime.
@@ -367,56 +348,6 @@ def test_reference_corpora_are_assets_not_matchable_skills(tmp_path) -> None:
     assert (
         tmp_path
         / "engineer/references/ideation/anti-patterns.md"
-    ).is_file()
-
-
-def test_seed_for_vertical_overwrites_stub_with_real_body(tmp_path) -> None:
-    seed_builtin_skills_for_vertical(tmp_path, "quant", overwrite=True)
-    for rel in QUANT_SKILLS:
-        body = (tmp_path / rel).read_text(encoding="utf-8")
-        assert "MOVED" not in body, f"stub leaked into workspace for {rel}"
-    assert "strict quant-research referee" in (
-        tmp_path / "reviewer" / "quant-factor-report-review.md"
-    ).read_text(encoding="utf-8")
-    assert "BacktestExecutor" in (
-        tmp_path / "engineer" / "quant-factor-loop.md"
-    ).read_text(encoding="utf-8")
-
-
-def test_seed_for_vertical_preserves_operator_edit_without_overwrite(
-    tmp_path,
-) -> None:
-    path = tmp_path / "engineer" / "quant-factor-loop.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("operator-owned quant workflow\n", encoding="utf-8")
-
-    changed = seed_builtin_skills_for_vertical(tmp_path, "quant")
-
-    assert changed["engineer/quant-factor-loop.md"] is False
-    assert path.read_text(encoding="utf-8") == "operator-owned quant workflow\n"
-
-
-def test_seed_for_vertical_keeps_general_skills_without_research_leakage(
-    tmp_path,
-) -> None:
-    seed_builtin_skills_for_vertical(tmp_path, "quant", overwrite=True)
-    assert (tmp_path / "engineer" / "argus-engineer-role.md").exists()
-    assert not (tmp_path / "reviewer" / "experiment-plan-review.md").exists()
-
-
-def test_seed_for_research_does_not_pull_quant_real_body(tmp_path) -> None:
-    # A vertical that does not own the quant skills must see no trace of them:
-    # not the real body (cross-vertical leakage) and no longer a pointer stub
-    # either, which used to sit in every non-quant workspace as a dead matcher
-    # candidate.
-    seed_builtin_skills_for_vertical(tmp_path, "research", overwrite=True)
-    for relative in QUANT_SKILLS:
-        assert not (tmp_path / relative).exists(), relative
-    assert (
-        tmp_path / "engineer" / "research-visualization-router.md"
-    ).is_file()
-    assert (
-        tmp_path / "engineer" / "research_visual_scripts" / "browser_render.py"
     ).is_file()
 
 
@@ -490,3 +421,12 @@ def test_remove_inactive_vertical_seeds_with_no_active_vertical_prunes_all(
 
     assert set(removed) == MATH_SKILLS
     assert not any((tmp_path / filename).exists() for filename in MATH_SKILLS)
+
+
+def test_seed_for_research_does_not_pull_another_verticals_skills(tmp_path) -> None:
+    # A vertical that does not own the math skills must see no trace of them:
+    # not the real body (cross-vertical leakage) and no pointer stub either.
+    seed_builtin_skills_for_vertical(tmp_path, "research", overwrite=True)
+    for relative in MATH_SKILLS:
+        assert not (tmp_path / relative).exists(), relative
+    assert (tmp_path / "engineer" / "research-visualization-router.md").is_file()

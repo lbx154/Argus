@@ -183,8 +183,9 @@ def test_target_disease_skill_routes_manager_to_medical_vertical() -> None:
         encoding="utf-8"
     )
 
-    assert "built-in `medical` vertical" in skill
-    assert "built-in `medical` domain" not in skill
+    assert "`medical` vertical" in skill
+    assert "argus-verticals" in skill
+    assert "built-in `medical`" not in skill
     assert "`research` workflow with" not in skill
     assert "Call `argus_message` exactly once" in skill
     assert "Do not dispatch while resolving the project" in skill

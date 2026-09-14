@@ -1054,11 +1054,10 @@ def _target_package(module: str) -> str:
 
 
 def _every_python_file() -> list[Path]:
-    # Every ``.py`` under the package on purpose, including the three
-    # directories with no ``__init__.py`` (``verticals/fiction_writing/
-    # evaluations`` and research's ``figure_spec_scripts`` /
-    # ``research_visual_scripts``): they ship in the wheel and run as scripts,
-    # so what they import is a coupling the tree still pays for.
+    # Every ``.py`` under the package on purpose, including the two
+    # directories with no ``__init__.py`` (research's ``figure_spec_scripts``
+    # and ``research_visual_scripts``): they ship in the wheel and run as
+    # scripts, so what they import is a coupling the tree still pays for.
     return sorted(ARGUS.rglob("*.py"))
 
 
@@ -1131,7 +1130,6 @@ MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "tools/peer.py -> messaging",
     "tools/subagent/_direct_run.py -> daemon",
     "tools/team.py -> team",
-    "verticals/fiction_writing/evaluations/run_evals.py -> manager",
     "verticals/research/idea_portfolio.py -> team",
 })
 
@@ -1223,7 +1221,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "team/teammate_entry.py -> apps",
     "tools/setup.py -> trial",
     "tools/subagent/_reporting.py -> apps",
-    "verticals/kernelbench/official_eval_server.py -> team",
     "verticals/research/idea_portfolio.py -> manager",
     "verticals/research/second_reading.py -> manager",
 })
@@ -1309,7 +1306,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "tools -> argus_skill.apps._inbox",
     "tools -> argus_skill.daemon.state._terminate_windows_process_tree",
     "trial -> argus_skill.agent_cli.copilot_home._read_managed_config",
-    "trial -> argus_skill.skills.builtins._VERTICAL_SKILL_INHERITANCE",
     "trial -> argus_skill.tools.setup._verify_setup_smoke",
     "verticals -> argus_skill.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
     "verticals -> argus_skill.skills.rl_training_plots._is_probe",

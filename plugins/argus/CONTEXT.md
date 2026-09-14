@@ -18,7 +18,8 @@
 **Medical vertical**
 : Argus's biomedical and pharmaceutical evidence workflow. It owns its own
   stage machine, role guidance, dossier checks, and independent-review gate. It
-  is included in the Argus plugin, not a separate plugin.
+  ships in the `argus-verticals` package (`pip install argus-verticals` into the
+  Argus runtime) and is selected like any other vertical. It is not a separate plugin.
 
 **Evidence record**
 : One source-addressable literature or trial record whose provenance,

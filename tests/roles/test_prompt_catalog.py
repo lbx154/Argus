@@ -263,21 +263,21 @@ def test_consecutive_role_cycles_keep_a_large_common_prefix(tmp_path) -> None:
 
 
 def test_engineer_banner_resolves_through_role_catalog(tmp_path) -> None:
-    persist_vertical(tmp_path, "speedrun")
-    vertical = load_vertical("speedrun", project_root=tmp_path)
+    persist_vertical(tmp_path, "math_synth")
+    vertical = load_vertical("math_synth", project_root=tmp_path)
 
     engineer = resolve_role_prompt(mission_request(tmp_path))
 
-    assert engineer.vertical == "speedrun"
+    assert engineer.vertical == "math_synth"
     assert engineer.role_banner == vertical_role_banner(vertical, "engineer")
     assert engineer.stage_checklist == ""
     assert engineer.fragment_ids == (
-        "vertical:speedrun:banner:engineer",
+        "vertical:math_synth:banner:engineer",
     )
 
 
 def test_planner_context_resolves_banner_stage_and_checklist(tmp_path) -> None:
-    persist_vertical(tmp_path, "speedrun")
+    persist_vertical(tmp_path, "math_synth")
     _set_stage(tmp_path, "optimize")
 
     context = resolve_role_prompt(continuous_request(tmp_path))
@@ -292,7 +292,7 @@ def test_planner_context_resolves_banner_stage_and_checklist(tmp_path) -> None:
     )
     assert context.paper_mission is False
     assert context.completion_gate != "certified"
-    assert "vertical:speedrun:checklist:planner:stage:optimize" in (
+    assert "vertical:math_synth:checklist:planner:stage:optimize" in (
         context.fragment_ids
     )
 
@@ -465,7 +465,7 @@ def test_direct_planner_prompt_omits_stage_checklist(tmp_path) -> None:
 def test_manager_stage_decision_preserves_planner_checklist_framing(
     tmp_path,
 ) -> None:
-    persist_vertical(tmp_path, "speedrun")
+    persist_vertical(tmp_path, "math_synth")
 
     context = resolve_role_prompt(
         stage_decision_request(tmp_path, stage="setup")
@@ -477,7 +477,7 @@ def test_manager_stage_decision_preserves_planner_checklist_framing(
         role="planner",
         project_root=tmp_path,
     )
-    assert "vertical:speedrun:checklist:planner:stage:setup" in (
+    assert "vertical:math_synth:checklist:planner:stage:setup" in (
         context.fragment_ids
     )
 
@@ -511,7 +511,7 @@ def test_unknown_role_operation_fails_loudly(tmp_path) -> None:
 
 
 def test_planner_preview_uses_same_vertical_banner(tmp_path) -> None:
-    persist_vertical(tmp_path, "speedrun")
+    persist_vertical(tmp_path, "math_synth")
 
     preview = resolve_role_prompt(preview_request(tmp_path))
     continuous = resolve_role_prompt(continuous_request(tmp_path))

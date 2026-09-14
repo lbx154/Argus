@@ -125,18 +125,6 @@ def test_final_submission_does_not_make_math_a_paper_vertical(tmp_path) -> None:
     assert "## Final paper review" not in prompt
 
 
-def test_certified_medical_review_does_not_inherit_paper_policy(tmp_path) -> None:
-    _persist_review_stage(tmp_path, "medical")
-
-    prompt, _reviewer = _project_reviewer_prompt(
-        tmp_path,
-        scope="final_submission",
-    )
-
-    assert "## Near-complete paper review" not in prompt
-    assert "## Final paper review" not in prompt
-
-
 def test_final_submission_forces_certify_over_operator_explore(tmp_path) -> None:
     _persist_review_stage(tmp_path, "research")
     state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"

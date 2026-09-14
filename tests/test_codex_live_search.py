@@ -195,7 +195,7 @@ def test_research_live_search_covers_working_stages_not_review(tmp_path: Path) -
 
 def test_vertical_without_declaration_takes_the_default_path(tmp_path: Path) -> None:
     """Every other in-tree vertical keeps the framework default untouched."""
-    for vertical in ("software", "physics", "speedrun", "argus_maintenance"):
+    for vertical in ("software", "math", "math_synth", "kernel_engineering", "argus_maintenance"):
         contract = load_vertical_contract(vertical)
         assert contract.engineer_live_search_stages is None, vertical
         assert contract.live_search_stages(DEFAULT_LIVE_SEARCH_STAGES) == (

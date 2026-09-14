@@ -17,7 +17,8 @@ not diagnose a patient, select treatment, or assert that a new drug was created.
    `argus_project_list` for the exact work directory, then reuse that project or
    call `argus_project_create`. Do not dispatch while resolving the project.
 4. Call `argus_message` exactly once with an objective that asks Manager to
-   select the built-in `medical` vertical and to produce:
+   select the `medical` vertical (shipped by the `argus-verticals` package)
+   and to produce:
    `medical/evidence.jsonl`, `medical/evidence_matrix.csv`,
    `medical/target_disease_memo.md`, and `medical/review.json`.
 5. Require source IDs and URLs, exact retrieval/query provenance, conflicts,

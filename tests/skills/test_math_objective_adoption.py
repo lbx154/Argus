@@ -141,7 +141,7 @@ def test_adoption_unblocks_the_scope_stage(tmp_path: Path) -> None:
     assert not any("objective mode" in issue for issue in after), after
 
 
-@pytest.mark.parametrize("vertical", ["research", "speedrun"])
+@pytest.mark.parametrize("vertical", ["research", "math_synth"])
 def test_verticals_without_an_adopter_are_untouched(
     tmp_path: Path, vertical: str
 ) -> None:

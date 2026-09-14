@@ -82,7 +82,7 @@ def test_current_stage_uses_data_domain_under_default_research_env(tmp_path, mon
 
 
 def test_manager_persisted_data_domain_wins_over_bootstrap_builtin_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "software")
     dd.write_data_domain(
         tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"]
     )

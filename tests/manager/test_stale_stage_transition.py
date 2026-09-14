@@ -22,7 +22,7 @@ def _manager(tmp_path: Path, *, workflow_mode: str = "staged"):
     state = tmp_path / "state"
     work = tmp_path / "work"
     work.mkdir()
-    persist_vertical(state, "speedrun", workflow_mode=workflow_mode)
+    persist_vertical(state, "math_synth", workflow_mode=workflow_mode)
     return Manager(project_root=state, execution_workdir=work, runner=object()), state, work
 
 
@@ -108,7 +108,7 @@ def test_idempotent_vertical_refresh_does_not_invalidate_stage_decision(tmp_path
 
     def model(_prompt):
         with manager.pipeline_lock():
-            persist_vertical(state, "speedrun", workflow_mode="direct")
+            persist_vertical(state, "math_synth", workflow_mode="direct")
         return SimpleNamespace(last_agent_message="ACTION=complete\nTARGET_STAGE=setup\nREASON=objective done")
 
     decision = manager.decide_stage_transition(

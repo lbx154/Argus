@@ -25,7 +25,7 @@ def _manager(tmp_path, *, workflow_mode: str = "staged"):
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir(parents=True)
-    persist_vertical(state_root, "speedrun", workflow_mode=workflow_mode)
+    persist_vertical(state_root, "math_synth", workflow_mode=workflow_mode)
     return (
         Manager(
             project_root=state_root,

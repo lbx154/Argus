@@ -38,7 +38,7 @@ from argus_skill.skills.vertical_select import (
 from argus_skill.verticals._base import load_vertical_contract
 
 CERTIFIED = "research"
-NOT_CERTIFIED = ("math", "materials", "speedrun", "software")
+NOT_CERTIFIED = ("math", "math_synth", "kernel_engineering", "software")
 
 
 class _Harness(PlanningContextMixin):
@@ -70,7 +70,7 @@ def test_an_undecided_project_is_not_at_its_final_gate(tmp_path) -> None:
 def test_a_vertical_without_a_certified_gate_stays_ungated(
     tmp_path, vertical
 ) -> None:
-    """``speedrun`` is the one the docstring names: gating it wedges it forever."""
+    """``math_synth`` (a metric vertical) is the shape that, gated, wedges forever."""
     from argus_skill.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, vertical)

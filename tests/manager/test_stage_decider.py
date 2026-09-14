@@ -423,7 +423,7 @@ def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "speedrun", workflow_mode="staged")
+    persist_vertical(state_root, "math_synth", workflow_mode="staged")
 
     prompts: list[str] = []
 

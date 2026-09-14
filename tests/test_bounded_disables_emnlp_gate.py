@@ -118,11 +118,11 @@ def _config_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = Tr
 
 
 def test_supervisor_paper_mission_off_for_optimize_vertical(tmp_path: Path):
-    # Regression: an optimize vertical (kernelbench) must NOT carry paper_mission
+    # Regression: an optimize vertical (math_synth) must NOT carry paper_mission
     # into the supervisor config, or every bounded backlog item gets the
     # "continue through adjacent paper blockers" guidance (see
     # _render_backlog_item_metadata). The gate follows the resolved vertical.
-    cfg = _config_for_vertical(tmp_path, "kernelbench")
+    cfg = _config_for_vertical(tmp_path, "math_synth")
     assert cfg.paper_mission is False
 
 

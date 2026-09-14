@@ -33,7 +33,7 @@ def _status(state: ProjectState = ProjectState.WRITING) -> ProjectStatus:
     ("vertical", "expected"),
     [
         ("research", "certified"),
-        ("kernelbench", "metric"),
+        ("math_synth", "metric"),
         ("software", "none"),
     ],
 )
@@ -59,7 +59,7 @@ def test_weaker_source_cannot_close_certified_gate() -> None:
 
 def test_stronger_source_satisfies_metric_gate() -> None:
     outcome = evaluate_completion(
-        vertical="kernelbench",
+        vertical="math_synth",
         required_gate="metric",
         source=CompletionSource(
             kind=SOURCE_INDEPENDENT_CERTIFICATION,

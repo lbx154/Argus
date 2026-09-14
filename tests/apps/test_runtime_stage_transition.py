@@ -19,7 +19,7 @@ def test_event_sink_failure_keeps_committed_stage_decision(tmp_path, workflow, a
     state = tmp_path / "state"
     work = tmp_path / "work"
     work.mkdir()
-    persist_vertical(state, "speedrun", workflow_mode=workflow)
+    persist_vertical(state, "math_synth", workflow_mode=workflow)
     manager = Manager(project_root=state, execution_workdir=work, runner=object())
 
     class Sink:
@@ -83,7 +83,7 @@ def test_unchanged_campaign_accepts_committed_stage_projection(tmp_path, initial
     state = tmp_path / "state"
     work = tmp_path / "work"
     work.mkdir()
-    persist_vertical(state, "speedrun", workflow_mode="staged")
+    persist_vertical(state, "math_synth", workflow_mode="staged")
     write_continuous_config(state, enabled=True, objective="persisted objective")
     control = CampaignControlStore(state)
     identity = control.campaign_identity()
@@ -119,7 +119,7 @@ def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_pa
     from argus_skill.skills.stage_machine import advance_stage
     from argus_skill.skills.vertical_select import persist_vertical
 
-    persist_vertical(tmp_path, "speedrun", workflow_mode="staged")
+    persist_vertical(tmp_path, "math_synth", workflow_mode="staged")
     write_continuous_config(tmp_path, enabled=True, objective="old objective")
     control = CampaignControlStore(tmp_path)
     identity = control.campaign_identity()
@@ -268,7 +268,7 @@ def test_stage_closing_runtime_path_uses_deterministic_manager_writer(
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "speedrun", workflow_mode="staged")
+    persist_vertical(state_root, "math_synth", workflow_mode="staged")
 
     class Sink:
         def __init__(self) -> None:

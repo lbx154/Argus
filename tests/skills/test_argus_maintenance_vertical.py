@@ -29,8 +29,9 @@ def test_argus_maintenance_contract_is_built_in(tmp_path: Path) -> None:
     assert Manager._kind_for("argus_maintenance") == "software"
     assert Manager._kind_for("software") == "software"
     assert Manager._kind_for("research") == "research"
-    assert Manager._kind_for("speedrun") == "optimize"
-    assert Manager._kind_for("chip_design") == "custom"
+    assert Manager._kind_for("math_synth") == "optimize"
+    # A name that is neither built in nor an installed plugin is a data domain.
+    assert Manager._kind_for("ops_continuity_runbook") == "custom"
 
 
 def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(

@@ -342,12 +342,12 @@ def test_divide_existing_research(tmp_path):
     assert division.kind == "research"
 
 
-def test_divide_existing_nanochat_is_optimize(tmp_path):
+def test_divide_existing_math_synth_is_optimize(tmp_path):
     division = Manager(
         project_root=tmp_path,
-        runner=_existing("nanochat"),
-    ).divide("minimize val_bpb on the nanochat train.py")
-    assert division.vertical == "nanochat"
+        runner=_existing("math_synth"),
+    ).divide("maximize the pass@4-minus-pass@1 gap of the synthesized set")
+    assert division.vertical == "math_synth"
     assert division.kind == "optimize"
 
 
@@ -487,7 +487,7 @@ def test_plan_stages_propagates_vertical_load_failure(monkeypatch):
     """A vertical that fails to resolve/import must PROPAGATE, not silently
     substitute the canonical/paper stage list — matches divide()'s and
     LifeSupervisor._resolve_vertical_once's documented FAIL-HARD contract.
-    Silently degrading here would turn e.g. a kernelbench mission into the
+    Silently degrading here would turn e.g. a math_synth mission into the
     paper pipeline with no visible error."""
     from argus_skill.verticals import _base
 
@@ -496,7 +496,7 @@ def test_plan_stages_propagates_vertical_load_failure(monkeypatch):
 
     monkeypatch.setattr(_base, "load_vertical", _boom)
     with pytest.raises(RuntimeError, match="simulated broken vertical import"):
-        Manager().plan_stages("kernelbench")
+        Manager().plan_stages("math_synth")
 
 
 def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
@@ -513,13 +513,13 @@ def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
 
 
 def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path):
-    mgr = Manager(project_root=tmp_path, runner=_existing("nanochat"))
-    d = mgr.divide("minimize val_bpb on nanochat train.py")
+    mgr = Manager(project_root=tmp_path, runner=_existing("math_synth"))
+    d = mgr.divide("maximize the pass-gap of the synthesized problem set")
     assert isinstance(d, Division)
-    assert d.vertical == "nanochat" and d.kind == "optimize"
+    assert d.vertical == "math_synth" and d.kind == "optimize"
     # persisted into PIPELINE_STATE.json — the supervisor reads & trusts this
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert state["vertical"] == "nanochat"
+    assert state["vertical"] == "math_synth"
 
 
 def test_math_divide_persists_manager_owned_research_target(
@@ -610,7 +610,7 @@ def test_vertical_commit_persists_generic_research_target_contract(
     manager = Manager(project_root=tmp_path)
     decision = VerticalDecision(
         choice="existing",
-        vertical="physics",
+        vertical="math",
         execution_task="derive the requested result",
         research_target_level="doctoral",
     )
@@ -623,7 +623,7 @@ def test_vertical_commit_persists_generic_research_target_contract(
     state = json.loads(
         (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
     )
-    assert division.vertical == "physics"
+    assert division.vertical == "math"
     assert state["research_target_level"] == "doctoral"
     assert state["research_target_set_at"] > 0
 
@@ -830,8 +830,8 @@ def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
     before = pipeline_state.read_bytes()
     decision = VerticalDecision(
         choice="existing",
-        vertical="nanochat",
-        execution_task="run nanochat",
+        vertical="math_synth",
+        execution_task="run the synthesis pipeline",
     )
     monkeypatch.setattr(
         "argus_skill.manager._vertical_ops.vertical_select.reset_stage_for_new_intent",
@@ -839,7 +839,7 @@ def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="reset failed"):
-        manager.commit_vertical_decision("run nanochat", decision)
+        manager.commit_vertical_decision("run the synthesis pipeline", decision)
 
     assert pipeline_state.read_bytes() == before
 

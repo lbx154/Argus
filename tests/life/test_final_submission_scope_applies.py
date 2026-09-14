@@ -49,7 +49,7 @@ from argus_skill.verticals._base import load_vertical_contract
 
 # The two halves of the contract, and what each vertical declares.
 CERTIFIED_AND_TARGETED = "research"
-TARGETED_ONLY = ("math", "materials")
+TARGETED_ONLY = ("math",)
 NEITHER = "software"
 
 
