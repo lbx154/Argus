@@ -18,19 +18,27 @@ log = logging.getLogger(__name__)
 
 class SkillLibraryMixin:
     def _prepare_skill_libraries(self, mission: MissionContext) -> SkillLibraryState:
-        required_skill_paths = self._prepare_vertical_libraries(mission)
+        required_skill_paths, prompt_blocks = self._prepare_vertical_libraries(mission)
         state = SkillLibraryState()
         state.skill_libraries = self.engineer_mission.libraries(
             task=mission.skill_task,
             required_relative_paths=required_skill_paths,
         )
-        state.skill_text = state.skill_libraries.block
+        state.skill_text = "\n\n".join(
+            block
+            for block in (state.skill_libraries.block, *prompt_blocks)
+            if block
+        )
         state.reviewer_skill_block = self.reviewer.mission.libraries().block
         return state
 
-    def _prepare_vertical_libraries(self, mission: MissionContext) -> tuple[str, ...]:
+    def _prepare_vertical_libraries(
+        self,
+        mission: MissionContext,
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """Let the provider run optional domain setup with explicit inputs."""
         required_skill_paths: list[str] = []
+        prompt_blocks: list[str] = []
         try:
             from ..core.pipeline_state import pipeline_state_exists
             from ..verticals._base import load_vertical_contract
@@ -66,10 +74,14 @@ class SkillLibraryMixin:
                 model=self.config.engineer_model,
                 emit=self._emit,
                 required_skill_paths=required_skill_paths,
+                prompt_blocks=prompt_blocks,
             ))
         except Exception:  # noqa: BLE001 — optional domain preparation is non-blocking
             log.debug("vertical Skill-library preparation skipped", exc_info=True)
-        return tuple(dict.fromkeys(required_skill_paths))
+        return (
+            tuple(dict.fromkeys(required_skill_paths)),
+            tuple(dict.fromkeys(prompt_blocks)),
+        )
 
     def _adapt_after_rejections(
         self,

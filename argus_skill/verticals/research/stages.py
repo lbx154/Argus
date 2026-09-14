@@ -689,6 +689,50 @@ def search_altitude_context(project_root: object) -> str:
     return ""
 
 
+def planner_task_issues(
+    stage: str,
+    project_root: Path,
+    task: object,
+) -> tuple[str, ...]:
+    """Keep Planner tasks from competing with the runtime-owned Idea portfolio."""
+    _ = project_root
+    if str(stage or "").strip().lower() != "idea":
+        return ()
+    owns_paths = tuple(
+        str(path or "").strip().replace("\\", "/")
+        for path in (getattr(task, "owns_paths", ()) or ())
+    )
+    if not any(
+        path == ".argus/teams" or path.startswith(".argus/teams/")
+        for path in owns_paths
+    ):
+        return ()
+    contract = " ".join(
+        [
+            *(
+                str(getattr(task, field, "") or "")
+                for field in ("title", "objective", "acceptance_check")
+            ),
+            *owns_paths,
+        ]
+    ).lower()
+    explicitly_portfolio = any(
+        marker in contract
+        for marker in ("portfolio", "tournament", "idea-pipeline")
+    )
+    portfolio_shaped = (
+        "route" in contract
+        and ("review" in contract or "selector" in contract)
+        and ("twelve" in contract or "12 " in contract)
+    )
+    if not explicitly_portfolio and not portfolio_shaped:
+        return ()
+    return (
+        "the research runtime owns the canonical Idea portfolio; omit all "
+        "`.argus/teams/...` paths and let the runtime-provided portfolio complete",
+    )
+
+
 def role_banner(role: str = "engineer") -> str:
     if role == "engineer" and os.environ.get(_TEAM_TASK_ENV, "").strip():
         return _ENGINEER_TEAM_RESEARCH_EXECUTION
@@ -718,6 +762,7 @@ __all__ = [
     "ENGINEER_STAGE_OPERATIONS",
     "REQUIRE_INDEPENDENT_REVIEW",
     "role_banner",
+    "planner_task_issues",
     "import_legacy_state",
     "search_altitude_context",
     "render_role_prompt_fragment",
