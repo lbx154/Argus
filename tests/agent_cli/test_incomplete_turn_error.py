@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.agent_cli import _run_exec
-from argus_skill.agent_cli._env import _STDERR_TAIL_CHARS, _STDERR_TAIL_LINES, stderr_tail
-from argus_skill.agent_cli.agent_cli_runner import (
+from argus.agent_cli import _run_exec
+from argus.agent_cli._env import _STDERR_TAIL_CHARS, _STDERR_TAIL_LINES, stderr_tail
+from argus.agent_cli.agent_cli_runner import (
     AgentCliRunner,
     RunnerOptions,
     _incomplete_turn_error,
 )
-from argus_skill.agent_cli.runner_backend import BACKEND_COPILOT
-from argus_skill.engineer.round_stop_signals import backend_failure_cause
+from argus.agent_cli.runner_backend import BACKEND_COPILOT
+from argus.engineer.round_stop_signals import backend_failure_cause
 
 ECONNREFUSED = "Error: connect ECONNREFUSED 127.0.0.1:18765"
 

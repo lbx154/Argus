@@ -203,7 +203,7 @@ def _should_run_stage_transition(
     review, while N of its siblings run concurrently against the same file.
 
     Kept distinct from ``skip_stage_transition`` because that flag is not a
-    general off switch: :mod:`argus_skill.manager.dispatch` *rejects* a Planner
+    general off switch: :mod:`argus.manager.dispatch` *rejects* a Planner
     node that sets it without ``require_independent_review``, so it only ever
     means "this reviewed node settles itself and must not move the stage", and
     the guard below reads it that way. Widening that guard to cover a teammate

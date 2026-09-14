@@ -60,7 +60,7 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
 # word appeared nowhere in any prompt while the example offered an invalid
 # `keep`, so the channel stayed shut and a campaign could close round after
 # locally correct round without anything ever questioning the plan itself.
-# Keep these values in step with ``argus_skill.reviewer._parsing``.
+# Keep these values in step with ``argus.reviewer._parsing``.
 _PLAN_SIGNAL_VOCABULARY = (
     "`plan_signal` is `continue` or, if evidence lowers expected value, `reconsider`. "
     "Add evidence-backed `plan_challenge` and `authority_impact`: `technical` for "

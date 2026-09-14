@@ -852,7 +852,7 @@ def format_api_context() -> str:
             "",
             "Use Argus tools that resolve these routes from the capability vault.",
             "Custom tool subprocesses may call "
-            "`argus_skill.tools.capability_vault.load_model_api_route('<route>')`.",
+            "`argus.tools.capability_vault.load_model_api_route('<route>')`.",
             "Never open the vault directly or print, log, or persist route credentials.",
         )
     )
@@ -860,7 +860,7 @@ def format_api_context() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.capability_vault")
+    parser = argparse.ArgumentParser(prog="python -m argus.tools.capability_vault")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status", help="print capability status without secrets")
     init = sub.add_parser("init-model-api", help="persist the pre-approved model API grant")
@@ -872,7 +872,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "init-model-api":
         path = bootstrap_model_api_vault(os.environ)
-        print(f"argus-skill: model API capability saved at {path} (0600, secret not printed)")
+        print(f"argus: model API capability saved at {path} (0600, secret not printed)")
         return 0
     return 2
 

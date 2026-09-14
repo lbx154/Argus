@@ -3,7 +3,7 @@
 A single discoverable list of the knobs an operator actually TUNES — backend,
 models, reasoning effort, budget, lifecycle, telemetry — each with its default and
 a one-line doc, so steering Argus stops being a grep-the-source exercise (the
-audit found ~120 knobs with ~15 documented). ``argus-skill --config-help`` prints
+audit found ~120 knobs with ~15 documented). ``argus --config-help`` prints
 this with the CURRENT effective value of each.
 
 Scope: the operator control surface, NOT every internal/test/handoff knob. Add a

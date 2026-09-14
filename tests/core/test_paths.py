@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core import paths
+from argus.core import paths
 
 
 @pytest.fixture(autouse=True)

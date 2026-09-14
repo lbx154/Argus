@@ -6,7 +6,7 @@ judged against a publication bar looks like a bad idea. Both readings kill
 work that was never actually tested.
 
 The four-state model and its invariants come from
-:mod:`argus_skill.core.evidence_status`. What this module adds is the research
+:mod:`argus.core.evidence_status`. What this module adds is the research
 vocabulary, and three rules that follow from it:
 
 * **An inadequate implementation is not a disproof.** ``implementation`` is

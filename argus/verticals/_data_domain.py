@@ -1,6 +1,6 @@
 """Project-local DATA domains — a Manager-routed vertical stored as JSON.
 
-The on-disk Python verticals (``argus_skill.verticals.<name>.stages``) are the
+The on-disk Python verticals (``argus.verticals.<name>.stages``) are the
 factory-shipped pipelines. When the Manager meets a task that matches NO existing
 vertical, it names a new domain and the runtime stores it with the canonical
 candidate lifecycle under ``<project_root>/research/DOMAINS/`` rather than writing
@@ -9,18 +9,18 @@ that lets such a data domain flow through the SAME resolver path the Python
 verticals use.
 
 ``DataDomain`` exposes the exact attribute surface the optional-hook accessors in
-:mod:`argus_skill.verticals._base` read via ``getattr``
+:mod:`argus.verticals._base` read via ``getattr``
 (``STAGE_ORDER`` / ``CHECKLIST_STAGE_ORDER`` / ``CHECKLIST_ITEMS`` /
 ``completion_gate`` / ``role_banner``), so ``_base`` needs no changes to consume
 it. ``role_banners`` may map role names to separate prompt contracts; the legacy
 ``role_banner`` string remains the fallback. A fresh data domain ships an EMPTY
 ``CHECKLIST_ITEMS`` (the Planner authors
-the per-stage checklist at runtime via :mod:`argus_skill.skills.checklist_store`)
+the per-stage checklist at runtime via :mod:`argus.skills.checklist_store`)
 and ``completion_gate="none"`` so it does not demand the paper submission gate.
 
 Hybrid lifecycle: a data domain that proves out is later PROMOTED into a real
-``argus_skill/verticals/<name>/`` package by
-:mod:`argus_skill.manager.domain_tidy`; after promotion ``load_vertical`` resolves
+``argus/verticals/<name>/`` package by
+:mod:`argus.manager.domain_tidy`; after promotion ``load_vertical`` resolves
 the Python package first, so the data domain becomes inert (idempotent).
 
 All reads are FAIL-OPEN: a missing / corrupt / malformed domain yields ``None``

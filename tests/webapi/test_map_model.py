@@ -5,18 +5,18 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
-from argus_skill.agent_cli.models import AgentRunResult
-from argus_skill.core.knob_store import write_persisted_knobs
-from argus_skill.core.models import RunnerResult
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.usage import UsageLedger, UsageRecord
-from argus_skill.webapi import map_model
-from argus_skill.webapi.server import create_app
+from argus.agent_cli.agent_cli_runner import AgentCliRunner
+from argus.agent_cli.models import AgentRunResult
+from argus.core.knob_store import write_persisted_knobs
+from argus.core.models import RunnerResult
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.usage import UsageLedger, UsageRecord
+from argus.webapi import map_model
+from argus.webapi.server import create_app
 
 
 def test_map_output_recovers_only_the_observed_premature_cards_root_closure():
-    from argus_skill.webapi.map_narrative import schema
+    from argus.webapi.map_narrative import schema
 
     card = {"title": "Check a boundary", "summary": "The result covers one case", "detail": "A literal } is part of the note.",
             "reader_brief": {"why": "Check the stated assumption", "concept": None,
@@ -48,7 +48,7 @@ def test_map_output_recovery_rejects_trailing_prose_other_shapes_and_incomplete_
 
 
 def test_recovered_output_still_requires_the_requested_schema_and_card_coverage():
-    from argus_skill.webapi.map_narrative import schema
+    from argus.webapi.map_narrative import schema
 
     with pytest.raises(ValueError, match="schema"):
         map_model._parse_document('{"cards":{}},"relations":[]}', schema(["required-task"], ["required-task"]))
@@ -87,7 +87,7 @@ def test_unknown_escape_recovery_reuses_card_boundary_and_schema_validation():
 
 
 def reading_schema():
-    from argus_skill.webapi.reader_foundation_prompt import foundation_request
+    from argus.webapi.reader_foundation_prompt import foundation_request
 
     return foundation_request("Explain a comparison", "en-US")[1]
 

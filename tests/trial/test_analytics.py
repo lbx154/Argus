@@ -6,7 +6,7 @@ from contextlib import closing
 
 import pytest
 
-from argus_skill.trial.analytics import Analytics, AnalyticsError
+from argus.trial.analytics import Analytics, AnalyticsError
 
 
 @pytest.fixture
@@ -192,7 +192,7 @@ def test_http_completion_metadata_rejects_untrusted_field_values(setup):
 
 
 def test_activity_separates_polling_submission_failure_and_internal_tests(setup):
-    from argus_skill.trial.interaction_capture import Capture
+    from argus.trial.interaction_capture import Capture
 
     analytics, now, _ = setup
     for tenant in analytics.tenants:
@@ -228,7 +228,7 @@ def test_activity_separates_polling_submission_failure_and_internal_tests(setup)
 
 
 def test_http_success_is_not_task_acceptance(setup):
-    from argus_skill.trial.interaction_capture import Capture
+    from argus.trial.interaction_capture import Capture
 
     analytics, _, _ = setup
     consent(analytics, "trial-01")
@@ -425,7 +425,7 @@ def test_projects_bounded_metadata_and_legacy_trace(setup, monkeypatch):
     assert {row["id"] for row in result["projects"]} == {"s-first", "s-second"}
     assert result["skipped"] == 2
     assert analytics.trace("trial-01", "legacy")["project"] is None
-    monkeypatch.setattr("argus_skill.trial.analytics.MAX_PROJECTS", 1)
+    monkeypatch.setattr("argus.trial.analytics.MAX_PROJECTS", 1)
     assert analytics.projects("trial-01")["truncated"]
 
 
@@ -437,7 +437,7 @@ def test_export_byte_row_limits_invalid_records_and_missing_sources_are_visible(
     assert len(limited["rows"]) == 2
     assert limited["truncated"]
     assert limited["sources"]["transcript.jsonl"]["state"] == "missing"
-    monkeypatch.setattr("argus_skill.trial.analytics.MAX_FILE_BYTES", 70)
+    monkeypatch.setattr("argus.trial.analytics.MAX_FILE_BYTES", 70)
     byte_limited = analytics.trace("trial-01", "s-fixture")
     assert byte_limited["sources"]["events.jsonl"]["truncated"]
     assert len(byte_limited["rows"]) == 1

@@ -3,10 +3,10 @@ from types import MappingProxyType
 
 import pytest
 
-from argus_skill.trial import CLIENT_MODEL, DEFAULT_UPSTREAM_MODEL, MODEL
-from argus_skill.trial.client import trial_enabled, trial_model_options
-from argus_skill.trial.gateway import Settings
-from argus_skill.trial.model_catalog import configured_model_ids, select_model
+from argus.trial import CLIENT_MODEL, DEFAULT_UPSTREAM_MODEL, MODEL
+from argus.trial.client import trial_enabled, trial_model_options
+from argus.trial.gateway import Settings
+from argus.trial.model_catalog import configured_model_ids, select_model
 
 
 def test_server_default_is_distinct_from_the_opaque_client_alias(tmp_path, monkeypatch):

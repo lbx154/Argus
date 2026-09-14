@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.telegram_bot import _CommandRouter
-from argus_skill.manager import front_door
-from argus_skill.manager.front_door import ManagerHandoffError
+from argus.life.memory import LifeMemory
+from argus.life.telegram_bot import _CommandRouter
+from argus.manager import front_door
+from argus.manager.front_door import ManagerHandoffError
 
 
 def test_detect_active_layer_requires_explicit_agent_layer() -> None:
@@ -125,7 +125,7 @@ def test_continuous_persists_only_manager_execution_task(
 def test_continuous_reenable_cleans_stored_legacy_objective(
     tmp_path, monkeypatch,
 ) -> None:
-    from argus_skill.daemon.life_worker import write_continuous_config
+    from argus.daemon.life_worker import write_continuous_config
 
     router, life_dir, _replies = _router(tmp_path)
     raw = "study MRAM; Manager owns the sidebar"
@@ -185,8 +185,8 @@ def test_free_text_reports_manager_handoff_failure(
 def test_status_keeps_ids_pids_and_raw_enums_out_of_the_narrative(
     tmp_path, monkeypatch,
 ) -> None:
-    from argus_skill.daemon.state import ContinuousConfigState, DaemonStatus
-    from argus_skill.life.memory import BacklogItem
+    from argus.daemon.state import ContinuousConfigState, DaemonStatus
+    from argus.life.memory import BacklogItem
 
     router, life_dir, replies = _router(tmp_path)
     memory = LifeMemory.open(life_dir)
@@ -195,7 +195,7 @@ def test_status_keeps_ids_pids_and_raw_enums_out_of_the_narrative(
     )
     memory.backlog.mark_running(item.id)
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_daemon_status",
+        "argus.daemon.life_worker.read_daemon_status",
         lambda _life_dir: DaemonStatus(
             alive=True,
             pid=4242,
@@ -206,7 +206,7 @@ def test_status_keeps_ids_pids_and_raw_enums_out_of_the_narrative(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_continuous_state",
+        "argus.daemon.life_worker.read_continuous_state",
         lambda _life_dir: ContinuousConfigState(),
     )
 
@@ -227,7 +227,7 @@ def test_poller_does_not_dispatch_when_offset_persistence_fails(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.life import telegram_bot
+    from argus.life import telegram_bot
 
     dispatched: list[str] = []
     api_calls = 0

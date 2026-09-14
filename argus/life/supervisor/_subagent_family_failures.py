@@ -5,7 +5,7 @@ rephrase each retry while the same underlying experiment family keeps failing.
 This module reads terminal subagent records and surfaces a structured failure
 streak independent of task wording or parent-mission status.
 
-It complements :mod:`argus_skill.engineer.background_subagents`, whose in-flight
+It complements :mod:`argus.engineer.background_subagents`, whose in-flight
 classification covers non-terminal work. This module handles terminal family
 outcomes and remains dependency-free.
 
@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-# Mirrors argus_skill.tools.subagent._core.REGISTRY_DIR; duplicated as a bare
+# Mirrors argus.tools.subagent._core.REGISTRY_DIR; duplicated as a bare
 # name so this module stays import-light (see background_subagents.py, same
 # convention).
 _REGISTRY_DIRNAME = ".argus_subagents"

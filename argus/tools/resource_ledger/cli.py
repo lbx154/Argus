@@ -210,7 +210,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.resource_ledger")
+    parser = argparse.ArgumentParser(prog="python -m argus.tools.resource_ledger")
     sub = parser.add_subparsers(dest="command_name", required=True)
     acquire = sub.add_parser("acquire")
     _add_demand(acquire)

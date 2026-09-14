@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.core.stage_certificate import (
+from argus.core.stage_certificate import (
     latest_stage_review,
     record_stage_review,
 )

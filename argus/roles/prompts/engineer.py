@@ -24,7 +24,7 @@ _MANAGER_GROUNDING_HEADER = "\n\n## Manager project grounding (advisory evidence
 _POSIX_LONG_EXPERIMENT_RULE = (
     "For commands over two minutes, use Argus's durable runner: "
     "`\"${ARGUS_SKILL_PYTHON:-python3}\" -m "
-    "argus_skill.tools.subagent submit --task-id <id> --mode direct "
+    "argus.tools.subagent submit --task-id <id> --mode direct "
     "--timeout <seconds> --command '<command>'`. Use `--mode supervised` only for "
     "semantic monitoring. Never `task(mode=\"background\")` or a session-owned "
     "background shell. Keep the `state=submitted`, `task_id`, `run_id` and "
@@ -65,7 +65,7 @@ _DURABLE_WAIT_RULE = (
 _WINDOWS_LONG_EXPERIMENT_RULE = (
     "For commands over two minutes on native Windows, use Windows PowerShell 5.1 syntax "
     "and Argus's durable runner: "
-    "`& '.\\.venv\\Scripts\\python.exe' -m argus_skill.tools.subagent submit "
+    "`& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit "
     "--task-id '<id>' --mode direct --timeout '<seconds>' --command '<command>'`. "
     "Use `--mode supervised` only for semantic monitoring. Do not use "
     "`task(mode=\"background\")` or a session-owned background shell. Keep the "

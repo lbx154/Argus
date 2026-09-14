@@ -18,7 +18,7 @@ def main():
         os.environ["ARGUS_SKILL_HOME"] = str(root)
         os.environ["ARGUS_WORKBENCH_HOST_ROOT"] = str(root)
         if not os.environ.get("ARGUS_PLUGIN_CATALOG"):
-            os.environ["ARGUS_PLUGIN_CATALOG"] = str(ROOT / "argus_skill/plugin_catalog.json")
+            os.environ["ARGUS_PLUGIN_CATALOG"] = str(ROOT / "argus/plugin_catalog.json")
         os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = "pi"
         for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER"):
             os.environ["ARGUS_SKILL_" + role + "_BACKEND"] = "pi"

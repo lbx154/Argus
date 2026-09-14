@@ -12,7 +12,7 @@ BUILD_INFO must line up, or the project's ``review`` stage fails and the draft
 cannot advance to ``submission``.
 
 CLI:
-    python -m argus_skill.skills.evidence_chain \\
+    python -m argus.skills.evidence_chain \\
         --project-root . \\
         [--claims-tsv paper/claims_to_evidence.tsv]
 

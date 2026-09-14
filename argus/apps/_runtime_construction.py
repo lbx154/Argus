@@ -114,7 +114,7 @@ class _RunnerConstructionMixin:
             raise SystemExit(
                 f"Agent-CLI backend requested but the bundled agent_cli runtime "
                 f"is unavailable: {exc}.\n"
-                "Reinstall argus-skill to restore it."
+                "Reinstall argus to restore it."
             ) from exc
         # Per-call sink swap: backend is built once, but the sink rotates
         # for every execute(). A trampoline callback dispatches to the

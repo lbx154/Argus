@@ -9,12 +9,12 @@ import json
 
 import pytest
 
-from argus_skill.manager import Manager
-from argus_skill.manager._vertical_ops import _decision_requires_agent_grounding
-from argus_skill.manager.domain_author import VerticalDecision, VerticalDecisionError
-from argus_skill.skills import stage_machine as sc
-from argus_skill.skills import vertical_select as vs
-from argus_skill.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
+from argus.manager import Manager
+from argus.manager._vertical_ops import _decision_requires_agent_grounding
+from argus.manager.domain_author import VerticalDecision, VerticalDecisionError
+from argus.skills import stage_machine as sc
+from argus.skills import vertical_select as vs
+from argus.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
 
 
 class _FakeResult:
@@ -220,7 +220,7 @@ def test_video_research_harness_is_grounded_before_authoring_domain(
 
 
 def test_candidate_domain_is_visible_and_reused_on_next_route(tmp_path) -> None:
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.verticals._data_domain import write_data_domain
 
     write_data_domain(
         tmp_path,
@@ -255,7 +255,7 @@ def test_candidate_domain_is_visible_and_reused_on_next_route(tmp_path) -> None:
 def test_existing_data_domain_keeps_runtime_stages_when_manager_suggests_others(
     tmp_path,
 ) -> None:
-    from argus_skill.verticals import _data_domain as dd
+    from argus.verticals import _data_domain as dd
 
     dd.write_data_domain(
         tmp_path,
@@ -336,7 +336,7 @@ def test_formal_learned_vertical_is_described_and_reused_across_sessions(
     tmp_path,
     monkeypatch,
 ):
-    from argus_skill.verticals import _data_domain as dd
+    from argus.verticals import _data_domain as dd
 
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     learned = tmp_path / "global"
@@ -422,7 +422,7 @@ def test_vertical_env_cannot_replace_manager_authored_domain(
 def test_vertical_env_does_not_override_manager_reclassification(
     tmp_path, monkeypatch
 ):
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.verticals._data_domain import write_data_domain
 
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     write_data_domain(

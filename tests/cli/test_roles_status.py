@@ -12,12 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.role_config import (
+from argus.core.role_config import (
     ROLES,
     is_reasoning_model,
     resolve_role_config,
 )
-from argus_skill.life.role_activity import role_activity
+from argus.life.role_activity import role_activity
 
 
 @pytest.fixture(autouse=True)
@@ -44,7 +44,7 @@ def _hermetic_capability_vault(monkeypatch, tmp_path):
     path makes every test read the code default (``gpt-5.5``) deterministically,
     on any box.
     """
-    from argus_skill.tools import capability_vault
+    from argus.tools import capability_vault
 
     monkeypatch.setattr(
         capability_vault,
@@ -61,7 +61,7 @@ def _hermetic_capability_vault(monkeypatch, tmp_path):
 # ── backend resolution + fallback chain ───────────────────────────────────
 
 def test_backend_defaults_to_codex_when_unset(monkeypatch):
-    from argus_skill.agent_cli import runner_backend
+    from argus.agent_cli import runner_backend
 
     monkeypatch.setattr(
         runner_backend,

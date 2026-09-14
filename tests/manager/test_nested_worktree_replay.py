@@ -9,17 +9,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime import _SkillLoopRunner
-from argus_skill.core.campaign_workdir import adopt_campaign_workdir
-from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-from argus_skill.core.stage_certificate import latest_stage_review
-from argus_skill.life import MemoryBundle
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.loop import SkillLoopConfig
-from argus_skill.manager import dispatch, front_door
-from argus_skill.skills.stage_machine import completion_contract_fingerprint
-from argus_skill.skills.vertical_select import persist_vertical, resolve_vertical
-from argus_skill.verticals._data_domain import write_data_domain
+from argus.apps._runtime import _SkillLoopRunner
+from argus.core.campaign_workdir import adopt_campaign_workdir
+from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.core.stage_certificate import latest_stage_review
+from argus.life import MemoryBundle
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.loop import SkillLoopConfig
+from argus.manager import dispatch, front_door
+from argus.skills.stage_machine import completion_contract_fingerprint
+from argus.skills.vertical_select import persist_vertical, resolve_vertical
+from argus.verticals._data_domain import write_data_domain
 
 
 class _Sink:
@@ -359,7 +359,7 @@ def test_enqueue_to_supervisor_uses_nested_node_contract_root(
         return f"POLICY vertical={resolve_vertical(vertical_root)} stage={stage} artifact={evidence}"
 
     monkeypatch.setattr(
-        "argus_skill.verticals._base.vertical_mission_prelude",
+        "argus.verticals._base.vertical_mission_prelude",
         _capture_policy,
     )
 

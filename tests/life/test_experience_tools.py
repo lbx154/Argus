@@ -11,11 +11,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import RunnerOptions
-from argus_skill.life import experience_runtime
-from argus_skill.life.experience_tools import ExperienceBridge, ExperienceToolService, request
-from argus_skill.life.failure_experience import FailureExperience, StaleFailureExperienceWrite
-from argus_skill.tools.experience import main
+from argus.core.models import RunnerOptions
+from argus.life import experience_runtime
+from argus.life.experience_tools import ExperienceBridge, ExperienceToolService, request
+from argus.life.failure_experience import FailureExperience, StaleFailureExperienceWrite
+from argus.tools.experience import main
 
 
 def capsule(service: ExperienceToolService):
@@ -169,11 +169,11 @@ def test_native_role_tools_preserve_workspace_permissions_and_role_boundary(tmp_
 
 
 def test_actual_gateway_composes_extensions_and_executes_native_experience_tool(tmp_path, monkeypatch):
-    from argus_skill.adapters.agent_cli_backend import AgentCliBackend, _core, _exec
-    from argus_skill.adapters.agent_cli_backend._exec_finalize import finalize_result
-    from argus_skill.advisor.config import save_advisor_config
-    from argus_skill.core import secret_guard
-    from argus_skill.core.models import RunnerResult
+    from argus.adapters.agent_cli_backend import AgentCliBackend, _core, _exec
+    from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
+    from argus.advisor.config import save_advisor_config
+    from argus.core import secret_guard
+    from argus.core.models import RunnerResult
 
     node = shutil.which("node")
     if not node:

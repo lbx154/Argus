@@ -6,25 +6,25 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.manuscript_snapshot import manuscript_snapshot
-from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-from argus_skill.core.stage_certificate import record_stage_review
-from argus_skill.core.venue_review import paper_review_snapshot
-from argus_skill.life.context_packet import (
+from argus.core.manuscript_snapshot import manuscript_snapshot
+from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.core.stage_certificate import record_stage_review
+from argus.core.venue_review import paper_review_snapshot
+from argus.life.context_packet import (
     create_mission_context,
     record_reviewed_handoff,
 )
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._planning_cycle_helpers import (
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
 )
-from argus_skill.life.terminal_state import build_project_state_signature
-from argus_skill.planner import PlannerVerdict
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals.research.review_purchase import (
+from argus.life.terminal_state import build_project_state_signature
+from argus.planner import PlannerVerdict
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals.research.review_purchase import (
     paper_review_purchase_defer_reason,
 )
 
@@ -261,7 +261,7 @@ def test_completion_uses_separate_execution_workdir(
     assert supervisor._journal_has_final_certification() is True
     supervisor.config.final_certification_gate = False
     if completion_path == "bounded":
-        from argus_skill.skills import vertical_select
+        from argus.skills import vertical_select
 
         supervisor.config.open_ended = False
         monkeypatch.setattr(

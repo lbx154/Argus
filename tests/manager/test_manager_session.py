@@ -19,8 +19,8 @@ import time
 import portalocker
 import pytest
 
-from argus_skill.manager import Manager
-from argus_skill.manager._session_ops import _SESSION_FILE, _ManagerSession
+from argus.manager import Manager
+from argus.manager._session_ops import _SESSION_FILE, _ManagerSession
 
 
 class _Result:
@@ -313,8 +313,8 @@ def test_uncertain_session_provider_error_is_not_replayed(tmp_path):
 def test_unreadable_authority_does_not_fail_open_when_root_unwritable(tmp_path, monkeypatch):
     # A session setup fallback is allowed only if current permissions remain
     # readable. This fault also prevents their canonical state from opening.
-    from argus_skill.manager import _session_ops
-    from argus_skill.manager.session_continuity import ManagerSessionContinuityUnavailable
+    from argus.manager import _session_ops
+    from argus.manager.session_continuity import ManagerSessionContinuityUnavailable
 
     fake = _RecordingRunner()
     sess = _ManagerSession(fake, tmp_path)

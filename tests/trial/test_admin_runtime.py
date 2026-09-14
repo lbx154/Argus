@@ -5,9 +5,9 @@ from unittest.mock import Mock, patch
 import pytest
 from cryptography.fernet import Fernet
 
-from argus_skill.core.knob_store import read_persisted_knobs, write_persisted_knobs
-from argus_skill.trial.admin_runtime import configure_provider
-from argus_skill.trial.secrets import Vault
+from argus.core.knob_store import read_persisted_knobs, write_persisted_knobs
+from argus.trial.admin_runtime import configure_provider
+from argus.trial.secrets import Vault
 
 
 def test_admin_pi_configuration_preserves_state_and_never_embeds_provider_secret(tmp_path, monkeypatch):

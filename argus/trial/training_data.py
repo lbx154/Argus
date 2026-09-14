@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from contextlib import closing
 from datetime import datetime, timezone
 
-from argus_skill.core.secret_guard import redact_secrets_record
+from argus.core.secret_guard import redact_secrets_record
 
 from .analytics import AnalyticsError, _private, _sanitize
 from .research_controls import SID

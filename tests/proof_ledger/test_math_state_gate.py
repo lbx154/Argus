@@ -11,15 +11,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.proof_ledger import (
+from argus.proof_ledger import (
     ClaimVersion,
     ContextVersion,
     MathState,
     save_state,
     state_path,
 )
-from argus_skill.verticals.math.objective_mode import set_objective
-from argus_skill.verticals.math.stages import stage_completion_issues
+from argus.verticals.math.objective_mode import set_objective
+from argus.verticals.math.stages import stage_completion_issues
 
 
 def _project(tmp_path: Path) -> Path:

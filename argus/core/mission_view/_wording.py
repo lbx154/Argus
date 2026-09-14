@@ -471,7 +471,7 @@ def say(kind: str, chinese: bool, **params: Any) -> str:
 def uses_cjk(text: str) -> bool:
     """Whether *text* is written in a CJK script.
 
-    The same test ``argus_skill.core.operator_messages.uses_cjk`` applies to
+    The same test ``argus.core.operator_messages.uses_cjk`` applies to
     chat replies; it is repeated here so the read model does not import the
     chat transport.
     """

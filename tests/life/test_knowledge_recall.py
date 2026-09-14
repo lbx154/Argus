@@ -9,13 +9,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life.knowledge_recall import (
+from argus.life.knowledge_recall import (
     KnowledgeRoot,
     MarkdownKnowledgeRecall,
     knowledge_recall_for_memory,
 )
-from argus_skill.life.memory import BacklogItem, MemoryBundle
-from argus_skill.skills.store import SkillStore
+from argus.life.memory import BacklogItem, MemoryBundle
+from argus.skills.store import SkillStore
 
 
 def write(path: Path, text: str) -> Path:
@@ -74,7 +74,7 @@ def test_corrupt_index_rebuild_does_not_resurrect_removed_markdown(tmp_path):
 
 
 def test_busy_cancellable_recall_uses_current_markdown_without_rebuilding_held_cache(tmp_path):
-    from argus_skill.core.file_lock import bounded_file_lock_wait
+    from argus.core.file_lock import bounded_file_lock_wait
 
     root = tmp_path / "skills"
     page = write(root / "current.md", "quartz old boundary")
@@ -118,8 +118,8 @@ def test_bounds_and_scope_exclude_symlinked_hidden_retired_or_oversized_files(tm
 
 
 def test_memory_planner_and_engineer_use_current_knowledge_with_shared_budget(tmp_path):
-    from argus_skill.life.supervisor._mission_execution_runtime import MissionExecutionRuntimeMixin
-    from argus_skill.life.supervisor._planner_rendering import PlannerRenderingMixin
+    from argus.life.supervisor._mission_execution_runtime import MissionExecutionRuntimeMixin
+    from argus.life.supervisor._planner_rendering import PlannerRenderingMixin
 
     workspace = tmp_path / "workspace"
     page = wiki(workspace, "quartz measured constraint")
@@ -151,7 +151,7 @@ def test_memory_planner_and_engineer_use_current_knowledge_with_shared_budget(tm
 
 
 def test_memory_roots_use_explicit_tenant_and_configured_skill_scopes(tmp_path, monkeypatch):
-    from argus_skill.skills.layered import LayeredSkillStore
+    from argus.skills.layered import LayeredSkillStore
 
     tenant = tmp_path / "tenant"
     memory = MemoryBundle.for_cwd(tmp_path / "workspace", global_root=tenant, fingerprint="project-a")
@@ -168,7 +168,7 @@ def test_memory_roots_use_explicit_tenant_and_configured_skill_scopes(tmp_path, 
 
 
 def test_semantic_only_pointer_reaches_real_memory_and_updates_after_direct_edit(tmp_path, monkeypatch):
-    from argus_skill.life import recall_embedding
+    from argus.life import recall_embedding
 
     class ConceptEmbedding:
         identifier = "test-semantic-v1"
@@ -191,7 +191,7 @@ def test_semantic_only_pointer_reaches_real_memory_and_updates_after_direct_edit
 
 
 def test_embedding_failure_keeps_current_lexical_recall_without_rebuilding_good_index(tmp_path):
-    from argus_skill.life.failure_experience_index import EmbeddingUnavailable
+    from argus.life.failure_experience_index import EmbeddingUnavailable
 
     class OfflineEmbedding:
         identifier = "offline-semantic-v1"
@@ -242,7 +242,7 @@ def test_concurrent_source_replacement_during_query_cannot_break_optional_recall
 
 
 def test_mismatched_derived_score_ids_fall_back_to_current_source(tmp_path, monkeypatch):
-    from argus_skill.life.failure_experience_index import RecallScore
+    from argus.life.failure_experience_index import RecallScore
 
     page = write(tmp_path / "pages" / "current.md", "quartz measurement")
     recall = MarkdownKnowledgeRecall(tmp_path / "index.sqlite3", [KnowledgeRoot("Wiki", page.parent, tmp_path)])
@@ -251,7 +251,7 @@ def test_mismatched_derived_score_ids_fall_back_to_current_source(tmp_path, monk
 
 
 def test_wiki_discovery_is_bounded_before_index_construction(tmp_path, monkeypatch):
-    from argus_skill.wiki import auto_hooks
+    from argus.wiki import auto_hooks
 
     workspace = tmp_path / "workspace"
     autors = workspace / ".autors"
@@ -285,7 +285,7 @@ def test_wiki_discovery_is_bounded_before_index_construction(tmp_path, monkeypat
 
 
 def test_post_mission_evolution_syncs_direct_edits_even_when_propagation_disabled(tmp_path):
-    from argus_skill.life.supervisor._evolution import EvolutionMixin
+    from argus.life.supervisor._evolution import EvolutionMixin
 
     workspace = tmp_path / "workspace"
     page = wiki(workspace, "current sapphire")
@@ -303,8 +303,8 @@ def test_post_mission_evolution_syncs_direct_edits_even_when_propagation_disable
 
 @pytest.mark.parametrize("verdict_source", ["reviewer", "engineer", ""])
 def test_successful_settlement_retains_bounded_observation_without_inventing_causality(tmp_path, verdict_source):
-    from argus_skill.life.supervisor._mission_execution_helpers import _MissionRunState
-    from argus_skill.life.supervisor._mission_execution_settlement import (
+    from argus.life.supervisor._mission_execution_helpers import _MissionRunState
+    from argus.life.supervisor._mission_execution_settlement import (
         MissionExecutionSettlementMixin,
     )
 

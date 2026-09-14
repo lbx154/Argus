@@ -21,7 +21,7 @@ def diagnostic_counts(output: str, *, source_only: bool = False) -> Counter[str]
     for line in output.splitlines():
         if match := _ERROR.match(line):
             filename = match[1].replace("\\", "/")
-            if source_only and not filename.startswith("argus_skill/"):
+            if source_only and not filename.startswith("argus/"):
                 continue  # Dependencies are analyzed; their diagnostics stay in the raw logs.
             message = match[2]
             if message.endswith("[no-redef]"):
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
             ["git", "rev-parse", "--verify", f"{base_ref}^{{commit}}"], cwd=root, text=True,
         ).strip()
         archive = subprocess.check_output(
-            ["git", "archive", revision, "--", "argus_skill", "pyproject.toml"], cwd=root,
+            ["git", "archive", revision, "--", "argus", "pyproject.toml"], cwd=root,
         )
         with tempfile.TemporaryDirectory(prefix="argus-typecheck-base-") as directory:
             baseline = Path(directory)

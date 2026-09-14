@@ -20,19 +20,19 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
-from argus_skill.agent_cli.agent_cli_runner import RunnerOptions as AcOpts
-from argus_skill.core.models import RunnerOptions as CoreOpts
-from argus_skill.core.vertical_contract import VerticalContractError
-from argus_skill.engineer.runner import (
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.agent_cli.agent_cli_runner import AgentCliRunner
+from argus.agent_cli.agent_cli_runner import RunnerOptions as AcOpts
+from argus.core.models import RunnerOptions as CoreOpts
+from argus.core.vertical_contract import VerticalContractError
+from argus.engineer.runner import (
     DEFAULT_LIVE_SEARCH_STAGES,
     EngineerConfig,
     _engineer_live_search,
 )
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import load_vertical_contract
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals._base import load_vertical_contract
 
 
 def _cmd(live: bool) -> list[str]:
@@ -498,7 +498,7 @@ def test_contract_validation_error_is_not_swallowed(tmp_path: Path) -> None:
     otherwise raise on the very same bad provider before the loop reaches this
     call — which is exactly the inconsistency the propagation protects.
     """
-    from argus_skill.verticals import _base as verticals_base
+    from argus.verticals import _base as verticals_base
 
     loop, _backend = _build_loop(tmp_path, "software")
 

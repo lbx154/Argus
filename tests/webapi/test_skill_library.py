@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.skills import catalog as library
-from argus_skill.webapi.server import create_app
+from argus.core.session import SessionMeta, write_session_meta
+from argus.skills import catalog as library
+from argus.webapi.server import create_app
 
 HEADERS = {"Authorization": "Bearer test-token"}
 
@@ -198,7 +198,7 @@ def test_legacy_command_respects_configured_shared_directory(workspace, monkeypa
 def test_chat_command_keeps_global_access_when_project_workspace_is_unavailable(workspace, monkeypatch):
     from types import SimpleNamespace
 
-    from argus_skill.life.chat.router import CommandRouter
+    from argus.life.chat.router import CommandRouter
 
     home, _, _ = workspace
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(home.parent / "wrong-profile"))

@@ -36,23 +36,23 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.math import lean_async
-from argus_skill.verticals.math.lean_async import (
+from argus.verticals.math import lean_async
+from argus.verticals.math.lean_async import (
     LeanRunLost,
     LeanRunUnknown,
     outstanding_runs,
     reclaim_lean_run,
     submit_lean_run,
 )
-from argus_skill.verticals.math.lean_evidence import (
+from argus.verticals.math.lean_evidence import (
     CompiledArtifactChangedError,
     discover_lean_sources,
     main,
     validate_lean_evidence,
     verify_lean_source,
 )
-from argus_skill.verticals.math.objective_mode import set_objective
-from argus_skill.verticals.math.stages import stage_completion_issues
+from argus.verticals.math.objective_mode import set_objective
+from argus.verticals.math.stages import stage_completion_issues
 
 pytestmark = pytest.mark.integration
 
@@ -755,7 +755,7 @@ def test_status_derives_what_it_reports_and_changes_nothing(
 # -- the claim ledger --------------------------------------------------------
 
 def _claimed(root: Path, source: Path, capsys) -> None:
-    from argus_skill.verticals.math.math_state import main as state_main
+    from argus.verticals.math.math_state import main as state_main
 
     state_main([
         "context", "--project-root", str(root),
@@ -775,7 +775,7 @@ def test_reclaim_writes_the_certificate_and_the_ledger_evidence(
     capsys,
 ) -> None:
     """``--claim`` is given once, at submit, and honoured once, at reclaim."""
-    from argus_skill.proof_ledger import load_state
+    from argus.proof_ledger import load_state
 
     lean_bin = _instant_lean(tmp_path)
 
@@ -813,7 +813,7 @@ def test_a_reclaim_refused_for_drift_records_nothing_in_the_claim_ledger(
     capsys,
 ) -> None:
     """The refusal has to reach the ledger, not only the artifact directory."""
-    from argus_skill.proof_ledger import load_state
+    from argus.proof_ledger import load_state
 
     root = _project(tmp_path / "p")
     source, fidelity = _formalized(root)

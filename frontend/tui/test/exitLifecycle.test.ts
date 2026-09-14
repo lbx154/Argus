@@ -16,7 +16,7 @@ const spawned: EnsureResult = {
       rootPid: 7777,
       host: '127.0.0.1',
       port: 8799,
-      backendBin: 'C:\\repo\\.venv\\Scripts\\argus-skill.exe',
+      backendBin: 'C:\\repo\\.venv\\Scripts\\argus.exe',
       startedAt: '2026-08-13T00:00:00Z',
     },
   },

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core import secret_guard as guard
+from argus.core import secret_guard as guard
 
 
 @pytest.fixture(autouse=True)

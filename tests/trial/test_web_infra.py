@@ -4,8 +4,8 @@ import socket
 
 import pytest
 
-from argus_skill.trial.egress import public_addresses
-from argus_skill.trial.web_admin import initialize, prepare_tenant_directory
+from argus.trial.egress import public_addresses
+from argus.trial.web_admin import initialize, prepare_tenant_directory
 
 
 @pytest.mark.parametrize("address", [
@@ -34,7 +34,7 @@ def test_egress_pins_only_validated_public_address(monkeypatch):
 def test_initialization_preserves_keys_balances_and_tenant_tokens(tmp_path):
     import json
 
-    from argus_skill.trial.store import Store
+    from argus.trial.store import Store
 
     token = tmp_path / "admin-token"
     token.write_text("not-a-real-admin-token")
@@ -68,7 +68,7 @@ def test_initialization_preserves_keys_balances_and_tenant_tokens(tmp_path):
 
 
 def test_web_quota_increase_keeps_usage_and_enforces_exact_new_boundary(tmp_path):
-    from argus_skill.trial.store import Store, TrialError
+    from argus.trial.store import Store, TrialError
 
     path = tmp_path / "usage.sqlite3"
     original = Store(path)
@@ -134,7 +134,7 @@ def test_start_cli_selects_capture_image_only_for_new_containers(tmp_path, monke
     import sys
     from subprocess import CompletedProcess
 
-    from argus_skill.trial import web_admin
+    from argus.trial import web_admin
 
     commands = []
 
@@ -207,7 +207,7 @@ def _fake_docker(state):
 
 
 def test_roll_recreates_only_containers_on_a_different_image(tmp_path, monkeypatch):
-    from argus_skill.trial import web_admin
+    from argus.trial import web_admin
 
     state = {f"argus-web-trial-{n:02d}": {"image": "argus:old", "label": f"trial-{n:02d}"}
              for n in range(1, 11)}
@@ -239,7 +239,7 @@ def test_roll_recreates_only_containers_on_a_different_image(tmp_path, monkeypat
 def test_roll_restores_previous_container_when_recreate_fails(tmp_path, monkeypatch):
     from subprocess import CalledProcessError
 
-    from argus_skill.trial import web_admin
+    from argus.trial import web_admin
 
     state = {"argus-web-trial-01": {"image": "argus:old", "label": "trial-01"}}
     run, commands = _fake_docker(state)
@@ -266,7 +266,7 @@ def test_release_rolls_backend_before_flipping_frontend_and_writes_manifest(tmp_
     import json
     from subprocess import CompletedProcess
 
-    from argus_skill.trial import web_admin
+    from argus.trial import web_admin
 
     root = tmp_path / "root"
     root.mkdir()

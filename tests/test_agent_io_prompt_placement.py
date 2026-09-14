@@ -23,7 +23,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend._io_log import raw_transcript_path
+from argus.adapters.agent_cli_backend._io_log import raw_transcript_path
 
 
 def _rows(path: Path) -> list[dict]:
@@ -46,7 +46,7 @@ def test_raw_transcript_is_a_sibling_of_the_history_log() -> None:
     "engineer-r1", "reviewer", "manager-frontdoor-direct",
 ])
 def test_control_protocol_is_diagnostic_while_real_updates_stay_visible(tmp_path, monkeypatch, label):
-    from argus_skill.adapters.agent_cli_backend._io_log import AgentIOLogger
+    from argus.adapters.agent_cli_backend._io_log import AgentIOLogger
 
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "full")
     live = []
@@ -88,7 +88,7 @@ class _Backend:
 
 def _emit_start(prompt: str, io_mode: str, tmp_path: Path) -> tuple[list[dict], list[dict]]:
     """Call the REAL start-record path and return (history rows, raw rows)."""
-    from argus_skill.adapters.agent_cli_backend._exec_spawn import log_start_record
+    from argus.adapters.agent_cli_backend._exec_spawn import log_start_record
 
     backend = _Backend()
     history = tmp_path / "events.jsonl"
@@ -154,7 +154,7 @@ def test_no_consumer_reads_the_prompt_off_an_event_row() -> None:
     repo = Path(__file__).resolve().parents[1]
     hits = [
         f"{path}:{line_number}:{line}"
-        for path in (repo / "argus_skill").rglob("*.py")
+        for path in (repo / "argus").rglob("*.py")
         for line_number, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(),
             start=1,
@@ -185,8 +185,8 @@ def test_the_prompt_is_redacted_on_its_way_to_the_raw_transcript(
     from the shape of its value was deliberately removed, so a bare token shape
     is no longer what proves the guard runs — an actual known secret is.
     """
-    from argus_skill.adapters.agent_cli_backend._exec_spawn import log_start_record
-    from argus_skill.adapters.agent_cli_backend._io_log import AgentIOLogger
+    from argus.adapters.agent_cli_backend._exec_spawn import log_start_record
+    from argus.adapters.agent_cli_backend._io_log import AgentIOLogger
 
     secret = "-".join(("sk", "proj", "AbCd1234EfGh5678IjKl"))
     history = tmp_path / "events.jsonl"

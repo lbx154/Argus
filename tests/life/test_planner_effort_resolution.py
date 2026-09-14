@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.knob_store import write_persisted_knobs
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor
+from argus.core.knob_store import write_persisted_knobs
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeSupervisor
 
 
 @pytest.mark.parametrize(("persisted", "environment", "expected"), [

@@ -1,8 +1,8 @@
 """Result and usage normalization: stop-kind classification plus translating
-the bundled runner's raw result into argus-skill's ``RunnerResult``.
+the bundled runner's raw result into Argus's ``RunnerResult``.
 
 This module owns everything about turning a provider's raw response into
-argus-skill's own shapes: auth-failure/stop-kind pattern classification,
+Argus's own shapes: auth-failure/stop-kind pattern classification,
 copilot premium-request extraction, the thread-cumulative usage
 de-cumulation (:class:`UsageAccumulator`), and :func:`translate_result`
 itself.

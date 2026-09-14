@@ -467,7 +467,7 @@ def _release(cfg: dict, lease_id: str) -> dict:
 
 
 #: Bootstrap TTL for the detached-run placeholder lease — long enough to cover a
-#: cold ``import argus_skill`` in the supervisor on a loaded pod, short enough that
+#: cold ``import argus`` in the supervisor on a loaded pod, short enough that
 #: a supervisor that never cold-starts can't leak a phantom lease holding the cards.
 _DETACH_BOOTSTRAP_TTL_S = 120.0
 
@@ -495,7 +495,7 @@ def run(cfg: dict, command: list[str], *, detach: bool, owner: str,
         log_path = _state_dir() / f"job-{lease_id}.log"
         sup_cmd = [
             os.environ.get("ARGUS_SKILL_PYTHON") or "python",
-            "-m", "argus_skill.tools.gpu_lease", "_supervise",
+            "-m", "argus.tools.gpu_lease", "_supervise",
             "--lease", lease_id, "--owner", owner, "--gpus", gpus,
         ]
         if ttl is not None:
@@ -567,7 +567,7 @@ def _print(obj: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.tools.gpu_lease",
+        prog="python -m argus.tools.gpu_lease",
         description="Coordinate the GPU keep-alive: free cards for real work, "
                     "re-park them when idle.",
     )

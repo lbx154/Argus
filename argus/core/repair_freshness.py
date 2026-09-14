@@ -337,7 +337,7 @@ def write_freshness_expectation(
         )
     except ImportError as exc:
         raise RuntimeError(
-            "repair freshness signing requires argus-skill[signing]"
+            "repair freshness signing requires argus[signing]"
         ) from exc
     trusted_path, private_path, public_path = repair_state_paths(project_root)
     private_path.parent.mkdir(parents=True, exist_ok=True)
@@ -391,7 +391,7 @@ def _load_freshness_expectation_unlocked(
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     except ImportError as exc:
         raise RuntimeError(
-            "repair freshness verification requires argus-skill[signing]"
+            "repair freshness verification requires argus[signing]"
         ) from exc
     payload = json.loads(trusted_path.read_text(encoding="utf-8"))
     expectation = FreshnessExpectation.from_jsonable(payload)

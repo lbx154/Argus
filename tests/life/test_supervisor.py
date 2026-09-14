@@ -11,17 +11,17 @@ from typing import Any
 
 import pytest
 
-from argus_skill.core.event_catalog import EventType
-from argus_skill.core.pricing import usd_for_tokens
-from argus_skill.core.transcript import read_turns
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import (
+from argus.core.event_catalog import EventType
+from argus.core.pricing import usd_for_tokens
+from argus.core.transcript import read_turns
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
     global_daily_spend,
 )
-from argus_skill.life.supervisor._constants import PLANNER_DEDUP_STATUSES
+from argus.life.supervisor._constants import PLANNER_DEDUP_STATUSES
 
 
 class _RecordingSink:
@@ -35,7 +35,7 @@ class _RecordingSink:
         self.events: list[dict[str, Any]] = []
         self._tee = None
         if life_dir is not None:
-            from argus_skill.life.event_log import JsonlEventSink
+            from argus.life.event_log import JsonlEventSink
 
             self._tee = JsonlEventSink(None, life_dir=life_dir, verbosity="full")
 
@@ -365,7 +365,7 @@ def test_framework_maintenance_uses_isolated_worktree_and_review(
         ["git", "push", "-qu", "origin", "main"], cwd=source, check=True
     )
     monkeypatch.setattr(
-        "argus_skill.core.runtime_identity.source_root",
+        "argus.core.runtime_identity.source_root",
         lambda: source,
     )
 
@@ -499,7 +499,7 @@ def test_maintenance_creation_failure_preserves_checkout_hook_evidence(
             "#!/bin/sh\n" + f"printf 'checkout hook evidence\\n' > {evidence_path}\n",
         )
         hook.chmod(0o755)
-    monkeypatch.setattr("argus_skill.core.runtime_identity.source_root", lambda: source)
+    monkeypatch.setattr("argus.core.runtime_identity.source_root", lambda: source)
     memory = LifeMemory.open(tmp_path / "life")
     project = tmp_path / "project"
     project.mkdir()
@@ -534,7 +534,7 @@ def test_maintenance_creation_failure_preserves_checkout_hook_evidence(
 
 
 def test_skill_changes_require_explicit_mission_permission(tmp_path) -> None:
-    from argus_skill.verticals._data_domain import (
+    from argus.verticals._data_domain import (
         promote_data_domain,
         write_data_domain,
     )
@@ -581,8 +581,8 @@ def test_skill_changes_require_explicit_mission_permission(tmp_path) -> None:
 def test_candidate_vertical_executes_from_session_state_with_separate_worktree(
     tmp_path,
 ) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.skills.vertical_select import persist_vertical
+    from argus.verticals._data_domain import write_data_domain
 
     memory = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(memory.root)
@@ -639,7 +639,7 @@ def test_candidate_vertical_executes_from_session_state_with_separate_worktree(
 def test_stale_item_vertical_falls_back_without_unknown_vertical_crash(
     tmp_path,
 ) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     memory = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(memory.root)
@@ -675,8 +675,8 @@ def test_stale_item_vertical_falls_back_without_unknown_vertical_crash(
 
 
 def test_manager_reselects_vertical_for_each_planned_mission(tmp_path) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.manager.directive import set_active_manager_directive
+    from argus.skills.vertical_select import persist_vertical
 
     memory = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(memory.root)
@@ -756,7 +756,7 @@ def test_manager_reselects_vertical_for_each_planned_mission(tmp_path) -> None:
 def test_regular_task_adopts_nested_repository_as_campaign_root(tmp_path) -> None:
     import subprocess
 
-    from argus_skill.skills.vertical_select import persist_vertical, resolve_vertical
+    from argus.skills.vertical_select import persist_vertical, resolve_vertical
 
     memory = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(memory.root)
@@ -1022,7 +1022,7 @@ def test_skill_miss_scientist_spend_is_journaled(
 
 
 def _append_usage(project, call_id: str, completed_at: float, cost_usd: float) -> None:
-    from argus_skill.core.usage import UsageLedger, UsageRecord
+    from argus.core.usage import UsageLedger, UsageRecord
 
     project.mkdir(parents=True, exist_ok=True)
     UsageLedger(project, migrate_legacy=False).append(
@@ -1100,8 +1100,8 @@ def test_budget_preflight_includes_registered_external_ledgers_once(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.core.cost_control import reserve_call_budget
-    from argus_skill.core.usage import UsageLedger
+    from argus.core.cost_control import reserve_call_budget
+    from argus.core.usage import UsageLedger
 
     root = tmp_path / "runtime"
     external = tmp_path / "earlier-project-ledger"
@@ -1141,7 +1141,7 @@ def test_can_start_blocks_on_global_daily_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.life.supervisor._config.global_daily_spend",
+        "argus.life.supervisor._config.global_daily_spend",
         lambda **_kwargs: 12.0,
     )
     budget = LifeBudget(global_daily_cap_usd=12.0)
@@ -1164,7 +1164,7 @@ def test_global_daily_cap_zero_is_backward_compatible(
         return 999.0
 
     monkeypatch.setattr(
-        "argus_skill.life.supervisor._config.global_daily_spend",
+        "argus.life.supervisor._config.global_daily_spend",
         fake_global_daily_spend,
     )
 
@@ -1253,7 +1253,7 @@ class _LateForbidQuestionRunner(_BlockedQuestionRunner):
         self.state_root = state_root
 
     def execute(self, **kwargs: Any) -> _Outcome:
-        from argus_skill.manager.directive import set_active_manager_directive
+        from argus.manager.directive import set_active_manager_directive
 
         set_active_manager_directive(
             self.state_root,
@@ -1384,7 +1384,7 @@ def test_pragmatic_autonomy_parks_explicit_operator_question_by_default(
     seen_policy_roots: list[Path] = []
     monkeypatch.setattr(sup, "_artifact_root", lambda: project_root)
     monkeypatch.setattr(
-        "argus_skill.manager.directive.active_operator_question_policy",
+        "argus.manager.directive.active_operator_question_policy",
         lambda root: seen_policy_roots.append(Path(root)) or "unchanged",
     )
     item = mem.backlog.add(BacklogItem.new(
@@ -1409,7 +1409,7 @@ def test_forbid_policy_replans_technical_question_without_pausing(
     monkeypatch,
     mode,
 ) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", mode)
     mem = LifeMemory.open(tmp_path / "life")
@@ -1659,10 +1659,10 @@ def test_consecutive_replans_are_bounded_and_escalated(tmp_path, monkeypatch) ->
     below the threshold, but once the consecutive-replan count reaches the
     threshold it must be escalated to a terminal no-progress failure that the
     planner quarantine recognizes — never re-dispatched again."""
-    from argus_skill.life.supervisor._constants import (
+    from argus.life.supervisor._constants import (
         PLANNER_RECENT_FAILURE_STATUS,
     )
-    from argus_skill.life.supervisor._helpers import (
+    from argus.life.supervisor._helpers import (
         _is_recent_no_progress_failure,
     )
 

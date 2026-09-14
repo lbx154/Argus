@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core import platon_windows as platon
+from argus.core import platon_windows as platon
 
 
 def pe(machine=0x14C):

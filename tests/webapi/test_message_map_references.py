@@ -20,9 +20,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.manager import config_intent, dispatch, front_door
-from argus_skill.webapi import manager_bridge, manager_state
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.manager import config_intent, dispatch, front_door
+from argus.webapi import manager_bridge, manager_state
 
 pytest.importorskip("fastapi")
 
@@ -267,7 +267,7 @@ def test_bounded_direct_dispatch_attaches_reference_deps(
     tmp_path: Path, monkeypatch,
 ) -> None:
     """The non-continuous (bounded/direct) persist path also attaches deps."""
-    from argus_skill.life.memory import MemoryBundle
+    from argus.life.memory import MemoryBundle
 
     sid = "s-ref-direct"
     life = _make_project(tmp_path, sid)

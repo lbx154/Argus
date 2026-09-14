@@ -29,8 +29,8 @@ reviewer is never told the persisted ``math_goal`` or the gap — and the failur
 scenario is by construction one where its verdict is ``done``.
 
 Citations:
-- argus_skill/verticals/math/stages.py — ``_targeted_goal_closure_issues``
-- argus_skill/verticals/math/proof_graph.py — ``ProofGraph.gap``
+- argus/verticals/math/stages.py — ``_targeted_goal_closure_issues``
+- argus/verticals/math/proof_graph.py — ``ProofGraph.gap``
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.math.objective_mode import set_objective
-from argus_skill.verticals.math.stages import stage_completion_issues
+from argus.verticals.math.objective_mode import set_objective
+from argus.verticals.math.stages import stage_completion_issues
 
 GOAL = "G: every even integer n > 2 is a sum of two primes"
 LEMMA = "L1: a counting bound for prime pairs"

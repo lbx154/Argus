@@ -36,8 +36,8 @@ def test_bootstrap_accepts_current_editable_python_without_checkout_venv(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "Argus"
-    (root / "argus_skill").mkdir(parents=True)
-    (root / "pyproject.toml").write_text("[project]\nname='argus-skill'\n", encoding="utf-8")
+    (root / "argus").mkdir(parents=True)
+    (root / "pyproject.toml").write_text("[project]\nname='argus'\n", encoding="utf-8")
 
     report = argus_doctor.run_bootstrap_doctor(root)
     python = next(
@@ -56,9 +56,9 @@ def test_bootstrap_desktop_runtime_is_advisory_for_cli_web(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "Argus"
-    (root / "argus_skill").mkdir(parents=True)
+    (root / "argus").mkdir(parents=True)
     (root / "pyproject.toml").write_text(
-        "[project]\nname='argus-skill'\n",
+        "[project]\nname='argus'\n",
         encoding="utf-8",
     )
     desktop = root / "desktop-tauri"
@@ -86,8 +86,8 @@ def test_bootstrap_install_uses_only_registered_venv_command(
     monkeypatch,
 ) -> None:
     root = tmp_path / "Argus"
-    (root / "argus_skill").mkdir(parents=True)
-    (root / "pyproject.toml").write_text("[project]\nname='argus-skill'\n", encoding="utf-8")
+    (root / "argus").mkdir(parents=True)
+    (root / "pyproject.toml").write_text("[project]\nname='argus'\n", encoding="utf-8")
     runtime = root / (".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python")
     runtime.parent.mkdir(parents=True)
     runtime.write_text("", encoding="utf-8")

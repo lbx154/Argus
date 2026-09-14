@@ -28,7 +28,7 @@ import time
 
 import pytest
 
-from argus_skill.webapi.index_cache import (
+from argus.webapi.index_cache import (
     DEFAULT_SNAPSHOT_TTL_SECONDS,
     DEFAULT_TTL_SECONDS,
     SNAPSHOT_TTL_ENV_VAR,

@@ -8,7 +8,7 @@ side-effect free to construct.
 
 This module imports ``fastapi`` at module scope. That is safe here because it
 is only ever imported lazily, from inside ``create_app`` (see
-:mod:`argus_skill.webapi.server`), well after FastAPI has already been
+:mod:`argus.webapi.server`), well after FastAPI has already been
 imported there — never from top-level package/module import, so the optional
 ``[web]`` extra contract is preserved.
 """

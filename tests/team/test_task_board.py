@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.team import task_board as tb
+from argus.team import task_board as tb
 
 
 def _form(root: Path) -> None:

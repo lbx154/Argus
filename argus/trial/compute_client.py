@@ -1,7 +1,7 @@
 """Argus tenant compute CLI, available inside the isolated trial runtime.
 
-python -m argus_skill.trial.compute_client submit --gpus 1 -- python train.py
-python -m argus_skill.trial.compute_client wait JOB_ID
+python -m argus.trial.compute_client submit --gpus 1 -- python train.py
+python -m argus.trial.compute_client wait JOB_ID
 """
 from __future__ import annotations
 

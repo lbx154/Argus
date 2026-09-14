@@ -10,22 +10,22 @@ from types import SimpleNamespace
 
 import pytest
 
-import argus_skill
-from argus_skill.apps import _runtime
-from argus_skill.apps._inbox import queue_inbox_message
-from argus_skill.apps._runtime_construction import _inbox_drainer_for
-from argus_skill.core.file_lock import FileLockCancelled
-from argus_skill.core.operator_context import (
+import argus
+from argus.apps import _runtime
+from argus.apps._inbox import queue_inbox_message
+from argus.apps._runtime_construction import _inbox_drainer_for
+from argus.core.file_lock import FileLockCancelled
+from argus.core.operator_context import (
     OperatorContextStore,
     OperatorContextUnavailable,
 )
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
 
 def _load_repo_fixture(relative, module_name):
-    source = Path(argus_skill.__file__).resolve().parent.parent
+    source = Path(argus.__file__).resolve().parent.parent
     spec = importlib.util.spec_from_file_location(module_name, source / relative)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -226,7 +226,7 @@ def test_ordinary_classifier_does_not_hold_queue_lock_or_allow_second_consumer_t
 def test_ordinary_stop_during_classification_keeps_unfrozen_message_without_authority(
     tmp_path, monkeypatch, runtime_helper
 ):
-    from argus_skill.apps._inbox import count_pending_inbox_messages
+    from argus.apps._inbox import count_pending_inbox_messages
 
     case = runtime_helper._runtime_case(tmp_path, monkeypatch)
     text = "STOP-BEFORE-FREEZE-PRIVATE-MARKER"
@@ -263,8 +263,8 @@ def test_ordinary_frozen_message_survives_real_canonical_lock_object_fault(
 ):
     from pathlib import Path
 
-    from argus_skill.apps._inbox import count_pending_inbox_messages
-    from argus_skill.core import operator_context
+    from argus.apps._inbox import count_pending_inbox_messages
+    from argus.core import operator_context
 
     case = runtime_helper._runtime_case(tmp_path, monkeypatch)
     text = "CANONICAL-LOCK-OBJECT-FAULT-PRIVATE-MARKER"
@@ -365,7 +365,7 @@ def test_idle_intake_releases_lease_when_supervisor_run_exits_on_tick_failure(
 def test_real_planner_zero_revision_transient_waits_for_successful_backlog_commit(
     tmp_path, monkeypatch, planner_helper
 ):
-    from argus_skill.apps._inbox import count_pending_inbox_messages
+    from argus.apps._inbox import count_pending_inbox_messages
 
     workspace, root = tmp_path / "workspace", tmp_path / "state"
     workspace.mkdir()
@@ -446,8 +446,8 @@ def test_real_planner_zero_revision_transient_waits_for_successful_backlog_commi
 def test_real_planner_deduplicates_carryover_by_identity_and_settles_equal_text_messages(
     tmp_path, monkeypatch, planner_helper, physical_messages
 ):
-    from argus_skill.apps._inbox import count_pending_inbox_messages
-    from argus_skill.skills.stage_machine import current_stage
+    from argus.apps._inbox import count_pending_inbox_messages
+    from argus.skills.stage_machine import current_stage
 
     workspace, root = tmp_path / "workspace", tmp_path / "state"
     workspace.mkdir()
@@ -504,7 +504,7 @@ def test_real_planner_deduplicates_carryover_by_identity_and_settles_equal_text_
 def test_ordinary_applied_once_replay_does_not_resurrect_through_live_turn(
     tmp_path, monkeypatch, runtime_helper, failed_transition
 ):
-    from argus_skill.apps import _inbox
+    from argus.apps import _inbox
 
     case = runtime_helper._runtime_case(tmp_path, monkeypatch)
     text = "APPLIED-ONCE-REPLAY-MUST-NOT-REAPPEAR"

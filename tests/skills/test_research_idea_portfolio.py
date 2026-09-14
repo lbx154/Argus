@@ -5,12 +5,12 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.core.vertical_contract import VerticalLibraryContext
-from argus_skill.skills.loop_skill_library import SkillLibraryMixin
-from argus_skill.skills.loop_state import MissionContext
-from argus_skill.skills.vertical_select import reset_stage_for_new_intent
-from argus_skill.team import task_board
-from argus_skill.verticals.research.idea_portfolio import (
+from argus.core.vertical_contract import VerticalLibraryContext
+from argus.skills.loop_skill_library import SkillLibraryMixin
+from argus.skills.loop_state import MissionContext
+from argus.skills.vertical_select import reset_stage_for_new_intent
+from argus.team import task_board
+from argus.verticals.research.idea_portfolio import (
     SELECTION_POLICY,
     TEAM_ID,
     ensure_idea_portfolio,
@@ -18,10 +18,10 @@ from argus_skill.verticals.research.idea_portfolio import (
     idea_portfolio_selection,
     portfolio_tasks,
 )
-from argus_skill.verticals.research.library_preparation import (
+from argus.verticals.research.library_preparation import (
     prepare_skill_libraries,
 )
-from argus_skill.verticals.research.stages import planner_task_issues
+from argus.verticals.research.stages import planner_task_issues
 
 
 def _state(root: Path) -> None:
@@ -175,10 +175,10 @@ def test_selector_does_not_exist_until_all_route_reviews_finish(
 
 
 def test_team_local_owner_ids_and_compact_handoff(tmp_path: Path) -> None:
-    from argus_skill.life.supervisor._planning_cycle_enqueue import (
+    from argus.life.supervisor._planning_cycle_enqueue import (
         _automatic_stage_target,
     )
-    from argus_skill.verticals.research.stages import CHECKLIST_STAGE_ORDER
+    from argus.verticals.research.stages import CHECKLIST_STAGE_ORDER
 
     _state(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="reliable agents")

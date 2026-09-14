@@ -23,14 +23,14 @@ import io
 import subprocess
 from types import SimpleNamespace
 
-import argus_skill.daemon._life_worker_admission as admission
-import argus_skill.daemon.spawn_helper as spawn_helper
+import argus.daemon._life_worker_admission as admission
+import argus.daemon.spawn_helper as spawn_helper
 
 # What ``_busy_message`` actually produces when a live daemon holds the lease:
 # an owner line, indented context, then the ways out. Only the first line names
 # the pid, so a last-line-only summary throws away the entire diagnosis.
 BUSY = (
-    "argus-skill: workdir /home/u/proj is already leased by pid 3870690\n"
+    "argus: workdir /home/u/proj is already leased by pid 3870690\n"
     "  session: s-7d03352c\n"
     "  project: /home/u/.argus-skill/projects/s-7d03352c\n"
     "  a workdir runs one daemon at a time. Either:\n"
@@ -155,7 +155,7 @@ def test_chatter_before_the_refusal_is_dropped(monkeypatch, tmp_path) -> None:
         returncode=3,
     )
 
-    assert message.startswith("argus-skill: workdir")
+    assert message.startswith("argus: workdir")
     assert "unrelated preamble" not in message
 
 

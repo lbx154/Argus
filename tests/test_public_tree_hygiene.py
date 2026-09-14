@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCAN_ROOTS = (
-    ROOT / "argus_skill",
+    ROOT / "argus",
     ROOT / "frontend" / "core" / "src",
     ROOT / "frontend" / "tui" / "src",
     ROOT / "frontend" / "web" / "src",

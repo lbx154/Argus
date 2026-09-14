@@ -7,7 +7,7 @@ from typing import ContextManager
 
 import pytest
 
-from argus_skill.core.session import session_lifecycle_lock, session_meta_lock
+from argus.core.session import session_lifecycle_lock, session_meta_lock
 
 
 @pytest.mark.parametrize("lock", [session_meta_lock, session_lifecycle_lock])

@@ -12,12 +12,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.pipeline_state import (
+from argus.core.pipeline_state import (
     primary_pipeline_state_path,
     read_pipeline_state,
     write_pipeline_state,
 )
-from argus_skill.core.verification_policy import (
+from argus.core.verification_policy import (
     DEFAULT_POSTURE,
     DEFAULT_PROFILE,
     EXPLORATION_POSTURES,
@@ -33,8 +33,8 @@ from argus_skill.core.verification_policy import (
     set_policy,
     stored_policy,
 )
-from argus_skill.roles.prompts.reviewer import render_reviewer_prompt
-from argus_skill.verticals._base import load_vertical_contract
+from argus.roles.prompts.reviewer import render_reviewer_prompt
+from argus.verticals._base import load_vertical_contract
 
 
 @pytest.fixture
@@ -330,7 +330,7 @@ def test_profile_order_is_strictly_increasing() -> None:
 
 def test_reviewer_injects_the_resolved_profile_not_just_the_target() -> None:
     """The regression this whole change exists to prevent."""
-    from argus_skill.roles.prompts import reviewer as mod
+    from argus.roles.prompts import reviewer as mod
 
     source = Path(mod.__file__).read_text(encoding="utf-8")
     block = source[source.index("verification_instruction = (") :][:1200]
@@ -344,7 +344,7 @@ def test_reviewer_injects_the_resolved_profile_not_just_the_target() -> None:
 
 
 def test_planner_injects_the_resolved_profile_too() -> None:
-    from argus_skill.roles.prompts import planner as mod
+    from argus.roles.prompts import planner as mod
 
     source = Path(mod.__file__).read_text(encoding="utf-8")
     block = source[source.index("research_target_block = (") :][:1200]
@@ -376,7 +376,7 @@ def test_math_stages_each_resolve_to_a_declared_profile(tmp_path) -> None:
     fallback: profile ``develop`` with ``resolved=False``. ``solve`` came out
     right by accident; ``review`` was certifying under a develop-grade policy
     while reporting it had no policy at all."""
-    from argus_skill.core.verification_policy import resolve_policy
+    from argus.core.verification_policy import resolve_policy
 
     expected = {"scope": "explore", "solve": "develop", "review": "certify"}
     for stage, profile in expected.items():
@@ -394,7 +394,7 @@ def test_math_stages_each_resolve_to_a_declared_profile(tmp_path) -> None:
 def test_math_review_stage_requires_the_proof_graph() -> None:
     """The consequence the mapping exists for: ``review`` is the delivery point,
     so a targeted project must have the graph its claim is discharged through."""
-    from argus_skill.verticals.math.proof_graph import graph_required_for
+    from argus.verticals.math.proof_graph import graph_required_for
 
     assert graph_required_for("certify", "targeted")
     assert graph_required_for("develop", "targeted")
@@ -403,7 +403,7 @@ def test_math_review_stage_requires_the_proof_graph() -> None:
 
 
 def test_vertical_owned_profile_tables_cover_declared_stages() -> None:
-    from argus_skill.core.verification_policy import VERIFICATION_PROFILES
+    from argus.core.verification_policy import VERIFICATION_PROFILES
 
     for vertical in ("research", "math", "kernel_engineering"):
         contract = load_vertical_contract(vertical)
@@ -414,6 +414,6 @@ def test_vertical_owned_profile_tables_cover_declared_stages() -> None:
 
 
 def test_core_has_no_concrete_vertical_profile_registry() -> None:
-    import argus_skill.core.verification_policy as policy
+    import argus.core.verification_policy as policy
 
     assert not hasattr(policy, "STAGE_PROFILES")

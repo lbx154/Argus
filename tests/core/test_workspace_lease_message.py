@@ -3,7 +3,7 @@
 Seen while testing on 2026-07-26: launching a second daemon in a directory that
 already had one printed
 
-    argus-skill: workdir /tmp/argus-test/workdir is already leased:
+    argus: workdir /tmp/argus-test/workdir is already leased:
     {"life_dir": "...", "pid": 4242, "sid": "s-holder", "workdir": "..."}
 
 Everything the operator needed was in that line and none of it was actionable —
@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.core.workspace_lease import _busy_message
+from argus.core.workspace_lease import _busy_message
 
 _OWNER = {
     "life_dir": "/tmp/argus-test/home/projects/s-holder",

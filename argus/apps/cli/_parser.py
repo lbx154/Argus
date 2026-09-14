@@ -1,4 +1,4 @@
-"""Argument parser construction for the unified ``argus-skill`` CLI."""
+"""Argument parser construction for the unified ``argus`` CLI."""
 
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="version",
-        version=f"argus-skill {__version__}",
+        version=f"argus {__version__}",
     )
     parser.add_argument(
         "--update",
@@ -179,12 +179,12 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_grp.add_argument(
         "--life-dir",
         default=None,
-        help="override the global argus-skill root (default: ~/.argus-skill)",
+        help="override the global argus root (default: ~/.argus-skill)",
     )
     daemon_grp.add_argument(
         "--new",
         action="store_true",
-        help="start a FRESH session (the default for a bare `argus-skill`): a new "
+        help="start a FRESH session (the default for a bare `argus`): a new "
         "id keys its own daemon + memory, never reusing a previous run",
     )
     daemon_grp.add_argument(

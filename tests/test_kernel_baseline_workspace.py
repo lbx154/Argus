@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from argus_skill.verticals.kernel_engineering.baseline_workspace import (
+from argus.verticals.kernel_engineering.baseline_workspace import (
     prepare_baseline_workspace,
 )
 

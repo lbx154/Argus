@@ -359,7 +359,7 @@ def _apply_registered_action(
                 "detail": "checkout must be clean before a repository repair action",
             }
         result = _run_registered_command(
-            [str(context.python_executable), "-m", "argus_skill.release_tools.build_release"],
+            [str(context.python_executable), "-m", "argus.release_tools.build_release"],
             cwd=checkout,
             timeout=None,
         )

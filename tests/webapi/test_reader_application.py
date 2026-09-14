@@ -9,12 +9,12 @@ import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi import map_lesson, map_narrative, reader_application, reader_foundation
-from argus_skill.webapi.map_model import MapModel
-from argus_skill.webapi.map_teaching_review import TEACHING_CORE
-from argus_skill.webapi.server import create_app
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi import map_lesson, map_narrative, reader_application, reader_foundation
+from argus.webapi.map_model import MapModel
+from argus.webapi.map_teaching_review import TEACHING_CORE
+from argus.webapi.server import create_app
 
 
 def foundation(**changes):

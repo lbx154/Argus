@@ -186,9 +186,9 @@ class LifeSupervisorConfig:
 class _MissionRunner(Protocol):
     """Structural type for the mission runner the supervisor drives.
 
-    Production uses ``argus_skill.apps._runtime._SkillLoopRunner`` (assembled
+    Production uses ``argus.apps._runtime._SkillLoopRunner`` (assembled
     from the ``_runtime_*`` mixins and built by ``build_life_runner`` in
-    ``argus_skill.apps._runtime_construction``; phase 5 of docs/LAYOUT.md moves
+    ``argus.apps._runtime_construction``; phase 5 of docs/LAYOUT.md moves
     it to ``mission_runner/``). Tests can substitute an executor without
     constructing its backend or role loop.
     """

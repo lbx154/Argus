@@ -6,11 +6,11 @@ from typing import Any, cast
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.core.runner_receipts import PROVIDER_BACKGROUND_WAIT_RECEIPT
-from argus_skill.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
-from argus_skill.reviewer import ReviewerConfig
+from argus.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.core.runner_receipts import PROVIDER_BACKGROUND_WAIT_RECEIPT
+from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
+from argus.reviewer import ReviewerConfig
 
 
 def _waiting_result():

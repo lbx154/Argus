@@ -874,7 +874,7 @@ def _manager_rewrite(
     A preview only: the result is handed back to the operator to accept, edit,
     or discard. Nothing is enqueued and no mission is touched. On failure the
     caller keeps the operator's original text — see
-    :func:`argus_skill.manager.prompt_rewrite.rewrite_prompt`.
+    :func:`argus.manager.prompt_rewrite.rewrite_prompt`.
     """
     from ..life.memory import MemoryBundle
     from ..manager.front_door import _ensure_manager_runner

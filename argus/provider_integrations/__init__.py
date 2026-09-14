@@ -2,5 +2,5 @@
 
 Layer: providers
 
-Backend discovery and execution live in :mod:`argus_skill.agent_cli`.
+Backend discovery and execution live in :mod:`argus.agent_cli`.
 """

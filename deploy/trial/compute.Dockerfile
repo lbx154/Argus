@@ -6,4 +6,4 @@ FROM ${WEB_BASE_IMAGE}
 COPY --from=packages /opt/compute /opt/compute
 ENV PYTHONPATH=/opt/argus:/opt/compute
 USER trial
-ENTRYPOINT ["/usr/bin/tini", "-g", "--", "python", "-m", "argus_skill.trial.job_runtime"]
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "python", "-m", "argus.trial.job_runtime"]

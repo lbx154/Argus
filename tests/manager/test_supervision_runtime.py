@@ -8,18 +8,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.event_catalog import EventType
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.run_gateway import run_exec
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.manager import Manager
-from argus_skill.manager._session_ops import manager_pipeline_lock
-from argus_skill.manager.directive import load_active_manager_directive
-from argus_skill.manager.observation import observe_project
-from argus_skill.manager.session_context import conversation_backend
-from argus_skill.manager.supervision import supervise, waiting_for_evidence
+from argus.core.event_catalog import EventType
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.run_gateway import run_exec
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import Backlog, BacklogItem
+from argus.manager import Manager
+from argus.manager._session_ops import manager_pipeline_lock
+from argus.manager.directive import load_active_manager_directive
+from argus.manager.observation import observe_project
+from argus.manager.session_context import conversation_backend
+from argus.manager.supervision import supervise, waiting_for_evidence
 
 
 def project(root, *, question=""):
@@ -68,8 +68,8 @@ class EvidenceBackend:
 
 
 def test_dialogue_and_restarted_daemon_share_the_persistent_manager_identity(tmp_path, monkeypatch):
-    from argus_skill.manager import front_door
-    from argus_skill.webapi import manager_bridge, manager_state
+    from argus.manager import front_door
+    from argus.webapi import manager_bridge, manager_state
 
     project(tmp_path)
     first = EvidenceBackend()
@@ -113,7 +113,7 @@ def test_new_review_evidence_changes_the_action_and_steering_reaches_engineer(tm
     assert second["issued_at"] <= second["applied_at"]
     directive = load_active_manager_directive(tmp_path)
     assert directive and directive.revision == second["effects"]["directive_revision"]
-    from argus_skill.apps._runtime_execute import _engineer_guidance
+    from argus.apps._runtime_execute import _engineer_guidance
 
     guidance = _engineer_guidance(tmp_path, tmp_path)
     assert directive.text in "\n".join(guidance)
@@ -202,9 +202,9 @@ def wait_for_receipt(root, status, *, timeout=2):
 
 
 def test_running_review_schedules_supervision_before_the_mission_pipeline_finishes(tmp_path):
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-    from argus_skill.manager.supervision import shutdown_supervision
+    from argus.life.memory import LifeMemory
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+    from argus.manager.supervision import shutdown_supervision
 
     backlog, item = project(tmp_path)
     backend = EvidenceBackend()
@@ -236,7 +236,7 @@ def test_running_review_schedules_supervision_before_the_mission_pipeline_finish
 
 
 def test_shutdown_bounds_an_uncooperative_backend_and_rejects_its_late_result(tmp_path):
-    from argus_skill.manager.supervision import (
+    from argus.manager.supervision import (
         schedule_supervision,
         shutdown_supervision,
         start_supervision,
@@ -287,7 +287,7 @@ def test_unobserved_evidence_reference_cannot_authorize_steering(tmp_path):
 
 
 def test_reply_followup_and_restarted_inspect_share_identity_and_refresh_evidence(tmp_path):
-    from argus_skill.apps._runtime import _SkillLoopRunner
+    from argus.apps._runtime import _SkillLoopRunner
 
     backlog, item = project(tmp_path)
 
@@ -320,10 +320,10 @@ def test_reply_followup_and_restarted_inspect_share_identity_and_refresh_evidenc
 
 
 def test_applied_wait_prevents_planner_calls_until_new_operator_facts(tmp_path, monkeypatch):
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-    from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
-    from argus_skill.planner import PlannerVerdict
+    from argus.life.memory import LifeMemory
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+    from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
+    from argus.planner import PlannerVerdict
 
     backlog, item = project(tmp_path, question="Supply the missing author declaration")
     manager = Manager(tmp_path, runner=EvidenceBackend(), memory_maintenance_enabled=False)
@@ -334,7 +334,7 @@ def test_applied_wait_prevents_planner_calls_until_new_operator_facts(tmp_path, 
         calls.append(kwargs)
         return PlannerVerdict(project_done=False, error="The independent checker is temporarily unavailable")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan_next)
     supervisor = LifeSupervisor(
         memory=LifeMemory.open(tmp_path), runner=SimpleNamespace(),
         sink=JsonlEventSink(None, life_dir=tmp_path), planner_runner=object(),
@@ -355,7 +355,7 @@ def test_applied_wait_prevents_planner_calls_until_new_operator_facts(tmp_path, 
 
 
 def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp_path):
-    from argus_skill.manager.supervision import (
+    from argus.manager.supervision import (
         schedule_supervision,
         shutdown_supervision,
         start_supervision,
@@ -396,7 +396,7 @@ def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp
 
 
 def test_model_change_rotates_provider_identity_with_a_durable_conversation_handoff(tmp_path):
-    from argus_skill.manager._session_ops import _ManagerSession
+    from argus.manager._session_ops import _ManagerSession
 
     backend = EvidenceBackend()
     session = _ManagerSession(backend, tmp_path)
@@ -413,8 +413,8 @@ def test_model_change_rotates_provider_identity_with_a_durable_conversation_hand
 
 
 def test_background_yields_the_shared_session_when_an_interactive_ask_arrives(tmp_path, monkeypatch):
-    from argus_skill.manager import front_door
-    from argus_skill.webapi import manager_bridge
+    from argus.manager import front_door
+    from argus.webapi import manager_bridge
 
     project(tmp_path)
     entered = threading.Event()
@@ -452,8 +452,8 @@ def test_background_yields_the_shared_session_when_an_interactive_ask_arrives(tm
 def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tmp_path, monkeypatch, failure_point):
     from pathlib import Path
 
-    from argus_skill.daemon.state import _continuous_config_path
-    from argus_skill.manager import supervision
+    from argus.daemon.state import _continuous_config_path
+    from argus.manager import supervision
 
     class ProcessCrash(BaseException):
         pass
@@ -483,9 +483,9 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
             supervise(manager, tmp_path, event)
     before = load_active_manager_directive(tmp_path)
     if failure_point == "directive":
-        from argus_skill.life.memory import LifeMemory
-        from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-        from argus_skill.manager.supervision import shutdown_supervision
+        from argus.life.memory import LifeMemory
+        from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+        from argus.manager.supervision import shutdown_supervision
 
         restarted = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
         LifeSupervisor(
@@ -511,7 +511,7 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
 
 
 def test_partial_delivery_never_overwrites_a_new_operator_direction(tmp_path, monkeypatch):
-    from argus_skill.manager import directive
+    from argus.manager import directive
 
     class ProcessCrash(BaseException):
         pass
@@ -538,7 +538,7 @@ def test_partial_delivery_never_overwrites_a_new_operator_direction(tmp_path, mo
 
 
 def role_loop(root, mission_id, backend):
-    from argus_skill import SkillLoop, SkillLoopConfig
+    from argus import SkillLoop, SkillLoopConfig
 
     return SkillLoop(
         skills_dir=root / "skills", engineer_runner=backend, reviewer_runner=backend,
@@ -557,9 +557,9 @@ def task_at(backlog, item_id):
 
 
 def test_wait_parks_only_task_a_and_independent_b_and_answered_a_can_run(tmp_path):
-    from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+    from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+    from argus.life.memory import LifeMemory
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 
     backlog, task_a = project(tmp_path)
     supervisor = LifeSupervisor(
@@ -607,7 +607,7 @@ def test_wait_parks_only_task_a_and_independent_b_and_answered_a_can_run(tmp_pat
 
 
 def test_wait_arriving_during_engineer_work_finishes_the_write_and_skips_reviewer(tmp_path):
-    from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+    from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 
     backlog, item = project(tmp_path)
     backlog.mark_running(item.id)
@@ -643,7 +643,7 @@ def test_wait_arriving_during_engineer_work_finishes_the_write_and_skips_reviewe
 
 
 def test_issued_event_failure_does_not_discard_the_durable_decision(tmp_path, monkeypatch):
-    from argus_skill.manager import supervision
+    from argus.manager import supervision
 
     project(tmp_path)
     event = {"type": EventType.LIFE_PHASE_STARTED, "agent_layer": "engineer", "round_index": 2}
@@ -664,7 +664,7 @@ def test_issued_event_failure_does_not_discard_the_durable_decision(tmp_path, mo
 def test_phase_receipt_survives_a_crash_before_the_latest_index_is_replaced(tmp_path, monkeypatch):
     from pathlib import Path
 
-    from argus_skill.manager import supervision
+    from argus.manager import supervision
 
     class ProcessCrash(BaseException):
         pass
@@ -702,7 +702,7 @@ def test_phase_receipt_survives_a_crash_before_the_latest_index_is_replaced(tmp_
 
 
 def test_background_delivery_retries_a_temporarily_busy_control_without_new_evidence(tmp_path, monkeypatch):
-    from argus_skill.manager import supervision
+    from argus.manager import supervision
 
     project(tmp_path)
     backend = EvidenceBackend()

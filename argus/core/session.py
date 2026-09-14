@@ -1,21 +1,21 @@
 """Session model — Copilot/Codex/Claude-Code-style daemons.
 
 Historically a "project" was keyed by the cwd/git-remote fingerprint, so
-re-running ``argus-skill`` in the same directory always REUSED the same
+re-running ``argus`` in the same directory always REUSED the same
 project + daemon. That made "start a fresh run" impossible without juggling
 ``ARGUS_SKILL_HOME``.
 
 The session model inverts the default:
 
-* ``argus-skill`` (default ``--new``) → a BRAND-NEW session: a fresh
+* ``argus`` (default ``--new``) → a BRAND-NEW session: a fresh
   ``session id`` keys ``projects/<id>/`` with its own daemon + memory.
-* ``argus-skill --resume [<id>]`` → reuse a previous session (a picker when
+* ``argus --resume [<id>]`` → reuse a previous session (a picker when
   no id is given).
-* ``argus-skill --continue`` → reuse the most-recently-active session.
+* ``argus --continue`` → reuse the most-recently-active session.
 
 Each session writes ``projects/<id>/session.json`` so the resume picker can
 show ``id · name · age · backlog``. The Manager fills ``display_name`` from
-the first task (see :mod:`argus_skill.manager`). Legacy cwd-fingerprint
+the first task (see :mod:`argus.manager`). Legacy cwd-fingerprint
 projects (no ``session.json``) are still listable/resumable by their id.
 """
 from __future__ import annotations

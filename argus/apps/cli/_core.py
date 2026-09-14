@@ -1,7 +1,7 @@
-"""argus-skill CLI — the ``argus-skill`` console script of the 7×24 lifetime agent.
+"""argus CLI — the ``argus`` console script of the 7×24 lifetime agent.
 
 The product has one positioning: a long-running supervised coding agent
-that drains a backlog forever. ``argus-skill`` is the operator's entry to
+that drains a backlog forever. ``argus`` is the operator's entry to
 it and, with no subcommand:
 
 * launches the Ink cockpit, and
@@ -11,7 +11,7 @@ it and, with no subcommand:
 It is not the only console script: ``pyproject.toml`` also installs
 ``argus`` (TUI launcher), ``argus-doctor``, ``argus-plugin-server``,
 ``argus-trial-server`` and ``argus-compute``; this module owns only
-``argus-skill``.
+``argus``.
 
 Top-level flags control daemon lifecycle and read-only operator help
 (``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
@@ -81,12 +81,12 @@ def _report_missing_web_dependency(missing: str) -> int:
     """Explain a broken web install instead of raising through the CLI.
 
     fastapi and uvicorn are required dependencies, not an extra, so the old
-    advice to install `argus-skill[web]` named an extra that does not exist.
+    advice to install `argus[web]` named an extra that does not exist.
     """
     sys.stderr.write(
-        f"argus-skill: --web cannot start because {missing} is missing. It "
+        f"argus: --web cannot start because {missing} is missing. It "
         "ships as a required dependency, so this is a broken install: "
-        "`pip install --force-reinstall argus-skill`.\n"
+        "`pip install --force-reinstall argus`.\n"
     )
     return 2
 
@@ -114,7 +114,7 @@ def _pick_session(global_root: Path) -> str | None:
 
     sessions = list_sessions(global_root, include_empty=False)
     if not sessions:
-        sys.stderr.write("argus-skill: no previous sessions to resume.\n")
+        sys.stderr.write("argus: no previous sessions to resume.\n")
         return None
     live_ids = {s.id for s in live_daemon_sessions(global_root)}
     now = time.time()
@@ -137,7 +137,7 @@ def _pick_session(global_root: Path) -> str | None:
         idx = int(raw) - 1
         if 0 <= idx < len(sessions):
             return sessions[idx].id
-        sys.stderr.write("argus-skill: out of range.\n")
+        sys.stderr.write("argus: out of range.\n")
         return None
     return raw  # treat as a session id
 
@@ -171,7 +171,7 @@ def _resolve_session_id(
         return resolve_session(global_root=global_root, mode=mode,
                                session_id=sid, cwd=Path.cwd())
     except SessionResolutionError as exc:
-        sys.stderr.write(f"argus-skill: {exc}\n")
+        sys.stderr.write(f"argus: {exc}\n")
         return None, False
 
 
@@ -353,11 +353,11 @@ def main(argv: list[str] | None = None) -> int:
             args.objective = objective_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
             sys.stderr.write(
-                f"argus-skill: could not read --objective-file {objective_file!r}: {exc}\n"
+                f"argus: could not read --objective-file {objective_file!r}: {exc}\n"
             )
             return 2
         if not str(args.objective).strip():
-            sys.stderr.write("argus-skill: --objective-file must not be empty\n")
+            sys.stderr.write("argus: --objective-file must not be empty\n")
             return 2
         args.objective_file = str(objective_path)
     from ...core.knobs import resolve_role_backend
@@ -371,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
     # codex is safe to assume HERE specifically: this value's only consumer is
     # _continuous_contract_error -> continuous_mode_error, which compares it
     # against "memory" and nothing else, so every real backend behaves
-    # identically. And this line runs for EVERY argus-skill invocation
+    # identically. And this line runs for EVERY argus invocation
     # (--wiki-init, --export-skills, --status), so it must never be the thing
     # that refuses to run on a host that has not picked a backend yet.
     # ``--backend`` parses with ``default=None``, so a value here was typed on
@@ -388,7 +388,7 @@ def main(argv: list[str] | None = None) -> int:
         backend=backend_default,
     )
     if continuous_error:
-        sys.stderr.write(f"argus-skill: {continuous_error}\n")
+        sys.stderr.write(f"argus: {continuous_error}\n")
         return 2
 
     # ---- mutual exclusion -----------------------------------------
@@ -426,10 +426,10 @@ def main(argv: list[str] | None = None) -> int:
         + bool(getattr(args, "command", None))
     )
     if getattr(args, "answer_item", "") and not getattr(args, "answer", None):
-        sys.stderr.write("argus-skill: --answer-item requires --answer TEXT\n")
+        sys.stderr.write("argus: --answer-item requires --answer TEXT\n")
         return 2
     if getattr(args, "notify_stage", "") and not args.notify:
-        sys.stderr.write("argus-skill: --notify-stage requires --notify MSG\n")
+        sys.stderr.write("argus: --notify-stage requires --notify MSG\n")
         return 2
     setup_only = (
         bool(getattr(args, "non_interactive", False))
@@ -439,7 +439,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if setup_only and not args.setup:
         sys.stderr.write(
-            "argus-skill: --non-interactive / --set-git-global / "
+            "argus: --non-interactive / --set-git-global / "
             "--configure-codex / --trial-url require --setup\n"
         )
         return 2
@@ -456,13 +456,13 @@ def main(argv: list[str] | None = None) -> int:
         or args.daemon_fg
     ):
         sys.stderr.write(
-            "argus-skill: --backend / --auth-mode / --allow-prerelease "
+            "argus: --backend / --auth-mode / --allow-prerelease "
             "require --setup, doctor/repair, --doctor, --daemon, or --daemon-fg\n"
         )
         return 2
     if action_flags > 1:
         sys.stderr.write(
-            "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
+            "argus: --daemon / --daemon-fg / --daemon-stop / --status / "
             "--daemon-runbook / --update / --config-help / --config-snapshot / "
             "--watch / --follow / --notify / --ask / --init-identity / "
             "--setup / --doctor / "
@@ -480,7 +480,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return _run_with_path_resolution_errors(lambda: _cmd_repair(args))
         except (FileNotFoundError, PermissionError, RuntimeError, ValueError) as exc:
-            sys.stderr.write(f"argus-skill: repair refused: {exc}\n")
+            sys.stderr.write(f"argus: repair refused: {exc}\n")
             return 3
     if getattr(args, "update", False) or args.command == "update":
         from ..update import run_update
@@ -634,7 +634,7 @@ def main(argv: list[str] | None = None) -> int:
             lambda: _cmd_lifecycle_transition(args, action="archive")
         )
 
-    # All interactive use goes through the Ink cockpit; ``argus-skill`` remains
+    # All interactive use goes through the Ink cockpit; ``argus`` remains
     # the daemon/admin CLI for explicit flags.
     from ..tui_launcher import main as run_tui
 
@@ -747,7 +747,7 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
         backend=backend_default,
     )
     if continuous_error:
-        sys.stderr.write(f"argus-skill: {continuous_error}\n")
+        sys.stderr.write(f"argus: {continuous_error}\n")
         return 2
     if bool(getattr(args, "allow_prerelease", False)):
         os.environ["ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE"] = "1"
@@ -766,7 +766,7 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
         return 3
     if skip_vault_probe:
         sys.stderr.write(
-            "argus-skill: UNSAFE diagnostic override: model-api network "
+            "argus: UNSAFE diagnostic override: model-api network "
             "readiness probe skipped; backend/auth/config checks still passed.\n"
         )
     cfg = _build_worker_config(args)
@@ -1065,7 +1065,7 @@ def _cmd_follow(args: argparse.Namespace) -> int:
     import json as _json
 
     print(
-        f"argus-skill: following project {events_path.parent.name} "
+        f"argus: following project {events_path.parent.name} "
         "(live WebSocket with file fallback, Ctrl-C to stop)",
         flush=True,
     )
@@ -1181,7 +1181,7 @@ def _cmd_follow(args: argparse.Namespace) -> int:
         ):
             coalescer.flush()
             print(
-                "argus-skill: live WebSocket unavailable; "
+                "argus: live WebSocket unavailable; "
                 f"falling back to {events_path}",
                 flush=True,
             )
@@ -1194,10 +1194,10 @@ def _cmd_follow(args: argparse.Namespace) -> int:
                 if pos > 8192:
                     fh.readline()  # skip partial line
             except FileNotFoundError:
-                print(f"argus-skill: waiting for {events_path} ...", flush=True)
+                print(f"argus: waiting for {events_path} ...", flush=True)
                 time.sleep(0.5)
             except OSError as exc:
-                sys.stderr.write(f"argus-skill: cannot open {events_path}: {exc}\n")
+                sys.stderr.write(f"argus: cannot open {events_path}: {exc}\n")
                 return 1
         while True:
             line = fh.readline()
@@ -1223,7 +1223,7 @@ def _cmd_follow(args: argparse.Namespace) -> int:
             coalescer.feed(ev)
     except KeyboardInterrupt:
         coalescer.flush()
-        print("\nargus-skill: stopped following", flush=True)
+        print("\nargus: stopped following", flush=True)
     finally:
         coalescer.flush()
         renderer.close()
@@ -1243,7 +1243,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     """
     question = (getattr(args, "ask", "") or "").strip()
     if not question:
-        sys.stderr.write("argus-skill: --ask requires a non-empty question\n")
+        sys.stderr.write("argus: --ask requires a non-empty question\n")
         return 2
     bundle = _resolve_project_bundle(args)
     from ...core.models import RunnerOptions
@@ -1273,7 +1273,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     if runner is None:
         reason = str(chat_state.get("manager_runner_error") or "").strip()
         sys.stderr.write(
-            "argus-skill: --ask cannot answer inline"
+            "argus: --ask cannot answer inline"
             + (f": {reason}" if reason else "")
             + " — nothing was queued\n"
         )
@@ -1303,7 +1303,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     fatal_error = str(getattr(result, "fatal_error", "") or "").strip()
     if exit_code != 0 or fatal_error:
         sys.stderr.write(
-            "argus-skill: --ask refused before answering inline"
+            "argus: --ask refused before answering inline"
             + (f": {fatal_error}" if fatal_error else f" (exit {exit_code})")
             + "; nothing was queued\n"
         )
@@ -1311,7 +1311,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     reply = extract_answer(result).strip()
     if not reply:
         sys.stderr.write(
-            "argus-skill: --ask received an empty reply; nothing was queued\n"
+            "argus: --ask received an empty reply; nothing was queued\n"
         )
         return 1
     sys.stdout.write(reply.rstrip() + "\n")
@@ -1337,7 +1337,7 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     """
     answer = (getattr(args, "answer", "") or "").strip()
     if not answer:
-        sys.stderr.write("argus-skill: --answer requires non-empty text\n")
+        sys.stderr.write("argus: --answer requires non-empty text\n")
         return 2
     bundle = _resolve_project_bundle(args)
     from ...life.memory import Backlog
@@ -1349,17 +1349,17 @@ def _cmd_answer(args: argparse.Namespace) -> int:
         if str(getattr(item, "pending_question", "") or "").strip()
     ]
     if not waiting:
-        sys.stderr.write("argus-skill: no mission is waiting on an answer\n")
+        sys.stderr.write("argus: no mission is waiting on an answer\n")
         return 1
 
     wanted = str(getattr(args, "answer_item", "") or "").strip()
     if wanted:
         waiting = [item for item in waiting if item.id == wanted]
         if not waiting:
-            sys.stderr.write(f"argus-skill: {wanted} is not waiting on an answer\n")
+            sys.stderr.write(f"argus: {wanted} is not waiting on an answer\n")
             return 1
     elif len(waiting) > 1:
-        sys.stderr.write("argus-skill: several missions are waiting; pick one with --answer-item\n")
+        sys.stderr.write("argus: several missions are waiting; pick one with --answer-item\n")
         for item in waiting:
             sys.stderr.write(f"  {item.id}  {item.title}\n")
         return 2
@@ -1371,7 +1371,7 @@ def _cmd_answer(args: argparse.Namespace) -> int:
         option_id = answer.casefold()
         if option_id not in {"adopt", "decline"}:
             sys.stderr.write(
-                "argus-skill: answer this deployment decision with adopt or decline\n"
+                "argus: answer this deployment decision with adopt or decline\n"
             )
             return 2
         from ...webapi.manager_pending_question import (
@@ -1386,9 +1386,9 @@ def _cmd_answer(args: argparse.Namespace) -> int:
         )
         if result is None or result.get("error"):
             message = str((result or {}).get("error") or "decision is unavailable")
-            sys.stderr.write(f"argus-skill: {message}\n")
+            sys.stderr.write(f"argus: {message}\n")
             return 1
-        sys.stdout.write(f"argus-skill: answered {item.id} ({item.title})\n")
+        sys.stdout.write(f"argus: answered {item.id} ({item.title})\n")
         reply = str(result.get("reply") or "").strip()
         if reply:
             sys.stdout.write(f"  result: {reply}\n")
@@ -1398,12 +1398,12 @@ def _cmd_answer(args: argparse.Namespace) -> int:
         item.id, answer, manager_decision=answer
     )
     if blocked is None:
-        sys.stderr.write(f"argus-skill: {item.id} is no longer in the backlog\n")
+        sys.stderr.write(f"argus: {item.id} is no longer in the backlog\n")
         return 1
     if continuation is None:
-        sys.stderr.write(f"argus-skill: {item.id} is no longer waiting on an answer\n")
+        sys.stderr.write(f"argus: {item.id} is no longer waiting on an answer\n")
         return 1
-    sys.stdout.write(f"argus-skill: answered {item.id} ({item.title})\n")
+    sys.stdout.write(f"argus: answered {item.id} ({item.title})\n")
     if question:
         sys.stdout.write(f"  asked:  {question[:160]}\n")
     sys.stdout.write(f"  answer: {answer[:160]}\n")
@@ -1420,7 +1420,7 @@ def _cmd_notify(args: argparse.Namespace) -> int:
     """
     msg = (args.notify or "").strip()
     if not msg:
-        sys.stderr.write("argus-skill: --notify requires a non-empty message\n")
+        sys.stderr.write("argus: --notify requires a non-empty message\n")
         return 2
     bundle = _resolve_project_bundle(args)
     bundle.project.root.mkdir(parents=True, exist_ok=True)
@@ -1441,7 +1441,7 @@ def _cmd_notify(args: argparse.Namespace) -> int:
             require_known=True,
         )
         if not target_stage:
-            sys.stderr.write("argus-skill: --notify-stage is not valid for the active vertical\n")
+            sys.stderr.write("argus: --notify-stage is not valid for the active vertical\n")
             return 2
     queue_inbox_message(
         bundle.project.root,
@@ -1450,7 +1450,7 @@ def _cmd_notify(args: argparse.Namespace) -> int:
         stage=target_stage,
     )
     suffix = f" (stage={target_stage})" if target_stage else ""
-    print(f"argus-skill: queued nudge ({len(msg)} chars){suffix} → {bundle.project.root}")
+    print(f"argus: queued nudge ({len(msg)} chars){suffix} → {bundle.project.root}")
     return 0
 
 
@@ -1490,16 +1490,16 @@ def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
             if wiki.name == "wiki" and wiki.parent.name:
                 init_wiki(wiki.parent.name, base=project_root)
             else:
-                sys.stderr.write(f"argus-skill: cannot infer project from --wiki {wiki}\n")
+                sys.stderr.write(f"argus: cannot infer project from --wiki {wiki}\n")
                 return 2
         else:
             sys.stderr.write(
-                f"argus-skill: {wiki} is not an initialized wiki; "
-                "run `argus-skill wiki init <project>` or pass --init\n"
+                f"argus: {wiki} is not an initialized wiki; "
+                "run `argus wiki init <project>` or pass --init\n"
             )
             return 2
     if not is_initialized_wiki(wiki):
-        sys.stderr.write(f"argus-skill: failed to initialize wiki at {wiki}\n")
+        sys.stderr.write(f"argus: failed to initialize wiki at {wiki}\n")
         return 2
     store = WikiStore(wiki)
     project_root = _project_root_for_wiki_path(wiki)
@@ -1549,12 +1549,12 @@ def _cmd_learn(args: argparse.Namespace) -> int:
     for material in args.material:
         path = material.expanduser()
         if not path.exists():
-            sys.stderr.write(f"argus-skill: material not found: {path}\n")
+            sys.stderr.write(f"argus: material not found: {path}\n")
             return 2
         try:
             manifest = ingest_material(path, store, ingested_by=args.ingested_by)
         except ValueError as exc:
-            sys.stderr.write(f"argus-skill: {exc}\n")
+            sys.stderr.write(f"argus: {exc}\n")
             return 2
         manifests.append(manifest)
         status = "ingested" if manifest["written"] else "already present (immutable)"
@@ -1573,7 +1573,7 @@ def _cmd_learn(args: argparse.Namespace) -> int:
     print(f"vertical persisted (learning) at {base}")
     print(
         "next: run the daemon in this workdir to start the learning mission, e.g.\n"
-        f"  cd {base} && argus-skill --daemon --continuous "
+        f"  cd {base} && argus --daemon --continuous "
         "--objective 'Study the ingested material and update your skill+wiki libraries'"
     )
     return 0
@@ -1586,7 +1586,7 @@ def _cmd_wiki_migrate(args: argparse.Namespace) -> int:
 
     wiki = args.wiki.expanduser()
     if not is_initialized_wiki(wiki):
-        sys.stderr.write(f"argus-skill: {wiki} is not an initialized wiki\n")
+        sys.stderr.write(f"argus: {wiki} is not an initialized wiki\n")
         return 2
     moved = migrate_orphan_sources(WikiStore(wiki))
     print(f"migrated {len(moved)} orphan source note(s)")
@@ -1613,7 +1613,7 @@ def _cmd_init_model_api(args: argparse.Namespace) -> int:
     from ...tools.capability_vault import bootstrap_model_api_vault
 
     path = bootstrap_model_api_vault(_model_api_env(args))
-    print(f"argus-skill: model API capability saved at {path} (0600, secret not printed)")
+    print(f"argus: model API capability saved at {path} (0600, secret not printed)")
     return 0
 
 
@@ -1623,7 +1623,7 @@ def _cmd_config_snapshot(args: argparse.Namespace) -> int:
     raw = getattr(args, "config_snapshot", None) or "argus_runtime_settings.md"
     out = core_paths.resolve_runtime_path(raw, context="--config-snapshot")
     path = write_config_snapshot(out, env=os.environ)
-    print(f"argus-skill: config snapshot written to {path}")
+    print(f"argus: config snapshot written to {path}")
     return 0
 
 
@@ -1631,7 +1631,7 @@ def _run_with_path_resolution_errors(action) -> int:
     try:
         return action()
     except core_paths.PathResolutionError as exc:
-        sys.stderr.write(f"argus-skill: {exc}\n")
+        sys.stderr.write(f"argus: {exc}\n")
         return 2
 
 
@@ -1663,7 +1663,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
         vertical = resolve_vertical_if_decided(target.parent)
         domain = resolve_domain_if_decided(target.parent)
     except VerticalResolutionError as exc:
-        sys.stderr.write(f"argus-skill: cannot resolve target vertical: {exc}\n")
+        sys.stderr.write(f"argus: cannot resolve target vertical: {exc}\n")
         return 2
     removed = remove_unmodified_inactive_context_skill_seeds(
         target,
@@ -1686,10 +1686,10 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     source = (
         str(source_path)
         if source_path.exists()
-        else "package resource argus_skill.builtin_skills"
+        else "package resource argus.builtin_skills"
     )
     action = "created/replaced" if args.apply else "created"
-    print(f"argus-skill: exported built-in skills to {target}")
+    print(f"argus: exported built-in skills to {target}")
     print(f"  source : {source}")
     print(f"  vertical: {vertical or 'none (common skills only)'}")
     print(f"  domain : {domain or 'none'}")
@@ -1799,7 +1799,7 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
 
     worktree, lifecycle_root = _resolve_lifecycle_roots(args)
     if not worktree.exists():
-        sys.stderr.write(f"argus-skill: project root not found: {worktree}\n")
+        sys.stderr.write(f"argus: project root not found: {worktree}\n")
         return 2
 
     status = infer_observable_status(worktree, project_id=lifecycle_root.name)
@@ -1807,7 +1807,7 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
         persisted = load_persisted(lifecycle_root)
     except LifecycleIOError as exc:
         sys.stderr.write(
-            f"argus-skill: lifecycle sidecar at {lifecycle_root}/lifecycle.json is "
+            f"argus: lifecycle sidecar at {lifecycle_root}/lifecycle.json is "
             f"malformed: {exc}\n"
         )
         persisted = {}
@@ -1816,7 +1816,7 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
     history = load_history(lifecycle_root)
     signals = advisory_time_signals(overlaid)
 
-    print("argus-skill — project lifecycle (F5)")
+    print("argus — project lifecycle (F5)")
     print(f"  worktree          : {worktree}")
     print(f"  state_root        : {lifecycle_root}")
     print(f"  observed_state    : {status.state.value}")
@@ -1881,7 +1881,7 @@ def _cmd_lifecycle_transition(
 
     worktree, lifecycle_root = _resolve_lifecycle_roots(args)
     if not worktree.exists():
-        sys.stderr.write(f"argus-skill: project root not found: {worktree}\n")
+        sys.stderr.write(f"argus: project root not found: {worktree}\n")
         return 2
 
     status = infer_observable_status(worktree, project_id=lifecycle_root.name)
@@ -1889,7 +1889,7 @@ def _cmd_lifecycle_transition(
         persisted = load_persisted(lifecycle_root)
     except LifecycleIOError as exc:
         sys.stderr.write(
-            f"argus-skill: lifecycle sidecar malformed: {exc}\n"
+            f"argus: lifecycle sidecar malformed: {exc}\n"
         )
         return 2
     status = apply_persisted_to_status(status, persisted)
@@ -1903,13 +1903,13 @@ def _cmd_lifecycle_transition(
         else:
             raise ValueError(f"unknown lifecycle action {action!r}")
     except ValueError as exc:
-        sys.stderr.write(f"argus-skill: {exc}\n")
+        sys.stderr.write(f"argus: {exc}\n")
         return 1
 
     try:
         append_event(lifecycle_root, new_status=new_status, event=event)
     except OSError as exc:
-        sys.stderr.write(f"argus-skill: cannot persist transition: {exc}\n")
+        sys.stderr.write(f"argus: cannot persist transition: {exc}\n")
         return 1
 
     resumed_items = []
@@ -1919,7 +1919,7 @@ def _cmd_lifecycle_transition(
         resumed_items = LifeMemory.open(lifecycle_root).backlog.resume_all_paused()
 
     print(
-        f"argus-skill: lifecycle transition "
+        f"argus: lifecycle transition "
         f"{event.from_state.value} → {event.to_state.value} "
         f"({event.reason})"
     )
@@ -2015,7 +2015,7 @@ def _render_lifecycle_status_lines(
 def _render_inbox_injection_lines(bundle: Any, *, limit: int = 3) -> list[str]:
     """Surface recent inbox-injection events (Opt #4).
 
-    Lets the operator confirm that `argus-skill --notify "..."` was
+    Lets the operator confirm that `argus --notify "..."` was
     seen by the daemon and injected into a mission prompt. The drains
     emit ``life.inbox.drained`` into events.jsonl; that type is not part
     of the ``EventJournal`` projection, so this reads the raw event tail
@@ -2130,7 +2130,7 @@ def _cmd_gc(args: argparse.Namespace) -> int:
         days = retention_days_default()
     if days < 0:
         sys.stderr.write(
-            f"argus-skill: --gc-days must not be negative (got {days}). A "
+            f"argus: --gc-days must not be negative (got {days}). A "
             "negative retention window puts the cutoff in the future, so every "
             "project would be trashed.\n"
         )
@@ -2140,11 +2140,11 @@ def _cmd_gc(args: argparse.Namespace) -> int:
     verb = "would prune" if dry else "moved to projects_trash/"
     if not pruned:
         sys.stdout.write(
-            f"argus-skill: no stale projects (retention={days}d; "
+            f"argus: no stale projects (retention={days}d; "
             "live daemons and recently-active projects are never touched).\n"
         )
         return 0
-    sys.stdout.write(f"argus-skill: {verb} {len(pruned)} stale project(s):\n")
+    sys.stdout.write(f"argus: {verb} {len(pruned)} stale project(s):\n")
     for fp in pruned:
         sys.stdout.write(f"  - {fp}\n")
     if not dry:
@@ -2186,7 +2186,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     )
     bundle = _resolve_project_bundle(args, create_if_missing=False)
     if bundle is None:
-        print(f"argus-skill — global-root: {_resolve_global_root(args)}")
+        print(f"argus — global-root: {_resolve_global_root(args)}")
         print("  project  : no session for this workdir")
         print("  daemon   : not running")
         print("  next     : run `argus` to create a session")
@@ -2198,7 +2198,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # Status should stay cheap even on a long-lived daemon.
     journal_tail = bundle.journal.tail(3)
 
-    print(f"argus-skill — global-root: {bundle.global_root}")
+    print(f"argus — global-root: {bundle.global_root}")
     print(f"  project  : {bundle.project.root}")
     if status.alive and status.pid is not None:
         uptime = _format_short_duration(status.uptime_seconds or 0.0)
@@ -2231,7 +2231,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
             )
             print(f"  health   : {health_state}{health_detail}")
     else:
-        print("  daemon   : not running   (start with `argus-skill --daemon`)")
+        print("  daemon   : not running   (start with `argus --daemon`)")
     print(f"  {format_budget_status(bundle.journal, status=status)}")
     print(
         f"  active   : {pending} pending · {running} running · {paused} paused"
@@ -2389,7 +2389,7 @@ def _cmd_daemon_runbook(args: argparse.Namespace) -> int:
 
     status = read_daemon_status(bundle.project.root)
     lines = [
-        "argus-skill daemon-safe upgrade runbook",
+        "argus daemon-safe upgrade runbook",
         f"global   : {bundle.global_root}",
         f"project  : {bundle.project.root}",
         (
@@ -2401,9 +2401,9 @@ def _cmd_daemon_runbook(args: argparse.Namespace) -> int:
         "1. Open a second shell, tmux pane, or systemd session before touching the daemon.",
         "2. Treat the live daemon as the control plane: do not restart the process that owns your current session.",
         "3. Persist context first. Global identity/journal live under the global root; the backlog, inbox, and project memory live under the project root.",
-        "4. For an ad-hoc detached worker, run `argus-skill --daemon-stop --drain` from the external shell (waits for the current mission to finish at a clean boundary — no mid-mission SIGKILL), then once it exits, update the code and relaunch with `argus-skill --daemon`.",
-        "5. For a systemd-managed worker, edit the unit from the maintenance shell, then run `systemctl daemon-reload && systemctl restart argus-skill.service`.",
-        "6. Verify the new process with `argus-skill --status` before resuming work.",
+        "4. For an ad-hoc detached worker, run `argus --daemon-stop --drain` from the external shell (waits for the current mission to finish at a clean boundary — no mid-mission SIGKILL), then once it exits, update the code and relaunch with `argus --daemon`.",
+        "5. For a systemd-managed worker, edit the unit from the maintenance shell, then run `systemctl daemon-reload && systemctl restart argus.service`.",
+        "6. Verify the new process with `argus --status` before resuming work.",
     ]
     print("\n".join(lines))
     return 0

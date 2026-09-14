@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from argus_skill.tools.image_api import (
+from argus.tools.image_api import (
     ApiError,
     ImageToolError,
     _json_request,
@@ -437,7 +437,7 @@ def _next_iteration(root: Path) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.verticals.research.paper_infrastructure_review",
+        prog="python -m argus.verticals.research.paper_infrastructure_review",
         description=(
             "Score the selected-venue paper for reader-facing infrastructure leaks."
         ),
@@ -462,7 +462,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             write=bool(args.write),
         )
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        sys.stderr.write(f"argus-skill paper-infrastructure-review: {_redact(str(exc))}\n")
+        sys.stderr.write(f"argus paper-infrastructure-review: {_redact(str(exc))}\n")
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
     # Exit nonzero only when the tool could not produce facts (structural /

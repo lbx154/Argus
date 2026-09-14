@@ -140,11 +140,11 @@ def _checkout_finding(context: DoctorContext) -> list[DoctorFinding]:
             evidence={"install_mode": context.install_mode},
         )]
     root = checkout.expanduser().resolve()
-    valid = (root / "pyproject.toml").is_file() and (root / "argus_skill").is_dir()
+    valid = (root / "pyproject.toml").is_file() and (root / "argus").is_dir()
     findings = [_finding(
         "ARGUS-INSTALL-001", "install", valid,
         "source_checkout" if valid else "broken_checkout",
-        str(root) if valid else f"missing pyproject.toml or argus_skill under {root}",
+        str(root) if valid else f"missing pyproject.toml or argus under {root}",
         severity="critical", actions=("refresh_path_memory",),
         recommendation="restore a complete checkout before applying runtime repairs",
         evidence={"checkout": str(root)},
@@ -152,7 +152,7 @@ def _checkout_finding(context: DoctorContext) -> list[DoctorFinding]:
     if not valid:
         return findings
 
-    manifest = root / "argus_skill" / "release_manifest.json"
+    manifest = root / "argus" / "release_manifest.json"
     web = root / "frontend" / "web" / "dist" / "index.html"
     tui = root / "frontend" / "tui" / "bundle" / "argus.mjs"
     missing = [str(path.relative_to(root)) for path in (manifest, web, tui) if not path.is_file()]

@@ -1,6 +1,6 @@
 """The write path into the research-math kernel, and the one thing it refuses.
 
-``argus_skill/proof_ledger/`` can express everything a mathematics project
+``argus/proof_ledger/`` can express everything a mathematics project
 believes and derive what that adds up to. Until this module there was no way to
 put anything into it from a real run: the package had a store, an assessment,
 and no writer, so ``research/MATH_STATE.json`` was a file that only tests ever

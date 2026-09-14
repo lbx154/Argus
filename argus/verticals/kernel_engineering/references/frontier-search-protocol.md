@@ -45,12 +45,12 @@ When a durable report is useful, create a fresh snapshot at
 snapshot. The JSONL file is an append-only ledger; never load it in full.
 
 ```bash
-python -m argus_skill.verticals.kernel_engineering.frontier_watch template \
+python -m argus.verticals.kernel_engineering.frontier_watch template \
   --stage optimize > /tmp/frontier-optimize.json
 # Replace placeholders using real online research.
-python -m argus_skill.verticals.kernel_engineering.frontier_watch record \
+python -m argus.verticals.kernel_engineering.frontier_watch record \
   --project-root . --stage optimize --input /tmp/frontier-optimize.json
-python -m argus_skill.verticals.kernel_engineering.frontier_watch check \
+python -m argus.verticals.kernel_engineering.frontier_watch check \
   --project-root . --stage optimize
 ```
 

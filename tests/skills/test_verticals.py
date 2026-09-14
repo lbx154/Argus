@@ -27,13 +27,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_machine import (
+from argus.skills.stage_machine import (
     ChecklistLoadState,
     current_stage,
     format_full_pipeline_checklist,
     resolve_stage_checklist_contract,
 )
-from argus_skill.skills.vertical_select import (
+from argus.skills.vertical_select import (
     VERTICALS,
     UnknownVerticalError,
     VerticalResolutionError,
@@ -45,13 +45,13 @@ from argus_skill.skills.vertical_select import (
     resolve_workflow_mode,
     vertical_reached_own_terminal_stage,
 )
-from argus_skill.verticals._base import (
+from argus.verticals._base import (
     load_vertical,
     vertical_checklist_items,
     vertical_checklist_optional_stages,
     vertical_checklist_stage_order,
 )
-from argus_skill.verticals._data_domain import write_data_domain
+from argus.verticals._data_domain import write_data_domain
 
 RESEARCH_STAGES: tuple[str, ...] = (
     "idea", "experiment", "paper", "review",

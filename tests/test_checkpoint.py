@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from argus_skill.engineer.checkpoint import (
+from argus.engineer.checkpoint import (
     resolve_shared_checkpoint,
     shared_checkpoint_instructions,
 )
@@ -43,7 +43,7 @@ def _assemble(round_index: int, checkpoint: Path | None, workdir: Path) -> str:
     """Drive the real prompt assembly for one round with everything else inert."""
     from types import SimpleNamespace
 
-    from argus_skill.engineer.round_prompt import RoundPromptMixin
+    from argus.engineer.round_prompt import RoundPromptMixin
 
     role_session = SimpleNamespace(
         policy="fresh", action="fresh", prompt_block=lambda: ""

@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.verticals.research.paper_infrastructure_review import (
+from argus.verticals.research.paper_infrastructure_review import (
     REQUIRED_CHECKED_SCOPES,
     PaperInfrastructureReviewError,
     _parse_review_text,
     _review_prompt,
     generate_paper_infrastructure_review,
 )
-from argus_skill.verticals.research.paper_infrastructure_review import (
+from argus.verticals.research.paper_infrastructure_review import (
     main as paper_infrastructure_review_main,
 )
 from tests.skills.researched_venues import (
@@ -29,15 +29,15 @@ def test_missing_model_evidence_spans_does_not_become_a_harness_gate(
     seed_researched_profile(tmp_path, EIGHT_PAGE_CONFERENCE)
 
     monkeypatch.setattr(
-        "argus_skill.verticals.research.paper_infrastructure_review.collect_latex_source_paths",
+        "argus.verticals.research.paper_infrastructure_review.collect_latex_source_paths",
         lambda root: (["paper/main.tex"], []),
     )
     monkeypatch.setattr(
-        "argus_skill.verticals.research.paper_infrastructure_review._read_source_texts",
+        "argus.verticals.research.paper_infrastructure_review._read_source_texts",
         lambda root, paths: {"paper/main.tex": "\\section{Intro}\nHello.\n"},
     )
     monkeypatch.setattr(
-        "argus_skill.verticals.research.paper_infrastructure_review._run_model_review",
+        "argus.verticals.research.paper_infrastructure_review._run_model_review",
         lambda **kwargs: {
             "leak_free": True,
             "checked_scope": list(REQUIRED_CHECKED_SCOPES),
@@ -86,11 +86,11 @@ def test_cli_resolves_venue_from_project_root_not_cwd(
     monkeypatch.chdir(outside)
 
     monkeypatch.setattr(
-        "argus_skill.verticals.research.paper_infrastructure_review.collect_latex_source_paths",
+        "argus.verticals.research.paper_infrastructure_review.collect_latex_source_paths",
         lambda root: (["paper/main.tex"], []),
     )
     monkeypatch.setattr(
-        "argus_skill.verticals.research.paper_infrastructure_review._read_source_texts",
+        "argus.verticals.research.paper_infrastructure_review._read_source_texts",
         lambda root, paths: {"paper/main.tex": "\\section{Intro}\nHello.\n"},
     )
     observed = {}
@@ -115,7 +115,7 @@ def test_cli_resolves_venue_from_project_root_not_cwd(
         }
 
     monkeypatch.setattr(
-        "argus_skill.verticals.research.paper_infrastructure_review._run_model_review",
+        "argus.verticals.research.paper_infrastructure_review._run_model_review",
         fake_run_model_review,
     )
 
@@ -139,15 +139,15 @@ def test_runner_failure_produces_blocked_review_artifact(
     )
     seed_researched_profile(tmp_path, EIGHT_PAGE_CONFERENCE)
     monkeypatch.setattr(
-        "argus_skill.verticals.research.paper_infrastructure_review.collect_latex_source_paths",
+        "argus.verticals.research.paper_infrastructure_review.collect_latex_source_paths",
         lambda root: (["paper/main.tex"], []),
     )
     monkeypatch.setattr(
-        "argus_skill.verticals.research.paper_infrastructure_review._read_source_texts",
+        "argus.verticals.research.paper_infrastructure_review._read_source_texts",
         lambda root, paths: {"paper/main.tex": "Hello."},
     )
     monkeypatch.setattr(
-        "argus_skill.verticals.research.paper_infrastructure_review._run_model_review",
+        "argus.verticals.research.paper_infrastructure_review._run_model_review",
         lambda **kwargs: (_ for _ in ()).throw(
             PaperInfrastructureReviewError("runner failed")
         ),

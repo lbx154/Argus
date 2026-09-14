@@ -14,7 +14,7 @@ quota settlement → I/O summary logging → usage accounting on each branch.
 
 Note on ``capture_copilot_usage_cursor`` / ``read_copilot_usage_since``:
 these names are module-level so that test monkey-patches targeting
-``argus_skill.adapters.agent_cli_backend._exec_spawn.<name>`` work
+``argus.adapters.agent_cli_backend._exec_spawn.<name>`` work
 correctly at call time.
 """
 from __future__ import annotations

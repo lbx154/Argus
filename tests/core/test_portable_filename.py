@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.core.portable_filename import (
+from argus.core.portable_filename import (
     legacy_hashed_filename_components,
     normalized_logical_identifier,
     portable_filename_component,

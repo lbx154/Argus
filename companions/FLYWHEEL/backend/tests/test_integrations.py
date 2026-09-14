@@ -166,7 +166,7 @@ def test_argus_launch_assessment_requires_exact_protocol_and_capabilities(
 def test_cli_plan_is_explicit_isolated_and_dry(tmp_path: Path) -> None:
     campaign = tmp_path / "campaign"
     objective = campaign / "OBJECTIVE.md"
-    adapter = ArgusCliAdapter("argus-skill")
+    adapter = ArgusCliAdapter("argus")
     plan = adapter.build_launch(
         campaign_root=campaign,
         objective_file=objective,
@@ -175,7 +175,7 @@ def test_cli_plan_is_explicit_isolated_and_dry(tmp_path: Path) -> None:
     )
     assert plan.project_root == campaign.resolve() / "workspace"
     assert plan.life_dir == campaign.resolve() / "life"
-    assert plan.argv[:3] == ("argus-skill", "--daemon", "--new")
+    assert plan.argv[:3] == ("argus", "--daemon", "--new")
     assert "--continuous" in plan.argv
     assert "--bounded" in plan.argv
     assert adapter.launch(plan) is plan

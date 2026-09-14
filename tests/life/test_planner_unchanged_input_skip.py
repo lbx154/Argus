@@ -16,16 +16,16 @@ import json
 import time
 from pathlib import Path
 
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import (
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import (
     OPERATOR_WAIT_TURN_REGRANT_SECONDS,
     PLAN_AWAITING,
     PLAN_ERROR,
     PLANNER_UNCHANGED_SKIP_MAX_SECONDS,
 )
-from argus_skill.planner import PlannerVerdict, WaitingContract
+from argus.planner import PlannerVerdict, WaitingContract
 
 
 class _Runner:
@@ -74,7 +74,7 @@ def _install_planner(monkeypatch, verdicts=None):
             return verdicts.pop(0)
         return _waiting_verdict()
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     return calls
 
 
@@ -234,7 +234,7 @@ def test_operator_wait_turn_regrant_beats_the_skip(
             ),
         )
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     supervisor = _supervisor(project, life)
 
     assert supervisor._plan_next_work() == PLAN_AWAITING

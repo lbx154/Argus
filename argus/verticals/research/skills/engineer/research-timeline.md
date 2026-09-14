@@ -39,7 +39,7 @@ research completion gate. Keep existing stage ownership and selection policy.
    ```
 
 4. Preview with
-   `python -m argus_skill.verticals.research.timeline --input .argus/timeline/proposal.json`.
+   `python -m argus.verticals.research.timeline --input .argus/timeline/proposal.json`.
    Add `--json` for structured output. Present the point estimate, scenario
    range, remaining time, experiment ordering, resource queues, and deadline
    gap. Proposals are alternatives; the tool does not select an idea or launch

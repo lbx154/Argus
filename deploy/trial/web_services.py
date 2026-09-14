@@ -20,20 +20,20 @@ def main() -> None:
     units.mkdir(parents=True, exist_ok=True)
     commands = {
         "argus-web-trial-meter": (
-            f"-m argus_skill.trial.web_admin serve-meter --root {root}"
+            f"-m argus.trial.web_admin serve-meter --root {root}"
         ),
         "argus-web-trial-egress": (
-            f"-m argus_skill.trial.egress --uds {root}/egress-socket/egress.sock"
+            f"-m argus.trial.egress --uds {root}/egress-socket/egress.sock"
         ),
         "argus-web-trial-compute": (
-            f"-m argus_skill.trial.compute --config {root}/compute.json "
+            f"-m argus.trial.compute --config {root}/compute.json "
             f"--uds {root}/compute-socket/compute.sock"
         ),
         "argus-web-trial-relay-guardian": (
-            f"-m argus_skill.trial.relay_guardian --root {root}"
+            f"-m argus.trial.relay_guardian --root {root}"
         ),
         "argus-web-trial-portal": (
-            f"-m argus_skill.trial.web_portal --config {root}/portal.json "
+            f"-m argus.trial.web_portal --config {root}/portal.json "
             f"--analytics-config {root}/analytics.json "
             f"--host 127.0.0.1 --port {args.portal_port}"
         ),

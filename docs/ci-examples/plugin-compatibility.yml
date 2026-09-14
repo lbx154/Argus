@@ -3,14 +3,14 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - 'argus_skill/core/plugin_manager.py'
-      - 'argus_skill/core/plugin_runtime.py'
-      - 'argus_skill/core/workbench_plugins.py'
-      - 'argus_skill/plugin_catalog.json'
-      - 'argus_skill/release_tools/build_plugins.py'
+      - 'argus/core/plugin_manager.py'
+      - 'argus/core/plugin_runtime.py'
+      - 'argus/core/workbench_plugins.py'
+      - 'argus/plugin_catalog.json'
+      - 'argus/release_tools/build_plugins.py'
       - 'tests/core/test_*plugin*.py'
-      - 'argus_skill/agent_cli/**'
-      - 'argus_skill/webapi/routes/plugins.py'
+      - 'argus/agent_cli/**'
+      - 'argus/webapi/routes/plugins.py'
       - '.github/workflows/plugin-compatibility.yml'
 permissions:
   contents: read
@@ -33,4 +33,4 @@ jobs:
       - name: Host contracts (no private checkout or model calls)
         run: python -m pytest tests/core/test_plugin_manager.py tests/core/test_plugin_runtime.py tests/core/test_external_plugin_release.py tests/apps/test_runtime_packaged_skills.py tests/skills/test_vertical_plugins.py
       - name: Clean install from public HTTPS source (no licensed binaries or model calls)
-        run: python -m argus_skill.release_tools.verify_plugin_install
+        run: python -m argus.release_tools.verify_plugin_install

@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core import mission_view
-from argus_skill.core.mission_view import _replay, _view_state
-from argus_skill.life.event_log import JsonlEventSink, event_log_paths
+from argus.core import mission_view
+from argus.core.mission_view import _replay, _view_state
+from argus.life.event_log import JsonlEventSink, event_log_paths
 
 
 def _start(item_id="mission", **extra):
@@ -219,7 +219,7 @@ def test_snapshot_fast_path_never_opens_or_enumerates_log_history(tmp_path, monk
 
     monkeypatch.setattr(Path, "open", counted_open)
     monkeypatch.setattr(_replay, "_paths", unexpected_scan)
-    from argus_skill.core.mission_view import _snapshot as snapshots
+    from argus.core.mission_view import _snapshot as snapshots
     monkeypatch.setattr(snapshots, "_refresh_review_projection", unexpected_scan)
     for _ in range(3):
         assert _snapshot(tmp_path)["review"]["rejected_attempts"] == 1

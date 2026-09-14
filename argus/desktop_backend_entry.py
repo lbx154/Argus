@@ -25,7 +25,7 @@ def _install_windows_signal_zero_guard(*, platform_name: str | None = None) -> N
     if host_platform != "nt" or getattr(os.kill, "__argus_signal_zero_guard__", False):
         return
 
-    from argus_skill.core.daemon_lock import is_pid_running
+    from argus.core.daemon_lock import is_pid_running
 
     original_kill = os.kill
 
@@ -47,9 +47,9 @@ def verify_runtime_providers() -> dict[str, Any]:
     in-tree providers, and community verticals (``argus-verticals``) are a
     separately installed distribution that is not part of the desktop build.
     """
-    from argus_skill.domains import BUILTIN_DOMAINS, load_domain
-    from argus_skill.skills.vertical_select import VERTICALS
-    from argus_skill.verticals._base import load_vertical
+    from argus.domains import BUILTIN_DOMAINS, load_domain
+    from argus.skills.vertical_select import VERTICALS
+    from argus.verticals._base import load_vertical
 
     loaded_verticals: list[str] = []
     loaded_domains: list[str] = []
@@ -134,8 +134,8 @@ def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
             module = args[1].strip()
             if (
                 module != "unittest"
-                and module != "argus_skill"
-                and not module.startswith("argus_skill.")
+                and module != "argus"
+                and not module.startswith("argus.")
             ):
                 print(
                     f"argus-backend: refusing non-Argus frozen module {module!r}",
@@ -178,7 +178,7 @@ def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
 
 
 def _entrypoint() -> int:
-    from argus_skill.apps.tui_launcher import _configure_windows_console_encoding
+    from argus.apps.tui_launcher import _configure_windows_console_encoding
 
     # Python-compatible commands bypass the normal CLI's Windows stdio setup.
     _configure_windows_console_encoding()
@@ -201,7 +201,7 @@ def _entrypoint() -> int:
     if handled:
         return code
 
-    from argus_skill.apps.cli import main
+    from argus.apps.cli import main
 
     return int(main())
 

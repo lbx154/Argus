@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("matplotlib")
 
-from argus_skill.verticals.research.academic_figure import FigureCanvas
+from argus.verticals.research.academic_figure import FigureCanvas
 
 
 def test_publication_canvas_exports_readable_math_as_vectors(tmp_path: Path) -> None:

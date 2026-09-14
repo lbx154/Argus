@@ -242,7 +242,7 @@ def check_routes(
 
 def format_report(report: PreflightReport) -> str:
     lines: list[str] = []
-    lines.append("argus-skill vault pre-flight")
+    lines.append("argus vault pre-flight")
     for c in report.checks:
         if c.skipped:
             mark = "⏭" if c.ok else "❔"

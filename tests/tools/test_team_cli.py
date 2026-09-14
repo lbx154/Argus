@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.team import pool, registry
-from argus_skill.tools import team
+from argus.team import pool, registry
+from argus.tools import team
 
 
 @pytest.fixture(autouse=True)

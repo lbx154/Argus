@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life.failure_experience import (
+from argus.life.failure_experience import (
     FailureAnnotation,
     FailureExperience,
     FailureExperienceStore,
@@ -190,7 +190,7 @@ def test_capacity_compacts_payloads_history_and_tombstones_without_reviving_old_
 
 
 def test_retired_source_cannot_be_replayed_with_a_fresh_timestamp(tmp_path: Path) -> None:
-    from argus_skill.life.failure_experience import experience_from_settled_mission
+    from argus.life.failure_experience import experience_from_settled_mission
 
     fields = dict(
         mission_id="first",
@@ -254,7 +254,7 @@ def test_expiry_is_filtered_before_index_query_and_physically_compacted(tmp_path
     store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
     item = store.append(experience("temporary", expires_at=time.time() + 3600))
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("argus_skill.life.failure_experience.time.time", lambda: item.expires_at + 1)
+        patch.setattr("argus.life.failure_experience.time.time", lambda: item.expires_at + 1)
         assert store.retrieve("temporary") == []
         assert indexed(store) == {}
         store.compact()
@@ -304,7 +304,7 @@ def test_streaming_legacy_migration_preserves_old_match_and_its_later_annotation
 
 
 def test_replace_failure_preserves_source_and_retry_can_commit(tmp_path: Path, monkeypatch) -> None:
-    from argus_skill.life import failure_experience_storage as storage
+    from argus.life import failure_experience_storage as storage
 
     store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
     item = store.append(experience("original"))
@@ -448,12 +448,12 @@ def test_explicit_embedding_adapter_reindexes_when_its_version_changes(tmp_path:
 def test_settlement_is_idempotent_and_new_revisions_reach_memory_and_planner(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.life.memory import BacklogItem, MemoryBundle
-    from argus_skill.life.supervisor._mission_execution_helpers import _MissionRunState
-    from argus_skill.life.supervisor._mission_execution_settlement import (
+    from argus.life.memory import BacklogItem, MemoryBundle
+    from argus.life.supervisor._mission_execution_helpers import _MissionRunState
+    from argus.life.supervisor._mission_execution_settlement import (
         MissionExecutionSettlementMixin,
     )
-    from argus_skill.life.supervisor._planner_rendering import PlannerRenderingMixin
+    from argus.life.supervisor._planner_rendering import PlannerRenderingMixin
 
     memory = MemoryBundle.for_cwd(global_root=tmp_path, fingerprint="s-memory")
     item = BacklogItem.new(title="bounded experiment", objective="test the measured mechanism")

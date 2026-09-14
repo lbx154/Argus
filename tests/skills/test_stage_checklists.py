@@ -7,27 +7,27 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.core.models import ReviewDecision
-from argus_skill.core.pipeline_state import read_pipeline_state
-from argus_skill.life.terminal_state import build_terminal_idle_signature
-from argus_skill.reviewer._core import (
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.core.models import ReviewDecision
+from argus.core.pipeline_state import read_pipeline_state
+from argus.life.terminal_state import build_terminal_idle_signature
+from argus.reviewer._core import (
     ReviewerConfig,
     _parallel_final_review_passes,
     _persist_research_review,
 )
-from argus_skill.skills.stage_machine import (
+from argus.skills.stage_machine import (
     current_stage,
     migrate_legacy_research_stage,
     rollback_stage,
 )
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals.research.prompt_policy import (
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals.research.prompt_policy import (
     active_context_paths,
     active_research_context,
     render_role_prompt_fragment,
 )
-from argus_skill.verticals.research.stages import (
+from argus.verticals.research.stages import (
     CANONICAL_STAGE_ORDER,
     STAGE_CHECKLISTS,
     stage_completion_issues,
@@ -494,7 +494,7 @@ def test_review_write_failure_is_visible(
         raise OSError("disk full")
 
     monkeypatch.setattr(
-        "argus_skill.manager.source_writeback.atomic_write",
+        "argus.manager.source_writeback.atomic_write",
         fail_write,
     )
 

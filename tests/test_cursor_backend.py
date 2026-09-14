@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import subprocess
 
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import (
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import (
     BACKEND_CURSOR,
     SUPPORTED_BACKENDS,
     default_runner_bin,
     normalize_runner_backend,
 )
-from argus_skill.core import backend_readiness
+from argus.core import backend_readiness
 
 
 def test_cursor_is_a_first_class_backend() -> None:

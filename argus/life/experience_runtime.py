@@ -49,7 +49,7 @@ def experience_run(ctx: Any) -> Iterator[None]:
                            "ARGUS_PLUGIN_EXPERIENCE_WRITABLE": "1" if service.writable else "0"},
             force_safe_mode=options.force_safe_mode or options.sandbox_mode == "read-only",
         )
-        tool = ", ".join(names) if native else "python -m argus_skill.tools.experience"
+        tool = ", ".join(names) if native else "python -m argus.tools.experience"
         ctx.prompt += (
             "\n\nPrior mission experiences: " + tool + " provides project-scoped advisory memory. "
             "Search and inspect the current id, revision, scope and evidence before reuse. "

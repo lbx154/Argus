@@ -689,7 +689,7 @@ def manager_workspace_capability_prompt(
         [
             "python",
             "-m",
-            "argus_skill.tools.manager_live_view",
+            "argus.tools.manager_live_view",
             "--workspace",
             str(context["workspace"]),
             "--state-dir",

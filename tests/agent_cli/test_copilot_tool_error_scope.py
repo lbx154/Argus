@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from argus_skill.agent_cli._event_consumers import EventConsumerMixin
+from argus.agent_cli._event_consumers import EventConsumerMixin
 
 
 def consume(event, state=(None, False, False, None), messages=None):
@@ -67,8 +67,8 @@ def test_a_tool_payload_that_quotes_quota_codes_is_not_an_account_error():
 
 
 def test_real_local_subprocess_can_recover_from_tool_error_and_complete(tmp_path, monkeypatch):
-    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-    from argus_skill.trial import client
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+    from argus.trial import client
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path))

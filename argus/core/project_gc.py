@@ -1,8 +1,8 @@
 """Project garbage collection — prune stale per-project state under
 ``~/.argus-skill/projects/``.
 
-Every distinct cwd/git-remote ever used by ``argus-skill`` leaves a
-``projects/<fingerprint>/`` subtree (see :func:`argus_skill.core.project.
+Every distinct cwd/git-remote ever used by ``argus`` leaves a
+``projects/<fingerprint>/`` subtree (see :func:`argus.core.project.
 project_fingerprint`). Nothing ever removed them, so they accumulated
 indefinitely (observed: ~960 dirs / 400 MB on a long-lived host).
 
@@ -23,7 +23,7 @@ This module adds a conservative, REVERSIBLE garbage collector:
   bitten by irreversible deletes before).
 
 Hook it at daemon startup (cheap, fail-soft) and expose it as
-``argus-skill --gc``.
+``argus --gc``.
 """
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ def _project_is_empty(project_dir: Path) -> bool:
 
     Empty = no backlog items, no events, no saved conversation, no
     named/objective session, no continuous objective. Such dirs are minted by
-    every bare ``argus-skill`` launch (a fresh session) and accumulate fast.
+    every bare ``argus`` launch (a fresh session) and accumulate fast.
     The caller applies an age grace before moving one; this predicate only
     describes content and must not decide startup liveness by itself.
     """

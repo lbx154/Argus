@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.team import _store, task_board
-from argus_skill.webapi import map_team
-from argus_skill.webapi.map_feed import MapFeed
-from argus_skill.webapi.map_view import read_map
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.team import _store, task_board
+from argus.webapi import map_team
+from argus.webapi.map_feed import MapFeed
+from argus.webapi.map_view import read_map
 
 
 def append(life: Path, event: dict) -> None:
@@ -78,7 +78,7 @@ def test_team_only_progress_updates_the_feed_even_after_the_main_daemon_stops(tm
     feed = MapFeed()
     first = feed.read(sid, tmp_path, life)
     with monkeypatch.context() as patch:
-        patch.setattr("argus_skill.webapi.map_feed.read_map", lambda *a, **k: pytest.fail("unchanged projection reread"))
+        patch.setattr("argus.webapi.map_feed.read_map", lambda *a, **k: pytest.fail("unchanged projection reread"))
         assert feed.read(sid, tmp_path, life, first["cursor"])["events"] == []
     main_before = (life / "events.jsonl").read_bytes()
     task_board.claim_top(board, "worker-1", now=30)
@@ -236,7 +236,7 @@ def test_team_projection_bounds_record_count_and_json_size(tmp_path: Path, monke
 def test_history_api_includes_team_updates_and_deletions_on_unchanged_journal_cursor(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    from argus_skill.webapi.server import create_app
+    from argus.webapi.server import create_app
 
     sid, life, board = sample(tmp_path)
     journal_before = (life / "events.jsonl").read_bytes()
@@ -283,8 +283,8 @@ def test_history_team_projection_does_not_duplicate_journal_pages_or_replay_unch
 ) -> None:
     from fastapi.testclient import TestClient
 
-    from argus_skill.webapi import map_history
-    from argus_skill.webapi.server import create_app
+    from argus.webapi import map_history
+    from argus.webapi.server import create_app
 
     sid, life, _board = sample(tmp_path)
     for index in range(3):
@@ -299,7 +299,7 @@ def test_history_team_projection_does_not_duplicate_journal_pages_or_replay_unch
         # Once built, the full and tasks-only feed entries are reused while
         # the durable history index advances through its existing pages.
         with monkeypatch.context() as patch:
-            patch.setattr("argus_skill.webapi.map_feed.read_map", lambda *a, **k: pytest.fail("unchanged tail reread"))
+            patch.setattr("argus.webapi.map_feed.read_map", lambda *a, **k: pytest.fail("unchanged tail reread"))
             for _ in range(5):
                 page = client.get(url, params={"after": page["history_cursor"], "task_after": page["cursor"]}).json()
                 assert team_events(page) == {}

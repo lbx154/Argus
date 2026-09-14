@@ -6,8 +6,8 @@ classify) were invisible to total_usd() and the daily cap. They now emit
 """
 from __future__ import annotations
 
-from argus_skill.core.pricing import usd_for_tokens
-from argus_skill.life.supervisor._cost import _CostTrackingSink
+from argus.core.pricing import usd_for_tokens
+from argus.life.supervisor._cost import _CostTrackingSink
 
 
 class _Down:

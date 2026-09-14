@@ -3,17 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.manager._core import Manager
-from argus_skill.skills.builtins import seed_builtin_skills_for_vertical
-from argus_skill.skills.vertical_select import (
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.manager._core import Manager
+from argus.skills.builtins import seed_builtin_skills_for_vertical
+from argus.skills.vertical_select import (
     VERTICAL_PURPOSES,
     VERTICALS,
     persist_vertical,
 )
-from argus_skill.verticals._base import load_vertical_contract
-from argus_skill.verticals.argus_maintenance.architecture_audit import scan_repository
+from argus.verticals._base import load_vertical_contract
+from argus.verticals.argus_maintenance.architecture_audit import scan_repository
 
 
 def test_argus_maintenance_contract_is_built_in(tmp_path: Path) -> None:
@@ -116,10 +116,10 @@ def test_argus_maintenance_skills_are_packaged(tmp_path: Path) -> None:
 def test_architecture_audit_surfaces_candidates_without_calling_them_defects(
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "argus_skill" / "core" / "sample.py"
+    source = tmp_path / "argus" / "core" / "sample.py"
     source.parent.mkdir(parents=True)
     source.write_text(
-        "from argus_skill.verticals.research.tool import run\n"
+        "from argus.verticals.research.tool import run\n"
         "GPU = 'B200'\n"
         "HOME = '/home/alice/work'\n"
         "DIGEST = '0123456789abcdef0123456789abcdef'\n"
@@ -152,14 +152,14 @@ def test_architecture_audit_surfaces_candidates_without_calling_them_defects(
 
 
 def test_architecture_audit_ignores_managed_worktrees(tmp_path: Path) -> None:
-    source = tmp_path / "argus_skill" / "core" / "root_candidate.py"
+    source = tmp_path / "argus" / "core" / "root_candidate.py"
     source.parent.mkdir(parents=True)
     source.write_text("HOME = '/home/alice/work'\n", encoding="utf-8")
     duplicate = (
         tmp_path
         / ".worktrees"
         / "feature"
-        / "argus_skill"
+        / "argus"
         / "core"
         / "root_candidate.py"
     )
@@ -176,7 +176,7 @@ def test_architecture_audit_ignores_managed_worktrees(tmp_path: Path) -> None:
     assert report["findings"] == [
         {
             "category": "machine_specific_path",
-            "path": "argus_skill/core/root_candidate.py",
+            "path": "argus/core/root_candidate.py",
             "line": 1,
             "evidence": "/home/alice",
         }

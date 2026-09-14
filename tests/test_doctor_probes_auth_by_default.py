@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_CORE = Path(__file__).resolve().parents[1] / "argus_skill/apps/cli/_core.py"
+_CORE = Path(__file__).resolve().parents[1] / "argus/apps/cli/_core.py"
 
 
 def test_doctor_does_not_hide_the_login_check_behind_a_flag() -> None:

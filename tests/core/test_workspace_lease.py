@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from argus_skill.core.workspace_lease import (
+from argus.core.workspace_lease import (
     WorkspaceLeaseBusy,
     acquire_workspace_lease,
     release_workspace_lease,
@@ -57,7 +57,7 @@ def test_workspace_lease_is_exclusive_across_processes(tmp_path) -> None:
     script = (
         "from pathlib import Path\n"
         "import time\n"
-        "from argus_skill.core.workspace_lease import acquire_workspace_lease\n"
+        "from argus.core.workspace_lease import acquire_workspace_lease\n"
         f"acquire_workspace_lease({str(workspace)!r}, owner={{'sid':'s-child'}})\n"
         f"Path({str(ready)!r}).write_text('ready', encoding='utf-8')\n"
         "time.sleep(1.0)\n"
@@ -93,7 +93,7 @@ def test_failed_lease_initialization_releases_lock_for_same_process(tmp_path, fa
     # Both attempts below still happen within that one process, without restart.
     code = textwrap.dedent(f"""
         from pathlib import Path
-        from argus_skill.core import workspace_lease as lease
+        from argus.core import workspace_lease as lease
 
         root = Path({str(tmp_path)!r})
         workspace = root / 'workspace'

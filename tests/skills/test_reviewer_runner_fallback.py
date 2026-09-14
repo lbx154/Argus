@@ -4,14 +4,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.tools.image_api import ImageToolError
-from argus_skill.verticals.research import (
+from argus.core.models import RunnerResult
+from argus.tools.image_api import ImageToolError
+from argus.verticals.research import (
     _reviewer_runner_fallback as fallback,
 )
-from argus_skill.verticals.research import academic_language_review as language
-from argus_skill.verticals.research import paper_infrastructure_review as infrastructure
-from argus_skill.verticals.research._reviewer_runner_fallback import (
+from argus.verticals.research import academic_language_review as language
+from argus.verticals.research import paper_infrastructure_review as infrastructure
+from argus.verticals.research._reviewer_runner_fallback import (
     ReviewerRunnerError,
 )
 from tests.skills.researched_venues import EIGHT_PAGE_CONFERENCE
@@ -47,8 +47,8 @@ def test_fallback_uses_canonical_reviewer_config_and_timeout(
         )
         return RunnerResult(exit_code=0, agent_messages=['{"accepted":true}'])
 
-    from argus_skill.adapters import agent_cli_backend
-    from argus_skill.core import run_gateway
+    from argus.adapters import agent_cli_backend
+    from argus.core import run_gateway
 
     monkeypatch.setattr(agent_cli_backend, "AgentCliBackend", _Backend)
     monkeypatch.setattr(run_gateway, "run_exec", _run)
@@ -86,8 +86,8 @@ def test_fallback_uses_canonical_reviewer_config_and_timeout(
 def test_explicit_shared_runner_bin_beats_persisted_role_bin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.adapters import agent_cli_backend
-    from argus_skill.core import knob_store, run_gateway
+    from argus.adapters import agent_cli_backend
+    from argus.core import knob_store, run_gateway
 
     captured = {}
     monkeypatch.setattr(
@@ -125,8 +125,8 @@ def test_explicit_shared_runner_bin_beats_persisted_role_bin(
 def test_reviewer_backend_override_ignores_persisted_shared_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.adapters import agent_cli_backend
-    from argus_skill.core import knob_store, run_gateway
+    from argus.adapters import agent_cli_backend
+    from argus.core import knob_store, run_gateway
 
     captured = {}
     monkeypatch.setattr(
@@ -191,8 +191,8 @@ def test_fallback_rejects_failed_or_empty_runner_results(
     monkeypatch: pytest.MonkeyPatch,
     result: RunnerResult,
 ) -> None:
-    from argus_skill.adapters import agent_cli_backend
-    from argus_skill.core import run_gateway
+    from argus.adapters import agent_cli_backend
+    from argus.core import run_gateway
 
     monkeypatch.setattr(
         agent_cli_backend,

@@ -7,15 +7,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import ReviewDecision
-from argus_skill.core.pipeline_state import pipeline_state_path, read_pipeline_state
-from argus_skill.manager import Manager
-from argus_skill.manager.control_state import CampaignControlStore
-from argus_skill.skills.stage_machine import (
+from argus.core.models import ReviewDecision
+from argus.core.pipeline_state import pipeline_state_path, read_pipeline_state
+from argus.manager import Manager
+from argus.manager.control_state import CampaignControlStore
+from argus.skills.stage_machine import (
     advance_stage,
     reset_stage_for_replacement_intent,
 )
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.skills.vertical_select import persist_vertical
 
 
 def _manager(tmp_path: Path, *, workflow_mode: str = "staged"):
@@ -120,7 +120,7 @@ def test_idempotent_vertical_refresh_does_not_invalidate_stage_decision(tmp_path
 
 
 def test_deterministic_preflight_cannot_commit_over_replacement(tmp_path, monkeypatch) -> None:
-    from argus_skill.skills import stage_machine
+    from argus.skills import stage_machine
 
     manager, state, work = _manager(tmp_path)
     original = stage_machine._ensure_stage_completion

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     destination = ROOT / "dist-plugins"
     destination.mkdir(exist_ok=True)
-    catalog_path = ROOT / "argus_skill/plugin_catalog.json"
+    catalog_path = ROOT / "argus/plugin_catalog.json"
     previous = (
         json.loads(catalog_path.read_text(encoding="utf-8"))
         if catalog_path.exists()
@@ -27,7 +27,7 @@ def main():
     # build must not erase them just because their private source is absent.
     catalog = {entry["id"]: entry for entry in previous["plugins"]}
     built = set()
-    for path in sorted((ROOT / "argus_skill/verticals").glob("*/workbench.json")):
+    for path in sorted((ROOT / "argus/verticals").glob("*/workbench.json")):
         spec = json.loads(path.read_text(encoding="utf-8"))
         # `build` is a release-only dependency; build isolation supplies the
         # plugin's backend. This does not install a plugin on the build host.
@@ -75,7 +75,7 @@ def main():
         ):
             raise ValueError(f"Plugin {spec['id']} needs an HTTPS release URL and SHA-256")
     # The shipped catalog never embeds paths to the maintainer's computer.
-    (ROOT / "argus_skill/plugin_catalog.json").write_text(
+    (ROOT / "argus/plugin_catalog.json").write_text(
         json.dumps({"plugins": catalog}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8", newline="\n",
     )

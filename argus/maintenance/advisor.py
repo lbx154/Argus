@@ -78,13 +78,13 @@ def _is_argus_checkout(path: Path | None) -> bool:
         return False
     root = path.expanduser()
     manifest = root / "pyproject.toml"
-    if not manifest.is_file() or not (root / "argus_skill" / "__init__.py").is_file():
+    if not manifest.is_file() or not (root / "argus" / "__init__.py").is_file():
         return False
     try:
         project = tomllib.loads(manifest.read_text(encoding="utf-8")).get("project")
     except (OSError, UnicodeError, tomllib.TOMLDecodeError):
         return False
-    return isinstance(project, dict) and project.get("name") == "argus-skill"
+    return isinstance(project, dict) and project.get("name") == "argus"
 
 
 def _path_within(path: Path, root: Path) -> bool:

@@ -4,8 +4,8 @@ The ``MemoryBackend`` looks up canned responses by ``run_label``. Each
 label can have a queue of responses; consecutive calls pop from the
 queue. When the queue is exhausted, a default response is used.
 
-Provenance: new code, written for argus-skill. The interface mirrors
-``argus_skill.core.ports.RunnerBackend`` exactly so tests are realistic.
+Provenance: new code, written for argus. The interface mirrors
+``argus.core.ports.RunnerBackend`` exactly so tests are realistic.
 """
 from __future__ import annotations
 

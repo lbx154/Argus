@@ -8,16 +8,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend, _core, _exec
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.messaging import runtime
-from argus_skill.messaging.store import PeerMailbox
-from argus_skill.messaging.transport import request
+from argus.adapters.agent_cli_backend import AgentCliBackend, _core, _exec
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.messaging import runtime
+from argus.messaging.store import PeerMailbox
+from argus.messaging.transport import request
 
 
 def test_pi_manager_native_tool_reaches_durable_peer_queue_through_real_gateway(tmp_path, monkeypatch, platform_process_env):
-    from argus_skill.adapters.agent_cli_backend._exec_finalize import finalize_result
-    from argus_skill.core import secret_guard
+    from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
+    from argus.core import secret_guard
 
     root = tmp_path / "tenant"
     state = root / "projects/project-a"

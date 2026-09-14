@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from argus_skill.trial.analytics import Analytics, AnalyticsError
-from argus_skill.trial.research_controls import ResearchControls
+from argus.trial.analytics import Analytics, AnalyticsError
+from argus.trial.research_controls import ResearchControls
 
 
 @pytest.fixture
@@ -68,8 +68,8 @@ def test_controls_obey_research_retention(controls):
 
 
 def test_clarification_capture_preserves_real_path_binding_through_input_projection(controls):
-    from argus_skill.trial.interaction_capture import get_interaction
-    from argus_skill.trial.journey_journal import Journal
+    from argus.trial.interaction_capture import get_interaction
+    from argus.trial.journey_journal import Journal
 
     Journal(controls.analytics)
     parent = "42f7f0de-1286-4529-88fc-1f6dc735ea73"
@@ -82,8 +82,8 @@ def test_clarification_capture_preserves_real_path_binding_through_input_project
 
 
 def test_progress_capture_preserves_source_identity_without_accepting_client_source_prose(controls):
-    from argus_skill.trial.interaction_capture import get_interaction
-    from argus_skill.trial.journey_journal import Journal
+    from argus.trial.interaction_capture import get_interaction
+    from argus.trial.journey_journal import Journal
 
     Journal(controls.analytics)
     body = {"request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f", "question": "Why this step?", "locale": "en-US"}

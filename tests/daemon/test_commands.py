@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.daemon.commands import (
+from argus.daemon.commands import (
     COMMAND_LOG_FILE,
     COMMAND_STATE_FILE,
     DaemonCommandStateError,
@@ -204,7 +204,7 @@ def test_blocking_execution_lock_has_bounded_wait(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.daemon.commands._COMMAND_LOCK_TIMEOUT_SECONDS",
+        "argus.daemon.commands._COMMAND_LOCK_TIMEOUT_SECONDS",
         0.02,
     )
     entered = threading.Event()
@@ -238,7 +238,7 @@ def test_execution_lock_releases_thread_lock_when_lock_file_open_fails(
 ) -> None:
     with monkeypatch.context() as patch:
         patch.setattr(
-            "argus_skill.daemon.commands.os.open",
+            "argus.daemon.commands.os.open",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 PermissionError("denied")
             ),

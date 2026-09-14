@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.run_contract import RunContract, compute_curriculum_hash
-from argus_skill.tools.subagent import (
+from argus.skills.run_contract import RunContract, compute_curriculum_hash
+from argus.tools.subagent import (
     _flag,
     _is_full_scale_rl,
     _parse_launch_flags,
@@ -129,7 +129,7 @@ def test_preflight_rejects_low_diversity_packet(tmp_path):
 
 def test_preflight_failsoft_on_internal_error(tmp_path, monkeypatch):
     # An unexpected exception in the contract checker must never wedge a launch.
-    import argus_skill.skills.run_contract as rc
+    import argus.skills.run_contract as rc
 
     def _boom(**_kw):
         raise RuntimeError("unexpected")
@@ -148,8 +148,8 @@ def test_default_contract_path_stays_in_sync():
     ``_direct_run`` duplicates the default contract path because it needs a name
     for the file in the one case where importing ``run_contract`` is what failed.
     """
-    import argus_skill.skills.run_contract as rc
-    from argus_skill.tools.subagent._direct_run import _DEFAULT_CONTRACT_REL
+    import argus.skills.run_contract as rc
+    from argus.tools.subagent._direct_run import _DEFAULT_CONTRACT_REL
 
     assert _DEFAULT_CONTRACT_REL == rc.DEFAULT_RUN_CONTRACT_PATH
 
@@ -161,7 +161,7 @@ def test_preflight_rejects_a_malformed_contract(tmp_path, monkeypatch):
     contract has to say (a non-object payload, an empty materialized
     curriculum), so that must block the launch rather than wave it through.
     """
-    import argus_skill.skills.run_contract as rc
+    import argus.skills.run_contract as rc
 
     def _malformed(**_kw):
         raise ValueError("RUN_CONTRACT.json is not a JSON object")
@@ -183,7 +183,7 @@ def test_preflight_does_not_block_a_launch_on_our_own_bug(tmp_path, monkeypatch)
     wrong trade — but the launch must be recorded as un-checked so nobody later
     reads it as provenance-verified.
     """
-    import argus_skill.skills.run_contract as rc
+    import argus.skills.run_contract as rc
 
     def _bug(**_kw):
         raise TypeError("unsupported operand type(s)")
@@ -198,7 +198,7 @@ def test_preflight_does_not_block_a_launch_on_our_own_bug(tmp_path, monkeypatch)
 
 def test_preflight_names_the_resolved_contract_not_the_default(tmp_path, monkeypatch):
     """When --run-contract points elsewhere, the error names THAT file."""
-    import argus_skill.skills.run_contract as rc
+    import argus.skills.run_contract as rc
 
     def _malformed(**_kw):
         raise ValueError("bad payload")

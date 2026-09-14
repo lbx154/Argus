@@ -1,4 +1,4 @@
-"""Tests for the session model (argus_skill.core.session).
+"""Tests for the session model (argus.core.session).
 
 The defining behaviour: ``--new`` mints a FRESH session every time (two runs
 from the same cwd are two different sessions), while ``--resume <id>`` /
@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from argus_skill.core.session import (
+from argus.core.session import (
     SessionMeta,
     SessionResolutionError,
     list_sessions,
@@ -24,7 +24,7 @@ from argus_skill.core.session import (
     touch_session,
     write_session_meta,
 )
-from argus_skill.life.memory import MemoryBundle
+from argus.life.memory import MemoryBundle
 
 
 def test_new_session_id_format():

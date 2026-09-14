@@ -48,9 +48,9 @@ def engineer_sandbox_mode() -> str | None:
 
 def _package_root() -> str | None:
     try:
-        import argus_skill
+        import argus
 
-        return str(Path(argus_skill.__file__).resolve().parent.parent)
+        return str(Path(argus.__file__).resolve().parent.parent)
     except Exception:  # pragma: no cover — defensive
         return None
 

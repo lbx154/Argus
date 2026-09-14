@@ -11,7 +11,7 @@ Text extraction cannot verify figures, layout or clipped content: inspect actual
 rendered pages for those questions.
 
 Use the supplied Argus interpreter to run
-`python -m argus_skill.tools.pdf_chat <subcommand> <source> [options]`.
+`python -m argus.tools.pdf_chat <subcommand> <source> [options]`.
 `<source>` is a local file or arXiv identifier. Prefer an explicit arXiv version
 when claims depend on that version; a cached unversioned identifier may be stale.
 

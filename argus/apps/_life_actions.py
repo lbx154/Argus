@@ -422,7 +422,7 @@ def _continuous_session_error(
 
     error = continuous_mode_error(backend, continuous, objective)
     if error:
-        return f"argus-skill: {error}"
+        return f"argus: {error}"
     return ""
 
 

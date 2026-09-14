@@ -43,7 +43,7 @@ Use only a delegation interface actually available in the current session:
   directory and forbid edits to the parent manuscript, evidence, figures,
   research notes, and `paper/REVIEW.md`. The lead persists an inline result.
 - For independent Engineer–Reviewer work, follow `agent-team-lead.md` and use
-  `python -m argus_skill.tools.team`. Manager/Planner prepares each candidate
+  `python -m argus.tools.team`. Manager/Planner prepares each candidate
   as a direct, figure-only task with its own working directory and local task
   state. Do not copy the parent paper's pipeline or venue state into it. An
   empty directory alone is not an initialized direct task. Candidate Reviewer
@@ -72,12 +72,12 @@ the result shard; do not fabricate a numerical beauty score for its leaderboard.
 With those tasks and paths prepared, the lead uses the existing control CLI:
 
 ```bash
-"${ARGUS_SKILL_PYTHON:-python3}" -m argus_skill.tools.team form \
+"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.team form \
   --root "$ARGUS_FIGURE_TEAM_ROOT" --team-id "$ARGUS_FIGURE_TEAM_ID" \
   --cwd "$ARGUS_FIGURE_PARENT_WORKDIR" \
   --mission "Draw the specified figure candidates while the lead advances the science" \
   --tasks "$ARGUS_FIGURE_TASKS_FILE"
-"${ARGUS_SKILL_PYTHON:-python3}" -m argus_skill.tools.team pool-set \
+"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.team pool-set \
   --root "$ARGUS_FIGURE_TEAM_ROOT" --width 2 --state running
 ```
 
@@ -263,7 +263,7 @@ local repairs. Do not create a separate process report or ask the operator to
 make routine layout decisions.
 
 Open `engineer/academic-vector-figures.md` when a precise math or chart component
-is needed. Locate PPT Master with `python -m argus_skill.tools.ppt_master status`; the
+is needed. Locate PPT Master with `python -m argus.tools.ppt_master status`; the
 reported `skill_root` contains the toolkit instructions, layout references,
 `scripts/svg_quality_checker.py`, `scripts/svg_to_pptx.py`, and
 `scripts/pptx_to_svg.py`. Use `engineer/presentation-master.md` to install it if

@@ -8,13 +8,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend, _exec
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.role_tool_bridge import bridge_request
-from argus_skill.skills import runtime_tools_context as runtime
-from argus_skill.skills.role_library import render_skill_library_paths
-from argus_skill.skills.store import SkillStore
-from argus_skill.wiki.context import render_knowledge_wiki_block
+from argus.adapters.agent_cli_backend import AgentCliBackend, _exec
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.role_tool_bridge import bridge_request
+from argus.skills import runtime_tools_context as runtime
+from argus.skills.role_library import render_skill_library_paths
+from argus.skills.store import SkillStore
+from argus.wiki.context import render_knowledge_wiki_block
 
 
 @pytest.mark.parametrize('label,backend,disabled,isolated', [
@@ -59,7 +59,7 @@ def test_context_preserves_tools_and_memory_switch(tmp_path, monkeypatch, label,
 
 def test_normal_backend_pi_tools_publish_then_reuse_without_a_second_agent(tmp_path, monkeypatch):
     """Real backend admission/context + native tool handlers + workers; fake only the model."""
-    from argus_skill.adapters.agent_cli_backend._exec_finalize import finalize_result
+    from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
 
     monkeypatch.setenv('ARGUS_SKILL_COST_CONTROL', 'off')
     monkeypatch.setenv('ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING', '1')

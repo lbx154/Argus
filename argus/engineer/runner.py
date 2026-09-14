@@ -49,7 +49,7 @@ from .round_settlement import (
 )
 
 # These round-signal helpers remain module attributes because callers and tests
-# patch them through ``argus_skill.engineer.runner``.
+# patch them through ``argus.engineer.runner``.
 from .round_signals import (
     _apply_round_secret_guard,  # noqa: F401
     _pause_decision_clock,  # noqa: F401

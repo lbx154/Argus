@@ -1,6 +1,6 @@
 """Shared human-log rendering primitives (domain-agnostic plumbing).
 
-The live ``--follow`` terminal view (:mod:`argus_skill.apps.cli._follow`) needs
+The live ``--follow`` terminal view (:mod:`argus.apps.cli._follow`) needs
 consistent timestamping, wrapping and "what is the current mission" state. This
 module owns those cross-cutting concerns:
 
@@ -17,8 +17,8 @@ module owns those cross-cutting concerns:
   right glyph/indentation; an optional paint callback adds ANSI color for TTY
   callers.
 
-Deliberately stdlib-only: it must NOT import from ``argus_skill.life`` or
-``argus_skill.cli`` (the former would invert the layering, the latter would
+Deliberately stdlib-only: it must NOT import from ``argus.life`` or
+``argus.cli`` (the former would invert the layering, the latter would
 drag the whole CLI render stack into the daemon).  This is presentation
 plumbing — it makes no research/quality judgement of any kind.
 """

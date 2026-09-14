@@ -213,7 +213,7 @@ def _reply_back_block(task_id: str, event: str) -> str:
         return ""
     discussion = _discussion_path(task_id)
     cli = (
-        '${ARGUS_SKILL_PYTHON:-python3} -m argus_skill.tools.subagent reply '
+        '${ARGUS_SKILL_PYTHON:-python3} -m argus.tools.subagent reply '
         f'--task-id {task_id} --message "<your root-cause diagnosis + the SPECIFIC '
         'parameter/code change you will make (e.g. num_generations 2->6, '
         'max_completion_length 256->512, fix reward extraction), OR a reasoned '

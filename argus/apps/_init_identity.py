@@ -1,6 +1,6 @@
-"""Interactive ``argus-skill --init-identity`` wizard.
+"""Interactive ``argus --init-identity`` wizard.
 
-Populates the global ``identity.md`` card at the argus-skill root.
+Populates the global ``identity.md`` card at the argus root.
 Existing cards are NEVER overwritten — instead the wizard writes
 ``identity.next.md`` and prints a one-liner showing how to merge.
 
@@ -34,7 +34,7 @@ def run_init_identity(life_dir: Path, *, force: bool = False) -> int:
         next_path = life_dir / "identity.next.md"
         next_path.write_text(rendered, encoding="utf-8")
         print(
-            f"argus-skill: existing identity preserved at {target}.\n"
+            f"argus: existing identity preserved at {target}.\n"
             f"             new template written to {next_path}.\n"
             f"             review and merge, e.g.:\n"
             f"               diff -u {target} {next_path}\n"
@@ -45,14 +45,14 @@ def run_init_identity(life_dir: Path, *, force: bool = False) -> int:
     target.write_text(rendered, encoding="utf-8")
     # Touch the rest of the global + current-project scaffolding too.
     mem.init()
-    print(f"argus-skill: identity written to {target}")
+    print(f"argus: identity written to {target}")
     return 0
 
 
 def _collect(is_tty: bool) -> dict[str, str]:
     if not is_tty:
         return {}
-    print("argus-skill — identity wizard")
+    print("argus — identity wizard")
     print("(press Enter to skip any question; you can hand-edit identity.md anytime)\n")
 
     def ask(label: str, hint: str = "") -> str:
@@ -94,7 +94,7 @@ def _render(a: dict[str, str]) -> str:
     )
 
     return (
-        f"# argus-skill — operator identity card\n\n"
+        f"# argus — operator identity card\n\n"
         f"This file is your **persistent, hand-editable** identity. The supervisor\n"
         f"reads it before every mission and treats every section below as\n"
         f"operator-binding. Edit freely.\n\n"

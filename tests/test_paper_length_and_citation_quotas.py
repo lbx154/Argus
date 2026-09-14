@@ -17,11 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.research import venue_profiles
+from argus.verticals.research import venue_profiles
 
 SKILLS = (
     Path(__file__).resolve().parents[1]
-    / "argus_skill"
+    / "argus"
     / "verticals"
     / "research"
     / "skills"
@@ -117,7 +117,7 @@ def test_full_paper_length_target_is_distinct_from_official_limit() -> None:
     ("reviewer", "evaluate"),
 ])
 def test_live_paper_prompts_carry_length_policy(role: str, operation: str) -> None:
-    from argus_skill.verticals.research.prompt_policy import render_role_prompt_fragment
+    from argus.verticals.research.prompt_policy import render_role_prompt_fragment
 
     text = render_role_prompt_fragment(
         role=role,
@@ -171,7 +171,7 @@ def _issue_call(code: str) -> dict:
     """
     import ast
 
-    from argus_skill.verticals.research import paper_layout_review as mod
+    from argus.verticals.research import paper_layout_review as mod
 
     tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
     for node in ast.walk(tree):

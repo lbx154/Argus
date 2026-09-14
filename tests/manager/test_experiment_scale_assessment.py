@@ -6,15 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import ReviewDecision
-from argus_skill.life.supervisor._planning_cycle_enqueue import (
+from argus.core.models import ReviewDecision
+from argus.life.supervisor._planning_cycle_enqueue import (
     _apply_planner_stage_request,
 )
-from argus_skill.manager import Manager
-from argus_skill.skills.stage_machine import current_stage
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals.research.prompt_policy import render_role_prompt_fragment
-from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+from argus.manager import Manager
+from argus.skills.stage_machine import current_stage
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals.research.prompt_policy import render_role_prompt_fragment
+from argus.verticals.research.stages import STAGE_CHECKLISTS
 
 
 def _experiment_manager(tmp_path, *, workflow_mode="staged"):
@@ -162,7 +162,7 @@ def test_planner_scale_policy_uses_existing_benchmarks_without_new_mission():
 def test_small_custom_benchmarks_are_scientific_evidence_with_cost_accounting():
     playbook = (
         Path(__file__).resolve().parents[2]
-        / "argus_skill/verticals/research/skills/research-experiment-playbook.md"
+        / "argus/verticals/research/skills/research-experiment-playbook.md"
     )
     text = " ".join(playbook.read_text(encoding="utf-8").split())
     for required in (

@@ -1,7 +1,7 @@
 import pytest
 
-from argus_skill.trial.gateway import prepare
-from argus_skill.trial.store import TrialError
+from argus.trial.gateway import prepare
+from argus.trial.store import TrialError
 
 
 def test_pi_can_use_the_actual_selected_model_name():

@@ -35,7 +35,7 @@ STRUCTURAL at the ``analysis`` stage (by analysis time the run is about to
 be cited as evidence, so its curve must exist).
 
 CLI:
-    python -m argus_skill.skills.rl_training_plots --project-root .
+    python -m argus.skills.rl_training_plots --project-root .
 """
 from __future__ import annotations
 

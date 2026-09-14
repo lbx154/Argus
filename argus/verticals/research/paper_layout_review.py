@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from argus_skill.tools.image_api import (
+from argus.tools.image_api import (
     ApiError,
     ImageToolError,
     _data_url,
@@ -1303,7 +1303,7 @@ def _write_text(path: Path, value: str) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.verticals.research.paper_layout_review",
+        prog="python -m argus.verticals.research.paper_layout_review",
         description="Render and score final paper layout aesthetics.",
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
@@ -1331,7 +1331,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             write=bool(args.write),
         )
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        sys.stderr.write(f"argus-skill paper-layout-review: {_redact(str(exc))}\n")
+        sys.stderr.write(f"argus paper-layout-review: {_redact(str(exc))}\n")
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get("structural_status") == "ok" else 1

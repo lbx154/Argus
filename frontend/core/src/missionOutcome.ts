@@ -59,7 +59,7 @@ const PRESENTATION: Record<MissionOutcomeClass, Omit<MissionOutcomePresentation,
 };
 
 // The same sentences the Python mission view writes for an English session
-// (argus_skill/core/mission_view/_wording.py); keep the two in step.
+// (argus/core/mission_view/_wording.py); keep the two in step.
 const KINDS: Record<MissionOutcomeClass, MissionOutcomeKind> = {
   completed: 'mission_completed',
   incomplete: 'mission_incomplete',
@@ -81,7 +81,7 @@ const LABELS: Record<MissionOutcomeKind, string> = {
   mission_ended: 'The task ended without a recorded outcome.',
 };
 
-// Why a call stopped, as a clause; mirrors argus_skill/core/stop_kinds.py.
+// Why a call stopped, as a clause; mirrors argus/core/stop_kinds.py.
 const STOP_KIND_CLAUSES: Record<string, string> = {
   budget_exhausted: 'the project reached its budget limit',
   provider_cooldown: 'the model service asked Argus to wait before calling again',

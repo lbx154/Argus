@@ -6,7 +6,7 @@ from argparse import Namespace
 
 import pytest
 
-from argus_skill.tools import subagent
+from argus.tools import subagent
 
 
 def _status(task_id: str) -> int:

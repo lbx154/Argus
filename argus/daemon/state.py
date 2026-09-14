@@ -1303,7 +1303,7 @@ def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
         except (OSError, ProcessLookupError, ValueError):
             continue
         if (
-            "argus_skill.team.teammate_entry" in argv
+            "argus.team.teammate_entry" in argv
             and pgid == int(pid)
             and pgid > 1
         ):
@@ -1488,13 +1488,13 @@ def stop_daemon(
     if not preserve_upgrade_request:
         (resolved_dir / DAEMON_UPGRADE_REQUEST_FILE).unlink(missing_ok=True)
     if not status.alive or status.pid is None:
-        sys.stderr.write("argus-skill: no daemon is running for this life-dir.\n")
+        sys.stderr.write("argus: no daemon is running for this life-dir.\n")
         return 1
     pid = status.pid
     started_at_iso = str(status.started_at_iso or "")
     if not started_at_iso and os.name == "nt":
         sys.stderr.write(
-            "argus-skill: daemon status has no boot identity; refusing an "
+            "argus: daemon status has no boot identity; refusing an "
             "unsafe stop. Restart or use an installation that publishes "
             "started_at_iso.\n"
         )
@@ -1518,11 +1518,11 @@ def stop_daemon(
             request_daemon_drain(resolved_dir, pid=pid)
         except OSError as exc:
             sys.stderr.write(
-                f"argus-skill: failed to persist drain request: {exc}\n"
+                f"argus: failed to persist drain request: {exc}\n"
             )
             return 2
         sys.stdout.write(
-            f"argus-skill: draining daemon (pid {pid}) — quiesced continuous mode; "
+            f"argus: draining daemon (pid {pid}) — quiesced continuous mode; "
             "waiting for the current mission to finish at its natural boundary "
             "(no mid-mission SIGKILL)...\n"
         )
@@ -1571,12 +1571,12 @@ def stop_daemon(
             _clear_control_request()
             if drain:
                 clear_daemon_drain_request(resolved_dir, pid=pid)
-            sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
+            sys.stdout.write(f"argus: daemon (pid {pid}) stopped.\n")
             return 0
         if drain and time.monotonic() >= next_heartbeat:
             elapsed = int(time.monotonic() - wait_started)
             sys.stdout.write(
-                f"argus-skill: draining... still finishing current mission "
+                f"argus: draining... still finishing current mission "
                 f"({elapsed}s elapsed).\n"
             )
             sys.stdout.flush()
@@ -1589,7 +1589,7 @@ def stop_daemon(
             _clear_control_request()
             if drain:
                 clear_daemon_drain_request(resolved_dir, pid=pid)
-            sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
+            sys.stdout.write(f"argus: daemon (pid {pid}) stopped.\n")
             return 0
         if os.name == "nt":
             terminated = _terminate_windows_process_tree(
@@ -1598,7 +1598,7 @@ def stop_daemon(
             )
             if not terminated:
                 sys.stderr.write(
-                    f"argus-skill: daemon (pid {pid}) could not be force-stopped "
+                    f"argus: daemon (pid {pid}) could not be force-stopped "
                     "because its process identity changed or Windows denied access.\n"
                 )
                 return 2
@@ -1606,7 +1606,7 @@ def stop_daemon(
             if drain:
                 clear_daemon_drain_request(resolved_dir, pid=pid)
             sys.stderr.write(
-                f"argus-skill: daemon (pid {pid}) did not exit within "
+                f"argus: daemon (pid {pid}) did not exit within "
                 f"{wait_for:.0f}s; force-stopped its verified Windows process tree.\n"
             )
             return 0
@@ -1623,7 +1623,7 @@ def stop_daemon(
             return 0
         except (PermissionError, OSError):
             sys.stderr.write(
-                f"argus-skill: daemon (pid {pid}) could not be frozen before "
+                f"argus: daemon (pid {pid}) could not be frozen before "
                 "forced descendant cleanup.\n"
             )
             return 2
@@ -1635,25 +1635,25 @@ def stop_daemon(
             _clear_control_request()
             if drain:
                 clear_daemon_drain_request(resolved_dir, pid=pid)
-            sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
+            sys.stdout.write(f"argus: daemon (pid {pid}) stopped.\n")
             return 0
         if drain:
             clear_daemon_drain_request(resolved_dir, pid=pid)
         _clear_control_request()
         sys.stderr.write(
-            f"argus-skill: daemon (pid {pid}) did not exit within {wait_for:.0f}s; "
+            f"argus: daemon (pid {pid}) did not exit within {wait_for:.0f}s; "
             "sent SIGKILL (--force).\n"
         )
         return 0
     if drain:
         sys.stderr.write(
-            f"argus-skill: daemon (pid {pid}) is still finishing its mission after "
+            f"argus: daemon (pid {pid}) is still finishing its mission after "
             f"{wait_for:.0f}s. It will exit on its own at the next boundary; re-run "
             "with --force to SIGKILL now (interrupts the mission).\n"
         )
     else:
         sys.stderr.write(
-            f"argus-skill: daemon (pid {pid}) did not exit within {timeout:.1f}s "
+            f"argus: daemon (pid {pid}) did not exit within {timeout:.1f}s "
             "(it is mid-mission). Re-run with --drain to wait for a clean boundary, "
             "or --force to SIGKILL now.\n"
         )

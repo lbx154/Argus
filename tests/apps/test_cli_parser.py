@@ -1,4 +1,4 @@
-"""Argument-parser tests for the unified ``argus-skill`` entry point.
+"""Argument-parser tests for the unified ``argus`` entry point.
 
 The 7x24 pivot stripped legacy ``run`` and ``list-skills`` subcommands.
 These tests pin down the surface so a future refactor cannot silently
@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill import __version__
-from argus_skill.apps.cli import build_parser, main
+from argus import __version__
+from argus.apps.cli import build_parser, main
 
 
 def test_public_help_distinguishes_human_and_automation_surfaces() -> None:
@@ -37,7 +37,7 @@ def test_version_reports_package_version(capsys) -> None:
     with pytest.raises(SystemExit, match="0"):
         build_parser().parse_args(["--version"])
     rendered = capsys.readouterr().out
-    assert rendered == f"argus-skill {__version__}\n"
+    assert rendered == f"argus {__version__}\n"
 
 
 def test_main_pins_pip_user_off_before_any_child_shell(
@@ -127,7 +127,7 @@ def test_parser_exposes_update_flag_alias(flag: str):
 def test_update_flag_remains_exclusive_with_other_actions(
     flag: str, monkeypatch: pytest.MonkeyPatch, capsys,
 ) -> None:
-    from argus_skill.apps import update
+    from argus.apps import update
 
     monkeypatch.setattr(
         update,
@@ -251,7 +251,7 @@ def test_main_wiki_ingest_does_not_build_a_source_database(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ):
-    from argus_skill.wiki.bootstrap import init_wiki
+    from argus.wiki.bootstrap import init_wiki
 
     wiki = init_wiki("demo", base=tmp_path)
     refs = tmp_path / "paper" / "refs.bib"
@@ -372,7 +372,7 @@ def test_web_uses_documented_flags_and_explicit_life_dir(
         captured.update(kwargs)
         return 0
 
-    monkeypatch.setattr("argus_skill.webapi.server.serve", fake_serve)
+    monkeypatch.setattr("argus.webapi.server.serve", fake_serve)
 
     assert main([
         "--web",
@@ -449,7 +449,7 @@ def test_main_exports_decided_vertical_skills(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     target = tmp_path / "project" / "argus_builtin_skills"
     persist_vertical(target.parent, "research")
@@ -470,7 +470,7 @@ def test_export_target_does_not_inherit_unrelated_cwd_vertical(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     caller = tmp_path / "caller"
     caller.mkdir()
@@ -490,7 +490,7 @@ def test_export_prunes_legacy_unmodified_research_fallback(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from argus_skill.skills.builtins import (
+    from argus.skills.builtins import (
         iter_vertical_skill_texts,
         seed_vertical_skills,
     )
@@ -514,7 +514,7 @@ def test_export_prunes_legacy_unmodified_research_fallback(
 def test_export_preserves_edited_legacy_research_fallback(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.skills.builtins import seed_vertical_skills
+    from argus.skills.builtins import seed_vertical_skills
 
     target = tmp_path / "learned-project" / "argus_builtin_skills"
     seed_vertical_skills(target, "research")
@@ -537,8 +537,8 @@ def test_export_prunes_unmodified_math_skills_after_vertical_switch(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from argus_skill.skills.builtins import iter_vertical_skill_texts
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.builtins import iter_vertical_skill_texts
+    from argus.skills.vertical_select import persist_vertical
 
     project = tmp_path / "project"
     target = project / "argus_builtin_skills"
@@ -625,7 +625,7 @@ def test_main_rejects_continuous_on_persisted_memory_backend(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from argus_skill.core.knob_store import write_persisted_knob
+    from argus.core.knob_store import write_persisted_knob
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
@@ -650,7 +650,7 @@ def test_main_forwards_continuous_objective_to_ink(
         captured["argv"] = argv
         return 0
 
-    monkeypatch.setattr("argus_skill.apps.tui_launcher.main", fake_run_tui)
+    monkeypatch.setattr("argus.apps.tui_launcher.main", fake_run_tui)
 
     rc = main(["--continuous", "--objective", "hardening objective"])
 
@@ -664,13 +664,13 @@ def test_main_forwards_real_process_argv_to_ink(
     """Console-script calls use ``main()``; argv=None must not erase flags."""
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(sys, "argv", ["argus-skill", "--resume", "s-session01"])
+    monkeypatch.setattr(sys, "argv", ["argus", "--resume", "s-session01"])
 
     def fake_run_tui(argv):
         captured["argv"] = argv
         return 0
 
-    monkeypatch.setattr("argus_skill.apps.tui_launcher.main", fake_run_tui)
+    monkeypatch.setattr("argus.apps.tui_launcher.main", fake_run_tui)
 
     assert main() == 0
     assert captured["argv"] == ["--resume", "s-session01"]
@@ -680,7 +680,7 @@ def test_main_bare_launch_enters_ink_without_objective(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A bare ``argus-skill`` enters the single supported Ink cockpit."""
+    """A bare ``argus`` enters the single supported Ink cockpit."""
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
 
@@ -690,7 +690,7 @@ def test_main_bare_launch_enters_ink_without_objective(
         called["hit"] = True
         return 0
 
-    monkeypatch.setattr("argus_skill.apps.tui_launcher.main", fake_run_tui)
+    monkeypatch.setattr("argus.apps.tui_launcher.main", fake_run_tui)
 
     rc = main([])
     assert rc == 0
@@ -713,7 +713,7 @@ def test_main_ink_launch_allows_empty_special_prompt_directory(
         called["hit"] = True
         return 0
 
-    monkeypatch.setattr("argus_skill.apps.tui_launcher.main", fake_run_tui)
+    monkeypatch.setattr("argus.apps.tui_launcher.main", fake_run_tui)
 
     rc = main(["--continuous", "--objective", "hardening objective"])
     assert rc == 0
@@ -763,9 +763,9 @@ def test_every_supported_backend_is_selectable_and_documented() -> None:
     knob help had drifted to five of the eight, so `argus --config-help` — the
     documented operator control surface — hid three backends the CLI accepts.
     """
-    from argus_skill.agent_cli.runner_backend import SUPPORTED_BACKENDS
-    from argus_skill.core.backend_readiness import _SUPPORTED_BACKENDS
-    from argus_skill.core.knobs import format_config_help
+    from argus.agent_cli.runner_backend import SUPPORTED_BACKENDS
+    from argus.core.backend_readiness import _SUPPORTED_BACKENDS
+    from argus.core.knobs import format_config_help
 
     assert set(SUPPORTED_BACKENDS) == set(_SUPPORTED_BACKENDS)
 
@@ -784,8 +784,8 @@ def test_config_help_reports_the_backend_selected_by_setup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.core.knob_store import write_persisted_knob
-    from argus_skill.core.knobs import format_config_help
+    from argus.core.knob_store import write_persisted_knob
+    from argus.core.knobs import format_config_help
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
@@ -811,7 +811,7 @@ def test_a_missing_web_dependency_is_reported_not_raised(
     bare ImportError escape as a traceback — the message the guard exists to
     print was unreachable.
     """
-    from argus_skill.apps.cli import _core
+    from argus.apps.cli import _core
 
     monkeypatch.setattr(
         _core, "_missing_web_dependency", lambda: "uvicorn"
@@ -834,7 +834,7 @@ def test_a_negative_gc_window_is_refused_before_anything_moves(
     and 50 projects were moved to trash on a real global root — 42 of them
     ones the same run's `--gc-dry-run` had not listed.
     """
-    from argus_skill.core import project_gc
+    from argus.core import project_gc
 
     monkeypatch.setattr(
         project_gc,

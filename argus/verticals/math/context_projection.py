@@ -45,7 +45,7 @@ aimed at a projector bug points an autonomous agent at a healthy
 ``MATH_STATE.json``.
 
 This module is an adapter and lives on the vertical side deliberately.
-``argus_skill/proof_ledger/`` imports nothing from Argus so it can be lifted
+``argus/proof_ledger/`` imports nothing from Argus so it can be lifted
 out; a projector that reads ``BacklogItem`` is exactly the Argus-shaped code
 that would stop it.
 """

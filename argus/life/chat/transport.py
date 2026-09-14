@@ -5,7 +5,7 @@ finished replies to a ``ChatTransport``. Replies are written once, in
 Telegram-flavoured HTML (``<b>``/``<code>``/``<pre>``, entity-escaped body
 text), because that is the markup the command bodies already used when they
 lived inside ``telegram_bot``. Each transport renders that canonical form into
-whatever its platform accepts — see :mod:`argus_skill.life.chat.render`.
+whatever its platform accepts — see :mod:`argus.life.chat.render`.
 """
 from __future__ import annotations
 

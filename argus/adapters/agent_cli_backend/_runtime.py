@@ -1,10 +1,10 @@
 """Runtime dependency loading for the agent CLI backend.
 
 The only supported runner implementation is the in-tree
-``argus_skill.agent_cli`` package (its provenance and licence are described in
-``argus_skill/agent_cli/__init__.py`` and ``argus_skill/agent_cli/LICENSE``).
+``argus.agent_cli`` package (its provenance and licence are described in
+``argus/agent_cli/__init__.py`` and ``argus/agent_cli/LICENSE``).
 This module resolves that runtime lazily so importing
-``argus_skill.adapters.agent_cli_backend`` never eagerly pulls in the
+``argus.adapters.agent_cli_backend`` never eagerly pulls in the
 subprocess driver, and raises a friendly error when the bundled module is
 somehow missing (e.g. a broken/partial install).
 """
@@ -14,7 +14,7 @@ from typing import Any
 
 
 def load_agent_cli_runtime() -> dict[str, Any]:
-    """Resolve the bundled ``argus_skill.agent_cli`` runner runtime.
+    """Resolve the bundled ``argus.agent_cli`` runner runtime.
 
     Returns a dict of the symbols :class:`AgentCliBackend` needs: the
     ``AgentCliRunner`` class, its ``RunnerOptions`` dataclass (returned here
@@ -22,14 +22,14 @@ def load_agent_cli_runtime() -> dict[str, Any]:
     ``default_runner_bin`` / ``normalize_runner_backend`` helpers.
     """
     try:
-        from argus_skill.agent_cli import runner_backend as runner_backend_module
-        from argus_skill.agent_cli.agent_cli_runner import (
+        from argus.agent_cli import runner_backend as runner_backend_module
+        from argus.agent_cli.agent_cli_runner import (
             AgentCliRunner,
         )
-        from argus_skill.agent_cli.agent_cli_runner import (
+        from argus.agent_cli.agent_cli_runner import (
             RunnerOptions as CliRunnerOptions,
         )
-        from argus_skill.agent_cli.runner_backend import (
+        from argus.agent_cli.runner_backend import (
             BACKEND_CLAUDE,
             BACKEND_CODEX,
             BACKEND_COPILOT,
@@ -46,8 +46,8 @@ def load_agent_cli_runtime() -> dict[str, Any]:
         BACKEND_CURSOR = getattr(runner_backend_module, "BACKEND_CURSOR", "cursor")
     except ImportError as exc:  # pragma: no cover - environmental
         raise ImportError(
-            "AgentCliBackend requires the bundled argus_skill.agent_cli "
-            "module. Reinstall argus-skill to restore it."
+            "AgentCliBackend requires the bundled argus.agent_cli "
+            "module. Reinstall argus to restore it."
         ) from exc
     return {
         "AgentCliRunner": AgentCliRunner,

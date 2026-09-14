@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Iterator
 
 _IS_WINDOWS = os.name == "nt"
-_LAUNCHER_NAMES = ("argus", "argus-skill", "argus-doctor", "argus-plugin-server")
+_LAUNCHER_NAMES = ("argus", "argus", "argus-doctor", "argus-plugin-server")
 
 
 def _invoked_launcher_directory() -> Path | None:

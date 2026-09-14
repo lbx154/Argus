@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-import argus_skill.builtin_skills as _builtin
-from argus_skill.core.models import RunnerResult
-from argus_skill.manager import Manager
-from argus_skill.skills.role_context import load_builtin_skill_text
-from argus_skill.skills.store import (
+import argus.builtin_skills as _builtin
+from argus.core.models import RunnerResult
+from argus.manager import Manager
+from argus.skills.role_context import load_builtin_skill_text
+from argus.skills.store import (
     _ROLE_SUBDIRS,
     ROLE_CROSS_READ_POOLS,
     ROLE_SKILL_POOLS,
@@ -123,7 +123,7 @@ def test_manager_accepts_skill_store_and_is_backward_compatible() -> None:
 def test_manager_decision_prompt_carries_paths_not_skill_body(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.skills.store import Skill, SkillStore
+    from argus.skills.store import Skill, SkillStore
 
     store = SkillStore(tmp_path / "skills")
     store.save(

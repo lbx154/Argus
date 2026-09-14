@@ -7,7 +7,7 @@ import pytest
 
 SCRIPT = (
     Path(__file__).resolve().parents[2]
-    / "argus_skill"
+    / "argus"
     / "verticals"
     / "research"
     / "skills"

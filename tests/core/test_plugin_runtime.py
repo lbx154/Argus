@@ -3,7 +3,7 @@ import hashlib
 import httpx
 import pytest
 
-from argus_skill.core import plugin_runtime as runtime
+from argus.core import plugin_runtime as runtime
 
 
 def client(monkeypatch, handler):
@@ -89,7 +89,7 @@ def test_installer_does_not_inherit_model_secrets(monkeypatch):
 def test_missing_host_python_is_provisioned_locally(monkeypatch, tmp_path):
     import subprocess
 
-    from argus_skill.core import plugin_manager
+    from argus.core import plugin_manager
 
     monkeypatch.delenv("ARGUS_PLUGIN_PYTHON", raising=False)
     monkeypatch.setattr(plugin_manager.shutil, "which", lambda name: None)

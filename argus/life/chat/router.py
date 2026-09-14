@@ -1,9 +1,9 @@
 """The operator command surface, independent of any messaging platform.
 
-Lifted out of ``argus_skill.life.telegram_bot`` so Telegram and Feishu run the
+Lifted out of ``argus.life.telegram_bot`` so Telegram and Feishu run the
 same commands instead of drifting apart. Command bodies are unchanged: they
 compose replies in Telegram-flavoured HTML and hand them to a
-:class:`~argus_skill.life.chat.transport.ChatTransport`, which renders that
+:class:`~argus.life.chat.transport.ChatTransport`, which renders that
 canonical markup for its own platform.
 
 Commands:
@@ -96,7 +96,7 @@ def help_text(channel_name: str = "") -> str:
 02 🧠 Planner · 方向 — 规划后续任务
 03 👷 Engineer · 执行 — 实现、调研、实验
 04 👨‍🏫 Reviewer · 验证 — 检查正确性与完成状态"""
-    return f"""🤖 <b>argus-skill 命令列表</b>
+    return f"""🤖 <b>argus 命令列表</b>
 
 /add <code>&lt;text&gt;</code> [--once] [--cycles=N] — 添加任务
 /status — 查看守护进程、持续模式、当前任务、backlog/history、收件箱和预算/花费
@@ -433,7 +433,7 @@ class CommandRouter:
             total_cost_text = "partial"
         cont = describe_continuous_state(cs)
 
-        lines = ["📊 <b>argus-skill 状态</b>", ""]
+        lines = ["📊 <b>argus 状态</b>", ""]
 
         # Daemon
         if ds.alive:

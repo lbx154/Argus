@@ -269,7 +269,7 @@ def _run_discussion(
                     f"Thread: `{_discussion_path(task_id)}`"
                     + ("" if resolved else
                        f"\n\nReply again if you disagree:\n```bash\n"
-                       f"${{ARGUS_SKILL_PYTHON:-python3}} -m argus_skill.tools.subagent "
+                       f"${{ARGUS_SKILL_PYTHON:-python3}} -m argus.tools.subagent "
                        f"reply --task-id {task_id} --message \"...\"\n```"),
                     task_id,
                     life_dir=_life_dir_for_cwd(cwd),

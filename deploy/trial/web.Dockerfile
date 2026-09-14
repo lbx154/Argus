@@ -13,7 +13,7 @@ RUN apt-get update \
 
 WORKDIR /opt/argus
 COPY pyproject.toml README.md LICENSE argus_doctor.py ./
-COPY argus_skill ./argus_skill
+COPY argus ./argus
 COPY frontend/web/dist ./frontend/web/dist
 COPY frontend/tui/bundle/argus.mjs ./frontend/tui/bundle/argus.mjs
 RUN pip install --no-cache-dir '.[trial]'
@@ -33,4 +33,4 @@ ENV HOME=/tenant/home \
 USER trial
 WORKDIR /tenant/workspace
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["python", "-m", "argus_skill.trial.web_runtime"]
+CMD ["python", "-m", "argus.trial.web_runtime"]

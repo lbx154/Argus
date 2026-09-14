@@ -6,9 +6,9 @@ import pytest
 from test_training_data import chat, grant, pi_observations
 from test_training_data import training as training
 
-from argus_skill.trial.analytics import AnalyticsError
-from argus_skill.trial.collaboration_data import CollaborationData
-from argus_skill.trial.training_data import _hash, _json
+from argus.trial.analytics import AnalyticsError
+from argus.trial.collaboration_data import CollaborationData
+from argus.trial.training_data import _hash, _json
 
 
 def event(training, event_type, *, tenant="tenant-one", task="task-real", **payload):
@@ -238,7 +238,7 @@ def test_summary_cache_never_reuses_changed_content_or_revoked_grants(training):
 
 
 def test_view_byte_limit_never_reads_oversized_completed_content(training, monkeypatch):
-    from argus_skill.trial import collaboration_data
+    from argus.trial import collaboration_data
 
     data, _, _ = training
     grant(data)
@@ -340,7 +340,7 @@ def test_known_tool_activity_is_useful_without_private_body_or_unknown_names(tra
 
 
 def test_overview_budget_is_independent_of_export_and_project_detail(training, monkeypatch):
-    from argus_skill.trial import collaboration_data
+    from argus.trial import collaboration_data
 
     data, _, _ = training
     grant(data)
@@ -358,7 +358,7 @@ def test_overview_budget_is_independent_of_export_and_project_detail(training, m
 
 
 def test_per_episode_bound_still_applies_to_larger_overview_budget(training, monkeypatch):
-    from argus_skill.trial import collaboration_data
+    from argus.trial import collaboration_data
 
     data, _, _ = training
     grant(data)
@@ -371,7 +371,7 @@ def test_per_episode_bound_still_applies_to_larger_overview_budget(training, mon
 
 
 def test_event_page_truncation_is_visible_without_dropping_other_project_samples(training, monkeypatch):
-    from argus_skill.trial import collaboration_data
+    from argus.trial import collaboration_data
 
     data, _, _ = training
     grant(data)

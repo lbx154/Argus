@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.core.pipeline_state import (
+from argus.core.pipeline_state import (
     legacy_pipeline_state_path,
     pipeline_state_path,
     primary_pipeline_state_path,

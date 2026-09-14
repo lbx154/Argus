@@ -4,8 +4,8 @@ import threading
 
 from fastapi.testclient import TestClient
 
-from argus_skill.apps.update import UpdateCheck, UpdateError, UpdateResult
-from argus_skill.webapi import server, source_update
+from argus.apps.update import UpdateCheck, UpdateError, UpdateResult
+from argus.webapi import server, source_update
 
 
 def _status(**overrides):

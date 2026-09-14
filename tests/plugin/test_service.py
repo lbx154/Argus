@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from argus_skill.plugin.service import ArgusOperations, ArgusPluginService
+from argus.plugin.service import ArgusOperations, ArgusPluginService
 
 
 def _fake_operations(

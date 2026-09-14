@@ -5,19 +5,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.event_catalog import EventType
-from argus_skill.life.memory import Backlog, BacklogItem, EventJournal
-from argus_skill.life.supervisor._constants import PLAN_RETRY
-from argus_skill.life.supervisor._helpers import (
+from argus.core.event_catalog import EventType
+from argus.life.memory import Backlog, BacklogItem, EventJournal
+from argus.life.supervisor._constants import PLAN_RETRY
+from argus.life.supervisor._helpers import (
     _resolve_task_dep_ids,
     _unique_normalized_task_key_aliases,
 )
-from argus_skill.life.supervisor._planning_cycle_enqueue import (
+from argus.life.supervisor._planning_cycle_enqueue import (
     PlanningCycleEnqueueMixin,
     _apply_planner_stage_request,
     _latest_planner_forward_progress,
 )
-from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
 
 
 def test_resolve_dep_ids_maps_local_keys() -> None:
@@ -258,7 +258,7 @@ def test_commit_releases_dependency_on_durable_background_job(
     the verdict: the key is not a backlog dependency, so the task is enqueued
     without it and the mission coordinates with the job directly through the
     external-work protocol."""
-    from argus_skill.engineer import external_work
+    from argus.engineer import external_work
 
     backlog = Backlog(tmp_path / "backlog.jsonl")
     events: list[dict[str, object]] = []
@@ -322,8 +322,8 @@ def test_commit_drops_unknown_dependency_keys_and_tells_the_planner(
     dropped: the task is enqueued without it, an event records the dropped
     keys, and the next planner prompt carries the correction once. Rejecting
     the whole plan used to repeat the identical error for dozens of cycles."""
-    from argus_skill.engineer import external_work
-    from argus_skill.life.supervisor._planning_context import (
+    from argus.engineer import external_work
+    from argus.life.supervisor._planning_context import (
         PlanningContextMixin,
     )
 
@@ -441,7 +441,7 @@ def test_planner_stage_request_rolls_back_an_earlier_target(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from argus_skill.skills import stage_machine
+    from argus.skills import stage_machine
 
     calls: list[dict[str, object]] = []
 
@@ -479,7 +479,7 @@ def test_rejected_stage_request_is_returned_to_planner(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from argus_skill.life.supervisor import _planning_cycle_enqueue
+    from argus.life.supervisor import _planning_cycle_enqueue
 
     feedback: list[dict[str, str]] = []
     events: list[dict[str, object]] = []

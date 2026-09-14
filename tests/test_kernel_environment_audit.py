@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from argus_skill.verticals.kernel_engineering.environment_audit import (
+from argus.verticals.kernel_engineering.environment_audit import (
     SCHEMA_VERSION,
     _normalize_requirements,
     _partition_dependency_issues,
@@ -13,7 +13,7 @@ from argus_skill.verticals.kernel_engineering.environment_audit import (
     render_markdown,
     validate_report,
 )
-from argus_skill.verticals.kernel_engineering.tool_registry import (
+from argus.verticals.kernel_engineering.tool_registry import (
     filter_entries,
     load_registry,
     probe_entries,
@@ -235,7 +235,7 @@ def test_registry_probe_detects_import_tool_and_source(
     }
     (tmp_path / "third_party" / "demo").mkdir(parents=True)
     monkeypatch.setattr(
-        "argus_skill.verticals.kernel_engineering.tool_registry._probe_python_entries",
+        "argus.verticals.kernel_engineering.tool_registry._probe_python_entries",
         lambda entries, target_python: {
             "demo": {
                 "found_imports": ["demo"],
@@ -245,7 +245,7 @@ def test_registry_probe_detects_import_tool_and_source(
         },
     )
     monkeypatch.setattr(
-        "argus_skill.verticals.kernel_engineering.tool_registry.shutil.which",
+        "argus.verticals.kernel_engineering.tool_registry.shutil.which",
         lambda name: "/usr/bin/demo-tool" if name == "demo-tool" else None,
     )
 

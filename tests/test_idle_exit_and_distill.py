@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import time
 
-from argus_skill.life.supervisor import _core as sup_core
-from argus_skill.life.supervisor._core import _idle_exit_seconds
+from argus.life.supervisor import _core as sup_core
+from argus.life.supervisor._core import _idle_exit_seconds
 
 
 class _Cfg:
@@ -111,8 +111,8 @@ def test_unread_operator_guidance_cancels_idle_timeout(monkeypatch):
 def test_operator_stop_quiesces_continuous(tmp_path):
     """A graceful stop of a continuous daemon flips continuous.json to
     enabled=false so the campaign does NOT resurrect on the next launch."""
-    from argus_skill.daemon import life_worker
-    from argus_skill.daemon.life_worker import (
+    from argus.daemon import life_worker
+    from argus.daemon.life_worker import (
         read_continuous_config,
         write_continuous_config,
     )
@@ -135,8 +135,8 @@ def test_operator_stop_quiesces_continuous(tmp_path):
 
 def test_operator_stop_noop_when_not_continuous(tmp_path):
     """A non-continuous daemon must not touch continuous.json on stop."""
-    from argus_skill.daemon import life_worker
-    from argus_skill.daemon.life_worker import (
+    from argus.daemon import life_worker
+    from argus.daemon.life_worker import (
         read_continuous_config,
         write_continuous_config,
     )
@@ -151,7 +151,7 @@ def test_operator_stop_noop_when_not_continuous(tmp_path):
 
 
 def test_operator_stop_does_not_overwrite_newer_same_value_rearm(tmp_path):
-    from argus_skill.daemon import life_worker
+    from argus.daemon import life_worker
 
     life_worker.write_continuous_config(
         tmp_path,

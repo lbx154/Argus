@@ -7,7 +7,7 @@ Two sources feed one registry:
   while the process runs (install, enable, disable, uninstall), so they are
   read afresh on every call; the plugin manager caches the loaded modules.
 * **entry-point plugins** -- distributions that register
-  ``argus_skill.verticals`` entry points; the ``argus-verticals`` community
+  ``argus.verticals`` entry points; the ``argus-verticals`` community
   package registers seventeen. A distribution cannot appear or vanish inside
   a running interpreter without a ``pip`` action, so the scan (every
   dist-info via ``importlib.metadata``, then one ``entry.load()`` and contract
@@ -34,7 +34,7 @@ from types import ModuleType
 from typing import Any
 
 log = logging.getLogger(__name__)
-ENTRY_POINT_GROUP = "argus_skill.verticals"
+ENTRY_POINT_GROUP = "argus.verticals"
 VERTICAL_API_VERSION = 1
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _ENTRY_POINT_CACHE: dict[str, VerticalPlugin] | None = None

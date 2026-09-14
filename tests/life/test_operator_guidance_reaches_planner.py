@@ -22,9 +22,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor._idle_cycle import IdleCycleMixin
-from argus_skill.manager.directive import render_active_steering
+from argus.life.memory import LifeMemory
+from argus.life.supervisor._idle_cycle import IdleCycleMixin
+from argus.manager.directive import render_active_steering
 
 
 class _Supervisor(IdleCycleMixin):
@@ -117,7 +117,7 @@ def test_the_planning_intake_prepends_the_carryover() -> None:
     """The two halves must agree, or the carryover is written and never read."""
     import inspect
 
-    from argus_skill.life.supervisor import _planning_cycle_intake
+    from argus.life.supervisor import _planning_cycle_intake
 
     source = inspect.getsource(_planning_cycle_intake.PlanningCycleIntakeMixin)
     assert "_take_operator_guidance_carryover()" in source

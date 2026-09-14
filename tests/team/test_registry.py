@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.team import registry
+from argus.team import registry
 
 
 def test_write_and_list_marker_roundtrip(tmp_path: Path) -> None:

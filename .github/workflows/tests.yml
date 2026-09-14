@@ -43,12 +43,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev,qr,trial]'
       - name: Lint
-        run: python -m ruff check argus_skill tests
+        run: python -m ruff check argus tests
       - name: Reject new Python type diagnostics
         env:
           TYPECHECK_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: >-
-          python -m argus_skill.release_tools.typecheck_gate
+          python -m argus.release_tools.typecheck_gate
           --base "$TYPECHECK_BASE" --output-dir "$RUNNER_TEMP/typecheck"
       - name: Preserve Python type diagnostics
         if: always()

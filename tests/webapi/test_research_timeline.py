@@ -5,8 +5,8 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.webapi.server import create_app
+from argus.core.session import SessionMeta, write_session_meta
+from argus.webapi.server import create_app
 
 
 def test_timeline_preview_through_real_app_is_authenticated_and_read_only(tmp_path):

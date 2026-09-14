@@ -1,8 +1,8 @@
 """Telegram Bot poller — inbound command interface for the daemon.
 
-Runs as a daemon thread inside :class:`~argus_skill.daemon.life_worker.LifeWorker`.
+Runs as a daemon thread inside :class:`~argus.daemon.life_worker.LifeWorker`.
 Polls ``getUpdates`` with long-polling and dispatches the shared operator
-commands defined in :mod:`argus_skill.life.chat.router` (``/add``, ``/status``,
+commands defined in :mod:`argus.life.chat.router` (``/add``, ``/status``,
 ``/nudge`` …). Only messages from the configured ``chat_id`` (and optionally
 ``user_id``) are processed. Everything else is silently dropped.
 
@@ -46,7 +46,7 @@ __all__ = [
 ]
 
 #: Kept as a module attribute for callers that imported it before the command
-#: surface moved to :mod:`argus_skill.life.chat.router`.
+#: surface moved to :mod:`argus.life.chat.router`.
 _HELP_TEXT = help_text("Telegram")
 
 
@@ -169,7 +169,7 @@ class TelegramTransport(ChatTransport):
 class _CommandRouter(CommandRouter):
     """Telegram-bound router.
 
-    The command bodies now live in :class:`argus_skill.life.chat.router.CommandRouter`;
+    The command bodies now live in :class:`argus.life.chat.router.CommandRouter`;
     this subclass only keeps the historical ``(life_dir, token, chat_id)``
     construction used by the poller and existing callers.
     """

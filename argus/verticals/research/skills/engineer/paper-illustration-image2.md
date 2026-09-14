@@ -26,7 +26,7 @@ and deterministic in the final figure. Do not generate quantitative result plots
    thin strokes, deliberate whitespace, and clear scientific grouping. Keep
    long explanations in the caption; exact mathematics is restored during
    editable reconstruction.
-2. Generate one candidate with `python -m argus_skill.tools.image_api generate`.
+2. Generate one candidate with `python -m argus.tools.image_api generate`.
 3. Inspect the actual output for accidental text, watermarks, logos, misleading
    symbolism, or content not supported by the paper.
 4. For Method D, retain the actual image and prompt with the figure source and

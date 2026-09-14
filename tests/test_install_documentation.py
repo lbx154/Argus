@@ -91,7 +91,7 @@ def test_install_guides_cover_updates_paths_models_and_doctor_semantics() -> Non
     assert 'py -m pip install --upgrade --force-reinstall' in update
     assert "uv tool install --force" in update
     assert '"$HOME/Argus/.venv/bin/argus" update' in update
-    assert "uv tool upgrade argus-skill" not in update
+    assert "uv tool upgrade argus" not in update
     assert "\npip install " not in update
 
     assert "GitHub Release" in desktop

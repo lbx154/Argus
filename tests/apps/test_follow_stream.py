@@ -7,7 +7,7 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.apps.cli import _follow
+from argus.apps.cli import _follow
 
 
 class _Socket:
@@ -279,7 +279,7 @@ def test_follow_renderer_notices_when_bundle_is_unavailable(monkeypatch, capsys)
 
     assert rendered == "🧭 [Manager] Understanding the task…"
     assert capsys.readouterr().err == (
-        "argus-skill: semantic event renderer unavailable (TUI bundle not found); "
+        "argus: semantic event renderer unavailable (TUI bundle not found); "
         "using Python fallback for this follow session\n"
     )
 

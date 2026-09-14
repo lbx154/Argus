@@ -11,26 +11,26 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend._core import AgentCliBackend
-from argus_skill.adapters.agent_cli_backend._options import _compose_interrupt_providers
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.agent_cli.agent_cli_runner import RunnerOptions as CliRunnerOptions
-from argus_skill.apps import _runtime, _runtime_execute
-from argus_skill.apps._runtime_interrupt import current_execution_interrupt_provider
-from argus_skill.core import file_lock
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.operator_context import OperatorContextStore, append_directive
-from argus_skill.core.run_gateway import (
+from argus.adapters.agent_cli_backend._core import AgentCliBackend
+from argus.adapters.agent_cli_backend._options import _compose_interrupt_providers
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.agent_cli.agent_cli_runner import RunnerOptions as CliRunnerOptions
+from argus.apps import _runtime, _runtime_execute
+from argus.apps._runtime_interrupt import current_execution_interrupt_provider
+from argus.core import file_lock
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.operator_context import OperatorContextStore, append_directive
+from argus.core.run_gateway import (
     RunExecGateway,
     current_run_interrupt_provider,
     current_run_interrupt_reason,
 )
-from argus_skill.daemon._life_worker_runtime_context import _runner_namespace
-from argus_skill.daemon.config import LifeWorkerConfig
-from argus_skill.engineer import round_reviewer
-from argus_skill.life import knowledge_recall
-from argus_skill.life.memory import BacklogItem, LifeMemory, request_running_item_abort
-from argus_skill.life.supervisor._mission_execution_runtime import _mission_memory_prelude
+from argus.daemon._life_worker_runtime_context import _runner_namespace
+from argus.daemon.config import LifeWorkerConfig
+from argus.engineer import round_reviewer
+from argus.life import knowledge_recall
+from argus.life.memory import BacklogItem, LifeMemory, request_running_item_abort
+from argus.life.supervisor._mission_execution_runtime import _mission_memory_prelude
 
 
 def _runtime_case(tmp_path, monkeypatch, *, enable_abort=True, with_stop=True):
@@ -66,7 +66,7 @@ def _runtime_case(tmp_path, monkeypatch, *, enable_abort=True, with_stop=True):
         backend.default_interrupt = kwargs.get("default_interrupt_reason_provider")
         return backend
 
-    monkeypatch.setattr("argus_skill.adapters.agent_cli_backend.AgentCliBackend", factory)
+    monkeypatch.setattr("argus.adapters.agent_cli_backend.AgentCliBackend", factory)
     ns = _runner_namespace(LifeWorkerConfig(life_dir=state, project_workdir=workspace,
                                            global_root=tmp_path / "global", backend="codex",
                                            engineer_model="offline", reviewer_model="offline"))
@@ -356,8 +356,8 @@ def test_composed_watchdog_polls_use_independent_copies_of_the_captured_context(
 
 
 def test_claimed_guidance_stops_under_contended_apply_and_replays(tmp_path, monkeypatch):
-    from argus_skill.apps._inbox import count_pending_inbox_messages, queue_inbox_message
-    from argus_skill.core import operator_context
+    from argus.apps._inbox import count_pending_inbox_messages, queue_inbox_message
+    from argus.core import operator_context
 
     case = _runtime_case(tmp_path, monkeypatch)
     text = "Always preserve this newly drained instruction."

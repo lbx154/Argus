@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.research.skills.engineer.figure_spec_scripts import (
+from argus.verticals.research.skills.engineer.figure_spec_scripts import (
     paper_chart_style as pcs,
 )
 
@@ -165,7 +165,7 @@ def test_set_pub_style_requires_scienceplots(
 
     monkeypatch.setattr(pcs.importlib, "import_module", reject_scienceplots)
 
-    with pytest.raises(RuntimeError, match=r"argus-skill\[figures\]"):
+    with pytest.raises(RuntimeError, match=r"argus\[figures\]"):
         pcs.set_pub_style()
 
 

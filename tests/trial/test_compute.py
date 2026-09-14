@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.trial import compute_client
-from argus_skill.trial.compute import (
+from argus.trial import compute_client
+from argus.trial.compute import (
     GIB,
     GPU_SECONDS,
     LABEL,
@@ -20,7 +20,7 @@ from argus_skill.trial.compute import (
     load_config,
     main,
 )
-from argus_skill.trial.store import Store, TrialError
+from argus.trial.store import Store, TrialError
 
 
 def iso(seconds):

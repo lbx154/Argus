@@ -27,7 +27,7 @@ export async function verifyRuntimeStability({ page, frame, stage, dataDir, nati
   } finally { writeFileSync(ownershipPath, ownership); }
   record('Corrupted on-disk ownership does not invalidate the already verified live session');
 
-  const manifestPath = join(stage, 'argus-backend', '_internal', 'argus_skill', 'release_manifest.json');
+  const manifestPath = join(stage, 'argus-backend', '_internal', 'argus', 'release_manifest.json');
   const manifest = readFileSync(manifestPath);
   const savedPath = `${manifestPath}.native-qa-original`;
   assert(!existsSync(savedPath), 'A previous manifest fault injection has not been restored.');

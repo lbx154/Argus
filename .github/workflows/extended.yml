@@ -157,7 +157,7 @@ jobs:
           export UV_TOOL_DIR="$RUNNER_TEMP/argus-tools"
           export UV_TOOL_BIN_DIR="$RUNNER_TEMP/argus-bin"
           uv tool install --python 3.12 .
-          "$UV_TOOL_BIN_DIR/argus-skill" --version
+          "$UV_TOOL_BIN_DIR/argus" --version
           "$UV_TOOL_BIN_DIR/argus" --help
 
       - name: Smoke Windows direct pip install
@@ -166,9 +166,9 @@ jobs:
         run: |
           python -m pip install build
           python -m build --wheel
-          python -m pip uninstall -y argus-skill
+          python -m pip uninstall -y argus
           python -m pip install --no-deps (Get-ChildItem dist\*.whl).FullName
-          argus-skill --version
+          argus --version
           argus --help
 
       # The pairing banner is written to stderr, which on Windows uses the ANSI
@@ -181,7 +181,7 @@ jobs:
         run: |
           python -c "
           import sys
-          from argus_skill.webapi.pairing import pairing_plan
+          from argus.webapi.pairing import pairing_plan
           plan = pairing_plan('0.0.0.0', 8799, lan_address='192.168.1.50')
           sys.stderr.write(plan.banner)
           assert plan.url.startswith('http://192.168.1.50:8799/?token='), plan.url
@@ -250,7 +250,7 @@ jobs:
       - name: Lint and test desktop sources
         shell: bash
         run: |
-          python -m ruff check argus_skill desktop-tauri/scripts tests/desktop
+          python -m ruff check argus desktop-tauri/scripts tests/desktop
           python -m pytest -q tests/desktop/test_frozen_runtime.py
           python -m pytest -q tests/desktop/test_native_window_chrome.py tests/desktop/test_windows_installer_preflight.py tests/desktop/test_windows_backend_build.py
           npm --prefix desktop-tauri run test:release

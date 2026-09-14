@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
-from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE, BACKEND_CODEX
+from argus.agent_cli.agent_cli_runner import AgentCliRunner
+from argus.agent_cli.runner_backend import BACKEND_CLAUDE, BACKEND_CODEX
 
 
 def test_claude_prompt_is_positional() -> None:

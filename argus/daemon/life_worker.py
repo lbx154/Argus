@@ -1,9 +1,9 @@
 """Life-mode 7×24 worker: detached background process that drains the
 backlog forever.
 
-This is the substrate behind ``argus-skill --daemon`` and the non-interactive
+This is the substrate behind ``argus --daemon`` and the non-interactive
 executor behind the Ink/Web cockpit. Both build the same
-:class:`~argus_skill.life.supervisor.LifeSupervisor`
+:class:`~argus.life.supervisor.LifeSupervisor`
 against the current project's split memory bundle, but the worker has
 no TTY and exits only on SIGTERM /
 SIGINT.

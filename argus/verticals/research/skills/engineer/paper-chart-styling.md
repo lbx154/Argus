@@ -30,7 +30,7 @@ figures (teaser/pipeline/architecture) are not covered here — route those thro
 
 1. **Install the required plotting stack in the project venv**:
    ```bash
-   pip install 'argus-skill[figures]'
+   pip install 'argus[figures]'
    # or: pip install matplotlib seaborn SciencePlots
    ```
    Do not continue with plain matplotlib or a hand-authored SVG data plot when
@@ -38,12 +38,12 @@ figures (teaser/pipeline/architecture) are not covered here — route those thro
    project environment.
 
 2. **Copy the shared style helper into the project** so analysis scripts can
-   import it without `argus_skill` on the path:
+   import it without `argus` on the path:
    ```bash
    python - <<'PY'
    import shutil
    from pathlib import Path
-   from argus_skill.verticals.research.skills.engineer.figure_spec_scripts import paper_chart_style
+   from argus.verticals.research.skills.engineer.figure_spec_scripts import paper_chart_style
    src = Path(paper_chart_style.__file__)
    Path("paper/analysis").mkdir(parents=True, exist_ok=True)
    shutil.copy(src, "paper/analysis/paper_chart_style.py")

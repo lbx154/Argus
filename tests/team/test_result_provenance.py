@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.team import result_provenance as rp
+from argus.team import result_provenance as rp
 
 
 def _signed(target: str = "kA", metric: float = 1.85):

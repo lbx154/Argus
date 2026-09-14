@@ -25,7 +25,7 @@ This package was split out of a single ~1.5k-line module. It is organized as:
 - ``_snapshot``: live daemon/session merge and legacy projection compatibility
   (``snapshot_mission_view`` / ``merge_mission_view_snapshot``).
 
-The public API (every name importable as ``argus_skill.core.mission_view.X``)
+The public API (every name importable as ``argus.core.mission_view.X``)
 is re-exported here so existing imports keep working unchanged.
 """
 from __future__ import annotations

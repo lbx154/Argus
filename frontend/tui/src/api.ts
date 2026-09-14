@@ -43,7 +43,7 @@ export type {
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated.js';
 
 /**
- * Client for the argus-skill webapi (argus_skill/webapi/server.py). ALL network
+ * Client for the argus webapi (argus/webapi/server.py). ALL network
  * logic lives here so the render layer stays a thin, testable shell: events over
  * WebSocket (/stream), snapshots + commands over REST. See M0/M1 endpoints.
  */

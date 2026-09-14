@@ -7,9 +7,9 @@ from dataclasses import replace
 
 import pytest
 
-from argus_skill.core import cost_control as costs
-from argus_skill.core.usage import UsageLedger, UsageRecord
-from argus_skill.life.supervisor import LifeBudget
+from argus.core import cost_control as costs
+from argus.core.usage import UsageLedger, UsageRecord
+from argus.life.supervisor import LifeBudget
 
 
 @pytest.fixture(autouse=True)

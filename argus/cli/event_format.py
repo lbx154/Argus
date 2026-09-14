@@ -1,4 +1,4 @@
-"""Pure event-formatting helpers for argus-skill.
+"""Pure event-formatting helpers for argus.
 
 The terminal renderer and tests share these pure formatters.
 No I/O, no Telegram, no logging. Inputs are plain dicts; outputs are

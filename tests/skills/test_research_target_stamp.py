@@ -15,8 +15,8 @@ to certify that same finished work, each independently reviewed ``done`` and
 each answered with ``missing_exploratory_reviewer_certification``.
 
 Citations:
-- argus_skill/skills/vertical_select.py — ``persist_vertical``
-- argus_skill/life/supervisor/_planning_cycle_helpers.py
+- argus/skills/vertical_select.py — ``persist_vertical``
+- argus/life/supervisor/_planning_cycle_helpers.py
   — ``_research_project_done_issue``
 """
 
@@ -29,10 +29,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life.supervisor._planning_cycle_helpers import (
+from argus.life.supervisor._planning_cycle_helpers import (
     _research_project_done_issue,
 )
-from argus_skill.skills.vertical_select import _state_path, persist_vertical
+from argus.skills.vertical_select import _state_path, persist_vertical
 
 TARGET = "exploratory"
 
@@ -77,7 +77,7 @@ def test_changing_vertical_retires_same_target_certification(
     monkeypatch: pytest.MonkeyPatch,
     target_level: str | None,
 ) -> None:
-    monkeypatch.setattr("argus_skill.skills.vertical_select.time.time", lambda: 100.0)
+    monkeypatch.setattr("argus.skills.vertical_select.time.time", lambda: 100.0)
     persist_vertical(tmp_path, "research", research_target_level=TARGET)
     certification = SimpleNamespace(
         kind="mission_complete",
@@ -86,7 +86,7 @@ def test_changing_vertical_retires_same_target_certification(
     )
     assert _research_project_done_issue(tmp_path, [certification]) == ""
 
-    monkeypatch.setattr("argus_skill.skills.vertical_select.time.time", lambda: 300.0)
+    monkeypatch.setattr("argus.skills.vertical_select.time.time", lambda: 300.0)
     persist_vertical(tmp_path, "math", research_target_level=target_level)
 
     assert _research_project_done_issue(

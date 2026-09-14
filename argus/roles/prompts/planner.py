@@ -622,7 +622,7 @@ def build_continuous_prompt(
     planner_hygiene_block = (
         "## Runtime\n"
         "Use active project files, project-local skills, and "
-        "`python -m argus_skill ...` or `ARGUS_SKILL_PYTHON`; do not copy stale "
+        "`python -m argus ...` or `ARGUS_SKILL_PYTHON`; do not copy stale "
         "host paths from history."
     )
     # Compile from structured state only: vertical/stage, target contract,

@@ -5,9 +5,9 @@ from dataclasses import replace
 
 import pytest
 
-from argus_skill.webapi import map_narrative
-from argus_skill.webapi import map_teaching_review as teaching
-from argus_skill.webapi.map_model import MapModel
+from argus.webapi import map_narrative
+from argus.webapi import map_teaching_review as teaching
+from argus.webapi.map_model import MapModel
 
 
 def document():

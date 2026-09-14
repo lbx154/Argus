@@ -6,35 +6,35 @@ from types import SimpleNamespace
 
 import pytest
 
-import argus_skill
-from argus_skill.core.manuscript_narrative_runtime import (
+import argus
+from argus.core.manuscript_narrative_runtime import (
     isolated_pdf_workspace,
     prepare_narrative_snapshot,
     rendered_pdf_freshness,
     snapshot_after_edit,
 )
-from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-from argus_skill.reviewer._core import ReviewerConfig, _parallel_final_review_passes
-from argus_skill.roles.prompts import ChecklistMode, resolve_role_prompt
-from argus_skill.roles.prompts.engineer import NARRATIVE_EDIT, mission_request
-from argus_skill.roles.prompts.reviewer import (
+from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.reviewer._core import ReviewerConfig, _parallel_final_review_passes
+from argus.roles.prompts import ChecklistMode, resolve_role_prompt
+from argus.roles.prompts.engineer import NARRATIVE_EDIT, mission_request
+from argus.roles.prompts.reviewer import (
     COLD_READ,
     SCIENCE_LOSS_CHECK,
     evaluate_request,
 )
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import load_vertical_contract
-from argus_skill.verticals.research.academic_language_review import (
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals._base import load_vertical_contract
+from argus.verticals.research.academic_language_review import (
     _abstract_quality_issue_specs,
     _neutral_language_facts,
     generate_academic_language_review,
 )
-from argus_skill.verticals.research.prompt_policy import render_role_prompt_fragment
-from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+from argus.verticals.research.prompt_policy import render_role_prompt_fragment
+from argus.verticals.research.stages import STAGE_CHECKLISTS
 
 
 def _research_skill(relative: str) -> str:
-    root = Path(argus_skill.__file__).parent / "verticals" / "research" / "skills"
+    root = Path(argus.__file__).parent / "verticals" / "research" / "skills"
     return " ".join((root / relative).read_text(encoding="utf-8").lower().split())
 
 
@@ -59,7 +59,7 @@ def test_drafting_lets_the_venue_and_claim_decide_the_form() -> None:
 
 
 def test_drafting_follows_the_craft_reference() -> None:
-    root = Path(argus_skill.__file__).parent / "verticals" / "research" / "skills"
+    root = Path(argus.__file__).parent / "verticals" / "research" / "skills"
     craft = (root / "engineer" / "references" / "paper-writing-craft.md").read_text(
         encoding="utf-8"
     )
@@ -81,7 +81,7 @@ def test_drafting_follows_the_craft_reference() -> None:
 
 
 def test_no_research_prompt_or_skill_carries_a_writing_quota() -> None:
-    root = Path(argus_skill.__file__).parent / "verticals" / "research"
+    root = Path(argus.__file__).parent / "verticals" / "research"
     offenders = []
     for path in list(root.rglob("*.py")) + list(root.rglob("*.md")):
         text = path.read_text(encoding="utf-8").lower()
@@ -166,7 +166,7 @@ def test_operation_prompts_enforce_narrative_and_cold_read_input_boundaries(
     paper.mkdir()
     (paper / "REVIEW.md").write_text("SECRET_PRIOR_REVIEW", encoding="utf-8")
 
-    from argus_skill.verticals.research.prompt_policy import (
+    from argus.verticals.research.prompt_policy import (
         render_role_prompt_context,
     )
 
@@ -282,7 +282,7 @@ def test_post_edit_passes_use_snapshot_and_pdf_only_cold_workspace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.core import manuscript_narrative_runtime
+    from argus.core import manuscript_narrative_runtime
 
     def render_fixture(paper):
         (paper / "pages").mkdir()

@@ -56,7 +56,7 @@ that the encoded theorem means what the original problem says. Do not require
 particular filenames.
 
 Where `research/MATH_STATE.json` exists, `python -m
-argus_skill.verticals.math.math_state show` reports each claim's derived status
+argus.verticals.math.math_state show` reports each claim's derived status
 and, on any claim a compiler established, the caveat that nothing checked
 whether the formal statement says what the natural statement says. That is your
 job, not the compiler's, and it is the review a `closed_kernel` most needs.
@@ -85,7 +85,7 @@ inherited, so cite what you read.
 
 ## The sources the proof leans on
 
-`python -m argus_skill.verticals.math.citation_check status` lists every result
+`python -m argus.verticals.math.citation_check status` lists every result
 the project imported and whether anyone has been to look it up. Nothing is
 delivered while one is outstanding, and you are the right party to close them:
 the worker who wrote "Theorem 3.2 of [K]" is the one whose reading is in

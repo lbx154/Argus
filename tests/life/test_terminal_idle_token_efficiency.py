@@ -6,14 +6,14 @@ import json
 import subprocess
 from pathlib import Path
 
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_RETRY
-from argus_skill.planner import PlannerVerdict
-from argus_skill.skills.stage_machine import completion_contract_fingerprint
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import (
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_RETRY
+from argus.planner import PlannerVerdict
+from argus.skills.stage_machine import completion_contract_fingerprint
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals._base import (
     load_vertical,
     vertical_completion_contract_version,
 )
@@ -82,7 +82,7 @@ def test_restart_continues_standing_objective_after_agent_bookkeeping(
         calls += 1
         return PlannerVerdict(project_done=True, reason="verified terminal")
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     first = _supervisor(project, life)
     assert first._plan_next_work() == PLAN_RETRY
     assert calls == 1

@@ -1,14 +1,14 @@
 import os
 from types import SimpleNamespace
 
-from argus_skill.manager.config_intent import _apply_config_intent
+from argus.manager.config_intent import _apply_config_intent
 
 
 def test_manager_budget_intent_writes_config_json(
     tmp_path, monkeypatch
 ) -> None:
     # The sole host-global cap is an ordinary config.json knob.
-    from argus_skill.core.knob_store import read_persisted_knobs
+    from argus.core.knob_store import read_persisted_knobs
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", raising=False)
@@ -29,8 +29,8 @@ def test_manager_applies_backend_and_model_batch_without_codex_fallback(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.knob_store import read_persisted_knobs
-    from argus_skill.life.router import ConfigIntent
+    from argus.core.knob_store import read_persisted_knobs
+    from argus.life.router import ConfigIntent
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
@@ -79,8 +79,8 @@ def test_manager_rejects_invalid_batch_atomically(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.knob_store import read_persisted_knobs
-    from argus_skill.life.router import ConfigIntent
+    from argus.core.knob_store import read_persisted_knobs
+    from argus.life.router import ConfigIntent
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
@@ -108,8 +108,8 @@ def test_manager_rejects_unknown_backend_without_codex_fallback(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.knob_store import read_persisted_knobs
-    from argus_skill.life.router import ConfigIntent
+    from argus.core.knob_store import read_persisted_knobs
+    from argus.life.router import ConfigIntent
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
@@ -132,7 +132,7 @@ def test_manager_rejects_free_text_model_without_poisoning_environment(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.knob_store import read_persisted_knobs
+    from argus.core.knob_store import read_persisted_knobs
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_ENGINEER_MODEL", raising=False)
@@ -155,7 +155,7 @@ def test_manager_config_failure_does_not_change_environment(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core import knob_store
+    from argus.core import knob_store
 
     mem = SimpleNamespace(project=SimpleNamespace(root=tmp_path))
     intent = SimpleNamespace(knob="model", roles=["engineer"], value="new-model")

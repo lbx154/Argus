@@ -5,7 +5,7 @@ import shutil
 
 import pytest
 
-from argus_skill.life.memory import _read_jsonl_tail_history
+from argus.life.memory import _read_jsonl_tail_history
 
 
 @pytest.mark.parametrize("reader", ["tail", "marked", "rg"])

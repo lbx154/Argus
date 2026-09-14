@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from argus_skill.manager.live_view import (
+from argus.manager.live_view import (
     LIVE_VIEW_MANIFEST,
     LiveViewDecision,
     apply_live_view_decision,

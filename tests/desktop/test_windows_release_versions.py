@@ -27,7 +27,7 @@ def test_windows_release_version_matrix_has_no_drift():
 def test_version_matrix_rejects_a_divergent_windows_host(tmp_path):
     # Copy only named public release metadata, never a profile or signing file.
     files = (
-        "pyproject.toml", "argus_skill/__init__.py", "uv.lock",
+        "pyproject.toml", "argus/__init__.py", "uv.lock",
         "frontend/core/package.json", "frontend/web/package.json", "frontend/web/package-lock.json",
         "frontend/tui/package.json", "frontend/tui/package-lock.json", "desktop-tauri/package.json",
         "desktop-tauri/package-lock.json", "desktop-tauri/src-tauri/Cargo.toml", "desktop-tauri/src-tauri/Cargo.lock",
@@ -70,7 +70,7 @@ def test_windows_template_cannot_launch_legacy_uninstallers_or_delete_shared_boo
 
 
 def test_installer_source_and_license_participate_in_release_identity(tmp_path):
-    from argus_skill.release import compute_source_digest
+    from argus.release import compute_source_digest
 
     root = tmp_path / "desktop-tauri/src-tauri"
     root.mkdir(parents=True)

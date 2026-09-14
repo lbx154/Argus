@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const moduleName = 'argus_skill.plugin.mcp_server';
+const moduleName = 'argus.plugin.mcp_server';
 
 function pythonCandidates() {
   const explicit = process.env.ARGUS_PLUGIN_PYTHON?.trim();
@@ -32,7 +32,7 @@ function pythonCandidates() {
 function supportsArgus(command, prefix) {
   const probe = spawnSync(
     command,
-    [...prefix, '-c', 'import argus_skill'],
+    [...prefix, '-c', 'import argus'],
     { stdio: 'ignore', windowsHide: true },
   );
   return probe.status === 0;

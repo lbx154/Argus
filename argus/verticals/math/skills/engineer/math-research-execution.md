@@ -54,7 +54,7 @@ tracking file is required.
 Lean is optional; a committed `.lean` file is not. Once one exists, completing a
 stage requires it to show a fresh real compiler run with no proof holes, so run
 
-    python -m argus_skill.verticals.math.lean_evidence verify Main.lean \
+    python -m argus.verticals.math.lean_evidence verify Main.lean \
         --statement-fidelity statement_fidelity.md --claim C1
 
 which compiles the source, records the answer beside it stamped with the source
@@ -116,7 +116,7 @@ prose instead of committing a `.lean` file you cannot check.
 Status is derived, never written: `closed_kernel` is what a compiler earned, and
 there is no argument you can type that produces it. Keep it current with
 
-    S="python -m argus_skill.verticals.math.math_state"
+    S="python -m argus.verticals.math.math_state"
 
     # the problem statement every claim is stated against, once per project
     $S context --id ctx --statement "..." --define "term=meaning"
@@ -234,7 +234,7 @@ OR you are holding all stop meeting anywhere.
 Every cited proposition has to be looked up before anything is delivered, and
 nothing about that waits on you mid-proof. Run
 
-    C="python -m argus_skill.verticals.math.citation_check"
+    C="python -m argus.verticals.math.citation_check"
 
     $C status                                     # what still owes a lookup
     $C resolve --claim C1 --assumption RH         # does the document exist

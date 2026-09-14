@@ -7,7 +7,7 @@ import sys
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    command = shlex.join([sys.executable, "-m", "argus_skill.tools.ppt_master", "status"])
+    command = shlex.join([sys.executable, "-m", "argus.tools.ppt_master", "status"])
     message = (
         "The old standalone SVG framework-figure command has been removed.\n"
         "Use Method D: an image design blueprint followed by native editable PPT "

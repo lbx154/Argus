@@ -19,15 +19,15 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor._config import LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import (
+from argus.core.models import RunnerResult
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor._config import LifeSupervisorConfig
+from argus.life.supervisor._constants import (
     PLAN_ERROR,
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
 )
-from argus_skill.life.supervisor._core import LifeSupervisor
+from argus.life.supervisor._core import LifeSupervisor
 
 
 def _with_mission_quality(text: str) -> str:

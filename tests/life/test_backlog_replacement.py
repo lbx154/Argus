@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.life.memory import Backlog, BacklogItem
+from argus.life.memory import Backlog, BacklogItem
 
 
 def test_supersede_items_persists_only_named_pending_work(tmp_path: Path) -> None:

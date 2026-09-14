@@ -272,7 +272,7 @@ def _citation_delivery_issues(project_root: Path) -> tuple[str, ...]:
                 f"{citation.assumption_id} ({citation.cited_proposition}), "
                 f"whose citation is {citation.status.value}. Record what a "
                 "reader found at that proposition with `python -m "
-                "argus_skill.verticals.math.citation_check attribute --claim "
+                "argus.verticals.math.citation_check attribute --claim "
                 f"{claim.claim_id} --assumption {citation.assumption_id} "
                 "--excerpt-file <what you read> --verdict ... --by you`, or, if "
                 "the source cannot be obtained, restate the assumption without "
@@ -394,7 +394,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint=(
                 "the proposition whose status changed; once a targeted route is settled, "
                 "research/PROOF_GRAPH.json checked with `python -m "
-                "argus_skill.verticals.math.proof_graph_check gap`"
+                "argus.verticals.math.proof_graph_check gap`"
             ),
         ),
     ),

@@ -41,7 +41,7 @@ under a weaker rule than the operator would have picked.
 
 Waiting still has a cost and it is still paid up front: until the mode is set
 by either route, every math stage refuses to complete — ``scope`` included,
-because the objective gate in :mod:`argus_skill.verticals.math.stages` runs
+because the objective gate in :mod:`argus.verticals.math.stages` runs
 before the stage dispatch. That is the intended shape. A project that ran
 ``scope`` to completion under an unchosen bar would have to be re-judged
 afterwards against whichever bar was later picked, and the retrieval it did is
@@ -147,7 +147,7 @@ def resolve_objective(project_root: object) -> MathObjective:
                 "exploratory one have different completion bars, so ask the "
                 "operator which this is instead of assuming. The operator "
                 "settles it with `python -m "
-                "argus_skill.verticals.math.objective_mode set --mode "
+                "argus.verticals.math.objective_mode set --mode "
                 "targeted --goal \"<the statement to prove or refute>\"` or "
                 "`--mode exploratory`"
             ),
@@ -161,7 +161,7 @@ def resolve_objective(project_root: object) -> MathObjective:
                 "targeted mode needs the goal it must close; without it there is "
                 "nothing to measure the gap against and the project will drift "
                 "into whichever subproblem is most tractable. Restate it with "
-                "`python -m argus_skill.verticals.math.objective_mode set "
+                "`python -m argus.verticals.math.objective_mode set "
                 "--mode targeted --goal \"<the statement to prove or refute>\"`"
             ),
         )
@@ -258,7 +258,7 @@ def adopt_operator_objective(project_root: object, request: str) -> MathObjectiv
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.verticals.math.objective_mode",
+        prog="python -m argus.verticals.math.objective_mode",
         description=(
             "Choose what finishing means for this mathematics project, or "
             "report what is currently chosen."

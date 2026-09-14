@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.team import task_board as tb
-from argus_skill.team import teammate_entry as te
+from argus.team import task_board as tb
+from argus.team import teammate_entry as te
 
 
 def _form_claim(root: Path, member: str = "t1::w1", task: str = "t1::a") -> None:
@@ -114,7 +114,7 @@ def test_research_teammate_inherits_paper_mission_context(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     root = tmp_path / ".argus_team" / "t1"
     _form_claim(root)
@@ -144,7 +144,7 @@ def test_teammate_runtime_uses_isolated_layered_skill_state(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    import argus_skill.apps._runtime as rt
+    import argus.apps._runtime as rt
 
     for role in ("ENGINEER", "REVIEWER"):
         monkeypatch.setenv(f"ARGUS_SKILL_{role}_MODEL", "m")
@@ -204,7 +204,7 @@ def test_main_no_task_returns_2(tmp_path: Path) -> None:
 def test_run_one_mission_has_no_hard_self_sigkill_timer(tmp_path: Path, monkeypatch) -> None:
     # The teammate no longer SIGKILLs ITSELF on a hard deadline — the Curator owns
     # the process and is the single reaper. So only the SOFT watchdog timer is armed.
-    import argus_skill.apps._runtime as rt
+    import argus.apps._runtime as rt
     for var in ("ENGINEER", "REVIEWER", "AUTHOR"):
         monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")
     monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
@@ -248,7 +248,7 @@ def test_teammate_forces_checkpoint_persist_off(tmp_path: Path, monkeypatch) -> 
     # The reviewer's engineer-log audit greps the latter, so it must be disabled for a
     # teammate (else it audits a co-located daemon's shared log → wrong verdicts). Forcing
     # it off also stops teammates sharing one CHECKPOINT.md.
-    import argus_skill.apps._runtime as rt
+    import argus.apps._runtime as rt
     for var in ("ENGINEER", "REVIEWER"):
         monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")
     monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
@@ -277,8 +277,8 @@ def test_each_teammate_carries_its_rounds_in_its_own_note(
     # every continuation round read the project-root CHECKPOINT.md another
     # sibling had just rewritten, and the Reviewer sent the round back for
     # working on the wrong route.
-    import argus_skill.apps._runtime as rt
-    from argus_skill.apps._runtime_helpers import _checkpoint_path_for
+    import argus.apps._runtime as rt
+    from argus.apps._runtime_helpers import _checkpoint_path_for
 
     for var in ("ENGINEER", "REVIEWER"):
         monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")
@@ -391,7 +391,7 @@ def test_paper_mission_env_override(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkeypatch) -> None:
-    from argus_skill.team import leaderboard as lb
+    from argus.team import leaderboard as lb
     root = tmp_path / ".argus_team" / "t1"
     tb.form(root, [{"task_id": "t1::a", "objective": "optimize kA", "target": "kA"}])
     assert tb.claim_top(root, "t1::w1", now=1.0)["task_id"] == "t1::a"
@@ -539,7 +539,7 @@ def test_resumed_operator_answer_is_passed_to_new_teammate(
 def test_team_cli_status_and_resume_preserve_wait_state(
     tmp_path: Path, capsys
 ) -> None:
-    from argus_skill.tools import team as team_tool
+    from argus.tools import team as team_tool
 
     root = tmp_path / ".argus_team" / "t1"
     _form_claim(root)
@@ -599,7 +599,7 @@ def test_fatal_mission_still_marks_failed(tmp_path: Path, monkeypatch) -> None:
 def _setup_verify(tmp_path: Path, monkeypatch, signed: dict):
     """Form/claim a task with target kA, write `signed` as result.json, set the
     verify key, and stub the mission. Returns the team root."""
-    from argus_skill.team import result_provenance as rp
+    from argus.team import result_provenance as rp
     root = tmp_path / ".argus_team" / "t1"
     tb.form(root, [{"task_id": "t1::a", "objective": "x", "target": "kA"}])
     assert tb.claim_top(root, "t1::w1", now=1.0)["task_id"] == "t1::a"
@@ -665,7 +665,7 @@ def test_no_verify_key_is_backward_compatible(tmp_path: Path, monkeypatch) -> No
 
 def _math_project(tmp_path: Path, *claim_ids: str) -> Path:
     """A project root the math vertical will actually project from."""
-    from argus_skill.proof_ledger import (
+    from argus.proof_ledger import (
         ClaimVersion,
         ContextVersion,
         MathState,
@@ -772,7 +772,7 @@ def test_teammate_and_supervisor_share_one_prelude_seam() -> None:
     # through the one helper; nothing calls the hook directly.
     import inspect
 
-    from argus_skill.life.supervisor import _mission_execution_runtime
+    from argus.life.supervisor import _mission_execution_runtime
 
     assert "vertical_mission_prelude" in inspect.getsource(_mission_execution_runtime)
     assert "vertical_mission_prelude" in inspect.getsource(te)

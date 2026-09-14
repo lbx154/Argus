@@ -7,15 +7,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.core.mission_view import load_mission_view, update_mission_view_event
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import append_turn
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.manager import Manager, config_intent, front_door
-from argus_skill.manager.domain_author import VerticalDecision
-from argus_skill.webapi import manager_bridge, manager_state
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.core.mission_view import load_mission_view, update_mission_view_event
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import append_turn
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.memory import Backlog, BacklogItem
+from argus.manager import Manager, config_intent, front_door
+from argus.manager.domain_author import VerticalDecision
+from argus.webapi import manager_bridge, manager_state
 
 OLD_GOAL = "OLD_CONTEXT_ONLY: collect every batch size before comparing groups."
 NEW_GOAL = "Compare the two groups at the same batch size."

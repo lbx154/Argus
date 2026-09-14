@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.rl_training_plots import (
+from argus.skills.rl_training_plots import (
     MIN_OPTIMIZER_STEPS,
     validate_rl_training_plots,
 )

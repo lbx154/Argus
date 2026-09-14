@@ -161,7 +161,7 @@ def _build_prompt(venue: str) -> str:
         ".argus/PIPELINE_STATE.json to the selected profile key. Do not edit "
         "`current_stage` or any stage status.\n\n"
         "Check that the profile loads:\n"
-        "  python -c \"from argus_skill.verticals.research.venue_profiles import "
+        "  python -c \"from argus.verticals.research.venue_profiles import "
         "resolve_venue_profile as r; p=r('.'); print(p.key, p.page_budget_line())\"\n\n"
         "Do not create any other venue report or template-source file. If a "
         "fact cannot be confirmed from official sources, leave that field at "

@@ -9,18 +9,18 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.daemon._life_worker_identity import (
+from argus.daemon._life_worker_identity import (
     _refresh_file_backed_objective_for_resume,
     _write_manager_handoff_identity,
 )
-from argus_skill.daemon.life_worker import (
+from argus.daemon.life_worker import (
     LifeWorker,
     LifeWorkerConfig,
     _apply_continuous_suppression,
     _rearm_operator_drain_for_resume,
     _RunForeverState,
 )
-from argus_skill.daemon.state import (
+from argus.daemon.state import (
     GRACEFUL_STOP_REASON,
     read_continuous_state,
     write_continuous_config,
@@ -29,7 +29,7 @@ from argus_skill.daemon.state import (
 # ---- parser: the daemon-level opt-in flag exists, off by default -----------
 
 def test_resume_continuous_flag_parses():
-    from argus_skill.apps.cli._parser import build_parser
+    from argus.apps.cli._parser import build_parser
 
     p = build_parser()
     assert p.parse_args(["--daemon-fg"]).resume_continuous is False

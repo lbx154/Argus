@@ -1,4 +1,4 @@
-"""Estimate proposal timelines: python -m argus_skill.verticals.research.timeline."""
+"""Estimate proposal timelines: python -m argus.verticals.research.timeline."""
 
 from __future__ import annotations
 

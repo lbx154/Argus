@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.manager.directive import (
+from argus.manager.directive import (
     ACTIVE_MANAGER_DIRECTIVE_FILENAME,
     STEERING_HEADER,
     STEERING_LEDGER_FILENAME,
@@ -161,12 +161,12 @@ def test_question_policy_persists_and_can_be_explicitly_reenabled(
 
 
 def test_standing_steer_authorizes_final_continuous_objective(tmp_path: Path) -> None:
-    from argus_skill.daemon.state import (
+    from argus.daemon.state import (
         read_continuous_state,
         write_continuous_config,
     )
-    from argus_skill.life.memory import BacklogItem, LifeMemory
-    from argus_skill.webapi.manager_dispatch import (
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.webapi.manager_dispatch import (
         _handle_steer_control,
         _TurnEmitter,
     )
@@ -231,8 +231,8 @@ def test_failed_standing_cas_keeps_directive_and_refreshes_chat_state(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.daemon import state as daemon_state
-    from argus_skill.webapi.manager_dispatch import (
+    from argus.daemon import state as daemon_state
+    from argus.webapi.manager_dispatch import (
         _handle_steer_control,
         _TurnEmitter,
     )
@@ -277,10 +277,10 @@ def test_concurrent_replacement_steer_is_stale_and_not_queued(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.daemon import state as daemon_state
-    from argus_skill.life.memory import BacklogItem, LifeMemory
-    from argus_skill.manager import directive as directive_module
-    from argus_skill.webapi.manager_dispatch import (
+    from argus.daemon import state as daemon_state
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.manager import directive as directive_module
+    from argus.webapi.manager_dispatch import (
         _handle_steer_control,
         _TurnEmitter,
     )
@@ -346,9 +346,9 @@ def test_unchanged_policy_inheritance_stays_bound_to_captured_objective(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.daemon import state as daemon_state
-    from argus_skill.manager import directive as directive_module
-    from argus_skill.webapi.manager_dispatch import (
+    from argus.daemon import state as daemon_state
+    from argus.manager import directive as directive_module
+    from argus.webapi.manager_dispatch import (
         _handle_steer_control,
         _TurnEmitter,
     )
@@ -440,9 +440,9 @@ def test_directive_write_failure_happens_before_standing_cas(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.daemon import state as daemon_state
-    from argus_skill.manager import directive as directive_module
-    from argus_skill.webapi.manager_dispatch import (
+    from argus.daemon import state as daemon_state
+    from argus.manager import directive as directive_module
+    from argus.webapi.manager_dispatch import (
         _handle_steer_control,
         _TurnEmitter,
     )

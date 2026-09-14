@@ -5,9 +5,9 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from argus_skill.core import plugin_manager as manager
-from argus_skill.trial.plugins import configure_plugins
-from argus_skill.webapi.routes.plugins import register_plugin_routes
+from argus.core import plugin_manager as manager
+from argus.trial.plugins import configure_plugins
+from argus.webapi.routes.plugins import register_plugin_routes
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.team import _store, formation, roster, task_board
+from argus.team import _store, formation, roster, task_board
 
 
 def _tasks() -> list[dict]:

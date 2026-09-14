@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from argus_skill.core.runtime_env import (
+from argus.core.runtime_env import (
     configure_framework_python_env,
     load_backend_runtime_env,
 )
@@ -95,7 +95,7 @@ def test_cli_entrypoint_normalizes_framework_python_before_argument_handling(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.apps.cli._core import main
+    from argus.apps.cli._core import main
 
     monkeypatch.delenv("ARGUS_SKILL_PYTHON", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RUNTIME_BIN", raising=False)

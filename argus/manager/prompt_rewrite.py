@@ -5,7 +5,7 @@ test"). Feeding that verbatim to the Planner/Engineer/Reviewer team burns rounds
 on guessing what was meant. The Manager already owns front-door judgment, so it
 is the right role to restate the request as an executable brief.
 
-This module is deliberately thin and mirrors :mod:`argus_skill.manager.plan_mode`:
+This module is deliberately thin and mirrors :mod:`argus.manager.plan_mode`:
 
 * :class:`PromptRewrite` — the in-memory result shape.
 * :func:`rewrite_prompt` — ask the model (via the runner the cockpit already

@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from argus_skill.daemon import health as daemon_health
-from argus_skill.daemon.health import DaemonHealthTracker, read_daemon_health
+from argus.daemon import health as daemon_health
+from argus.daemon.health import DaemonHealthTracker, read_daemon_health
 
 
 def test_atomic_health_write_retries_transient_windows_permission_error(

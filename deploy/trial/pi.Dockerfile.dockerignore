@@ -1,6 +1,6 @@
 **
-!argus_skill
-!argus_skill/**
+!argus
+!argus/**
 !frontend
 !frontend/web
 !frontend/web/dist
@@ -8,4 +8,4 @@
 !frontend/tui
 !frontend/tui/bundle
 !frontend/tui/bundle/argus.mjs
-argus_skill/**/__pycache__
+argus/**/__pycache__

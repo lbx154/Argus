@@ -119,13 +119,13 @@ def _exception_callsite(exc: BaseException) -> str:
     selected = frames[-1] if frames else None
     for frame in reversed(frames):
         normalized = frame.filename.replace("\\", "/")
-        if "/argus_skill/" in normalized:
+        if "/argus/" in normalized:
             selected = frame
             break
     if selected is None:
         return "unknown"
     filename = selected.filename.replace("\\", "/")
-    marker = filename.rfind("/argus_skill/")
+    marker = filename.rfind("/argus/")
     if marker >= 0:
         filename = filename[marker + 1 :]
     return f"{filename}:{selected.name}"

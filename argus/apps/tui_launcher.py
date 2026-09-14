@@ -239,7 +239,7 @@ def _configure_tui_backend_bin() -> None:
         return
     if os.environ.get("ARGUS_SKILL_BIN", "").strip():
         return
-    backend_name = "argus-skill.exe" if os.name == "nt" else "argus-skill"
+    backend_name = "argus.exe" if os.name == "nt" else "argus"
     sibling = Path(sys.executable).parent / backend_name
     if sibling.is_file():
         os.environ["ARGUS_SKILL_BIN"] = str(sibling)

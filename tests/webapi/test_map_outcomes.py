@@ -2,12 +2,12 @@
 import copy
 import json
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi.map_feed import MapFeed
-from argus_skill.webapi.map_narrative import card_evidence
-from argus_skill.webapi.map_outcomes import project_task_outcome
-from argus_skill.webapi.map_view import normalize_events, read_map
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi.map_feed import MapFeed
+from argus.webapi.map_narrative import card_evidence
+from argus.webapi.map_outcomes import project_task_outcome
+from argus.webapi.map_view import normalize_events, read_map
 
 PAUSED = {"execution_status": "paused", "review_status": "blocked", "stage_certification": "not_assessed",
           "interruption_kind": "daemon_shutdown", "resumable": True}

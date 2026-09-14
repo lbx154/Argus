@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import json
 
-from argus_skill.daemon import spawn_helper
+from argus.daemon import spawn_helper
 
 
 def test_spawn_helper_keeps_failure_output_enabled(monkeypatch, tmp_path) -> None:

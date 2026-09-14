@@ -6,7 +6,7 @@ plumbing, local image inspection, data-URL helpers, and a generic
 vision-review call. It must stay domain-neutral: no research-paper prompt
 templates, no paper figure/candidate-cache bookkeeping, and no import of the
 research vertical. Paper-specific figure workflow lives in
-``argus_skill.verticals.research.figure_tool``, which imports the generic
+``argus.verticals.research.figure_tool``, which imports the generic
 helpers defined here.
 """
 from __future__ import annotations
@@ -68,7 +68,7 @@ def _urlopen(req: urllib.request.Request | str, timeout: float | None):  # noqa:
 def _redact(text: str, grant: ModelApiGrant | ModelApiRoute | None = None) -> str:
     """Strip credentials from provider text before it reaches an operator.
 
-    The generic patterns live in :mod:`argus_skill.core.secret_guard`, which is
+    The generic patterns live in :mod:`argus.core.secret_guard`, which is
     the project's one credential redactor; this only adds what that module
     cannot know — the exact key of the grant in hand. Keeping a second set of
     patterns here is how ``sk-proj-`` and ``sk-ant-`` keys used to survive: the
@@ -602,7 +602,7 @@ def review_image(
     handles route validation, building the image data URL, the Responses API
     call with a chat/completions fallback, output parsing, sidecar write, and
     retries. Callers that need a paper-figure review prompt build it in
-    ``argus_skill.verticals.research.figure_tool`` and pass the rendered text
+    ``argus.verticals.research.figure_tool`` and pass the rendered text
     here.
     """
     if not review_instruction or not review_instruction.strip():
@@ -712,7 +712,7 @@ def _print_json(data: dict[str, Any]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.image_api")
+    parser = argparse.ArgumentParser(prog="python -m argus.tools.image_api")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     gen = sub.add_parser("generate", help="generate an image artifact")
@@ -732,7 +732,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "review a local image against a caller-authored review instruction "
             "with the vision-capable text model (no built-in rubric; use "
-            "argus_skill.verticals.research.figure_tool review for paper figures)"
+            "argus.verticals.research.figure_tool review for paper figures)"
         ),
     )
     rev.add_argument("--image", type=Path, required=True)
@@ -785,7 +785,7 @@ def main(argv: list[str] | None = None) -> int:
             ))
             return 0
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        sys.stderr.write(f"argus-skill image-api: {_redact(str(exc))}\n")
+        sys.stderr.write(f"argus image-api: {_redact(str(exc))}\n")
         return 1
     return 2
 

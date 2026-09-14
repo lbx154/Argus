@@ -14,8 +14,8 @@ import uvicorn
 from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
-from argus_skill.trial import gateway
-from argus_skill.trial.secrets import Vault, write_private
+from argus.trial import gateway
+from argus.trial.secrets import Vault, write_private
 
 
 @pytest.mark.e2e

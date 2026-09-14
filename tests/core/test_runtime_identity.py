@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core import knob_store
-from argus_skill.core.runtime_identity import (
+from argus.core import knob_store
+from argus.core.runtime_identity import (
     configured_source_root,
     runtime_identity,
     source_root,
@@ -92,7 +92,7 @@ def test_runtime_identity_survives_a_corrupt_knob_store_but_the_preflight_raises
     status writer, and handoff-candidate reads catch only OSError around it —
     so a corrupt config.json must read as "unconfigured" there. The startup
     preflight stays strict: the corruption is itself a fail-closed refusal."""
-    from argus_skill.core.paths import config_path
+    from argus.core.paths import config_path
 
     monkeypatch.delenv("ARGUS_SKILL_SOURCE_ROOT", raising=False)
     path = config_path()

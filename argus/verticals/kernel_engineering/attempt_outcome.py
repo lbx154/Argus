@@ -1,7 +1,7 @@
 """Check the separation between execution failures and idea evidence.
 
 The four-state model and its invariants live in
-:mod:`argus_skill.core.evidence_status`; this module supplies the GPU-kernel
+:mod:`argus.core.evidence_status`; this module supplies the GPU-kernel
 vocabulary — profiler and benchmark-infrastructure failures, and the
 commit/diff/dispatch identity a performance claim needs before anyone can
 check it. Behaviour is unchanged: the rules moved, they did not loosen.

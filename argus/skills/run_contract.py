@@ -33,22 +33,22 @@ Artifacts:
   artifacts rather than inapplicable reward/advantage fields.
 
 A ``scale=full`` training launch must cite a matching contract hash + a valid
-packet; the :mod:`argus_skill.tools.subagent` pre-launch interlock refuses
+packet; the :mod:`argus.tools.subagent` pre-launch interlock refuses
 applicable launches otherwise (see :func:`check_full_run_launch`).
 
 CLI::
 
-    python -m argus_skill.skills.run_contract freeze --project-root . \\
+    python -m argus.skills.run_contract freeze --project-root . \\
         --model Qwen/Qwen3-14B-Instruct --lr 5e-6 --group-size 8 \\
         --total-steps 1200 --batch-size 1 --curriculum experiments/<slice>.json \\
         --seed 42 --scale full
-    python -m argus_skill.skills.run_contract build-packet --project-root . \\
+    python -m argus.skills.run_contract build-packet --project-root . \\
         --run-dir experiments/runs/<probe> --curriculum experiments/<slice>.json \\
         --total-steps 1200 --batch-size 1 --group-size 8 --out <packet.json>
-    python -m argus_skill.skills.run_contract build-supervised-packet \\
+    python -m argus.skills.run_contract build-supervised-packet \\
         --project-root . --contract research/RUN_CONTRACT.json \\
         --run-dir experiments/runs/<sft-probe> --out <packet.json>
-    python -m argus_skill.skills.run_contract check-launch --project-root . \\
+    python -m argus.skills.run_contract check-launch --project-root . \\
         --contract research/RUN_CONTRACT.json --packet paper_or_run/<packet>.json \\
         --lr 5e-6 --group-size 8 --total-steps 1200 --batch-size 1 \\
         --model <id> --curriculum-hash <h>
@@ -810,7 +810,7 @@ def _validate_supervised_packet(
 
 
 # ---------------------------------------------------------------------------
-# Launch interlock (called by argus_skill.tools.subagent)
+# Launch interlock (called by argus.tools.subagent)
 # ---------------------------------------------------------------------------
 
 
@@ -927,7 +927,7 @@ def check_full_run_launch(
         return True, (
             "scale=full training launch requires a feasibility packet (--feasibility-"
             "packet) proving the exact frozen curriculum is non-saturating; "
-            "build one with `python -m argus_skill.skills.run_contract build-packet`")
+            "build one with `python -m argus.skills.run_contract build-packet`")
     packet, p_issues = load_feasibility_packet(packet_path)
     if packet is None:
         return True, _first_concern(p_issues, fallback="feasibility packet invalid")

@@ -2,7 +2,7 @@
 
 Run as::
 
-    python -m argus_skill.team.teammate_entry --root <team_root> --member-id <id> \
+    python -m argus.team.teammate_entry --root <team_root> --member-id <id> \
         [--task-id <id>] [--cwd <dir>]
 
 Finds the task this member owns on the shared board and runs ONE headless Argus
@@ -11,7 +11,7 @@ per-mission call the daemon's supervisor makes (``_SkillLoopRunner.execute``)
 — heartbeating the board while it runs, then marking the task done/failed and
 writing a result shard when the mission returns.
 
-Why in-process (not ``python -m argus_skill ...``): the CLI only offers the
+Why in-process (not ``python -m argus ...``): the CLI only offers the
 interactive cockpit (dies on EOF, no-op ``rc=0``) or a full
 ``--daemon-fg`` daemon (acquires the per-project daemon lock + runs its own
 planner → would recurse into nested teams). Calling the runner directly gives a
@@ -116,8 +116,8 @@ def _build_runner_ns(
     stop_event=None,
 ) -> argparse.Namespace:
     """Replicate the daemon's runner namespace (life_worker._runner_namespace)."""
-    from argus_skill.core import paths as core_paths
-    from argus_skill.core.knobs import resolve_role_model
+    from argus.core import paths as core_paths
+    from argus.core.knobs import resolve_role_model
 
     ns = argparse.Namespace()
     ns.backend = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
@@ -194,10 +194,10 @@ def run_one_engineer_mission(
     ):
         watchdog: threading.Timer | None = None
         try:
-            from argus_skill.apps._runtime import LifeStderrSink, _SkillLoopRunner
-            from argus_skill.core.file_lock import FileLockCancelled, bounded_file_lock_wait
-            from argus_skill.core.run_gateway import current_run_interrupt_reason
-            from argus_skill.life.event_log import JsonlEventSink
+            from argus.apps._runtime import LifeStderrSink, _SkillLoopRunner
+            from argus.core.file_lock import FileLockCancelled, bounded_file_lock_wait
+            from argus.core.run_gateway import current_run_interrupt_reason
+            from argus.life.event_log import JsonlEventSink
 
             life_dir = Path(life_dir)
             life_dir.mkdir(parents=True, exist_ok=True)
@@ -427,7 +427,7 @@ def _vertical_prelude(task: dict, *, cwd: str, state_root: Path) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="argus_skill.team.teammate_entry")
+    p = argparse.ArgumentParser(prog="argus.team.teammate_entry")
     p.add_argument("--root", required=True)
     p.add_argument("--member-id", required=True)
     p.add_argument("--task-id", default="")

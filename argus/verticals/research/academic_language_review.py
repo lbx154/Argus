@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from argus_skill.tools.image_api import (
+from argus.tools.image_api import (
     ApiError,
     ImageToolError,
     _json_request,
@@ -1676,7 +1676,7 @@ def _float_or_none(value: object) -> float | None:
 def main(argv: Sequence[str] | None = None) -> int:
     venue = resolve_venue_profile(Path.cwd())
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.verticals.research.academic_language_review",
+        prog="python -m argus.verticals.research.academic_language_review",
         description=f"Score final {venue.reviewer_persona} paper academic language and narrative quality.",
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
@@ -1699,7 +1699,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             write=bool(args.write),
         )
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        sys.stderr.write(f"argus-skill academic-language-review: {_redact(str(exc))}\n")
+        sys.stderr.write(f"argus academic-language-review: {_redact(str(exc))}\n")
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get("structural_status") == "ok" else 1

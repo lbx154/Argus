@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 
 def source_root() -> Path:
-    """Return the ``argus_skill`` source directory inside the repository."""
+    """Return the ``argus`` source directory inside the repository."""
     from ..skills.builtins import builtin_skill_source_path
 
     return builtin_skill_source_path().resolve().parent

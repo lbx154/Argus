@@ -13,19 +13,19 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.transcript import append_turn
-from argus_skill.webapi import manager_bridge, manager_dispatch, manager_state
-from argus_skill.webapi.manager_dispatch import (
+from argus.core.transcript import append_turn
+from argus.webapi import manager_bridge, manager_dispatch, manager_state
+from argus.webapi.manager_dispatch import (
     _classify_operator_turn,
     _ClassifyResult,
     _TurnEmitter,
 )
-from argus_skill.webapi.routes.models import MessageIn
+from argus.webapi.routes.models import MessageIn
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from argus_skill.webapi import server  # noqa: E402
+from argus.webapi import server  # noqa: E402
 
 _SID = "s-override0"
 
@@ -89,7 +89,7 @@ def _classify(
         return classifier_answer
 
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify",
+        "argus.manager.config_intent._front_door_classify",
         _fake_classify,
     )
 
@@ -168,10 +168,10 @@ def test_forced_chat_restores_history_without_classification(
         return "The report is still in progress."
 
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify", _classify,
+        "argus.manager.config_intent._front_door_classify", _classify,
     )
     monkeypatch.setattr(
-        "argus_skill.manager.front_door.manager_triage", _triage,
+        "argus.manager.front_door.manager_triage", _triage,
     )
 
     result = manager_bridge.manager_message(
@@ -191,8 +191,8 @@ def test_forced_chat_restores_history_without_classification(
 def test_forced_chat_does_not_interpret_or_resolve_pending_questions(
     tmp_path: Path, monkeypatch, pending_count: int,
 ) -> None:
-    from argus_skill.core.transcript import read_turns
-    from argus_skill.life.memory import BacklogItem, LifeMemory
+    from argus.core.transcript import read_turns
+    from argus.life.memory import BacklogItem, LifeMemory
 
     life = _make_project(tmp_path)
     memory = LifeMemory.open(life)
@@ -210,8 +210,8 @@ def test_forced_chat_does_not_interpret_or_resolve_pending_questions(
         calls.append(body)
         return "Here is the explanation."
 
-    monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", reply)
-    monkeypatch.setattr("argus_skill.manager.config_intent._front_door_classify",
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", reply)
+    monkeypatch.setattr("argus.manager.config_intent._front_door_classify",
                         lambda *a, **kw: pytest.fail("An explicit Chat must not be classified again"))
     result = manager_bridge.manager_message(
         _SID, "Explain what the rank means.", global_root=tmp_path, route_override="chat",
@@ -226,15 +226,15 @@ def test_forced_chat_does_not_interpret_or_resolve_pending_questions(
 
 
 def test_forced_chat_does_not_replay_a_matching_recent_research_task(tmp_path, monkeypatch):
-    from argus_skill.life.memory import BacklogItem, LifeMemory
+    from argus.life.memory import BacklogItem, LifeMemory
 
     life = _make_project(tmp_path)
     text = "Explain the algorithm."
     memory = LifeMemory.open(life)
     memory.backlog.add(BacklogItem.new(title="Research task", objective=text))
     manager_state._STATES.clear()
-    monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", lambda *a, **kw: "An inline explanation.")
-    monkeypatch.setattr("argus_skill.manager.config_intent._front_door_classify",
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", lambda *a, **kw: "An inline explanation.")
+    monkeypatch.setattr("argus.manager.config_intent._front_door_classify",
                         lambda *a, **kw: pytest.fail("An explicit Chat must not be classified again"))
 
     result = manager_bridge.manager_message(_SID, text, global_root=tmp_path, route_override="chat")
@@ -274,7 +274,7 @@ def test_forced_turn_drops_a_previous_turns_frontdoor_leftovers(
 ) -> None:
     """No classifier ran, so last turn's greeting/failure must not decide this one."""
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify",
+        "argus.manager.config_intent._front_door_classify",
         lambda *a, **k: (None, None, "simple"),  # noqa: ARG005
     )
     chat_state = {
@@ -333,7 +333,7 @@ def test_endpoint_forwards_the_override(
         return {"kind": "chat", "reply": "ok"}
 
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message", _bridge
+        "argus.webapi.manager_bridge.manager_message", _bridge
     )
 
     response = client.post(
@@ -353,7 +353,7 @@ def test_endpoint_omits_the_override_for_auto(client: TestClient, monkeypatch) -
         return {"kind": "chat", "reply": "ok"}
 
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message", _bridge
+        "argus.webapi.manager_bridge.manager_message", _bridge
     )
 
     response = client.post(
@@ -377,7 +377,7 @@ def test_endpoint_defaults_to_auto_when_the_field_is_absent(
         return {"kind": "chat", "reply": "ok"}
 
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message", _bridge
+        "argus.webapi.manager_bridge.manager_message", _bridge
     )
 
     response = client.post(f"/api/projects/{_SID}/message", json={"text": "你好"})

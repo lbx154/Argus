@@ -1,7 +1,7 @@
 export const ARGUS_ROUNDED_ART_FULL = [
   '  ╭───────────────────────────────────────────────────────────────────────────────────╮╮',
   '  │                                                                                   ││',
-  '  │   ◉  argus-skill  ·  Autonomous Work Lab                                         ││',
+  '  │   ◉  argus  ·  Autonomous Work Lab                                         ││',
   '  │                                                                                   ││',
   '  ╰───────────────────────────────────────────────────────────────────────────────────╯│',
   '                                                                                        │',
@@ -9,7 +9,7 @@ export const ARGUS_ROUNDED_ART_FULL = [
 
 export const ARGUS_ROUNDED_ART_COMPACT = [
   '  ╭─────────────────────────────────╮╮',
-  '  │   ◉  argus-skill               ││',
+  '  │   ◉  argus               ││',
   '  ╰─────────────────────────────────╯│',
   '                                     │',
 ] as const;

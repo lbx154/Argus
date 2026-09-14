@@ -1,12 +1,12 @@
 """The Planner preserves infrastructure failures even during verdict repair."""
 from __future__ import annotations
 
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.planner import Planner
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.planner import Planner
 
 
 def test_planner_repair_does_not_hide_or_replay_execution_host_failure(monkeypatch):
-    from argus_skill.planner import planner as module
+    from argus.planner import planner as module
 
     diagnostic = (
         "Code Mode is unavailable because failed to spawn code-mode host "

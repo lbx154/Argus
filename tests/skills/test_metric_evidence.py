@@ -4,7 +4,7 @@ import csv
 
 import pytest
 
-from argus_skill.verticals.metric_evidence import (
+from argus.verticals.metric_evidence import (
     EvidenceError,
     validate_kernelbench_evidence,
     validate_math_synth_evidence,

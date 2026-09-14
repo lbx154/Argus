@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.core.manuscript_snapshot import manuscript_snapshot
-from argus_skill.verticals._base import load_vertical_contract
-from argus_skill.verticals.research.method_freeze import declare_method_freeze
-from argus_skill.verticals.research.review_purchase import (
+from argus.core.manuscript_snapshot import manuscript_snapshot
+from argus.verticals._base import load_vertical_contract
+from argus.verticals.research.method_freeze import declare_method_freeze
+from argus.verticals.research.review_purchase import (
     paper_review_purchase_defer_reason,
 )
 

@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlparse
 
 import pytest
 
-from argus_skill.core import plugin_manager as pm
+from argus.core import plugin_manager as pm
 
 
 def test_catalog_keeps_original_wheel_and_adds_scientific_compatibility():

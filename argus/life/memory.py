@@ -2754,7 +2754,7 @@ class Backlog:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_IDENTITY = """\
-# argus-skill — operator identity card
+# argus — operator identity card
 
 This file is your **persistent, hand-editable** identity. The supervisor
 reads it before every mission and treats every section below as
@@ -2817,7 +2817,7 @@ class IdentityCard:
     """A single markdown file the user can hand-edit.
 
     We never overwrite an existing card. ``ensure_default()`` only
-    seeds it once on first ``argus-skill life init``.
+    seeds it once on first ``argus life init``.
     """
 
     def __init__(self, path: Path) -> None:
@@ -3179,8 +3179,8 @@ def consume_running_item_abort(
 def _resolve_global_root() -> Path:
     """Return the global agent root, going through ``core.paths``.
 
-    The local import is deliberate: ``argus_skill.core.paths`` may
-    transitively import from ``argus_skill.life`` in future phases, and
+    The local import is deliberate: ``argus.core.paths`` may
+    transitively import from ``argus.life`` in future phases, and
     a top-level import here would risk a circular reference.
     """
     from ..core import paths as core_paths
@@ -3355,7 +3355,7 @@ class MemoryBundle:
         git-remote (legacy behaviour, unchanged). When ``fingerprint`` is
         given (e.g. a session id), it keys ``projects/<fingerprint>/``
         directly — the session model passes the resolved session id here so a
-        fresh ``argus-skill`` opens a NEW project regardless of cwd.
+        fresh ``argus`` opens a NEW project regardless of cwd.
         """
         from ..core.project import project_fingerprint  # local: avoid cycle
 

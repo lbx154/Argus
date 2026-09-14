@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
-from argus_skill.planner import PlannerVerdict
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
+from argus.planner import PlannerVerdict
 
 
 class _Runner:
@@ -66,7 +66,7 @@ def _install_recording_planner(monkeypatch, verdicts=None):
             return verdicts.pop(0)
         return _waiting_verdict()
 
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     return calls
 
 

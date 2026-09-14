@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.release_tools import build_release
+from argus.release_tools import build_release
 
 ROOT = Path(__file__).parents[2]
 
@@ -21,7 +21,7 @@ def test_wheel_smoke_imports_the_install_in_isolated_mode() -> None:
 
     assert "/bin/python -I - <<'PY'" in smoke
     assert smoke.index("/bin/python -I - <<'PY'") < smoke.index(
-        "import argus_skill"
+        "import argus"
     )
 
 

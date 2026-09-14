@@ -326,7 +326,7 @@ class _FollowEventRenderer:
             process.wait()
         detail = " ".join(str(reason).split())
         sys.stderr.write(
-            "argus-skill: semantic event renderer unavailable"
+            "argus: semantic event renderer unavailable"
             f" ({detail}); using Python fallback for this follow session\n"
         )
         sys.stderr.flush()

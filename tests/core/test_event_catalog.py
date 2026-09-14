@@ -7,7 +7,7 @@ from pathlib import Path
 
 import jsonschema
 
-from argus_skill.core.event_catalog import (
+from argus.core.event_catalog import (
     CALL_SCOPED_EVENT_TYPES,
     EVENT_ENVELOPE_VERSION,
     EVENT_PAYLOAD_SCHEMA_VERSION,
@@ -22,7 +22,7 @@ from argus_skill.core.event_catalog import (
     normalize_event_envelope,
     validate_event_envelope,
 )
-from argus_skill.life.event_log import JsonlEventSink
+from argus.life.event_log import JsonlEventSink
 
 
 def test_catalog_names_are_unique_valid_and_fully_specified() -> None:
@@ -252,7 +252,7 @@ def test_frontend_event_catalog_matches_python_catalog_and_groups() -> None:
 def test_payload_schema_is_standard_json_schema_and_generated_types_are_current() -> None:
     schema_path = (
         Path(__file__).parents[2]
-        / "argus_skill"
+        / "argus"
         / "core"
         / "event_payload_schemas.json"
     )
@@ -279,7 +279,7 @@ def test_payload_schema_is_standard_json_schema_and_generated_types_are_current(
 
 
 def test_generated_event_renderer_corpus_and_coverage_are_current() -> None:
-    from argus_skill.release_tools import generate_event_fixtures
+    from argus.release_tools import generate_event_fixtures
 
     corpus = json.loads(generate_event_fixtures.CORPUS_PATH.read_text(encoding="utf-8"))
     report = json.loads(generate_event_fixtures.COVERAGE_PATH.read_text(encoding="utf-8"))
@@ -300,7 +300,7 @@ def test_generated_event_renderer_corpus_and_coverage_are_current() -> None:
 
 
 def test_resource_status_schema_and_generated_contracts_are_current() -> None:
-    from argus_skill.release_tools import generate_resource_status
+    from argus.release_tools import generate_resource_status
 
     schema = json.loads(generate_resource_status.SCHEMA_PATH.read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator.check_schema(schema)
@@ -315,7 +315,7 @@ def test_resource_status_schema_and_generated_contracts_are_current() -> None:
 def test_resource_status_generator_writes_reproducible_lf_bytes(tmp_path, monkeypatch) -> None:
     import sys
 
-    from argus_skill.release_tools import generate_resource_status
+    from argus.release_tools import generate_resource_status
 
     typescript = tmp_path / "resource_status.generated.ts"
     python = tmp_path / "status_schema_generated.py"
@@ -377,7 +377,7 @@ def test_every_emitted_event_type_literal_is_in_the_catalog() -> None:
     the positional type argument of ``emit`` helpers. Legacy aliases count as
     catalogued because ``canonical_event_type`` resolves them.
     """
-    root = Path(__file__).parents[2] / "argus_skill"
+    root = Path(__file__).parents[2] / "argus"
     known = {event.value for event in EventType} | set(LEGACY_EVENT_ALIASES)
     unknown: list[str] = []
     dynamic: list[str] = []

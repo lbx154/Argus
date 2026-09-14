@@ -6,9 +6,9 @@ available in the same environment that will run correctness and benchmarks?*
 
 Usage::
 
-    python -m argus_skill.verticals.kernel_engineering.environment_audit collect \
+    python -m argus.verticals.kernel_engineering.environment_audit collect \
       --project-root . --require tilelang --require profiling
-    python -m argus_skill.verticals.kernel_engineering.environment_audit check \
+    python -m argus.verticals.kernel_engineering.environment_audit check \
       --project-root .
 """
 

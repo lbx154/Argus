@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.runtime_tools import RuntimeToolService
-from argus_skill.skills.store import Skill
-from argus_skill.wiki.schema import WikiPage, serialize_page
+from argus.skills.runtime_tools import RuntimeToolService
+from argus.skills.store import Skill
+from argus.wiki.schema import WikiPage, serialize_page
 
 SOURCE = "def run(value):\n    return [row['id'].zfill(4) for row in value]\n"
 
@@ -208,7 +208,7 @@ def test_turn_cancellation_kills_the_active_worker(tmp_path):
 
 
 def test_document_failure_rolls_back_both_knowledge_and_active_revision(tmp_path, monkeypatch):
-    from argus_skill.wiki.store import WikiStore
+    from argus.wiki.store import WikiStore
 
     first = service(tmp_path)
     receipt = publish(first)

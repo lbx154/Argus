@@ -5,7 +5,7 @@ routing request before any vertical can commit. This module owns the
 fail-closed parsers for that decision.
 
 The proposed domain (when authored) is persisted as project-local DATA by
-:func:`argus_skill.verticals._data_domain.write_data_domain`; the runtime owns
+:func:`argus.verticals._data_domain.write_data_domain`; the runtime owns
 its candidate stages and the per-stage checklist is authored later by the
 Planner. Parsing is fail-closed to ``None`` on any ambiguity (bad input or an
 un-sluggable/unknown name), but the CALLER is FAIL-HARD:

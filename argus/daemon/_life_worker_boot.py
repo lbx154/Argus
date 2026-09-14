@@ -4,7 +4,7 @@ Split out of ``daemon.life_worker`` so that module stays under the
 maintainability line-count target. ``LifeWorkerBootMixin`` is mixed into
 ``LifeWorker`` by the facade module. The construction of the
 ``LifeSupervisor`` uses a call-time lazy import back into ``life_worker`` so
-that ``monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor",
+that ``monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor",
 ...)`` (used extensively by ``tests/daemon/test_life_worker.py``) keeps
 working even though the method that constructs it now lives in this module.
 """
@@ -132,7 +132,7 @@ class LifeWorkerBootMixin:
         # scripts and ``code/*.py`` helpers can ``import benchmark_loaders`` /
         # ``import gpu_env`` without per-command ``PYTHONPATH=$PWD/code``
         # gymnastics — a recurring source of wasted engineer rounds. Appended
-        # (not prepended) so it never shadows argus_skill or stdlib modules.
+        # (not prepended) so it never shadows argus or stdlib modules.
         if self.config.project_workdir is not None:
             _code_dir = str((self.config.project_workdir / "code").resolve())
             _pp_parts = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
@@ -774,7 +774,7 @@ class LifeWorkerBootMixin:
 
         # Lazy proxy: resolve ``LifeSupervisor`` through the facade module's
         # OWN namespace at call time (not this module's), so
-        # ``monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", ...)``
+        # ``monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", ...)``
         # in tests still takes effect even though this method now lives here.
         from .life_worker import LifeSupervisor
 

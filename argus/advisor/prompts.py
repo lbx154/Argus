@@ -12,7 +12,7 @@ def advisor_prompt(role: str, *, native: bool, tool_name: str = "consult_advisor
     invocation = (
         f"Use {tool_name}(question, evidence_refs)"
         if native else
-        "Use python -m argus_skill.tools.advisor consult --question QUESTION --evidence-ref PATH"
+        "Use python -m argus.tools.advisor consult --question QUESTION --evidence-ref PATH"
     )
     return (
         "\n\nIndependent advisor available: " + invocation + " when useful to " + _PURPOSE[role] + ". "

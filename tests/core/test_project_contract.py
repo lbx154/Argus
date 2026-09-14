@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.project_contract import (
+from argus.core.project_contract import (
     AUTHORITY_MANAGER,
     AUTHORITY_OPERATOR,
     CLAUSE_PRECISE,
@@ -344,7 +344,7 @@ def test_manager_commit_records_the_contract(tmp_path: Path) -> None:
     """Otherwise this whole module is a type nobody constructs."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     division = SimpleNamespace(
         execution_task="make the attention kernel faster",
@@ -376,7 +376,7 @@ def test_a_new_operator_objective_drops_prior_task_constraints(
     """Task-local constraints must not leak into a different operator task."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     current = _contract()
     changed = (make_clause(*_SPEEDUP).id, make_clause(*_RELAXED).id)
@@ -416,7 +416,7 @@ def test_manager_commit_records_constraints_from_the_decision_not_division(
     """The committed Division is routing-only and no longer carries clauses."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     decision = SimpleNamespace(
         execution_task="make the attention kernel faster",
@@ -454,7 +454,7 @@ def test_operator_handoff_revises_an_existing_contract_objective(
     """A new operator task must not leave roles reading the first objective."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     save_contract(
         tmp_path,
@@ -489,7 +489,7 @@ def test_operator_handoff_revises_an_existing_contract_objective(
 def test_new_objective_drops_old_no_code_exclusion(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     save_contract(
         tmp_path,
@@ -550,7 +550,7 @@ def test_the_planner_is_shown_the_constraints_it_is_told_to_honour(
     is why relaxing a target was invisible downstream. This asserts the actual
     clause text now reaches the prompt.
     """
-    from argus_skill.core import project_contract as pc
+    from argus.core import project_contract as pc
 
     save_contract(tmp_path, contract=_contract())
     monkeypatch.setattr(pc, "state_dir_for_cwd", lambda _cwd=None: tmp_path)
@@ -566,7 +566,7 @@ def test_an_objective_only_contract_still_names_the_committed_goal(
     tmp_path: Path,
 ) -> None:
     """Goal Gate tasks need the project objective, not just checklist text."""
-    from argus_skill.core.project_contract import contract_briefing
+    from argus.core.project_contract import contract_briefing
 
     empty = new_contract(objective="do a thing")
 
@@ -579,7 +579,7 @@ def test_open_questions_are_shown_as_questions_not_as_answers(
     tmp_path: Path,
 ) -> None:
     """The Manager records what it could not know; it must not fill it in."""
-    from argus_skill.core.project_contract import contract_briefing
+    from argus.core.project_contract import contract_briefing
 
     contract = new_contract(
         objective="make it faster",
@@ -596,7 +596,7 @@ def test_manager_records_only_operator_stated_constraints(tmp_path: Path) -> Non
     """A constraint nobody asked for becomes a goal nobody agreed to."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     division = SimpleNamespace(
         execution_task="make the attention kernel faster",
@@ -627,12 +627,12 @@ def test_contract_recording_failure_is_visible(tmp_path: Path, monkeypatch) -> N
     """Dispatch may continue, but stale contract authority must leave evidence."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     def fail_save(*_args, **_kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr("argus_skill.core.project_contract.save_contract", fail_save)
+    monkeypatch.setattr("argus.core.project_contract.save_contract", fail_save)
     decision = SimpleNamespace(
         execution_task="fix stale contract recording",
         vertical="software",
@@ -662,11 +662,11 @@ def test_the_clause_appears_in_the_real_planner_prompt(
     Sabotaging the call in `roles/prompts/planner.py` turns this red; asserting
     on `contract_briefing` alone would not.
     """
-    from argus_skill.core.project_contract import (
+    from argus.core.project_contract import (
         CLAUSE_PRECISE,
         state_dir_for_cwd,
     )
-    from argus_skill.roles.prompts.planner import build_continuous_prompt
+    from argus.roles.prompts.planner import build_continuous_prompt
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
     workdir = tmp_path / "wd"
@@ -693,11 +693,11 @@ def test_stale_contract_does_not_override_the_live_planner_objective(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Covers the live state where `goal_contract.json` lagged `continuous.json`."""
-    from argus_skill.core.project_contract import (
+    from argus.core.project_contract import (
         CLAUSE_PRECISE,
         state_dir_for_cwd,
     )
-    from argus_skill.roles.prompts.planner import build_continuous_prompt
+    from argus.roles.prompts.planner import build_continuous_prompt
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
     workdir = tmp_path / "wd"
@@ -734,7 +734,7 @@ def test_every_role_that_could_violate_the_contract_can_see_it(
     constraint only the Planner sees is a constraint the closing role never
     checks against.
     """
-    from argus_skill.core.project_contract import (
+    from argus.core.project_contract import (
         CLAUSE_PRECISE,
         state_dir_for_cwd,
     )
@@ -752,7 +752,7 @@ def test_every_role_that_could_violate_the_contract_can_see_it(
     )
 
     if role == "engineer":
-        from argus_skill.roles.prompts.engineer import build_mission_prompt
+        from argus.roles.prompts.engineer import build_mission_prompt
 
         text = build_mission_prompt(
             task="optimise the inner loop",
@@ -762,7 +762,7 @@ def test_every_role_that_could_violate_the_contract_can_see_it(
     else:
         from types import SimpleNamespace
 
-        from argus_skill.roles.prompts.reviewer import render_reviewer_prompt
+        from argus.roles.prompts.reviewer import render_reviewer_prompt
 
         owner = SimpleNamespace(
             skill_store=None,

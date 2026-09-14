@@ -18,7 +18,7 @@ manager), without rewriting files or clause ids. Explicit authority always wins.
 The objective and exclusions also belong to the operator; ambiguities are questions.
 
 Deliberate non-goal: this module does not decide whether a project is finished.
-Completion lives in :mod:`argus_skill.core.project_api`, and existing projects
+Completion lives in :mod:`argus.core.project_api`, and existing projects
 are exempt from contract-based completion (operator decision §9.6). Writing a
 contract is additive today — it records what the Manager committed to and
 disciplines later edits.

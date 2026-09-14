@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _io_log
+from argus.adapters.agent_cli_backend import _io_log
 
 
 def _append(path: Path, payload: str, times: int = 1) -> None:

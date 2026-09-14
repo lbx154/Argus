@@ -128,7 +128,7 @@ def _mirror_discussion_md(task_id: str, run_dir: str | None) -> None:
     lines = [f"# Supervisor / engineer discussion — {task_id}",
              "",
              "_Reply with_ "
-             f"`python -m argus_skill.tools.subagent reply --task-id {task_id} "
+             f"`python -m argus.tools.subagent reply --task-id {task_id} "
              '--message "..."`. _The run stays stopped until the supervisor marks '
              'the concern resolved._',
              ""]

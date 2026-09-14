@@ -11,9 +11,9 @@ import pytest
 from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 
-from argus_skill.webapi import manager_bridge
-from argus_skill.webapi.routes import manager as manager_routes
-from argus_skill.webapi.routes.models import CancelMessageIn, MessageIn
+from argus.webapi import manager_bridge
+from argus.webapi.routes import manager as manager_routes
+from argus.webapi.routes.models import CancelMessageIn, MessageIn
 
 
 def endpoints(root):

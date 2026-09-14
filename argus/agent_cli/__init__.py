@@ -8,7 +8,7 @@ control, event parsing, prompt delivery, ACP routing, and recovery behind
 that surface.
 
 This package intentionally performs **no** eager submodule imports so that
-``import argus_skill.agent_cli.agent_cli_runner`` stays cheap. The driver
+``import argus.agent_cli.agent_cli_runner`` stays cheap. The driver
 originated in ArgusBot and is maintained in-tree; the MIT ``LICENSE`` in this
 directory (ArgusBot contributors) covers it.
 """

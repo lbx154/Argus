@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.webapi.pairing import (
+from argus.webapi.pairing import (
     is_loopback_host,
     pairing_plan,
     render_qr,
@@ -139,7 +139,7 @@ def test_port_is_carried_through() -> None:
 def test_qr_is_offered_or_its_absence_explained() -> None:
     banner = _plan().banner
 
-    assert "Scan to open on your phone" in banner or "argus-skill[qr]" in banner
+    assert "Scan to open on your phone" in banner or "argus[qr]" in banner
 
 
 def test_qr_rendering_degrades_without_the_extra(monkeypatch) -> None:
@@ -166,7 +166,7 @@ def test_pair_plan_bridge_emits_what_the_cockpit_needs(capsys) -> None:
     plan from here instead of the child's banner."""
     import json
 
-    from argus_skill.apps.cli._core import main
+    from argus.apps.cli._core import main
 
     assert main(["--pair-plan", "--web-host", "0.0.0.0", "--web-port", "8801"]) == 0
 
@@ -183,7 +183,7 @@ def test_pair_plan_bridge_emits_what_the_cockpit_needs(capsys) -> None:
 def test_pair_plan_marks_a_loopback_bind_as_needing_no_pairing(capsys) -> None:
     import json
 
-    from argus_skill.apps.cli._core import main
+    from argus.apps.cli._core import main
 
     assert main(["--pair-plan", "--web-host", "127.0.0.1"]) == 0
 
@@ -239,14 +239,14 @@ def test_banner_body_is_ascii_apart_from_the_qr() -> None:
 
 
 def test_stream_encoding_falls_back_when_unknown() -> None:
-    from argus_skill.webapi.pairing import stream_encoding
+    from argus.webapi.pairing import stream_encoding
 
     assert stream_encoding(SimpleNamespace(encoding=None)) == "utf-8"
     assert stream_encoding(SimpleNamespace(encoding="cp936")) == "cp936"
 
 
 def test_encodable_rejects_unknown_codecs() -> None:
-    from argus_skill.webapi.pairing import encodable
+    from argus.webapi.pairing import encodable
 
     assert encodable("plain", "utf-8") is True
     assert encodable("→", "cp1252") is False

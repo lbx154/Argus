@@ -107,7 +107,7 @@ def jacobian_capability_note() -> str:
         / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     )
     interpreter = source_interpreter if source_interpreter.is_file() else Path(sys.executable)
-    module = f"{interpreter} -m argus_skill.tools.jacobian"
+    module = f"{interpreter} -m argus.tools.jacobian"
     return (
         "\n\n## This host's Jacobian capability\n\n"
         f"Jacobian MCP is available at `{executable}` through Argus's isolated "

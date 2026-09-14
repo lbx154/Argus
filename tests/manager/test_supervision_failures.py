@@ -7,14 +7,14 @@ from concurrent.futures import CancelledError
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _raw_backend_stop_kind
-from argus_skill.core.event_catalog import EventType
-from argus_skill.core.models import RunnerResult
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.manager import Manager, supervision
-from argus_skill.manager.directive import load_active_manager_directive
-from argus_skill.manager.observation import control_identity
+from argus.adapters.agent_cli_backend import _raw_backend_stop_kind
+from argus.core.event_catalog import EventType
+from argus.core.models import RunnerResult
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.memory import Backlog, BacklogItem
+from argus.manager import Manager, supervision
+from argus.manager.directive import load_active_manager_directive
+from argus.manager.observation import control_identity
 
 CALL_ID = "offline-supervision-call"
 SECRET = "ghp_" + "a" * 36
@@ -222,7 +222,7 @@ def test_invalid_decisions_have_decision_stage_and_no_control_effects(tmp_path, 
 
 @pytest.mark.parametrize("failure_class", [OSError, CancelledError])
 def test_delivery_error_keeps_the_issued_decision_and_replays_without_another_model_call(tmp_path, monkeypatch, failure_class):
-    from argus_skill.manager import directive
+    from argus.manager import directive
 
     event = project(tmp_path)
     backend = Backend(reply(action="steer"))

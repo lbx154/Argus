@@ -19,10 +19,10 @@ Text extraction prefers the ``pdftotext`` CLI (cleaner column handling)
 with a ``pypdf`` fallback when the CLI is missing.
 
 CLI examples:
-    python -m argus_skill.tools.pdf_chat head paper/main.pdf
-    python -m argus_skill.tools.pdf_chat section paper/main.pdf "Method"
-    python -m argus_skill.tools.pdf_chat brief 2509.12345
-    python -m argus_skill.tools.pdf_chat page paper/main.pdf --start 1 --end 2
+    python -m argus.tools.pdf_chat head paper/main.pdf
+    python -m argus.tools.pdf_chat section paper/main.pdf "Method"
+    python -m argus.tools.pdf_chat brief 2509.12345
+    python -m argus.tools.pdf_chat page paper/main.pdf --start 1 --end 2
 """
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def _resolve_source(source: str, *, cache_dir: Path) -> Path:
             url = f"https://arxiv.org/pdf/{source}.pdf"
             try:
                 req = urllib.request.Request(
-                    url, headers={"User-Agent": "argus-skill/pdf_chat"},
+                    url, headers={"User-Agent": "argus/pdf_chat"},
                 )
                 # Socket timeout detects a stalled remote transport; extraction is unlimited.
                 with urllib.request.urlopen(req, timeout=60) as resp:
@@ -285,7 +285,7 @@ def view_full(view: PaperView) -> dict[str, object]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="argus-skill pdf_chat",
+        prog="argus pdf_chat",
         description=__doc__,
     )
     sub = parser.add_subparsers(dest="cmd", required=True)

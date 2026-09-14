@@ -13,8 +13,8 @@ import json
 import time
 from pathlib import Path
 
-from argus_skill.life.supervisor._config import LifeSupervisorConfig
-from argus_skill.life.supervisor._subagent_family_failures import (
+from argus.life.supervisor._config import LifeSupervisorConfig
+from argus.life.supervisor._subagent_family_failures import (
     family_from_task_id,
     recent_subagent_family_failures,
 )

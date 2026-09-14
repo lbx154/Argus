@@ -100,7 +100,7 @@ class PlanningCycleMixin(
         if any(marker in text for marker in _LIVE_WAIT_OBSERVE_MARKERS):
             return True
         has_status_probe = (
-            "argus_skill.tools.subagent status" in text
+            "argus.tools.subagent status" in text
             or "subagent status --task-id" in text
             or "check its status" in text
             or "检查其状态" in text

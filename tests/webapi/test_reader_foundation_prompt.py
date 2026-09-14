@@ -5,9 +5,9 @@ import json
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
-from argus_skill.webapi import reader_clarification
-from argus_skill.webapi.map_teaching_review import MARKDOWN_TEACHING_CORE
-from argus_skill.webapi.reader_foundation_prompt import (
+from argus.webapi import reader_clarification
+from argus.webapi.map_teaching_review import MARKDOWN_TEACHING_CORE
+from argus.webapi.reader_foundation_prompt import (
     MARKDOWN_OUTPUT_CONTRACT,
     QUESTION_MARKER,
     foundation_request,

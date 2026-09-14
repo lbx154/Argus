@@ -32,7 +32,7 @@ import tempfile
 
 import pytest
 
-from argus_skill.core.research_contract import (
+from argus.core.research_contract import (
     RESULT_FIELD_CHOICES,
     normalize_research_result,
     research_completion_issue,
@@ -98,8 +98,8 @@ VALID = {
 
 
 def _research_target_prompt(level: str = "publishable") -> str:
-    from argus_skill.reviewer import Reviewer
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.reviewer import Reviewer
+    from argus.skills.vertical_select import persist_vertical
 
     root = pathlib.Path(tempfile.mkdtemp())
     persist_vertical(root, "research", research_target_level=level)
@@ -353,7 +353,7 @@ def test_201_evidence_items_are_truncated_with_a_warning(caplog) -> None:
     items = [f"evidence item {index}" for index in range(201)]
 
     with caplog.at_level(
-        logging.WARNING, logger="argus_skill.core.research_contract"
+        logging.WARNING, logger="argus.core.research_contract"
     ):
         result = normalize_research_result(dict(VALID, evidence=items))
 
@@ -374,7 +374,7 @@ def test_up_to_200_evidence_items_pass_through_verbatim(caplog) -> None:
     items = [f"evidence item {index}" for index in range(200)]
 
     with caplog.at_level(
-        logging.WARNING, logger="argus_skill.core.research_contract"
+        logging.WARNING, logger="argus.core.research_contract"
     ):
         result = normalize_research_result(
             dict(VALID, evidence=[""] * 5 + items)
@@ -389,7 +389,7 @@ def test_a_pathologically_long_item_is_clipped_with_a_warning(caplog) -> None:
     long_item = "z" * 10_001
 
     with caplog.at_level(
-        logging.WARNING, logger="argus_skill.core.research_contract"
+        logging.WARNING, logger="argus.core.research_contract"
     ):
         result = normalize_research_result(dict(VALID, limitations=[long_item]))
 

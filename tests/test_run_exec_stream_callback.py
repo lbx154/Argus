@@ -14,13 +14,13 @@ import time
 
 import pytest
 
-from argus_skill.agent_cli import _run_exec
-from argus_skill.agent_cli.agent_cli_runner import (
+from argus.agent_cli import _run_exec
+from argus.agent_cli.agent_cli_runner import (
     AgentCliRunner,
     RunnerOptions,
     _turn_wall_clock_seconds,
 )
-from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT
+from argus.agent_cli.runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT
 
 
 class _FakeStdin:

@@ -436,7 +436,7 @@ def spawn_detached_daemon_clean(
     if preflight_error:
         detail = _record_spawn_error(config, preflight_error)
         if not quiet:
-            sys.stderr.write(f"argus-skill: {detail}.\n")
+            sys.stderr.write(f"argus: {detail}.\n")
         return preflight_rc
     env = os.environ.copy()
     from ..core.plugin_manager import host_root
@@ -448,7 +448,7 @@ def spawn_detached_daemon_clean(
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     # The helper is framework control-plane code, not project code. Starting it
-    # in the project workspace lets a generated ``argus_skill/`` package or
+    # in the project workspace lets a generated ``argus/`` package or
     # ``sitecustomize.py`` shadow the running Argus release during an upgrade
     # restart. Pin both cwd and PYTHONPATH to the package root that loaded this
     # WebAPI process; the daemon receives ``project_workdir`` in its payload and
@@ -474,7 +474,7 @@ def spawn_detached_daemon_clean(
         payload["_training_launch"] = training_launch
     try:
         completed = subprocess.run(  # noqa: S603
-            [sys.executable, "-m", "argus_skill.daemon.spawn_helper"],
+            [sys.executable, "-m", "argus.daemon.spawn_helper"],
             input=json.dumps(payload),
             text=True,
             encoding="utf-8",
@@ -498,7 +498,7 @@ def spawn_detached_daemon_clean(
         )
         detail = _record_spawn_error(config, detail)
         if not quiet:
-            sys.stderr.write(f"argus-skill: {detail}\n")
+            sys.stderr.write(f"argus: {detail}\n")
         return 2
     except OSError as exc:
         detail = _record_spawn_error(
@@ -507,7 +507,7 @@ def spawn_detached_daemon_clean(
             f"{type(exc).__name__}: {exc}",
         )
         if not quiet:
-            sys.stderr.write(f"argus-skill: {detail}\n")
+            sys.stderr.write(f"argus: {detail}\n")
         return 2
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()
@@ -535,7 +535,7 @@ def _launcher_failure_message(detail: str, returncode: int) -> str:
     collapsing it left the operator with "- or start this objective in a
     different directory" and no idea what was holding the directory.
 
-    So anchor on the framework's own ``argus-skill:`` prefix when it is there
+    So anchor on the framework's own ``argus:`` prefix when it is there
     and keep that message whole, and fall back to the last-line rule only for
     output the framework did not format — which in practice means a crash.
     """
@@ -543,7 +543,7 @@ def _launcher_failure_message(detail: str, returncode: int) -> str:
     starts = [
         index
         for index, line in enumerate(lines)
-        if line.strip().startswith("argus-skill:")
+        if line.strip().startswith("argus:")
     ]
     if starts:
         return "\n".join(lines[starts[-1]:]).strip()

@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from argus_skill.verticals import _data_domain as dd
+from argus.verticals import _data_domain as dd
 
 
 def test_write_then_load_roundtrip(tmp_path):

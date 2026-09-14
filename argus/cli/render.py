@@ -2,7 +2,7 @@
 
 The Ink/Web cockpit owns interactive UI. This module only decorates events
 written by ``LifeStderrSink`` and teammate processes; semantic event formatting
-stays in :mod:`argus_skill.cli.event_format`.
+stays in :mod:`argus.cli.event_format`.
 """
 
 from __future__ import annotations

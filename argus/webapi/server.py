@@ -1,4 +1,4 @@
-"""``argus-skill`` web/TUI backend API — thin FastAPI layer over the daemon.
+"""``argus`` web/TUI backend API — thin FastAPI layer over the daemon.
 
 The 7×24 daemon is a file-based pub/sub: it appends events to
 ``<life_dir>/events.jsonl`` and reads commands from ``backlog.jsonl`` /
@@ -9,7 +9,7 @@ neither reimplements backend logic.
 Design rules (keep this layer dumb):
 - Read-only project aggregation lives in :mod:`.project_state`; this module
   re-exports its stable API for compatibility.
-- Every endpoint DELEGATES to an existing ``argus_skill`` function. This module
+- Every endpoint DELEGATES to an existing ``argus`` function. This module
   never parses event semantics or backlog schemas itself — it forwards dicts and
   calls the reused helpers (``list_sessions``, ``read_daemon_status``,
   ``role_activity``, ``resolve_all_roles``, ``_read_recent_jsonl_events``,
@@ -498,7 +498,7 @@ def create_app(
 
     api_meta = build_api_meta()
     app = FastAPI(
-        title="argus-skill web API",
+        title="argus web API",
         version=str(api_meta["runtime"]["package_version"]),
     )
 
@@ -666,7 +666,7 @@ def create_app(
 
     # ── static web UI (optional) ──────────────────────────────────────────
     # When the React frontend has been built (`npm run build` in frontend/web),
-    # serve it from the same origin so `argus-skill --web` gives API + UI on one
+    # serve it from the same origin so `argus --web` gives API + UI on one
     # port. The /api routes above are registered first, so they always win; this
     # catch-all mount only handles the SPA shell + assets. Skipped silently when
     # the bundle is absent (API-only mode, e.g. the Vite dev server proxies here).

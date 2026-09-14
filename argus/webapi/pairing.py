@@ -18,7 +18,7 @@ This module closes that and makes the secure path the easy one:
   The web client stores the token on arrival, so the installed PWA stays
   authenticated afterwards.
 
-Rendering the QR needs the optional ``argus-skill[qr]`` extra; without it the
+Rendering the QR needs the optional ``argus[qr]`` extra; without it the
 URL is still printed in full.
 """
 from __future__ import annotations
@@ -229,7 +229,7 @@ def pairing_plan(
     elif effective:
         lines += [
             "",
-            "  (`pip install 'argus-skill[qr]'` prints a scannable QR code here.)",
+            "  (`pip install 'argus[qr]'` prints a scannable QR code here.)",
         ]
     lines.append("")
 

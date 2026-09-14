@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.apps import package_update, update
+from argus.apps import package_update, update
 
 
 def test_update_dispatches_installed_package_without_source_git(tmp_path, monkeypatch, capsys):

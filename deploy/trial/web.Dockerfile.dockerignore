@@ -3,8 +3,8 @@
 !README.md
 !LICENSE
 !argus_doctor.py
-!argus_skill/
-!argus_skill/**
+!argus/
+!argus/**
 !frontend/
 !frontend/web/
 !frontend/web/dist/

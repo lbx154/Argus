@@ -41,15 +41,15 @@ def _normalize_vertical_name(name: object) -> str:
 def load_vertical(name: object, project_root: object = None) -> VerticalDefinition:
     """Resolve one in-tree, plugin, or project-local vertical provider.
 
-    Order: a built-in ``argus_skill.verticals.<name>.stages`` wins, then a
-    vertical registered through the ``argus_skill.verticals`` entry-point group
+    Order: a built-in ``argus.verticals.<name>.stages`` wins, then a
+    vertical registered through the ``argus.verticals`` entry-point group
     (the ``argus-verticals`` community package registers seventeen), then a
     project-local data domain. The registry additionally refuses to advertise
     a plugin whose name is a built-in, so a built-in's module *and* its skill
     tree both always come from this package.
     """
     cleaned = _normalize_vertical_name(name)
-    module_name = f"argus_skill.verticals.{cleaned}.stages"
+    module_name = f"argus.verticals.{cleaned}.stages"
     stages_path = os.path.join(os.path.dirname(__file__), cleaned, "stages.py")
     optional = Path(stages_path).with_name("workbench.json").is_file()
     if os.path.isfile(stages_path) and not optional:

@@ -8,7 +8,7 @@ operator *that* something was happening but never *what*, which is exactly the
 This module is a dumb, domain-agnostic formatter: it reports the action the
 agent actually took (the command it ran, the tool it called, the files it
 touched) verbatim-but-trimmed, after routing the text through
-:mod:`argus_skill.core.secret_guard`. It makes no judgment about whether the
+:mod:`argus.core.secret_guard`. It makes no judgment about whether the
 step was useful, on-track, or complete — that stays with the agent.
 
 ``describe_progress_step`` returns ``(label, detail)``:

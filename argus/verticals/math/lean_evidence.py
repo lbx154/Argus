@@ -1,6 +1,6 @@
 """Lean evidence as runtime state, not paperwork.
 
-``argus_skill.tools.lean_check`` can already compile one Lean file and say,
+``argus.tools.lean_check`` can already compile one Lean file and say,
 fail-closed, whether it proved anything. Nothing in this vertical read that
 answer, so a project could carry a ``.lean`` file with a ``sorry`` in it and
 still complete: the only mechanical gate was whether a JSON file existed.
@@ -561,7 +561,7 @@ def _load_result(source: Path) -> tuple[dict[str, Any] | None, Path | None, str]
 # -- validation --------------------------------------------------------------
 
 _VERIFY_HINT = (
-    "run `python -m argus_skill.verticals.math.lean_evidence verify "
+    "run `python -m argus.verticals.math.lean_evidence verify "
     "<source> --statement-fidelity <doc>`"
 )
 

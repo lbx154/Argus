@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.planner.planner import Planner, PlannerConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.core.models import RunnerResult
+from argus.planner.planner import Planner, PlannerConfig
+from argus.skills.vertical_select import persist_vertical
 
 _TASK_REPLY = (
     "PROJECT_DONE=false\n"

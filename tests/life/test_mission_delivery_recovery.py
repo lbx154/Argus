@@ -13,20 +13,20 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_backends import _Outcome
-from argus_skill.core.event_catalog import EventType
-from argus_skill.core.jsonl_reader import MAX_JSONL_RECORD_BYTES
-from argus_skill.life import memory as memory_module
-from argus_skill.life.event_log import JsonlEventSink, event_log_paths
-from argus_skill.life.memory import Backlog, BacklogItem, LifeMemory
-from argus_skill.life.mission_delivery import drain_mission_deliveries, prepare_mission_delivery
-from argus_skill.life.mission_event_index import (
+from argus.apps._runtime_backends import _Outcome
+from argus.core.event_catalog import EventType
+from argus.core.jsonl_reader import MAX_JSONL_RECORD_BYTES
+from argus.life import memory as memory_module
+from argus.life.event_log import JsonlEventSink, event_log_paths
+from argus.life.memory import Backlog, BacklogItem, LifeMemory
+from argus.life.mission_delivery import drain_mission_deliveries, prepare_mission_delivery
+from argus.life.mission_event_index import (
     MAX_INDEX_RECORD_BYTES,
     MissionEventIndex,
     mission_event_index,
 )
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.skills.vertical_select import persist_vertical
 
 
 def _rows(root: Path):
@@ -99,9 +99,9 @@ def test_process_exit_after_commit_recovers_without_reexecuting(tmp_path):
     script = r'''
 import os, sys
 from pathlib import Path
-from argus_skill.life import memory as module
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.life.mission_delivery import prepare_mission_delivery
+from argus.life import memory as module
+from argus.life.memory import Backlog, BacklogItem
+from argus.life.mission_delivery import prepare_mission_delivery
 backlog = Backlog(Path(sys.argv[1]) / "backlog.jsonl")
 backlog.add(BacklogItem.new(title="artifact", objective="produce it"))
 item = backlog.claim_next()
@@ -214,7 +214,7 @@ def test_delivery_ack_failure_cannot_duplicate_history_or_notifications(tmp_path
 
 
 def test_recovery_fills_ui_receipt_if_process_failed_after_completion_append(tmp_path, monkeypatch):
-    from argus_skill.core.transcript import read_turns
+    from argus.core.transcript import read_turns
 
     supervisor, runner, item, observed = _supervisor(tmp_path, monkeypatch)
     with monkeypatch.context() as fault:
@@ -373,7 +373,7 @@ def test_stale_written_receipt_cannot_ack_missing_completion(tmp_path, monkeypat
 
 
 def test_written_receipt_checks_current_offset_without_enumerating_archives(tmp_path, monkeypatch):
-    from argus_skill.life import event_log
+    from argus.life import event_log
 
     backlog = Backlog(tmp_path / "backlog.jsonl")
     item, record = _claimed(backlog)
@@ -525,7 +525,7 @@ def test_completion_and_return_receipt_are_durable_before_learning(tmp_path, mon
 
 
 def test_post_completion_learning_cost_remains_in_ledger_and_return_receipt(tmp_path, monkeypatch):
-    from argus_skill.core.usage import UsageLedger, UsageRecord
+    from argus.core.usage import UsageLedger, UsageRecord
 
     supervisor, runner, item, observed = _supervisor(tmp_path, monkeypatch)
     ledger = UsageLedger(supervisor.memory.root, migrate_legacy=False)

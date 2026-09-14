@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.engineer.runner import (
+from argus.core.models import RunnerResult
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer import Reviewer, ReviewerConfig
 
 
 class _CaptureBackend:

@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.webapi.message_requests import (
+from argus.webapi.message_requests import (
     MessageRequestCancelled,
     MessageRequestCapacityError,
     MessageRequestConflict,

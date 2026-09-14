@@ -32,7 +32,7 @@ except ImportError as exc:
             raise HarborUnavailableError(
                 "Argus's Harbor adapter requires Harbor Framework >=0.21,<0.22 "
                 "on Python 3.12 or newer. Install it with `pip install "
-                "'argus-skill[harbor]'`."
+                "'argus[harbor]'`."
             ) from _HARBOR_IMPORT_ERROR
 
     BaseEnvironment = Any  # type: ignore[misc,assignment]
@@ -85,7 +85,7 @@ def _safe_package_spec(value: str | None) -> str | None:
 
 def _argus_source_root() -> Path | None:
     candidate = Path(__file__).resolve().parents[2]
-    if (candidate / "pyproject.toml").is_file() and (candidate / "argus_skill").is_dir():
+    if (candidate / "pyproject.toml").is_file() and (candidate / "argus").is_dir():
         return candidate
     return None
 
@@ -109,7 +109,7 @@ def _build_local_wheel(source_root: Path, output_dir: Path) -> Path:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "unknown build failure").strip()
         raise RuntimeError(f"Could not build the Argus wheel for Harbor: {detail}")
-    wheels = sorted(output_dir.glob("argus_skill-*.whl"))
+    wheels = sorted(output_dir.glob("argus-*.whl"))
     if len(wheels) != 1:
         raise RuntimeError(
             "Argus Harbor packaging expected exactly one wheel, "
@@ -231,7 +231,7 @@ class ArgusHarborAgent(_HarborCodex):  # type: ignore[misc,valid-type]
                 f'  "$UV_BIN" venv --python 3.12 {venv}; '
                 f'  "$UV_BIN" pip install --python {venv}/bin/python {package}; '
                 "fi; "
-                f"{venv}/bin/argus-skill --version"
+                f"{venv}/bin/argus --version"
             ),
         )
 
@@ -307,7 +307,7 @@ class ArgusHarborAgent(_HarborCodex):  # type: ignore[misc,valid-type]
 
         command = " ".join(
             [
-                shlex.quote((_ARGUS_VENV / "bin" / "argus-skill").as_posix()),
+                shlex.quote((_ARGUS_VENV / "bin" / "argus").as_posix()),
                 "--daemon-fg",
                 "--continuous",
                 "--bounded",

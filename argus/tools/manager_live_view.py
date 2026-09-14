@@ -141,7 +141,7 @@ def clear_view(*, workspace: Path, state_dir: Path) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.tools.manager_live_view"
+        prog="python -m argus.tools.manager_live_view"
     )
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--state-dir", required=True)

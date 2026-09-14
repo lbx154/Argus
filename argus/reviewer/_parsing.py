@@ -519,7 +519,7 @@ def describe_unparsed_verdict(messages: list[str]) -> str:
     told to ask for something they had already been given.
 
     The welding itself is handled upstream now, in
-    :func:`argus_skill.core.role_reply._split_glued_keys`. This is for whatever
+    :func:`argus.core.role_reply._split_glued_keys`. This is for whatever
     the next unreadable reply turns out to be.
     """
     from ..core.role_reply import read_block, read_key_values

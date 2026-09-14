@@ -11,14 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core import cost_control
-from argus_skill.core.cost_control import (
+from argus.core import cost_control
+from argus.core.cost_control import (
     _locked,
     cost_control_snapshot,
     reserve_call_budget,
 )
-from argus_skill.core.token_usage import TokenUsage
-from argus_skill.core.usage import UsageLedger, build_usage_record
+from argus.core.token_usage import TokenUsage
+from argus.core.usage import UsageLedger, build_usage_record
 
 
 @pytest.fixture(autouse=True)

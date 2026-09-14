@@ -11,10 +11,10 @@ from typing import Any
 
 import pytest
 
-import argus_skill.daemon.life_worker as life_worker_mod
-import argus_skill.daemon.state as daemon_state
-from argus_skill.daemon.config import LifeWorkerConfig
-from argus_skill.daemon.life_worker import LifeWorker
+import argus.daemon.life_worker as life_worker_mod
+import argus.daemon.state as daemon_state
+from argus.daemon.config import LifeWorkerConfig
+from argus.daemon.life_worker import LifeWorker
 
 _STARTED = "2026-08-13T08:00:00+00:00"
 

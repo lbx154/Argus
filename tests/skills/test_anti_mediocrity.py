@@ -1,4 +1,4 @@
-"""Tests for argus_skill.skills.anti_mediocrity (advisory fact extractor).
+"""Tests for argus.skills.anti_mediocrity (advisory fact extractor).
 
 This module used to be the F3 "anti-mediocrity hard gate" with baked-in
 thresholds. It was rewritten after review c6b11d3 into a pure fact
@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.anti_mediocrity import (
+from argus.skills.anti_mediocrity import (
     AggregateRow,
     MediocrityFinding,
     collect_mediocrity_finding,
     format_finding,
 )
-from argus_skill.skills.anti_mediocrity import (
+from argus.skills.anti_mediocrity import (
     main as anti_mediocrity_main,
 )
 
@@ -245,7 +245,7 @@ def test_old_verdict_api_is_gone() -> None:
     of these are reintroduced, this test fails — and that's a signal
     the harness is sneaking research judgment back in.
     """
-    import argus_skill.skills.anti_mediocrity as mod
+    import argus.skills.anti_mediocrity as mod
     forbidden_names = [
         "DEFAULT_MIN_DELTA",
         "DEFAULT_MIN_FAMILIES",

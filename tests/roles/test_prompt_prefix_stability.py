@@ -13,23 +13,23 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.core.model_visible_text import MODEL_INTEGRITY_BOUNDARY
-from argus_skill.roles.prompts import engineer as engineer_prompts
-from argus_skill.roles.prompts.engineer import (
+from argus.core.model_visible_text import MODEL_INTEGRITY_BOUNDARY
+from argus.roles.prompts import engineer as engineer_prompts
+from argus.roles.prompts.engineer import (
     assemble_round_prompt,
     build_mission_prompt,
 )
-from argus_skill.roles.prompts.manager import (
+from argus.roles.prompts.manager import (
     assemble_manager_prompt,
     build_stage_decision_prompt,
 )
-from argus_skill.roles.prompts.planner import (
+from argus.roles.prompts.planner import (
     build_continuous_prompt,
     build_continuous_resume_prompt,
 )
-from argus_skill.roles.prompts.reviewer import render_reviewer_prompt
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals.research import prompt_policy
+from argus.roles.prompts.reviewer import render_reviewer_prompt
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals.research import prompt_policy
 
 
 def _lcp(first: str, second: str) -> int:
@@ -306,7 +306,7 @@ def test_research_fragment_is_static_and_the_context_carries_notes_and_usage(mon
 
 
 def test_engineer_round_carries_the_research_notes_after_the_static_prompt(monkeypatch, tmp_path) -> None:
-    from argus_skill.engineer.round_prompt import RoundPromptMixin
+    from argus.engineer.round_prompt import RoundPromptMixin
 
     persist_vertical(tmp_path, "research")
     monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: [])

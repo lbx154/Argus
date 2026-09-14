@@ -15,12 +15,12 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
 
-from argus_skill.trial import store as store_module
-from argus_skill.trial.gateway import Settings, create_app, prepare, usage_total
-from argus_skill.trial.gateway_observation import GatewayAttempt
-from argus_skill.trial.responses import completion
-from argus_skill.trial.secrets import Vault, write_private
-from argus_skill.trial.store import Store, TrialError
+from argus.trial import store as store_module
+from argus.trial.gateway import Settings, create_app, prepare, usage_total
+from argus.trial.gateway_observation import GatewayAttempt
+from argus.trial.responses import completion
+from argus.trial.secrets import Vault, write_private
+from argus.trial.store import Store, TrialError
 
 GITHUB_SECRET = "test-github-credential-do-not-expose"
 ACCESS_SECRET = "test-upstream-credential-do-not-expose"
@@ -906,7 +906,7 @@ def test_upstream_errors_do_not_leak_credentials_or_follow_redirects(settings, s
 def test_upstream_rate_limit_keeps_retry_delay_and_refunds_without_retry(
     settings, monkeypatch, stream, retry_header, expected_delay,
 ):
-    from argus_skill.trial import gateway
+    from argus.trial import gateway
 
     monkeypatch.setattr(gateway.time, "time", lambda: datetime(2026, 9, 13, 9, 30, tzinfo=UTC).timestamp())
     calls = []

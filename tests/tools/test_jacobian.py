@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.tools import jacobian
+from argus.tools import jacobian
 
 
 def _caller(calls: list[tuple]) -> jacobian.McpCaller:
@@ -49,7 +49,7 @@ def test_capability_note_names_the_mcp_bridge(tmp_path: Path, monkeypatch) -> No
     assert str(binary.resolve()) in note
     interpreter = source_interpreter if source_interpreter.is_file() else Path(sys.executable)
     assert str(interpreter) in note
-    assert "argus_skill.tools.jacobian find" in note
+    assert "argus.tools.jacobian find" in note
     assert "import Jacobian" not in note
 
 
@@ -184,7 +184,7 @@ def test_stdio_sidecar_smoke_preserves_contract_and_isolates_credentials(
     payload.write_text('{"left": "84", "right": "30"}', encoding="utf-8")
     completed = subprocess.run(
         [
-            sys.executable, "-m", "argus_skill.tools.jacobian", "run",
+            sys.executable, "-m", "argus.tools.jacobian", "run",
             "--operation", "integer.compute.gcd", "--payload-file", str(payload),
         ],
         check=True, capture_output=True, text=True, timeout=30,

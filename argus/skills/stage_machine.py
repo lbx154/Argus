@@ -297,7 +297,7 @@ def _sync_status_stage(project_root: Path | str, stage: str) -> bool:
 
 
 def framework_source_root() -> Path:
-    """The ``argus_skill`` package directory that is actually executing."""
+    """The ``argus`` package directory that is actually executing."""
     return Path(__file__).resolve().parent.parent
 
 
@@ -672,7 +672,7 @@ def complete_final_stage(
 
     The name is now enforced. Until testbed run 14 this function completed
     *whichever* stage happened to be current, and the word "final" lived only in
-    :func:`argus_skill.manager.stage_decider.final_stage_completion_decision` —
+    :func:`argus.manager.stage_decider.final_stage_completion_decision` —
     a decision-layer check a caller reaches this primitive without passing
     through. Run 13 (``s-d9ea298f``) is what that costs. Its Engineer, blocked
     on ``staged_goal_gate_incomplete``, imported this module and called this

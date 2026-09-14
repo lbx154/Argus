@@ -1,4 +1,4 @@
-"""Delivery surfaces of the argus-skill product: the CLI and what it launches.
+"""Delivery surfaces of the argus product: the CLI and what it launches.
 
 Layer: delivery
 

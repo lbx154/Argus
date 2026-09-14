@@ -8,21 +8,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend, _exec
-from argus_skill.advisor import runtime
-from argus_skill.advisor.config import save_advisor_config
-from argus_skill.advisor.receipts import recent_receipts
-from argus_skill.advisor.service import AdvisorService
-from argus_skill.advisor.transport import AdvisorBridge, request
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.usage import UsageLedger
+from argus.adapters.agent_cli_backend import AgentCliBackend, _exec
+from argus.advisor import runtime
+from argus.advisor.config import save_advisor_config
+from argus.advisor.receipts import recent_receipts
+from argus.advisor.service import AdvisorService
+from argus.advisor.transport import AdvisorBridge, request
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.usage import UsageLedger
 
 
 @pytest.mark.parametrize("role", ["manager", "planner", "engineer", "reviewer"])
 def test_actual_role_gateway_exposes_native_advisor_with_independent_budget_and_receipt(tmp_path, monkeypatch, role, platform_process_env):
     """Real parent/child backend orchestration; only provider execution is fake."""
-    from argus_skill.adapters.agent_cli_backend._exec_finalize import finalize_result
-    from argus_skill.core import cost_control
+    from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
+    from argus.core import cost_control
 
     workspace, state, global_root = tmp_path / "workspace", tmp_path / "state", tmp_path / "global"
     workspace.mkdir()
@@ -129,9 +129,9 @@ def test_no_recursive_tool_or_shell_fallback_for_read_only_roles(tmp_path, label
 
 
 def test_tool_bridge_rejects_context_forgery_and_cli_uses_bound_scope(tmp_path, monkeypatch, capsys):
-    from argus_skill.advisor.config import AdvisorConfig
-    from argus_skill.advisor.service import AdvisorCallContext
-    from argus_skill.tools.advisor import main
+    from argus.advisor.config import AdvisorConfig
+    from argus.advisor.service import AdvisorCallContext
+    from argus.tools.advisor import main
 
     class Backend:
         def set_usage_context(self, **_kwargs):

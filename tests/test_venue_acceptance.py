@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-from argus_skill.core.venue_review import (
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.core.venue_review import (
     configure_venue_revisions,
     current_venue_acceptance_issue,
     enforce_venue_acceptance,
@@ -17,9 +17,9 @@ from argus_skill.core.venue_review import (
     selected_acceptance_minimum,
     venue_review_issue,
 )
-from argus_skill.reviewer import Reviewer, ReviewerConfig
-from argus_skill.reviewer._parsing import decision_from_payload, parse_decision_text
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer._parsing import decision_from_payload, parse_decision_text
+from argus.skills.vertical_select import persist_vertical
 
 
 def assessment(recommendation="weak_accept", *, clear=True, issues=None, venue="ICLR 2027"):
@@ -283,8 +283,8 @@ def test_gate_applies_to_final_papers_only():
 
 
 def test_quality_revision_continues_beyond_round_limits_without_disabling_stops():
-    from argus_skill.engineer.round_config import SupervisedConfig
-    from argus_skill.engineer.round_settlement import RoundSettlementMixin
+    from argus.engineer.round_config import SupervisedConfig
+    from argus.engineer.round_settlement import RoundSettlementMixin
 
     config = SupervisedConfig(max_rounds=50, stall_threshold=4, soft_round_limit=12, hard_escalate_rounds=24)
     configure_venue_revisions(config)
@@ -309,7 +309,7 @@ def test_quality_revision_continues_beyond_round_limits_without_disabling_stops(
 def test_stage_certificate_keeps_venue_rating_and_expires_on_figure_changes(paper):
     from types import SimpleNamespace
 
-    from argus_skill.core.stage_certificate import latest_stage_review, record_stage_review
+    from argus.core.stage_certificate import latest_stage_review, record_stage_review
 
     record_stage_review(
         state_root=paper, project_root=paper, stage="review", item=SimpleNamespace(id="final-review"),

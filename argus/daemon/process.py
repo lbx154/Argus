@@ -97,7 +97,7 @@ def _windows_daemon_command(config: Any) -> list[str]:
     """Re-enter the active package/binary as one foreground worker."""
     command = [sys.executable]
     if not getattr(sys, "frozen", False):
-        command.extend(["-m", "argus_skill"])
+        command.extend(["-m", "argus"])
     global_root = config.global_root or config.life_dir.parent.parent
     command.extend(
         [
@@ -225,7 +225,7 @@ def _spawn_windows_background_process(
                     elif now - stable_since >= _DAEMON_STABILITY_SECONDS:
                         if not quiet:
                             sys.stdout.write(
-                                f"argus-skill: daemon started (pid {status.pid}, "
+                                f"argus: daemon started (pid {status.pid}, "
                                 f"life_dir={config.life_dir}, log={log_path}).\n"
                             )
                         return 0
@@ -241,12 +241,12 @@ def _spawn_windows_background_process(
         if not quiet:
             if exit_rc is not None:
                 sys.stderr.write(
-                    "argus-skill: Windows worker exited before publishing "
+                    "argus: Windows worker exited before publishing "
                     f"daemon status (rc={exit_rc}). Check {log_path} for errors.\n"
                 )
             else:
                 sys.stderr.write(
-                    "argus-skill: Windows worker did not publish its status within "
+                    "argus: Windows worker did not publish its status within "
                     f"{_WINDOWS_DAEMON_PUBLISH_TIMEOUT_SECONDS:g}s. "
                     f"Check {log_path} for errors.\n"
                 )
@@ -292,7 +292,7 @@ def spawn_detached_process(
         if existing.alive and existing.pid is not None:
             if not quiet:
                 sys.stderr.write(
-                    f"argus-skill: daemon already running for this life-dir "
+                    f"argus: daemon already running for this life-dir "
                     f"(pid={existing.pid}, lock={existing.pid_path}).\n"
                 )
             release_spawn_lock(spawn_lock_fd)
@@ -304,7 +304,7 @@ def spawn_detached_process(
         )
         if workspace_error:
             if not quiet:
-                sys.stderr.write(f"argus-skill: {workspace_error}.\n")
+                sys.stderr.write(f"argus: {workspace_error}.\n")
             release_spawn_lock(spawn_lock_fd)
             return 3
         daemon_limit = max_active_daemons(config)
@@ -312,7 +312,7 @@ def spawn_detached_process(
         if daemon_limit > 0 and active_count >= daemon_limit:
             if not quiet:
                 sys.stderr.write(
-                    f"argus-skill: refusing to start another daemon: host-wide "
+                    f"argus: refusing to start another daemon: host-wide "
                     f"active-daemon cap {daemon_limit} reached ({active_count} live). "
                     "Stop an existing project or raise "
                     "ARGUS_SKILL_MAX_ACTIVE_DAEMONS explicitly.\n"
@@ -324,7 +324,7 @@ def spawn_detached_process(
                 workspace_lease_fd = acquire_workspace_lease(config)
             except Exception as exc:  # noqa: BLE001
                 if not quiet:
-                    sys.stderr.write(f"argus-skill: {exc}.\n")
+                    sys.stderr.write(f"argus: {exc}.\n")
                 release_spawn_lock(spawn_lock_fd)
                 return 3
         config.life_dir.mkdir(parents=True, exist_ok=True)
@@ -360,13 +360,13 @@ def spawn_detached_process(
             if status is not None:
                 if not quiet:
                     sys.stdout.write(
-                        f"argus-skill: daemon started (pid {status.pid}, "
+                        f"argus: daemon started (pid {status.pid}, "
                         f"life_dir={config.life_dir}, log={log_path}).\n"
                     )
                 return 0
             if not quiet:
                 sys.stderr.write(
-                    "argus-skill: daemon exited or failed to stabilize during "
+                    "argus: daemon exited or failed to stabilize during "
                     f"startup. Check {log_path} for errors.\n"
                 )
             return 2
@@ -422,7 +422,7 @@ def spawn_detached_process(
     # Close every inherited fd beyond std{in,out,err}. ``os.fork`` (unlike
     # ``subprocess(close_fds=True)``) inherits the WHOLE fd table of whoever
     # called ``spawn_detached_daemon`` — which is often the web server
-    # (``argus-skill --web``), whose LISTENING SOCKET would otherwise be kept
+    # (``argus --web``), whose LISTENING SOCKET would otherwise be kept
     # open here and wedge that port after the web restarts (a real fd leak:
     # connections queue to a daemon that never accepts). The daemon opens every
     # fd it actually needs (pid lock, status sidecar, events) AFTER this point,
@@ -496,14 +496,14 @@ def run_foreground_process(
         else ""
     )
     if workspace_error:
-        sys.stderr.write(f"argus-skill: {workspace_error}.\n")
+        sys.stderr.write(f"argus: {workspace_error}.\n")
         return 3
     workspace_lease_fd: int | None = None
     if acquire_workspace_lease is not None:
         try:
             workspace_lease_fd = acquire_workspace_lease(config)
         except Exception as exc:  # noqa: BLE001
-            sys.stderr.write(f"argus-skill: {exc}.\n")
+            sys.stderr.write(f"argus: {exc}.\n")
             return 3
 
     config.life_dir.mkdir(parents=True, exist_ok=True)
@@ -515,7 +515,7 @@ def run_foreground_process(
         if release_workspace_lease is not None:
             release_workspace_lease(workspace_lease_fd)
         sys.stderr.write(
-            f"argus-skill: daemon already running for this life-dir "
+            f"argus: daemon already running for this life-dir "
             f"(pid={exc.pid}, lock={exc.lock_path}).\n"
         )
         return 2

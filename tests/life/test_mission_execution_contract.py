@@ -6,13 +6,13 @@ from typing import Any, Callable
 
 import pytest
 
-from argus_skill.apps._runtime_backends import _Outcome
-from argus_skill.core.event_catalog import EventType
-from argus_skill.core.usage import UsageLedger
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._mission_execution_helpers import _MissionRunState
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.apps._runtime_backends import _Outcome
+from argus.core.event_catalog import EventType
+from argus.core.usage import UsageLedger
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._mission_execution_helpers import _MissionRunState
+from argus.skills.vertical_select import persist_vertical
 
 
 class _ObservingSink:

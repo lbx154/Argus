@@ -3,8 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.trial import GLOBAL_TPM
-from argus_skill.trial.store import Store, TrialError
+from argus.trial import GLOBAL_TPM
+from argus.trial.store import Store, TrialError
 
 
 def test_completed_calls_count_reported_tokens_across_keys(tmp_path):

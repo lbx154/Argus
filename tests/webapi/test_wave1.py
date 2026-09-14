@@ -15,10 +15,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.session import SessionMeta, read_session_meta, write_session_meta
-from argus_skill.life.memory import LifeMemory
-from argus_skill.manager import config_intent, front_door
-from argus_skill.webapi import (
+from argus.core.session import SessionMeta, read_session_meta, write_session_meta
+from argus.life.memory import LifeMemory
+from argus.manager import config_intent, front_door
+from argus.webapi import (
     artifacts,
     manager_bridge,
     manager_pending_question,
@@ -193,11 +193,11 @@ def test_set_project_workdir_uses_pipeline_then_session_lock_order(
         yield
 
     monkeypatch.setattr(
-        "argus_skill.manager._session_ops.manager_pipeline_lock",
+        "argus.manager._session_ops.manager_pipeline_lock",
         pipeline_lock,
     )
     monkeypatch.setattr(
-        "argus_skill.manager._session_ops.manager_session_lock",
+        "argus.manager._session_ops.manager_session_lock",
         session_lock,
     )
 
@@ -1127,8 +1127,8 @@ def test_wave1_reads_404_on_unknown_project(ctx) -> None:
 
 def _persist_lifecycle_done(life_dir: Path) -> None:
     """Write a lifecycle.json with state=done so tests can verify resume."""
-    from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
-    from argus_skill.life.project_lifecycle_io import write_persisted
+    from argus.life.project_lifecycle import ProjectState, ProjectStatus
+    from argus.life.project_lifecycle_io import write_persisted
 
     status = ProjectStatus(
         project_id=life_dir.name,
@@ -1140,8 +1140,8 @@ def _persist_lifecycle_done(life_dir: Path) -> None:
 
 def _persist_lifecycle_state(life_dir: Path, state_str: str) -> None:
     """Write a lifecycle.json with an arbitrary state."""
-    from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
-    from argus_skill.life.project_lifecycle_io import write_persisted
+    from argus.life.project_lifecycle import ProjectState, ProjectStatus
+    from argus.life.project_lifecycle_io import write_persisted
 
     status = ProjectStatus(
         project_id=life_dir.name,
@@ -1153,7 +1153,7 @@ def _persist_lifecycle_state(life_dir: Path, state_str: str) -> None:
 
 def _make_mem_with_launch_cwd(tmp_path: Path, sid: str = "s-lifecycle-test"):
     """Create a MemoryBundle with an explicit shared execution workdir."""
-    from argus_skill.life.memory import MemoryBundle
+    from argus.life.memory import MemoryBundle
 
     launch_dir = tmp_path / "workspace"
     launch_dir.mkdir(parents=True, exist_ok=True)
@@ -1191,8 +1191,8 @@ class TestManagerMessageLifecycleErrors:
         state: str,
         monkeypatch,
     ) -> None:
-        from argus_skill.manager import config_intent as ci
-        from argus_skill.manager import front_door as fd
+        from argus.manager import config_intent as ci
+        from argus.manager import front_door as fd
 
         sid = f"s-mgr-err-{state}"
         life_dir = tmp_path / "projects" / sid
@@ -1230,8 +1230,8 @@ class TestManagerMessageLifecycleErrors:
     """resume_done_lifecycle_for_team_dispatch resumes a done project on TEAM."""
 
     def test_done_project_resumes_to_active_state(self, tmp_path: Path) -> None:
-        from argus_skill.life.project_lifecycle_io import load_persisted
-        from argus_skill.manager.dispatch import (
+        from argus.life.project_lifecycle_io import load_persisted
+        from argus.manager.dispatch import (
             resume_done_lifecycle_for_team_dispatch,
         )
 
@@ -1247,8 +1247,8 @@ class TestManagerMessageLifecycleErrors:
 
     def test_done_project_resume_uses_persisted_workdir(self, tmp_path: Path) -> None:
         """Resume infers observable status from the shared execution workdir."""
-        from argus_skill.life.project_lifecycle_io import load_persisted
-        from argus_skill.manager.dispatch import (
+        from argus.life.project_lifecycle_io import load_persisted
+        from argus.manager.dispatch import (
             resume_done_lifecycle_for_team_dispatch,
         )
 
@@ -1267,7 +1267,7 @@ class TestManagerMessageLifecycleErrors:
 
     @pytest.mark.parametrize("state", ["quarantined", "archived"])
     def test_quarantined_and_archived_raise(self, tmp_path: Path, state: str) -> None:
-        from argus_skill.manager.dispatch import (
+        from argus.manager.dispatch import (
             resume_done_lifecycle_for_team_dispatch,
         )
 
@@ -1278,7 +1278,7 @@ class TestManagerMessageLifecycleErrors:
             resume_done_lifecycle_for_team_dispatch(mem)
 
         # State must remain unchanged
-        from argus_skill.life.project_lifecycle_io import load_persisted
+        from argus.life.project_lifecycle_io import load_persisted
 
         persisted = load_persisted(mem.project_root)
         assert persisted["state"] == state
@@ -1286,8 +1286,8 @@ class TestManagerMessageLifecycleErrors:
     @pytest.mark.parametrize("state", ["incubating", "running", "writing"])
     def test_active_states_are_noop(self, tmp_path: Path, state: str) -> None:
         """Already-active projects return False and stay unchanged."""
-        from argus_skill.life.project_lifecycle_io import load_persisted
-        from argus_skill.manager.dispatch import (
+        from argus.life.project_lifecycle_io import load_persisted
+        from argus.manager.dispatch import (
             resume_done_lifecycle_for_team_dispatch,
         )
 
@@ -1306,7 +1306,7 @@ class TestManagerMessageLifecycleErrors:
         This test validates the contract: only TEAM dispatch calls the
         resume helper, so a done project stays done for chat/SELF turns.
         """
-        from argus_skill.life.project_lifecycle_io import load_persisted
+        from argus.life.project_lifecycle_io import load_persisted
 
         mem, _ = _make_mem_with_launch_cwd(tmp_path)
         _persist_lifecycle_done(mem.project_root)
@@ -1317,7 +1317,7 @@ class TestManagerMessageLifecycleErrors:
 
     def test_no_lifecycle_file_returns_false(self, tmp_path: Path) -> None:
         """Fresh project with no lifecycle.json should be a no-op."""
-        from argus_skill.manager.dispatch import (
+        from argus.manager.dispatch import (
             resume_done_lifecycle_for_team_dispatch,
         )
 
@@ -1349,8 +1349,8 @@ def test_dispatch_ack_stream_persists_truthful_text(
     expected_substr,
 ) -> None:
     """Streaming endpoint: returned reply, transcript turn, and SSE delta agree."""
-    from argus_skill.core.transcript import read_turns
-    from argus_skill.webapi.manager_pending_question import record_task_dispatch_ack
+    from argus.core.transcript import read_turns
+    from argus.webapi.manager_pending_question import record_task_dispatch_ack
 
     life_dir = tmp_path / "projects" / "s-ack"
     life_dir.mkdir(parents=True)
@@ -1396,8 +1396,8 @@ def test_dispatch_ack_blocking_persists_truthful_text(
     expected_substr,
 ) -> None:
     """Blocking endpoint: returned reply and transcript turn agree (no SSE)."""
-    from argus_skill.core.transcript import read_turns
-    from argus_skill.webapi.manager_pending_question import record_task_dispatch_ack
+    from argus.core.transcript import read_turns
+    from argus.webapi.manager_pending_question import record_task_dispatch_ack
 
     life_dir = tmp_path / "projects" / "s-ack"
     life_dir.mkdir(parents=True)
@@ -1428,7 +1428,7 @@ def test_dispatch_ack_blocking_persists_truthful_text(
 
 
 def test_dispatch_ack_distinguishes_durable_campaign_update(tmp_path: Path) -> None:
-    from argus_skill.webapi.manager_pending_question import record_task_dispatch_ack
+    from argus.webapi.manager_pending_question import record_task_dispatch_ack
 
     life_dir = tmp_path / "projects" / "s-ack"
     life_dir.mkdir(parents=True)
@@ -1465,7 +1465,7 @@ def test_dispatch_ack_describes_queue_state(
     dispatch_state: str,
     expected: str,
 ) -> None:
-    from argus_skill.webapi.manager_pending_question import record_task_dispatch_ack
+    from argus.webapi.manager_pending_question import record_task_dispatch_ack
 
     life_dir = tmp_path / "projects" / "s-queue-ack"
     life_dir.mkdir(parents=True)
@@ -1548,7 +1548,7 @@ def test_dispatch_ack_surfaces_transcript_write_failure(
 
 
 def test_dispatch_ack_names_the_task_in_the_operator_language(tmp_path: Path) -> None:
-    from argus_skill.webapi.manager_pending_question import record_task_dispatch_ack
+    from argus.webapi.manager_pending_question import record_task_dispatch_ack
 
     (tmp_path / "projects" / "s-ack").mkdir(parents=True)
     result: dict = {
@@ -1568,7 +1568,7 @@ def test_dispatch_ack_names_the_task_in_the_operator_language(tmp_path: Path) ->
 
 @pytest.mark.parametrize("planner_pending", [False, True])
 def test_dispatch_ack_uses_operator_language_when_manager_rewrites_the_title(tmp_path, planner_pending):
-    from argus_skill.webapi.manager_pending_question import record_task_dispatch_ack
+    from argus.webapi.manager_pending_question import record_task_dispatch_ack
 
     result = {
         "kind": "task", "daemon_alive": True,

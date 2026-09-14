@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.life.memory import Backlog, BacklogItem
+from argus.life.memory import Backlog, BacklogItem
 
 
 def running(backlog: Backlog) -> BacklogItem:

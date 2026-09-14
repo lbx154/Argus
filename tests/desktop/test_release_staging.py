@@ -97,7 +97,7 @@ def test_release_notes_require_all_desktop_platforms(tmp_path, monkeypatch):
     with zipfile.ZipFile(tmp_path / "argus_skill-0.1.5-py3-none-any.whl", "w") as wheel:
         wheel.writestr(
             "argus_skill-0.1.5.dist-info/METADATA",
-            "Metadata-Version: 2.1\nName: argus-skill\nVersion: 0.1.5\n",
+            "Metadata-Version: 2.1\nName: argus\nVersion: 0.1.5\n",
         )
     notes = tmp_path.parent / "trial-release-notes.txt"
     monkeypatch.setattr(sys, "argv", [str(script), str(tmp_path), "--notes", str(notes)])

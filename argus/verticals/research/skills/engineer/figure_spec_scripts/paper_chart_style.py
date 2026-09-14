@@ -28,7 +28,7 @@ real conference paper. This module gives every figure ONE journal-grade look:
 This file is intentionally dependency-light and self-contained: the
 ``paper-chart-styling`` skill copies it into ``paper/analysis/`` and analysis
 scripts do ``from paper_chart_style import set_pub_style`` — the project venv
-does not need ``argus_skill`` on its path.
+does not need ``argus`` on its path.
 
 Usage
 -----
@@ -180,7 +180,7 @@ def _apply_scienceplots_style() -> None:
     except ImportError as exc:
         raise RuntimeError(
             "SciencePlots is required for research data figures. Install the "
-            "plotting stack with `pip install 'argus-skill[figures]'` or "
+            "plotting stack with `pip install 'argus[figures]'` or "
             "`pip install matplotlib seaborn SciencePlots`."
         ) from exc
     plt.style.use(["science", "no-latex"])

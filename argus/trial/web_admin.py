@@ -146,7 +146,7 @@ def prepare_tenant_directory(data: Path, key: str, uid: int, gid: int) -> None:
                         "# Argus hosted research workspace\n\n"
                         "This workspace and its chat history belong only to this invitation account.\n"
                         "Run GPU experiments and large CPU/memory jobs through the shared queue:\n\n"
-                        "    python -m argus_skill.trial.compute_client submit --gpus 1 "
+                        "    python -m argus.trial.compute_client submit --gpus 1 "
                         "--cpus 8 --memory-gib 32 --timeout 3600 -- python experiment.py\n\n"
                         "Use the same CLI's status/jobs/logs/wait/cancel commands to inspect work.\n"
                         "Check status before planning resource use. One account may borrow available "

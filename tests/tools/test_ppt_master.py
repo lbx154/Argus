@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.tools import ppt_master as ppt_master_module
-from argus_skill.tools.ppt_master import (
+from argus.tools import ppt_master as ppt_master_module
+from argus.tools.ppt_master import (
     install_ppt_master,
     install_root,
     ppt_master_status,

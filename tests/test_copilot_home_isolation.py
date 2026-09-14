@@ -25,7 +25,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.agent_cli.copilot_home import (
+from argus.agent_cli.copilot_home import (
     COPILOT_HOME_ENV,
     apply_copilot_home,
     argus_copilot_home,
@@ -179,7 +179,7 @@ def test_an_unusable_location_leaves_the_default_alone(
 
 
 def _child_env_for(backend: str, **option_kwargs):
-    from argus_skill.agent_cli import _prompt_delivery
+    from argus.agent_cli import _prompt_delivery
 
     mixin = next(
         obj

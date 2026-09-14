@@ -4,12 +4,12 @@ import json
 
 import pytest
 
-from argus_skill.release_tools import build_plugins
+from argus.release_tools import build_plugins
 
 
 def test_build_preserves_external_catalog_without_private_source(tmp_path, monkeypatch):
     monkeypatch.setattr(build_plugins, "ROOT", tmp_path)
-    directory = tmp_path / "argus_skill"
+    directory = tmp_path / "argus"
     directory.mkdir()
     entry = {
         "id": "external",
@@ -39,7 +39,7 @@ def test_build_preserves_external_catalog_without_private_source(tmp_path, monke
 
 def test_invalid_external_catalog_is_not_published(tmp_path, monkeypatch):
     monkeypatch.setattr(build_plugins, "ROOT", tmp_path)
-    directory = tmp_path / "argus_skill"
+    directory = tmp_path / "argus"
     directory.mkdir()
     (directory / "plugin_catalog.json").write_text(
         json.dumps({"plugins": [{"id": "bad", "artifact": {"url": "http://unsafe.example"}}]})

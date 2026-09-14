@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.reviewer import Reviewer, ReviewerConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.core.models import RunnerResult
+from argus.reviewer import Reviewer, ReviewerConfig
+from argus.skills.vertical_select import persist_vertical
 
 
 class _Backend:

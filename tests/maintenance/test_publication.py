@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.maintenance import publication
+from argus.maintenance import publication
 
 
 def git(root: Path, *args: str) -> str:

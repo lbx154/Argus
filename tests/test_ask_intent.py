@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.manager.ask_intent import ASK_PREFIXES, strip_ask_prefix
+from argus.manager.ask_intent import ASK_PREFIXES, strip_ask_prefix
 
 # -- recognising the intent -------------------------------------------------
 
@@ -75,14 +75,14 @@ def test_empty_input_is_not_a_question() -> None:
 # -- the command is offered on every surface -------------------------------
 
 def test_the_chat_bridges_expose_ask() -> None:
-    from argus_skill.life.chat.router import COMMAND_MENU, help_text
+    from argus.life.chat.router import COMMAND_MENU, help_text
 
     assert any(name == "ask" for name, _desc in COMMAND_MENU)
     assert "/ask" in help_text("Telegram")
 
 
 def test_the_chat_router_routes_every_alias() -> None:
-    from argus_skill.life.chat.router import CommandRouter
+    from argus.life.chat.router import CommandRouter
 
     handlers = CommandRouter.dispatch.__doc__ or ""
     # Routing is a dict literal inside dispatch(); assert on the source so a
@@ -135,12 +135,12 @@ def test_the_web_bridge_answers_explicit_asks_without_task_dispatch(
 ) -> None:
     from types import SimpleNamespace
 
-    from argus_skill.core.models import RunnerResult
-    from argus_skill.core.transcript import read_turns
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.manager import config_intent, front_door
-    from argus_skill.roles.prompts.manager import build_quick_reply_prompt
-    from argus_skill.webapi import manager_bridge, manager_state
+    from argus.core.models import RunnerResult
+    from argus.core.transcript import read_turns
+    from argus.life.memory import LifeMemory
+    from argus.manager import config_intent, front_door
+    from argus.roles.prompts.manager import build_quick_reply_prompt
+    from argus.webapi import manager_bridge, manager_state
 
     sid = "s-explicit-ask"
     life = tmp_path / "projects" / sid
@@ -194,8 +194,8 @@ def test_the_web_bridge_answers_explicit_asks_without_task_dispatch(
 
 
 def test_an_inline_answer_never_falls_through_to_dispatch(tmp_path, monkeypatch) -> None:
-    from argus_skill.manager import front_door
-    from argus_skill.webapi import manager_bridge
+    from argus.manager import front_door
+    from argus.webapi import manager_bridge
 
     monkeypatch.setattr(
         front_door,

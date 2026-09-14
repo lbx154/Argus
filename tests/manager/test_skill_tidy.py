@@ -4,10 +4,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.manager.skill_tidy import names_the_verifier, propagate_after_mission
-from argus_skill.skills.layered import LayeredSkillStore
-from argus_skill.skills.missions import EngineerMission
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.manager.skill_tidy import names_the_verifier, propagate_after_mission
+from argus.skills.layered import LayeredSkillStore
+from argus.skills.missions import EngineerMission
 
 
 @dataclass

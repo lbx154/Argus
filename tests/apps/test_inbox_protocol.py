@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps import _inbox_protocol as inbox
+from argus.apps import _inbox_protocol as inbox
 
 
 def put(root, text="message", stage=""):
@@ -258,7 +258,7 @@ def test_crash_after_commit_before_ack_keeps_claim_for_restart(tmp_path):
     put(tmp_path)
     script = """
 import os, sys
-from argus_skill.apps import _inbox_protocol as q
+from argus.apps import _inbox_protocol as q
 c = q.claim_inbox_message(sys.argv[1], lease_seconds=0.05)
 c = q.freeze_inbox_decision(sys.argv[1], c, decision={'kind':'transient'}, target_root=None, transient_text=c.text)
 c = q.accept_inbox_claim(sys.argv[1], c)
@@ -279,7 +279,7 @@ def test_crash_inside_enqueue_transaction_exposes_no_partial_message(tmp_path):
     script = """
 import os, sys
 from pathlib import Path
-from argus_skill.apps import _inbox_protocol as q
+from argus.apps import _inbox_protocol as q
 with q._transaction(sys.argv[1]) as (db, root):
     q._insert(db, root, '', b'{"text":"uncommitted"}\\n')
     os._exit(74)

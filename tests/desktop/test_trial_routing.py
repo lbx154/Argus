@@ -10,9 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core import knobs
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.trial import CLIENT_MODEL, client
+from argus.core import knobs
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.trial import CLIENT_MODEL, client
 
 
 @pytest.fixture(autouse=True)
@@ -31,8 +31,8 @@ def isolated_trial(tmp_path, monkeypatch):
 @pytest.mark.parametrize("sentinel", ["", "auto", "inherit", "default"])
 @pytest.mark.parametrize("route", ["classify", "dag", "plan", "rewrite"])
 def test_all_automatic_control_routes_use_the_trial_selector(monkeypatch, route, sentinel):
-    from argus_skill.manager.dispatch import _bounded_dag_model
-    from argus_skill.webapi.manager_bridge import _plan_preview_model, _rewrite_model_and_effort
+    from argus.manager.dispatch import _bounded_dag_model
+    from argus.webapi.manager_bridge import _plan_preview_model, _rewrite_model_and_effort
 
     routes = {
         "classify": ("ARGUS_SKILL_FRONTDOOR_MODEL", knobs.resolve_manager_classify_model),
@@ -58,7 +58,7 @@ def test_trial_role_auto_and_unconfigured_model_resolve_identically(monkeypatch)
 
 
 def test_explicit_incompatible_control_model_remains_visible_and_is_rejected(monkeypatch):
-    from argus_skill.adapters.agent_cli_backend import _exec
+    from argus.adapters.agent_cli_backend import _exec
 
     monkeypatch.setenv("ARGUS_SKILL_FRONTDOOR_MODEL", "own-explicit-model")
     model = knobs.resolve_manager_classify_model()
@@ -86,7 +86,7 @@ def test_trial_flag_does_not_replace_another_backends_model(monkeypatch):
 
 
 def test_persisted_personal_control_knob_is_not_rewritten(isolated_trial, monkeypatch):
-    from argus_skill.core.knob_store import read_persisted_knobs, write_persisted_knobs
+    from argus.core.knob_store import read_persisted_knobs, write_persisted_knobs
 
     assert write_persisted_knobs({"ARGUS_SKILL_FRONTDOOR_MODEL": "own-saved-model"})
     before = read_persisted_knobs()
@@ -96,9 +96,9 @@ def test_persisted_personal_control_knob_is_not_rewritten(isolated_trial, monkey
 
 
 def test_front_door_classification_reaches_execution_in_trial_mode(isolated_trial, monkeypatch):
-    from argus_skill.adapters.agent_cli_backend import _exec
-    from argus_skill.life import router
-    from argus_skill.manager import _front_door_ops
+    from argus.adapters.agent_cli_backend import _exec
+    from argus.life import router
+    from argus.manager import _front_door_ops
 
     calls = []
     backend = SimpleNamespace(
@@ -123,9 +123,9 @@ def test_front_door_classification_reaches_execution_in_trial_mode(isolated_tria
 
 @pytest.mark.parametrize("model", [None, "", "auto", "AUTO", "default", CLIENT_MODEL])
 def test_one_shot_and_acp_share_the_same_trial_selector(model):
-    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
-    from argus_skill.agent_cli.agent_cli_runner import RunnerOptions as CliOptions
-    from argus_skill.agent_cli.copilot_acp import CopilotAcpClient
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner
+    from argus.agent_cli.agent_cli_runner import RunnerOptions as CliOptions
+    from argus.agent_cli.copilot_acp import CopilotAcpClient
 
     options = CliOptions(model=model, reasoning_effort="low")
     command = AgentCliRunner("copilot", backend="copilot")._build_command(
@@ -139,9 +139,9 @@ def test_one_shot_and_acp_share_the_same_trial_selector(model):
 def test_isolated_trial_retains_only_its_selected_provider(isolated_trial, monkeypatch):
     import json
 
-    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
-    from argus_skill.agent_cli.agent_cli_runner import RunnerOptions as CliOptions
-    from argus_skill.trial.storage import write_private
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner
+    from argus.agent_cli.agent_cli_runner import RunnerOptions as CliOptions
+    from argus.trial.storage import write_private
 
     fake_key = "argus_trial_" + "e" * 64
     write_private(isolated_trial / "copilot-trial.json", json.dumps({
@@ -160,8 +160,8 @@ def test_isolated_trial_retains_only_its_selected_provider(isolated_trial, monke
 def test_trial_profile_and_pause_remain_host_scoped_in_plugin_daemon(isolated_trial, monkeypatch):
     import json
 
-    from argus_skill.trial import attention
-    from argus_skill.trial.storage import write_private
+    from argus.trial import attention
+    from argus.trial.storage import write_private
 
     write_private(isolated_trial / "copilot-trial.json", json.dumps({
         "base_url": "https://argusbot.cn/v1", "api_key": "argus_trial_" + "f" * 64,
@@ -182,8 +182,8 @@ def test_trial_profile_and_pause_remain_host_scoped_in_plugin_daemon(isolated_tr
 def test_plugin_model_override_is_validated_before_accounting_and_finished(monkeypatch):
     from dataclasses import replace
 
-    from argus_skill.adapters.agent_cli_backend import _exec
-    from argus_skill.core import workbench_plugins
+    from argus.adapters.agent_cli_backend import _exec
+    from argus.core import workbench_plugins
 
     finished = []
     monkeypatch.setattr(workbench_plugins, "prepare_plugin_run", lambda prompt, options, **kw: (

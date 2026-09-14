@@ -4,9 +4,9 @@ import time
 
 import pytest
 
-from argus_skill.core.cost_control import cost_control_snapshot, reserve_call_budget
-from argus_skill.core.token_usage import TokenUsage
-from argus_skill.core.usage import UsageLedger, UsageRecord, build_usage_record
+from argus.core.cost_control import cost_control_snapshot, reserve_call_budget
+from argus.core.token_usage import TokenUsage
+from argus.core.usage import UsageLedger, UsageRecord, build_usage_record
 
 ERROR = ("Process exited with code 1 before turn completion.\n"
          "error: unknown option '--context'\n(Did you mean --connect?)\n\n"

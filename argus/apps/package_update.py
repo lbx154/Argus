@@ -18,7 +18,7 @@ from urllib.parse import quote, unquote, urlencode, urlsplit, urlunsplit
 from .update_install import validate_pip_target
 from .update_launcher import preserve_windows_launchers
 
-PACKAGE = "argus-skill"
+PACKAGE = "argus"
 _REPOSITORIES = {"lbx154/argus", "lbx154/argus-skill", "microsoft/argusagent"}
 
 
@@ -232,7 +232,7 @@ def update_installed_package(*, runner=None) -> PackageUpdateResult:
     try:
         distribution = metadata.distribution(PACKAGE)
     except metadata.PackageNotFoundError as exc:
-        raise UpdateError("no installed argus-skill package metadata was found") from exc
+        raise UpdateError("no installed argus package metadata was found") from exc
     prefix = Path(sys.prefix).resolve()
     installed_root = Path(distribution.locate_file("")).resolve()
     user_site = Path(site.getusersitepackages()).resolve()
@@ -304,5 +304,5 @@ def update_installed_package(*, runner=None) -> PackageUpdateResult:
     try:
         after = metadata.version(PACKAGE)
     except metadata.PackageNotFoundError as exc:
-        raise UpdateError("installer completed but argus-skill metadata is missing") from exc
+        raise UpdateError("installer completed but argus metadata is missing") from exc
     return PackageUpdateResult(prefix, source, channel, before, after, note)

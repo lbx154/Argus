@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _exec
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.runner_receipts import is_provider_turn_cap_receipt
-from argus_skill.trial import attention, client
+from argus.adapters.agent_cli_backend import _exec
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.runner_receipts import is_provider_turn_cap_receipt
+from argus.trial import attention, client
 
 CAP_RECEIPT = (
     "Provider turn cap reached: this engineer-r1 call used 40 provider turns "
@@ -27,7 +27,7 @@ def trial_host(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path))
     monkeypatch.setenv(client.TRIAL_ENV, "1")
     monkeypatch.setattr(attention, "_fingerprint", lambda: "synthetic-account-fingerprint")
-    from argus_skill.core import workbench_plugins
+    from argus.core import workbench_plugins
     monkeypatch.setattr(workbench_plugins, "prepare_plugin_run", lambda prompt, options, **kw: (prompt, options))
     monkeypatch.setattr(workbench_plugins, "finish_plugin_run", lambda *_: None)
     return tmp_path

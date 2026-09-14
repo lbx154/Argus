@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.daemon.life_worker import LifeWorker
-from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus.daemon.life_worker import LifeWorker
+from argus.life.memory import BacklogItem, LifeMemory
 
 
 def _worker(tmp_path) -> LifeWorker:
@@ -79,7 +79,7 @@ def test_wakeable_sleep_sleeps_full_when_quiet(tmp_path) -> None:
 
 
 def test_durable_input_wakes_once_and_new_input_interrupts_retained_envelope_wait(tmp_path):
-    from argus_skill.apps._inbox import queue_inbox_message
+    from argus.apps._inbox import queue_inbox_message
 
     worker = _worker(tmp_path)
     queue_inbox_message(tmp_path, "A retained instruction", source="test")

@@ -15,9 +15,9 @@ import pytest
 import uvicorn
 from cryptography.fernet import Fernet
 
-from argus_skill.trial import client
-from argus_skill.trial.gateway import Settings, create_app
-from argus_skill.trial.secrets import Vault, write_private
+from argus.trial import client
+from argus.trial.gateway import Settings, create_app
+from argus.trial.secrets import Vault, write_private
 
 
 @pytest.mark.parametrize("url", ["http://example.com", "https://user:pass@example.com", "https://example.com/v1", "https://example.com?key=value", "file:///tmp/socket"])
@@ -35,14 +35,14 @@ def test_noninteractive_trial_never_prompts_for_a_key(monkeypatch):
 
 
 def test_default_trial_command_uses_the_public_argus_site():
-    from argus_skill.apps.cli import build_parser
+    from argus.apps.cli import build_parser
 
     args = build_parser().parse_args(["--setup", "--trial"])
     assert args.setup and args.trial_url == "https://argusbot.cn"
 
 
 def test_trial_setup_selects_copilot_and_does_not_use_pi(monkeypatch):
-    from argus_skill.tools import setup
+    from argus.tools import setup
 
     captured = []
     monkeypatch.setattr(client, "setup_trial", lambda url, **kwargs: captured.append(url) or 0)
@@ -55,7 +55,7 @@ def test_trial_setup_selects_copilot_and_does_not_use_pi(monkeypatch):
 def test_missing_copilot_is_installed_automatically(monkeypatch):
     from types import SimpleNamespace
 
-    from argus_skill.agent_cli import runner_backend
+    from argus.agent_cli import runner_backend
 
     installed = []
     monkeypatch.setattr(runner_backend, "resolve_runner_bin", lambda _backend: "/bin/copilot" if installed else None)
@@ -97,7 +97,7 @@ def test_trial_workers_replace_inherited_provider_credentials(tmp_path, monkeypa
 def test_failed_trial_verification_restores_previous_profile(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
-    from argus_skill.core import backend_readiness
+    from argus.core import backend_readiness
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv(client.TRIAL_ENV, "0")
@@ -113,8 +113,8 @@ def test_failed_trial_verification_restores_previous_profile(tmp_path, monkeypat
 
 
 def test_explicit_incompatible_trial_model_is_rejected_without_rewriting_personal_mode(tmp_path, monkeypatch):
-    from argus_skill.core.knob_store import write_persisted_knobs
-    from argus_skill.core.knobs import resolve_role_model, resolve_role_reasoning_effort
+    from argus.core.knob_store import write_persisted_knobs
+    from argus.core.knobs import resolve_role_model, resolve_role_reasoning_effort
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv(client.TRIAL_ENV, raising=False)
@@ -145,7 +145,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
     rejected = []
     from pydantic import ValidationError
 
-    from argus_skill.trial import gateway
+    from argus.trial import gateway
 
     original_prepare = gateway.prepare
 
@@ -241,7 +241,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
     (tmp_path / "evidence.txt").write_text("trial-local-file-evidence")
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "argus_skill", "--setup", "--trial-url", f"http://127.0.0.1:{port}"],
+            [sys.executable, "-m", "argus", "--setup", "--trial-url", f"http://127.0.0.1:{port}"],
             cwd=tmp_path, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120,
         )
         assert result.returncode == 0, result.stdout + result.stderr + str(rejected)
@@ -256,9 +256,9 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
         # The readiness probe owns an unrelated temporary sandbox. This file
         # round trip must explicitly grant the fixture's working directory.
         probe = (
-            "from argus_skill.adapters.agent_cli_backend import AgentCliBackend; "
-            "from argus_skill.core.models import RunnerOptions; "
-            "from argus_skill.core.run_gateway import run_exec; "
+            "from argus.adapters.agent_cli_backend import AgentCliBackend; "
+            "from argus.core.models import RunnerOptions; "
+            "from argus.core.run_gateway import run_exec; "
             "runner=AgentCliBackend(backend='copilot', runner_bin=shutil.which('copilot')); "
             f"o=RunnerOptions(model='gpt-4.1', working_dir={str(tmp_path)!r}, "
             "sandbox_mode='read-only', force_safe_mode=True, skip_git_repo_check=True); "
@@ -267,7 +267,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
             "assert r.exit_code == 0 and not r.fatal_error and r.tool_activity_observed, r; "
             "assert 'TRIAL_TOOL_OK' in r.last_agent_message, r; "
             if local_tool == "view" else
-            "from argus_skill.core.agent_probe import run_agent_repair_prompt; "
+            "from argus.core.agent_probe import run_agent_repair_prompt; "
             "r=run_agent_repair_prompt(backend='copilot', executable=shutil.which('copilot'), "
             f"working_dir={str(tmp_path)!r}, model='gpt-4.1', run_label={label!r}, "
             "prompt='Create result.txt with trial-local-patch-evidence using apply_patch, then report TRIAL_TOOL_OK.'); "
@@ -280,8 +280,8 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
                 "Create result.txt with trial-local-patch-evidence using apply_patch, then report TRIAL_TOOL_OK."
             )
             probe = (
-                "from argus_skill.agent_cli.copilot_acp import CopilotAcpClient; "
-                "from argus_skill.agent_cli.agent_cli_runner import RunnerOptions; "
+                "from argus.agent_cli.copilot_acp import CopilotAcpClient; "
+                "from argus.agent_cli.agent_cli_runner import RunnerOptions; "
                 "c=CopilotAcpClient(shutil.which('copilot'),model='gpt-5.5',reasoning_effort='high'); "
                 f"o=RunnerOptions(working_dir={str(tmp_path)!r}); "
                 f"r=c.run_prompt(prompt={prompt!r},resume_thread_id=None,options=o,run_label='simple-1'); "
@@ -295,13 +295,13 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
             )
         else:
             probe += (
-                "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
+                "from argus.core.agent_probe import run_read_only_agent_prompt; "
                 "r=run_read_only_agent_prompt(backend='copilot',executable=shutil.which('copilot'),"
                 "model='gpt-5.5',run_label='trial-reject-smoke',prompt='TRIAL_REJECT_REQUEST'); "
                 "assert not r.ok and r.error, r; print('TRIAL_TOOL_OK: one-shot rejection verified'); "
             )
         result = subprocess.run(
-            [sys.executable, "-c", "from argus_skill.core.knob_store import read_persisted_knobs; "
+            [sys.executable, "-c", "from argus.core.knob_store import read_persisted_knobs; "
              "k=read_persisted_knobs(); assert k['ARGUS_SKILL_MODEL']=='gpt-5.5'; "
              "assert k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
              "import shutil; " + probe],

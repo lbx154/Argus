@@ -7,7 +7,7 @@ frontend and the React web frontend both consume. See :mod:`.server`.
 ``fastapi`` and ``uvicorn`` are hard dependencies (``[project.dependencies]``
 in pyproject.toml); there is no ``[web]`` extra. The package-level
 ``__getattr__`` below still defers importing :mod:`.server` so that importing
-``argus_skill.webapi`` itself stays cheap.
+``argus.webapi`` itself stays cheap.
 
 Also hosted here today: the ``manager_*`` (bridge, dispatch, pending
 question, session intent, state), ``map_*`` (feed, history, model, narrative,

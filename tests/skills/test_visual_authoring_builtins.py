@@ -2,12 +2,12 @@ from pathlib import Path
 
 import yaml
 
-from argus_skill.skills.builtins import seed_builtin_skills
+from argus.skills.builtins import seed_builtin_skills
 
-ROOT = Path(__file__).resolve().parents[2] / "argus_skill" / "builtin_skills"
+ROOT = Path(__file__).resolve().parents[2] / "argus" / "builtin_skills"
 RESEARCH_ROOT = (
     Path(__file__).resolve().parents[2]
-    / "argus_skill"
+    / "argus"
     / "verticals"
     / "research"
     / "skills"

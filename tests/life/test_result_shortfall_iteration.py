@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.skills.vertical_select import persist_vertical
 
 
 class _Sink:
@@ -165,8 +165,8 @@ def test_iteration_budget_exhaustion_settles_with_visible_reason(
 ) -> None:
     """The generic iteration budget still settles visibly when a vertical
     that does re-arm missions runs out of cycles."""
-    from argus_skill.core.vertical_contract import IterationAssessment
-    from argus_skill.verticals import _base
+    from argus.core.vertical_contract import IterationAssessment
+    from argus.verticals import _base
 
     monkeypatch.setattr(
         _base,
@@ -221,7 +221,7 @@ def test_genuine_success_settles_without_iteration(tmp_path: Path) -> None:
 def test_settlement_layer_imports_no_named_vertical() -> None:
     path = (
         Path(__file__).parents[2]
-        / "argus_skill/life/supervisor/_mission_execution_settlement.py"
+        / "argus/life/supervisor/_mission_execution_settlement.py"
     )
     tree = ast.parse(path.read_text(encoding="utf-8"))
     imported_modules = {

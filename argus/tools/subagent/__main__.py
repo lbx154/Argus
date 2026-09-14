@@ -1,4 +1,4 @@
-"""``python -m argus_skill.tools.subagent`` entrypoint."""
+"""``python -m argus.tools.subagent`` entrypoint."""
 from __future__ import annotations
 
 from ._cli import main

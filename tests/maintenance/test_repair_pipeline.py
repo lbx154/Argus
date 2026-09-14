@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.maintenance.doctor import DoctorContext, run_full_doctor
-from argus_skill.maintenance.models import DoctorFinding, RepairAction
-from argus_skill.maintenance.repair import (
+from argus.maintenance.doctor import DoctorContext, run_full_doctor
+from argus.maintenance.models import DoctorFinding, RepairAction
+from argus.maintenance.repair import (
     apply_plan,
     create_plan,
     prepare_pr_report,
@@ -23,8 +23,8 @@ from argus_skill.maintenance.repair import (
 def _context(tmp_path: Path) -> DoctorContext:
     checkout = tmp_path / "Argus"
     checkout.mkdir()
-    (checkout / "pyproject.toml").write_text("[project]\nname='argus-skill'\n", encoding="utf-8")
-    (checkout / "argus_skill").mkdir()
+    (checkout / "pyproject.toml").write_text("[project]\nname='argus'\n", encoding="utf-8")
+    (checkout / "argus").mkdir()
     return DoctorContext(
         global_root=tmp_path / "state",
         project_root=tmp_path / "state" / "projects" / "s-test",
@@ -128,7 +128,7 @@ def test_doctor_reports_stalled_daemon_separately_from_stopped(
     context = _context(tmp_path)
     context.project_root.mkdir(parents=True)
     monkeypatch.setattr(
-        "argus_skill.daemon.state.read_daemon_status",
+        "argus.daemon.state.read_daemon_status",
         lambda _path: SimpleNamespace(
             alive=True,
             pid=123,
@@ -158,7 +158,7 @@ def test_doctor_does_not_time_box_a_live_drain(
         json.dumps({"pid": 123, "requested_at": 1.0}), encoding="utf-8"
     )
     monkeypatch.setattr(
-        "argus_skill.daemon.state.read_daemon_status",
+        "argus.daemon.state.read_daemon_status",
         lambda _path: SimpleNamespace(
             alive=True,
             pid=123,
@@ -289,7 +289,7 @@ def test_apply_fails_when_registered_verification_does_not_clear(
     )
     plan = create_plan(context, [finding])
     monkeypatch.setattr(
-        "argus_skill.maintenance.repair.write_path_memory",
+        "argus.maintenance.repair.write_path_memory",
         lambda _context: context.global_root / "repairs" / "path-memory.json",
     )
 

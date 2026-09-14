@@ -46,7 +46,7 @@ class CliLaunchPlan:
 class ArgusCliAdapter:
     """Builds an explicit argv; never invokes a shell or a shared Argus workdir."""
 
-    def __init__(self, executable: str = "argus-skill") -> None:
+    def __init__(self, executable: str = "argus") -> None:
         if not executable.strip():
             raise ValueError("Argus executable is required")
         self.executable = executable

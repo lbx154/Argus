@@ -3,11 +3,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from argus_skill.core.manuscript_snapshot import (
+from argus.core.manuscript_snapshot import (
     manuscript_review_status,
     manuscript_snapshot,
 )
-from argus_skill.core.mission_view._snapshot import _apply_manuscript_review_freshness
+from argus.core.mission_view._snapshot import _apply_manuscript_review_freshness
 
 
 def test_matching_manuscript_sha_reports_current(tmp_path: Path) -> None:

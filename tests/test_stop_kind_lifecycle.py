@@ -4,17 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _raw_backend_stop_kind
-from argus_skill.agent_cli._event_consumers import EventConsumerMixin
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
-from argus_skill.engineer.runner import (
+from argus.adapters.agent_cli_backend import _raw_backend_stop_kind
+from argus.agent_cli._event_consumers import EventConsumerMixin
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.reviewer import ReviewerConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.reviewer import ReviewerConfig
+from argus.skills.vertical_select import persist_vertical
 
 
 class _StoppedEngineer:
@@ -274,7 +274,7 @@ def test_post_edit_review_stop_kind_reaches_mission_status(
             raise AssertionError("integrated review must not run")
 
     monkeypatch.setattr(
-        "argus_skill.reviewer._core._parallel_final_review_passes",
+        "argus.reviewer._core._parallel_final_review_passes",
         lambda *_args, **_kwargs: ReviewDecision(
             status="blocked",
             reason="preliminary review stopped",
@@ -329,7 +329,7 @@ def test_post_edit_review_stop_kind_reaches_mission_status(
 
 
 def test_stop_kinds_have_reader_facing_clauses_in_both_languages() -> None:
-    from argus_skill.core.stop_kinds import (
+    from argus.core.stop_kinds import (
         STOP_KINDS,
         pause_status_clause,
         stop_kind_clause,

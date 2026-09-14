@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import append_turn
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.manager import config_intent, front_door
-from argus_skill.webapi import manager_bridge, manager_state
-from argus_skill.webapi.manager_session_intent import contextualize_operator_turn
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import append_turn
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.manager import config_intent, front_door
+from argus.webapi import manager_bridge, manager_state
+from argus.webapi.manager_session_intent import contextualize_operator_turn
 
 
 def _session(tmp_path: Path, sid: str) -> tuple[Path, Path]:

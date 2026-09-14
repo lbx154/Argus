@@ -168,7 +168,7 @@ def _spawn_handoff_candidate(
         sys.executable,
         "-c",
         (
-            "from argus_skill.daemon.life_worker import run_handoff_child; "
+            "from argus.daemon.life_worker import run_handoff_child; "
             "raise SystemExit(run_handoff_child())"
         ),
     ]
@@ -243,7 +243,7 @@ def run_handoff_child_process(
     ready_env = os.environ.get(_HANDOFF_READY_ENV, "")
     token = os.environ.get(_HANDOFF_TOKEN_ENV, "")
     if not config_env or not ready_env or not token:
-        sys.stderr.write("argus-skill handoff: missing handoff environment\n")
+        sys.stderr.write("argus handoff: missing handoff environment\n")
         return 2
     config_path = Path(config_env).expanduser()
     ready_path = Path(ready_env).expanduser()
@@ -251,7 +251,7 @@ def run_handoff_child_process(
         payload = json.loads(config_path.read_text(encoding="utf-8"))
         config = _config_from_payload(payload["config"])
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        sys.stderr.write(f"argus-skill handoff: invalid config: {exc}\n")
+        sys.stderr.write(f"argus handoff: invalid config: {exc}\n")
         return 2
 
     logging.basicConfig(
@@ -285,7 +285,7 @@ def run_handoff_child_process(
             encoding="utf-8",
         )
     except OSError as exc:
-        sys.stderr.write(f"argus-skill handoff: failed to write standby file: {exc}\n")
+        sys.stderr.write(f"argus handoff: failed to write standby file: {exc}\n")
         return 2
 
     pid_path = _daemon_pid_path(config.life_dir)

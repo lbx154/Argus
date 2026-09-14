@@ -36,8 +36,8 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from argus_skill.core.secret_guard import redact_secrets_record
-from argus_skill.core.session import SESSION_META_FILE
+from argus.core.secret_guard import redact_secrets_record
+from argus.core.session import SESSION_META_FILE
 
 POLICY_VERSION = "operator-analytics-v1"
 MAX_FILE_BYTES = 1024 * 1024

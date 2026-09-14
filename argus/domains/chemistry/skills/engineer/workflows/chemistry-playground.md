@@ -50,7 +50,7 @@ research/chem_playground/<idea-id>/
 Create a new candidate with:
 
 ```text
-python -m argus_skill.domains.chemistry.playground init \
+python -m argus.domains.chemistry.playground init \
   --project-root . --idea-id <idea-id> \
   --question "<question>" --hypothesis "<hypothesis>"
 ```
@@ -76,7 +76,7 @@ reproducible code in `work/`.
    `reviewer_recommendation: pending`, then run:
 
 ```text
-python -m argus_skill.domains.chemistry.playground validate \
+python -m argus.domains.chemistry.playground validate \
   --project-root . --idea-id <idea-id>
 ```
 

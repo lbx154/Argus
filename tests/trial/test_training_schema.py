@@ -5,7 +5,7 @@ import copy
 
 import pytest
 
-from argus_skill.trial.training_schema import pi_execution_arguments, pi_strict_schema
+from argus.trial.training_schema import pi_execution_arguments, pi_strict_schema
 
 
 @pytest.fixture
@@ -106,7 +106,7 @@ def test_inputs_are_bounded_and_non_json_values_rejected(bash_schema):
 def test_required_semantic_comparison_keeps_captured_order_and_rejects_missing_or_duplicate():
     import copy
 
-    from argus_skill.trial.training_schema import pi_schema_equal
+    from argus.trial.training_schema import pi_schema_equal
 
     actual = {"type": "object", "properties": {"second": {"type": "string"}, "first": {"type": "string"}},
               "required": ["second", "first"], "additionalProperties": False}

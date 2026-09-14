@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from argus_skill.webapi.routes.context import ServerContext
+from argus.webapi.routes.context import ServerContext
 
 
 class _Ctx(ServerContext):

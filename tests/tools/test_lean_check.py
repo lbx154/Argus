@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.tools import lean_check as lean_check_module
-from argus_skill.tools.lean_check import (
+from argus.tools import lean_check as lean_check_module
+from argus.tools.lean_check import (
     CANONICAL_LEAN_SOURCE,
     COMPILE_LOG,
     DIVISIBILITY_SMOKE_THEOREM,

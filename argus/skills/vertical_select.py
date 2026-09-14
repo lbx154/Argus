@@ -5,7 +5,7 @@ field in ``.argus/PIPELINE_STATE.json``. Seven are built in (``VERTICALS``
 below: ``research`` -- the default and the safe fallback whenever intent is
 unclear -- plus ``software``, ``argus_maintenance``, ``kernel_engineering``,
 ``math``, ``math_synth`` and ``learning``); every other vertical is discovered
-at runtime through the ``argus_skill.verticals`` entry-point group, which is
+at runtime through the ``argus.verticals`` entry-point group, which is
 how the ``argus-verticals`` community package contributes ``quant``,
 ``speedrun``, ``medical``, the literary verticals and the rest. Runtime code
 that asks "is this a vertical / what is its purpose" must therefore use

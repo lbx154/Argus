@@ -8,7 +8,7 @@ from ..advisor.transport import request
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.advisor")
+    parser = argparse.ArgumentParser(prog="python -m argus.tools.advisor")
     sub = parser.add_subparsers(dest="command", required=True)
     consult = sub.add_parser("consult")
     consult.add_argument("--question", required=True)

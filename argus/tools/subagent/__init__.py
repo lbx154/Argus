@@ -1,7 +1,7 @@
 """Subagent tool: submit/supervise/monitor background jobs.
 
 This package was split out of a single 2.6k-line module. The public API
-(every name importable as ``argus_skill.tools.subagent.X``) is re-exported
+(every name importable as ``argus.tools.subagent.X``) is re-exported
 here so existing imports keep working unchanged.
 """
 from __future__ import annotations

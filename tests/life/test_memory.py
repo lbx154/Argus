@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from argus_skill.life.memory import (
+from argus.life.memory import (
     Backlog,
     BacklogItem,
     EventJournal,
@@ -162,14 +162,14 @@ def test_event_journal_rg_tail_decodes_utf8_independent_of_system_locale(
         ensure_ascii=False,
     )
 
-    monkeypatch.setattr("argus_skill.life.memory.shutil.which", lambda _name: "rg")
+    monkeypatch.setattr("argus.life.memory.shutil.which", lambda _name: "rg")
 
     def _run(argv, **kwargs):  # noqa: ANN001, ANN003
         assert kwargs["encoding"] == "utf-8"
         assert kwargs["errors"] == "replace"
         return subprocess.CompletedProcess(argv, 0, stdout=output + "\n", stderr="")
 
-    monkeypatch.setattr("argus_skill.life.memory.subprocess.run", _run)
+    monkeypatch.setattr("argus.life.memory.subprocess.run", _run)
 
     tail = EventJournal(path).tail(1)
 
@@ -196,7 +196,7 @@ def test_event_journal_tail_prefilters_non_journal_json_before_decoding(
         calls += 1
         return original(value, *args, **kwargs)
 
-    monkeypatch.setattr("argus_skill.life.memory.json.loads", _counted)
+    monkeypatch.setattr("argus.life.memory.json.loads", _counted)
     tail = EventJournal(path).tail(1)
 
     assert [entry.summary for entry in tail] == ["keep me"]
@@ -787,7 +787,7 @@ def test_identity_default_is_idempotent(tmp_path: Path) -> None:
     assert card.read() == ""
     assert card.ensure_default() is True
     body1 = card.read()
-    assert "argus-skill" in body1
+    assert "argus" in body1
     # Idempotent — second call returns False, doesn't overwrite.
     assert card.ensure_default() is False
     assert card.read() == body1

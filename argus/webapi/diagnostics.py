@@ -156,7 +156,7 @@ def _check_model_api(probe: Callable[..., Any] | None) -> Check:
     Offline by default: verifies the engineer/reviewer/text routes are
     configured + usable in the vault (no network). When a ``probe`` callable
     is injected, additionally checks reachability via
-    :func:`argus_skill.core.vault_preflight.check_routes` so a 429 / dead
+    :func:`argus.core.vault_preflight.check_routes` so a 429 / dead
     deployment surfaces with a switch-backend fix. Import failure -> a failed
     Check with a reinstall fix, never an exception.
     """
@@ -167,7 +167,7 @@ def _check_model_api(probe: Callable[..., Any] | None) -> Check:
             "model API capability",
             False,
             f"capability_vault not importable ({type(exc).__name__})",
-            "reinstall argus-skill (the bundled capability_vault module is missing)",
+            "reinstall argus (the bundled capability_vault module is missing)",
         )
 
     missing: list[str] = []
@@ -190,7 +190,7 @@ def _check_model_api(probe: Callable[..., Any] | None) -> Check:
             "model API capability",
             False,
             f"route(s) not configured/usable: {', '.join(missing)}{vault_note}",
-            "configure the model API: python -m argus_skill.tools.capability_vault "
+            "configure the model API: python -m argus.tools.capability_vault "
             "init-model-api  (or export OPENAI_API_KEY + OPENAI_BASE_URL)",
         )
 
@@ -356,7 +356,7 @@ def _check_empty_session(
 ) -> Check:
     """(5) Is this project an empty / littered session?
 
-    A bare ``argus-skill`` launch creates a fresh session dir; if it is never
+    A bare ``argus`` launch creates a fresh session dir; if it is never
     used it becomes one of the empty shells that accumulate under
     ``~/.argus-skill/projects`` (observed: 69 of 72 empty). Not a problem when
     a daemon is live, an objective is set, or any backlog/events exist.
@@ -426,7 +426,7 @@ def run_diagnostics(
                 name,
                 False,
                 f"diagnostic raised ({type(exc).__name__}: {exc})",
-                "reinstall argus-skill or report this /doctor failure",
+                "reinstall argus or report this /doctor failure",
             )
 
     daemon_check = _run("daemon", lambda: _check_daemon(root))
@@ -505,7 +505,7 @@ def _recommended_fix(checks: list[Check]) -> str:
 def render_report(checks: list[Check], theme: Any = None) -> str:
     """Render a scannable check report ending with the top recommended fix.
 
-    ``theme`` is an optional :class:`argus_skill.cli.theme.Theme`-shaped object
+    ``theme`` is an optional :class:`argus.cli.theme.Theme`-shaped object
     (any object exposing ``green``/``red``/``yellow``/``gray``/``bold`` text
     methods). ``None`` produces plain, un-colored text suitable for tests and
     non-TTY output.

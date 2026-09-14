@@ -418,7 +418,7 @@ def submit_lean_run(
         "claim": record["claim"],
         "run_dir": str(run_dir),
         "reclaim_with": (
-            "python -m argus_skill.verticals.math.lean_evidence reclaim " + handle
+            "python -m argus.verticals.math.lean_evidence reclaim " + handle
         ),
     }
 
@@ -435,7 +435,7 @@ def _write_run(run_dir: Path, record: dict[str, Any]) -> None:
 def _launch_worker(run_dir: Path) -> int:
     """Start the compile in its own session so it outlives this process.
 
-    ``argus_skill.tools.subagent._registry._launch_durable_command`` does the
+    ``argus.tools.subagent._registry._launch_durable_command`` does the
     same job and is better tested, and it is not reused here for three reasons
     that are all about it being the *subagent* launcher rather than a generic
     one: its exit sidecar goes to ``Path(".argus_subagents")``, a path relative
@@ -461,7 +461,7 @@ def _launch_worker(run_dir: Path) -> int:
             [
                 sys.executable,
                 "-m",
-                "argus_skill.verticals.math.lean_async",
+                "argus.verticals.math.lean_async",
                 str(run_dir),
             ],
             stdin=subprocess.DEVNULL,

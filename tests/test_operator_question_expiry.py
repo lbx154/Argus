@@ -7,7 +7,7 @@ cockpit keeps offering it. One sat that way on a failed mission for a day.
 """
 from __future__ import annotations
 
-from argus_skill.life.memory import Backlog, BacklogItem
+from argus.life.memory import Backlog, BacklogItem
 
 
 def _paused_with_card(tmp_path):

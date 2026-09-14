@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `argus` launcher — the terminal cockpit (Ink) for the argus-skill daemon.
+// `argus` launcher — the terminal cockpit (Ink) for the argus daemon.
 // Uses the compiled build (dist/cli.js) ONLY when it is up-to-date; if any
 // source file is newer than the build (or there is no build yet), it runs the
 // TS source directly through tsx. This means editing src/ and relaunching

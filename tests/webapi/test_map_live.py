@@ -5,11 +5,11 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi import map_narrative as copy
-from argus_skill.webapi.map_view import normalize_events, read_map, turn_records
-from argus_skill.webapi.server import create_app
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi import map_narrative as copy
+from argus.webapi.map_view import normalize_events, read_map, turn_records
+from argus.webapi.server import create_app
 
 
 def sample(tmp_path):
@@ -223,7 +223,7 @@ def test_copy_stream_returns_the_complete_json_result_with_one_enrichment(tmp_pa
 
 
 def test_copy_stream_delivers_progress_while_generation_is_still_running(tmp_path, monkeypatch):
-    from argus_skill.webapi.routes.map_live import MapCopyIn
+    from argus.webapi.routes.map_live import MapCopyIn
 
     sid, _ = sample(tmp_path)
     release = threading.Event()
@@ -331,8 +331,8 @@ def test_copy_stream_checks_project_session_and_card_ownership_before_generation
 
 
 def test_copy_stream_heartbeats_before_generation_and_keeps_cache_after_disconnect(tmp_path, monkeypatch):
-    from argus_skill.webapi import server
-    from argus_skill.webapi.routes.map_live import MapCopyIn
+    from argus.webapi import server
+    from argus.webapi.routes.map_live import MapCopyIn
 
     sid, _ = sample(tmp_path)
     release = threading.Event()
@@ -447,7 +447,7 @@ def test_invalid_generation_does_not_publish_partial_content(tmp_path, monkeypat
 
 
 def test_concurrent_mission_events_keep_explicit_identity_without_mutation():
-    from argus_skill.life.supervisor._cost import _CostTrackingSink
+    from argus.life.supervisor._cost import _CostTrackingSink
 
     class Sink:
         def __init__(self):
@@ -764,7 +764,7 @@ def test_successful_solo_retry_does_not_inherit_an_earlier_failure():
 
 
 def test_history_pages_carry_work_segments_and_turns_and_regrow_open_segments(tmp_path):
-    from argus_skill.webapi.map_history import history_page
+    from argus.webapi.map_history import history_page
 
     sid, life = sample(tmp_path)
     with (life / "events.jsonl").open("a") as f:

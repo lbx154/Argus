@@ -8,7 +8,7 @@ $Repo = "lbx154/Argus"
 $Source = if ($env:ARGUS_INSTALL_SOURCE) {
     $env:ARGUS_INSTALL_SOURCE
 } else {
-    "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+    "argus @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
 }
 
 if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
@@ -26,7 +26,7 @@ py -m pip install --upgrade --force-reinstall $Source
 if ($LASTEXITCODE -ne 0) {
     throw "Argus package installation failed."
 }
-py -c "from argus_skill.plugin.mcp_server import mcp; assert mcp.name == 'argus'"
+py -c "from argus.plugin.mcp_server import mcp; assert mcp.name == 'argus'"
 if ($LASTEXITCODE -ne 0) {
     throw "Argus plugin server verification failed."
 }

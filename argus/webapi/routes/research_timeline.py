@@ -30,7 +30,7 @@ def register_research_timeline_routes(app, ctx: ServerContext) -> None:
 
     @app.get("/api/research/timeline/example", dependencies=[Depends(ctx.require_auth)])
     def _example() -> dict[str, Any]:
-        source = files("argus_skill.verticals.research").joinpath("timeline_example.json")
+        source = files("argus.verticals.research").joinpath("timeline_example.json")
         return json.loads(source.read_text(encoding="utf-8"))
 
     @app.post("/api/research/timeline/estimate", dependencies=[Depends(ctx.require_auth)])

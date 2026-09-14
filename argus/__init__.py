@@ -1,4 +1,4 @@
-"""argus-skill: the persistent, reviewed runtime behind the ``argus-skill`` CLI.
+"""argus: the persistent, reviewed runtime behind the ``argus`` CLI.
 
 Argus drains a Project's backlog forever through four persistent roles: the
 Manager routes operator input and advances the pipeline stage, the Planner
@@ -21,16 +21,16 @@ The kernel names are imported eagerly. ``SkillLoop``, ``SkillLoopConfig``,
 ``Skill`` and ``SkillStore`` resolve lazily on first attribute access
 (PEP 562) because Python imports this package before any submodule, so an
 eager ``from .loop import SkillLoop`` here would make ``import
-argus_skill.core.paths`` load the Engineer, Reviewer, Skill library, role
+argus.core.paths`` load the Engineer, Reviewer, Skill library, role
 prompts and the ``agent_cli`` driver. tests/test_architecture_invariants.py
-pins that ``import argus_skill.core.paths`` loads none of them.
+pins that ``import argus.core.paths`` loads none of them.
 
 Two consequences of deferring: ``__getattr__`` caches the resolved object in
 the module namespace, so it runs once per name and later lookups (including
 ``mock.patch`` / ``monkeypatch``, which set and restore the attribute
-directly) bypass it; and an ``ImportError`` raised inside ``argus_skill.loop``
+directly) bypass it; and an ``ImportError`` raised inside ``argus.loop``
 or ``skills.store`` now surfaces at the first attribute access -- including
-``hasattr(argus_skill, "SkillLoop")`` -- rather than at ``import argus_skill``.
+``hasattr(argus, "SkillLoop")`` -- rather than at ``import argus``.
 """
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def __getattr__(name: str):  # PEP 562 lazy attrs
 
         value = getattr(store, name)
     else:
-        raise AttributeError(f"module 'argus_skill' has no attribute {name!r}")
+        raise AttributeError(f"module 'argus' has no attribute {name!r}")
     globals()[name] = value  # cache: later lookups never re-enter __getattr__
     return value
 

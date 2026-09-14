@@ -4,7 +4,7 @@
 
 The earlier version of this module hard-coded research-quality thresholds
 (``min_delta = 0.02``, ``min_benchmark_families = 3``) and counted gate
-failures into the per-round exit code. That violated argus-skill's core
+failures into the per-round exit code. That violated Argus's core
 rule — *the harness must not make research-quality judgments; that's the
 reviewer agent's job* (see ``README.md`` and ``docs/PRINCIPLES.md``).
 
@@ -28,7 +28,7 @@ the only non-zero exit is for an I/O / parse error, which is structural
 (the user gave us a bad ``--evidence-root`` etc.).
 
 CLI:
-    python -m argus_skill.skills.anti_mediocrity \\
+    python -m argus.skills.anti_mediocrity \\
         --project-root . \\
         [--proposed-condition X --baseline-condition Y]
 """

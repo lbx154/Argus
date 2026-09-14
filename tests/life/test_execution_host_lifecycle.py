@@ -6,14 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.core.runner_errors import is_execution_host_startup_error
-from argus_skill.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_AWAITING
-from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-from argus_skill.reviewer import ReviewerConfig
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.core.runner_errors import is_execution_host_startup_error
+from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_AWAITING
+from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus.reviewer import ReviewerConfig
 
 HOST_ERROR = (
     "Code Mode is unavailable because failed to spawn code-mode host "
@@ -213,10 +213,10 @@ def test_ordinary_infrastructure_pause_does_not_hold_other_work(tmp_path: Path) 
 def test_runtime_host_pause_skips_stage_judge_and_preserves_other_infra_outcomes(
     tmp_path: Path, host_failure: bool,
 ) -> None:
-    from argus_skill.apps._runtime import _SkillLoopRunner
-    from argus_skill.apps._runtime_helpers import _ExecuteState
-    from argus_skill.core.models import LoopOutcome, RoundRecord
-    from argus_skill.engineer.round_stop_signals import execution_host_review_decision
+    from argus.apps._runtime import _SkillLoopRunner
+    from argus.apps._runtime_helpers import _ExecuteState
+    from argus.core.models import LoopOutcome, RoundRecord
+    from argus.engineer.round_stop_signals import execution_host_review_decision
 
     diagnostic = HOST_ERROR if host_failure else "ordinary infrastructure issue"
     review = execution_host_review_decision(fatal_error=diagnostic, exit_code=0)
@@ -262,7 +262,7 @@ def test_runtime_host_pause_skips_stage_judge_and_preserves_other_infra_outcomes
 
 
 def test_planner_host_pause_gate_uses_split_memory_project_root(tmp_path: Path) -> None:
-    from argus_skill.daemon.state import write_continuous_config
+    from argus.daemon.state import write_continuous_config
 
     global_root = tmp_path / "global"
     project_root = global_root / "projects" / "project-a"

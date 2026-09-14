@@ -11,13 +11,13 @@ from contextlib import nullcontext
 
 import pytest
 
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.apps import _runtime
-from argus_skill.core import file_lock
-from argus_skill.core.models import RunnerResult
-from argus_skill.core.operator_context import OperatorContextStore, append_directive
-from argus_skill.core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
-from argus_skill.team import teammate_entry
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.apps import _runtime
+from argus.core import file_lock
+from argus.core.models import RunnerResult
+from argus.core.operator_context import OperatorContextStore, append_directive
+from argus.core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
+from argus.team import teammate_entry
 
 
 def _environment(tmp_path, monkeypatch, backend):
@@ -34,7 +34,7 @@ def _environment(tmp_path, monkeypatch, backend):
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_MODEL", "offline")
     monkeypatch.setenv("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
     monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", "stop-fixture")
-    monkeypatch.setattr("argus_skill.adapters.agent_cli_backend.AgentCliBackend", lambda **_kwargs: backend)
+    monkeypatch.setattr("argus.adapters.agent_cli_backend.AgentCliBackend", lambda **_kwargs: backend)
     return workspace, policy
 
 
@@ -43,7 +43,7 @@ def _review(status):
 
 
 def _mission_thread(tmp_path, monkeypatch, workspace, *, inherited_abort=False):
-    from argus_skill.engineer.round_reviewer import RoundReviewerMixin
+    from argus.engineer.round_reviewer import RoundReviewerMixin
 
     captured = {"abort": threading.Event(), "done": threading.Event(), "reason_deliveries": 0}
     namespace = teammate_entry._build_runner_ns
@@ -281,8 +281,8 @@ def test_uncancelled_long_mission_keeps_per_lock_wait_budget(tmp_path, monkeypat
 @pytest.mark.parametrize("scenario", ["reviewer", "experience", "knowledge_sqlite"])
 @pytest.mark.parametrize("inherited_abort", [False, True])
 def test_role_context_stop_returns_while_real_storage_lock_is_held(tmp_path, monkeypatch, scenario, inherited_abort):
-    from argus_skill.engineer import round_reviewer
-    from argus_skill.life import knowledge_recall
+    from argus.engineer import round_reviewer
+    from argus.life import knowledge_recall
 
     backend = MemoryBackend()
     workspace, policy = _environment(tmp_path, monkeypatch, backend)

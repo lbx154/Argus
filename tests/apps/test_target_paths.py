@@ -1,4 +1,4 @@
-from argus_skill.apps._target_paths import resolve_life_root
+from argus.apps._target_paths import resolve_life_root
 
 
 def test_relative_life_dir_is_anchored_before_daemon_detaches(

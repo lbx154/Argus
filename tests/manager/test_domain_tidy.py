@@ -9,10 +9,10 @@ from __future__ import annotations
 import json
 import types
 
-from argus_skill.manager import domain_tidy as dt
-from argus_skill.manager import source_writeback
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals import _data_domain as dd
+from argus.manager import domain_tidy as dt
+from argus.manager import source_writeback
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals import _data_domain as dd
 
 
 def _write_checklist_store(tmp_path, stages: dict) -> None:
@@ -84,7 +84,7 @@ def test_rendered_stages_py_is_valid_and_exposes_contract(tmp_path, monkeypatch)
     monkeypatch.setenv("ARGUS_SKILL_PROMOTE_DOMAINS", "1")
     _seed_proven_domain(tmp_path)
     src = dt._render_stages_py("robotics_sim", tmp_path)
-    src = src.replace("from ...skills.stage_machine", "from argus_skill.skills.stage_machine")
+    src = src.replace("from ...skills.stage_machine", "from argus.skills.stage_machine")
     mod = types.ModuleType("promoted_stages")
     exec(compile(src, "<stages>", "exec"), mod.__dict__)
     assert mod.STAGE_ORDER == ["scope", "simulate", "measure", "report"]
@@ -108,7 +108,7 @@ def test_rendered_stages_py_preserves_role_specific_banners(tmp_path):
     src = dt._render_stages_py("role_aware", tmp_path)
     src = src.replace(
         "from ...skills.stage_machine",
-        "from argus_skill.skills.stage_machine",
+        "from argus.skills.stage_machine",
     )
     mod = types.ModuleType("promoted_role_aware_stages")
     exec(compile(src, "<stages>", "exec"), mod.__dict__)
@@ -180,7 +180,7 @@ def test_render_preserves_seed_plus_custom_items(tmp_path):
     )
 
     src = dt._render_stages_py("robotics_sim", tmp_path)
-    src = src.replace("from ...skills.stage_machine", "from argus_skill.skills.stage_machine")
+    src = src.replace("from ...skills.stage_machine", "from argus.skills.stage_machine")
     mod = types.ModuleType("promoted_stages_seed_test")
     exec(compile(src, "<stages>", "exec"), mod.__dict__)
 

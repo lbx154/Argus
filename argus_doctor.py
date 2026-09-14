@@ -24,7 +24,7 @@ def _finding(code, name, ok, detail, fix=""):
 
 def _checkout(path):
     candidate = Path(path).expanduser().resolve()
-    return candidate if (candidate / "pyproject.toml").is_file() and (candidate / "argus_skill").is_dir() else None
+    return candidate if (candidate / "pyproject.toml").is_file() and (candidate / "argus").is_dir() else None
 
 
 def _find_checkout(explicit):
@@ -106,7 +106,7 @@ def run_bootstrap_doctor(root=None):
     runtime = checkout_runtime or Path(sys.executable)
     try:
         result = subprocess.run(
-            [str(runtime), "-c", "import argus_skill; print(argus_skill.__version__)"],
+            [str(runtime), "-c", "import argus; print(argus.__version__)"],
             cwd=str(checkout) if checkout is not None else None,
             check=False,
             capture_output=True,

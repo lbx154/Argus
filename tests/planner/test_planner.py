@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.planner.planner import (
+from argus.core.models import RunnerResult
+from argus.planner.planner import (
     NO_CONCRETE_TASKS_ERROR,
     OPEN_ENDED_PROJECT_DONE_ERROR,
     PLANNER_SUPERSEDED_ERROR,
@@ -13,7 +13,7 @@ from argus_skill.planner.planner import (
     parse_planner_text,
     parse_task_scope,
 )
-from argus_skill.roles.prompts.planner import (
+from argus.roles.prompts.planner import (
     _BOUNDED_DAG_FOOTER,
     _PLANNER_CORE_CONTRACT,
     _PLANNER_DECISION_FOOTER,

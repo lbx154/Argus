@@ -2,7 +2,7 @@
 identity, doctor, and the operator config/budget/identity/reset/skills
 command endpoints.
 
-Registered by :func:`argus_skill.webapi.server.create_app`. Every handler
+Registered by :func:`argus.webapi.server.create_app`. Every handler
 below is a straight extraction of the corresponding nested function that used
 to live inside ``create_app`` — bodies are unchanged; only the enclosing
 scope moved from a closure over ``create_app`` locals to parameters passed

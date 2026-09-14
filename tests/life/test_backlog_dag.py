@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.life.memory import Backlog, BacklogItem
+from argus.life.memory import Backlog, BacklogItem
 
 # ---------- schema: deps field ---------------------------------------------
 
@@ -39,7 +39,7 @@ def test_deps_roundtrip_through_jsonable() -> None:
 
 def test_existing_id_does_not_generate_a_replacement(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.life.memory.uuid.uuid4",
+        "argus.life.memory.uuid.uuid4",
         lambda: pytest.fail("existing IDs must not consume a random UUID"),
     )
 

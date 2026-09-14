@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.plugin.service import ArgusPluginService
+from argus.plugin.service import ArgusPluginService
 
 
 def test_real_service_lifecycle_without_model_backend(tmp_path: Path) -> None:

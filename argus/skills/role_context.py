@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from importlib import resources
 
-_BUILTIN_PACKAGE = "argus_skill.builtin_skills"
+_BUILTIN_PACKAGE = "argus.builtin_skills"
 
 
 def load_builtin_skill_text(filename: str) -> str:

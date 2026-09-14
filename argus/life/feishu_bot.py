@@ -1,8 +1,8 @@
 """Feishu / Lark bot — inbound command interface over a WebSocket long connection.
 
-Runs as a daemon thread inside :class:`~argus_skill.daemon.life_worker.LifeWorker`,
+Runs as a daemon thread inside :class:`~argus.daemon.life_worker.LifeWorker`,
 alongside the Telegram poller, and serves the same operator commands from
-:mod:`argus_skill.life.chat.router`.
+:mod:`argus.life.chat.router`.
 
 **Why a long connection.** Feishu's usual integration is an event-subscription
 webhook: you publish an HTTPS endpoint and Feishu POSTs to it. A daemon running
@@ -29,7 +29,7 @@ long polling.
        # optional: restrict who may drive the daemon
        export ARGUS_SKILL_FEISHU_ALLOWED_USERS=ou_xxx,ou_yyy
 
-5. ``pip install 'argus-skill[feishu]'`` for the ``lark-oapi`` SDK. Without it
+5. ``pip install 'argus[feishu]'`` for the ``lark-oapi`` SDK. Without it
    the bridge logs one line and stays dormant; nothing else is affected.
 
 Outbound calls go through :mod:`urllib` rather than the SDK, matching the
@@ -381,7 +381,7 @@ class FeishuPoller:
         except ImportError:
             log.warning(
                 "feishu bridge enabled but lark-oapi is not installed; "
-                "run `pip install 'argus-skill[feishu]'` to activate it"
+                "run `pip install 'argus[feishu]'` to activate it"
             )
             return
 

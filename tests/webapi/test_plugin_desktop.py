@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import asyncio
 
-from argus_skill.core.plugin_manager import catalog
-from argus_skill.webapi import plugin_desktop as adapter
+from argus.core.plugin_manager import catalog
+from argus.webapi import plugin_desktop as adapter
 
 
 def exchange(parts, *, content_type=b"text/html; charset=utf-8", encoding=None):
@@ -70,8 +70,8 @@ def test_surface_serves_adapter_without_altering_plugin_package(tmp_path, monkey
     from fastapi.responses import HTMLResponse
     from fastapi.testclient import TestClient
 
-    from argus_skill.core import plugin_manager as pm
-    from argus_skill.webapi.server import create_app
+    from argus.core import plugin_manager as pm
+    from argus.webapi.server import create_app
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path))

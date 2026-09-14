@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core import cost_control
-from argus_skill.core.cost_control import (
+from argus.core import cost_control
+from argus.core.cost_control import (
     COST_CONTROL_AUDIT_FILE,
     COST_CONTROL_STATE_FILE,
     _locked,
     cost_control_snapshot,
     reserve_call_budget,
 )
-from argus_skill.core.token_usage import TokenUsage
-from argus_skill.core.usage import UsageLedger, build_usage_record
+from argus.core.token_usage import TokenUsage
+from argus.core.usage import UsageLedger, build_usage_record
 
 
 def _usage() -> TokenUsage:
@@ -244,7 +244,7 @@ def test_unpriced_cost_remains_visible_and_blocks_under_persisted_strict_policy(
     monkeypatch: pytest.MonkeyPatch,
     provider: str,
 ) -> None:
-    from argus_skill.core.knob_store import write_persisted_knob
+    from argus.core.knob_store import write_persisted_knob
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
@@ -288,7 +288,7 @@ def test_unpriced_cost_remains_visible_and_blocks_under_persisted_strict_policy(
 def test_admission_reconciles_known_token_cost_before_deciding_the_budget(
     tmp_path: Path, monkeypatch, daily_cap: float,
 ) -> None:
-    from argus_skill.core.pricing import MODEL_PRICES_USD_PER_MTOK
+    from argus.core.pricing import MODEL_PRICES_USD_PER_MTOK
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")

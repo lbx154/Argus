@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.manager.config_intent import _front_door_classify
+from argus.manager.config_intent import _front_door_classify
 
 
 class _Manager:
@@ -307,8 +307,8 @@ def test_the_real_builder_records_the_exception_it_declines_to_raise(
     """
     import logging
 
-    from argus_skill.apps import _runtime
-    from argus_skill.manager.front_door import _ensure_manager_runner
+    from argus.apps import _runtime
+    from argus.manager.front_door import _ensure_manager_runner
 
     def _explode(_ns):
         raise RuntimeError("PIPELINE_STATE.json names vertical 'astrology'")
@@ -321,7 +321,7 @@ def test_the_real_builder_records_the_exception_it_declines_to_raise(
     )
     state: dict = {"backend": "copilot"}
 
-    with caplog.at_level(logging.ERROR, logger="argus_skill.manager.front_door"):
+    with caplog.at_level(logging.ERROR, logger="argus.manager.front_door"):
         assert _ensure_manager_runner(state, mem) is None
 
     assert "astrology" in state["manager_runner_error"]

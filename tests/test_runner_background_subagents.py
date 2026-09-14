@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.engineer.external_work import parse_external_wait_request
-from argus_skill.engineer.round_config import EngineerConfig, SupervisedConfig
-from argus_skill.engineer.round_state import RoundLoopState
-from argus_skill.engineer.round_waits import RoundWaitsMixin
-from argus_skill.engineer.runner import SupervisedEngineer
-from argus_skill.reviewer import ReviewerConfig
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.engineer.external_work import parse_external_wait_request
+from argus.engineer.round_config import EngineerConfig, SupervisedConfig
+from argus.engineer.round_state import RoundLoopState
+from argus.engineer.round_waits import RoundWaitsMixin
+from argus.engineer.runner import SupervisedEngineer
+from argus.reviewer import ReviewerConfig
 
 
 def test_subagent_wait_uses_structured_request() -> None:
@@ -54,7 +54,7 @@ def test_healthy_subagent_wait_releases_the_mission_after_one_cadence(
         calls.append(kwargs["work_id"])
         return ("cadence_elapsed", 120.0)
 
-    from argus_skill.engineer import runner
+    from argus.engineer import runner
 
     monkeypatch.setattr(runner, "_run_external_work_wait", wait_once)
     state = RoundLoopState()
@@ -116,7 +116,7 @@ def test_wait_uses_the_real_last_message_when_a_process_decision_exists(
         "poll_after_seconds": 30,
         "description": "benchmark",
     }), encoding="utf-8")
-    from argus_skill.engineer import runner
+    from argus.engineer import runner
 
     monkeypatch.setattr(
         runner,
@@ -145,8 +145,8 @@ def test_job_launched_after_prompt_assembly_can_yield_without_a_paper_review(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.engineer import runner
-    from argus_skill.roles.prompts.engineer import build_mission_prompt
+    from argus.engineer import runner
+    from argus.roles.prompts.engineer import build_mission_prompt
 
     registry = tmp_path / ".argus_subagents"
     record_path = registry / "new-panel.json"
@@ -288,7 +288,7 @@ def test_finished_wait_continuation_is_once_per_run_not_an_empty_loop(tmp_path: 
 
 
 def test_finished_wait_honors_shutdown_before_starting_another_turn(tmp_path: Path) -> None:
-    from argus_skill.core import process_stop
+    from argus.core import process_stop
 
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()
@@ -312,7 +312,7 @@ def test_finished_wait_honors_shutdown_before_starting_another_turn(tmp_path: Pa
 def test_job_observed_finishing_during_wait_is_not_consumed_twice(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    from argus_skill.engineer import runner
+    from argus.engineer import runner
 
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()
@@ -353,7 +353,7 @@ def test_a_direct_job_that_writes_nothing_is_not_healthy(tmp_path) -> None:
     import os
     import time
 
-    from argus_skill.engineer.external_work import (
+    from argus.engineer.external_work import (
         ExternalWorkState,
         scan_external_work,
     )
@@ -402,7 +402,7 @@ def test_a_job_that_writes_its_results_elsewhere_is_not_accused(tmp_path) -> Non
     import os
     import time
 
-    from argus_skill.engineer.external_work import (
+    from argus.engineer.external_work import (
         ExternalWorkState,
         scan_external_work,
     )

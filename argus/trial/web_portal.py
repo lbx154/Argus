@@ -1,6 +1,6 @@
 """Cookie-authenticated browser entry point for the separately provisioned trial.
 
-Run ``python -m argus_skill.trial.web_portal --config /absolute/portal.json``.
+Run ``python -m argus.trial.web_portal --config /absolute/portal.json``.
 ``create_app()`` also reads ``ARGUS_WEB_TRIAL_CONFIG``; ``create_app(config)``
 accepts the same JSON object or its path. Required fields are ``state_dir``
 (containing an existing usage.sqlite3), ``key_file``, ``tenants`` (exactly

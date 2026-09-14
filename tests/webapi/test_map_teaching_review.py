@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from argus_skill.webapi import map_teaching_review as teaching
+from argus.webapi import map_teaching_review as teaching
 
 
 def concept():

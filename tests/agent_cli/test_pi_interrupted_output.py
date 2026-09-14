@@ -1,6 +1,6 @@
-from argus_skill.agent_cli._event_consumers import _OpenCodeWriteState
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
-from argus_skill.agent_cli.runner_backend import BACKEND_PI
+from argus.agent_cli._event_consumers import _OpenCodeWriteState
+from argus.agent_cli.agent_cli_runner import AgentCliRunner
+from argus.agent_cli.runner_backend import BACKEND_PI
 
 
 def test_pi_partial_output_remains_captured_before_interrupt() -> None:

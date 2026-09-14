@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.apps._runtime_backends import _Outcome
-from argus_skill.life.supervisor._mission_execution_settlement import (
+from argus.apps._runtime_backends import _Outcome
+from argus.life.supervisor._mission_execution_settlement import (
     outcome_manuscript_binding,
 )
 

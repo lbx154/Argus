@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.agent_cli._run_exec import _StreamState
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli._run_exec import _StreamState
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="requires native Windows Job Objects")
 
@@ -141,7 +141,7 @@ def test_host_exit_closes_uninherited_job_and_reaps_tree(tmp_path):
     )
     host_body = (
         "import sys,json,time;from pathlib import Path;"
-        "from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner,RunnerOptions;"
+        "from argus.agent_cli.agent_cli_runner import AgentCliRunner,RunnerOptions;"
         "r=AgentCliRunner(agent_bin=sys.executable,backend='codex');"
         f"r._build_command=lambda **kw:[sys.executable,'-c',{child!r}];"
         "_,p,_,_=r._spawn_turn_process(prompt='fixture',resume_thread_id=None,options=RunnerOptions());"
@@ -165,7 +165,7 @@ def test_host_exit_closes_uninherited_job_and_reaps_tree(tmp_path):
 
 @pytest.mark.parametrize("failure", ["spawn", "assign", "resume"])
 def test_setup_failure_never_executes_provider_or_leaks_handles(monkeypatch, tmp_path, failure):
-    from argus_skill.core import windows_job
+    from argus.core import windows_job
 
     marker = tmp_path / "executed"
     processes = []
@@ -214,14 +214,14 @@ def test_official_durable_launchers_survive_turn_stop(monkeypatch, tmp_path, lau
     )
     if launcher == "worker":
         launch = (
-            "from argus_skill.tools.subagent._cli import _spawn_windows_worker;"
+            "from argus.tools.subagent._cli import _spawn_windows_worker;"
             "p=_spawn_windows_worker(task_id='owned-test',description='fixture',"
             f"command={command!r},mode='direct',timeout=30,monitor_interval=1,"
             f"model=None,cwd={str(tmp_path)!r},run_dir=None,preflight=False,cpu_ids=());"
         )
     else:
         launch = (
-            "from argus_skill.tools.subagent._registry import _launch_durable_command;"
+            "from argus.tools.subagent._registry import _launch_durable_command;"
             "p=_launch_durable_command(task_id='owned-test',run_id='fixture',"
             f"command={command!r},cwd={str(tmp_path)!r},"
             "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"

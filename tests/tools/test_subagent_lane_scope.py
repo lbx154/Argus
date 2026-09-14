@@ -4,7 +4,7 @@ import os
 import time
 from pathlib import Path
 
-from argus_skill.tools import subagent as sa
+from argus.tools import subagent as sa
 
 
 def _park(task_id: str) -> None:

@@ -18,15 +18,15 @@ metadata if required by the workflow" — inventing gate bookkeeping to explain 
 refusal it had no way to read.
 
 Citations:
-- argus_skill/manager/stage_decider.py — ``final_stage_completion_blockers``
-- argus_skill/manager/_stage_ops.py — the ``manager_completion_rejected`` HOLD
+- argus/manager/stage_decider.py — ``final_stage_completion_blockers``
+- argus/manager/_stage_ops.py — the ``manager_completion_rejected`` HOLD
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.manager.stage_decider import (
+from argus.manager.stage_decider import (
     final_stage_completion_blockers,
     final_stage_completion_decision,
 )
@@ -144,7 +144,7 @@ def test_research_final_review_done_certifies_regardless_of_result_grades() -> N
     """For the paper vertical the Reviewer's ``done`` on the final review is
     the certification. Grades such as ``finite_verification`` or novelty
     ``unverified`` describe the verdict; they do not overrule it."""
-    from argus_skill.manager.stage_decider import _review_certifies_completion
+    from argus.manager.stage_decider import _review_certifies_completion
 
     review = SimpleNamespace(
         status="done",

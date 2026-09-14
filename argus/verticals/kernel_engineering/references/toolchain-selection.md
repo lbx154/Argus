@@ -8,7 +8,7 @@ The full curated catalog is machine-readable at
 `specialized_tool_registry.json`. Query it through:
 
 ```bash
-python -m argus_skill.verticals.kernel_engineering.environment_audit catalog \
+python -m argus.verticals.kernel_engineering.environment_audit catalog \
   --platform nvidia --category attention
 ```
 

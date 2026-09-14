@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 
-from argus_skill.core import backend_readiness as readiness
+from argus.core import backend_readiness as readiness
 
 
 def _completed(
@@ -20,7 +20,7 @@ def _completed(
 
 
 def _fake_codex(monkeypatch, version: str, *, auth_returncode: int = 0) -> None:
-    from argus_skill.tools import capability_vault
+    from argus.tools import capability_vault
 
     monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/codex")
     monkeypatch.setattr(
@@ -208,7 +208,7 @@ def test_auth_failure_uses_exit_status(monkeypatch) -> None:
 def test_codex_custom_provider_can_own_auth_without_openai_login(
     monkeypatch,
 ) -> None:
-    from argus_skill.tools import capability_vault
+    from argus.tools import capability_vault
 
     _fake_codex(monkeypatch, readiness.CODEX_RECOMMENDED_VERSION, auth_returncode=1)
     monkeypatch.setattr(
@@ -376,11 +376,11 @@ def test_subscription_mode_never_loads_model_api_vault(monkeypatch) -> None:
 def test_model_api_mode_requires_configured_routes(monkeypatch) -> None:
     _fake_codex(monkeypatch, "0.144.5")
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.load_model_api_route",
+        "argus.tools.capability_vault.load_model_api_route",
         lambda _name: None,
     )
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.default_vault_path",
+        "argus.tools.capability_vault.default_vault_path",
         lambda: "/tmp/model_api.json",
     )
 

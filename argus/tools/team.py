@@ -95,7 +95,7 @@ def cmd_pool_set(a: argparse.Namespace) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="argus_skill.tools.team")
+    parser = argparse.ArgumentParser(prog="argus.tools.team")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     form = sub.add_parser(

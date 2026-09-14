@@ -53,7 +53,7 @@ def _is_test(path: Path, root: Path) -> bool:
 
 def _is_vertical(path: Path, root: Path) -> bool:
     parts = path.relative_to(root).parts
-    return len(parts) >= 3 and parts[:2] == ("argus_skill", "verticals")
+    return len(parts) >= 3 and parts[:2] == ("argus", "verticals")
 
 
 def _files(root: Path) -> list[Path]:
@@ -80,7 +80,7 @@ def _name(node: ast.AST | None) -> str:
 
 
 def _vertical_names(root: Path) -> set[str]:
-    selector = root / "argus_skill" / "skills" / "vertical_select.py"
+    selector = root / "argus" / "skills" / "vertical_select.py"
     try:
         tree = ast.parse(selector.read_text(encoding="utf-8"))
         for node in tree.body:
@@ -162,7 +162,7 @@ def _python_findings(path: Path, root: Path, vertical_names: set[str]) -> list[F
                 if concrete and concrete not in _ALLOWED_VERTICAL_MODULES:
                     findings.append(Finding("concrete_vertical_import", rel, node.lineno, _line(lines, node.lineno)))
         if (
-            rel != "argus_skill/skills/vertical_select.py"
+            rel != "argus/skills/vertical_select.py"
             and isinstance(node, ast.Constant)
             and isinstance(node.value, str)
             and node.value in vertical_names

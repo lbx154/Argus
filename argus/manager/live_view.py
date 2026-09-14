@@ -101,7 +101,7 @@ def manager_workspace_context(
         "presentation_root": str(workspace / MANAGER_LIVE_DIR),
         "artifact_path_rule": "all selected paths are workspace-relative",
         "manager_live_view_tool": (
-            "python -m argus_skill.tools.manager_live_view "
+            "python -m argus.tools.manager_live_view "
             f"--workspace {workspace} --state-dir {state_root}"
         ),
     }

@@ -449,7 +449,7 @@ export function ConfigModal({
                   )}
 
                   <p className="text-[10px] text-ink-faint">
-                    {t('settings.footer')} <code>argus-skill --config-help</code>.
+                    {t('settings.footer')} <code>argus --config-help</code>.
                   </p>
                 </div>
               )}

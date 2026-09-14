@@ -9,13 +9,13 @@ import time
 
 import pytest
 
-from argus_skill.agent_cli._idle_watchdog import (
+from argus.agent_cli._idle_watchdog import (
     STALLED_STAGE,
     TERMINATE_STAGE,
     WARNING_STAGE,
     IdleEscalation,
 )
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 
 
 def test_idle_escalation_emits_once_and_resets_on_activity() -> None:

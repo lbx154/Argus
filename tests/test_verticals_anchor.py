@@ -1,19 +1,19 @@
 """Smoke test for the vertical re-export anchor.
 
 The point of this test is structural, not behavioral: confirm that
-``argus_skill.verticals.research`` exposes the paper-specific names
+``argus.verticals.research`` exposes the paper-specific names
 that future code is supposed to depend on, and that those names are
 the same objects as the ones still served by the legacy
-``argus_skill.skills`` / ``argus_skill.tools`` import paths. The
+``argus.skills`` / ``argus.tools`` import paths. The
 underlying modules can later be physically relocated under
-``argus_skill/verticals/research/`` without breaking either contract.
+``argus/verticals/research/`` without breaking either contract.
 """
 
 from __future__ import annotations
 
 
 def test_research_vertical_reexports_paper_specific_names() -> None:
-    from argus_skill.verticals import research
+    from argus.verticals import research
 
     expected = {
         # evidence_chain
@@ -33,9 +33,9 @@ def test_research_vertical_reexports_paper_specific_names() -> None:
 def test_research_vertical_is_identity_reexport() -> None:
     """The re-exports must be the *same objects* as their canonical paths so
     callers can choose either import without semantic drift."""
-    from argus_skill.skills import evidence_chain as legacy_chain
-    from argus_skill.verticals import research
-    from argus_skill.verticals.research import stages
+    from argus.skills import evidence_chain as legacy_chain
+    from argus.verticals import research
+    from argus.verticals.research import stages
 
     assert research.ChainReport is legacy_chain.ChainReport
     assert research.STAGE_ORDER is stages.STAGE_ORDER
@@ -47,6 +47,6 @@ def test_vertical_namespace_exists_for_future_plugins() -> None:
     """The ``verticals`` namespace package must exist so other verticals
     (quant, rollout, …) can be added next to ``research`` without
     touching argus core."""
-    import argus_skill.verticals as v
+    import argus.verticals as v
 
     assert v.__doc__ and "vertical" in v.__doc__.lower()

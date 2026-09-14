@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.core.autonomy import (
+from argus.core.autonomy import (
     assess_operator_intervention,
     normalize_autonomy_mode,
     technical_continuation,

@@ -8,7 +8,7 @@ from ..messaging.transport import request
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.peer")
+    parser = argparse.ArgumentParser(prog="python -m argus.tools.peer")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("projects")
     send = sub.add_parser("send")

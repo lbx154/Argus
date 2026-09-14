@@ -1,7 +1,7 @@
 """Vendored low-level codex/claude/copilot/cursor/opencode/pi/grok/dsh CLI driver.
 
 ``AgentCliRunner`` and ``RunnerOptions`` are the two public names callers
-import from this module (``argus_skill.adapters.agent_cli_backend`` wraps
+import from this module (``argus.adapters.agent_cli_backend`` wraps
 ``AgentCliRunner`` behind the ``RunnerBackend`` port). Their actual behavior —
 argv construction, the sandbox gate, prompt delivery, event parsing, OpenCode
 recovery, process-group termination, and the ``run_exec`` phases — lives in

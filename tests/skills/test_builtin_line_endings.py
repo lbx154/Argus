@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from argus_skill.skills import builtins
+from argus.skills import builtins
 
 
 @pytest.mark.parametrize("installed_newline", [b"\n", b"\r\n"])

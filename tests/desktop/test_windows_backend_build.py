@@ -25,9 +25,9 @@ def _builder(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(module, "assert_release_versions", lambda repo: "0.1.7")
     monkeypatch.setattr(module.shutil, "which", lambda name: "node.exe")
     manifest = {"package_version": "0.1.7", "release_id": "0.1.7+fixture", "source_digest": "fixture"}
-    (tmp_path / "argus_skill").mkdir()
-    (tmp_path / "argus_skill/__init__.py").write_text('__version__ = "0.1.7"\n', encoding="utf-8")
-    (tmp_path / "argus_skill/release_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / "argus").mkdir()
+    (tmp_path / "argus/__init__.py").write_text('__version__ = "0.1.7"\n', encoding="utf-8")
+    (tmp_path / "argus/release_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     # Bind the optional repo argument explicitly when testing a synthetic tree.
     original_validate = module.validate_payload_identity
     monkeypatch.setattr(module, "validate_payload_identity", lambda source: original_validate(source, tmp_path))
@@ -36,11 +36,11 @@ def _builder(tmp_path: Path, monkeypatch):
 
 def _frozen(desktop: Path, manifest: dict) -> Path:
     source = desktop / "build/argus-backend"
-    (source / "_internal/argus_skill").mkdir(parents=True)
+    (source / "_internal/argus").mkdir(parents=True)
     (source / "argus-backend.exe").write_bytes(b"test-only stand-in; never execute")
-    package = source / "_internal/argus_skill"
+    package = source / "_internal/argus"
     (package / "release_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    (package / "__init__.py").write_bytes((desktop.parent / "argus_skill/__init__.py").read_bytes())
+    (package / "__init__.py").write_bytes((desktop.parent / "argus/__init__.py").read_bytes())
     for name, content in {
         "tui/bundle/argus.mjs": f'export const releaseId = "{manifest["release_id"]}";',
         "web/dist/index.html": '<script src="./assets/main.js"></script>',
@@ -67,7 +67,7 @@ def test_windows_build_orders_identity_native_adapter_freeze_probes_and_staging(
 
     monkeypatch.setattr(builder.subprocess, "run", run)
     assert builder.main([]) == 0
-    release = next(i for i, command in enumerate(commands) if "argus_skill.release_tools.build_release" in command)
+    release = next(i for i, command in enumerate(commands) if "argus.release_tools.build_release" in command)
     native = next(i for i, command in enumerate(commands) if any(str(item).endswith("build-native-tools.ps1") for item in command))
     freeze = next(i for i, command in enumerate(commands) if "PyInstaller" in command)
     verify = next(i for i, command in enumerate(commands) if "--verify-frozen-runtime" in command)
@@ -100,7 +100,7 @@ def test_failed_frontend_identity_build_never_freezes_an_old_cockpit(tmp_path, m
     with pytest.raises(subprocess.CalledProcessError):
         builder.main([])
     assert len(commands) == 1
-    assert "argus_skill.release_tools.build_release" in commands[0]
+    assert "argus.release_tools.build_release" in commands[0]
     assert not (desktop / "build/argus-backend").exists()
 
 
@@ -111,9 +111,9 @@ def test_prepare_rechecks_source_and_artifacts_without_refreezing(tmp_path, monk
     monkeypatch.setattr(builder.subprocess, "run", lambda command, **kwargs: commands.append(command))
     assert builder.main(["--prepare-only"]) == 0
     assert len(commands) == 3
-    assert "argus_skill.release_tools.generate_manifest" in commands[0]
+    assert "argus.release_tools.generate_manifest" in commands[0]
     assert "--check" in commands[0]
-    assert "argus_skill.release_tools.check_artifacts" in commands[1]
+    assert "argus.release_tools.check_artifacts" in commands[1]
     assert not any("PyInstaller" in command for command in commands)
 
 
@@ -135,7 +135,7 @@ def test_mixed_frozen_identity_is_rejected_before_staging(tmp_path, monkeypatch)
 def test_frozen_byte_or_frontend_identity_mismatch_is_rejected(tmp_path, monkeypatch, relative, message):
     builder, desktop, manifest = _builder(tmp_path, monkeypatch)
     source = _frozen(desktop, manifest)
-    (source / "_internal/argus_skill" / relative).write_text("altered fixture", encoding="utf-8")
+    (source / "_internal/argus" / relative).write_text("altered fixture", encoding="utf-8")
     with pytest.raises(RuntimeError, match=message):
         builder.validate_frozen_inputs(source, tmp_path)
 

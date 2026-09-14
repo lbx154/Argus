@@ -6,7 +6,7 @@ description: "Inspect and simplify Argus with small reusable changes and clear c
 # Argus maintenance
 
 1. Read the real call path and closest existing implementation.
-2. Run `python -m argus_skill.verticals.argus_maintenance.architecture_audit` when useful.
+2. Run `python -m argus.verticals.argus_maintenance.architecture_audit` when useful.
 3. Treat findings as candidates; change only those relevant to the task.
 4. Remove dead wrappers, stale aliases, duplicated state, unjustified literals, and silent fallback chains.
 5. Put generic orchestration in core and domain behavior in the owning vertical.

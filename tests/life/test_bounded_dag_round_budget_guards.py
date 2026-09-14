@@ -10,16 +10,16 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.engineer import round_settlement
-from argus_skill.engineer.round_state import EngineerTurnOutcome, RoundLoopState
-from argus_skill.engineer.runner import (
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.engineer import round_settlement
+from argus.engineer.round_state import EngineerTurnOutcome, RoundLoopState
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer import Reviewer, ReviewerConfig
 
 
 def _review_json(
@@ -426,9 +426,9 @@ def test_waiting_on_a_healthy_job_is_not_stalling(tmp_path) -> None:
     not finished, so four such rounds retired the mission for doing exactly what
     it was asked to do. Work that is stalled or needs attention still counts.
     """
-    from argus_skill.core.models import ReviewDecision
-    from argus_skill.engineer import round_settlement
-    from argus_skill.engineer.external_work import ExternalWorkState, ExternalWorkStatus
+    from argus.core.models import ReviewDecision
+    from argus.engineer import round_settlement
+    from argus.engineer.external_work import ExternalWorkState, ExternalWorkStatus
 
     review = ReviewDecision(
         status="continue", reason="job still running", next_action=""

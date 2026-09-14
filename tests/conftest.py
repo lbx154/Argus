@@ -123,7 +123,7 @@ def _isolate_working_directory(
     lookups, the daemon's own workdir. Under pytest that cwd was the source
     checkout, so a test would silently adopt the repository as its project. The
     visible symptom was log lines like ``no Manager vertical resolved for
-    .../argus-skill; using research only as a compatibility fallback`` during
+    .../argus; using research only as a compatibility fallback`` during
     unrelated tests; the invisible one is any test that writes project state
     into the tree it is testing.
 
@@ -170,7 +170,7 @@ def _no_stop_leaks_between_tests():
     wait deep inside a mission can see a signal. One test setting it once made
     an unrelated external-work test read `stop_requested` instead of the
     outcome that had actually arrived."""
-    from argus_skill.core import process_stop
+    from argus.core import process_stop
 
     process_stop.clear_stop()
     yield

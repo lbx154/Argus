@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.daemon.state import write_continuous_config
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.manager._session_ops import _ManagerSession
-from argus_skill.manager.observation import observe_project
-from argus_skill.manager.session_context import remember_turn
-from argus_skill.manager.supervision import _prompt
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.daemon.state import write_continuous_config
+from argus.life.memory import Backlog, BacklogItem
+from argus.manager._session_ops import _ManagerSession
+from argus.manager.observation import observe_project
+from argus.manager.session_context import remember_turn
+from argus.manager.supervision import _prompt
 
 
 def test_rotated_manager_gets_observed_changes_instead_of_supervision_boilerplate(tmp_path):

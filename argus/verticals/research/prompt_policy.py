@@ -676,7 +676,7 @@ def _engineer_fragment(
                 "ECharts can supply a data-grounded chart component when useful. "
                 "There is no separate SVG workflow. Keep the framework itself as native "
                 "PPT shapes, connectors, and text. Locate PPT Master with "
-                "python -m argus_skill.tools.ppt_master status. "
+                "python -m argus.tools.ppt_master status. "
                 "Reuse an existing suitable figure; do not invoke the component every "
                 "round or for prose-only edits. Delegate bounded candidate design in parallel "
                 "when a worker is available, using separate candidate directories, while "

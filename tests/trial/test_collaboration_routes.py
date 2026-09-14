@@ -5,7 +5,7 @@ from test_collaboration_data import episode
 from test_training_data import chat, grant
 from test_training_data import training as training
 
-from argus_skill.trial.training_routes import register_training_routes
+from argus.trial.training_routes import register_training_routes
 
 
 def test_collaboration_routes_keep_admin_auth_and_readonly_access(training):

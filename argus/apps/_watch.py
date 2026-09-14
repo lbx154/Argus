@@ -1,4 +1,4 @@
-"""``argus-skill --watch`` — read-only live cockpit.
+"""``argus --watch`` — read-only live cockpit.
 
 Tails the current project's ``events.jsonl``, ``daemon.status.json``, and
 ``backlog.jsonl`` and renders a four-pane ``rich.Live`` layout:
@@ -340,7 +340,7 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
     except ModuleNotFoundError:
         print(
             "watch: rich is required for the live cockpit; install the package "
-            "to use `argus-skill --watch`",
+            "to use `argus --watch`",
             file=sys.stderr,
         )
         return 2
@@ -473,7 +473,7 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         inbox_pending = count_pending_inbox_messages(project_root)
         budget_line = budget_cache.render(journal_path=journal_path, journal=journal, status=st)
         header = Text.from_markup(
-            f"[bold]argus-skill watch[/bold]  [cyan]global[/cyan]={global_root}\n"
+            f"[bold]argus watch[/bold]  [cyan]global[/cyan]={global_root}\n"
             f"[cyan]project[/cyan]={project_root}  "
             f"[cyan]daemon[/cyan]={'[green]alive[/green]' if alive else '[red]down[/red]'}  "
             f"pid={pid}  backend={backend}\n"

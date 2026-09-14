@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.webapi.diagnostics import Check, render_report, run_diagnostics
+from argus.webapi.diagnostics import Check, render_report, run_diagnostics
 
 # ---------------------------------------------------------------------------
 # render_report formatting
@@ -42,7 +42,7 @@ def test_render_report_recommends_root_cause_over_symptom():
     # daemon-down is the symptom; an unconfigured/unreachable model API is the
     # root cause. The recommendation (last line) must surface the cause.
     checks = [
-        Check("daemon", False, "no daemon", "run: argus-skill --daemon"),
+        Check("daemon", False, "no daemon", "run: argus --daemon"),
         Check(
             "model API capability",
             False,
@@ -66,7 +66,7 @@ def test_render_report_all_green_has_no_recommendation():
 
 
 def test_doctor_json_uses_stable_codes() -> None:
-    from argus_skill.apps.cli._core import _doctor_payload
+    from argus.apps.cli._core import _doctor_payload
 
     payload = _doctor_payload([Check("lock sanity", False, "stale", "repair")])
 
@@ -79,8 +79,8 @@ def test_full_doctor_forwards_explicit_backend_contract(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.maintenance.doctor import DoctorContext, run_full_doctor
-    from argus_skill.webapi import diagnostics
+    from argus.maintenance.doctor import DoctorContext, run_full_doctor
+    from argus.webapi import diagnostics
 
     seen = {}
 
@@ -113,7 +113,7 @@ def test_full_doctor_forwards_explicit_backend_contract(
 def test_cli_maintenance_context_keeps_explicit_backend_contract(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.apps.cli import _core
+    from argus.apps.cli import _core
 
     context = _core._maintenance_context(
         SimpleNamespace(
@@ -135,7 +135,7 @@ def test_cli_maintenance_context_keeps_explicit_backend_contract(
 def test_backend_probe_flags_do_not_change_repair_target_fingerprint(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.maintenance.doctor import DoctorContext
+    from argus.maintenance.doctor import DoctorContext
 
     base = DoctorContext(global_root=tmp_path, project_root=tmp_path / "project")
     selected = DoctorContext(
@@ -150,7 +150,7 @@ def test_backend_probe_flags_do_not_change_repair_target_fingerprint(
 
 
 def test_frozen_doctor_does_not_require_system_node(tmp_path) -> None:
-    from argus_skill.maintenance.doctor import DoctorContext, _runtime_findings
+    from argus.maintenance.doctor import DoctorContext, _runtime_findings
 
     findings = _runtime_findings(DoctorContext(
         global_root=tmp_path,
@@ -169,8 +169,8 @@ def test_safe_repair_removes_only_a_verified_stale_daemon_pid(
     monkeypatch,
     capsys,
 ) -> None:
-    from argus_skill.apps.cli import _core
-    from argus_skill.maintenance.doctor import DoctorContext
+    from argus.apps.cli import _core
+    from argus.maintenance.doctor import DoctorContext
 
     pid_path = tmp_path / "daemon.pid"
     pid_path.write_text("2000000000\n", encoding="ascii")
@@ -209,11 +209,11 @@ def test_render_report_with_theme_is_failsoft():
             return _raise
 
     report = render_report(
-        [Check("daemon", False, "down", "run: argus-skill --daemon")],
+        [Check("daemon", False, "down", "run: argus --daemon")],
         theme=BrokenTheme(),
     )
     assert "argus doctor" in report
-    assert "run: argus-skill --daemon" in report
+    assert "run: argus --daemon" in report
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +262,7 @@ def test_live_daemon_lock_is_not_flagged(tmp_path):
 
 
 def test_project_with_backlog_requires_an_executor(tmp_path):
-    from argus_skill.life.memory import Backlog, BacklogItem
+    from argus.life.memory import Backlog, BacklogItem
 
     Backlog(tmp_path / "backlog.jsonl").add(
         BacklogItem.new(item_id="b-1", title="do thing", objective="execute it")
@@ -299,7 +299,7 @@ def test_run_diagnostics_returns_all_five_checks_and_never_raises(tmp_path):
 
 def _mock_backend_commands(monkeypatch, version: str) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.backend_readiness._run_text",
+        "argus.core.backend_readiness._run_text",
         lambda command, **_kwargs: subprocess.CompletedProcess(
             args=command,
             returncode=0,
@@ -308,7 +308,7 @@ def _mock_backend_commands(monkeypatch, version: str) -> None:
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.core.backend_readiness._probe_cli_auth",
+        "argus.core.backend_readiness._probe_cli_auth",
         lambda *_args, **_kwargs: (True, ""),
     )
 
@@ -318,7 +318,7 @@ def test_backend_preflight_checks_configured_backend_not_always_codex(monkeypatc
     of ``ARGUS_SKILL_RUNNER_BACKEND``, so an operator running entirely on
     copilot/claude (no ``codex`` npm package installed, by design) got a
     false "codex binary not found" warning on every banner / /doctor run."""
-    from argus_skill.webapi.diagnostics import _check_backend_preflight
+    from argus.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
@@ -334,7 +334,7 @@ def test_backend_preflight_checks_configured_backend_not_always_codex(monkeypatc
 
 
 def test_opencode_preflight_does_not_claim_live_authentication(monkeypatch):
-    from argus_skill.webapi.diagnostics import _check_backend_preflight
+    from argus.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setattr(
         "shutil.which",
@@ -350,12 +350,12 @@ def test_opencode_preflight_does_not_claim_live_authentication(monkeypatch):
 
 
 def test_backend_preflight_missing_binary_names_the_configured_backend(monkeypatch):
-    from argus_skill.webapi.diagnostics import _check_backend_preflight
+    from argus.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
     monkeypatch.setattr(
-        "argus_skill.core.backend_readiness.resolve_runner_bin",
+        "argus.core.backend_readiness.resolve_runner_bin",
         lambda *_args, **_kwargs: None,
     )
 
@@ -371,7 +371,7 @@ def test_backend_preflight_defaults_to_codex_with_original_install_hint(
 ):
     """The default (unset) backend keeps the exact original codex message so
     existing operators see no change."""
-    from argus_skill.webapi.diagnostics import _check_backend_preflight
+    from argus.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
@@ -390,8 +390,8 @@ def test_backend_preflight_defaults_to_codex_with_original_install_hint(
 def test_backend_preflight_uses_persisted_copilot_selection(
     tmp_path, monkeypatch
 ):
-    from argus_skill.core.knob_store import write_persisted_knob
-    from argus_skill.webapi.diagnostics import _check_backend_preflight
+    from argus.core.knob_store import write_persisted_knob
+    from argus.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
@@ -425,7 +425,7 @@ def test_injected_probe_429_surfaces_switch_backend_fix(tmp_path, monkeypatch):
     _mock_backend_commands(monkeypatch, "codex-cli 0.144.5")
     # Force a configured route so the offline gate passes, then inject a probe
     # that returns a 429 — the check must recommend switching backend.
-    from argus_skill.webapi import diagnostics as doctor_mod
+    from argus.webapi import diagnostics as doctor_mod
 
     class _Route:
         usable = True
@@ -437,7 +437,7 @@ def test_injected_probe_429_surfaces_switch_backend_fix(tmp_path, monkeypatch):
 
     # Patch the loader used by both the offline gate and vault_preflight.
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.load_model_api_route",
+        "argus.tools.capability_vault.load_model_api_route",
         lambda name, env=None: _Route(),
     )
 

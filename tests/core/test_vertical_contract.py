@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.vertical_contract import (
+from argus.core.vertical_contract import (
     VerticalContractError,
     vertical_contract,
 )
-from argus_skill.skills.stage_machine import ChecklistItem
-from argus_skill.verticals._base import vertical_automatic_stage_completion_ready
+from argus.skills.stage_machine import ChecklistItem
+from argus.verticals._base import vertical_automatic_stage_completion_ready
 
 
 def _item(item_id: str) -> ChecklistItem:
@@ -145,7 +145,7 @@ def test_auto_close_rejects_invalid_policy(policy, tmp_path: Path) -> None:
 def test_vertical_validator_can_defer_checks_by_verification_profile(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.core.pipeline_state import write_pipeline_state
+    from argus.core.pipeline_state import write_pipeline_state
 
     seen: list[str | None] = []
 
@@ -375,7 +375,7 @@ def test_core_has_no_vertical_package_imports() -> None:
     subpackage is exactly where the import would appear, since that is where
     the code long enough to want a shortcut lives.
     """
-    core = Path(__file__).parents[2] / "argus_skill" / "core"
+    core = Path(__file__).parents[2] / "argus" / "core"
     offenders: list[str] = []
     for path in core.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))

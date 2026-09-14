@@ -177,29 +177,29 @@ class _ScriptedPlannerBackend:
             data = json.loads(path.read_text(encoding="utf-8"))
         except OSError as exc:
             raise SystemExit(
-                f"argus-skill: failed to read scripted planner backend: {exc}"
+                f"argus: failed to read scripted planner backend: {exc}"
             ) from exc
         if not isinstance(data, dict):
             raise SystemExit(
-                "argus-skill: scripted planner backend must be a JSON object"
+                "argus: scripted planner backend must be a JSON object"
             )
         planner = data.get("planner", [])
         critic = data.get("critic", [])
         if not isinstance(planner, list) or not isinstance(critic, list):
             raise SystemExit(
-                "argus-skill: scripted planner backend requires planner/critic arrays"
+                "argus: scripted planner backend requires planner/critic arrays"
             )
         return cls(planner=planner, critic=critic)
 
     def _pop(self, queue: list[dict[str, Any]], *, kind: str, run_label: str) -> dict[str, Any]:
         if not queue:
             raise RuntimeError(
-                f"argus-skill: scripted planner backend exhausted for {kind} ({run_label})"
+                f"argus: scripted planner backend exhausted for {kind} ({run_label})"
             )
         payload = queue.pop(0)
         if not isinstance(payload, dict):
             raise RuntimeError(
-                f"argus-skill: scripted planner backend entry for {kind} must be an object"
+                f"argus: scripted planner backend entry for {kind} must be an object"
             )
         delay_seconds = payload.get("delay_seconds", 0)
         try:
@@ -232,7 +232,7 @@ class _ScriptedPlannerBackend:
             payload = self._pop(self._critic, kind="critic", run_label=str(run_label))
         else:
             raise RuntimeError(
-                f"argus-skill: scripted planner backend cannot handle {run_label!r}"
+                f"argus: scripted planner backend cannot handle {run_label!r}"
             )
         return RunnerResult(exit_code=0, agent_messages=[json.dumps(payload, ensure_ascii=False)])
 

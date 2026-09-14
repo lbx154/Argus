@@ -210,7 +210,7 @@ def _prepare_readable_pdf(paper: Path) -> None:
         import pymupdf as fitz
     except ImportError as exc:
         raise RuntimeError(
-            "PDF review requires PyMuPDF; install argus-skill[paper]"
+            "PDF review requires PyMuPDF; install argus[paper]"
         ) from exc
     pages = paper / "pages"
     pages.mkdir()

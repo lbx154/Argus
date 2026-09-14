@@ -164,12 +164,12 @@ def _capability_context(env: Mapping[str, str]) -> str:
             )
         )
     tool_block = (
-        "- image_tool_generate: `python -m argus_skill.tools.image_api generate "
+        "- image_tool_generate: `python -m argus.tools.image_api generate "
         "--prompt-file figures/<name>.prompt.txt --out figures/<name>.png --force`\n"
-        "- image_tool_inspect: `python -m argus_skill.tools.image_api inspect "
+        "- image_tool_inspect: `python -m argus.tools.image_api inspect "
         "--image figures/<name>.png`\n"
         "- image_tool_review (paper figures): `python -m "
-        "argus_skill.verticals.research.figure_tool review "
+        "argus.verticals.research.figure_tool review "
         "--image figures/<name>.png --out figures/<name>.review.json`\n"
     )
     return (
@@ -186,7 +186,7 @@ def _capability_context(env: Mapping[str, str]) -> str:
         f"{tool_block if image_tool_available else ''}"
         "- Default authorization source: the fixed capability vault above. "
         "Treat Codex auth/config files only as one-time import sources for "
-        "`python -m argus_skill.tools.capability_vault init-model-api`.\n"
+        "`python -m argus.tools.capability_vault init-model-api`.\n"
         "- API routes are independent: engineer/reviewer/author/image/"
         "image_review may use different URLs, keys, providers, and models.\n"
         "- Permission model: the human has pre-approved these capabilities. Do not "
@@ -215,7 +215,7 @@ def _default_nanochat_profile() -> str:
     return """## Research profile: nanochat autoresearch (val-bpb minimization)
 
 Long-horizon goal:
-- Win a head-to-head automated-research contest: argus-skill versus Recursive's
+- Win a head-to-head automated-research contest: argus versus Recursive's
   automated-research system. The single judged question is whose generated
   `solution.py` trains a small language model that reaches a LOWER mean
   validation bits-per-byte (val bpb) under one fixed, shared protocol.
@@ -300,7 +300,7 @@ Evidence and anti-fabrication rules:
 - Every bpb claim must cite a local artifact: the exact solution.py used, the
   seeds, the per-seed val bpb values, the mean, the command, timestamps, and the
   verifier log. A mean with no per-seed artifacts behind it is not evidence.
-- When comparing against the baseline, both the argus-skill solution.py and the
+- When comparing against the baseline, both the argus solution.py and the
   re-measured optimized_from_karpathy.py must be scored by the same verifier run
   configuration; never compare your re-measured number against their published
   number.

@@ -30,7 +30,7 @@ from .training_capture import (
     INIT_FAILURE_REASONS,
 )
 
-IMAGE_PACKAGE = Path("/opt/argus/argus_skill/trial")
+IMAGE_PACKAGE = Path("/opt/argus/argus/trial")
 EXTENSION_NAME = "pi_training_extension.mjs"
 
 
@@ -51,7 +51,7 @@ class PeerVerifier:
     def _runtime_parent(self, proc):
         # Bind registration to the actual server that owns the provisioned
         # tenant web socket. A tool-spawned Python/Node process must not become
-        # a registrar merely by putting 'argus_skill' in its command line.
+        # a registrar merely by putting 'argus' in its command line.
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as endpoint:
             endpoint.settimeout(0.25)
             endpoint.connect(self.web_uds)
@@ -113,7 +113,7 @@ class PeerVerifier:
                     or _process(control_parent["pid"])["started"] != control_parent["started"]):
                 raise AnalyticsError(403, "training_peer_parent_mismatch")
             # Both fork children retain the exact fresh-interpreter helper argv.
-            if [arg for arg in proc["argv"][1:] if arg] != ["-m", "argus_skill.daemon.spawn_helper"]:
+            if [arg for arg in proc["argv"][1:] if arg] != ["-m", "argus.daemon.spawn_helper"]:
                 raise AnalyticsError(403, "training_daemon_helper_arguments_mismatch")
         elif registered is not None:
             executable = Path(os.readlink(Path("/proc") / str(pid) / "exe")).name

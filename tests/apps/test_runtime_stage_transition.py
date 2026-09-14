@@ -5,16 +5,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_helpers import _should_run_stage_transition
+from argus.apps._runtime_helpers import _should_run_stage_transition
 
 
 @pytest.mark.parametrize(("workflow", "action", "stage"), [("staged", "advance", "optimize"), ("direct", "complete", "setup")])
 def test_event_sink_failure_keeps_committed_stage_decision(tmp_path, workflow, action, stage) -> None:
-    from argus_skill.apps._runtime_stage_transition import StageTransitionMixin
-    from argus_skill.core.models import ReviewDecision
-    from argus_skill.core.pipeline_state import read_pipeline_state
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.core.pipeline_state import read_pipeline_state
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state = tmp_path / "state"
     work = tmp_path / "work"
@@ -38,10 +38,10 @@ def test_event_sink_failure_keeps_committed_stage_decision(tmp_path, workflow, a
 
 
 def test_stale_stage_verdict_preserves_new_campaign_wait(tmp_path) -> None:
-    from argus_skill.apps._runtime_stage_transition import StageTransitionMixin
-    from argus_skill.core.models import ReviewDecision
-    from argus_skill.manager._core import StageTransition
-    from argus_skill.manager.control_state import CampaignControlStore
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.manager._core import StageTransition
+    from argus.manager.control_state import CampaignControlStore
 
     control = CampaignControlStore(tmp_path)
     identity = control.campaign_identity(objective="replacement objective", campaign_epoch=2)
@@ -73,12 +73,12 @@ def test_stale_stage_verdict_preserves_new_campaign_wait(tmp_path) -> None:
 
 @pytest.mark.parametrize("initial_head", [False, True])
 def test_unchanged_campaign_accepts_committed_stage_projection(tmp_path, initial_head) -> None:
-    from argus_skill.apps._runtime_stage_transition import StageTransitionMixin
-    from argus_skill.core.models import ReviewDecision
-    from argus_skill.daemon.state import write_continuous_config
-    from argus_skill.manager import Manager
-    from argus_skill.manager.control_state import CampaignControlStore
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.daemon.state import write_continuous_config
+    from argus.manager import Manager
+    from argus.manager.control_state import CampaignControlStore
+    from argus.skills.vertical_select import persist_vertical
 
     state = tmp_path / "state"
     work = tmp_path / "work"
@@ -111,13 +111,13 @@ def test_unchanged_campaign_accepts_committed_stage_projection(tmp_path, initial
 
 @pytest.mark.parametrize("change", ["new_wait", "replacement", "generation_only"])
 def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_path, change) -> None:
-    from argus_skill.apps._runtime_stage_transition import StageTransitionMixin
-    from argus_skill.core.models import ReviewDecision
-    from argus_skill.daemon.state import write_continuous_config
-    from argus_skill.manager._session_ops import manager_pipeline_lock
-    from argus_skill.manager.control_state import CampaignControlStore
-    from argus_skill.skills.stage_machine import advance_stage
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.daemon.state import write_continuous_config
+    from argus.manager._session_ops import manager_pipeline_lock
+    from argus.manager.control_state import CampaignControlStore
+    from argus.skills.stage_machine import advance_stage
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "math_synth", workflow_mode="staged")
     write_continuous_config(tmp_path, enabled=True, objective="old objective")
@@ -260,10 +260,10 @@ def test_withheld_stage_authority_outranks_every_other_eligibility_route() -> No
 def test_stage_closing_runtime_path_uses_deterministic_manager_writer(
     tmp_path,
 ) -> None:
-    from argus_skill.apps._runtime_stage_transition import StageTransitionMixin
-    from argus_skill.core.models import ReviewDecision
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
@@ -311,9 +311,9 @@ def test_stage_closing_runtime_path_uses_deterministic_manager_writer(
 
 
 def test_bounded_direct_runtime_path_retains_manager_adjudication(tmp_path) -> None:
-    from argus_skill.apps._runtime_stage_transition import StageTransitionMixin
-    from argus_skill.core.models import ReviewDecision
-    from argus_skill.manager._core import StageTransition
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.manager._core import StageTransition
 
     class Manager:
         def bind_execution_workdir(self, _workdir):
@@ -368,8 +368,8 @@ def test_teammate_entry_withholds_stage_authority_from_its_mission() -> None:
     """
     import inspect
 
-    from argus_skill.apps._runtime_execute import SkillLoopExecuteMixin
-    from argus_skill.team import teammate_entry
+    from argus.apps._runtime_execute import SkillLoopExecuteMixin
+    from argus.team import teammate_entry
 
     assert "holds_stage_authority" in inspect.signature(
         SkillLoopExecuteMixin.execute

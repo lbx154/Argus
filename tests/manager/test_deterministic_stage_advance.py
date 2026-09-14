@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.manuscript_snapshot import manuscript_snapshot
-from argus_skill.core.models import ReviewDecision
-from argus_skill.manager import Manager
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.core.manuscript_snapshot import manuscript_snapshot
+from argus.core.models import ReviewDecision
+from argus.manager import Manager
+from argus.skills.vertical_select import persist_vertical
 
 
 def _review(**changes) -> ReviewDecision:
@@ -499,7 +499,7 @@ def test_failed_vertical_completion_preflight_keeps_manager_semantics(
         raise RuntimeError("completion evidence conflicts")
 
     monkeypatch.setattr(
-        "argus_skill.skills.stage_machine._ensure_stage_completion",
+        "argus.skills.stage_machine._ensure_stage_completion",
         fail_completion,
     )
 

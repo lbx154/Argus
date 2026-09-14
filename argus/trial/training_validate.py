@@ -22,7 +22,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, SchemaError
 
-from argus_skill.core.secret_guard import redact_secrets_record
+from argus.core.secret_guard import redact_secrets_record
 
 from .analytics import _sanitize
 from .training_capture import HOSTED_PROFILE, _hosted_sensitive

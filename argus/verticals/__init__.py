@@ -4,7 +4,7 @@ Layer: domain
 
 Seven verticals are built in (one directory each, ``<name>/stages.py``
 implementing ``VerticalContract``); everything else is discovered at runtime
-through the ``argus_skill.verticals`` entry-point group (see ``_registry``),
+through the ``argus.verticals`` entry-point group (see ``_registry``),
 which is how the ``argus-verticals`` community package contributes its
 seventeen. The framework-owned bridge modules (``_base``, ``_registry``,
 ``_data_domain``, ``research_bridge``, ``metric_evidence``,
@@ -12,7 +12,7 @@ seventeen. The framework-owned bridge modules (``_base``, ``_registry``,
 vertical imports; nothing outside this package names a vertical directly.
 
 The canonical built-in inventory and Manager-facing purpose descriptions live
-in :mod:`argus_skill.skills.vertical_select`. Keep package documentation free of
+in :mod:`argus.skills.vertical_select`. Keep package documentation free of
 a second handwritten inventory so registration and documentation cannot drift.
 """
 from __future__ import annotations

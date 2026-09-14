@@ -9,12 +9,12 @@ best-effort duty cycle so each card keeps a live process plus a small VRAM
 footprint and periodic utilization, and is therefore not considered idle.
 
 It is the operator "keep-alive" coordinated by
-``argus_skill.tools.gpu_lease``: real GPU work runs via
-``python -m argus_skill.tools.gpu_lease run -- <cmd>``, which stops this loader
+``argus.tools.gpu_lease``: real GPU work runs via
+``python -m argus.tools.gpu_lease run -- <cmd>``, which stops this loader
 (freeing the cards), runs the job, then restarts this loader afterwards.
 
 Deliberately standalone: it imports ONLY the standard library and ``torch`` (no
-``argus_skill`` imports) so it can run under whichever interpreter actually has
+``argus`` imports) so it can run under whichever interpreter actually has
 torch + CUDA, independent of where the Argus framework itself is installed. It
 is kept Python 3.10 compatible for the same reason.
 

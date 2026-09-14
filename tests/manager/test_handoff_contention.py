@@ -10,24 +10,24 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.pipeline_state import primary_pipeline_state_path, write_pipeline_state
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.memory import LifeMemory
-from argus_skill.manager import Manager, front_door
-from argus_skill.manager._session_ops import (
+from argus.core.pipeline_state import primary_pipeline_state_path, write_pipeline_state
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.memory import LifeMemory
+from argus.manager import Manager, front_door
+from argus.manager._session_ops import (
     ManagerLockCancelled,
     ManagerPipelineWaitTimeout,
     manager_pipeline_lock,
     manager_pipeline_yield_requested,
 )
-from argus_skill.manager.classification_contract import (
+from argus.manager.classification_contract import (
     STRUCTURED_DECISION_CLAUSE,
     classification_state_path,
     contract_failure_count,
     record_contract_failure,
     reset_contract_failures,
 )
-from argus_skill.manager.domain_author import ManagerClassificationContractError
+from argus.manager.domain_author import ManagerClassificationContractError
 
 
 @contextmanager

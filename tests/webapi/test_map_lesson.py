@@ -7,9 +7,9 @@ from dataclasses import replace
 import pytest
 from jsonschema import Draft202012Validator
 
-from argus_skill.webapi import map_learning, map_lesson, map_narrative
-from argus_skill.webapi.map_model import MapModel
-from argus_skill.webapi.map_teaching_review import TEACHING_CORE
+from argus.webapi import map_learning, map_lesson, map_narrative
+from argus.webapi.map_model import MapModel
+from argus.webapi.map_teaching_review import TEACHING_CORE
 
 
 def outline(learning_path=False):

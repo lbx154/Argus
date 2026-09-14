@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi import server
-from argus_skill.webapi.routes.daemon import _resume_provider_fences_after_start
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi import server
+from argus.webapi.routes.daemon import _resume_provider_fences_after_start
 
 
 @pytest.mark.parametrize("rc,enabled,resumed", [(0, True, True), (1, True, False), (0, False, False)])

@@ -3,9 +3,9 @@
 The hybrid domain lifecycle's second half: a data domain
 (``research/DOMAINS/<name>.json`` + the Planner-authored
 ``research/CHECKLISTS.json``) that has proven out is rendered into a real
-``argus_skill/verticals/<name>/`` Python package, so a good domain becomes a
+``argus/verticals/<name>/`` Python package, so a good domain becomes a
 version-controlled, shipped vertical. Source writes and optional commits use the
-neutral :mod:`argus_skill.manager.source_writeback` boundary.
+neutral :mod:`argus.manager.source_writeback` boundary.
 
 USER APPROVAL IS MANDATORY. Writing a domain back into the argus source is an
 irreversible, outward-facing change, so :func:`promote_data_domain` writes ONLY
@@ -54,7 +54,7 @@ class DomainPromotionProposal:
 
 
 def _verticals_root() -> Path:
-    """The ``argus_skill/verticals`` source dir (inside the repo)."""
+    """The ``argus/verticals`` source dir (inside the repo)."""
     return Path(__file__).resolve().parents[1] / "verticals"
 
 
@@ -200,7 +200,7 @@ def promote_data_domain(
     approved: bool = False,
     on_event: Any = None,
 ) -> Path | None:
-    """Write a data domain into ``argus_skill/verticals/<name>/`` and commit it.
+    """Write a data domain into ``argus/verticals/<name>/`` and commit it.
 
     REQUIRES ``approved=True`` — promotion writes to the argus source tree (an
     irreversible, outward-facing change) and must be explicitly approved by the

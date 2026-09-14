@@ -67,10 +67,10 @@ def assert_release_versions(repo: Path) -> str:
     values["marketplace"] = next(plugin["version"] for plugin in marketplace["plugins"] if plugin["name"] == "argus")
     cargo = tomllib.loads((repo / "desktop-tauri/src-tauri/Cargo.toml").read_text(encoding="utf-8"))
     values["Cargo.toml"] = cargo["package"]["version"]
-    for filename, name in (("uv.lock", "argus-skill"), ("desktop-tauri/src-tauri/Cargo.lock", "argus-desktop")):
+    for filename, name in (("uv.lock", "argus"), ("desktop-tauri/src-tauri/Cargo.lock", "argus-desktop")):
         lock = tomllib.loads((repo / filename).read_text(encoding="utf-8"))
         values[filename] = next(package["version"] for package in lock["package"] if package["name"] == name)
-    runtime = (repo / "argus_skill/__init__.py").read_text(encoding="utf-8")
+    runtime = (repo / "argus/__init__.py").read_text(encoding="utf-8")
     runtime_version = re.search(r'^__version__ = "([^"]+)"$', runtime, re.MULTILINE)
     values["Python runtime"] = runtime_version.group(1) if runtime_version else None
     if any(value != version for value in values.values()):
@@ -79,16 +79,16 @@ def assert_release_versions(repo: Path) -> str:
 
 
 def validate_payload_identity(source: Path, repo: Path = REPO) -> None:
-    frozen = json.loads((source / "_internal/argus_skill/release_manifest.json").read_text(encoding="utf-8"))
-    expected = json.loads((repo / "argus_skill/release_manifest.json").read_text(encoding="utf-8"))
+    frozen = json.loads((source / "_internal/argus/release_manifest.json").read_text(encoding="utf-8"))
+    expected = json.loads((repo / "argus/release_manifest.json").read_text(encoding="utf-8"))
     for name in ("package_version", "release_id", "source_digest"):
         if not expected.get(name) or frozen.get(name) != expected[name]:
             raise RuntimeError("Frozen backend identity differs from the reviewed source; use a fresh build.")
 
 
 def validate_frozen_inputs(source: Path, repo: Path = REPO) -> None:
-    expected = json.loads((repo / "argus_skill/release_manifest.json").read_text(encoding="utf-8"))["release_id"]
-    package = source / "_internal/argus_skill"
+    expected = json.loads((repo / "argus/release_manifest.json").read_text(encoding="utf-8"))["release_id"]
+    package = source / "_internal/argus"
     tui = package / "_frontend/tui/bundle/argus.mjs"
     web = (package / "_frontend/web/dist").resolve()
     if expected not in tui.read_text(encoding="utf-8"):
@@ -112,12 +112,12 @@ def validate_frozen_inputs(source: Path, repo: Path = REPO) -> None:
             shipped = web / path.relative_to(source_web)
             if not shipped.is_file() or shipped.read_bytes() != path.read_bytes():
                 raise RuntimeError("Frozen Web bytes differ from the reviewed build.")
-    optional = [path.parent for path in (repo / "argus_skill/verticals").glob("*/workbench.json")]
+    optional = [path.parent for path in (repo / "argus/verticals").glob("*/workbench.json")]
     modules = 0
-    for path in (repo / "argus_skill").rglob("*.py"):
+    for path in (repo / "argus").rglob("*.py"):
         if any(path.is_relative_to(root) for root in optional):
             continue
-        shipped = package / path.relative_to(repo / "argus_skill")
+        shipped = package / path.relative_to(repo / "argus")
         if not shipped.is_file() or shipped.read_bytes() != path.read_bytes():
             raise RuntimeError("Frozen first-party source differs from the reviewed checkout.")
         modules += 1
@@ -153,24 +153,24 @@ def main(argv: list[str] | None = None) -> int:
     if not args.prepare_only:
         # A Windows frozen backend must never capture an older checked-in Web
         # bundle. Refresh identity + Web/TUI as one chain before freezing.
-        run(sys.executable, "-m", "argus_skill.release_tools.build_release")
+        run(sys.executable, "-m", "argus.release_tools.build_release")
         run("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", str(ROOT / "scripts/build-native-tools.ps1"))
         run(sys.executable, "-m", "PyInstaller", str(ROOT / "argus_backend.spec"),
             "--distpath", str(ROOT / "build"), "--workpath", str(work / "pyinstaller-work"))
         for arguments in (
             ["--verify-frozen-runtime"],
-            ["-I", "-m", "argus_skill.tools.manager_live_view", "--help"],
-            ["-c", "import argus_skill.trial.desktop, certifi; print('desktop-trial-ready')"],
+            ["-I", "-m", "argus.tools.manager_live_view", "--help"],
+            ["-c", "import argus.trial.desktop, certifi; print('desktop-trial-ready')"],
             ["-c", "from zoneinfo import ZoneInfo; assert ZoneInfo('Asia/Shanghai').key == 'Asia/Shanghai'"],
         ):
             run(str(executable), *arguments)
         probe = work / "script-probe.py"
         with probe.open("x", encoding="utf-8") as stream:
-            stream.write("import argus_skill; print('script-ok', argus_skill.__version__)\n")
+            stream.write("import argus; print('script-ok', argus.__version__)\n")
         run(str(executable), str(probe))
-    run(sys.executable, "-m", "argus_skill.release_tools.generate_manifest", "--check")
-    run(sys.executable, "-m", "argus_skill.release_tools.check_artifacts")
+    run(sys.executable, "-m", "argus.release_tools.generate_manifest", "--check")
+    run(sys.executable, "-m", "argus.release_tools.check_artifacts")
     validate_payload_identity(source)
     validate_frozen_inputs(source, REPO)
     run(node, str(ROOT / "scripts/stage-backend.mjs"), str(source), str(ROOT / "resources/argus-backend"))

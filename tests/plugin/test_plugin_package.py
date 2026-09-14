@@ -71,7 +71,7 @@ def test_host_mcp_wrappers_launch_the_same_bundled_command() -> None:
     )
     assert "ARGUS_PLUGIN_PYTHON" in node_launcher
     assert "venv', 'Scripts', 'python.exe" in node_launcher
-    assert "argus_skill.plugin.mcp_server" in node_launcher
+    assert "argus.plugin.mcp_server" in node_launcher
 
 
 def test_node_launcher_resolves_explicit_python_cross_platform() -> None:
@@ -92,7 +92,7 @@ def test_node_launcher_resolves_explicit_python_cross_platform() -> None:
 
     selected = json.loads(completed.stdout)
     assert Path(selected["command"]).resolve() == Path(sys.executable).resolve()
-    assert selected["args"] == ["-m", "argus_skill.plugin.mcp_server"]
+    assert selected["args"] == ["-m", "argus.plugin.mcp_server"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX signal propagation")
@@ -132,7 +132,7 @@ def test_python_package_installs_plugin_server_entrypoint() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert pyproject["project"]["scripts"]["argus-plugin-server"] == (
-        "argus_skill.plugin.mcp_server:main"
+        "argus.plugin.mcp_server:main"
     )
     assert "mcp>=1.20,<2" in pyproject["project"]["dependencies"]
     assert "pydantic-settings>=2.5.2,<2.15" in pyproject["project"]["dependencies"]
@@ -229,7 +229,7 @@ def test_one_command_installer_and_short_guide() -> None:
     assert "python3 -m venv" not in windows_installer_text
     assert "Node.js 22.12+" in windows_installer_text
     assert "ARGUS_PLUGIN_PYTHON" in launcher_text
-    assert "argus_skill.plugin.mcp_server" in launcher_text
+    assert "argus.plugin.mcp_server" in launcher_text
     assert "install.sh | sh -s -- codex" in guide_text
     assert "install.sh | sh -s -- claude" in guide_text
     assert "install.sh | sh -s -- all" in guide_text

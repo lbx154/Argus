@@ -9,9 +9,9 @@ from types import SimpleNamespace
 import portalocker
 import pytest
 
-from argus_skill.daemon.life_worker import LifeWorker, LifeWorkerConfig
-from argus_skill.manager import Manager
-from argus_skill.manager._session_ops import manager_pipeline_lock, request_manager_pipeline_yield
+from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
+from argus.manager import Manager
+from argus.manager._session_ops import manager_pipeline_lock, request_manager_pipeline_yield
 
 
 @pytest.mark.parametrize("held_lock", ["pipeline", "yield_metadata"])

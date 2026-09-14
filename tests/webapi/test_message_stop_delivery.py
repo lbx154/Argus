@@ -7,12 +7,12 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.run_gateway import run_exec
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.manager import config_intent
-from argus_skill.webapi import manager_bridge, server
-from argus_skill.webapi.daemon_services import DaemonServices
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.run_gateway import run_exec
+from argus.core.session import SessionMeta, write_session_meta
+from argus.manager import config_intent
+from argus.webapi import manager_bridge, server
+from argus.webapi.daemon_services import DaemonServices
 
 
 @pytest.mark.parametrize("streaming", [False, True])
@@ -43,7 +43,7 @@ def test_stop_between_handoff_and_http_delivery_cannot_restart_executor(
     monkeypatch.setattr(manager_bridge, "manager_message", handoff)
     monkeypatch.setattr(server, "read_daemon_status", read_status)
     monkeypatch.setattr(server, "stop_daemon", lambda *args, **kwargs: 0)
-    monkeypatch.setattr("argus_skill.webapi.manager_pending_question.record_task_dispatch_ack",
+    monkeypatch.setattr("argus.webapi.manager_pending_question.record_task_dispatch_ack",
                         lambda *args, **kwargs: acknowledgements.append(True))
     services = DaemonServices(read_status=real_read,
         start=lambda *args, **kwargs: starts.append(True) or {"rc": 0})

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.core.role_session import (
+from argus.core.role_session import (
     configured_role_session_policy,
     effective_role_session_policy,
 )

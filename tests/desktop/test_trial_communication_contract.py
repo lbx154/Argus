@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.trial import attention, client, desktop
-from argus_skill.trial.storage import write_private
+from argus.trial import attention, client, desktop
+from argus.trial.storage import write_private
 
 KEY = "argus_trial_" + "c" * 64
 
@@ -49,7 +49,7 @@ def test_status_request_keeps_public_protocol_and_no_redirects(home, monkeypatch
 
 
 def test_stream_error_is_not_turned_into_success_by_final_http_200(home):
-    from argus_skill.agent_cli._event_consumers import EventConsumerMixin
+    from argus.agent_cli._event_consumers import EventConsumerMixin
     state = EventConsumerMixin._consume_copilot_event(event={
         "error": {"code": "provider_usage_missing", "message": "missing usage"},
     }, thread_id="fixture", agent_messages=[], turn_completed=False, turn_failed=False, fatal_error=None)
@@ -61,7 +61,7 @@ def test_stream_error_is_not_turned_into_success_by_final_http_200(home):
 
 
 def test_quoted_error_in_assistant_prose_is_not_a_protocol_failure(home):
-    from argus_skill.agent_cli._event_consumers import EventConsumerMixin
+    from argus.agent_cli._event_consumers import EventConsumerMixin
     state = EventConsumerMixin._consume_copilot_event(event={"type": "assistant.message",
         "data": {"content": "Documentation describes trial_quota_exceeded."}},
         thread_id="fixture", agent_messages=[], turn_completed=False, turn_failed=False, fatal_error=None)
@@ -97,8 +97,8 @@ def test_onboarding_failure_does_not_pause_current_trial(home, monkeypatch):
 
 def test_file_backed_trial_key_is_registered_for_redaction(home):
     assert any(value == KEY for value in client.runtime_redactions())
-    from argus_skill.adapters.agent_cli_backend._core import AgentCliBackend
-    from argus_skill.adapters.agent_cli_backend._io_log import AgentIOLogger
+    from argus.adapters.agent_cli_backend._core import AgentCliBackend
+    from argus.adapters.agent_cli_backend._io_log import AgentIOLogger
     backend = SimpleNamespace(_is_copilot=True, _known_secret_values_override=())
     AgentCliBackend._refresh_known_secret_values(backend)
     logger = AgentIOLogger()
@@ -109,8 +109,8 @@ def test_file_backed_trial_key_is_registered_for_redaction(home):
 
 
 def test_explicit_non_alias_model_cannot_bypass_trial_routing(home, monkeypatch):
-    from argus_skill.adapters.agent_cli_backend import _exec
-    from argus_skill.core.models import RunnerOptions
+    from argus.adapters.agent_cli_backend import _exec
+    from argus.core.models import RunnerOptions
     backend = SimpleNamespace(_runner=SimpleNamespace(backend="copilot"),
         _refresh_known_secret_values=lambda: None, _resolve_execution_options=lambda o: o)
     monkeypatch.setattr(_exec, "_execute_prepared", lambda *a, **k: pytest.fail("must not use a builtin/personal model"))
@@ -119,8 +119,8 @@ def test_explicit_non_alias_model_cannot_bypass_trial_routing(home, monkeypatch)
 
 
 def test_paused_trial_cannot_spawn_a_second_model_call(home, monkeypatch):
-    from argus_skill.adapters.agent_cli_backend import _exec
-    from argus_skill.core.models import RunnerOptions
+    from argus.adapters.agent_cli_backend import _exec
+    from argus.core.models import RunnerOptions
     attention.record_failure("provider_connection_failed")
     backend = SimpleNamespace(_runner=SimpleNamespace(backend="copilot"),
         _refresh_known_secret_values=lambda: None, _resolve_execution_options=lambda o: o)

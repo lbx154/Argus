@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.daemon import state as daemon_state
-from argus_skill.daemon.state import (
+from argus.daemon import state as daemon_state
+from argus.daemon.state import (
     ContinuousConfigState,
     read_continuous_state,
     write_continuous_config,

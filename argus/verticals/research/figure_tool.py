@@ -3,7 +3,7 @@
 The Research Visualization Router chooses each figure's renderer; generative
 imagery (image-2) is limited to non-claim-bearing assets composed inside an
 editable figure, per ``skills/engineer/paper-illustration-image2.md``. That
-skill drives generation directly through ``argus_skill.tools.image_api``; this
+skill drives generation directly through ``argus.tools.image_api``; this
 module contributes the paper-aware REVIEW instruction so a rendered figure is
 judged the way a venue reviewer would judge it. Use this module's ``review``
 CLI/function for paper figures, not the domain-neutral one in
@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-from argus_skill.tools.image_api import (
+from argus.tools.image_api import (
     _DEFAULT_MAX_RETRIES,
     _DEFAULT_TIMEOUT_SECONDS,
     _atomic_write_json,
@@ -25,8 +25,8 @@ from argus_skill.tools.image_api import (
     _read_prompt,
     _redact,
 )
-from argus_skill.tools.image_api import review_image as _generic_review_image
-from argus_skill.verticals.research.venue_profiles import (
+from argus.tools.image_api import review_image as _generic_review_image
+from argus.verticals.research.venue_profiles import (
     VenueProfile,
     resolve_venue_profile,
 )
@@ -156,7 +156,7 @@ def _print_json(data: dict[str, Any]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m argus_skill.verticals.research.figure_tool")
+    parser = argparse.ArgumentParser(prog="python -m argus.verticals.research.figure_tool")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     rev = sub.add_parser(
@@ -192,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
             ))
             return 0
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        sys.stderr.write(f"argus-skill figure-tool: {_redact(str(exc))}\n")
+        sys.stderr.write(f"argus figure-tool: {_redact(str(exc))}\n")
         return 1
     return 2
 

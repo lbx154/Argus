@@ -41,7 +41,7 @@ Form a team only when all of these hold:
 Stay solo for small, sequential, tightly coupled, or same-file work. `owns_paths` records the lead's partition for review and prior-work inheritance; it is not a filesystem sandbox, so do not form a team when prompt-level ownership is insufficient.
 
 ## Form the rolling backlog
-Use `python -m argus_skill.tools.team`.
+Use `python -m argus.tools.team`.
 
 1. Write one JSON object per line in `tasks.jsonl`:
    `{task_id, title, objective, acceptance_check, owns_paths, deps?, priority?, timeout_s?, target?, lower_is_better?, cwd?}`.

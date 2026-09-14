@@ -17,8 +17,8 @@ import re
 import threading
 import time
 
-from argus_skill.core.secret_guard import redact_secrets_record
-from argus_skill.trial.analytics import AnalyticsError, _safe_row, _sanitize
+from argus.core.secret_guard import redact_secrets_record
+from argus.trial.analytics import AnalyticsError, _safe_row, _sanitize
 
 MAX_BYTES = 1024 * 1024
 MAX_FRAMES = 2000

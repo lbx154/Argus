@@ -20,7 +20,7 @@ def advisor_mcp_args(environment: Mapping[str, str]) -> Iterator[list[str]]:
         path = Path(directory) / "mcp.json"
         config = {"mcpServers": {"argus_advisor": {
             "type": "local", "command": sys.executable,
-            "args": ["-m", "argus_skill.tools.advisor", "mcp"],
+            "args": ["-m", "argus.tools.advisor", "mcp"],
             "env": {**environment, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
             "tools": ["consult_advisor"],
         }}}

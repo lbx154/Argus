@@ -46,7 +46,7 @@ def main() -> int:
     try:
         # Bundled verticals may ship independent workbench frontends. Build each
         # before the release digest, keeping domain code out of the host UI.
-        for manifest_path in sorted((ROOT / "argus_skill" / "verticals").glob("*/workbench.json")):
+        for manifest_path in sorted((ROOT / "argus" / "verticals").glob("*/workbench.json")):
             spec = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not spec.get("frontend"):
                 continue
@@ -56,7 +56,7 @@ def main() -> int:
             if not (frontend / "node_modules").is_dir():
                 run(NPM_COMMAND, "ci", cwd=frontend)
             run(NPM_COMMAND, "run", "build", cwd=frontend)
-        run(sys.executable, "-m", "argus_skill.release_tools.build_plugins")
+        run(sys.executable, "-m", "argus.release_tools.build_plugins")
         # Generated protocol source participates in the release digest, so it
         # must be refreshed before computing the manifest. Reversing these two
         # steps makes a schema change require two builds: the first build updates
@@ -64,22 +64,22 @@ def main() -> int:
         run(
             sys.executable,
             "-m",
-            "argus_skill.release_tools.generate_event_types",
+            "argus.release_tools.generate_event_types",
         )
         run(
             sys.executable,
             "-m",
-            "argus_skill.release_tools.generate_event_fixtures",
+            "argus.release_tools.generate_event_fixtures",
         )
         run(
             sys.executable,
             "-m",
-            "argus_skill.release_tools.generate_resource_status",
+            "argus.release_tools.generate_resource_status",
         )
         run(
             sys.executable,
             "-m",
-            "argus_skill.release_tools.generate_manifest",
+            "argus.release_tools.generate_manifest",
             "--prepare-build",
         )
         run(NPM_COMMAND, "run", "build", cwd=ROOT / "frontend" / "web")
@@ -87,11 +87,11 @@ def main() -> int:
         run(
             sys.executable,
             "-m",
-            "argus_skill.release_tools.check_artifacts",
+            "argus.release_tools.check_artifacts",
         )
     except subprocess.CalledProcessError as exc:
         return int(exc.returncode or 1)
-    manifest = json.loads((ROOT / "argus_skill" / "release_manifest.json").read_text())
+    manifest = json.loads((ROOT / "argus" / "release_manifest.json").read_text())
     print(f"release ready: {manifest['package_version']}")
     return 0
 

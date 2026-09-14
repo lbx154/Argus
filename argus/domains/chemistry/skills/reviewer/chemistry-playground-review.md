@@ -40,7 +40,7 @@ continue. References must use `- [reference] path-or-URL - purpose`. Do not edit
 `.argus/PIPELINE_STATE.json`. Rerun:
 
 ```text
-python -m argus_skill.domains.chemistry.playground validate \
+python -m argus.domains.chemistry.playground validate \
   --project-root . --idea-id <idea-id>
 ```
 

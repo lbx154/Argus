@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.manager import reset_manager_session
-from argus_skill.manager._session_ops import _SESSION_FILE, _ManagerSession
+from argus.manager import reset_manager_session
+from argus.manager._session_ops import _SESSION_FILE, _ManagerSession
 
 
 def _write_session(root, tid: str = "thread-abc") -> None:
@@ -42,7 +42,7 @@ def test_reset_is_idempotent_and_fail_soft(tmp_path):
 
 def test_reset_exported_from_manager_package():
     # The daemon imports it via `from ..manager import reset_manager_session`.
-    import argus_skill.manager as m
+    import argus.manager as m
 
     assert hasattr(m, "reset_manager_session")
     assert "reset_manager_session" in m.__all__

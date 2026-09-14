@@ -56,7 +56,7 @@ def copilot_review_file_args(output: dict[str, str]) -> list[str]:
     store = ReviewFileStore(**output)
     config = {"mcpServers": {"argus_review": {
         "type": "local", "command": sys.executable,
-        "args": ["-m", "argus_skill.reviewer.review_file", "--path", str(store.path),
+        "args": ["-m", "argus.reviewer.review_file", "--path", str(store.path),
                  "--receipt", str(store.receipt)],
         "env": {"PYTHONPATH": str(Path(__file__).resolve().parents[2])},
         "tools": ["read_review", "write_review"],

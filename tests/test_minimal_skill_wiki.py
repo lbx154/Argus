@@ -3,12 +3,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from argus_skill.skills.role_library import role_skill_libraries
-from argus_skill.skills.store import Skill, SkillStore
-from argus_skill.wiki.bootstrap import init_wiki, is_initialized_wiki
-from argus_skill.wiki.index import rebuild_indexes
-from argus_skill.wiki.schema import WikiPage, parse_page, serialize_page
-from argus_skill.wiki.store import WikiStore
+from argus.skills.role_library import role_skill_libraries
+from argus.skills.store import Skill, SkillStore
+from argus.wiki.bootstrap import init_wiki, is_initialized_wiki
+from argus.wiki.index import rebuild_indexes
+from argus.wiki.schema import WikiPage, parse_page, serialize_page
+from argus.wiki.store import WikiStore
 
 
 def test_skill_format_has_only_name_description_and_body(tmp_path: Path) -> None:
@@ -76,7 +76,7 @@ def test_wiki_page_format_and_single_index(tmp_path: Path) -> None:
 
 
 def test_source_controlled_skills_use_only_minimal_frontmatter() -> None:
-    package_root = Path(__file__).resolve().parents[1] / "argus_skill"
+    package_root = Path(__file__).resolve().parents[1] / "argus"
     roots = [
         package_root / "builtin_skills",
         package_root / "verticals",

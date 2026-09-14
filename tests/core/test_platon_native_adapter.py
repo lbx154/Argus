@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.platon_windows import launcher_path
-from argus_skill.core.plugin_runtime import clean_env
+from argus.core.platon_windows import launcher_path
+from argus.core.plugin_runtime import clean_env
 
 pytestmark = pytest.mark.skipif(
     os.name != "nt" or not launcher_path().is_file(),

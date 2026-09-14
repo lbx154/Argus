@@ -14,16 +14,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.life.supervisor._constants import (
+from argus.life.supervisor._constants import (
     PLAN_ERROR,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
 )
-from argus_skill.life.supervisor._planning_context import PlanningContextMixin
-from argus_skill.life.supervisor._planning_cycle_completion import (
+from argus.life.supervisor._planning_context import PlanningContextMixin
+from argus.life.supervisor._planning_cycle_completion import (
     PlanningCycleCompletionMixin,
 )
-from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-from argus_skill.planner import PlannerVerdict, WaitingContract
+from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus.planner import PlannerVerdict, WaitingContract
 
 
 class _Harness(PlanningContextMixin):

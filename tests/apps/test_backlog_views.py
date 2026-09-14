@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from argus_skill.apps._watch import _read_backlog_rows as watch_rows
-from argus_skill.apps.cli._follow import _read_backlog_rows as follow_rows
-from argus_skill.life.memory import Backlog, BacklogItem
+from argus.apps._watch import _read_backlog_rows as watch_rows
+from argus.apps.cli._follow import _read_backlog_rows as follow_rows
+from argus.life.memory import Backlog, BacklogItem
 
 
 @pytest.mark.parametrize("read_rows", [watch_rows, follow_rows], ids=["watch", "follow"])

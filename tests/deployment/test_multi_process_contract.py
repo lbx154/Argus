@@ -16,7 +16,7 @@ pytestmark = pytest.mark.e2e
 
 
 def _reserve_worker(root: str, project: str, start, finish, queue, call_id: str) -> None:
-    from argus_skill.core.cost_control import reserve_call_budget
+    from argus.core.cost_control import reserve_call_budget
 
     start.wait()
     reservation, reason = reserve_call_budget(
@@ -36,7 +36,7 @@ def _reserve_worker(root: str, project: str, start, finish, queue, call_id: str)
 
 
 def _command_worker(root: str, start, queue, marker: str) -> None:
-    from argus_skill.daemon.commands import execute_daemon_command
+    from argus.daemon.commands import execute_daemon_command
 
     start.wait()
 
@@ -134,7 +134,7 @@ def test_real_webapi_process_exposes_release_protocol_metrics_and_projects(
     source_root = Path(__file__).parents[2]
     code = (
         "from pathlib import Path; import uvicorn; "
-        "from argus_skill.webapi.server import create_app; "
+        "from argus.webapi.server import create_app; "
         f"uvicorn.run(create_app(global_root=Path({str(tmp_path)!r})), "
         f"host='127.0.0.1', port={port}, log_level='error')"
     )

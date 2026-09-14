@@ -5,13 +5,13 @@ import threading
 
 from test_training_runtime import training as training
 
-from argus_skill.trial.training_bridge import _Handler, _Server
-from argus_skill.trial.training_capture import (
+from argus.trial.training_bridge import _Handler, _Server
+from argus.trial.training_capture import (
     HOSTED_EPISODE_BYTES,
     HOSTED_PAYLOAD_BYTES,
     HOSTED_PROFILE,
 )
-from argus_skill.trial.training_validate import validate_package
+from argus.trial.training_validate import validate_package
 
 TOOLS = [{"name": "bash", "description": "Produce bounded public fixture output.", "parameters": {
     "type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"],
@@ -101,7 +101,7 @@ def test_real_size_cumulative_limit_quarantines_instead_of_truncating(training):
 
 
 def test_single_event_limit_is_independent_of_legacy_episode_budget(training, monkeypatch):
-    from argus_skill.trial import training_capture
+    from argus.trial import training_capture
 
     # The current production event and legacy episode limits are both 16 MiB.
     # A smaller local event limit isolates this branch without reducing production collection.
@@ -115,7 +115,7 @@ def test_single_event_limit_is_independent_of_legacy_episode_budget(training, mo
 
 
 def test_v2_event_above_previous_four_mib_limit_is_retained(training):
-    from argus_skill.trial.training_capture import OBSERVED_POLICY
+    from argus.trial.training_capture import OBSERVED_POLICY
 
     episode = training.capture.begin(
         "tenant-one", "s-project", "synthetic-v2-large-event", observer_verified=True,

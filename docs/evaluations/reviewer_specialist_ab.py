@@ -14,13 +14,13 @@ import time
 import urllib.request
 from pathlib import Path
 
-from argus_skill.roles.prompts import ChecklistMode, resolve_role_prompt
-from argus_skill.roles.prompts.reviewer import (
+from argus.roles.prompts import ChecklistMode, resolve_role_prompt
+from argus.roles.prompts.reviewer import (
     COLD_READ,
     SCIENCE_LOSS_CHECK,
     evaluate_request,
 )
-from argus_skill.verticals._base import load_vertical_contract
+from argus.verticals._base import load_vertical_contract
 
 CASES = (
     (

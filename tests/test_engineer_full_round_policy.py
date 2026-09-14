@@ -61,7 +61,7 @@ def _assemble(
     mixin: object | None = None,
     events: list | None = None,
 ) -> str:
-    from argus_skill.engineer.round_prompt import RoundPromptMixin
+    from argus.engineer.round_prompt import RoundPromptMixin
 
     role_session = SimpleNamespace(
         policy=policy,
@@ -220,7 +220,7 @@ def test_a_stage_change_forces_the_full_text_on_a_resumed_session(
 ) -> None:
     """The stage picks the role banner and skills inside the static text, so a
     session whose last full prompt described another stage must be re-briefed."""
-    from argus_skill.engineer.round_prompt import RoundPromptMixin
+    from argus.engineer.round_prompt import RoundPromptMixin
 
     mission = _mission_file(tmp_path / "m", stage="research", sealed_rounds=1)
     mixin = RoundPromptMixin()
@@ -250,7 +250,7 @@ def test_a_stage_change_forces_the_full_text_on_a_resumed_session(
 
 
 def test_an_unchanged_stage_does_not_force_the_full_text(tmp_path: Path) -> None:
-    from argus_skill.engineer.round_prompt import RoundPromptMixin
+    from argus.engineer.round_prompt import RoundPromptMixin
 
     mission = _mission_file(tmp_path / "m", stage="research", sealed_rounds=1)
     mixin = RoundPromptMixin()
@@ -361,7 +361,7 @@ def test_full_round_needs_no_extra_reference_block(tmp_path: Path) -> None:
 
 
 def test_configured_policy_reads_the_env_knob(monkeypatch) -> None:
-    from argus_skill.engineer.round_config import (
+    from argus.engineer.round_config import (
         configured_engineer_full_round_policy,
     )
 
@@ -376,7 +376,7 @@ def test_configured_policy_reads_the_env_knob(monkeypatch) -> None:
 
 
 def test_supervised_config_carries_the_policy(monkeypatch) -> None:
-    from argus_skill.engineer.round_config import SupervisedConfig
+    from argus.engineer.round_config import SupervisedConfig
 
     monkeypatch.delenv("ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY", raising=False)
     assert SupervisedConfig().engineer_full_round_policy == "session"
@@ -388,14 +388,14 @@ def test_supervised_config_carries_the_policy(monkeypatch) -> None:
 def test_supervised_config_rejects_an_unknown_policy() -> None:
     import pytest
 
-    from argus_skill.engineer.round_config import SupervisedConfig
+    from argus.engineer.round_config import SupervisedConfig
 
     with pytest.raises(ValueError, match="session or legacy"):
         SupervisedConfig(engineer_full_round_policy="banana")
 
 
 def test_knob_registry_documents_the_policy() -> None:
-    from argus_skill.core.knobs import KNOBS
+    from argus.core.knobs import KNOBS
 
     knob = next(
         k for k in KNOBS if k.name == "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY"

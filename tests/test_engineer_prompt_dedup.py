@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.roles.prompts.engineer import build_mission_prompt
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.roles.prompts.engineer import build_mission_prompt
 
 _GROUNDING = (
     "\n\n## Manager project grounding (advisory evidence)\n"

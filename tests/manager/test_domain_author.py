@@ -5,16 +5,16 @@ import json
 
 import pytest
 
-from argus_skill.domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
-from argus_skill.manager.domain_author import (
+from argus.domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
+from argus.manager.domain_author import (
     DomainProposal,
     build_vertical_decision_prompt,
     parse_domain_proposal,
     parse_fast_vertical_decision,
     parse_vertical_decision,
 )
-from argus_skill.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
-from argus_skill.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
+from argus.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
+from argus.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
 
 
 def test_parse_domain_proposal_uses_runtime_owned_stages():
@@ -713,7 +713,7 @@ def test_a_string_of_earlier_stages_is_not_rendered_letter_by_letter() -> None:
     """
     from types import SimpleNamespace
 
-    from argus_skill.roles.prompts.manager import build_stage_decision_prompt
+    from argus.roles.prompts.manager import build_stage_decision_prompt
 
     review = SimpleNamespace(
         status="done", reason="r", next_action="", operator_question="", checklist=[]

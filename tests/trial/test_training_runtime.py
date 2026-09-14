@@ -18,15 +18,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.trial import training_bridge as bridge_module
-from argus_skill.trial import training_runtime as runtime
-from argus_skill.trial.analytics import Analytics, AnalyticsError
-from argus_skill.trial.journey_journal import Journal
-from argus_skill.trial.research_controls import ResearchControls
-from argus_skill.trial.store import Store
-from argus_skill.trial.training_bridge import HostPeerVerifier, TrainingBridge, _Handler, _Server
-from argus_skill.trial.training_capture import HOSTED_PROFILE
-from argus_skill.trial.training_data import NOTICE_VERSION, TrainingData
+from argus.trial import training_bridge as bridge_module
+from argus.trial import training_runtime as runtime
+from argus.trial.analytics import Analytics, AnalyticsError
+from argus.trial.journey_journal import Journal
+from argus.trial.research_controls import ResearchControls
+from argus.trial.store import Store
+from argus.trial.training_bridge import HostPeerVerifier, TrainingBridge, _Handler, _Server
+from argus.trial.training_capture import HOSTED_PROFILE
+from argus.trial.training_data import NOTICE_VERSION, TrainingData
 
 
 @pytest.fixture
@@ -173,7 +173,7 @@ def test_parent_binding_rejects_tool_spawned_python_despite_argus_label(monkeypa
     monkeypatch.setattr(bridge_module.os, "readlink", lambda path: "/usr/bin/node" if int(path.parent.name) == 102 else "/usr/bin/python3.11")
     peer._runtime_parent(table[101])
     with pytest.raises(AnalyticsError, match="runtime_parent_untrusted"):
-        peer._runtime_parent({**table[103], "argv": ["python", "-c", "malicious", "argus_skill"]})
+        peer._runtime_parent({**table[103], "argv": ["python", "-c", "malicious", "argus"]})
 
 
 def test_extension_retains_actual_provider_input_and_excludes_structured_private_blocks(tmp_path):
@@ -370,7 +370,7 @@ def public_library_directory():
 def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_path, monkeypatch, launch_mode, public_library_directory):
     """Real pinned Pi + real bash + fake SSE provider, isolated from production."""
     provider_requests = []
-    from argus_skill.trial import training_public_assets as public_assets
+    from argus.trial import training_public_assets as public_assets
 
     # The host fixture remaps only the public library's filesystem mount. Pi
     # still performs the genuine read; body verification uses shipped bytes.
@@ -480,9 +480,9 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
                                     cwd=workspace, env=env, input=prompt, text=True, capture_output=True, timeout=30)
             assert result.returncode == 0, result.stderr[-2000:]
         else:
-            from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-            from argus_skill.agent_cli import _run_exec
-            from argus_skill.core.models import RunnerOptions
+            from argus.adapters.agent_cli_backend import AgentCliBackend
+            from argus.agent_cli import _run_exec
+            from argus.core.models import RunnerOptions
 
             for key, value in env.items():
                 monkeypatch.setenv(key, value)
@@ -504,8 +504,8 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
 
             monkeypatch.setattr(_run_exec, "spawn_owned_process", observe_spawn)
             if launch_mode == "planner_read_only":
-                from argus_skill.planner import Planner
-                from argus_skill.planner.planner import PlannerConfig
+                from argus.planner import Planner
+                from argus.planner.planner import PlannerConfig
 
                 prompt = f"Read the actual evidence file {asset} and report the grounded inspection."
                 verdict = Planner(backend, memory_maintenance_enabled=False).plan_next(

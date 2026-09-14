@@ -129,7 +129,7 @@ def _windows_worker_command(
     argv = [
         sys.executable,
         "-m",
-        "argus_skill.tools.subagent",
+        "argus.tools.subagent",
         "_worker",
         "--task-id",
         task_id,
@@ -352,7 +352,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "reply_with": shlex.join([
                 sys.executable,
                 "-m",
-                "argus_skill.tools.subagent",
+                "argus.tools.subagent",
                 "reply",
                 "--task-id",
                 str(b.get("task_id") or ""),
@@ -497,7 +497,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "check_with": shlex.join([
                 sys.executable,
                 "-m",
-                "argus_skill.tools.subagent",
+                "argus.tools.subagent",
                 "status",
                 "--task-id",
                 task_id,
@@ -549,7 +549,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "check_with": shlex.join([
                 sys.executable,
                 "-m",
-                "argus_skill.tools.subagent",
+                "argus.tools.subagent",
                 "status",
                 "--task-id",
                 task_id,
@@ -693,7 +693,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         task["reply_with"] = shlex.join([
             sys.executable,
             "-m",
-            "argus_skill.tools.subagent",
+            "argus.tools.subagent",
             "reply",
             "--task-id",
             args.task_id,
@@ -755,7 +755,7 @@ def cmd_list(_args: argparse.Namespace) -> int:
             rd = t.get("run_dir")
             df = str(Path(rd) / "DISCUSSION.md") if rd else t.get("discussion_path", "")
             print(f"      ⚠ supervisor is WAITING for your reply — see {df}")
-            print(f"        reply: python -m argus_skill.tools.subagent reply "
+            print(f"        reply: python -m argus.tools.subagent reply "
                   f"--task-id {tid} --message \"...\"")
         metric_line = _format_metric_line(_progress_summary(_effective_run_dir(t)))
         if metric_line:

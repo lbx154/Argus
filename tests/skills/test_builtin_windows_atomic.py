@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills import builtins
+from argus.skills import builtins
 
 
 @pytest.mark.parametrize("old_bytes", [b"old factory text\n", b"\xff old non-UTF8 file\n"])

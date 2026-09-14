@@ -134,10 +134,10 @@ def _pid_is_teammate(pid: int, member_id: str, root: Path | None = None) -> bool
             return False
         command_line = result.stdout.strip()
     if argv:
-        if "argus_skill.team.teammate_entry" not in argv:
+        if "argus.team.teammate_entry" not in argv:
             return False
     elif not re.search(
-        r"(?:^|\s)argus_skill\.team\.teammate_entry(?:\s|$)",
+        r"(?:^|\s)argus\.team\.teammate_entry(?:\s|$)",
         command_line,
     ):
         return False
@@ -318,7 +318,7 @@ class Curator:
         log_dir = Path(root) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / (member_id.replace(":", "_") + ".spawn.log")
-        argv = [sys.executable, "-m", "argus_skill.team.teammate_entry",
+        argv = [sys.executable, "-m", "argus.team.teammate_entry",
                 "--root", str(root), "--member-id", member_id,
                 "--task-id", task_id, "--cwd", str(cwd)]
         log = open(log_path, "ab")

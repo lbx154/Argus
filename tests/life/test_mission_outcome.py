@@ -9,16 +9,16 @@ from typing import Any
 
 import pytest
 
-from argus_skill.apps._runtime import _ExecuteState, _SkillLoopRunner
-from argus_skill.core.models import LoopOutcome, ReviewDecision, RoundRecord
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.mission_outcome import (
+from argus.apps._runtime import _ExecuteState, _SkillLoopRunner
+from argus.core.models import LoopOutcome, ReviewDecision, RoundRecord
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.mission_outcome import (
     mission_outcome_class,
     mission_outcome_dimensions,
     outcome_dimension_summary,
     review_keeps_mission_resumable,
 )
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
 
 class _Sink:
@@ -336,7 +336,7 @@ def test_normal_completion_events_include_outcome_class(
 
 
 def test_first_independent_success_promotes_learned_vertical(tmp_path) -> None:
-    from argus_skill.verticals._data_domain import (
+    from argus.verticals._data_domain import (
         load_data_domain,
         write_data_domain,
     )
@@ -388,7 +388,7 @@ def test_promotion_write_failure_does_not_undo_successful_mission(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.verticals._data_domain import (
+    from argus.verticals._data_domain import (
         load_data_domain,
         write_data_domain,
     )
@@ -424,7 +424,7 @@ def test_promotion_write_failure_does_not_undo_successful_mission(
         raise OSError("disk full")
 
     monkeypatch.setattr(
-        "argus_skill.verticals._data_domain.promote_data_domain",
+        "argus.verticals._data_domain.promote_data_domain",
         fail_promotion,
     )
 
@@ -584,7 +584,7 @@ def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
 
 
 def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> None:
-    from argus_skill.core.mission_view import load_mission_view, update_mission_view_event
+    from argus.core.mission_view import load_mission_view, update_mission_view_event
 
     body = "# Complete report\n\n" + "\n\n".join(
         f"Section {index}: verified result with supporting detail."
@@ -731,7 +731,7 @@ def test_external_work_wait_releases_and_auto_resumes_the_mission(tmp_path) -> N
     assert waiting_event["external_wait"]["work_id"] == "job-1"
     assert waiting_event["title"] == "benchmark"
 
-    from argus_skill.core.transcript import read_turns
+    from argus.core.transcript import read_turns
 
     # The lifecycle releases a slot, but the conversation must not declare the
     # still-running work failed or complete. Redelivery remains idempotent.
@@ -1106,8 +1106,8 @@ def test_resumable_mission_is_not_quarantined_from_replanning() -> None:
     mission's own settlement event quarantined its task signature out of the
     next planning cycle — the mechanism that left the queue empty.
     """
-    from argus_skill.life.memory import JournalEntry
-    from argus_skill.life.supervisor import _is_recent_no_progress_failure
+    from argus.life.memory import JournalEntry
+    from argus.life.supervisor import _is_recent_no_progress_failure
 
     def _entry(extra: dict[str, Any]) -> JournalEntry:
         return JournalEntry.new(

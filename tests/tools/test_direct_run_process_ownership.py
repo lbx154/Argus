@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.daemon_lock import is_pid_running, is_process_group_running
-from argus_skill.tools.subagent import _direct_run, _registry
+from argus.core.daemon_lock import is_pid_running, is_process_group_running
+from argus.tools.subagent import _direct_run, _registry
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX private process groups")

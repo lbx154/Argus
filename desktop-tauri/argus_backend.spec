@@ -7,8 +7,8 @@ import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-from argus_skill.domains import BUILTIN_DOMAINS
-from argus_skill.skills.vertical_select import VERTICALS
+from argus.domains import BUILTIN_DOMAINS
+from argus.skills.vertical_select import VERTICALS
 
 TAURI_ROOT = Path(SPECPATH).resolve()
 ROOT = TAURI_ROOT.parent
@@ -18,28 +18,28 @@ ROOT = TAURI_ROOT.parent
 # optional scientific/quant dependency at build time. Modules reached by the
 # product runtime are still analyzed normally; dynamic providers remain exact
 # hidden imports below.
-optional_roots = [p.parent for p in (ROOT / "argus_skill/verticals").glob("*/workbench.json")]
+optional_roots = [p.parent for p in (ROOT / "argus/verticals").glob("*/workbench.json")]
 def optional_source(path):
     path = Path(path).resolve()
     return any(path == root or root in path.parents for root in optional_roots)
 
-datas = [(source, target) for source, target in collect_data_files("argus_skill", include_py_files=True)
+datas = [(source, target) for source, target in collect_data_files("argus", include_py_files=True)
          if not optional_source(source)]
 # Windows does not ship an IANA timezone database. Keep named ZoneInfo keys
 # available to the frozen Python-compatible runtime and extension tools.
 datas += collect_data_files("tzdata")
 if sys.platform == "win32":
-    platon_runner = ROOT / "argus_skill" / "_native" / "platon-headless.exe"
+    platon_runner = ROOT / "argus" / "_native" / "platon-headless.exe"
     if not platon_runner.is_file():
         raise RuntimeError("Build the first-party Windows adapter with scripts/build-native-tools.ps1 first")
-    datas.append((str(platon_runner), "argus_skill/_native"))
+    datas.append((str(platon_runner), "argus/_native"))
 web_dist = ROOT / "frontend" / "web" / "dist"
 if web_dist.is_dir():
-    datas.append((str(web_dist), "argus_skill/_frontend/web/dist"))
+    datas.append((str(web_dist), "argus/_frontend/web/dist"))
 
 tui_bundle = ROOT / "frontend" / "tui" / "bundle" / "argus.mjs"
 if tui_bundle.is_file():
-    datas.append((str(tui_bundle), "argus_skill/_frontend/tui/bundle"))
+    datas.append((str(tui_bundle), "argus/_frontend/tui/bundle"))
 
 
 def collect_in_tree_modules(package_root, package):
@@ -75,24 +75,24 @@ def collect_provider_modules(root, names, leaf):
     return modules
 
 
-argus_modules = collect_in_tree_modules(ROOT / "argus_skill", "argus_skill")
+argus_modules = collect_in_tree_modules(ROOT / "argus", "argus")
 
 # Built-in verticals only, on purpose: the frozen bundle ships the in-tree
 # providers; community verticals (``argus-verticals``) are entry points of a
 # separately installed distribution and are not part of the desktop build.
 vertical_stage_modules = collect_provider_modules(
-    "argus_skill.verticals",
+    "argus.verticals",
     VERTICALS,
     "stages",
 )
 domain_overlay_modules = collect_provider_modules(
-    "argus_skill.domains",
+    "argus.domains",
     BUILTIN_DOMAINS,
     "overlay",
 )
 
 hiddenimports = (
-    ["tzdata", "argus_skill.trial.desktop", "certifi"]
+    ["tzdata", "argus.trial.desktop", "certifi"]
     + collect_submodules("unittest")
     + collect_submodules("uvicorn")
     + collect_submodules("fastapi")
@@ -104,7 +104,7 @@ hiddenimports = (
 )
 
 a = Analysis(
-    [str(ROOT / "argus_skill" / "desktop_backend_entry.py")],
+    [str(ROOT / "argus" / "desktop_backend_entry.py")],
     pathex=[str(ROOT)],
     binaries=[],
     datas=datas,
@@ -112,7 +112,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["argus_skill.verticals." + p.name for p in optional_roots],
+    excludes=["argus.verticals." + p.name for p in optional_roots],
     noarchive=False,
 )
 

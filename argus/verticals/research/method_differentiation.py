@@ -46,7 +46,7 @@ positional alignment is unreliable.
 
 CLI::
 
-    python -m argus_skill.verticals.research.method_differentiation --project-root . \
+    python -m argus.verticals.research.method_differentiation --project-root . \
         [--proposed-condition cv_grpo --baseline-condition vanilla_grpo]
 """
 from __future__ import annotations

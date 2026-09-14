@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.manager.plan_challenge import adjudicate_plan_challenge
+from argus.manager.plan_challenge import adjudicate_plan_challenge
 
 
 def test_done_verdict_keeps_plan_signal_advisory() -> None:

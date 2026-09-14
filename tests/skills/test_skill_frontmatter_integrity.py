@@ -18,13 +18,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.builtins import (
+from argus.skills.builtins import (
     iter_builtin_skill_texts,
     iter_vertical_skill_texts,
     vertical_skill_source_path,
 )
-from argus_skill.skills.store import Skill
-from argus_skill.verticals import __file__ as _VERTICALS_INIT
+from argus.skills.store import Skill
+from argus.verticals import __file__ as _VERTICALS_INIT
 
 _HEADER = re.compile(r'\A---\nname: (?P<name>.*)\ndescription: (?P<description>.*)\n---\n')
 

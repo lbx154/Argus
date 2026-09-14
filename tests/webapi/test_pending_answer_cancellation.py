@@ -8,15 +8,15 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import read_turns
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.manager import front_door
-from argus_skill.webapi import server
-from argus_skill.webapi.daemon_services import DaemonServices
-from argus_skill.webapi.manager_bridge import manager_message
-from argus_skill.webapi.manager_state import interrupt_manager_turns
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import read_turns
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.manager import front_door
+from argus.webapi import server
+from argus.webapi.daemon_services import DaemonServices
+from argus.webapi.manager_bridge import manager_message
+from argus.webapi.manager_state import interrupt_manager_turns
 
 
 @pytest.mark.parametrize("streaming", [False, True])
@@ -123,7 +123,7 @@ def test_first_consumed_cancel_signal_remains_a_terminal_pending_result(tmp_path
 
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
     monkeypatch.setattr(front_door, "manager_triage", interpret)
-    monkeypatch.setattr("argus_skill.manager.config_intent._front_door_classify", forbidden)
+    monkeypatch.setattr("argus.manager.config_intent._front_door_classify", forbidden)
     result = manager_message(sid, "Yes, within that scope.", global_root=tmp_path, cancelled=cancelled)
     assert result["kind"] == "cancelled" and consumed == [True]
     assert not (life / "operator_context.jsonl").exists()

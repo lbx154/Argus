@@ -6,8 +6,8 @@ import os
 import time
 from pathlib import Path
 
-import argus_skill.core.metrics as metrics_module
-from argus_skill.core.metrics import (
+import argus.core.metrics as metrics_module
+from argus.core.metrics import (
     http_route_template,
     metrics_snapshot,
     record_metric,

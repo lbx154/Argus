@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.roles.prompts.planner import build_continuous_resume_prompt
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.roles.prompts.planner import build_continuous_resume_prompt
+from argus.skills.vertical_select import persist_vertical
 
 
 def _resume(tmp_path: Path, **kwargs) -> str:

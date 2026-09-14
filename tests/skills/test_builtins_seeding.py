@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from argus_skill.skills.builtins import (
+from argus.skills.builtins import (
     _RETIRED_BUILTIN_SEED_HASHES,
     _validate_builtin,
     iter_builtin_skill_texts,
@@ -127,7 +127,7 @@ def test_vertical_owned_skills_are_not_also_flat_builtins() -> None:
     # skips them for the owning vertical, so they were pure dead weight for
     # everyone else. Deleting the skill from the flat pool is the fix; this
     # guard keeps it deleted.
-    from argus_skill.skills.vertical_select import VERTICALS
+    from argus.skills.vertical_select import VERTICALS
 
     flat = {name for name, _text in iter_builtin_skill_texts()}
     leaked = {
@@ -172,7 +172,7 @@ def test_retire_orphaned_builtin_seeds_archives_edited_copies(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.skills.builtins as builtins
+    import argus.skills.builtins as builtins
 
     unchanged_body = b"retired seed\n"
     edited_body = unchanged_body + b"operator edit\n"
@@ -210,7 +210,7 @@ def test_seeding_retires_existing_obsolete_skill(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.skills.builtins as builtins
+    import argus.skills.builtins as builtins
 
     body = b"retired seed\n"
     monkeypatch.setattr(
@@ -231,7 +231,7 @@ def test_atomic_write_accepts_concurrent_identical_winner(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.skills.builtins as builtins
+    import argus.skills.builtins as builtins
 
     destination = tmp_path / "shared.md"
     destination.write_text("same runtime seed\n", encoding="utf-8")
@@ -251,7 +251,7 @@ def test_seeding_refreshes_a_known_unmodified_legacy_builtin(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.skills.builtins as builtins
+    import argus.skills.builtins as builtins
 
     relative = "engineer/example.md"
     old = "old factory body\n"
@@ -280,7 +280,7 @@ def test_seeding_refreshes_manifest_owned_builtin_but_preserves_user_edit(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.skills.builtins as builtins
+    import argus.skills.builtins as builtins
 
     relative = "engineer/example.md"
     bodies = iter(("factory v1\n", "factory v2\n", "factory v3\n"))
@@ -438,8 +438,8 @@ def test_seed_for_research_does_not_pull_another_verticals_skills(tmp_path) -> N
 def test_moved_vertical_seed_table_names_only_departed_verticals() -> None:
     import re
 
-    import argus_skill.skills.builtins as builtins
-    from argus_skill.skills.vertical_select import VERTICALS
+    import argus.skills.builtins as builtins
+    from argus.skills.vertical_select import VERTICALS
 
     table = builtins._MOVED_VERTICAL_SEED_HASHES
     assert set(table) <= {
@@ -461,7 +461,7 @@ def test_moved_vertical_seed_table_names_only_departed_verticals() -> None:
 def test_pre_split_seeds_of_an_uninstalled_vertical_are_pruned_but_edits_survive(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.skills.builtins as builtins
+    import argus.skills.builtins as builtins
 
     factory = "factory quant playbook as seeded on dev\n"
     monkeypatch.setattr(builtins, "_MOVED_VERTICAL_SEED_HASHES", {
@@ -487,8 +487,8 @@ def test_pre_split_seeds_of_an_uninstalled_vertical_are_pruned_but_edits_survive
 def test_seeds_of_an_installed_community_vertical_are_left_to_the_plugin(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.skills.builtins as builtins
-    from argus_skill.skills import vertical_select
+    import argus.skills.builtins as builtins
+    from argus.skills import vertical_select
 
     factory = "factory quant playbook\n"
     monkeypatch.setattr(builtins, "_MOVED_VERTICAL_SEED_HASHES", {

@@ -15,13 +15,13 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_supervisor import (
+from argus.apps._runtime_supervisor import (
     _independent_review_required_for_project_root,
 )
-from argus_skill.life.supervisor._lifecycle import LifecycleMixin
-from argus_skill.skills import vertical_select as vs
-from argus_skill.skills.stage_machine import ChecklistItem
-from argus_skill.verticals import _registry
+from argus.life.supervisor._lifecycle import LifecycleMixin
+from argus.skills import vertical_select as vs
+from argus.skills.stage_machine import ChecklistItem
+from argus.verticals import _registry
 
 INSTALL = 'pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"'
 
@@ -97,7 +97,7 @@ def test_an_installed_plugin_vertical_resolves_normally(tmp_path, monkeypatch) -
 
 
 def test_a_project_data_domain_of_that_name_still_resolves(tmp_path) -> None:
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.verticals._data_domain import write_data_domain
 
     write_data_domain(tmp_path, "quant", stages=["scope", "deliver"])
     root = _state(tmp_path, {"vertical": "quant", "current_stage": "scope"})
@@ -157,8 +157,8 @@ def test_the_lifecycle_gate_holds_dispatch_with_the_install_hint(tmp_path) -> No
 def test_the_planning_cycle_holds_and_will_decide_again_later(tmp_path) -> None:
     import inspect
 
-    from argus_skill.life.supervisor._planning_cycle import PlanningCycleMixin
-    from argus_skill.life.supervisor._planning_cycle_intake import PlanningCycleIntakeMixin
+    from argus.life.supervisor._planning_cycle import PlanningCycleMixin
+    from argus.life.supervisor._planning_cycle_intake import PlanningCycleIntakeMixin
 
     root = _state(tmp_path, {"vertical": "quant", "current_stage": "run"})
 

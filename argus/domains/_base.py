@@ -44,7 +44,7 @@ def require_domain(value: object) -> str:
 def load_domain(value: object) -> ModuleType:
     """Load one built-in domain overlay, failing loudly on a broken package."""
     domain = require_domain(value)
-    return importlib.import_module(f"argus_skill.domains.{domain}.overlay")
+    return importlib.import_module(f"argus.domains.{domain}.overlay")
 
 
 def domain_role_banner(mod: ModuleType, role: str) -> str:

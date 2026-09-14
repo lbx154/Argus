@@ -7,10 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi import manager_bridge, server
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi import manager_bridge, server
 
 
 @pytest.mark.parametrize("terminal", ["success", "cancelled", "error"])

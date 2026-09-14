@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.event_catalog import validate_event_envelope
-from argus_skill.core.planner_verdict import (
+from argus.core.event_catalog import validate_event_envelope
+from argus.core.planner_verdict import (
     PlannerVerdictStatus,
     adapt_legacy_planner_verdict_event,
     build_planner_verdict_event,
 )
-from argus_skill.life.memory import EventJournal
+from argus.life.memory import EventJournal
 
 
 def test_planner_verdict_builder_produces_complete_valid_event() -> None:
@@ -165,7 +165,7 @@ def test_event_journal_applies_generic_legacy_verdict_adapter(
 
 
 def test_production_producers_do_not_handwrite_planner_verdict_payloads() -> None:
-    root = Path(__file__).parents[2] / "argus_skill" / "life" / "supervisor"
+    root = Path(__file__).parents[2] / "argus" / "life" / "supervisor"
     for relative in ("_planning_cycle.py", "_planning_context.py"):
         source = (root / relative).read_text(encoding="utf-8")
         assert '"type": EventType.LIFE_PLANNER_VERDICT' not in source

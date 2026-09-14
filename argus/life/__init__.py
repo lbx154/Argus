@@ -73,4 +73,4 @@ def __getattr__(name: str):  # PEP 562 lazy attrs
     if name in {"LifeBudget", "LifeSupervisor"}:
         from . import supervisor  # intentional lazy import (PEP 562)
         return getattr(supervisor, name)
-    raise AttributeError(f"module 'argus_skill.life' has no attribute {name!r}")
+    raise AttributeError(f"module 'argus.life' has no attribute {name!r}")

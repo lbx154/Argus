@@ -1,7 +1,7 @@
 """A held transport reader must not block log rotation on Windows or POSIX."""
 from pathlib import Path
 
-from argus_skill.core.jsonl_reader import open_jsonl_generation
+from argus.core.jsonl_reader import open_jsonl_generation
 
 
 def test_read_handle_follows_its_generation_during_rotation(tmp_path: Path) -> None:

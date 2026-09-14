@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.webapi.manager_dispatch import (
+from argus.webapi.manager_dispatch import (
     _TurnEmitter,
     finish_turn_steps,
     record_turn_step,

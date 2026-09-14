@@ -58,15 +58,15 @@ import re
 import stat
 import uuid
 
-from argus_skill.core.secret_guard import redact_secrets_record
-from argus_skill.trial.analytics import (
+from argus.core.secret_guard import redact_secrets_record
+from argus.trial.analytics import (
     _ID,
     AnalyticsError,
     _safe_row,
     _sanitize,
     _server_replay_notice,
 )
-from argus_skill.trial.interaction_capture import (
+from argus.trial.interaction_capture import (
     _bounded_input,
     _public_result,
     _require_consent,

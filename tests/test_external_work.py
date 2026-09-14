@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.engineer.external_work import (
+from argus.engineer.external_work import (
     EXTERNAL_WORK_PROTOCOL_VERSION,
     ExternalWorkState,
     inspect_external_work,
@@ -302,7 +302,7 @@ def test_direct_subagent_stays_waitable_when_launcher_dies_but_child_lives(
 
 
 def test_subagent_live_pid_with_mismatched_identity_is_stalled(tmp_path: Path) -> None:
-    from argus_skill.core.process_identity import capture_process_identity
+    from argus.core.process_identity import capture_process_identity
 
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()
@@ -446,7 +446,7 @@ def test_a_job_that_declares_no_activity_paths_is_still_watched(tmp_path) -> Non
     """
     import time
 
-    from argus_skill.engineer.external_work import _activity_silence_seconds
+    from argus.engineer.external_work import _activity_silence_seconds
 
     now = time.time()
     subagents = tmp_path / ".argus_subagents"

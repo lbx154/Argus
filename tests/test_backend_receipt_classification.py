@@ -6,13 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend._result import (
+from argus.adapters.agent_cli_backend._result import (
     UsageAccumulator,
     _raw_backend_stop_kind,
     looks_like_auth_failure,
     translate_result,
 )
-from argus_skill.provider_integrations.authorization_retry import _unauthorized_cause
+from argus.provider_integrations.authorization_retry import _unauthorized_cause
 
 CAP_RECEIPT = (
     "Provider turn cap reached: this engineer-r1 call used 40 provider turns "

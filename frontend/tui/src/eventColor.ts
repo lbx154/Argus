@@ -3,7 +3,7 @@ import type { EventMsg } from './api.js';
 
 /**
  * event.type → colour. Transcribed from the Python renderer
- * (argus_skill/cli/render.py:43-159) so the TUI colours events the same way
+ * (argus/cli/render.py:43-159) so the TUI colours events the same way
  * the Rich cockpit does. Kept as a small pure table — no backend import.
  */
 export function eventColor(ev: EventMsg): string {

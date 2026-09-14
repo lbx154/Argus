@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from argus_skill.trial import relay_guardian as module
+from argus.trial import relay_guardian as module
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 """Install declared plugins synchronously so an image build can bake them in.
 
     ARGUS_SKILL_HOME=/tmp/argus-build \\
-    python -m argus_skill.release_tools.preinstall_plugins crystalpilot --root /opt/argus-plugins
+    python -m argus.release_tools.preinstall_plugins crystalpilot --root /opt/argus-plugins
 
 The command runs the same verified install as the plugin center: it downloads
 the wheel pinned in the catalog, checks its SHA-256, builds the isolated
@@ -27,7 +27,7 @@ def main(argv=None):
     from ..core import plugin_manager as manager
 
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.release_tools.preinstall_plugins",
+        prog="python -m argus.release_tools.preinstall_plugins",
         description="Install the plugins a deployment declares and wait for them to finish.",
     )
     parser.add_argument(

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi.protocol import API_CAPABILITIES
-from argus_skill.webapi.server import abort_project_mission
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi.protocol import API_CAPABILITIES
+from argus.webapi.server import abort_project_mission
 
 
 def test_abort_endpoint_helper_targets_running_item(tmp_path) -> None:
@@ -44,7 +44,7 @@ def test_abort_endpoint_helper_surfaces_persistence_failure(
     tmp_path,
     monkeypatch,
 ) -> None:
-    import argus_skill.life.memory as memory
+    import argus.life.memory as memory
 
     life = tmp_path / "projects" / "s-fail"
     life.mkdir(parents=True)

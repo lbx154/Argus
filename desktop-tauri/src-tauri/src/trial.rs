@@ -65,7 +65,7 @@ async fn helper(app: &AppHandle, release: &ReleaseContext, key: Option<&str>, re
     fs::create_dir_all(argus_home_dir()).map_err(|_| "无法创建本地配置目录。")?;
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
-    let mut child = command.args(["-m", "argus_skill.trial.desktop"])
+    let mut child = command.args(["-m", "argus.trial.desktop"])
         .current_dir(if release.development { release.repo_root.clone() } else { argus_home_dir() })
         .env("ARGUS_SKILL_HOME", argus_home_dir())
         .env("PYTHONUTF8", "1").env("PYTHONIOENCODING", "utf-8")

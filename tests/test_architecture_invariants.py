@@ -28,24 +28,24 @@ from typing import NamedTuple
 
 import pytest
 
-import argus_skill
-from argus_skill.core import project_api
-from argus_skill.core.research_contract import normalize_research_result
-from argus_skill.core.vertical_contract import (
+import argus
+from argus.core import project_api
+from argus.core.research_contract import normalize_research_result
+from argus.core.vertical_contract import (
     _COMPLETION_GATES,
     VerticalContractError,
     vertical_contract,
 )
-from argus_skill.engineer import external_work
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.reviewer import parse_decision_text
-from argus_skill.roles.prompts.registry import PROMPT_CATALOG, resolve_role_prompt
-from argus_skill.roles.prompts.types import RoleName, RolePromptRequest
-from argus_skill.skills.stage_machine import ChecklistItem
-from argus_skill.tools.subagent import _registry as subagent_registry
-from argus_skill.verticals import _registry as vertical_registry
+from argus.engineer import external_work
+from argus.life.memory import Backlog, BacklogItem
+from argus.reviewer import parse_decision_text
+from argus.roles.prompts.registry import PROMPT_CATALOG, resolve_role_prompt
+from argus.roles.prompts.types import RoleName, RolePromptRequest
+from argus.skills.stage_machine import ChecklistItem
+from argus.tools.subagent import _registry as subagent_registry
+from argus.verticals import _registry as vertical_registry
 
-ARGUS = Path(argus_skill.__file__).resolve().parent
+ARGUS = Path(argus.__file__).resolve().parent
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ def _python_files(*packages: str) -> list[Path]:
     files: list[Path] = []
     for package in packages:
         base = ARGUS / package
-        assert base.is_dir(), f"argus_skill/{package} no longer exists"
+        assert base.is_dir(), f"argus/{package} no longer exists"
         files.extend(sorted(base.rglob("*.py")))
     assert files, f"no python files found under {packages}"
     return files
@@ -80,14 +80,14 @@ def _is_type_checking_guard(test: ast.expr) -> bool:
 def _split_submodules(module: str, names: tuple[str, ...]) -> list[tuple[str, tuple[str, ...]]]:
     """``from pkg import a, b`` -> ``pkg.a`` for each name that is a submodule on disk.
 
-    A name that is a directory or a ``<name>.py`` under ``argus_skill/pkg/``
+    A name that is a directory or a ``<name>.py`` under ``argus/pkg/``
     is the same import as ``from pkg.a import ...`` and is recorded as
     ``pkg.a`` with no names (one record per submodule). Plain attributes --
     ``__version__``, ``builtin_verticals`` -- stay with ``pkg``. Imports
-    outside ``argus_skill`` are passed through untouched.
+    outside ``argus`` are passed through untouched.
     """
     parts = module.split(".")
-    if parts[0] != "argus_skill":
+    if parts[0] != "argus":
         return [(module, names)]
     package_dir = ARGUS.joinpath(*parts[1:])
     if not package_dir.is_dir():
@@ -117,7 +117,7 @@ def _import_records(path: Path) -> tuple[_ImportRecord, ...]:
     equivalent spellings was used. Cached: every scan in this file reads the
     tree's imports from one parse per session.
     """
-    own_package = ["argus_skill", *path.relative_to(ARGUS).parts[:-1]]
+    own_package = ["argus", *path.relative_to(ARGUS).parts[:-1]]
     found: list[_ImportRecord] = []
 
     def visit(nodes: Iterable[ast.AST], deferred: bool) -> None:
@@ -159,12 +159,12 @@ def _imported_modules(path: Path) -> list[tuple[int, str]]:
 def _concrete_vertical_imports(paths: list[Path]) -> list[str]:
     """Imports that reach into one named domain rather than the shared bridge.
 
-    ``argus_skill/verticals/*.py`` is the framework-owned bridge (the loader,
+    ``argus/verticals/*.py`` is the framework-owned bridge (the loader,
     the plugin registry, the data-domain shim, the shared evidence helpers).
     Every *subdirectory* of ``verticals/`` is domain-owned. The rule needs no
     allowlist: a new bridge module or a new vertical classifies itself. All
     three spellings are caught -- ``from ..verticals.math import stages``,
-    ``from ..verticals import math`` and ``from argus_skill.verticals import
+    ``from ..verticals import math`` and ``from argus.verticals import
     quant as q`` -- because ``_import_records`` resolves an imported name that
     is a directory under ``verticals/`` to that vertical's module path, while
     a bridge module or a plain attribute (``builtin_verticals``) stays put.
@@ -173,7 +173,7 @@ def _concrete_vertical_imports(paths: list[Path]) -> list[str]:
     for path in paths:
         for lineno, module in _imported_modules(path):
             parts = module.split(".")
-            if parts[:2] != ["argus_skill", "verticals"] or len(parts) < 3:
+            if parts[:2] != ["argus", "verticals"] or len(parts) < 3:
                 continue
             if (ARGUS / "verticals" / f"{parts[2]}.py").is_file():
                 continue  # a bridge module, not a domain
@@ -234,7 +234,7 @@ def test_every_persistent_role_owns_exactly_one_prompt_catalog() -> None:
     persona nothing can dispatch to. Either way the mismatch is invisible until
     a live mission hits it, so the two tables are pinned to each other here.
     """
-    from argus_skill.roles.prompts.registry import _OPERATIONS
+    from argus.roles.prompts.registry import _OPERATIONS
 
     assert {role.value for role in RoleName} == {
         "manager", "planner", "engineer", "reviewer",
@@ -384,7 +384,7 @@ def test_the_adjudication_round_does_not_load_a_vertical_at_all() -> None:
         f"{path.relative_to(ARGUS).as_posix()}:{lineno} -> {module}"
         for path in _python_files("engineer", "reviewer")
         for lineno, module in _imported_modules(path)
-        if module.startswith("argus_skill.verticals")
+        if module.startswith("argus.verticals")
     ]
 
     assert offenders == []
@@ -397,7 +397,7 @@ def test_project_services_do_not_resolve_dependencies_through_the_web_server() -
     whichever dependencies were last patched globally. Keep this boundary
     explicit while the remaining daemon lifecycle services are migrated.
     """
-    forbidden = {"argus_skill.webapi.server", "argus_skill.webapi._server_module"}
+    forbidden = {"argus.webapi.server", "argus.webapi._server_module"}
     offenders = []
     for name in ("project_crud.py", "mission_items.py", "daemon_services.py"):
         path = ARGUS / "webapi" / name
@@ -406,10 +406,10 @@ def test_project_services_do_not_resolve_dependencies_through_the_web_server() -
             if not isinstance(node, ast.ImportFrom):
                 continue
             if (node.level == 1 and node.module is None) or (
-                node.level == 0 and node.module == "argus_skill.webapi"
+                node.level == 0 and node.module == "argus.webapi"
             ):
                 imports.extend(
-                    (node.lineno, f"argus_skill.webapi.{alias.name}")
+                    (node.lineno, f"argus.webapi.{alias.name}")
                     for alias in node.names
                 )
         offenders.extend(
@@ -422,7 +422,7 @@ def test_project_services_do_not_resolve_dependencies_through_the_web_server() -
 def test_the_operator_cli_is_the_only_admitted_domain_dependency() -> None:
     """One documented exception exists; it must not quietly become a habit.
 
-    ``argus-skill learn`` calls into ``verticals.learning.ingest`` directly. It
+    ``argus learn`` calls into ``verticals.learning.ingest`` directly. It
     is an operator-facing command naming the vertical the operator asked for,
     not runtime code branching on a domain, so it is legitimate. It is also the
     entire list. A second entry means someone taught a code path to know a
@@ -1026,7 +1026,7 @@ def _layer_of(package: str) -> str:
     if package == _ROOT:
         return "delivery"
     layer = _PACKAGE_LAYER.get(package)
-    assert layer is not None, f"argus_skill/{package} is not assigned to any layer in LAYERS"
+    assert layer is not None, f"argus/{package} is not assigned to any layer in LAYERS"
     return layer
 
 
@@ -1040,11 +1040,11 @@ def _source_package(path: Path) -> str:
 
 
 def _target_package(module: str) -> str:
-    """The package a dotted ``argus_skill...`` name lives in; root modules are ``<root>``.
+    """The package a dotted ``argus...`` name lives in; root modules are ``<root>``.
 
-    ``from .. import core`` arrives here as ``argus_skill.core`` (a package),
-    ``from .. import __version__`` and ``import argus_skill`` as bare
-    ``argus_skill`` and ``argus_skill.loop`` as a root module file; the last
+    ``from .. import core`` arrives here as ``argus.core`` (a package),
+    ``from .. import __version__`` and ``import argus`` as bare
+    ``argus`` and ``argus.loop`` as a root module file; the last
     two are ``<root>``. ``_import_records`` does the per-name resolution.
     """
     parts = module.split(".")
@@ -1062,11 +1062,11 @@ def _every_python_file() -> list[Path]:
 
 
 def _cross_package_imports(path: Path) -> list[_ImportRecord]:
-    """The ``_import_records`` of ``path`` whose target is another ``argus_skill`` package."""
+    """The ``_import_records`` of ``path`` whose target is another ``argus`` package."""
     source = _source_package(path)
     return [
         record for record in _import_records(path)
-        if (record.module == "argus_skill" or record.module.startswith("argus_skill."))
+        if (record.module == "argus" or record.module.startswith("argus."))
         and _target_package(record.module) != source
     ]
 
@@ -1140,7 +1140,7 @@ MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
 # import, they do not fire when the lower package is loaded. They are
 # tolerated for that reason, but each one is still a place where a low layer
 # knows a high layer's name. ``<root>`` is the package root (``import
-# argus_skill`` for its path, or ``from .. import __version__``).
+# argus`` for its path, or ``from .. import __version__``).
 FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "adapters/agent_cli_backend/_core.py -> tools",
     "adapters/agent_cli_backend/_exec.py -> life",
@@ -1230,124 +1230,124 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
 # is expected to delete the ``verticals._base`` / ``_registry`` /
 # ``_data_domain`` rows wholesale.
 PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
-    "<root> -> argus_skill.apps.tui_launcher._configure_windows_console_encoding",
-    "<root> -> argus_skill.verticals._base",
-    "adapters -> argus_skill.agent_cli._env",
-    "adapters -> argus_skill.agent_cli._structured_output",
-    "adapters -> argus_skill.core.cost_control._local_day_start",
-    "agent_cli -> argus_skill.daemon.state._terminate_windows_process_tree",
-    "apps -> argus_skill.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
-    "apps -> argus_skill.manager._session_ops",
-    "apps -> argus_skill.manager.config_intent._front_door_classify",
-    "apps -> argus_skill.manager.front_door._ensure_manager_runner",
-    "apps -> argus_skill.skills.vertical_select._persisted_vertical",
-    "apps -> argus_skill.verticals._base",
-    "apps -> argus_skill.webapi.manager_state._chat_state_for",
-    "core -> argus_skill.agent_cli._process_control",
-    "core -> argus_skill.apps._inbox",
-    "core -> argus_skill.manager.directive._active_steering_records",
-    "core -> argus_skill.manager.directive._read_steering_records",
-    "daemon -> argus_skill.agent_cli._process_control",
-    "daemon -> argus_skill.apps._inbox",
-    "daemon -> argus_skill.apps._runtime",
-    "daemon -> argus_skill.life.supervisor._config",
-    "daemon -> argus_skill.manager._session_ops",
-    "daemon -> argus_skill.skills.vertical_select._persisted_domain",
-    "daemon -> argus_skill.skills.vertical_select._persisted_vertical",
-    "daemon -> argus_skill.verticals._base",
-    "engineer -> argus_skill.reviewer._core",
-    "life -> argus_skill.agent_cli._process_control",
-    "life -> argus_skill.apps._inbox",
-    "life -> argus_skill.apps._inbox_delivery",
-    "life -> argus_skill.apps._life_actions",
-    "life -> argus_skill.core.mission_view._replay",
-    "life -> argus_skill.core.operator_context._current_mission_id",
-    "life -> argus_skill.daemon.state._fsync_directory",
-    "life -> argus_skill.manager.config_intent._apply_config_intent",
-    "life -> argus_skill.manager.config_intent._front_door_classify",
-    "life -> argus_skill.manager.front_door._accepts_parameter",
-    "life -> argus_skill.planner.planner._GLOBAL_KEY_VALUE_KEYS",
-    "life -> argus_skill.roles.prompts.manager._IDENTITY_GUARD",
-    "life -> argus_skill.tools.subagent._registry",
-    "life -> argus_skill.verticals._base",
-    "life -> argus_skill.verticals._data_domain",
-    "life -> argus_skill.webapi.manager_bridge._answer_inline",
-    "maintenance -> argus_skill.agent_cli._process_control",
-    "manager -> argus_skill.apps._inbox",
-    "manager -> argus_skill.apps._life_actions",
-    "manager -> argus_skill.apps._runtime",
-    "manager -> argus_skill.apps._runtime_construction",
-    "manager -> argus_skill.apps.cli._follow",
-    "manager -> argus_skill.daemon.state._fsync_directory",
-    "manager -> argus_skill.life.memory._TERMINAL_STATUSES",
-    "manager -> argus_skill.life.memory._read_jsonl_tail_history",
-    "manager -> argus_skill.skills.stage_machine._active_vertical_checklist_defs",
-    "manager -> argus_skill.skills.stage_machine._ensure_stage_completion",
-    "manager -> argus_skill.verticals._base",
-    "manager -> argus_skill.verticals._data_domain",
-    "messaging -> argus_skill.manager._session_ops",
-    "reviewer -> argus_skill.core.role_reply._line_pattern",
-    "reviewer -> argus_skill.roles.prompts.reviewer._REEVALUATE_HEADER",
-    "reviewer -> argus_skill.roles.prompts.reviewer._engineer_log_audit_block",
-    "reviewer -> argus_skill.roles.prompts.reviewer._load_wiki_curator_skill_if_present",
-    "reviewer -> argus_skill.roles.prompts.reviewer._verification_directive",
-    "roles -> argus_skill.skills.vertical_select._persisted_vertical",
-    "roles -> argus_skill.verticals._base",
-    "skills -> argus_skill.verticals._base",
-    "skills -> argus_skill.verticals._data_domain",
-    "skills -> argus_skill.verticals._registry",
-    "skills -> argus_skill.wiki.store._atomic_write_text",
-    "team -> argus_skill.apps._runtime",
-    "team -> argus_skill.apps._runtime_supervisor",
-    "team -> argus_skill.daemon.state._terminate_windows_process_tree",
-    "team -> argus_skill.verticals._base",
-    "tools -> argus_skill.agent_cli._process_control",
-    "tools -> argus_skill.apps._inbox",
-    "tools -> argus_skill.daemon.state._terminate_windows_process_tree",
-    "trial -> argus_skill.agent_cli.copilot_home._read_managed_config",
-    "trial -> argus_skill.tools.setup._verify_setup_smoke",
-    "verticals -> argus_skill.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
-    "verticals -> argus_skill.skills.rl_training_plots._is_probe",
-    "verticals -> argus_skill.skills.rl_training_plots._read_optimizer_steps",
-    "verticals -> argus_skill.tools.image_api._DEFAULT_MAX_RETRIES",
-    "verticals -> argus_skill.tools.image_api._DEFAULT_TIMEOUT_SECONDS",
-    "verticals -> argus_skill.tools.image_api._atomic_write_json",
-    "verticals -> argus_skill.tools.image_api._data_url",
-    "verticals -> argus_skill.tools.image_api._json_request",
-    "verticals -> argus_skill.tools.image_api._load_sidecar_prompt",
-    "verticals -> argus_skill.tools.image_api._parse_chat_text",
-    "verticals -> argus_skill.tools.image_api._parse_responses_text",
-    "verticals -> argus_skill.tools.image_api._read_prompt",
-    "verticals -> argus_skill.tools.image_api._redact",
-    "verticals -> argus_skill.tools.image_api._require_route",
-    "verticals -> argus_skill.tools.lean_check._artifact_directory_lock",
-    "verticals -> argus_skill.tools.lean_check._atomic_artifact_write",
-    "verticals -> argus_skill.tools.lean_check._resolve_lake_workspace",
-    "webapi -> argus_skill.agent_cli._env",
-    "webapi -> argus_skill.apps._inbox",
-    "webapi -> argus_skill.apps._life_actions",
-    "webapi -> argus_skill.apps.cli._follow",
-    "webapi -> argus_skill.daemon.life_worker._acquire_daemon_spawn_lock",
-    "webapi -> argus_skill.daemon.life_worker._active_daemon_count",
-    "webapi -> argus_skill.daemon.life_worker._active_workspace_owner",
-    "webapi -> argus_skill.daemon.life_worker._launcher_failure_message",
-    "webapi -> argus_skill.daemon.life_worker._max_active_daemons",
-    "webapi -> argus_skill.daemon.life_worker._release_daemon_spawn_lock",
-    "webapi -> argus_skill.daemon.life_worker._workspace_start_error",
-    "webapi -> argus_skill.life.memory._TERMINAL_STATUSES",
-    "webapi -> argus_skill.life.memory._append_jsonl",
-    "webapi -> argus_skill.life.memory._jsonl_history_paths",
-    "webapi -> argus_skill.life.memory._read_jsonl_tail",
-    "webapi -> argus_skill.life.memory._read_jsonl_tail_history",
-    "webapi -> argus_skill.life.supervisor._mission_execution_runtime",
-    "webapi -> argus_skill.manager._session_ops",
-    "webapi -> argus_skill.manager.config_intent._apply_config_intent",
-    "webapi -> argus_skill.manager.config_intent._front_door_classify",
-    "webapi -> argus_skill.manager.dispatch._daemon_status",
-    "webapi -> argus_skill.manager.front_door._accepts_parameter",
-    "webapi -> argus_skill.manager.front_door._derive_session_name",
-    "webapi -> argus_skill.manager.front_door._ensure_manager_runner",
-    "webapi -> argus_skill.manager.front_door._operator_workspace",
+    "<root> -> argus.apps.tui_launcher._configure_windows_console_encoding",
+    "<root> -> argus.verticals._base",
+    "adapters -> argus.agent_cli._env",
+    "adapters -> argus.agent_cli._structured_output",
+    "adapters -> argus.core.cost_control._local_day_start",
+    "agent_cli -> argus.daemon.state._terminate_windows_process_tree",
+    "apps -> argus.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
+    "apps -> argus.manager._session_ops",
+    "apps -> argus.manager.config_intent._front_door_classify",
+    "apps -> argus.manager.front_door._ensure_manager_runner",
+    "apps -> argus.skills.vertical_select._persisted_vertical",
+    "apps -> argus.verticals._base",
+    "apps -> argus.webapi.manager_state._chat_state_for",
+    "core -> argus.agent_cli._process_control",
+    "core -> argus.apps._inbox",
+    "core -> argus.manager.directive._active_steering_records",
+    "core -> argus.manager.directive._read_steering_records",
+    "daemon -> argus.agent_cli._process_control",
+    "daemon -> argus.apps._inbox",
+    "daemon -> argus.apps._runtime",
+    "daemon -> argus.life.supervisor._config",
+    "daemon -> argus.manager._session_ops",
+    "daemon -> argus.skills.vertical_select._persisted_domain",
+    "daemon -> argus.skills.vertical_select._persisted_vertical",
+    "daemon -> argus.verticals._base",
+    "engineer -> argus.reviewer._core",
+    "life -> argus.agent_cli._process_control",
+    "life -> argus.apps._inbox",
+    "life -> argus.apps._inbox_delivery",
+    "life -> argus.apps._life_actions",
+    "life -> argus.core.mission_view._replay",
+    "life -> argus.core.operator_context._current_mission_id",
+    "life -> argus.daemon.state._fsync_directory",
+    "life -> argus.manager.config_intent._apply_config_intent",
+    "life -> argus.manager.config_intent._front_door_classify",
+    "life -> argus.manager.front_door._accepts_parameter",
+    "life -> argus.planner.planner._GLOBAL_KEY_VALUE_KEYS",
+    "life -> argus.roles.prompts.manager._IDENTITY_GUARD",
+    "life -> argus.tools.subagent._registry",
+    "life -> argus.verticals._base",
+    "life -> argus.verticals._data_domain",
+    "life -> argus.webapi.manager_bridge._answer_inline",
+    "maintenance -> argus.agent_cli._process_control",
+    "manager -> argus.apps._inbox",
+    "manager -> argus.apps._life_actions",
+    "manager -> argus.apps._runtime",
+    "manager -> argus.apps._runtime_construction",
+    "manager -> argus.apps.cli._follow",
+    "manager -> argus.daemon.state._fsync_directory",
+    "manager -> argus.life.memory._TERMINAL_STATUSES",
+    "manager -> argus.life.memory._read_jsonl_tail_history",
+    "manager -> argus.skills.stage_machine._active_vertical_checklist_defs",
+    "manager -> argus.skills.stage_machine._ensure_stage_completion",
+    "manager -> argus.verticals._base",
+    "manager -> argus.verticals._data_domain",
+    "messaging -> argus.manager._session_ops",
+    "reviewer -> argus.core.role_reply._line_pattern",
+    "reviewer -> argus.roles.prompts.reviewer._REEVALUATE_HEADER",
+    "reviewer -> argus.roles.prompts.reviewer._engineer_log_audit_block",
+    "reviewer -> argus.roles.prompts.reviewer._load_wiki_curator_skill_if_present",
+    "reviewer -> argus.roles.prompts.reviewer._verification_directive",
+    "roles -> argus.skills.vertical_select._persisted_vertical",
+    "roles -> argus.verticals._base",
+    "skills -> argus.verticals._base",
+    "skills -> argus.verticals._data_domain",
+    "skills -> argus.verticals._registry",
+    "skills -> argus.wiki.store._atomic_write_text",
+    "team -> argus.apps._runtime",
+    "team -> argus.apps._runtime_supervisor",
+    "team -> argus.daemon.state._terminate_windows_process_tree",
+    "team -> argus.verticals._base",
+    "tools -> argus.agent_cli._process_control",
+    "tools -> argus.apps._inbox",
+    "tools -> argus.daemon.state._terminate_windows_process_tree",
+    "trial -> argus.agent_cli.copilot_home._read_managed_config",
+    "trial -> argus.tools.setup._verify_setup_smoke",
+    "verticals -> argus.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
+    "verticals -> argus.skills.rl_training_plots._is_probe",
+    "verticals -> argus.skills.rl_training_plots._read_optimizer_steps",
+    "verticals -> argus.tools.image_api._DEFAULT_MAX_RETRIES",
+    "verticals -> argus.tools.image_api._DEFAULT_TIMEOUT_SECONDS",
+    "verticals -> argus.tools.image_api._atomic_write_json",
+    "verticals -> argus.tools.image_api._data_url",
+    "verticals -> argus.tools.image_api._json_request",
+    "verticals -> argus.tools.image_api._load_sidecar_prompt",
+    "verticals -> argus.tools.image_api._parse_chat_text",
+    "verticals -> argus.tools.image_api._parse_responses_text",
+    "verticals -> argus.tools.image_api._read_prompt",
+    "verticals -> argus.tools.image_api._redact",
+    "verticals -> argus.tools.image_api._require_route",
+    "verticals -> argus.tools.lean_check._artifact_directory_lock",
+    "verticals -> argus.tools.lean_check._atomic_artifact_write",
+    "verticals -> argus.tools.lean_check._resolve_lake_workspace",
+    "webapi -> argus.agent_cli._env",
+    "webapi -> argus.apps._inbox",
+    "webapi -> argus.apps._life_actions",
+    "webapi -> argus.apps.cli._follow",
+    "webapi -> argus.daemon.life_worker._acquire_daemon_spawn_lock",
+    "webapi -> argus.daemon.life_worker._active_daemon_count",
+    "webapi -> argus.daemon.life_worker._active_workspace_owner",
+    "webapi -> argus.daemon.life_worker._launcher_failure_message",
+    "webapi -> argus.daemon.life_worker._max_active_daemons",
+    "webapi -> argus.daemon.life_worker._release_daemon_spawn_lock",
+    "webapi -> argus.daemon.life_worker._workspace_start_error",
+    "webapi -> argus.life.memory._TERMINAL_STATUSES",
+    "webapi -> argus.life.memory._append_jsonl",
+    "webapi -> argus.life.memory._jsonl_history_paths",
+    "webapi -> argus.life.memory._read_jsonl_tail",
+    "webapi -> argus.life.memory._read_jsonl_tail_history",
+    "webapi -> argus.life.supervisor._mission_execution_runtime",
+    "webapi -> argus.manager._session_ops",
+    "webapi -> argus.manager.config_intent._apply_config_intent",
+    "webapi -> argus.manager.config_intent._front_door_classify",
+    "webapi -> argus.manager.dispatch._daemon_status",
+    "webapi -> argus.manager.front_door._accepts_parameter",
+    "webapi -> argus.manager.front_door._derive_session_name",
+    "webapi -> argus.manager.front_door._ensure_manager_runner",
+    "webapi -> argus.manager.front_door._operator_workspace",
 })
 
 
@@ -1355,7 +1355,7 @@ def test_every_package_is_assigned_to_exactly_one_layer() -> None:
     """A package with no layer has no import rule, so nothing below can judge it.
 
     The three allowlist tests derive "upward" from ``LAYERS``. A new
-    ``argus_skill/<pkg>/`` that is not in the table would make ``_layer_of``
+    ``argus/<pkg>/`` that is not in the table would make ``_layer_of``
     fail on the first file that imports it -- or, worse, never be scanned at
     all if it only *imports* others. A package listed twice would have two
     ranks and the rule would depend on dict iteration order.
@@ -1471,10 +1471,10 @@ def test_every_package_docstring_names_its_layer() -> None:
             if (match := _LAYER_LINE.match(line.strip()))
         ]
         if not docstring.strip():
-            problems.append(f"argus_skill/{package}/__init__.py has no docstring")
+            problems.append(f"argus/{package}/__init__.py has no docstring")
         elif declared != [layer]:
             problems.append(
-                f"argus_skill/{package}/__init__.py declares Layer: {declared or 'nothing'}, "
+                f"argus/{package}/__init__.py declares Layer: {declared or 'nothing'}, "
                 f"LAYERS says {layer}"
             )
 
@@ -1528,7 +1528,7 @@ def _tracked_top_level_directories() -> list[str]:
 def _has_bullet(text: str, entry: str) -> bool:
     """A line of the map's own form ``- `entry` ...``, not a mention in passing.
 
-    ``integrations/`` occurs inside ``argus_skill/integrations/`` and
+    ``integrations/`` occurs inside ``argus/integrations/`` and
     ``docs/`` inside ``docs/audits/``; a substring test would let the bullet
     for either disappear unnoticed.
     """
@@ -1554,11 +1554,11 @@ def test_layout_map_lists_every_directory() -> None:
         layer: frozenset(packages) for layer, packages in LAYERS.items()
     }
     unmentioned_packages = [
-        f"argus_skill/{package}/" for package in sorted(_PACKAGE_LAYER)
-        if not _has_bullet(text, f"argus_skill/{package}/")
+        f"argus/{package}/" for package in sorted(_PACKAGE_LAYER)
+        if not _has_bullet(text, f"argus/{package}/")
     ]
     assert unmentioned_packages == [], (
-        "each needs its own docs/LAYOUT.md line starting with '- `argus_skill/<pkg>/`'"
+        "each needs its own docs/LAYOUT.md line starting with '- `argus/<pkg>/`'"
     )
     unmentioned_directories = [
         f"{directory}/" for directory in tracked_directories
@@ -1569,21 +1569,21 @@ def test_layout_map_lists_every_directory() -> None:
     )
 
 
-# After the import, every ``argus_skill.*`` module in ``sys.modules`` must be
+# After the import, every ``argus.*`` module in ``sys.modules`` must be
 # the package root itself or live in a kernel package (``LAYERS["kernel"]``).
 _KERNEL_PROBE = "; ".join([
-    "import argus_skill.core.paths, sys",
-    f"kernel = tuple('argus_skill.' + package for package in {LAYERS['kernel']!r})",
-    "bad = sorted(m for m in sys.modules if m.startswith('argus_skill.')"
+    "import argus.core.paths, sys",
+    f"kernel = tuple('argus.' + package for package in {LAYERS['kernel']!r})",
+    "bad = sorted(m for m in sys.modules if m.startswith('argus.')"
     " and m not in kernel and not m.startswith(tuple(k + '.' for k in kernel)))",
     "print(chr(10).join(bad))",
 ])
 
 
 def test_importing_the_kernel_does_not_load_the_engine() -> None:
-    """``import argus_skill.core.paths`` must cost the kernel, not the whole runtime.
+    """``import argus.core.paths`` must cost the kernel, not the whole runtime.
 
-    Python imports ``argus_skill/__init__`` before any submodule, so an eager
+    Python imports ``argus/__init__`` before any submodule, so an eager
     ``from .loop import SkillLoop`` there means every subprocess that wants a
     path helper -- the daemon spawn helper, the desktop entry, a vertical's
     evaluation script -- pays for the Engineer, the Reviewer, the skill store
@@ -1601,7 +1601,7 @@ def test_importing_the_kernel_does_not_load_the_engine() -> None:
     assert probe.returncode == 0, probe.stderr
     loaded = probe.stdout.split()
     assert loaded == [], (
-        f"importing argus_skill.core.paths loaded {len(loaded)} modules outside the kernel:\n"
+        f"importing argus.core.paths loaded {len(loaded)} modules outside the kernel:\n"
         f"{probe.stdout}"
     )
 
@@ -1609,7 +1609,7 @@ def test_importing_the_kernel_does_not_load_the_engine() -> None:
 _DOTTED_PATH = re.compile(r"\bargus_skill(\.[A-Za-z_][A-Za-z0-9_]*)+")
 
 # Cited paths that are illustrative rather than real modules. Empty today:
-# every ``argus_skill.x.y`` in a Skill, plugin document or role prompt resolves.
+# every ``argus.x.y`` in a Skill, plugin document or role prompt resolves.
 CITED_PATH_EXCEPTIONS: frozenset[str] = frozenset()
 
 
@@ -1621,7 +1621,7 @@ def _cited_module_paths() -> dict[str, str]:
         for match in _DOTTED_PATH.finditer(text):
             cited.setdefault(match.group(0), where)
 
-    for base in ("argus_skill", "plugins", "integrations"):
+    for base in ("argus", "plugins", "integrations"):
         for path in sorted((REPO_ROOT / base).rglob("*.md")):
             text = path.read_text(encoding="utf-8", errors="replace")
             for lineno, line in enumerate(text.splitlines(), 1):
@@ -1634,18 +1634,18 @@ def _cited_module_paths() -> dict[str, str]:
 
 
 def _resolves_on_disk(dotted: str) -> bool:
-    """Walk the dotted path against the tree under ``argus_skill/``; nothing is imported.
+    """Walk the dotted path against the tree under ``argus/``; nothing is imported.
 
     Each segment must be a directory (a package, with or without
     ``__init__.py``) or a ``<name>.py`` module file. Once a module *file* is
     reached, up to two further segments are accepted as an attribute
     (``module.func``, ``module.Class.method``). A directory ends the path, so
-    ``argus_skill.bogus`` does not pass merely because ``argus_skill`` exists.
+    ``argus.bogus`` does not pass merely because ``argus`` exists.
     ``find_spec`` would execute every parent package (and, for ``module.attr``
     citations, the module itself); this walk executes none of them.
     """
     parts = dotted.split(".")
-    if parts[0] != "argus_skill":
+    if parts[0] != "argus":
         return False
     current = ARGUS
     for index, part in enumerate(parts[1:], start=1):
@@ -1661,8 +1661,8 @@ def _resolves_on_disk(dotted: str) -> bool:
 def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
     """A path the model is told to run must be a path that exists.
 
-    Skills and role prompts say ``python -m argus_skill.tools.subagent`` and
-    ``argus_skill.verticals.math.citation_check`` in prose the runtime never
+    Skills and role prompts say ``python -m argus.tools.subagent`` and
+    ``argus.verticals.math.citation_check`` in prose the runtime never
     parses. When a module moves, nothing fails at import time -- the Engineer
     fails at mission time, after burning a round on ``No module named``, and
     the Reviewer may never see why. Paths are resolved against the filesystem,
@@ -1686,21 +1686,21 @@ def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
 # Module paths that appear on a ``python -m`` / argv line somewhere in the tree
 # and are therefore matched back by string in a *different* process.
 SUBPROCESS_REENTRY_MODULES = (
-    "argus_skill.team.teammate_entry",
-    "argus_skill.tools.subagent",
-    "argus_skill.daemon.spawn_helper",
-    "argus_skill.reviewer.review_file",
-    "argus_skill.tools.manager_live_view",
-    "argus_skill.desktop_backend_entry",
-    "argus_skill.plugin.mcp_server",
-    "argus_skill.__main__",
+    "argus.team.teammate_entry",
+    "argus.tools.subagent",
+    "argus.daemon.spawn_helper",
+    "argus.reviewer.review_file",
+    "argus.tools.manager_live_view",
+    "argus.desktop_backend_entry",
+    "argus.plugin.mcp_server",
+    "argus.__main__",
 )
 
 
 def test_subprocess_reentry_module_paths_stay_importable() -> None:
     """These names cross a process boundary as strings, so a move is invisible to Python.
 
-    The daemon spawns ``python -m argus_skill.daemon.spawn_helper``; teammates
+    The daemon spawns ``python -m argus.daemon.spawn_helper``; teammates
     re-enter through ``team.teammate_entry``; liveness checks match those same
     strings against ``argv`` of running processes. Rename one and the
     importer-side tests stay green while the live system either fails to
@@ -1716,7 +1716,7 @@ def test_subprocess_reentry_module_paths_stay_importable() -> None:
 
 _STAGE_WRITERS = frozenset({"advance_stage", "rollback_stage", "complete_final_stage"})
 
-# References to the stage writers from outside argus_skill/manager/ (and
+# References to the stage writers from outside argus/manager/ (and
 # outside skills/stage_machine.py, which defines them), per file. Counted:
 # every ``from ... import advance_stage [as alias]`` binding, plus every load
 # of a bound alias or of the literal name -- a call, ``stage_machine.

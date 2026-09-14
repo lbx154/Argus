@@ -60,7 +60,7 @@ class DaemonAlreadyRunning(RuntimeError):
 
     def __init__(self, pid: int | None, lock_path: Path) -> None:
         msg = (
-            f"another argus-skill daemon is already running (pid={pid}, "
+            f"another argus daemon is already running (pid={pid}, "
             f"lock={lock_path})"
         )
         super().__init__(msg)

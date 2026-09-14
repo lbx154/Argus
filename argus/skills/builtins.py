@@ -1,6 +1,6 @@
 """Bundled cross-vertical defaults and vertical-aware Skill seeding.
 
-``argus_skill/builtin_skills`` contains only reusable workflow skills.
+``argus/builtin_skills`` contains only reusable workflow skills.
 Domain/vertical playbooks live under ``verticals/<name>/skills`` and are
 seeded only for the active context.
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable
 
 log = logging.getLogger(__name__)
-_BUILTIN_PACKAGE = "argus_skill.builtin_skills"
+_BUILTIN_PACKAGE = "argus.builtin_skills"
 DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
 _BUILTIN_SEED_STATE = ".argus-builtin-seeds.json"
 _MOVED_SKILL_MARKER = ".moved-from-global.json"
@@ -234,7 +234,7 @@ def vertical_skill_source_path(vertical: str) -> Path:
 
     The skill-layering convention: ``builtin_skills/`` holds cross-workflow
     skills, while each vertical ships workflow-specific skills under
-    ``argus_skill/verticals/<vertical>/skills/{engineer,reviewer}/``. This is the
+    ``argus/verticals/<vertical>/skills/{engineer,reviewer}/``. This is the
     version-controlled read-only SOURCE for that vertical's skills.
     """
     if not vertical or "/" in vertical or "\\" in vertical or vertical.startswith("."):

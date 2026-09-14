@@ -25,7 +25,7 @@ allocation, verify that names such as `L32_B1_T8K_D2K` match the actual tensor
 arguments and inspect the minimum input footprint:
 
 ```bash
-python -m argus_skill.verticals.kernel_engineering.benchmark_preflight \
+python -m argus.verticals.kernel_engineering.benchmark_preflight \
   --shape-id L32_B1_T8K_D2K --L 64 --B 1 --T 8192 --D 8192 \
   --dtype bf16 --gpu-memory-gib 192
 ```

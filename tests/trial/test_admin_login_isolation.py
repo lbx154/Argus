@@ -7,7 +7,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.trial import web_portal as portal
+from argus.trial import web_portal as portal
 from tests.trial.test_web_portal import ORIGIN, Chunks, client_for, login
 from tests.trial.test_web_portal import provisioned as provisioned
 
@@ -244,7 +244,7 @@ def test_new_config_can_drop_admin_backend_or_keep_exact_trial11_migration_alias
 
 
 def test_admin_data_routes_use_only_admin_cookie_and_ignore_trial_consent_state(provisioned, tmp_path, frontend_dist):
-    from argus_skill.trial.analytics import Analytics
+    from argus.trial.analytics import Analytics
 
     config, vault, _ = provisioned
     config["frontend_dir"] = str(frontend_dist[0])

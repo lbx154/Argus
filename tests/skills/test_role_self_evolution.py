@@ -2,20 +2,20 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.manager import Manager
-from argus_skill.planner import Planner
-from argus_skill.reviewer import Reviewer
-from argus_skill.roles.prompts.engineer import build_mission_prompt
-from argus_skill.skills.layered import LayeredSkillStore
-from argus_skill.skills.missions import PlannerMission, SelfMission
-from argus_skill.skills.role_memory import (
+from argus.manager import Manager
+from argus.planner import Planner
+from argus.reviewer import Reviewer
+from argus.roles.prompts.engineer import build_mission_prompt
+from argus.skills.layered import LayeredSkillStore
+from argus.skills.missions import PlannerMission, SelfMission
+from argus.skills.role_memory import (
     profile_role_skill_dir,
     profile_self_skill_dir,
     project_role_skill_dir,
     role_skill_maintenance_block,
     role_skill_maintenance_enabled,
 )
-from argus_skill.skills.store import SkillStore
+from argus.skills.store import SkillStore
 
 
 def test_global_role_self_evolution_ab_knob(monkeypatch) -> None:

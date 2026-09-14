@@ -41,7 +41,7 @@ def peer_run(ctx: Any) -> Iterator[None]:
             trusted_tool_names=list(dict.fromkeys([*(options.trusted_tool_names or []), *names])),
             extension_env={**(options.extension_env or {}), **bridge.environment},
         )
-        tool = "list_peer_projects, send_peer_message, and peer_message_status" if native else "python -m argus_skill.tools.peer"
+        tool = "list_peer_projects, send_peer_message, and peer_message_status" if native else "python -m argus.tools.peer"
         ctx.prompt += (
             "\n\nProject peer communication: " + tool + " can exchange a targeted question or evidence with another "
             "known project owned by this user. Sending queues durable advisory data; it does not start that project's "

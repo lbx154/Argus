@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.operator_context import (
+from argus.core.operator_context import (
     DirectiveRecord,
     IntakeDecision,
     OperatorContextCapacityError,
@@ -85,8 +85,8 @@ def test_global_preference_crosses_only_its_user_and_project_override_can_be_rev
 def test_real_front_door_intake_writes_to_the_same_shared_store_later_roles_read(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.life.memory import MemoryBundle
-    from argus_skill.manager.config_intent import _front_door_classify
+    from argus.life.memory import MemoryBundle
+    from argus.manager.config_intent import _front_door_classify
 
     memory = MemoryBundle.for_cwd(global_root=tmp_path, fingerprint="s-writer")
 
@@ -249,7 +249,7 @@ def test_valid_new_tail_continues_checkpoint_revision_without_replaying_history(
 def test_consumption_survives_cache_write_failure_and_stale_cache_replacement(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from argus_skill.core import operator_context
+    from argus.core import operator_context
 
     store = OperatorContextStore(tmp_path)
     item = store.append(directive("Run exactly once.", lifetime="once"), expected_revision=0)
@@ -308,7 +308,7 @@ def test_large_legacy_preference_history_streams_into_a_bounded_checkpoint(tmp_p
 def test_compaction_failure_leaves_the_previous_canonical_ledger_intact(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from argus_skill.core import operator_context_storage as storage
+    from argus.core import operator_context_storage as storage
 
     store = OperatorContextStore(tmp_path)
     store.append(directive("Still authoritative."), expected_revision=0)
@@ -407,9 +407,9 @@ def test_project_symlink_cannot_change_the_inferred_user_namespace(
 def test_real_planner_and_engineer_prompts_read_project_and_fresh_shared_preferences(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.life.memory import BacklogItem, MemoryBundle
-    from argus_skill.life.supervisor._mission_execution_runtime import MissionExecutionRuntimeMixin
-    from argus_skill.roles.prompts.planner import build_bounded_single_task_prompt
+    from argus.life.memory import BacklogItem, MemoryBundle
+    from argus.life.supervisor._mission_execution_runtime import MissionExecutionRuntimeMixin
+    from argus.roles.prompts.planner import build_bounded_single_task_prompt
 
     memory = MemoryBundle.for_cwd(global_root=tmp_path, fingerprint="s-scope")
     global_preference(memory.project_root, "Initial shared preference.")
@@ -441,7 +441,7 @@ def test_current_manager_supervision_reaches_engineer_without_becoming_operator_
     tmp_path: Path,
     existing_operator_ledger: bool,
 ) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     store = OperatorContextStore(tmp_path)
     if existing_operator_ledger:

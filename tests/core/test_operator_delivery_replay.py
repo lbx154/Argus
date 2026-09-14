@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core import operator_context as context
-from argus_skill.core import operator_context_storage as storage
-from argus_skill.core.file_lock import FileLockCancelled, bounded_file_lock_wait
-from argus_skill.core.operator_context import (
+from argus.core import operator_context as context
+from argus.core import operator_context_storage as storage
+from argus.core.file_lock import FileLockCancelled, bounded_file_lock_wait
+from argus.core.operator_context import (
     IntakeDecision,
     OperatorContextStore,
     OperatorDeliveryCapacityError,
@@ -109,7 +109,7 @@ def test_process_exit_after_checkpoint_before_receipt_return_replays_once(tmp_pa
     source = Path(context.__file__).resolve().parents[2]
     script = """import json, os, sys
 sys.path.insert(0, sys.argv[1])
-from argus_skill.core import operator_context as context
+from argus.core import operator_context as context
 value=json.load(open(sys.argv[2]))
 original=context.write_checkpoint
 def crash_after_checkpoint(*args, **kwargs):

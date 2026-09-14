@@ -29,7 +29,7 @@ emit thresholds are surfacing heuristics, not pass/fail thresholds; the
 raw numbers are always printed alongside so the reviewer rules on its own.
 
 CLI:
-    python -m argus_skill.skills.rl_training_health --project-root .
+    python -m argus.skills.rl_training_health --project-root .
 """
 from __future__ import annotations
 

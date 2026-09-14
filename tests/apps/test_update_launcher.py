@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps import update_launcher
+from argus.apps import update_launcher
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ def test_user_install_does_not_touch_the_system_scripts_directory(scripts, monke
 
 def test_failure_moving_a_launcher_restores_already_moved_files(scripts, monkeypatch):
     first = scripts / "argus.exe"
-    second = scripts / "argus-skill.exe"
+    second = scripts / "argus.exe"
     first.write_bytes(b"first")
     second.write_bytes(b"second")
     rename = Path.rename
@@ -147,10 +147,10 @@ def test_running_windows_exe_can_update_synchronously_and_restore_on_failure(
     module = tmp_path / "launcher_probe.py"
     module.write_text(
         "from pathlib import Path\n"
-        "from argus_skill.apps import update_launcher\n"
+        "from argus.apps import update_launcher\n"
         "from importlib.metadata import version\n"
         "def main():\n"
-        "    version('argus-skill')  # caches the running .exe's appended ZIP\n"
+        "    version('argus')  # caches the running .exe's appended ZIP\n"
         "    root = Path(__file__).parent\n"
         "    launcher = root / 'argus.exe'\n"
         "    original = launcher.read_bytes()\n"

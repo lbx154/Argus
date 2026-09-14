@@ -8,8 +8,8 @@ import time
 import httpx
 import pytest
 
-from argus_skill.trial.gateway import create_app, prepare
-from argus_skill.trial.store import TrialError
+from argus.trial.gateway import create_app, prepare
+from argus.trial.store import TrialError
 from tests.trial.test_gateway_billing_lifecycle import asgi_request, issue, offline_settings
 from tests.trial.test_gateway_billing_responsiveness import KEY_ID, PAYLOAD, HeldWriter, ledger_rows
 

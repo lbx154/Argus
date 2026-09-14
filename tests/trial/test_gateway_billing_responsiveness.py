@@ -17,10 +17,10 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 
-from argus_skill.trial import gateway, gateway_observation
-from argus_skill.trial import store as store_module
-from argus_skill.trial.gateway import Settings, create_app, prepare
-from argus_skill.trial.secrets import Vault, write_private
+from argus.trial import gateway, gateway_observation
+from argus.trial import store as store_module
+from argus.trial.gateway import Settings, create_app, prepare
+from argus.trial.secrets import Vault, write_private
 
 KEY_ID = "a" * 64
 PAYLOAD = {

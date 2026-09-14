@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
-from argus_skill.agent_cli._event_consumers import EventConsumerMixin
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
+from argus.agent_cli._event_consumers import EventConsumerMixin
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 
 HOST_ERROR = (
     "Code Mode is unavailable because failed to spawn code-mode host "

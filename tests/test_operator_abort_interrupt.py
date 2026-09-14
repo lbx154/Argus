@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.engineer.runner import (
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
@@ -25,7 +25,7 @@ from argus_skill.engineer.runner import (
     fatal_error_looks_like_operator_abort_request,
     operator_abort_review_decision,
 )
-from argus_skill.reviewer import ReviewerConfig
+from argus.reviewer import ReviewerConfig
 
 # --------------------------------------------------------------------------- #
 # Pure predicate: distinct from both "normal backend failure" and "daemon stop"

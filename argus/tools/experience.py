@@ -9,7 +9,7 @@ from ..life.experience_tools import request
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.experience")
+    parser = argparse.ArgumentParser(prog="python -m argus.tools.experience")
     sub = parser.add_subparsers(dest="command", required=True)
     search = sub.add_parser("search", help="find advisory prior experiences")
     search.add_argument("query")

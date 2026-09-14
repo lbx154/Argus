@@ -201,7 +201,7 @@ _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requ
 # (running in the operator-facing API process) decided mid-mission
 # that *this one* backlog item should stop right now — the daemon process
 # itself keeps running and will move on to the next ready item. See
-# ``argus_skill.life.memory.request_running_item_abort`` for the writer side.
+# ``argus.life.memory.request_running_item_abort`` for the writer side.
 _OPERATOR_ABORT_INTERRUPT_RE = re.compile(
     r"^(?:external interrupt:|refused before start:)\s*operator abort requested\b"
 )

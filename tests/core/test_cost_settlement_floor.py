@@ -7,8 +7,8 @@ from dataclasses import replace
 
 import pytest
 
-from argus_skill.core import cost_control as costs
-from argus_skill.core.usage import UsageLedger, UsageRecord
+from argus.core import cost_control as costs
+from argus.core.usage import UsageLedger, UsageRecord
 
 
 def reservation(root, project, call_id="observed", cap=10):

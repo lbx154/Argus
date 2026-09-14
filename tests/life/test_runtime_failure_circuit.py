@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life import runtime_failure_circuit as circuit_module
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.runtime_failure_circuit import (
+from argus.life import runtime_failure_circuit as circuit_module
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.runtime_failure_circuit import (
     CIRCUIT_FILENAME,
     active_runtime_failure_circuit,
     clear_runtime_failure_circuit,
@@ -16,9 +16,9 @@ from argus_skill.life.runtime_failure_circuit import (
     record_runtime_failure_circuit,
     runtime_failure_fingerprint,
 )
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_AWAITING
-from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_AWAITING
+from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
 
 
 def _checkpoint_error(mission_id: str) -> FileNotFoundError:

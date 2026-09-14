@@ -4,7 +4,7 @@ GET  /api/projects/{sid}/map-notes  → {"notes": [...]} (latest 200, oldest fir
 POST /api/projects/{sid}/map-notes  → {"note": {...}}
 
 Notes are stored per session (``map_notes.jsonl`` in the life dir, see
-:mod:`argus_skill.webapi.map_notes`) and surface to the Planner every cycle
+:mod:`argus.webapi.map_notes`) and surface to the Planner every cycle
 through the current-reality digest.
 """
 

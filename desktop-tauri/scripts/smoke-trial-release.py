@@ -171,7 +171,7 @@ def main():
             if desktop.exists():
                 raise RuntimeError("Refusing to overwrite existing desktop state; use a clean release runner")
             try:
-                run = subprocess.run([str(frozen), "-m", "argus_skill.trial.desktop"],
+                run = subprocess.run([str(frozen), "-m", "argus.trial.desktop"],
                                      input=json.dumps({"api_key": key}) + "\n", capture_output=True,
                                      text=True, encoding="utf-8", cwd=root, env=env, timeout=600)
                 assert key not in run.stdout + run.stderr, "Trial helper leaked its key"
@@ -207,9 +207,9 @@ def main():
                 evidence.write_text("native-installed-trial-evidence")
                 prompt = f"Read {evidence} and return its exact content followed by NATIVE_TRIAL_OK."
                 script = (
-                    "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
-                    "from argus_skill.core.knob_store import read_persisted_knobs; "
-                    "from argus_skill.trial import CLIENT_MODEL; "
+                    "from argus.core.agent_probe import run_read_only_agent_prompt; "
+                    "from argus.core.knob_store import read_persisted_knobs; "
+                    "from argus.trial import CLIENT_MODEL; "
                     "k=read_persisted_knobs(); assert k['ARGUS_SKILL_COPILOT_TRIAL']=='1'; "
                     "assert k['ARGUS_SKILL_MODEL']=='gpt-5.5' and k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
                     "r=run_read_only_agent_prompt(backend='copilot',executable=k['ARGUS_SKILL_RUNNER_BIN'],"

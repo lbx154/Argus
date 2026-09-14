@@ -15,12 +15,12 @@ Skill; this global adapter does not decide a Method D/Method B research policy.
 ```bash
 PPT_MASTER_ROOT="${ARGUS_SKILL_HOME:-$HOME/.argus-skill}/tools/ppt-master"
 SKILL_DIR="$PPT_MASTER_ROOT/skills/ppt-master"
-"${ARGUS_SKILL_BIN:-argus-skill}" --ppt-master-status
+"${ARGUS_SKILL_BIN:-argus}" --ppt-master-status
 ```
 
 Use the revision managed by Argus. A failed status check may indicate a missing
 installation, a dependency problem or a modified checkout: report the actual cause.
-Use `argus-skill --install-ppt-master` only within existing operator authorization;
+Use `argus --install-ppt-master` only within existing operator authorization;
 do not silently clone, update or replace the shared toolkit to complete a slide.
 
 Read `$SKILL_DIR/SKILL.md`, its `workflows/routing.md`, then only the selected route's

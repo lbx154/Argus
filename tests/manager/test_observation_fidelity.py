@@ -8,16 +8,16 @@ import socket
 
 import pytest
 
-from argus_skill.core.event_catalog import EventType
-from argus_skill.core.models import RunnerResult
-from argus_skill.daemon.state import write_continuous_config
-from argus_skill.life.context_packet import mission_context_dir
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.manager import Manager
-from argus_skill.manager import observation as observation_module
-from argus_skill.manager.directive import load_active_manager_directive
-from argus_skill.manager.observation import control_identity, observe_project
-from argus_skill.manager.supervision import supervise
+from argus.core.event_catalog import EventType
+from argus.core.models import RunnerResult
+from argus.daemon.state import write_continuous_config
+from argus.life.context_packet import mission_context_dir
+from argus.life.memory import Backlog, BacklogItem
+from argus.manager import Manager
+from argus.manager import observation as observation_module
+from argus.manager.directive import load_active_manager_directive
+from argus.manager.observation import control_identity, observe_project
+from argus.manager.supervision import supervise
 
 LONG_REQUIREMENT_PREFIX = "Validate each recorded acceptance rule without weakening it. " * 30
 LONG_EXCERPT_PREFIX = "Recorded diagnostic detail from the earlier attempt. " * 40

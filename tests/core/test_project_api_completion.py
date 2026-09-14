@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.project_api import (
+from argus.core.project_api import (
     SOURCE_INDEPENDENT_CERTIFICATION,
     SOURCE_PLANNER_VERDICT,
     SOURCE_VERTICAL_CERTIFICATE,
@@ -14,9 +14,9 @@ from argus_skill.core.project_api import (
     complete_project,
     evaluate_completion,
 )
-from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
-from argus_skill.life.project_lifecycle_io import load_persisted
-from argus_skill.verticals._base import load_vertical_contract
+from argus.life.project_lifecycle import ProjectState, ProjectStatus
+from argus.life.project_lifecycle_io import load_persisted
+from argus.verticals._base import load_vertical_contract
 
 _REFS = ("journal:final_certification",)
 
@@ -163,7 +163,7 @@ def test_completing_finished_project_again_is_no_op(tmp_path: Path) -> None:
 def test_core_completion_api_does_not_resolve_verticals() -> None:
     import inspect
 
-    from argus_skill.core import project_api
+    from argus.core import project_api
 
     source = inspect.getsource(project_api)
     assert "from ..verticals" not in source

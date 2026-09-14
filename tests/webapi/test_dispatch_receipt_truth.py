@@ -10,14 +10,14 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import read_turns
-from argus_skill.life.memory import Backlog
-from argus_skill.manager import Manager, config_intent, dispatch, front_door
-from argus_skill.manager.domain_author import VerticalDecision
-from argus_skill.webapi import manager_state, server
-from argus_skill.webapi.daemon_services import DaemonServices
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import read_turns
+from argus.life.memory import Backlog
+from argus.manager import Manager, config_intent, dispatch, front_door
+from argus.manager.domain_author import VerticalDecision
+from argus.webapi import manager_state, server
+from argus.webapi.daemon_services import DaemonServices
 
 GOAL = "比较相同批量下两组延迟，并保留缺失值说明。"
 
@@ -57,7 +57,7 @@ def test_real_dispatch_ack_does_not_invent_execution_or_repeat_the_confirmation(
         @contextmanager
         def busy(*_args, **_kwargs):
             yield False
-        monkeypatch.setattr("argus_skill.daemon.commands.daemon_command_execution_lock", busy)
+        monkeypatch.setattr("argus.daemon.commands.daemon_command_execution_lock", busy)
 
     observed = []
 
@@ -116,7 +116,7 @@ def test_real_dispatch_ack_does_not_invent_execution_or_repeat_the_confirmation(
 
 @pytest.mark.parametrize("streaming", [False, True])
 def test_cancel_during_startup_cannot_publish_a_late_dispatch_reply(tmp_path, monkeypatch, streaming):
-    from argus_skill.webapi import manager_bridge
+    from argus.webapi import manager_bridge
 
     sid = "s-cancel-startup"
     life = tmp_path / "projects" / sid

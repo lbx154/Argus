@@ -4,18 +4,18 @@ import json
 
 import pytest
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.apps._runtime import _workflow_mode_for_project_root
-from argus_skill.manager import Manager
-from argus_skill.manager.domain_author import build_vertical_decision_prompt
-from argus_skill.reviewer import Reviewer, ReviewerConfig
-from argus_skill.skills.vertical_select import (
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.apps._runtime import _workflow_mode_for_project_root
+from argus.manager import Manager
+from argus.manager.domain_author import build_vertical_decision_prompt
+from argus.reviewer import Reviewer, ReviewerConfig
+from argus.skills.vertical_select import (
     VERTICAL_PURPOSES,
     VERTICALS,
     persist_vertical,
 )
-from argus_skill.verticals._base import (
+from argus.verticals._base import (
     load_vertical,
     vertical_role_banner,
     vertical_workflow_mode,
@@ -234,7 +234,7 @@ def test_reviewer_workflow_change_refreshes_the_session_rubric(tmp_path) -> None
 def test_direct_engineer_and_reviewer_keep_selected_vertical_banners(
     tmp_path,
 ) -> None:
-    from argus_skill.roles.prompts.engineer import build_mission_prompt
+    from argus.roles.prompts.engineer import build_mission_prompt
 
     persist_vertical(tmp_path, "kernel_engineering", workflow_mode="direct")
     vertical = load_vertical("kernel_engineering", project_root=tmp_path)

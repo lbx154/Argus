@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
-from argus_skill.agent_cli.models import AgentRunResult
-from argus_skill.core.runner_errors import (
+from argus.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
+from argus.agent_cli.models import AgentRunResult
+from argus.core.runner_errors import (
     is_pre_provider_refusal_error,
     is_unrecoverable_resume_error,
     result_has_pre_provider_refusal,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.roles.prompts import engineer
+from argus.roles.prompts import engineer
 
 
 @pytest.mark.parametrize("include_static", [True, False])

@@ -145,7 +145,7 @@ class AgentCliBackend:
             auth state etc.
         event_callback: optional ``(stream_name, line) -> None`` callback
             per stdout/stderr line. Forward this to your event sink for
-            live-log streaming. argus-skill's daemon EventSink consumes
+            live-log streaming. Argus's daemon EventSink consumes
             via ``EventSink.handle_stream_line``.
     """
 
@@ -459,7 +459,7 @@ class AgentCliBackend:
         cli_cls = self._deps["CliRunnerOptions"]
         # The bundled runner's RunnerOptions is a superset (has watchdog
         # hooks, add_dirs, plugin_dirs, etc.). Forward the fields
-        # argus-skill exposes; the watchdog hooks are propagated when set
+        # argus exposes; the watchdog hooks are propagated when set
         # so an outer supervisor can interrupt the codex subprocess.
         interrupt_providers = [
             self._default_interrupt_reason_provider,

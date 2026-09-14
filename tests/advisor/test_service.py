@@ -5,10 +5,10 @@ from dataclasses import replace
 
 import pytest
 
-from argus_skill.advisor.config import AdvisorConfig
-from argus_skill.advisor.receipts import read_receipt, recent_receipts
-from argus_skill.advisor.service import AdvisorCallContext, AdvisorService, make_advisor_backend
-from argus_skill.core.models import RunnerResult
+from argus.advisor.config import AdvisorConfig
+from argus.advisor.receipts import read_receipt, recent_receipts
+from argus.advisor.service import AdvisorCallContext, AdvisorService, make_advisor_backend
+from argus.core.models import RunnerResult
 
 
 def fixture(tmp_path, *, config=None, action=None, emit=None, interrupt=None):
@@ -156,8 +156,8 @@ def test_reported_different_model_is_explicit_failure(tmp_path):
 
 
 def test_backend_factory_never_uses_main_model_or_falls_back_to_another_runner(monkeypatch):
-    from argus_skill.agent_cli import runner_backend
-    from argus_skill.trial import client
+    from argus.agent_cli import runner_backend
+    from argus.trial import client
 
     monkeypatch.setattr(runner_backend, "resolve_runner_bin", lambda *_args: None)
     config = AdvisorConfig(enabled=True, backend="codex", model="explicit-advisor")

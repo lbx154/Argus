@@ -14,7 +14,7 @@ assumes the project is producing a research paper:
 
 Quality judgment belongs to the Reviewer reading the actual paper, code and
 raw results — not to deterministic validators. Submodules are imported
-directly (e.g. ``from argus_skill.verticals.research import
+directly (e.g. ``from argus.verticals.research import
 academic_language_review``), and the most-used public symbols are re-exported
 here for callers that want one import site.
 """

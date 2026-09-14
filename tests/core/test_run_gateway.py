@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.run_gateway import (
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.run_gateway import (
     RunExecGateway,
     RunExecRequest,
     run_exec,
@@ -124,7 +124,7 @@ def test_scoped_interrupt_preserves_options_and_existing_provider():
 
 
 def test_opt_in_reason_retention_survives_preparation_and_resets_after_scope():
-    from argus_skill.core.run_gateway import current_run_interrupt_reason
+    from argus.core.run_gateway import current_run_interrupt_reason
 
     backend = _Backend()
     reasons = ["operator abort requested: original one-shot reason"]
@@ -146,7 +146,7 @@ def test_retained_reason_survives_concurrent_slow_poll(late_reason):
     from contextvars import copy_context
     from threading import Event, Thread, current_thread
 
-    from argus_skill.core.run_gateway import current_run_interrupt_reason
+    from argus.core.run_gateway import current_run_interrupt_reason
 
     main_thread = current_thread()
     entered, release = Event(), Event()
@@ -177,7 +177,7 @@ def test_retained_reason_survives_concurrent_slow_poll(late_reason):
 
 
 def test_application_code_has_no_direct_backend_run_exec_bypass() -> None:
-    package = Path(__file__).parents[2] / "argus_skill"
+    package = Path(__file__).parents[2] / "argus"
     allowed = {
         package / "adapters" / "agent_cli_backend" / "_exec.py",
         package / "adapters" / "agent_cli_backend" / "_exec_spawn.py",

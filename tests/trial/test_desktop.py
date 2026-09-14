@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.trial import client, desktop, native_cli
+from argus.trial import client, desktop, native_cli
 
 
 @pytest.mark.parametrize("system,machine,asset", [
@@ -129,7 +129,7 @@ def test_truncated_download_reports_network_failure_before_install(tmp_path, mon
 
 
 def test_desktop_protocol_never_relays_key_or_setup_stdout(monkeypatch):
-    from argus_skill.core import knob_store
+    from argus.core import knob_store
 
     key = "argus_trial_" + "a" * 64
     monkeypatch.setattr(desktop.sys, "stdin", io.StringIO(json.dumps({"api_key": key}) + "\n"))

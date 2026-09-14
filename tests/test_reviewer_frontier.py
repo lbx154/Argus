@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.reviewer._parsing import parse_decision_text
+from argus.reviewer._parsing import parse_decision_text
 
 _BASE = """STATUS=continue
 REASON=The shared abstraction improved, with a bounded adapter repair cluster.

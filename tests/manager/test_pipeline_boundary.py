@@ -10,12 +10,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_backends import _Outcome
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.manager import Manager, dispatch, front_door
-from argus_skill.manager._session_ops import (
+from argus.apps._runtime_backends import _Outcome
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.manager import Manager, dispatch, front_door
+from argus.manager._session_ops import (
     ManagerLockCancelled,
     clear_manager_pipeline_yield,
     manager_pipeline_boundary,
@@ -23,7 +23,7 @@ from argus_skill.manager._session_ops import (
     manager_pipeline_yield_requested,
     request_manager_pipeline_yield,
 )
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.skills.vertical_select import persist_vertical
 
 
 def test_independent_yield_waiters_do_not_clear_each_other(tmp_path):
@@ -55,7 +55,7 @@ def test_yield_liveness_uses_the_portable_read_only_process_probe(tmp_path, monk
         inspected.append(pid)
         return True
 
-    monkeypatch.setattr("argus_skill.manager._session_ops.is_pid_running", probe)
+    monkeypatch.setattr("argus.manager._session_ops.is_pid_running", probe)
     assert manager_pipeline_yield_requested(tmp_path)
     assert inspected == [os.getpid()]
 
@@ -126,7 +126,7 @@ def test_pre_boundary_failure_settles_the_prepared_intent(
         def fail_write(*_args):
             raise OSError("marker publication failed")
 
-        monkeypatch.setattr("argus_skill.manager._session_ops._write_pipeline_yield", fail_write)
+        monkeypatch.setattr("argus.manager._session_ops._write_pipeline_yield", fail_write)
     handoff = front_door.manager_continuous_handoff if continuous else front_door.manager_bounded_handoff
     with pytest.raises(front_door.ManagerHandoffError):
         handoff(

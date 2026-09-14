@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.agent_probe import (
+from argus.core.agent_probe import (
     run_agent_repair_prompt,
     run_read_only_agent_prompt,
 )
@@ -37,7 +37,7 @@ def test_agent_probe_runs_read_only_without_mutating_safe_mode(
             )
 
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.AgentCliBackend",
+        "argus.adapters.agent_cli_backend.AgentCliBackend",
         Runner,
     )
     monkeypatch.setenv("ARGUS_SKILL_SAFE_MODE", "0")
@@ -72,7 +72,7 @@ def test_agent_probe_surfaces_runner_failure(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.AgentCliBackend",
+        "argus.adapters.agent_cli_backend.AgentCliBackend",
         Runner,
     )
 
@@ -96,7 +96,7 @@ def test_agent_probe_surfaces_spawn_error_without_traceback(monkeypatch) -> None
             raise OSError("executable could not start")
 
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.AgentCliBackend",
+        "argus.adapters.agent_cli_backend.AgentCliBackend",
         Runner,
     )
 
@@ -128,7 +128,7 @@ def test_agent_probe_allows_read_only_tool_activity(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.AgentCliBackend",
+        "argus.adapters.agent_cli_backend.AgentCliBackend",
         Runner,
     )
 
@@ -173,7 +173,7 @@ def test_agent_repair_prompt_enables_tools_and_real_workdir(
             )
 
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.AgentCliBackend",
+        "argus.adapters.agent_cli_backend.AgentCliBackend",
         Runner,
     )
 
@@ -213,7 +213,7 @@ def test_agent_repair_prompt_requires_real_tool_activity(
             )
 
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.AgentCliBackend",
+        "argus.adapters.agent_cli_backend.AgentCliBackend",
         Runner,
     )
 
@@ -242,8 +242,8 @@ def test_supported_doctor_backends_disable_all_tools(
     backend: str,
     expected: tuple[str, ...],
 ) -> None:
-    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-    from argus_skill.agent_cli.runner_backend import normalize_runner_backend
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+    from argus.agent_cli.runner_backend import normalize_runner_backend
 
     command = AgentCliRunner(
         backend,
@@ -262,8 +262,8 @@ def test_supported_doctor_backends_disable_all_tools(
 
 
 def test_opencode_tool_free_agent_denies_every_tool() -> None:
-    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-    from argus_skill.agent_cli.runner_backend import BACKEND_OPENCODE
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+    from argus.agent_cli.runner_backend import BACKEND_OPENCODE
 
     runner = AgentCliRunner("opencode", backend=BACKEND_OPENCODE)
     env = runner._child_env(RunnerOptions(

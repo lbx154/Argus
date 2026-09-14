@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const adapter = readFileSync(new URL('../../argus_skill/webapi/plugin_desktop.js', import.meta.url), 'utf8');
+const adapter = readFileSync(new URL('../../argus/webapi/plugin_desktop.js', import.meta.url), 'utf8');
 const pluginOrigin = 'http://127.0.0.1:18890';
 const fixture = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"></head><body>
 <form><input aria-label="项目路径" value="D:/original"><button data-testid="browse-folder" type="button">浏览…</button></form>

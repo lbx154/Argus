@@ -20,7 +20,7 @@ const BASE_RECORD: ApiOwnershipRecord = {
   pid: 4321,
   host: '127.0.0.1',
   port: 8899,
-  backendBin: '/repo/.venv/bin/argus-skill',
+  backendBin: '/repo/.venv/bin/argus',
   startedAt: '2026-07-14T00:00:00Z',
 };
 
@@ -67,7 +67,7 @@ test('accepts only a matching live Argus WebAPI record', async () => {
     pid: 4321,
     host: '127.0.0.1',
     port: 8899,
-    backendBin: '/repo/.venv/bin/argus-skill',
+    backendBin: '/repo/.venv/bin/argus',
     startedAt: '2026-07-14T00:00:00Z',
   };
   await writeFile(ownerFile, JSON.stringify(record));
@@ -92,14 +92,14 @@ test('rejects an unknown or mismatched process', async () => {
     pid: 4321,
     host: '127.0.0.1',
     port: 8899,
-    backendBin: '/repo/.venv/bin/argus-skill',
+    backendBin: '/repo/.venv/bin/argus',
     startedAt: '2026-07-14T00:00:00Z',
   }));
   assert.equal(await readOwnedApi({
     path: ownerFile,
     host: '127.0.0.1',
     port: 8899,
-    backendBin: '/repo/.venv/bin/argus-skill',
+    backendBin: '/repo/.venv/bin/argus',
     inspect: async () => ({
       alive: true,
       argv: ['/usr/bin/python', '-m', 'http.server', '8899'],
@@ -124,7 +124,7 @@ test('accepts a matching macOS ps command line', async () => {
 });
 
 test('accepts a matching macOS command line when the backend path contains spaces', async () => {
-  const record = { ...BASE_RECORD, backendBin: '/Users/Alex Smith/Argus/.venv/bin/argus-skill' };
+  const record = { ...BASE_RECORD, backendBin: '/Users/Alex Smith/Argus/.venv/bin/argus' };
   const ownerFile = await tmpOwner(record);
   const owned = await readOwnedApi({
     path: ownerFile,
@@ -143,7 +143,7 @@ test('accepts a matching macOS command line when the backend path contains space
 test('accepts a quoted case-insensitive Windows console-script command line', async () => {
   const record = {
     ...BASE_RECORD,
-    backendBin: 'G:\\Code Space\\Argus\\.venv\\Scripts\\argus-skill.exe',
+    backendBin: 'G:\\Code Space\\Argus\\.venv\\Scripts\\argus.exe',
   };
   const ownerFile = await tmpOwner(record);
   const owned = await readOwnedApi({
@@ -241,7 +241,7 @@ test('rejects backend binary path mismatch', async () => {
     path: ownerFile,
     host: BASE_RECORD.host,
     port: BASE_RECORD.port,
-    backendBin: '/other/.venv/bin/argus-skill',
+    backendBin: '/other/.venv/bin/argus',
     inspect: aliveInspect,
   }), null);
 });

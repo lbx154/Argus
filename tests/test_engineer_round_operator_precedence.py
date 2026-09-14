@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 
 
 def test_latest_operator_scope_reaches_next_round_without_stale_guidance(

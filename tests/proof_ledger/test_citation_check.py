@@ -20,28 +20,28 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.proof_ledger import (
+from argus.proof_ledger import (
     CitationStatus,
     ClaimStatus,
     EvidenceTier,
     Verdict,
     load_state,
 )
-from argus_skill.verticals.math import citation_check
-from argus_skill.verticals.math.citation_check import (
+from argus.verticals.math import citation_check
+from argus.verticals.math.citation_check import (
     DELIVERABLE_STATUSES,
     attribute_citation,
     resolve_citation,
     resolve_source,
 )
-from argus_skill.verticals.math.math_state import (
+from argus.verticals.math.math_state import (
     LITERATURE_RELPATH,
 )
-from argus_skill.verticals.math.math_state import (
+from argus.verticals.math.math_state import (
     main as math_state_main,
 )
-from argus_skill.verticals.math.objective_mode import set_objective
-from argus_skill.verticals.math.stages import stage_completion_issues
+from argus.verticals.math.objective_mode import set_objective
+from argus.verticals.math.stages import stage_completion_issues
 
 DOI = "doi:10.1093/oso/9780198533696.001.0001"
 LOCATOR = "Theorem 14.2"
@@ -710,7 +710,7 @@ def test_a_self_supported_citation_is_reported_not_silently_confirmed(
     hand edit, a direct kernel call, an older file. The status is derived, so
     it does not matter how the record got there.
     """
-    from argus_skill.verticals.math.math_state import record_citation_evidence
+    from argus.verticals.math.math_state import record_citation_evidence
 
     _project(tmp_path)
     record_citation_evidence(
@@ -727,7 +727,7 @@ def test_a_self_supported_citation_is_reported_not_silently_confirmed(
 
 def test_a_self_checked_citation_does_not_ship(tmp_path: Path) -> None:
     _project(tmp_path)
-    from argus_skill.verticals.math.math_state import record_citation_evidence
+    from argus.verticals.math.math_state import record_citation_evidence
 
     record_citation_evidence(
         tmp_path,
@@ -814,9 +814,9 @@ def test_an_assumption_with_no_recorded_filer_is_not_downgraded(
     honestly and cannot now be re-obtained against a filer nobody wrote down.
     The CLI requires ``--by``, so the gap does not grow.
     """
-    from argus_skill.proof_ledger import ExternalAssumption
-    from argus_skill.proof_ledger.assessment import assess_citation
-    from argus_skill.proof_ledger.models import EvidenceRecord
+    from argus.proof_ledger import ExternalAssumption
+    from argus.proof_ledger.assessment import assess_citation
+    from argus.proof_ledger.models import EvidenceRecord
 
     legacy = ExternalAssumption(
         assumption_id="rh",

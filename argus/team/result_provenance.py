@@ -52,7 +52,7 @@ def _ed25519():
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
             "result provenance requires the 'cryptography' package "
-            "(pip install 'argus-skill[signing]') or "
+            "(pip install 'argus[signing]') or "
             "unset ARGUS_EVAL_SIGNING_KEY / ARGUS_TEAMMATE_RESULT_VERIFY_KEY"
         ) from exc
     return serialization
