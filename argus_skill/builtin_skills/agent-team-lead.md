@@ -24,12 +24,19 @@ Every role may discover this Skill, but it does not erase role boundaries:
   explicitly acting as the mission's Engineer/lead.
 
 ## When a team is worth it
+If `ARGUS_SKILL_TEAM_TASK_ID` is set, this mission is already a teammate: send
+further decomposition to the parent lead. Do not create another Team, change
+the nesting switch, or bypass the runtime admission check. Explicitly authorized
+nested workflows must be configured by the host before execution, not by a child.
+
 Form a team only when all of these hold:
 
 - At least two tasks can make useful progress concurrently.
 - Their writable paths do not overlap.
 - Each task has its own completion evidence.
 - Provider, compute, and hardware capacity can support the requested width.
+- The width, timeout and total spend fit the current operator budget; widening
+  a pool is not a way around the shared budget or a failed admission.
 
 Stay solo for small, sequential, tightly coupled, or same-file work. `owns_paths` records the lead's partition for review and prior-work inheritance; it is not a filesystem sandbox, so do not form a team when prompt-level ownership is insufficient.
 

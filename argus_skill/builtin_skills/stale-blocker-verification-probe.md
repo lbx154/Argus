@@ -1,69 +1,31 @@
 ---
-name: "Stale Blocker Verification Probe"
-description: "A playbook for verifying whether a previously recorded blocker is still real by performing the cheapest decisive firsthand probe, reporting concrete evidence, and taking the smallest next step when the blocker has cleared."
+name: "Verify a Recorded Blocker"
+description: "核实记录中的阻塞是否仍存在。 Recheck a potentially stale blocker with the cheapest decisive authorized probe; distinguish still blocked, cleared and insufficient evidence, then continue permitted work."
 ---
 
-# Stale Blocker Verification Probe
-## Description
-A playbook for verifying whether a previously recorded blocker is still real by performing the cheapest decisive firsthand probe, reporting concrete evidence, and taking the smallest next step when the blocker has cleared.
+# Verify a Recorded Blocker
 
-## Category
-verification-probe
+Use when a prior record says a specific action is blocked. Treat that record as a
+hypothesis; do not re-investigate the whole project or repeat a costly failed run.
 
-## When to use
-- A planner, harness, or journal says work is blocked, but the record may be stale.
-- The task asks for fresh firsthand evidence of the current state.
-- The required outcome is to decide `STILL BLOCKED` versus `CLEARED`.
-- The blocker involves an artifact, command, gate, metric, dependency, permission, or external state that can be tested directly.
+1. Translate the blocker into the relevant condition: resource access, artifact
+   validity, missing decision, dependency version or a specific verification result.
+2. Choose the cheapest authorized probe that can decide it. Existing fresh evidence,
+   a file check, structured field, small access request or one targeted test may suffice.
+3. Run or inspect the probe and record the scope, actual outcome and coverage limits.
+   File existence does not establish validity; metadata visibility does not grant
+   download permission; missing telemetry does not establish missing execution.
+4. Classify the result:
+   - `CLEARED`: the action's actual prerequisite is now established.
+   - `STILL_BLOCKED`: direct evidence establishes the prerequisite is not satisfied.
+   - `INSUFFICIENT_EVIDENCE`: the probe failed to distinguish the possibilities.
+5. On inconclusive evidence, choose the next inexpensive discriminating observation
+   within budget, or explain the missing evidence. Do not guess a binary verdict.
+6. When cleared, resume the smallest useful permitted action. When still blocked,
+   preserve evidence and continue independent work; route only a concrete unavailable
+   decision/resource through the current role. A status check is not authority to
+   edit completion gates or override project state.
 
-## When NOT to use
-- Do not use for broad debugging or root-cause analysis unless the decisive probe fails.
-- Do not use when the user explicitly asks to implement the full feature instead of verifying a blocker.
-- Do not rely on journals, summaries, prior logs, or planner conclusions as final evidence.
-- Do not run expensive or destructive actions when a cheaper read-only probe can decide the state.
-
-## How to solve
-1. Identify the recorded blocker and translate it into a testable condition: `<artifact> exists`, `<command> succeeds`, `<metric> reaches threshold`, `<service> responds`, or `<gate> passes`.
-
-2. Determine the cheapest decisive probe. Prefer read-only checks first:
-   - `test -e <path> && stat <path>`
-   - `ls -l <path>`
-   - `rg <expected_text> <path>`
-   - `jq <query> <json_path>`
-   - `<command> --dry-run`
-   - `<test_command> --filter <single_case>`
-
-3. Actually run the probe now. Capture the command, exit code when available, and enough output to prove the current state.
-
-4. If the probe is inconclusive, run exactly one next cheapest probe that narrows the same condition. Avoid turning the mission into open-ended investigation.
-
-5. Decide plainly:
-   - `STILL BLOCKED` if the blocked action still fails or the required artifact/metric/state is absent.
-   - `CLEARED` if the blocked action succeeds or the required artifact/metric/state is now present.
-
-6. If still blocked, report:
-   - The blocker in present tense.
-   - The exact command or check performed.
-   - The concrete evidence, such as error text, missing file, failing status, or observed metric.
-   - The smallest likely owner/action needed next, if obvious.
-
-7. If cleared, immediately perform the smallest concrete next step that was previously prevented:
-   - rerun `<gate_command>`
-   - update `<status_artifact>`
-   - execute `<next_single_step>`
-   - unblock `<dependent_task>`
-   Keep it narrow; do not expand scope.
-
-8. Report the final evidence packet:
-   - `Status: STILL BLOCKED` or `Status: CLEARED`
-   - `Probe: <command>`
-   - `Evidence: <key output/file/timestamp/metric>`
-   - `Next step taken: <small action>` or `Next step blocked: <reason>`
-
-## Pitfalls
-- Treating the journal’s blocker as evidence instead of a hypothesis.
-- Reporting “blocked” without running a fresh command.
-- Running a broad build or full test suite when `stat`, `rg`, `jq`, or a single targeted command would decide the issue.
-- Claiming cleared without proving the blocked condition changed.
-- Continuing into unrelated cleanup after the blocker clears.
-- Omitting concrete evidence such as command output, file existence, timestamp, exit status, or metric value.
+Report the current condition, decisive evidence and next action in the normal task
+response. Do not create an open-ended watcher, extra evidence packet or repeated
+permission request for an action already authorized.

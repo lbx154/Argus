@@ -1,75 +1,39 @@
 ---
-name: "PDF Chat"
-description: "Read academic PDFs progressively (head → brief → section → page → full) instead of dumping the entire file into context. Use to inspect your own generated paper, read a related-work PDF, or do a reviewer-style re-read of main.pdf without burning the context window."
+name: "Progressive PDF Reading"
+description: "按页或章节读取 PDF，核对页码和版本。 Read document text progressively with the Argus PDF CLI; use rendered-page inspection for images/layout, and answer the user with only the relevant supported content."
 ---
 
-## Title
-PDF Chat
+# Progressive PDF Reading
 
-## Description
-Argus-native progressive PDF reader. Mirrors ARIS `deepxiv` step pattern (`brief` → `head` → `section` → full) but with zero external SDK dependency: extraction uses the system `pdftotext` CLI with a `pypdf` fallback. arXiv IDs are fetched directly from arxiv.org/pdf and cached.
+Use for a question about a local PDF or versioned arXiv paper. For source editing,
+read the source too; the rendered PDF remains evidence of what readers see.
+Text extraction cannot verify figures, layout or clipped content: inspect actual
+rendered pages for those questions.
 
-## When to use
-- The reviewer agent needs to re-read `paper/main.pdf` from a reader's perspective ("did I actually explain the method on page 3?").
-- A planner needs the abstract + intro of a related paper before deciding whether to study it deeply.
-- An author wants section-targeted text from a long PDF without loading the whole thing.
+Use the supplied Argus interpreter to run
+`python -m argus_skill.tools.pdf_chat <subcommand> <source> [options]`.
+`<source>` is a local file or arXiv identifier. Prefer an explicit arXiv version
+when claims depend on that version; a cached unversioned identifier may be stale.
 
-## When NOT to use
-- The artifact is already in source form (`paper/main.tex`, `paper/sections/*.tex`) — read those directly; PDF extraction loses structure.
-- You need image content from the PDF — this skill is text-only. In a research
-  paper Review, use the assigned read-only visual pass to inspect rendered pages.
-- The "PDF" is actually HTML / a website — fetch with `WebFetch`.
+| Need | Command |
+| --- | --- |
+| Locate pages/sections | `head <source>` |
+| Decide paper relevance | `brief <source>` |
+| Read one section | `section <source> "<name>"` |
+| Read a specific page/range | `page <source> --start N --end M` |
+| A task truly needs the full extracted text | `full <source>` |
 
-## Tool surface
-Single CLI: `python -m argus_skill.tools.pdf_chat <subcommand> <source> [options]`
+Start with the smallest command that answers the question. Section detection is
+heuristic; a missing section name should lead to the relevant page range, not an
+absence claim. Long `full` output may be truncated and is not proof of complete
+coverage. Compare the PDF/source version before attributing a quote or number.
 
-`<source>` can be a local path or an arXiv id like `2509.12345`. arXiv PDFs are cached at `${ARGUS_SKILL_PDF_CACHE}` (default `~/.argus-skill/pdf_cache`).
+Extraction uses `pdftotext` or a `pypdf` fallback. Surface unavailable files,
+parsing errors or access restrictions honestly. Cached PDFs are under
+`ARGUS_SKILL_PDF_CACHE` (default `~/.argus-skill/pdf_cache`); refresh an obsolete cache
+entry only when necessary and within the configured cache, preserving user files.
 
-| Subcommand | Output |
-|---|---|
-| `head <source>` | page count + detected section TOC + first-two-page preview (~4 KB) |
-| `brief <source>` | abstract + ~600 chars of Introduction (~2.8 KB total) |
-| `section <source> "<name>"` | one named section (case-insensitive substring match against the detected TOC) |
-| `page <source> --start N [--end M]` | text of one page or page range |
-| `full <source>` | entire concatenated text (truncated to 200 KB — use sparingly) |
-
-All output is JSON on stdout (`source`, `text`, and shape-specific keys).
-
-## How to solve
-1. Always start with `head` to see the actual section map. Section detection is heuristic; the TOC tells you exactly which names will match the `section` subcommand.
-2. Use `brief` next if the question is "is this paper relevant".
-3. Drop into `section` for the targeted section(s).
-4. `page` is for "what text is on page 7 of my own draft".
-5. `full` is a last resort — costs ~200 KB of context.
-
-### Reviewer self-review pattern
-After `paper/main.pdf` compiles, the reviewer agent should:
-```
-python -m argus_skill.tools.pdf_chat head paper/main.pdf
-python -m argus_skill.tools.pdf_chat brief paper/main.pdf
-python -m argus_skill.tools.pdf_chat section paper/main.pdf "Method"
-python -m argus_skill.tools.pdf_chat section paper/main.pdf "Experiments"
-```
-Then address the few questions that materially affect the paper. Keep them in the
-shared checkpoint if another round needs them; do not create a mandatory reviewer
-question list.
-
-### Related-paper inspection pattern
-```
-python -m argus_skill.tools.pdf_chat brief 2509.12345
-# decide whether to go deeper
-python -m argus_skill.tools.pdf_chat section 2509.12345 "Related Work"
-```
-
-## Key rules
-- Prefer `head`/`brief`/`section` over `full`; the whole point is to not load 30 KB of irrelevant prose.
-- Section detection is heuristic — if a section name doesn't match, re-query with a different keyword or use `page`.
-- Cached arXiv PDFs are immutable per id; force-refresh by deleting `${ARGUS_SKILL_PDF_CACHE}/<id>.pdf`.
-- This tool reads only; it does not modify PDFs or write summaries to disk.
-
-## Response shape
-- Return the subcommand's JSON output verbatim.
-- If the PDF is missing or the arXiv fetch fails, surface the error and suggest the next step (fix path / retry / try `/arxiv`).
-
-## Acknowledgements
-Step pattern adapted from ARIS `deepxiv`. Extraction implementation is independent.
+The CLI returns JSON. Use it as evidence and answer the actual user question with
+page/section references and concise supported content; return raw JSON only when
+requested. Stop once the question is answered, rather than dumping the full PDF
+or producing an unsolicited question list or summary file.

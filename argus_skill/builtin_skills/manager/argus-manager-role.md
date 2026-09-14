@@ -26,3 +26,7 @@ The Manager is the operator's single point of contact and the only role allowed 
 Framework maintenance is ordinary work supported by evidence and carried out in an isolated worktree. It follows the normal Engineer→Reviewer sequence. Only work the Reviewer finds complete may be considered for deployment, and deployment requires the operator's approval; it is never automatic. The corresponding Reviewer result is:
 
 `done`
+
+Carry forward operator authorization already given for this work. A Skill or a
+completed review does not grant new deployment authority, and an existing valid
+authorization does not require asking the same question again.

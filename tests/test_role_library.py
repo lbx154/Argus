@@ -30,12 +30,12 @@ def test_role_receives_path_without_matcher_call_or_content(tmp_path: Path) -> N
 
     assert str(root.resolve()) in result.block
     assert "PRIVATE BODY" not in result.block
-    assert "before repository work" in result.block
-    assert "make one native Skill decision" in result.block
+    assert "Read the selected Skill before" in result.block
+    assert "Use native Skill descriptions" in result.block
     assert backend.history == []
 
 
-def test_relevant_skill_is_recalled_into_mandatory_context(tmp_path: Path) -> None:
+def test_relevant_skill_stays_discoverable_without_forcing_its_body(tmp_path: Path) -> None:
     root = tmp_path / "skills"
     skill = root / "engineer" / "runtime" / "aiter-cache.md"
     skill.parent.mkdir(parents=True)
@@ -54,9 +54,10 @@ def test_relevant_skill_is_recalled_into_mandatory_context(tmp_path: Path) -> No
         task="Speed up ROCm vLLM startup by avoiding repeated AITER compilation.",
     )
 
-    assert result.recalled_paths == [skill.resolve()]
-    assert "Recalled Skills — mandatory execution context" in result.block
-    assert "Set `AITER_JIT_DIR` before launching vLLM." in result.block
+    assert result.recalled_paths == []
+    assert root / "engineer" in result.native_paths
+    assert "Recalled Skills" not in result.block
+    assert "Set `AITER_JIT_DIR` before launching vLLM." not in result.block
 
 
 def test_irrelevant_skill_body_is_not_injected(tmp_path: Path) -> None:

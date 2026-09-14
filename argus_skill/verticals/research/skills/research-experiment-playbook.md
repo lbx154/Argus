@@ -348,7 +348,7 @@ decision, then return here. Do not read all the sources in advance.
 | The thesis may have drifted from code | `engineer/hypothesis-implementation-contract.md` | Map the selected mechanism to the executed path |
 | A fresh Reviewer must verify execution fidelity | `reviewer/claim-to-code-trace.md` | Trace claim-critical calls and formulas |
 | Training or large inference infrastructure is required | `engineer/training-infrastructure-guide.md` | Select and reuse maintained frameworks |
-| A fresh project environment must be set up | `engineer/project-environment-management.md` | Create the project venv and install the ML stack cleanly |
+| A project environment needs setup or repair | `project-venv-package-management.md` in the global library | Reuse the configured environment and install only required dependencies |
 | A concrete dependency or resource may block execution | `engineer/environment-readiness.md` | Check only the resources this implementation uses |
 | An experiment changes a requested time estimate or misses a milestone | `engineer/research-timeline.md` | Recompute the forecast and explain the deviation with evidence |
 | The method is below its baseline | `engineer/research-grind.md` | Diagnose and improve the largest live gap |

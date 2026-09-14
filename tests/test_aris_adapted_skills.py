@@ -206,7 +206,7 @@ def test_rl_config_sanity_lives_in_collapse_diagnosis_skill() -> None:
     pass lives in the collapse-diagnosis skill's "before launching" use.
     """
 
-    md = BUILTIN_ROOT / "engineer" / "rl-training-collapse-diagnosis.md"
+    md = RESEARCH_ROOT / "engineer" / "rl-training-collapse-diagnosis.md"
     text = md.read_text(encoding="utf-8")
     assert "structurally learnable" in text
     assert "num_generations" in text

@@ -123,6 +123,25 @@ def test_runtime_does_not_create_a_missing_agents_directory(tmp_path: Path) -> N
     assert store.library_roots()[0] == (tmp_path / "state" / "skills").resolve()
 
 
+def test_mission_start_does_not_overwrite_learned_vertical_guidance(tmp_path: Path) -> None:
+    from argus_skill.skills.builtins import seed_context_skills
+
+    workdir = tmp_path / "repo"
+    workdir.mkdir()
+    args = _args(tmp_path, workdir)
+    shared = Path(args.skills_dir) / "_shared_verticals" / "research"
+    seed_context_skills(shared, "research")
+    learned = shared / "engineer/rl-training-collapse-diagnosis.md"
+    body = learned.read_text() + "\nVerified exception learned from this deployment.\n"
+    learned.write_text(body)
+    harness = _ExecuteHarness(args)
+    for _ in range(2):
+        state = SimpleNamespace(workdir=workdir, config=SimpleNamespace(active_vertical="research"))
+        harness._build_execute_skill_store_and_loop(state, sink=SimpleNamespace(handle_event=lambda event: None))
+        assert learned.read_text() == body
+        assert shared.resolve() in state.loop.skill_store.library_roots()
+
+
 def test_in_process_life_planner_receives_refreshed_project_skills(
     tmp_path: Path,
     monkeypatch,

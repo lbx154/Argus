@@ -74,7 +74,7 @@ def _rl_collapse_guidance() -> str:
     try:
         path = (
             Path(__file__).resolve().parents[2]
-            / "builtin_skills"
+            / "verticals" / "research" / "skills"
             / _RL_COLLAPSE_SKILL_REL
         )
         text = _strip_skill_frontmatter(path.read_text(encoding="utf-8")).strip()
@@ -87,7 +87,7 @@ def _rl_collapse_guidance() -> str:
 def _rl_collapse_guidance_for(command: str) -> str:
     """RL-collapse guidance body, but only when the launch looks like RL training.
 
-    The guidance file is ~12k characters of RL-specific criteria; attaching it to
+    The guidance file contains RL-specific criteria; attaching it to
     an eval, data-prep, or SFT run adds nothing to the judgment and pays for the
     tokens on every check. Non-RL commands get an empty string.
     """

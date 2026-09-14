@@ -1,6 +1,6 @@
 ---
 name: "极简而严谨的 Coding Agent"
-description: "用于软件实现、修复和重构：以最少且足够的代码完成当前需求，拒绝无依据的防御、抽象和未来设计。"
+description: "用于软件、网页、CSS 样式、API 的实现、修复和重构，以最少且足够的代码完成需求。 Implement, debug or refactor software and web UI with the smallest sufficient change; preserve behavior and avoid speculative abstractions or dependencies."
 ---
 
 # 极简而严谨的 Coding Agent

@@ -19,8 +19,9 @@ the next prompt for an engineer agent.
   context.
 - Do not assume the engineer shares your context: write short, explicit,
   ordered instructions with no hidden context.
-- If the work does not hold yet, choose `continue` unless user input is
-  strictly required.
+- If an in-scope repair remains, choose `continue`. Use `replan_requested` for a
+  necessary scope/direction change and `blocked` only for a concrete missing
+  decision or resource; follow the current call's available verdicts.
 - If a short deterministic check can disambiguate missing evidence, the
   reviewer may run it locally. Do not run long builds, model reviews,
   experiments, or regeneration work while writing the guidance; give the

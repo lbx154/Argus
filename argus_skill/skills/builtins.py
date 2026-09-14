@@ -31,8 +31,26 @@ _LEGACY_BUILTIN_SEED_HASHES = {
     "manager/evidence-based-stage-decision.md": "75347a834448d8abb92ae04ad486ab06c595d1fb53cbe3cd24e70b37368515ed",
     "planner/argus-planner-role.md": "30d16975503a9b41d97c05d622b4d36117677ff9500e65a4556dd2f8c244fb12",
     "reviewer/argus-reviewer-role.md": "bc971a888bfcdc3acaca939b643410f509c328376737377ba8e898f1b4dee925",
+    "agent-team-lead.md": "3d7cd66367c1c093503b7985a5c86a6e35331600e746f8e96811b3ef7f3df76f",
+    "curator/argus-curator-role.md": "4545b826842c39f54fa9f8f260bfb289e1d54b68403be03a9ade3a2d1172495c",
+    "engineer/minimal-coding-agent.md": "18a5cbb3c6f3a937bb493eaf54db3a41637b4c57f324169a4829151105a22e73",
+    "engineer/pdf-chat.md": "7debea0fb441b6b1de96dc9041266486430cded6afbffe13e7e2687acaf230e9",
+    "engineer/presentation-master.md": "16fb15d865670dfaad96b0445a7aa0d410660a8f6954ce1d61d5d6df3de5f17f",
+    "engineer/project-environment-management.md": "f4b1e8afa92d911b699fbb359a47bf1ad62c6a9dde7f5aaf54ed0324cdfb11c3",
+    "engineer/rl-training-collapse-diagnosis.md": "6830af8a4172e28e2f7c760469a4c47955923693826e7c9dadce7e6282854f18",
+    "engineer/semantic-scholar-search.md": "9d4c7db970747e4ab6f5905f64ba189f3dbb79a14d5b7d31c8ebde2c6e498e75",
+    "engineer/skill-authoring-guide.md": "95babe92e841066aed028f221b0e009336422048e7461db0676b0bd40980722e",
+    "engineer/stale-world-model.md": "1a461c11c40314a4ccb61bf40204198e5dfa172bfa932ad0aaed9b2165748427",
+    "performance-profile-ground-truth.md": "037052a75b63a4e29b05f23652d9a8b8bb9254bc546e9f4f1e06771f11e4faa0",
+    "project-venv-package-management.md": "f912af39a3a8c9914dd79abc78946fbb0b134268e560bb8977e84f9a539ac008",
+    "reviewer/claim-to-code-trace.md": "6ad0934c355227eb0ec772d52cdc9849ceee20128669c437dd16e23cc9990f0b",
+    "reviewer/engineer-process-audit.md": "5227066930458e945c486d628d5ff0c082c9db81e2c8d85827f94ee69c80c741",
+    "reviewer/guiding-the-engineer.md": "4636cfe91844f1416de84e18155f57220b9922076274f362c2f35c0c78233d4b",
+    "stale-blocker-verification-probe.md": "9c570afd9abb7ba72c194da754018c1a96ae640f70061b7669afa4021ea490e2",
 }
 _RETIRED_BUILTIN_SEED_HASHES = {
+    # Consolidated into project-venv-package-management.md.
+    "engineer/project-environment-management.md": "f4b1e8afa92d911b699fbb359a47bf1ad62c6a9dde7f5aaf54ed0324cdfb11c3",
     # Renamed on 2026-09-06 so that the library speaks like a researcher:
     # reading the evidence, the strongest argument against, claims against
     # evidence, a citation check, an environment readiness check, guiding the
@@ -294,7 +312,7 @@ def _seed_content_digests(body: bytes) -> set[str]:
     }
 
 
-def retire_orphaned_builtin_seeds(skills_dir: Path) -> list[str]:
+def retire_orphaned_builtin_seeds(skills_dir: Path, *, include_moved: bool = True) -> list[str]:
     """Remove retired seeds from matching, archiving any operator-edited copy."""
     skills_dir = Path(skills_dir)
     state = _seed_state(skills_dir)
@@ -303,7 +321,7 @@ def retire_orphaned_builtin_seeds(skills_dir: Path) -> list[str]:
         relative: state.get(relative)
         or _LEGACY_BUILTIN_SEED_HASHES.get(relative)
         or ""
-        for relative in _moved_global_skill_names()
+        for relative in (_moved_global_skill_names() if include_moved else ())
     })
     removed: list[str] = []
     for relative_name, expected_digest in sorted(
@@ -369,6 +387,7 @@ def _seed_texts(
     overwrite: bool,
 ) -> dict[str, bool]:
     state = _seed_state(skills_dir)
+    previous_state = dict(state)
     created: dict[str, bool] = {}
     for filename, text in texts:
         text = text.replace("\r\n", "\n")
@@ -402,10 +421,11 @@ def _seed_texts(
             _atomic_write_text(dest, text)
         state[filename] = source_digest
         created[filename] = changed
-    _atomic_write_text(
-        skills_dir / _BUILTIN_SEED_STATE,
-        json.dumps(state, indent=2, sort_keys=True) + "\n",
-    )
+    if state != previous_state:
+        _atomic_write_text(
+            skills_dir / _BUILTIN_SEED_STATE,
+            json.dumps(state, indent=2, sort_keys=True) + "\n",
+        )
     return created
 
 
@@ -467,7 +487,7 @@ def seed_builtin_skills_for_context(
     """
     skills_dir = Path(skills_dir)
     skills_dir.mkdir(parents=True, exist_ok=True)
-    retire_orphaned_builtin_seeds(skills_dir)
+    retire_orphaned_builtin_seeds(skills_dir, include_moved=False)
     # Workflow/domain Skills (real bodies) always win over a builtin
     # stub of the same relative path.
     vertical_texts = dict(iter_context_skill_texts(vertical, domain))
@@ -531,28 +551,17 @@ def seed_context_skills(
     """Seed only the active workflow/domain context into one runtime layer."""
     skills_dir = Path(skills_dir)
     skills_dir.mkdir(parents=True, exist_ok=True)
-    retire_orphaned_builtin_seeds(skills_dir)
-    created: dict[str, bool] = {}
-    for filename, text in iter_context_skill_texts(vertical, domain):
-        if filename.endswith(".md"):
-            _validate_builtin(filename, text)
-        dest = skills_dir / filename
-        if dest.exists() and not overwrite:
-            _ = overwrite_unidentified
-            created[filename] = False
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_text(dest, text)
-        created[filename] = True
-    for filename, text in iter_context_skill_assets(vertical, domain):
-        dest = skills_dir / filename
-        if dest.exists() and not overwrite:
-            created[filename] = False
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_text(dest, text)
-        created[filename] = True
+    # Moved global paths are valid here; never retire learned vertical copies.
+    retire_orphaned_builtin_seeds(skills_dir, include_moved=False)
+    _ = overwrite_unidentified  # Retained caller compatibility; edits stay owned.
+    created = _seed_texts(
+        skills_dir, iter_context_skill_texts(vertical, domain), overwrite=overwrite,
+    )
+    created.update(_seed_texts(
+        skills_dir, iter_context_skill_assets(vertical, domain), overwrite=overwrite,
+    ))
     return created
+
 
 
 def remove_unmodified_vertical_skill_seeds(

@@ -829,7 +829,7 @@ class SkillLoopExecuteMixin:
                 seed_context_skills(
                     vertical_dir,
                     active_skill_scope,
-                    overwrite=True,
+                    overwrite=False,
                 )
             explicit_project_skills = str(
                 os.environ.get("ARGUS_SKILL_PROJECT_SKILLS_DIR", "") or ""

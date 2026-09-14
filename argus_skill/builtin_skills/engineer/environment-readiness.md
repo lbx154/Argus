@@ -15,9 +15,10 @@ substantively different pilot, full, or ablation launch.
 
 ## Applicability rule
 
-Verify only resources the experiment actually uses. Mark irrelevant sections
-`NOT_APPLICABLE` with one sentence; do not fabricate a CUDA, model-weight, or API
-dependency to satisfy the checklist.
+Verify only resources the experiment actually uses. Skip irrelevant sections;
+state `NOT_APPLICABLE` only when a supplied contract asks for it. Do not fabricate
+a CUDA, model-weight, or API dependency to satisfy the checklist. Follow Project
+Environment and Dependencies for the existing interpreter, lockfile and cache policy.
 
 ## Required checks
 

@@ -126,6 +126,9 @@ process.stdout.write(JSON.stringify(used));
                                   options=RunnerOptions(working_dir=str(workspace)), run_label='engineer-r1')
         assert result.exit_code == 0
     assert len(observed_calls) == 2  # Exactly the two user turns; no review/evolution model calls.
-    recalled = render_skill_library_paths(SkillStore(state / 'skills'), role='engineer', task='normalize identifiers')
-    assert 'run_learned_tool' in recalled and 'normalize-identifiers' in recalled
+    discovery = render_skill_library_paths(SkillStore(state / 'skills'), role='engineer', task='normalize identifiers')
+    assert str(state / 'skills') in discovery
+    assert 'run_learned_tool' not in discovery  # Body is read only after selection.
+    learned = list((state / 'skills').rglob('*.md'))
+    assert any('run_learned_tool' in path.read_text() for path in learned)
     assert '.autors/runtime/wiki' in render_knowledge_wiki_block(state, role='Engineer')

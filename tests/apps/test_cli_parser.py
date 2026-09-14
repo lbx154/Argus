@@ -435,7 +435,7 @@ def test_main_exports_builtin_skills(
 
     assert rc == 0
     assert (target / "engineer/argus-engineer-role.md").exists()
-    assert (target / "engineer/semantic-scholar-search.md").exists()
+    assert not (target / "engineer/semantic-scholar-search.md").exists()
     assert not (target / "engineer/auto-research-pipeline.md").exists()
     assert not (target / "engineer/emnlp-paper-drafting.md").exists()
     assert not (target / "engineer/arxiv-paper-search.md").exists()

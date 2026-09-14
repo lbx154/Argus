@@ -1,71 +1,56 @@
 ---
 name: "Skill Authoring Guide"
-description: "Meta-skill that guides the author when it AUTHORS a new skill (no skill matched a mission that hit a fixable gap) or OPTIMIZES an existing one (a matched skill was used but a problem remained). Encodes what a good skill is, how to generalize a single mission's lesson into reusable expertise, the quality bar, and the anti-false-learning rules. The loop decides WHEN; this guide governs HOW."
+description: "沉淀或审查可复用方法，合并重复技能。 Create, revise or review a Skill only when task evidence supports a reusable procedure; choose global, vertical or project scope and prefer no edit to unsupported learning."
 ---
 
-# Skill Authoring Guide (how to create / optimize a skill)
+# Skill Authoring Guide
 
-You are the **author**. The loop has already decided WHICH action this is and
-handed you the reviewer's lesson. Your only job is to produce one excellent skill
-markdown. Quality is YOUR judgment here — there is no hardcoded gate behind you.
+A Skill transfers a method: when it applies, how to act, how to check the result,
+and when to stop. It is not a task history, a memorized answer or a new source of
+operator authority.
 
-## What a skill is
-A skill is **distilled expertise that a future agent reads and keeps evolving** — a
-seed, not a one-off note. It transfers a reusable METHOD, not this mission's content.
-Write what a strong senior practitioner would tell a capable colleague so they never
-hit this wall again.
+## Decide whether anything should be retained
 
-## The three modes (the loop tells you which)
+Read the current task evidence and existing relevant Skill first. A successful
+mission establishes its accepted output, not every causal explanation in the
+summary. Promote a causal rule only with the corresponding comparison, profiling
+or direct diagnosis. One verified correction can be reusable; an unresolved error,
+transient outage or compliance with a one-time user request is not enough.
 
-### CREATE — no skill matched, a mission hit a fixable gap
-Write the playbook the missing skill should have been. Scope it to the **class** of
-task (the operator/problem family), not this one instance. It must stand alone:
-when-to-use / when-not, the method, the failure modes, the honest rules. Give it an
-explicit semantic path and name so future Agents can discover it by browsing and search.
+If no durable method is supported, make no edit. Ordinary work can teach the Agent;
+there is no required CREATE/OPTIMIZE/ABSORB mode or separate author loop to satisfy.
+Use the existing role maintenance and reviewed sharing path, within current write
+authority. Do not start another learning agent or rerun the project to fill a Skill.
 
-### OPTIMIZE — a matched skill was used but a problem remained
-Fold the lesson into the EXISTING skill and sharpen it. Prefer making the existing
-guidance more correct/precise over appending. Do **not** bloat: if the skill already
-implies the lesson, tighten the wording instead of adding a paragraph. Keep its
-voice, structure, and frontmatter `name`.
+## Choose the narrowest reusable scope
 
-### ABSORB — a matched skill helped a mission SUCCEED
-A path worked. Fold what actually made it work into the skill so the next agent
-inherits it. Capture the reusable move (the mechanism, the order of operations, the
-check that caught the bug), not the run's specific numbers. Again: sharpen, don't
-bloat — a winning skill stays tight.
+- **Project:** local integration, experiment protocol, incomplete hypothesis or
+  project-specific recovery. New learning stays here until broader use is supported.
+- **Vertical:** a method tied to an algorithm family, discipline, toolchain or
+  workflow, such as RL health or scientific citation verification.
+- **Global:** stable methods that transfer across domains, with explicit triggers
+  and no hidden project, machine, role-authority or user-preference assumptions.
 
-## Quality bar (you own it)
-- **Generalize, don't transcribe.** Encode the reusable pattern; strip this mission's
-  specific numbers, paths, and one-off details (a worked example is fine *as an
-  example*, clearly labeled, if it teaches the method).
-- **Real expertise, deepen don't pad.** Add genuine senior-level substance; cut filler.
-  A skill the agent could have written itself from the prompt adds nothing.
-- **Method, not pre-chewed answers.** Give the agent the capability and the way to
-  reason/measure — never a conclusion it should derive itself. (e.g. for a kernel
-  skill: teach computing the roofline, not "this kernel is memory-bound, fuse it".)
-- **Actionable + honest.** When-to-use / when-NOT-to-use, the failure modes, and any
-  anti-cheat / honesty rules that keep the agent from fooling itself.
-- **Benchmark/optimization skills** must require the measured causal chain (measured →
-  bottleneck → mechanism → re-measured → gap → next), real-metric-only, no fabrication.
+User preferences and permissions belong in the appropriate user/project context.
+Never turn one user's consent, access grant, chosen model, or acceptance of mock
+values into permission for future work. Reusable guidance must re-check the current
+contract. Skills may not redefine success or authorize edits to gates/certificates.
 
-## Anti-false-learning (hard)
-- Encode only a **real, reusable correction**. The reviewer already judged this a
-  fixable skill gap; your job is to express it well, not to invent more.
-- If the lesson is actually one-off (an environment fluke, a typo, this mission's
-  quirk) and generalizes to nothing, say so and produce the smallest honest skill —
-  or, when optimizing, make no change rather than bloat the skill with noise.
-- Never weaken or restate the OUTCOME definition (metric / verifier / what counts as
-  winning). Skills change how the agent works, never what counts as a win.
+## Write the smallest useful change
 
-## Evolve by EFFECT, not by prose
-Whatever you write is persisted at its semantic path and available to future Agents.
-Later Agents and Reviewer feedback determine whether it should be revised, split,
-merged, or archived. Do not optimize for sounding good — optimize for a Skill that
-actually helps future work and keep the document honest.
+1. Prefer refining the existing semantic path; merge genuine duplicates rather
+   than appending another near-synonym. Preserve valid exceptions and user edits.
+2. State the trigger and important exclusions in the description, using language
+   users actually employ. Bilingual descriptions are useful for multilingual tasks.
+3. Give the procedure, decisive check, failure/uncertainty branches and stop condition.
+   Qualify versions, heuristics and numerical examples instead of calling them laws.
+4. Reproduce executable examples on a small fixture where practical. Missing logs,
+   API metadata and a green exit code each prove only their own narrow fact.
+5. Cite existing evidence beside the claim that needs it; do not copy secrets,
+   transcripts, outcomes or temporary identifiers into the procedure.
 
-## Output
-A Skill has exactly two frontmatter fields, `name` and `description`, followed by
-Markdown. Do not add IDs, versions, categories, counters, timestamps, fingerprints,
-or protection metadata. For OPTIMIZE, write the full revised Skill at its existing
-semantic path. Keep it tight — a sharp 1-page Skill beats a padded 3-page one.
+A document has exactly `name` and `description` YAML fields followed by Markdown.
+Do not add counters, scores or a parallel registry. For consequential revisions,
+compare the same representative tasks with and without the guidance using their
+real acceptance checks and actual cost. Preserve a useful improvement, narrow it
+when counterexamples appear, and archive guidance that no longer helps.

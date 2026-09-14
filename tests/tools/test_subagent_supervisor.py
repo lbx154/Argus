@@ -542,7 +542,8 @@ def test_rl_collapse_guidance_loads_and_strips_frontmatter() -> None:
     guidance = _rl_collapse_guidance()
     assert guidance, "RL collapse guidance should load from the bundled skill"
     assert not guidance.startswith("---"), "YAML frontmatter must be stripped"
-    assert "reward-variance death" in guidance.lower()
+    assert "reward_std" in guidance
+    assert "Standard offline DPO" in guidance
 
 
 def test_rl_collapse_guidance_for_attaches_only_to_rl_commands() -> None:

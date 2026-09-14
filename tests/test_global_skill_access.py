@@ -54,8 +54,9 @@ def test_saved_overrides_win_without_copying_or_recalling_the_bundled_body(tmp_p
         target.write_text('---\nname: Cache\ndescription: AITER compilation cache.\n---\n\nSAVED OVERRIDE\n')
         libraries = role_library.role_skill_libraries(store, role="engineer", task="AITER compilation cache", required_relative_paths=(relative.as_posix(),))
         assert libraries.required_paths == [target]
-        assert libraries.recalled_paths == [target]
-        assert "SAVED OVERRIDE" in libraries.block
+        assert libraries.recalled_paths == []
+        assert str(target) in libraries.block
+        assert "SAVED OVERRIDE" not in libraries.block
         assert "OLD PACKAGED BODY" not in libraries.block
     assert "OLD PACKAGED BODY" in (bundled / relative).read_text()
 

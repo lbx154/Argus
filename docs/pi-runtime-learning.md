@@ -3,7 +3,7 @@
 Normal Argus tasks using the Pi backend receive project runtime tools automatically.
 There is no separate experiment command, model provider, reviewer or learning daemon.
 The ordinary provider call retains its existing admission, budget, timeout and
-cancellation handling. Existing Skill recall and end-of-task Wiki/Skill maintenance
+cancellation handling. Native Skill discovery and end-of-task Wiki/Skill maintenance
 remain responsible for knowledge reuse and revision.
 
 For example, an Engineer repeatedly normalizing textual identifiers can turn the
@@ -110,8 +110,19 @@ home. Every configured role library also includes packaged global defaults as
 the final read-only fallback. Fresh profiles and ordinary conversations therefore
 receive the global paths in their prompts and Pi's native `--skill` arguments
 without first copying or seeding files. Saved project, vertical, and global
-overrides retain priority, including during bounded recall; skill bodies are
-still read on demand rather than all being added to every task.
+overrides retain priority in required-path resolution and native loader argument
+order. The host does not guess relevant skills from keyword overlap or insert their
+bodies as mandatory context. Pi receives descriptions and selects what to read within
+the ordinary task, including Chinese requests. Explicit required paths remain binding;
+the `recalled_paths` event field is empty for compatibility with existing readers.
+
+RL health, training infrastructure, Semantic Scholar search and scientific claim-to-code
+review live in the research layer. The global environment skill is the single source
+for interpreter, dependency and cache guidance. The RL supervisor loads the relocated
+guidance directly. Normal context refresh preserves learned edits and updates only
+recognized unmodified package copies; it does not force-write the packaged document
+over a learned vertical skill. Old global copies are retired with edited content
+preserved in the existing retirement archive.
 
 ### Runtime tests
 

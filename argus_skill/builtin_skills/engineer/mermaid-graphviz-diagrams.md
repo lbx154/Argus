@@ -37,8 +37,9 @@ deliverable is an editable presentation or publication-specific figure.
 3. **Choose a stable direction.** Prefer left-to-right for pipelines and
    top-to-bottom for hierarchies. Keep one dominant flow; avoid gratuitous
    feedback loops and crossing edges.
-4. **Author the source.** Store `.mmd` or `.dot` beside a short
-   `<name>.sources.md` mapping important nodes and edges to evidence.
+4. **Author the source.** Store `.mmd` or `.dot`. Reference evidence in existing
+   documentation or source comments where needed; a separate evidence map is
+   useful for complex claims, not mandatory for every diagram.
 5. **Render with the real engine.** Syntax inspection by eye is insufficient.
 6. **Inspect the SVG/PDF.** Check labels, arrow direction, line crossings,
    boundary containment, clipped text, contrast, grayscale meaning, and
@@ -96,7 +97,7 @@ choice; layout-engine changes can materially alter the diagram.
 - No unsupported claim was introduced to make the diagram look complete.
 - The final render is legible at its actual use size and without relying on
   color alone.
-- Source, render, evidence map, command, and versions are retained.
+- Source, render, relevant evidence references, command, and versions are retained.
 
 ## Boundaries
 

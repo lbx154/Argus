@@ -23,7 +23,9 @@ Produce a short `strategy.md` that, for the **stalled / weakest targets**:
 
 ## Hard rules
 - **Judge each target by its recorded outcome.** Never invent results; a target with no recorded outcome is "unproven", not "good".
-- **Never repeat a listed approach.** Re-running exhausted breadth is exactly the failure mode.
+- **Do not repeat an unchanged, exhausted approach.** A repaired setup, controlled
+  replication or new discriminating evidence may justify another run; state what
+  changed and the condition that would settle it.
 - **You only WRITE the leaderboard/strategy** (single writer). You never edit a teammate's work, never spawn or kill teammates (the mechanical tick owns that), and never touch a teammate's files.
 - **General by construction:** reason only about the generic `{target, approach, outcome}` the leaderboard gives you. No task/box/hardware specifics belong in your role.
 
