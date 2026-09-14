@@ -1,1 +1,0 @@
-"""Digital-circuit vertical package."""

@@ -9,7 +9,6 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 from argus_skill.domains import BUILTIN_DOMAINS
 from argus_skill.skills.vertical_select import VERTICALS
-from argus_skill.verticals._base import _VERTICAL_IMPORT_ALIASES
 
 TAURI_ROOT = Path(SPECPATH).resolve()
 ROOT = TAURI_ROOT.parent
@@ -59,13 +58,11 @@ def collect_in_tree_modules(package_root, package):
     return modules
 
 
-def collect_provider_modules(root, names, leaf, aliases=None):
+def collect_provider_modules(root, names, leaf):
     """Collect exact provider leaves without traversing optional helper packages."""
-    aliases = aliases or {}
     modules = []
     for name in names:
-        import_name = aliases.get(name, name)
-        package = f"{root}.{import_name}"
+        package = f"{root}.{name}"
         target = f"{package}.{leaf}"
         discovered = collect_submodules(
             package,
@@ -80,11 +77,13 @@ def collect_provider_modules(root, names, leaf, aliases=None):
 
 argus_modules = collect_in_tree_modules(ROOT / "argus_skill", "argus_skill")
 
+# Built-in verticals only, on purpose: the frozen bundle ships the in-tree
+# providers; community verticals (``argus-verticals``) are entry points of a
+# separately installed distribution and are not part of the desktop build.
 vertical_stage_modules = collect_provider_modules(
     "argus_skill.verticals",
     VERTICALS,
     "stages",
-    _VERTICAL_IMPORT_ALIASES,
 )
 domain_overlay_modules = collect_provider_modules(
     "argus_skill.domains",

@@ -1,4 +1,8 @@
-"""Load, query, and probe the curated professional kernel-tool registry."""
+"""Load, query, and probe the curated professional kernel-tool registry.
+
+Public seam: the ``chip_design`` vertical in ``argus-verticals`` imports this
+module by name, so its exported names are a compatibility surface.
+"""
 
 from __future__ import annotations
 

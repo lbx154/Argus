@@ -381,7 +381,7 @@ def test_pyinstaller_spec_collects_registered_stage_and_overlay_modules(monkeypa
     expected_domains = [load_domain(name).__name__ for name in BUILTIN_DOMAINS]
 
     assert namespace["vertical_stage_modules"] == expected_verticals
-    assert "argus_skill.verticals.digital_circuit.benchmark.stages" in expected_verticals
+    assert "argus_skill.verticals.math_synth.stages" in expected_verticals
     assert namespace["domain_overlay_modules"] == expected_domains
     assert set(expected_verticals + expected_domains) <= set(namespace["hiddenimports"])
     assert "unittest" in namespace["hiddenimports"]

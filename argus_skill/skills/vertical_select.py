@@ -1,17 +1,16 @@
 """Vertical selection for the auto-research loop.
 
 The loop runs ONE of several *verticals*, selected by a single ``vertical``
-field in ``.argus/PIPELINE_STATE.json``:
-
-* ``"research"`` — the four-stage research-paper pipeline
-  (idea → experiment → paper → review). This is the default and the safe fallback
-  whenever intent is unclear: producing a paper subsumes the optimize work,
-  so over-running is never a correctness hazard, only a cost one.
-* ``"speedrun"`` — the lean numeric-optimization vertical (setup → optimize →
-  measure → report). No literature review, no draft, no reviewer simulation,
-  no submission packaging. Used when the objective is "make this number go the
-  right way on this script" rather than "write me a paper". This is the
-  nanochat-autoresearch / GPU-kernel-speedrun shape.
+field in ``.argus/PIPELINE_STATE.json``. Seven are built in (``VERTICALS``
+below: ``research`` -- the default and the safe fallback whenever intent is
+unclear -- plus ``software``, ``argus_maintenance``, ``kernel_engineering``,
+``math``, ``math_synth`` and ``learning``); every other vertical is discovered
+at runtime through the ``argus_skill.verticals`` entry-point group, which is
+how the ``argus-verticals`` community package contributes ``quant``,
+``speedrun``, ``medical``, the literary verticals and the rest. Runtime code
+that asks "is this a vertical / what is its purpose" must therefore use
+``available_verticals()`` / ``available_vertical_purposes()``, never the
+built-in tuple.
 
 Two sides of the selector live here (the DECIDE side is no longer here — the
 Manager AGENT chooses the vertical; see ``manager/_core.py`` ``decide_vertical``
@@ -55,78 +54,39 @@ log = logging.getLogger(__name__)
 
 # --- constants -------------------------------------------------------------
 
-#: Known verticals. ``"research"`` is first and is the canonical default.
-#: ``"quant"`` is the finance factor-research vertical — a REPORT peer of
-#: ``research`` (it produces a reviewer-certified factor report, not a numeric
-#: metric), so it is NOT an optimize vertical and is never routed under speedrun.
-#: ``"speedrun"`` is the generic numeric-optimization vertical;
-#: ``"kernel_engineering"`` is the production/repository GPU-kernel vertical;
-#: the three per-task verticals below are the distinct Recursive "First Steps" tasks,
-#: each optimizing its OWN metric (so they are never conflated under speedrun):
-#:   nanochat         — Task 1: minimize val_bpb (300s, 1 GPU)
-#:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
-#:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
+#: Built-in verticals: the ones whose ``stages.py`` ships inside this package.
+#: ``"research"`` is first and is the canonical default. This tuple is the
+#: whole *built-in* inventory and nothing more -- the frozen desktop build and
+#: the hosted trial's public-asset check enumerate it deliberately -- but it is
+#: not the set of verticals a running Argus can select: installed entry-point
+#: verticals (``argus-verticals``) are merged in by ``available_verticals()``.
+#: ``argus_maintenance.architecture_audit`` reads this tuple with
+#: ``ast.literal_eval``, so keep it a plain literal.
 VERTICALS: tuple[str, ...] = (
-    "software", "argus_maintenance", "digital_circuit", "digital_circuit_benchmark", "chip_design",
-    "research", "medical", "math", "math_synth", "physics", "materials", "quant", "speedrun",
-    "kernel_engineering", "nanochat", "nanogpt_speedrun", "kernelbench",
-    "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
-    "modern_poetry", "prose", "literary_editor",
+    "research", "software", "argus_maintenance", "kernel_engineering",
+    "math", "math_synth", "learning",
 )
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
-#: decision prompt so the agent can PREFER an existing built-in (which ships
-#: expert per-stage reviewer checklists) over authoring a fresh, checklist-less
-#: data domain. Keys must stay in sync with ``VERTICALS``.
+#: decision prompt (merged with plugin purposes by
+#: ``available_vertical_purposes()``) so the agent can PREFER an existing
+#: vertical (which ships expert per-stage reviewer checklists) over authoring a
+#: fresh, checklist-less data domain. Keys must stay in sync with ``VERTICALS``.
 VERTICAL_PURPOSES: dict[str, str] = {
+    "research": "substantial original research paper: idea selection, implementation, "
+    "adaptive experiments, persuasive drafting, and terminal independent review",
     "software": "software engineering: repository repairs, features, tests, tooling, and "
     "ordinary implementation; not specialized hardware/runtime performance research",
     "argus_maintenance": "Argus framework repair and architecture improvement with "
     "independent regression and release checks",
-    "digital_circuit": "Verilog/SystemVerilog RTL, testbenches, formal verification, "
-    "FPGA/ASIC synthesis, timing, and sign-off",
-    "digital_circuit_benchmark": "single-stage fixed-harness RTL benchmark: interface, RTL, "
-    "local verification, pre-score elaboration, and attempt handoff",
-    "chip_design": "end-to-end digital ASIC/accelerator design from workload and "
-    "microarchitecture through RTL, physical implementation, and sign-off",
-    "research": "substantial original research paper: idea selection, implementation, "
-    "adaptive experiments, persuasive drafting, and terminal independent review",
-    "medical": "biomedical and pharmaceutical evidence execution: target-disease "
-    "mechanisms, human genetics, preclinical translation, clinical trials, safety, "
-    "failed programs, competitive pipelines, and auditable non-diagnostic decision "
-    "dossiers with independent review; not a generic paper pipeline",
+    "kernel_engineering": "accelerator runtime, model inference/serving, communication, "
+    "memory movement, and production CUDA/HIP/Triton/TileLang/CUTLASS/PyTorch kernel "
+    "performance work in a repository; not a fixed SOL-ExecBench competition",
     "math": "mathematical conjectures, proofs, and open problems using literature, "
     "computation, natural-language proof, or Lean as needed",
     "math_synth": "math-reasoning data synthesis: maximize pass@4-minus-pass@1 while "
     "the solver, verifier, metric, seeds, and evaluator stay frozen",
-    "physics": "theory, simulation, data analysis, literature, or experiment design "
-    "for a real physical system with bounded evidence",
-    "materials": "materials science and materials processing across atomistic, "
-    "microstructure, continuum, CAD/CAE, and experimental scales",
-    "quant": "equity factor research (IC/ICIR, backtest, Sharpe) producing a "
-    "reviewer-certified report, not a generic metric loop",
-    "speedrun": "single-metric script/benchmark optimization under a wall-clock budget: "
-    "setup, optimize, measure, report; no paper",
-    "kernel_engineering": "accelerator runtime, model inference/serving, communication, "
-    "memory movement, and production CUDA/HIP/Triton/TileLang/CUTLASS/PyTorch kernel "
-    "performance work in a repository; not a fixed SOL-ExecBench competition",
-    "nanochat": "minimize val_bpb on the nanochat train.py (bits-per-byte, ~300s, 1 GPU)",
-    "nanogpt_speedrun": "minimize wall-clock time to reach val_loss<=3.28 on modded-nanogpt (8xH100)",
-    "kernelbench": "maximize correctness-checked SOL score/speedup for GPU kernels on "
-    "B200 SOL-ExecBench/KernelBench",
     "learning": "ingest operator material and create, update, or archive skill/wiki knowledge",
-    "ale_last_exam": "Agents' Last Exam long-horizon professional workflow in a real "
-    "sandbox with hidden-reference, artifact-first GUI+CLI delivery",
-    "fiction_writing": "write or continue original fiction narrative prose while preserving "
-    "characters, world, and timeline; not a literature review or research task",
-    "classical_poetry": "compose or check classical Chinese 近体诗/古体/词 with reproducible "
-    "押韵/平仄 prosody and literary review",
-    "modern_poetry": "compose or revise modern free verse/prose poems without classical "
-    "prosody checks; enforce only declared hard constraints",
-    "prose": "compose or revise literary essays, memoir, or 抒情/叙事散文/随笔; not verse "
-    "or plot-driven fiction",
-    "literary_editor": "rewrite, expand, polish, proofread, or critique an existing "
-    "literary text while preserving edit scope and source facts",
 }
 
 #: The safe default vertical when intent is unclear or state is missing.
@@ -153,7 +113,12 @@ class UnknownVerticalError(ValueError):
 
 
 def available_verticals() -> tuple[str, ...]:
-    """Built-ins followed by valid installed plugins."""
+    """Built-ins followed by valid installed plugins.
+
+    This -- not ``VERTICALS`` -- is the inventory every runtime decision about a
+    *named* vertical consults: the Manager menu, ``require_vertical``, skill
+    seeding, and the "is this a learned data domain?" classification.
+    """
     from ..verticals._registry import vertical_plugins
 
     return (*VERTICALS, *(name for name in vertical_plugins() if name not in VERTICALS))
@@ -195,13 +160,14 @@ def _known_vertical(value: object, project_root: object = None) -> str | None:
     """Return the normalized vertical name if known, else ``None``.
 
     Strips whitespace/case and a trailing ``-needed`` sentinel. A value that
-    names a built-in vertical (the ``VERTICALS`` tuple) is always accepted.
-    When ``project_root`` is given, a value that names an existing project-local
-    DATA domain (``research/DOMAINS/<name>.json``) is ALSO accepted — this is how
-    a Manager-authored data domain flows through the same resolution path as the
-    built-in verticals. Returns ``None`` for non-strings, junk, or any value that
-    is neither a built-in vertical nor an existing data domain, so the caller can
-    fall through to the next precedence source.
+    names a built-in vertical or a valid installed entry-point vertical
+    (``available_verticals()``) is always accepted. When ``project_root`` is
+    given, a value that names an existing project-local DATA domain
+    (``research/DOMAINS/<name>.json``) is ALSO accepted — this is how a
+    Manager-authored data domain flows through the same resolution path as the
+    registered verticals. Returns ``None`` for non-strings, junk, or any value
+    that is neither a registered vertical nor an existing data domain, so the
+    caller can fall through to the next precedence source.
     """
     if not isinstance(value, str):
         return None

@@ -26,9 +26,6 @@ log = logging.getLogger(__name__)
 #: The safe fallback vertical: its stages module always imports.
 DEFAULT_VERTICAL = "research"
 VerticalDefinition: TypeAlias = ModuleType | DataDomain
-_VERTICAL_IMPORT_ALIASES = {
-    "digital_circuit_benchmark": "digital_circuit.benchmark",
-}
 
 
 def _normalize_vertical_name(name: object) -> str:
@@ -42,13 +39,17 @@ def _normalize_vertical_name(name: object) -> str:
 
 
 def load_vertical(name: object, project_root: object = None) -> VerticalDefinition:
-    """Resolve one in-tree, plugin, or project-local vertical provider."""
+    """Resolve one in-tree, plugin, or project-local vertical provider.
+
+    Order: a built-in ``argus_skill.verticals.<name>.stages`` wins, then a
+    vertical registered through the ``argus_skill.verticals`` entry-point group
+    (the ``argus-verticals`` community package registers seventeen), then a
+    project-local data domain. A built-in name can therefore never be shadowed
+    by an installed package.
+    """
     cleaned = _normalize_vertical_name(name)
-    import_name = _VERTICAL_IMPORT_ALIASES.get(cleaned, cleaned)
-    module_name = f"argus_skill.verticals.{import_name}.stages"
-    stages_path = os.path.join(
-        os.path.dirname(__file__), *import_name.split("."), "stages.py"
-    )
+    module_name = f"argus_skill.verticals.{cleaned}.stages"
+    stages_path = os.path.join(os.path.dirname(__file__), cleaned, "stages.py")
     optional = Path(stages_path).with_name("workbench.json").is_file()
     if os.path.isfile(stages_path) and not optional:
         try:
