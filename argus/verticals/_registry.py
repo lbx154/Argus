@@ -269,17 +269,26 @@ def _store_plugins(taken: frozenset[str]) -> dict[str, VerticalPlugin]:
         if _STORE_CACHE is not None and _STORE_CACHE[0] == key:
             return _STORE_CACHE[1]
     plugins: dict[str, VerticalPlugin] = {}
+
+    def remember(result: dict[str, VerticalPlugin]) -> dict[str, VerticalPlugin]:
+        # A failure is memoised too: the warning is logged once per registry
+        # state, not once per Manager menu or skill-seeding call.
+        global _STORE_CACHE
+        with _CACHE_LOCK:
+            _STORE_CACHE = (key, result)
+        return result
+
     try:
         entries = store.enabled_entries()
     except Exception:  # noqa: BLE001
         log.warning("vertical store registry is unreadable", exc_info=True)
-        return {}
+        return remember({})
     if entries:
         try:
             store.ensure_importable(store.package_root())
         except Exception:  # noqa: BLE001
             log.warning("the vertical store package could not be made importable", exc_info=True)
-            return {}
+            return remember({})
         builtin = _builtin_names()
         for name, entry in sorted(entries.items()):
             if name in taken:
@@ -302,9 +311,7 @@ def _store_plugins(taken: frozenset[str]) -> dict[str, VerticalPlugin]:
                 log.warning("store vertical %r has an incompatible contract: %s", name, exc)
                 continue
             plugins[name] = plugin
-    with _CACHE_LOCK:
-        _STORE_CACHE = (key, plugins)
-    return plugins
+    return remember(plugins)
 
 
 def vertical_plugins() -> dict[str, VerticalPlugin]:
