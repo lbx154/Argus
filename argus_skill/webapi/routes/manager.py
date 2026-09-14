@@ -24,6 +24,37 @@ from .models import CancelMessageIn, MessageIn
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 
 
+class _ManagerStreamingResponse(StreamingResponse):
+    """Propagate disconnect before the response waits for its worker to drain."""
+
+    def __init__(self, *args, cancel_event: threading.Event, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cancel_event = cancel_event
+
+    async def __call__(self, scope, receive, send):
+        async def receive_checked():
+            try:
+                message = await receive()
+            except BaseException:
+                self.cancel_event.set()
+                raise
+            if message.get("type") == "http.disconnect":
+                self.cancel_event.set()
+            return message
+
+        async def send_checked(message):
+            try:
+                await send(message)
+            except BaseException:
+                self.cancel_event.set()
+                raise
+
+        try:
+            await super().__call__(scope, receive_checked, send_checked)
+        finally:
+            self.cancel_event.set()
+
+
 async def _read_uploaded_attachments(
     files: list[UploadFile],
 ) -> list[tuple[str, str, bytes]]:
@@ -348,15 +379,18 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             raise
 
         q: "queue.Queue[dict | None]" = queue.Queue()
+        cancel_event = threading.Event()
+
+        def request_cancelled() -> bool:
+            return cancel_event.is_set() or lease.cancelled() or manager_control_generation(sid) != generation
 
         def _run() -> None:
             def _on_fragment(kind: str, payload: dict) -> None:
-                q.put({"type": kind, **payload})
+                if not request_cancelled():
+                    q.put({"type": kind, **payload})
 
             def _on_terminal(payload: dict) -> None:
-                # Middleware invalidated when SSE headers were sent. Polls can
-                # refill the cache while Manager is still working; detach them
-                # again before announcing any terminal result/partial commit.
+                # Detach stale reads even if a cancelled request partially committed.
                 ctx.invalidate_read_caches()
                 q.put(payload)
 
@@ -365,7 +399,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                     "global_root": project_root,
                     "defer_dispatch_ack": True,
                     "on_fragment": _on_fragment,
-                    "cancelled": lambda: lease.cancelled() or manager_control_generation(sid) != generation,
+                    "cancelled": request_cancelled,
                 }
                 if attachments:
                     kwargs["attachments"] = attachments
@@ -378,7 +412,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                 )
                 result = _finish_message(
                     sid, result, generation, global_root=project_root, text=body.text, on_fragment=_on_fragment,
-                    request_cancelled=lease.cancelled,
+                    request_cancelled=request_cancelled,
                 )
                 _on_terminal({"type": "done", "result": result})
             except Exception as exc:  # noqa: BLE001
@@ -404,8 +438,9 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             ):
                 yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
 
-        return StreamingResponse(
+        return _ManagerStreamingResponse(
             _gen(),
+            cancel_event=cancel_event,
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

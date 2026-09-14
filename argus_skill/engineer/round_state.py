@@ -29,6 +29,7 @@ from typing import Any
 from ..core.models import LoopStatus, RoundRecord
 from ..core.role_session import RoleSessionCapsule
 from ..core.secret_guard import SecretScanCache
+from ..core.stop_kinds import StopKind
 
 
 @dataclass
@@ -73,7 +74,7 @@ class EngineerTurnOutcome:
     round_thread_id: str | None
     fatal_error: str | None
     safe_fatal_error: str | None
-    stop_kind: str | None
+    stop_kind: StopKind | None
     raw_engineer_message: str
     engineer_message: str
     process_ownership_note: str

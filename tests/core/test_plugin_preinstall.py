@@ -1,6 +1,7 @@
 """Plugins a deployment declares are prepared once, quietly, and shown as provided."""
 
 import json
+import os
 import threading
 import time
 
@@ -19,6 +20,9 @@ def host(tmp_path, monkeypatch):
     monkeypatch.delenv(pm.PREINSTALL_ENV, raising=False)
     # Registry rows in these tests point at no real package; loading one is not the subject.
     monkeypatch.setattr(pm, "load_plugin", lambda *args, **kwargs: None)
+    # Lifecycle fixtures assume prior operator consent; the refusal is tested
+    # separately below. No scientific installation or real licence is invoked.
+    monkeypatch.setattr(pm, "_platon_license_accepted", lambda _root: True)
     return tmp_path / "host"
 
 
@@ -32,6 +36,7 @@ def current_row(**changes):
         "installed": 1.0,
         "sha256": spec["artifact"]["sha256"],
         "python_constraints": spec.get("python_constraints", []),
+        "validation_imports": spec.get("validation_imports", []),
     }
     row.update(changes)
     return row
@@ -72,6 +77,21 @@ def test_current_plugin_is_left_untouched(host, monkeypatch):
     for _ in range(2):
         assert pm.preinstall(host, ids=["crystalpilot"]) == {"crystalpilot": {"status": "ready"}}
     assert not (pm.install_root(host) / "crystalpilot" / "operation.json").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows PLATON consent boundary")
+def test_preinstall_cannot_bypass_missing_operator_consent(host, monkeypatch):
+    monkeypatch.setattr(pm, "_platon_license_accepted", lambda _root: False)
+    monkeypatch.setattr(pm, "_install", lambda *a, **k: pytest.fail("no installation without consent"))
+    result = pm.preinstall(host, ids=["crystalpilot"])
+    assert result["crystalpilot"]["status"] == "failed"
+    assert "PLATON" in result["crystalpilot"]["error"]
+    assert pm.registry(host) == {}
+
+
+def test_changed_validation_contract_requires_an_update(host):
+    write_registry(host, current_row(validation_imports=[]))
+    assert pm.preinstall_need("crystalpilot", host) == "update"
 
 
 def test_changed_scientific_constraints_require_an_update(host, slow_install):

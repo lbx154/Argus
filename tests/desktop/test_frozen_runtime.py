@@ -357,10 +357,26 @@ def test_source_runtime_verifier_loads_every_registered_provider() -> None:
     assert report["failures"] == []
 
 
-def test_pyinstaller_spec_collects_registered_stage_and_overlay_modules() -> None:
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows native payload requirement")
+def test_pyinstaller_spec_rejects_a_missing_native_adapter(monkeypatch) -> None:
+    native = ROOT / "argus_skill/_native/platon-headless.exe"
+    original = Path.is_file
+    monkeypatch.setattr(Path, "is_file", lambda path: False if path == native else original(path))
     tree = ast.parse(SPEC_PATH.read_text(encoding="utf-8"), filename=str(SPEC_PATH))
+    with pytest.raises(RuntimeError, match="Build the first-party Windows adapter"):
+        _execute_spec_collection(tree)
 
+
+def test_pyinstaller_spec_collects_registered_stage_and_overlay_modules(monkeypatch) -> None:
+    tree = ast.parse(SPEC_PATH.read_text(encoding="utf-8"), filename=str(SPEC_PATH))
+    native = ROOT / "argus_skill/_native/platon-headless.exe"
+    original = Path.is_file
+    # Collection-only unit test: do not require a previous build in the checkout.
+    # The actual spec still refuses missing payloads, as tested separately above.
+    monkeypatch.setattr(Path, "is_file", lambda path: True if path == native else original(path))
     namespace, calls = _execute_spec_collection(tree)
+    if sys.platform == "win32":
+        assert (str(native), "argus_skill/_native") in namespace["datas"]
     expected_verticals = [load_vertical(name).__name__ for name in VERTICALS]
     expected_domains = [load_domain(name).__name__ for name in BUILTIN_DOMAINS]
 

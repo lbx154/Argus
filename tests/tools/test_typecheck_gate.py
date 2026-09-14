@@ -34,6 +34,30 @@ def test_moving_a_duplicate_definition_does_not_create_a_false_regression():
     assert typecheck_gate.diagnostic_counts(old) == typecheck_gate.diagnostic_counts(new)
 
 
+def test_source_comparison_normalizes_paths_and_retains_only_first_party_diagnostics():
+    output = (
+        'argus_skill\\a.py:10: error: Invalid value [arg-type]\n'
+        '.venv/Lib/site-packages/example.py:11: error: Dependency debt [arg-type]\n'
+    )
+    assert typecheck_gate.diagnostic_counts(output, source_only=True) == {
+        'argus_skill/a.py: Invalid value [arg-type]': 1,
+    }
+    assert typecheck_gate.diagnostic_counts(output).total() == 2
+
+
+def test_editable_install_and_baseline_are_checked_without_silencing(tmp_path, monkeypatch):
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(typecheck_gate.subprocess, "run", run)
+    typecheck_gate._run_mypy(tmp_path)
+    assert "--no-silence-site-packages" in commands[0]
+    assert "--no-incremental" in commands[0]
+
+
 @pytest.mark.parametrize("returncode,output", [(2, "Internal error"), (1, "No module named mypy")])
 def test_failed_typechecker_cannot_pass_the_gate(tmp_path, monkeypatch, returncode, output):
     monkeypatch.setattr(typecheck_gate.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(

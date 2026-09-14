@@ -19,6 +19,8 @@ mod resilience;
 mod runner;
 #[path = "settings.rs"]
 mod settings;
+#[path = "update_install.rs"]
+mod update_install;
 #[path = "update_policy.rs"]
 mod update_policy;
 

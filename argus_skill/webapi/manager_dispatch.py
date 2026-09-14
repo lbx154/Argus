@@ -1204,6 +1204,8 @@ def _run_triage_and_fallbacks(
     from ..manager.front_door import manager_triage
 
     self_mode = str(chat_state.pop("_frontdoor_self_mode", "inspect") or "inspect")
+    chat_state.pop("_self_failure", None)
+    chat_state.pop("_self_delivery", None)
     if frontdoor_failure:
         from ..core.operator_messages import budget_refusal_reply
 
@@ -1217,7 +1219,9 @@ def _run_triage_and_fallbacks(
             "unavailable or failed during classification. No task was queued. "
             "Run `argus doctor --deep` to check backend readiness, then retry."
         )
-        return emitter.respond(reply, {"kind": "chat"})
+        return emitter.respond(reply, {
+            "kind": "error", "success": False, "error_code": "classification_failed",
+        })
 
     # 1) Manager triage — chat/SELF returns a reply; TEAM returns None. The
     # route was already decided in the merged call above, so triage skips its
@@ -1232,14 +1236,28 @@ def _run_triage_and_fallbacks(
             self_mode=self_mode,
             root_task_id=root_task_id,
         )
-    except Exception:  # noqa: BLE001 — triage failure biases to task
-        reply = None
+    except Exception as exc:  # noqa: BLE001 — never turn a failed call into TEAM work
+        if cancelled is not None and cancelled():
+            return _cancelled_result()
+        reply = (
+            "[not dispatched] Manager could not complete the inline request "
+            f"({type(exc).__name__}). No new task was queued."
+        )
+        return emitter.respond(reply, {
+            "kind": "error", "success": False, "error_code": "inline_reply_failed",
+        })
 
     # A provider may return a buffered reply or failure after interruption.
     # Reject it before durable UI/transcript writes and self-learning hooks.
     if cancelled is not None and cancelled():
         return _cancelled_result()
 
+    failure = chat_state.pop("_self_failure", None)
+    if failure:
+        chat_state.pop("_self_delivery", None)
+        return emitter.respond(reply or "[not dispatched] Manager did not complete this request.", {
+            "kind": "error", "success": False, "error_code": "inline_reply_failed",
+        })
     if reply is not None:
         result: dict[str, Any] = {"kind": "chat"}
         failure = chat_state.pop("_self_failure", None)
@@ -1268,10 +1286,14 @@ def _run_triage_and_fallbacks(
             "[not dispatched] Manager could not complete this inline reply. "
             "No task was queued; please retry the message."
         )
-        return emitter.respond(reply, {"kind": "chat"})
+        return emitter.respond(reply, {
+            "kind": "error", "success": False, "error_code": "inline_reply_failed",
+        })
     if control == "no_dispatch":
         reply = _NO_DISPATCH_FALLBACK
-        return emitter.respond(reply, {"kind": "chat"})
+        return emitter.respond(reply, {
+            "kind": "error", "success": False, "error_code": "inline_reply_failed",
+        })
     return None
 
 
@@ -1317,6 +1339,13 @@ def _dispatch_team_mission(
         chat_state,
         root_task_id=root_task_id,
         public_objective=public_objective,
+    )
+    prepared.cancelled = cancelled
+    prepared.on_wait = lambda: emitter.phase(
+        "正在等待当前研究任务安全交接，尚未提交修改…"
+        if chinese
+        else "Waiting for the current research task to hand over safely; changes are not committed yet…",
+        role="manager",
     )
     emitter.phase(
         "正在确认这个项目能否恢复…"

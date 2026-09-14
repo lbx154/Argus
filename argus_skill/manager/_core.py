@@ -180,8 +180,10 @@ class Manager(
             enabled=self.memory_maintenance_enabled,
         )
 
-    def pipeline_lock(self, *, cancelled: Callable[[], bool] | None = None):
-        return manager_pipeline_lock(self.manager_session_root, cancelled=cancelled)
+    def pipeline_lock(
+        self, *, timeout: float | None = None, cancelled: Callable[[], bool] | None = None,
+    ):
+        return manager_pipeline_lock(self.manager_session_root, timeout=timeout, cancelled=cancelled)
 
     def adjudicate_plan_challenge(self, planner_report: Any, **context: Any):
         """Route a Reviewer challenge through the Manager authority boundary."""

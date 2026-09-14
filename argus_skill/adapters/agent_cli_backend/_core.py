@@ -209,6 +209,7 @@ class AgentCliBackend:
         self._usage_project_root: Path | None = None
         self._usage_global_root: Path | None = None
         self._usage_mission_id: str | None = None
+        self._plugin_execution_options: object | None = None
         self._known_secret_values_override = tuple(
             known_secret_values_override or ()
         )
@@ -329,9 +330,15 @@ class AgentCliBackend:
             )
 
     def _refresh_known_secret_values(self) -> None:
+        trial_values: tuple[str, ...] = ()
+        if getattr(self, "_is_copilot", False):
+            from ...agent_cli.copilot_home import copilot_runtime_redactions
+
+            trial_values = copilot_runtime_redactions()
         self._known_secret_values = tuple(dict.fromkeys((
             *self._known_secret_values_override,
             *known_secret_values(),
+            *trial_values,
         )))
 
     def _configured_pricing_model(self, *, profile: str = "") -> str:

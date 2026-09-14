@@ -127,6 +127,12 @@ def ensure_manager_decision(
     returned unchanged: a blind run is better than a stalled queue, and the
     diagnostic surface already reports the item as undecided.
     """
+    from ...core import plugin_manager
+
+    state_root = Path(getattr(memory, "root", ".")).expanduser()
+    decision = getattr(item, DECISION_KEY, None)
+    selected = decision.get("vertical", "") if isinstance(decision, dict) and decision.get("routed") else None
+    plugin_manager.require_session_plugin(state_root, vertical=selected)
     if not needs_manager_decision(item):
         decision = getattr(item, DECISION_KEY, None)
         vertical = (
@@ -189,7 +195,11 @@ def ensure_manager_decision(
         evidence = decision_evidence(getattr(prepared, "decision", None)) or {
             "routed": True
         }
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        if plugin_manager.session_plugin_name(state_root):
+            raise plugin_manager.PluginUnavailableError(
+                "插件工作台任务路由失败，任务未执行；请检查连接后新建会话。"
+            ) from exc
         log.exception(
             "backlog guard: could not route item %s through the Manager; running "
             "it as written",
@@ -197,6 +207,7 @@ def ensure_manager_decision(
         )
         return item
 
+    plugin_manager.require_session_plugin(state_root, vertical=evidence.get("vertical", ""))
     updates: dict[str, Any] = {DECISION_KEY: evidence}
     if execution_task and execution_task.strip() != objective:
         updates["objective"] = execution_task

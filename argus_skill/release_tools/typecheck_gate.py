@@ -15,21 +15,27 @@ from pathlib import Path
 _ERROR = re.compile(r"^(.+?):\d+(?::\d+)?: error: (.+)$")
 
 
-def diagnostic_counts(output: str) -> Counter[str]:
+def diagnostic_counts(output: str, *, source_only: bool = False) -> Counter[str]:
     """Keep file/message/code and multiplicity; moving lines is not new debt."""
     counts: Counter[str] = Counter()
     for line in output.splitlines():
         if match := _ERROR.match(line):
+            filename = match[1].replace("\\", "/")
+            if source_only and not filename.startswith("argus_skill/"):
+                continue  # Dependencies are analyzed; their diagnostics stay in the raw logs.
             message = match[2]
             if message.endswith("[no-redef]"):
                 message = re.sub(r"\bon line \d+\b", "on line <location>", message)
-            counts[f"{match[1]}: {message}"] += 1
+            counts[f"{filename}: {message}"] += 1
     return counts
 
 
 def _run_mypy(root: Path) -> str:
+    # Editable installs are treated as site-packages by mypy. Without this
+    # flag, transitive errors in the current checkout disappear while the
+    # unpacked baseline reports them, making the comparison falsely improve.
     result = subprocess.run(
-        [sys.executable, "-m", "mypy", "--no-pretty", "--no-color-output",
+        [sys.executable, "-m", "mypy", "--no-incremental", "--no-silence-site-packages", "--no-pretty", "--no-color-output",
          "--show-error-codes", "--no-error-summary"],
         cwd=root, capture_output=True, text=True, check=False,
     )
@@ -68,9 +74,10 @@ def main(argv: list[str] | None = None) -> int:
         (args.output_dir / "baseline.log").write_text(before, encoding="utf-8")
         (args.output_dir / "current.log").write_text(after, encoding="utf-8")
         (args.output_dir / "base-revision.txt").write_text(revision + "\n", encoding="utf-8")
-    old, new = diagnostic_counts(before), diagnostic_counts(after)
+    old = diagnostic_counts(before, source_only=True)
+    new = diagnostic_counts(after, source_only=True)
     added = new - old
-    print(f"mypy baseline {revision[:12]}: {old.total()} diagnostics; current: {new.total()}; "
+    print(f"mypy baseline {revision[:12]}: {old.total()} first-party diagnostics; current: {new.total()}; "
           f"introduced: {added.total()}; removed: {(old - new).total()}")
     for diagnostic, count in sorted(added.items()):
         print(f"NEW ({count}): {diagnostic}")

@@ -147,7 +147,7 @@ def acceptance_guard_outcome(supervisor: Any, state: Any) -> Any | None:
                         run_label="planner.acceptance_dependencies",
                     )
                     kind = normalize_stop_kind(getattr(result, "stop_kind", None))
-                    if kind or getattr(result, "exit_code", 0) or getattr(result, "fatal_error", None):
+                    if kind is not None or bool(getattr(result, "exit_code", 0)) or bool(getattr(result, "fatal_error", None)):
                         return stopped_if_current(
                             str(getattr(result, "fatal_error", "") or "Planner dependency assessment was interrupted."),
                             stop_kind=kind or "transient_error",

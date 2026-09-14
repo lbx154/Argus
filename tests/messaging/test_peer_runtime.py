@@ -15,7 +15,7 @@ from argus_skill.messaging.store import PeerMailbox
 from argus_skill.messaging.transport import request
 
 
-def test_pi_manager_native_tool_reaches_durable_peer_queue_through_real_gateway(tmp_path, monkeypatch):
+def test_pi_manager_native_tool_reaches_durable_peer_queue_through_real_gateway(tmp_path, monkeypatch, platform_process_env):
     from argus_skill.adapters.agent_cli_backend._exec_finalize import finalize_result
     from argus_skill.core import secret_guard
 
@@ -55,7 +55,7 @@ process.stdout.write(JSON.stringify(inspected.details));
         process = subprocess.run(
             [node, "--input-type=module", "-e", script, Path(runtime.EXTENSION).with_name("pi_tools.mjs").as_uri(),
              Path(runtime.__file__).parents[1].joinpath("core/role_tool_bridge.mjs").as_uri()],
-            env={"PATH": os.defpath, **ctx.options.extension_env}, text=True, capture_output=True, timeout=10,
+            env={**platform_process_env, "PATH": os.defpath, **ctx.options.extension_env}, text=True, capture_output=True, timeout=10,
         )
         assert process.returncode == 0, process.stderr
         status = json.loads(process.stdout)

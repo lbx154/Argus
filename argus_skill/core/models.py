@@ -30,6 +30,7 @@ LoopStatus = Literal[
     "error",
     "budget_exhausted",
     "paused_budget",
+    "paused_cost",
     "paused_provider_cooldown",
     "paused_provider_fence",
     "paused_daemon_shutdown",

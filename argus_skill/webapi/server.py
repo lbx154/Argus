@@ -252,11 +252,10 @@ def _command_response(receipt: DaemonCommandReceipt) -> dict[str, Any]:
 
 
 def _manager_stream_heartbeat_seconds() -> float:
-    """Silence interval before SSE reports that it is awaiting a model event.
+    """Silence interval before SSE reports that it is awaiting a worker update.
 
-    This is status, not invented chain-of-thought: the frame says only what the
-    bridge can verify (the Manager turn is still alive and ACP has emitted
-    nothing new). Set ``ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S=0`` to disable.
+    This is status, not invented chain-of-thought: a worker may be waiting for a
+    safe handoff or local I/O, not necessarily an active model call. Set ``ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S=0`` to disable.
     """
     raw = os.environ.get("ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S", "5")
     try:
@@ -296,7 +295,7 @@ def _iter_manager_stream_items(
             yield {
                 "type": "phase",
                 "role": active_role,
-                "label": f"{actor} · waiting for the next model event · {quiet_s}s quiet",
+                "label": f"{actor} · waiting for the next update · {quiet_s}s quiet",
                 "heartbeat": True,
                 "quiet_s": quiet_s,
             }
@@ -543,6 +542,9 @@ def create_app(
         revision = api_meta["runtime"].get("revision")
         if revision:
             response.headers["X-Argus-Revision"] = str(revision)
+        response.headers["X-Argus-Release"] = str(
+            api_meta["runtime"].get("release_id") or "unknown"
+        )
         cache_control = _web_cache_control(request.url.path)
         if cache_control:
             response.headers["Cache-Control"] = cache_control
@@ -691,11 +693,17 @@ def serve(
     auth_token: str | None = None,
 ) -> int:
     """Run the API with uvicorn (blocking). Defaults to a localhost bind."""
-    from ..core.runtime_identity import source_root_preflight_error
+    from ..core.runtime_identity import (
+        release_match_preflight_error,
+        source_root_preflight_error,
+    )
 
     source_error = source_root_preflight_error()
     if source_error:
         raise RuntimeError(f"webapi refused mismatched source root: {source_error}")
+    release_error = release_match_preflight_error()
+    if release_error:
+        raise RuntimeError(f"webapi refused inconsistent release: {release_error}")
     import uvicorn
 
     uvicorn.run(

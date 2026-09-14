@@ -25,6 +25,20 @@ import pytest
 
 
 @pytest.fixture
+def platform_process_env() -> dict[str, str]:
+    """Minimal public OS bootstrap values, never an ambient credential copy.
+
+    Node/OpenSSL on Windows fails its CSPRNG initialization without SystemRoot.
+    Explicitly isolated child-env tests must retain this OS prerequisite and
+    the QA runner's temporary directories while still discarding user config.
+    """
+    if os.name != "nt":
+        return {}
+    return {name: os.environ[name] for name in ("SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP")
+            if name in os.environ}
+
+
+@pytest.fixture
 def require_symlink_support(tmp_path: Path) -> None:
     """Skip only when this host cannot create the symlinks a test requires.
 

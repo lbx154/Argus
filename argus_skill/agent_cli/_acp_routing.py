@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 
+from .copilot_home import copilot_uses_metered_provider
 from .models import AgentRunResult
 from .runner_backend import BACKEND_COPILOT
 
@@ -153,7 +154,7 @@ class AcpRoutingMixin:
                 on_block=options.on_agent_message,
             )
         except Exception as exc:  # noqa: BLE001 — fast path must never break the turn
-            if run_label in _ACP_LEAN_LABELS:
+            if run_label in _ACP_LEAN_LABELS or copilot_uses_metered_provider():
                 return AgentRunResult(
                     command=[self.agent_bin, "--acp"],
                     exit_code=-1,
@@ -169,6 +170,6 @@ class AcpRoutingMixin:
             return result
         # Grounding retries can also fail after a metered ACP turn started.
         # Preserve that result/usage instead of replaying it in another CLI.
-        if result.thread_id:
+        if result.thread_id or copilot_uses_metered_provider():
             return result
         return None

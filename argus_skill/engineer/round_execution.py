@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
-from ..core.models import ReviewDecision, RoundRecord
+from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.role_decision import latest_role_decision
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.runner_receipts import is_provider_background_wait_receipt
@@ -777,7 +777,7 @@ class RoundExecutionMixin:
                     interrupt_kind = stop_kind_from_external_interrupt(
                         interrupt_reason
                     )
-                    status = (
+                    status: LoopStatus = (
                         "aborted"
                         if interrupt_kind == "operator_abort"
                         else pause_status_for_stop_kind(interrupt_kind)

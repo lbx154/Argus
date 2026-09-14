@@ -332,7 +332,7 @@ def _apply_framework_deployment_decision(
     revision = int(card.get("revision", 1) or 1)
     if option_id == "decline":
         reply = "The reviewed change was declined. The current runtime is unchanged."
-        deployment = {"verdict": "DECLINED"}
+        deployment: dict[str, Any] = {"verdict": "DECLINED"}
         status = "aborted"
         last_error = "operator declined the reviewed framework change"
     else:

@@ -828,7 +828,7 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
     assert "global daily budget exhausted" in str(denied.fatal_error)
 
 
-def test_unpriced_call_does_not_block_next_provider_spawn(
+def test_unpriced_call_blocks_provider_spawn_and_acknowledged_risk_still_obeys_cap(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -874,20 +874,25 @@ def test_unpriced_call_does_not_block_next_provider_spawn(
 
     assert first.pricing_status == "unpriced"
     assert first.cost_usd is None
-    assert calls == ["engineer-r1", "reviewer"]
-    assert not second.fatal_error
-    assert second.exit_code == 0
-    assert second.pricing_status == "priced"
-    assert second.cost_usd is not None and second.cost_usd > 0
+    assert calls == ["engineer-r1"]
+    assert "unresolved provider cost" in second.fatal_error
+    assert second.stop_kind == "cost_unreconciled"
+    assert second.pricing_status == "not_billed"
     state = json.loads((root / "cost-control.json").read_text())
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", str(second.cost_usd))
+    from argus_skill.core.cost_control import acknowledge_unpriced_call
+
+    acknowledge_unpriced_call(
+        global_root=root, project_id=project.name, call_id=first.call_id,
+        liability_usd=1.0, reason="Operator accepts this one unresolved call",
+    )
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
     denied = backend.run_exec(
         prompt="known cap reached",
         options=RunnerOptions(model="gpt-5.6-sol"),
         run_label="engineer-r2",
     )
-    assert calls == ["engineer-r1", "reviewer"]
+    assert calls == ["engineer-r1"]
     assert denied.stop_kind == "budget_exhausted"
     assert denied.pricing_status == "not_billed"
     assert "global daily budget exhausted" in denied.fatal_error

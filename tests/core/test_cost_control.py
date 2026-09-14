@@ -239,7 +239,7 @@ def test_priced_settlement_replaces_hold_with_global_ledger_cost(
 
 
 @pytest.mark.parametrize("provider", ["codex", "dsh"])
-def test_unpriced_cost_remains_visible_and_never_blocks_even_with_legacy_policy(
+def test_unpriced_cost_remains_visible_and_blocks_under_persisted_strict_policy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     provider: str,
@@ -260,16 +260,15 @@ def test_unpriced_cost_remains_visible_and_never_blocks_even_with_legacy_policy(
 
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["unresolved_calls"] == 1
-    assert snapshot["blocking_unresolved_calls"] == 0
-    assert snapshot["unresolved"][0]["blocking"] is False
+    assert snapshot["blocking_unresolved_calls"] == 1
+    assert snapshot["unresolved"][0]["blocking"] is True
     assert snapshot["unresolved"][0]["provider"] == provider
     assert snapshot["unresolved"][0]["reason"]
-    assert snapshot["policy"] == "allow"
+    assert snapshot["policy"] == "block"
     assert UsageLedger(project, migrate_legacy=False).records()[0].cost_usd is None
 
     next_call, reason = _reserve(tmp_path, project, "call-2")
-    assert next_call is not None and reason == ""
-    next_call.release(reason="test")
+    assert next_call is None and "unresolved provider cost" in reason
 
     monkeypatch.delenv("ARGUS_SKILL_UNPRICED_COST_POLICY")
     control, reason = reserve_call_budget(
@@ -282,8 +281,7 @@ def test_unpriced_cost_remains_visible_and_never_blocks_even_with_legacy_policy(
         global_root=tmp_path,
         global_daily_cap_usd=10.0,
     )
-    assert control is not None and reason == ""
-    control.release(reason="test")
+    assert control is None and "unresolved provider cost" in reason
 
 
 @pytest.mark.parametrize("daily_cap", [10.0, 0.000001])
@@ -293,6 +291,7 @@ def test_admission_reconciles_known_token_cost_before_deciding_the_budget(
     from argus_skill.core.pricing import MODEL_PRICES_USD_PER_MTOK
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
     model = "test-newly-priced-model"
     project = tmp_path / "projects" / "p1"
     project.mkdir(parents=True)
@@ -342,6 +341,7 @@ def test_partial_copilot_cost_does_not_block_new_calls(
     error: str,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
     project = tmp_path / "projects" / "p1"
     project.mkdir(parents=True)
     admission, reason = reserve_call_budget(

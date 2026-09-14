@@ -5,12 +5,12 @@ import os
 import re
 from collections.abc import Iterable
 
-from . import CLIENT_MODEL, MODEL
+from . import DEFAULT_UPSTREAM_MODEL, MODEL
 
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,199}\Z")
 
 
-def configured_model_ids(primary: str = CLIENT_MODEL, additional: Iterable[str] | None = None) -> tuple[str, ...]:
+def configured_model_ids(primary: str = DEFAULT_UPSTREAM_MODEL, additional: Iterable[str] | None = None) -> tuple[str, ...]:
     """Keep the default model; extra models are explicitly enabled by the host."""
     if additional is None:
         additional = [part.strip() for part in os.environ.get("ARGUS_TRIAL_MODELS", "").split(",") if part.strip()]

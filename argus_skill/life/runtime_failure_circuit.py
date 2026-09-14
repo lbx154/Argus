@@ -84,17 +84,17 @@ def _relevant_source_digest() -> str:
 
 def runtime_failure_identity() -> dict[str, Any]:
     """Facts that are allowed to close an existing runtime-failure circuit."""
-    from .. import __version__
-
     try:
-        from ..core.runtime_identity import source_revision
+        from ..core.runtime_identity import source_root
+        from ..release import release_identity
 
-        revision = str(source_revision() or "")
+        identity = release_identity(source_root())
     except Exception:  # noqa: BLE001 - identity failure must fail closed
-        revision = ""
+        identity = {}
     return {
-        "package_version": str(__version__ or "unknown"),
-        "source_revision": revision,
+        "release_id": str(identity.get("release_id") or "unknown"),
+        "manifest_source_digest": str(identity.get("manifest_source_digest") or ""),
+        "runtime_source_digest": str(identity.get("runtime_source_digest") or ""),
         "relevant_source_digest": _relevant_source_digest(),
         "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
     }
@@ -190,8 +190,8 @@ def record_runtime_failure_circuit(
             "last_observed_at": now,
             "item_ids": list(dict.fromkeys(item_ids))[-20:],
             "clear_conditions": [
-                "package_version_changed",
-                "source_revision_changed",
+                "release_id_changed",
+                "manifest_or_runtime_source_digest_changed",
                 "relevant_source_digest_changed",
                 "checkpoint_contract_version_changed",
                 "reviewed_canary_passed",

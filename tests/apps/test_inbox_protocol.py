@@ -129,8 +129,21 @@ def test_complete_legacy_identity_preserves_raw_digest_and_distinct_positions(tm
     assert first.identity["generation"] == second.identity["generation"] == 1
     assert first.identity["sequence"] == 1 and second.identity["sequence"] == 2
     assert path.is_dir()
-    with pytest.raises(IsADirectoryError):
+    with pytest.raises((IsADirectoryError, PermissionError)):
         path.open("a")
+
+
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_legacy_status_and_migration_use_exact_byte_offsets_for_line_endings(tmp_path, newline):
+    consumed = b'{"text":"old"}' + newline
+    pending = b'{"text":"pending"}' + newline
+    (tmp_path / "inbox.jsonl").write_bytes(consumed + pending)
+    (tmp_path / "inbox.offset").write_text(str(len(consumed)), encoding="ascii")
+    assert inbox.count_durable_inbox_messages(tmp_path) == 1
+    inbox.migrate_legacy_inbox(tmp_path, writers_stopped=True)
+    claim = take(tmp_path)
+    assert claim.text == "pending"
+    assert claim.identity["digest"] == hashlib.sha256(pending).hexdigest()
 
 
 def test_partial_legacy_never_acknowledged_and_completion_is_discoverable(tmp_path):

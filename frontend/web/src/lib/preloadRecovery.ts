@@ -13,7 +13,7 @@ export function installStaleChunkRecovery(
     // PDF imports are caught by their preview component. A missing PDF engine
     // or a browser compatibility error must not tear down the entire workbench.
     if (/\/(?:pdf[.-]|pdfjs)[^/\s]*\.(?:m?js)(?:[?#\s]|$)/i.test(message)) return;
-    if (!/failed to fetch dynamically imported module|importing a module script failed|loading chunk .+ failed/i.test(message)) return;
+    if (!/failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|loading chunk .+ failed|unable to preload css/i.test(message)) return;
     if (reloading) {
       event.preventDefault();
       return;

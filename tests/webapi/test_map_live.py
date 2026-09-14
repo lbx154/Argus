@@ -148,7 +148,7 @@ def test_copy_preview_get_reads_only_its_cache_and_reports_its_version(tmp_path,
     path = f"/api/map-copy/project/{sid}"
     normal = client.get(path).json()
     candidate = client.get(path, params={"preview": "true" if mode == "source-first" else mode}).json()
-    assert normal["cards"] == main["cards"] and normal["version"] == 24
+    assert normal["cards"] == main["cards"] and normal["version"] == copy.PROMPT_VERSION
     assert candidate["cards"] == preview["cards"] and candidate["version"] == version
     assert candidate["cache_revision"] == preview["cache_revision"] and normal["cache_revision"] == 7
     assert reads == [source, source + ":" + mode]
@@ -435,13 +435,14 @@ def test_invalid_generation_does_not_publish_partial_content(tmp_path, monkeypat
     sid, life = sample(tmp_path)
     monkeypatch.setattr(copy, "configured", lambda: True)
     monkeypatch.setattr(copy, "generate", lambda *_, **kwargs: {"cards": [], "relations": []})
-    with pytest.raises(ValueError, match="coverage"):
-        copy.enrich(
-            tmp_path,
-            read_map(sid, tmp_path, life),
-            [{"key": "task-a", "task_id": "task-a", "kind": "task", "event_ids": []}],
-            "zh-CN", project_root=life,
-        )
+    result = copy.enrich(
+        tmp_path,
+        read_map(sid, tmp_path, life),
+        [{"key": "task-a", "task_id": "task-a", "kind": "task", "event_ids": []}],
+        "zh-CN", project_root=life,
+    )
+    assert result["generation_error"]["code"] == "invalid_response"
+    assert result["retry_after"] > 0
     assert copy.read_cache(tmp_path, "live:" + sid + ":zh-CN").get("cards", {}) == {}
 
 

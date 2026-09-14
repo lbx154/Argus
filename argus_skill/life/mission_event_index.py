@@ -87,7 +87,9 @@ class MissionEventIndex:
             if not path.is_file():
                 continue
             stat = path.stat()
-            with path.open("rb") as handle:
+            # Windows FlushFileBuffers requires a writable handle. We do not
+            # modify retained logs, but must fsync recovered events before ack.
+            with path.open("r+b") as handle:
                 while True:
                     offset = handle.tell()
                     line = handle.readline(MAX_JSONL_RECORD_BYTES + 1)

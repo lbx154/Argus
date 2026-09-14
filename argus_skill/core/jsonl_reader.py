@@ -149,6 +149,40 @@ def retained_jsonl_paths(path: Path) -> list[Path]:
     return event_log_paths(path)
 
 
+def open_jsonl_generation(path: Path) -> BinaryIO:
+    """Keep a read-only log generation open without preventing Windows rotation.
+
+    This sharing policy is only for trusted append-only transport logs, not
+    artifact/attachment security handles that deliberately prohibit replacement.
+    """
+    if os.name != "nt":
+        return path.open("rb")
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    # GENERIC_READ; FILE_SHARE_READ | WRITE | DELETE; OPEN_EXISTING.
+    handle = kernel.CreateFileW(str(path), 0x80000000, 0x7, None, 3, 0x80, None)
+    if handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
+    try:
+        return os.fdopen(descriptor, "rb")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 class JsonlTail:
     """One open generation, drained before following its retained successors."""
 
@@ -166,8 +200,12 @@ class JsonlTail:
             self.stream = None
 
     def _open(self, path: Path) -> None:
-        stream = path.open("rb")
-        stat = os.fstat(stream.fileno())
+        stream = open_jsonl_generation(path)
+        try:
+            stat = os.fstat(stream.fileno())
+        except BaseException:
+            stream.close()
+            raise
         self.close()
         self.stream = stream
         self.identity = (stat.st_dev, stat.st_ino)
@@ -191,7 +229,7 @@ class JsonlTail:
             for previous in reversed(paths[:-1][-REPLAY_GENERATIONS:]):
                 if replay_limit <= len(rows) or remaining <= 0:
                     break
-                with previous.open("rb") as stream:
+                with open_jsonl_generation(previous) as stream:
                     older = read_jsonl_replay(stream, limit=replay_limit,
                                              max_bytes=remaining, preserve_partial=False)
                 remaining -= older.bytes_read

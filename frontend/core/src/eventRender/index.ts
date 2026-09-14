@@ -407,11 +407,17 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.planner.stall_escalation':
       return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', `${localized(context, 'the Planner is stuck', '规划者卡住了')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), 150)}`, 'warn');
     case 'life.budget.pause':
+      if (stringField(event, 'stop_kind') === 'cost_unreconciled' || stringField(event, 'reason').startsWith('unresolved provider cost'))
+        return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
       return model('system', 'event.watch', '⏸', localized(context, `budget cap reached — paused · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 140)}`, `已达到预算上限 — 已暂停 · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 140)}`), 'warn');
     case 'budget.reservation.denied':
-      return model('system', 'event.budget', '$', `${localized(context, 'not enough budget for this step', '这一步的预算不够')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), context.density === 'full' ? 160 : 150)}`, 'err', { rule: true });
+      if (stringField(event, 'reason').startsWith('unresolved provider cost'))
+        return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
+      return model('system', 'event.budget', '$', `${localized(context, 'budget denied', '预算申请被拒绝')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), context.density === 'full' ? 160 : 150)}`, 'err', { rule: true });
     case 'budget.unpriced.blocked':
-      return model('system', 'event.budget', '$', `${localized(context, 'held until the cost of this step is known', '这一步的成本还不清楚，先不做')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), context.density === 'full' ? 160 : 150)}`, 'err', { rule: true });
+      return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
+    case 'budget.unpriced.acknowledged':
+      return model('system', 'event.budget', '$', localized(context, 'Single-call cost risk approved; original usage remains pending', '已批准单笔费用风险；原始费用仍待对账'), 'warn');
     case 'life.lifecycle.block':
       return model('system', 'event.watch', '⛔', `${localized(context, 'blocked — needs you', '卡住了 — 需要你来处理')} · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 150)}`, 'err', { rule: true });
     case 'life.daemon.idle_timeout':

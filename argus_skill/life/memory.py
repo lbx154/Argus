@@ -528,6 +528,8 @@ class EventJournal:
             and str(row.get("status") or "") in {"budget_pause", "paused_budget"}
         ):
             kind: str | None = "budget_pause"
+        elif etype == EventType.LIFE_MISSION_COMPLETED and row.get("status") == "paused_cost":
+            kind = "cost_pause"
         elif (
             etype == EventType.LIFE_MISSION_COMPLETED
             and isinstance(row.get("iteration"), dict)
@@ -818,6 +820,7 @@ _BACKLOG_STATUSES = {
     "running",
     "paused",
     "paused_budget",
+    "paused_cost",
     "paused_provider_cooldown",
     "paused_provider_fence",
     "paused_daemon_shutdown",
@@ -837,6 +840,7 @@ _TERMINAL_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
 _RECOVERABLE_PAUSE_STATUSES = {
     "paused",
     "paused_budget",
+    "paused_cost",
     "paused_provider_cooldown",
     "paused_provider_fence",
     "paused_daemon_shutdown",

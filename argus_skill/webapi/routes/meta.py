@@ -20,7 +20,7 @@ from typing import Any
 from fastapi import Depends, Header, HTTPException, Request, Response
 
 from .context import ServerContext
-from .models import BudgetSetIn, ConfigSetIn, IdentitySetIn, SkillsIn
+from .models import BudgetSetIn, ConfigSetIn, CostAcknowledgeIn, IdentitySetIn, SkillsIn
 
 _RESOURCE_PROSE_LIMIT = 300
 
@@ -257,6 +257,47 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/projects/{sid}/cost-control", dependencies=[Depends(ctx.require_auth)])
+    def _cost_status(sid: str) -> dict[str, Any]:
+        from ...core.cost_control import (
+            CostControlStateError,
+            cost_admission_reason,
+            cost_control_snapshot,
+        )
+
+        ctx.resolve_or_404(sid)
+        root = ctx.project_root_or_404(sid)
+        try:
+            return {"cost_control": cost_control_snapshot(global_root=root),
+                    "admission_reason": cost_admission_reason(global_root=root)}
+        except CostControlStateError as exc:
+            raise HTTPException(503, "cost control is temporarily unavailable") from exc
+
+    @app.post("/api/projects/{sid}/cost-control/acknowledge", dependencies=[Depends(ctx.require_auth)])
+    def _acknowledge_cost(sid: str, body: CostAcknowledgeIn) -> dict[str, Any]:
+        from ...core.cost_control import (
+            CostControlStateError,
+            acknowledge_unpriced_call,
+            cost_admission_reason,
+            cost_control_snapshot,
+        )
+
+        ctx.resolve_or_404(sid)
+        root = ctx.project_root_or_404(sid)
+        try:
+            decision = acknowledge_unpriced_call(
+                global_root=root, project_id=sid, call_id=body.call_id,
+                liability_usd=body.liability_usd, reason=body.reason,
+            )
+            return {"acknowledgement": decision, "cost_control": cost_control_snapshot(global_root=root),
+                    "admission_reason": cost_admission_reason(global_root=root)}
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except CostControlStateError as exc:
+            raise HTTPException(503, "cost control is temporarily unavailable") from exc
 
     @app.post("/api/projects/{sid}/identity", dependencies=[Depends(ctx.require_auth)])
     def _identity_set(sid: str, body: IdentitySetIn) -> dict[str, Any]:

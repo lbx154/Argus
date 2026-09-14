@@ -53,10 +53,19 @@ impl RunnerKind {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AppearanceTheme {
-    #[default]
     System,
+    #[default]
     Light,
     Dark,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnAccountSettings {
+    pub runner_kind: RunnerKind,
+    pub runner_bins: BTreeMap<String, String>,
+    pub runner_configured: bool,
+    pub setup_complete: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -78,6 +87,8 @@ pub struct DesktopSettings {
     pub setup_complete: bool,
     #[serde(default)]
     pub trial_mode: bool,
+    #[serde(default)]
+    pub own_account: Option<OwnAccountSettings>,
     #[serde(default)]
     pub appearance_theme: AppearanceTheme,
 }
@@ -101,6 +112,7 @@ impl Default for DesktopSettings {
             runner_configured: false,
             setup_complete: false,
             trial_mode: false,
+            own_account: None,
             appearance_theme: AppearanceTheme::default(),
         }
     }
@@ -161,6 +173,8 @@ pub struct PiConfiguration {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopReleaseIdentity {
     pub package_version: String,
+    pub release_id: String,
+    pub source_digest: String,
     pub distribution: String,
 }
 
@@ -179,6 +193,7 @@ pub struct DesktopRuntimeIdentity {
 pub struct DesktopSetup {
     pub complete: bool,
     pub trial_mode: bool,
+    pub can_restore_own_account: bool,
     pub host: String,
     pub port: u16,
     pub runner_kind: RunnerKind,
@@ -324,6 +339,7 @@ pub struct BackendOwnership {
     pub host: String,
     pub port: u16,
     pub executable: String,
+    pub manifest_source_digest: String,
     pub token_sha256: String,
     pub started_at: String,
 }
@@ -336,6 +352,7 @@ pub struct ProbeIdentity {
     pub detail: Option<String>,
     pub pid: Option<u32>,
     pub executable: Option<String>,
+    pub manifest_source_digest: Option<String>,
     pub started_at: Option<String>,
     pub launch_nonce: Option<String>,
     pub failure_kind: Option<ProbeFailureKind>,

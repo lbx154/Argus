@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from . import CLIENT_MODEL, MAP_REASONING_DEFAULTS
+from . import DEFAULT_UPSTREAM_MODEL, MAP_REASONING_DEFAULTS
 from .copilot import BASE_URL, HEADERS, Copilot
 from .model_catalog import configured_model_ids
 from .secrets import Vault, write_private
@@ -46,7 +46,7 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str
         "ARGUS_SKILL_PI_PROVIDER": "argus",
         "ARGUS_SKILL_COPILOT_TRIAL": "0",
         **{name: resolve_knob(name, default).value for name, default in MAP_REASONING_DEFAULTS.items()},
-        **{knob.name: CLIENT_MODEL for knob in KNOBS if knob.name.endswith("_MODEL")},
+        **{knob.name: DEFAULT_UPSTREAM_MODEL for knob in KNOBS if knob.name.endswith("_MODEL")},
     }
     for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR", "CURATOR"):
         knobs[f"ARGUS_SKILL_{role}_BACKEND"] = "pi"

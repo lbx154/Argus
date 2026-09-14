@@ -5,6 +5,7 @@ from typing import Any, Literal, TypeAlias, cast
 
 StopKind: TypeAlias = Literal[
     "budget_exhausted",
+    "cost_unreconciled",
     "provider_cooldown",
     "provider_fence",
     "daemon_shutdown",
@@ -17,6 +18,7 @@ StopKind: TypeAlias = Literal[
 
 STOP_KINDS = frozenset({
     "budget_exhausted",
+    "cost_unreconciled",
     "provider_cooldown",
     "provider_fence",
     "daemon_shutdown",
@@ -28,6 +30,7 @@ STOP_KINDS = frozenset({
 })
 RECOVERABLE_STOP_KINDS = frozenset({
     "budget_exhausted",
+    "cost_unreconciled",
     "provider_cooldown",
     "provider_fence",
     "daemon_shutdown",
@@ -37,6 +40,7 @@ RECOVERABLE_STOP_KINDS = frozenset({
 })
 NON_FAILURE_STOP_KINDS = frozenset({
     "budget_exhausted",
+    "cost_unreconciled",
     "provider_cooldown",
     "provider_fence",
     "daemon_shutdown",
@@ -57,6 +61,7 @@ def stop_kind_from_external_interrupt(value: Any) -> StopKind | None:
         normalized = normalized.removeprefix("external interrupt:").lstrip()
     for prefix, kind in (
         ("global daily budget exhausted", "budget_exhausted"),
+        ("unresolved provider cost", "cost_unreconciled"),
         ("cost control unavailable", "backend_unavailable"),
         ("daemon stop requested", "daemon_shutdown"),
         ("operator pause requested", "operator_pause"),
@@ -67,17 +72,20 @@ def stop_kind_from_external_interrupt(value: Any) -> StopKind | None:
     return None
 
 
-def pause_status_for_stop_kind(value: Any) -> str:
+PauseStatus: TypeAlias = Literal[
+    "", "paused_budget", "paused_cost", "paused_provider_cooldown",
+    "paused_provider_fence", "paused_daemon_shutdown", "paused_operator",
+]
+_PAUSE_BY_STOP: dict[StopKind, PauseStatus] = {
+    "budget_exhausted": "paused_budget", "cost_unreconciled": "paused_cost",
+    "provider_cooldown": "paused_provider_cooldown", "provider_fence": "paused_provider_fence",
+    "daemon_shutdown": "paused_daemon_shutdown", "operator_pause": "paused_operator",
+}
+
+
+def pause_status_for_stop_kind(value: Any) -> PauseStatus:
     kind = normalize_stop_kind(value)
-    if kind is None:
-        return ""
-    return {
-        "budget_exhausted": "paused_budget",
-        "provider_cooldown": "paused_provider_cooldown",
-        "provider_fence": "paused_provider_fence",
-        "daemon_shutdown": "paused_daemon_shutdown",
-        "operator_pause": "paused_operator",
-    }.get(kind, "")
+    return _PAUSE_BY_STOP.get(kind, "") if kind is not None else ""
 
 
 def stop_kind_is_recoverable(value: Any) -> bool:
@@ -91,6 +99,10 @@ _STOP_KIND_CLAUSES: dict[str, tuple[str, str]] = {
     "budget_exhausted": (
         "the project reached its budget limit",
         "项目达到了预算上限",
+    ),
+    "cost_unreconciled": (
+        "provider charges are awaiting reconciliation or explicit risk approval",
+        "模型费用尚待核对或明确的风险确认",
     ),
     "provider_cooldown": (
         "the model service asked Argus to wait before calling again",
@@ -116,6 +128,7 @@ _STOP_KIND_CLAUSES: dict[str, tuple[str, str]] = {
 
 _PAUSE_STATUS_STOP_KINDS: dict[str, str] = {
     "paused_budget": "budget_exhausted",
+    "paused_cost": "cost_unreconciled",
     "paused_provider_cooldown": "provider_cooldown",
     "paused_provider_fence": "provider_fence",
     "paused_daemon_shutdown": "daemon_shutdown",

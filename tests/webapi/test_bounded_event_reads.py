@@ -86,7 +86,7 @@ def test_initial_replay_has_a_file_open_bound_even_for_empty_archives(tmp_path, 
     for number in range(2, 102):
         path.with_name(f"events.jsonl.{number}").touch()
     _append(path, 1)
-    original_open = Path.open
+    original_open = jsonl_reader.open_jsonl_generation
     opened = []
 
     def counted_open(candidate, *args, **kwargs):
@@ -94,7 +94,7 @@ def test_initial_replay_has_a_file_open_bound_even_for_empty_archives(tmp_path, 
             opened.append(candidate)
         return original_open(candidate, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "open", counted_open)
+    monkeypatch.setattr(jsonl_reader, "open_jsonl_generation", counted_open)
     reader = jsonl_reader.JsonlTail(path)
     try:
         assert reader.start(replay_limit=40, merge_rows=_merge_recent_event_rows) == [{"seq": 1, "type": "event"}]
@@ -126,7 +126,7 @@ def test_stable_tail_poll_does_not_open_logs_or_enumerate_generations(tmp_path, 
     reader = jsonl_reader.JsonlTail(path)
     reader.start(replay_limit=0, merge_rows=_merge_recent_event_rows)
     reader.read_batch()
-    original_open = Path.open
+    original_open = jsonl_reader.open_jsonl_generation
 
     def checked_open(candidate, *args, **kwargs):
         assert not candidate.name.startswith("events.jsonl")
@@ -135,7 +135,7 @@ def test_stable_tail_poll_does_not_open_logs_or_enumerate_generations(tmp_path, 
     def unexpected_paths(*args):
         raise AssertionError("stable poll enumerated event history")
 
-    monkeypatch.setattr(Path, "open", checked_open)
+    monkeypatch.setattr(jsonl_reader, "open_jsonl_generation", checked_open)
     monkeypatch.setattr(jsonl_reader, "retained_jsonl_paths", unexpected_paths)
     try:
         for _ in range(5):

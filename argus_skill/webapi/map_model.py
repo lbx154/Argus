@@ -18,7 +18,7 @@ from jsonschema import Draft202012Validator, ValidationError
 
 from ..adapters.agent_cli_backend import AgentCliBackend
 from ..agent_cli.runner_backend import default_runner_bin, normalize_runner_backend
-from ..core.knobs import resolve_knob, resolve_runner_bin_setting
+from ..core.knobs import normalize_cockpit_knob_value, resolve_knob, resolve_runner_bin_setting
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.role_config import resolve_role_config
 from ..core.run_gateway import run_exec
@@ -26,6 +26,22 @@ from .map_view import digest
 
 MapCopyPhase = Literal["waiting_for_source", "planning", "writing", "reviewing"]
 MapProgress = Callable[[MapCopyPhase], None]
+
+
+class MapGenerationError(OSError):
+    """A public classification without provider text, prompts or credentials."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(f"map text generation did not complete: {code}")
+
+
+def map_limit(name: str, default: str) -> int:
+    return int(normalize_cockpit_knob_value(name, resolve_knob(name, default).value))
+
+
+def map_timeout_seconds() -> int:
+    return map_limit("ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "600")
 
 
 @dataclass(frozen=True)
@@ -134,7 +150,7 @@ def _checked_document(value: object, output_schema: dict) -> dict:
         Draft202012Validator(output_schema).validate(value)
     except ValidationError:
         # Do not include model content in server validation logs.
-        raise ValueError("invalid card document schema") from None
+        raise ValueError("map document does not satisfy its bounded output schema") from None
     return value
 
 
@@ -164,9 +180,10 @@ def _run_map_turn(
     on_result: Callable[[RunnerResult], None] | None = None,
 ) -> RunnerResult:
     """Execute once and retain the real receipt before any format parsing."""
-    deadline = deadline if deadline is not None else time.monotonic() + 180
+    timeout = map_timeout_seconds()  # Validate before constructing a provider.
+    deadline = deadline if deadline is not None else time.monotonic() + timeout
     if time.monotonic() >= deadline:
-        raise OSError("map text generation timed out")
+        raise MapGenerationError("map_timeout")
     backend = AgentCliBackend(
         backend=config.backend, runner_bin=config.runner_bin,
         default_extra_args=list(config.extra_args),
@@ -203,7 +220,14 @@ def _run_map_turn(
     finally:
         backend.close_acp_clients()
     if result.exit_code or result.fatal_error:
-        raise OSError("map text generation did not complete")
+        reason = str(result.fatal_error or "").lower()
+        code = (
+            "map_timeout" if time.monotonic() >= deadline else
+            "cost_unreconciled" if result.stop_kind == "cost_unreconciled" or "unresolved provider cost" in reason else
+            "budget_exhausted" if result.stop_kind == "budget_exhausted" else
+            "provider_error"
+        )
+        raise MapGenerationError(code)
     if result.tool_activity_observed:
         raise ValueError("map text generation attempted to use tools")
     return result

@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core.event_catalog import EventType
-from .core.models import LoopOutcome, RoundRecord
+from .core.models import LoopOutcome, LoopStatus, RoundRecord
 from .core.ports import RunnerBackend
 from .core.role_session import configured_role_session_policy
 from .engineer.runner import (
@@ -211,7 +211,7 @@ class SkillLoop(
         self.engineer_runner = engineer_runner
         self.reviewer_runner = reviewer_runner or engineer_runner
         self.on_event = on_event
-        self.pre_settlement_guard: Callable[..., tuple[str, str, str]] | None = None
+        self.pre_settlement_guard: Callable[..., tuple[LoopStatus, str, str]] | None = None
         self.canonical_playground_engineer_skill: Any | None = None
         self.canonical_playground_reviewer_skill: Any | None = None
         # Optional callable consulted at the start of each engineer round.

@@ -2,13 +2,16 @@ name: release
 
 # Release version changes are operator-controlled. Do not bump package versions
 # for a bug fix unless the operator explicitly authorizes that release change.
-# v0.1.2 through v0.1.6 are operator-authorized desktop releases, published explicitly
-# without running test suites. Tests belong to the separate tests workflow.
+# v0.1.2 through v0.1.6 were operator-authorized desktop releases.
+# v0.1.7 is a Windows-only release: build it with workflow_dispatch and an
+# explicit windows-x86_64 target, verify its artifacts, then publish them.
+# Excluding its tag prevents a second all-platform/PyPI publication.
 
 on:
   push:
     tags:
       - "v*"
+      - "!v0.1.7"
   workflow_dispatch:
     inputs:
       platform:
@@ -146,6 +149,9 @@ jobs:
         run: |
           npm --prefix frontend/web run build
           npm --prefix frontend/tui run build
+      - name: Verify Windows staging and signature boundary
+        if: runner.os == 'Windows'
+        run: npm --prefix desktop-tauri run test:release
       - name: Build frozen backend
         run: npm --prefix desktop-tauri run build:backend
       - name: Build signed desktop updates
