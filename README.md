@@ -579,16 +579,24 @@ Seven verticals ship with Argus itself: `research`, `software`, `argus_maintenan
 `speedrun`, `kernelbench`, `nanochat`, `nanogpt_speedrun`, `chip_design`, `digital_circuit`,
 `digital_circuit_benchmark`, `medical`, `materials`, `physics`, `ale_last_exam`,
 `fiction_writing`, `prose`, `modern_poetry`, `classical_poetry`, `literary_editor` — live in
-the community package **[argus-verticals](https://github.com/Argus-AiTeam/argus-verticals)**
-and are discovered through the `argus.verticals` entry-point group. Install them into
-the same Python environment that runs Argus:
+the community repository **[argus-verticals](https://github.com/Argus-AiTeam/argus-verticals)**.
+The **Vertical Store** installs them one at a time, without `pip`, from the repository's
+releases — in the cockpit's Verticals page or on the command line:
 
 ```bash
-pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
+argus verticals list                       # built-in, installed, and available verticals
+argus verticals install materials          # download, verify sha256, unpack under ~/.argus-skill/verticals
+argus verticals install chip_design        # brings digital_circuit with it (declared `requires`)
+argus verticals remove chip_design         # digital_circuit stays
 ```
 
-A `git pull` of Argus never installs them; each runtime environment that should offer
-them needs that install once.
+The store shows a vertical's Python requirements and flags the missing ones; it never
+installs them. Details, the on-disk layout, hosted mode and the API are in
+**[docs/vertical-store.md](docs/vertical-store.md)**. The whole package can still be
+installed with pip into the Python environment that runs Argus (`pip install
+"argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"`); a
+pip-installed copy wins over the store for a vertical both provide. A `git pull` of
+Argus never installs community verticals either way.
 
 ### Build your own Vertical
 

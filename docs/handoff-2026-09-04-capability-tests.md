@@ -2738,3 +2738,82 @@ test_invitation_only_copy_and_private_admin_entry_stays_hidden`。本分支之�
   双拼写站点、pyproject、两个 README 的迁移段、`docs/LAYOUT.md`、`docs/trial-gateway.md` 的历史 wheel 名)。
   连字符 `argus-skill` 同理:除 never-touch 模式外只剩兼容站点、README 迁移命令、FLYWHEEL 回退与
   `docs/evaluations/*2026-08-17.md` 里的历史版本号。
+
+## 56. Vertical Store (2026-09-14 UTC)
+
+分支 `store/backend`(从 `origin/dev` = `863e76426` 切出,已含当天的垂直拆分与 `argus_skill` → `argus`
+改名)。社区仓库 `Argus-AiTeam/argus-verticals` 的 release `v0.1.0` 每个垂直附一个 zip(恰好是它的
+`paths` + `shared` 目录,仓库相对路径)加 `catalog.json`(url/sha256/size);Argus 侧的 **Vertical Store**
+逐目录安装,不用 pip。产品页由另一位代理按下面的 API 合同并行实现。
+
+### 放在哪里 / 为什么
+
+- `argus/verticals/store.py`(domain 层,只向下 import `core.*`,不在 `core/` 里,避免 `core → verticals`
+  上行边);`core/paths.py` 新增 `verticals_root()` = `<global_root>/verticals`。
+- 磁盘布局(商店根 = `<ARGUS_SKILL_HOME>/verticals`,或 `ARGUS_VERTICALS_HOST_ROOT`):
+  `argus_verticals/<name>/…`、`argus_verticals/literary/shared/`(共享辅助树按仓库相对位置放)、
+  `registry.json`(schema 1;`verticals{version,sha256,module,source{repo,tag,url},enabled,installed_at,
+  requires,shared,paths}`,`shared{tree:{owners,sha256s}}`,portalocker `store.lock`)、`catalog.json`
+  缓存(6 小时)、`operations/<name>.json`、`logs/<name>.log`、`.staging/`。
+- 发现(`_registry.py` 第三个来源):读 `registry.json`(mtime/size/inode 变化即重扫;`refresh_vertical_plugins()`
+  也清),让 `argus_verticals` 可 import——有 pip 包就把商店目录 append 到它的 `__path__`(pip 份胜出,行
+  报 kind `package`),否则在 `sys.modules` 注册合成命名空间包;然后 `import_module(entry.module)`,校验
+  与 entry point 完全相同(`ARGUS_VERTICAL_API_VERSION`、`VERTICAL_PURPOSE`、`vertical_contract`、
+  `VERTICAL_SKILL_PARENTS`;`VERTICAL_SKILLS` 缺省为 `<dir>/skills`),内置名拒绝,失败记日志跳过。
+  `VerticalPlugin.origin ∈ {managed, store, entry_point}`。不读 dist-info,冻结桌面同样工作。
+  优先级:managed → entry_point → store。
+
+### 操作与守卫
+
+- `install(name)`:catalog `requires` 传递闭包,依赖先装;每个:下载(https 白名单
+  `github.com` / `objects.githubusercontent.com` / `release-assets.githubusercontent.com`,重定向逐跳
+  查)→ 校验 size + sha256 → 解压到 `.staging/`(拒绝绝对路径、`..`、符号链接、**不在该垂直声明的
+  `paths`+`shared` 树内的成员**,含 `argus_verticals/__init__.py`)→ 确认 `<paths[0]>/stages.py` →
+  逐树 rename 换入(失败全部回滚;更新父目录时保留嵌套已装垂直如 `digital_circuit/benchmark`)→ 写
+  registry 与共享树属主。`update` 版本/sha 不同才重装;`enable/disable` 翻标志;`uninstall(force=False)`
+  被本地会话 `.argus/PIPELINE_STATE.json` 命名时拒绝(报 sid,`force` 可越过),被其他已装垂直
+  `requires` 时拒绝(不越过),共享树失去最后属主才删,依赖保留。
+- 后台 job:`operations/<name>.json` `{status running|done|failed, action, progress 0-100, message, started,
+  finished, pid}`;进程死亡即标 failed;`wait=True` 同步等待。
+- 托管:`managed_by_host()` = `ARGUS_TRIAL_HARNESS` 或 `ARGUS_VERTICALS_HOST_ROOT` 已设 → install/update/
+  uninstall 拒绝(CLI 1、API 409;trial 路由先 403),enable/disable 仍可;`preinstall(names)` +
+  `ARGUS_VERTICALS_PREINSTALL` 不受该拒绝约束(那正是宿主在准备根);`release_tools/preinstall_verticals`
+  镜像 `preinstall_plugins`。
+- 目录来源:`ARGUS_VERTICAL_CATALOG`(https / 本地路径 / `file://`)否则 GitHub latest release;本地目录旁
+  同名 zip 优先于其 url(社区 `build_catalog.py --release vX --dist DIR` 直接是离线镜像);`file://` 归档
+  只在目录本身来自本地文件时接受。
+
+### 表面
+
+- CLI `argus verticals {list,info NAME,install NAME…,update [NAME…],remove NAME [--force],enable,disable,refresh}`
+  (`--json` 于 list/info;同步,逐行进度;退出码 0/1/2;`python -m argus verticals` 永不启动 Node;
+  `tui_launcher._PYTHON_ADMIN_COMMANDS` 加了 `verticals`;`--help` 公开)。
+- Web:`GET /api/verticals` → `{verticals:[row…], catalog:{source,fetched_at,release_tag,error},
+  host:{managed_by_host,store_root}}`;`POST /api/verticals/catalog/refresh`;`POST /api/verticals/{name}/
+  manage/{install|update|enable|disable|uninstall}` body `{"force"?:bool}` → job 202 `{name,action,operation}`
+  / enable·disable 200;`VerticalStoreError` 409 `{detail}`,未知名/动作 404;`GET /api/verticals/{name}/
+  operation`;同源检查同 plugins;capability `verticals.store.v1`(`protocol.py` 与
+  `frontend/core/src/protocol.ts` 同步,`test_server_m0` 钉住二者一致)。row 字段:`name, purpose,
+  purpose_zh, kind∈{builtin,package,installed,available}, version, installed_version, enabled,
+  update_available, requires, shared, python_requirements, missing_python, tags, size_bytes, used_by,
+  operation, managed_by_host, actions`。内置 `purpose_zh` 为 null,不造中文。
+- Trial portal `permitted()` 新增 `VERTICAL_WRITES`:只放行 `catalog/refresh` 与 `manage/(enable|disable)`。
+- `UninstalledVerticalError` / `require_vertical` 的提示改为先说 `argus verticals install <name>`,pip 第二。
+
+### 测试
+
+`tests/verticals/test_store.py`(45;含一条用社区仓库副本跑 `build_catalog.py --release vtest` 的集成
+测试:chip_design 拉 digital_circuit、skills 先种 digital_circuit、literary shared 属主、移除保留依赖)、
+`tests/skills/test_vertical_plugins.py`(+7:商店发现、pip 优先、禁用即隐藏、`sys.frozen`、registry mtime
+重扫、坏条目只损自己、内置名拒绝)、`tests/webapi/test_verticals_store.py`、`tests/trial/
+test_verticals_portal_gate.py`、`tests/apps/test_cli_verticals.py`。辅助:`tests/verticals/fake_release.py`。
+`test_architecture_invariants` 的 `RETIRED_NAME_OCCURRENCES["session_states_root"]` 22 → 23(store 的
+`used_by` 走唯一规范访问器,注释里写了原因);层级 allowlist 未增长。
+
+### 已知 / 未做
+
+- `typecheck_gate --base origin/dev` 在此环境无法比较:基线树上 mypy 因 numpy 存根的 `type` 语句在
+  `python_version = 3.11` 下语法错误而中止;改用 `--python-version 3.12` 手工对比,`argus/` 无新增诊断。
+- 商店不解析 `min_argus`(README 说"按特性探测比较",目前只存不比);不做垂直签名(sha256 来自 GitHub
+  release 的 catalog,信任链止于 https 白名单)。
+- 前端页面在另一 worktree;本分支只动了 `protocol.ts` 一行(capability)。

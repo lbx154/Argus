@@ -524,15 +524,22 @@ Argus 本体内置 7 个 vertical：`research`、`software`、`argus_maintenance
 `math`、`math_synth`、`learning`。其余 17 个——`quant`、`speedrun`、`kernelbench`、`nanochat`、
 `nanogpt_speedrun`、`chip_design`、`digital_circuit`、`digital_circuit_benchmark`、`medical`、
 `materials`、`physics`、`ale_last_exam`、`fiction_writing`、`prose`、`modern_poetry`、
-`classical_poetry`、`literary_editor`——放在社区包
-**[argus-verticals](https://github.com/Argus-AiTeam/argus-verticals)**，通过
-`argus.verticals` entry-point 组被发现。把它装进运行 Argus 的那个 Python 环境即可：
+`classical_poetry`、`literary_editor`——放在社区仓库
+**[argus-verticals](https://github.com/Argus-AiTeam/argus-verticals)**。
+**Vertical Store（垂直商店）**从该仓库的 release 逐个安装它们，不用 `pip`：在 cockpit 的
+Verticals 页面，或者命令行：
 
 ```bash
-pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
+argus verticals list                       # 内置、已安装、可安装的 vertical
+argus verticals install materials          # 下载、校验 sha256、解包到 ~/.argus-skill/verticals
+argus verticals install chip_design        # 会连带装上它 requires 的 digital_circuit
+argus verticals remove chip_design         # digital_circuit 保留
 ```
 
-`git pull` Argus 不会安装它们；每个需要这些 vertical 的运行环境都要装一次。
+商店会列出每个 vertical 的 Python 依赖并标出缺失的，但不会代为安装。磁盘布局、托管模式与
+API 见 **[docs/vertical-store.md](docs/vertical-store.md)**（英文）。整包仍可用 pip 装进运行
+Argus 的 Python 环境（`pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"`）；
+同名 vertical 以 pip 装的那份为准。无论哪种方式，`git pull` Argus 都不会安装社区 vertical。
 
 ### 创建自己的 Vertical
 
