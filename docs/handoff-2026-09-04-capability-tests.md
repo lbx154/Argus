@@ -2514,16 +2514,19 @@ Argus 侧只做删除 + 让框架对"垂直从哪里来"保持诚实。
 
 ### 搬走了什么 / 留下了什么
 
-- **搬走(16 个目录 + `literary/` 辅助包,20,880 行 Python,80 个测试文件)**:`quant`、
+- **搬走(16 个目录 + `literary/` 辅助包,20,882 行 Python,80 个测试文件)**:`quant`、
   `kernelbench`、`speedrun`、`nanogpt_speedrun`、`nanochat`、`chip_design`、`digital_circuit`
   (含 `benchmark/` 子包 = `digital_circuit_benchmark` 垂直)、`fiction_writing`、`prose`、
   `modern_poetry`、`classical_poetry`、`literary_editor`、`literary/shared`、`medical`、
   `materials`、`physics`、`ale_last_exam`。
 - **留下(内置 7 个)**:`research`、`software`、`argus_maintenance`、`kernel_engineering`、
   `math`、`math_synth`、`learning`。
-- **留下的公共缝(社区包 import 的全部面)**:`verticals/{_base,_data_domain,metric_evidence,
-  optimization_base,path_evidence,research_bridge}.py` 与
-  `verticals/kernel_engineering/tool_registry.py`(chip_design 用)。`metric_evidence` 里
+- **兼容面(社区包今天实际 import 的框架模块;改动其中任何一个都会 break argus-verticals)**:
+  桥模块 `verticals/{_base,_data_domain,metric_evidence,optimization_base,path_evidence,
+  research_bridge}.py`、`verticals/kernel_engineering/tool_registry.py`(chip_design 用)、
+  `skills/stage_machine.ChecklistItem`(15 处)、`skills/vertical_select.available_vertical_purposes`、
+  `core/{file_digest,models,pipeline_state,repair_freshness}`、`team/result_provenance`、
+  `manager.Manager`。现在不加再导出 shim;这份清单就是承诺。`metric_evidence` 里
   speedrun / nanogpt / kernelbench 的证据校验器是通用校验器,原地不动。
   `optimization_base` 原来把四阶段优化清单从 `speedrun` 反向 import 回来;现在清单本体
   (`OPTIMIZATION_CHECKLIST_ITEMS`)住在桥模块里,`speedrun_base_contract()` 保留名字作 import 缝。
@@ -2541,6 +2544,13 @@ Argus 侧只做删除 + 让框架对"垂直从哪里来"保持诚实。
   (`core.plugin_manager`)每次调用仍然新鲜读取,因为它们的启用状态会在运行中改变——所以不
   需要从 `core` 反向调用 refresh,也就没有新增 core → verticals 向上边。受管分支单独兜底:
   一个坏掉的受管插件或不可读的目录不再让 entry-point 插件全部消失。
+- 注册表拒绝发布与内置同名的 entry point / 受管插件(否则同名 entry point 可以把内置垂直的技能种入
+  重定向到它自己的树);对第三方声明的校验(`_plugin()` + `vertical_contract()`)任何异常都只记日志、
+  不发布;`VERTICAL_SKILLS` 在注册时校验(路径或 Traversable);插件模块 import 时反向读注册表不会
+  触发第二次扫描。搬走垂直拆分前种入工作区的技能副本:`_MOVED_VERTICAL_SEED_HASHES`(dev 上最后
+  一版的 51 个文件摘要,不含 kernelbench 继承的 kernel_engineering 内置技能)让
+  `retire_orphaned_builtin_seeds` 在未装社区包时删掉未改动的工厂副本,操作者改过的原地不动、不归档;
+  装了社区包的垂直交给正常的"非活跃垂直"修剪。
 - 新插件属性 `VERTICAL_SKILL_PARENTS: tuple[str, ...]`——其技能树先于自身被种入的垂直。取代
   Argus 里写死的 `_VERTICAL_SKILL_INHERITANCE`(kernelbench←kernel_engineering、
   nanogpt_speedrun←speedrun、chip_design / digital_circuit_benchmark←digital_circuit,四行全是
@@ -2549,8 +2559,10 @@ Argus 侧只做删除 + 让框架对"垂直从哪里来"保持诚实。
 - **清单只有一个真源**:`VERTICALS` / `VERTICAL_PURPOSES` 只是内置清单(冻结桌面构建和 trial
   公共资产校验故意只枚举它);运行时一切"这是不是垂直 / 用途是什么 / 种哪些技能"都走
   `available_verticals()` / `available_vertical_purposes()`。修了 `manager/_vertical_ops.py`
-  里唯一还用 `VERTICALS` 判"是否学习型数据域"的地方——否则装了社区包的 `quant` 会被当成
-  数据域去读一个不存在的状态文件。
+  里唯一还用 `VERTICALS` 判"是否学习型数据域"的地方:原来任何非内置名字都去
+  `load_data_domain()` 读 `learned_vertical_status`——装了社区包的 `quant` 没有域文件时读到 `""`
+  (无可见后果),但若项目里恰好有同名数据域文件,Division 会带上那个域的 status;现在按合并
+  清单判定,插件优先(测试预建同名域文件后断言插件的阶段与空 status 胜出)。
 
 ### 操作者部署步骤(这是操作者动作,不是维护任务能做的)
 
@@ -2564,10 +2576,35 @@ extras 随垂直搬走)。既有纪律照旧:维护任务从不往运行 venv �
 `/data/v-boxiuli/Argus/.venv` 和 pinned checkout 的 venv——装不装社区包由操作者决定并执行。
 装完不需要改任何配置;进程重启后 `available_verticals()` 就是 24 个。
 
+### 持久化了已搬走垂直的项目(操作者可见行为)
+
+`PIPELINE_STATE.json` 写着 `vertical: quant`(或其余 16 个之一)的拆分前项目,在**没有**装
+`argus-verticals` 的机器上,以前会被当成"尚未决定"而静默退回 `research`(阶段机随之丢弃已持久化
+的阶段,独立审查按 fail-open 返回 False)。现在:
+
+- `vertical_select._persisted_vertical` 区分"没有 vertical 键 / 键里是垃圾"(仍按旧规则视为未决定,
+  默认 `research`)与"格式合法的名字(`^[a-z][a-z0-9_]{0,47}$`)但既非内置、非已装插件、也非项目数据域",
+  后者抛 `UninstalledVerticalError`(`VerticalResolutionError` 的子类)。操作者看到的原文:
+  `PIPELINE_STATE.json at <path> names vertical 'quant', which is not built in, not an installed plugin
+  vertical, and not a project data domain in this runtime environment. If it is one of the community
+  verticals, install them here first: pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/
+  argus-verticals.git" (verticals available now: research, software, ...). Nothing is dispatched for this
+  project until its vertical can be loaded.`
+- 守护进程:生命周期闸门(`_maybe_block_on_lifecycle`)在花任何预算之前把每个 backlog 项 hold 住,
+  发一次 `life.lifecycle.block`(`lifecycle_state=vertical_unresolved`,reason=上面原文),之后按
+  30 分钟心跳重复,不会每 tick 一条 traceback;规划周期在 intake 处同样 hold 并退避(`planner_error`),
+  且不会让 Manager 重新给项目选一个别的垂直;daemon 启动的 Manager 交接在调用 Manager 之前先读
+  持久化垂直,读不到就走既有的 fail-closed 分支(`life.manager.intent.failed` + 日志)。
+- `_independent_review_required_for_project_root` 对读不出策略的已持久化垂直 fail CLOSED(要求审查);
+  没有任何决定的项目仍返回 False。
+- `argus-skill --status` 打印 `pipeline : vertical unresolved — <原文>`;`--export-builtin-skills` 原本就
+  以 exit 2 报错。`resolve_skill_scope` 仍返回 `quant`(学习到的技能命名空间与是否安装无关)。
+- 装好 `argus-verticals` 后重启进程即恢复,项目状态一个字节都没改过。
+
 ### 对线上进程的影响
 
-正在运行的守护进程用的全是 `research`(内置),不受影响;它们的 `.venv` 里此刻没有
-`argus-verticals`,合入后菜单会从 24 个缩成 7 个直到操作者安装社区包。
+本机每个项目状态都命名内置垂直(`research`、`software`、`math`、`kernel_engineering`),不受影响;
+它们的 `.venv` 里此刻没有 `argus-verticals`,合入后菜单会从 24 个缩成 7 个直到操作者安装社区包。
 
 ### 验证
 
