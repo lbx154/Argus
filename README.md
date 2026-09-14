@@ -32,6 +32,10 @@ Long-running agent work that can plan, execute, verify, pause, and continue beyo
 > Changes reach the official repository through synchronization. Installing
 > source from `main` is not the same as installing a published Desktop release.
 
+In this repository, **`main` is the stable source branch** and **`dev` is the
+development branch**. Target development PRs at `dev`; promote reviewed, validated
+changes to `main`. See [Contributing](CONTRIBUTING.md).
+
 ## The Driver–Harness Model
 
 A **model** is an engine: it burns compute and puts out tokens. A **harness** is the

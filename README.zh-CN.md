@@ -31,6 +31,9 @@
 > **[lbx154/Argus](https://github.com/lbx154/Argus)** 是开发预览仓库。
 > 开发更新通过同步进入官方仓库。从 `main` 安装源码，不等于安装已发布的桌面安装包。
 
+本仓库的 **`main` 是稳定源码分支**，**`dev` 是日常开发分支**。
+开发 PR 提交到 `dev`，经过审查和验证后再合入 `main`。详见[贡献说明](CONTRIBUTING.md)。
+
 ## Driver–Harness 模型
 
 **模型**是发动机：它烧掉算力，输出 token。**Harness** 是传动系统，把这些 token 耦合到文
