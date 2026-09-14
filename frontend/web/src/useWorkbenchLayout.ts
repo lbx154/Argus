@@ -11,10 +11,8 @@ import { preferredPreviewWidth, PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from 
 
 type WorkspaceView = 'mission' | 'activity' | 'workbench' | 'map';
 const WORKSPACE_VIEWS: readonly WorkspaceView[] = ['mission', 'activity', 'workbench', 'map'];
-// The old key remembered whatever view the page happened to open on, so a
-// default was replayed forever as if the visitor had chosen it. The new key is
-// written only when someone picks a view.
-const WORKSPACE_VIEW_KEY = 'argus.workspace.view.v2';
+// Start existing workspaces on the map once, then remember explicit choices.
+const WORKSPACE_VIEW_KEY = 'argus.workspace.view.v3';
 
 function isWorkspaceView(value: string | null): value is WorkspaceView {
   return WORKSPACE_VIEWS.includes(value as WorkspaceView);
@@ -37,8 +35,7 @@ export function useWorkbenchLayout() {
     const requested = params.get('view');
     if (isWorkspaceView(requested)) return requested;
     const stored = readLocalStorage(WORKSPACE_VIEW_KEY);
-    // A first visit opens on the mission story; the map is a choice, not a landing.
-    return isWorkspaceView(stored) ? stored : 'mission';
+    return isWorkspaceView(stored) ? stored : 'map';
   });
   const setWorkspaceView = useCallback((view: WorkspaceView) => {
     writeLocalStorage(WORKSPACE_VIEW_KEY, view);

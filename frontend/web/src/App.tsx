@@ -429,7 +429,7 @@ export default function App() {
   const focusDeliveryPath = useCallback((path: string, userInitiated = true) => {
     const target = path.trim();
     if (!target) {
-      if (userInitiated) setWorkspaceView('mission');
+      if (userInitiated) setWorkspaceView('map');
       return;
     }
     if (workspaceView === 'map') { setArtifactPath(target); return; }
@@ -493,7 +493,7 @@ export default function App() {
       focusDeliveryPath(payload.path);
     } else {
       setMobileView('activity');
-      setWorkspaceView('mission');
+      setWorkspaceView('map');
     }
   }), [focusDeliveryPath, openDelivery, setMobileView, setWorkspaceView]);
   // Keep a ref so the /clear handler can read the current length without being
@@ -997,19 +997,19 @@ export default function App() {
               />}
               <nav aria-label={t('mobile.views')} className="hidden h-11 shrink-0 items-center gap-3 border-b border-line/60 px-5 lg:flex">
                 <div className="workspace-tabs">
-                  <button type="button" onClick={() => setWorkspaceView('mission')} className="workspace-tab" data-selected={workspaceView === 'mission'}>{t('mobile.mission')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{t('mobile.map')}</button>
                   <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
                 </div>
                 <details className="workspace-more" onKeyDown={event => {
                   if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
                 }}>
-                  <summary>{workspaceView === 'map' ? t('mobile.map') : workspaceView === 'workbench' ? t('mobile.workbench') : locale === 'zh-CN' ? '更多' : 'More'}</summary>
+                  <summary>{workspaceView === 'mission' ? t('mobile.mission') : workspaceView === 'workbench' ? t('mobile.workbench') : locale === 'zh-CN' ? '更多' : 'More'}</summary>
                   <div className="workspace-more-menu" onClick={event => {
                     if ((event.target as HTMLElement).closest('button')) event.currentTarget.closest('details')?.removeAttribute('open');
                   }}>
+                    <button type="button" onClick={() => setWorkspaceView('mission')}>{t('mobile.mission')}</button>
                     <button type="button" onClick={() => setOverlay('reading')}>{locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}</button>
                     <button type="button" onClick={() => setWorkspaceView('workbench')}>{t('mobile.workbench')}</button>
-                    <button type="button" onClick={() => setWorkspaceView('map')}>{t('mobile.map')}</button>
                     {!kiosk ? <button type="button" onClick={() => setOverlay('operations')}>{t('mission.operations')}</button> : null}
                   </div>
                 </details>
