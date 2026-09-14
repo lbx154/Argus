@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -109,6 +110,26 @@ class VerticalResolutionError(RuntimeError):
 
 class UnknownVerticalError(ValueError):
     """Raised when a value is required to name a known vertical but does not."""
+
+
+class UninstalledVerticalError(VerticalResolutionError):
+    """Persisted state names a well-formed vertical this runtime cannot load.
+
+    A pre-split project whose ``PIPELINE_STATE.json`` says ``vertical: quant``
+    on a machine without ``argus-verticals`` must not quietly become a
+    ``research`` project: the persisted Manager decision is real, what is
+    missing is the environment. Treating it as "not decided" would drop the
+    persisted stage, let independent review fail open, and run the wrong
+    pipeline. The message names the vertical and the install command.
+    """
+
+
+#: The one-line operator action that makes the community verticals available.
+INSTALL_COMMUNITY_VERTICALS: str = (
+    'pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"'
+)
+#: A syntactically valid vertical name (the same shape the plugin registry accepts).
+_VERTICAL_NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 
 
 
@@ -220,7 +241,7 @@ def require_vertical(value: object, project_root: object = None) -> str:
             f"{value!r} is not a known vertical "
             f"(available: {', '.join(available_verticals())}) nor an existing project data domain; "
             "community verticals (quant, medical, speedrun, ...) appear only after "
-            "`pip install argus-verticals` in this runtime environment"
+            f"{INSTALL_COMMUNITY_VERTICALS} in this runtime environment"
         )
     return known
 
@@ -334,17 +355,38 @@ def migrate_legacy_manager_state(
     return True
 
 
+def uninstalled_vertical_message(name: str, project_root: object) -> str:
+    """The operator-facing text for a persisted vertical this runtime cannot load."""
+    return (
+        f"PIPELINE_STATE.json at {_state_path(project_root)} names vertical {name!r}, "
+        "which is not built in, not an installed plugin vertical, and not a project "
+        "data domain in this runtime environment. If it is one of the community "
+        f"verticals, install them here first: {INSTALL_COMMUNITY_VERTICALS} "
+        f"(verticals available now: {', '.join(available_verticals())}). Nothing is "
+        "dispatched for this project until its vertical can be loaded."
+    )
+
+
 def _persisted_vertical(project_root: object) -> str | None:
     """Return the persisted ``vertical`` from PIPELINE_STATE.json, or ``None``.
 
     ``None`` only for the legitimate "not decided yet" case: the state file does
-    not exist, OR it exists but carries no (known) ``vertical`` key. A present
-    but CORRUPT file (bad JSON / non-dict payload) is a real fault of
+    not exist, OR it exists but carries no ``vertical`` key (or junk in it). A
+    present but CORRUPT file (bad JSON / non-dict payload) is a real fault of
     Manager-owned state and RAISES ``VerticalResolutionError`` — we do not
-    silently treat corruption as "fresh" and fall through to research.
+    silently treat corruption as "fresh" and fall through to research. A
+    well-formed vertical name that is neither built in, nor an installed
+    plugin, nor a project data domain RAISES ``UninstalledVerticalError`` for
+    the same reason: the decision exists, the environment cannot honour it.
     """
     payload = _load_state_payload(project_root)
-    return _known_vertical(payload.get("vertical"), project_root)
+    raw = payload.get("vertical")
+    known = _known_vertical(raw, project_root)
+    if known is None and isinstance(raw, str):
+        cleaned = _strip_needed(raw)
+        if _VERTICAL_NAME.fullmatch(cleaned):
+            raise UninstalledVerticalError(uninstalled_vertical_message(cleaned, project_root))
+    return known
 
 
 def _persisted_domain(project_root: object) -> str | None:
@@ -418,8 +460,17 @@ def resolve_domain_if_decided(project_root: object = ".") -> str | None:
 
 
 def resolve_skill_scope(project_root: object = ".") -> str:
-    """Return the shared-Skill namespace for the active workflow/domain context."""
-    return _persisted_domain(project_root) or _persisted_vertical(project_root) or ""
+    """Return the shared-Skill namespace for the active workflow/domain context.
+
+    The namespace exists whether or not the vertical is installed: an
+    operator's learned ``quant`` skills stay under ``_shared_verticals/quant``
+    while ``argus-verticals`` is absent, so an uninstalled vertical still
+    names its scope here instead of raising. Dispatch is held elsewhere.
+    """
+    try:
+        return _persisted_domain(project_root) or _persisted_vertical(project_root) or ""
+    except UninstalledVerticalError:
+        return _strip_needed(str(_load_state_payload(project_root).get("vertical") or ""))
 
 
 def resolve_checklist_vertical(project_root: object = ".") -> str | None:
@@ -1057,6 +1108,9 @@ __all__ = [
     "DEFAULT_VERTICAL",
     "ENV_VERTICAL",
     "VerticalResolutionError",
+    "uninstalled_vertical_message",
+    "INSTALL_COMMUNITY_VERTICALS",
+    "UninstalledVerticalError",
     "UnknownVerticalError",
     "explicit_builtin_vertical",
     "require_vertical",

@@ -33,6 +33,7 @@ from ._planning_cycle_helpers import (
 )
 
 if TYPE_CHECKING:
+    from ..memory import BacklogItem
     from ._config import _MemoryView
 
 _TERMINAL_TASK_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
@@ -47,6 +48,9 @@ class PlanningCycleIntakeMixin:
         def _emit_status(self, text: str) -> None: ...
         def _enter_idle_backoff(self) -> float: ...
         def _enter_pause_backoff(self) -> float: ...
+        def _hold_on_unresolved_vertical(
+            self, exc: Exception, item: BacklogItem | None = None,
+        ) -> dict[str, Any]: ...
         def _reset_idle_backoff(self) -> None: ...
 
     def _emit_bounded_project_completion(self, reason: str) -> bool | str:
@@ -647,7 +651,18 @@ class PlanningCycleIntakeMixin:
             self._vertical_resolved = True
             manager_intent = {}
         else:
-            manager_intent = self._resolve_vertical_once()
+            from ...skills.vertical_select import VerticalResolutionError
+
+            try:
+                manager_intent = self._resolve_vertical_once()
+            except VerticalResolutionError as exc:
+                # The persisted vertical cannot be loaded in this runtime
+                # (typically a community vertical without argus-verticals):
+                # hold with the operator-facing reason and back off instead
+                # of failing the tick and stopping the supervisor.
+                self._hold_on_unresolved_vertical(exc)
+                self._enter_pause_backoff()
+                return PLAN_ERROR
         if manager_intent:
             state.manager_intent = manager_intent
 

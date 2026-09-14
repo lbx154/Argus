@@ -2329,15 +2329,20 @@ def _cmd_status(args: argparse.Namespace) -> int:
     active_vertical = None
     try:
         from ...skills.vertical_select import (
+            VerticalResolutionError,
             resolve_domain_if_decided,
             resolve_vertical_if_decided,
         )
 
-        active_vertical = resolve_vertical_if_decided(research_workdir)
-        active_domain = resolve_domain_if_decided(research_workdir)
-        if active_vertical:
-            domain_suffix = f" · domain={active_domain}" if active_domain else ""
-            print(f"  pipeline : vertical={active_vertical}{domain_suffix}")
+        try:
+            active_vertical = resolve_vertical_if_decided(research_workdir)
+            active_domain = resolve_domain_if_decided(research_workdir)
+        except VerticalResolutionError as exc:
+            print(f"  pipeline : vertical unresolved — {exc}")
+        else:
+            if active_vertical:
+                domain_suffix = f" · domain={active_domain}" if active_domain else ""
+                print(f"  pipeline : vertical={active_vertical}{domain_suffix}")
     except Exception:  # noqa: BLE001 - status projection remains best effort
         pass
     if all_items or cont.objective or active_vertical or not latest_reply:

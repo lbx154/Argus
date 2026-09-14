@@ -7,7 +7,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...core.event_catalog import EventType
 from ..memory import BacklogItem
@@ -46,13 +46,21 @@ def resolved_vertical_or_default(artifact_root: object) -> str:
 
     try:
         return resolve_vertical(artifact_root)
-    except Exception:  # noqa: BLE001 — see docstring; must not fail open
+    except Exception as exc:  # noqa: BLE001 — see docstring; must not fail open
         from ...verticals._base import DEFAULT_VERTICAL
 
+        log.warning(
+            "vertical could not be resolved for %r (%s); completion is judged "
+            "against the default vertical", artifact_root, exc,
+        )
         return DEFAULT_VERTICAL
 
 
 class LifecycleMixin:
+    if TYPE_CHECKING:
+        def _emit(self, event: dict[str, Any]) -> Any: ...  # LifeSupervisor returns bool; callers pass it as an on_event
+        def _emit_status(self, text: str) -> None: ...
+
     def _lifecycle_root(self) -> Path:
         """Return the per-project directory holding ``lifecycle.json``."""
         project_state_dir = getattr(self.config, "project_state_dir", None)
@@ -104,11 +112,69 @@ class LifecycleMixin:
                 "per-project state"
             )
 
+    def _hold_on_unresolved_vertical(
+        self,
+        exc: Exception,
+        item: BacklogItem | None = None,
+    ) -> dict[str, Any]:
+        """Withhold dispatch because the persisted vertical cannot be loaded here.
+
+        The message is the one ``vertical_select`` composed (it names the
+        vertical and the install command). Emitted once per item and then on
+        the lifecycle heartbeat, exactly like a lifecycle block, so a daemon
+        waiting for the operator to install ``argus-verticals`` reports a
+        clear held state instead of one traceback per tick.
+        """
+        item_id = str(getattr(item, "id", "") or "")
+        title = str(getattr(item, "title", "") or "")
+        reason = str(exc)
+        signature = ("vertical_unresolved", item_id)
+        now = time.monotonic()
+        last_signature = getattr(self, "_last_lifecycle_block_sig", None)
+        last_at = getattr(self, "_last_lifecycle_block_at", 0.0)
+        if (
+            signature != last_signature
+            or (now - last_at) >= _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS
+        ):
+            self._last_lifecycle_block_sig = signature
+            self._last_lifecycle_block_at = now
+            self._emit_status(f"vertical unresolved; work held: {reason}")
+            self._emit({
+                "type": EventType.LIFE_LIFECYCLE_BLOCK,
+                "item_id": item_id,
+                "title": title,
+                "lifecycle_state": "vertical_unresolved",
+                "reason": reason,
+                "agent_layer": "supervisor",
+            })
+        return {
+            "status": "vertical_unresolved",
+            "item_id": item_id,
+            "lifecycle_state": "vertical_unresolved",
+            "reason": reason,
+        }
+
     def _maybe_block_on_lifecycle(
         self,
         item: BacklogItem,
     ) -> dict[str, Any] | None:
         """Run one lifecycle tick and short-circuit non-allocatable projects."""
+        from ...skills.vertical_select import (
+            VerticalResolutionError,
+            resolve_vertical_if_decided,
+        )
+
+        try:
+            resolve_vertical_if_decided(
+                self._artifact_root() if hasattr(self, "_artifact_root") else self._lifecycle_root()
+            )
+        except VerticalResolutionError as exc:
+            # A persisted decision this runtime cannot honour (corrupt state,
+            # or a community vertical without argus-verticals installed). Held
+            # before any budget is spent; the operator sees why.
+            return self._hold_on_unresolved_vertical(exc, item)
+        except Exception:  # noqa: BLE001 - the gate below keeps its own fail-soft rule
+            log.warning("vertical pre-check failed; continuing to the lifecycle gate", exc_info=True)
         try:
             memory_root = self._lifecycle_root()
             self._migrate_global_lifecycle_if_needed(memory_root)

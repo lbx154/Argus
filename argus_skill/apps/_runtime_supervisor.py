@@ -107,8 +107,13 @@ def _independent_review_required_for_project_root(
         from ..skills.vertical_select import _persisted_vertical
 
         persisted = _persisted_vertical(root)
-    except Exception:  # noqa: BLE001 — unresolved projects keep legacy behavior
-        return False
+    except Exception:  # noqa: BLE001 — a persisted vertical that cannot be read fails closed
+        # Corrupt state, or a vertical this runtime cannot load (a community
+        # vertical without ``argus-verticals`` installed): the project DID
+        # choose a vertical, so "I cannot read its policy" means review stays
+        # mandatory. Only a project with no decision at all keeps the legacy
+        # default below.
+        return True
     if persisted is None:
         return False
     try:

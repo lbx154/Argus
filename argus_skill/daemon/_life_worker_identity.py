@@ -322,9 +322,16 @@ def _resume_matches_manager_handoff(
         return False
     if getattr(cfg, "continuous", False):
         return False
-    from ..skills.vertical_select import _persisted_domain, _persisted_vertical
+    from ..skills.vertical_select import (
+        VerticalResolutionError,
+        _persisted_domain,
+        _persisted_vertical,
+    )
 
-    vertical = _persisted_vertical(runtime_root)
+    try:
+        vertical = _persisted_vertical(runtime_root)
+    except VerticalResolutionError:
+        return False  # the Manager handoff path reports the unresolvable vertical
     if not vertical:
         return False
     domain = _persisted_domain(runtime_root) or ""

@@ -1268,7 +1268,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "life -> argus_skill.manager.front_door._accepts_parameter",
     "life -> argus_skill.planner.planner._GLOBAL_KEY_VALUE_KEYS",
     "life -> argus_skill.roles.prompts.manager._IDENTITY_GUARD",
-    "life -> argus_skill.skills.vertical_select._persisted_vertical",
     "life -> argus_skill.tools.subagent._registry",
     "life -> argus_skill.verticals._base",
     "life -> argus_skill.verticals._data_domain",

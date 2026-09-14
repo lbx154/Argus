@@ -507,14 +507,18 @@ class LifeWorkerBootMixin:
                     _persisted_vertical,
                 )
 
-                decision = mgr.decide_vertical(source_objective)
-                execution_task = require_manager_execution_task(decision)
+                # Read the persisted decision before asking the Manager: a
+                # vertical this runtime cannot load raises here with the
+                # install hint and the handoff fails closed below, without a
+                # wasted Manager call and without re-routing the project.
                 prior_vertical = _persisted_vertical(
                     rf_state.runtime_root
                 )
                 prior_domain = _persisted_domain(
                     rf_state.runtime_root
                 )
+                decision = mgr.decide_vertical(source_objective)
+                execution_task = require_manager_execution_task(decision)
                 prior_handoff = _read_manager_handoff_identity(rf_state.runtime_root)
                 if prior_handoff is None and prior_vertical:
                     prior_handoff = _legacy_manager_handoff_identity(
