@@ -1,4 +1,7 @@
-"""Host-plugin integration for the Argus runtime."""
+"""Host-plugin integration for the Argus runtime.
+
+Layer: delivery
+"""
 
 from .service import ArgusOperations, ArgusPluginService
 

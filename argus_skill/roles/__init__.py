@@ -1,4 +1,7 @@
-"""Shared contracts and prompt composition for persistent Argus roles."""
+"""Shared contracts and prompt composition for persistent Argus roles.
+
+Layer: roles
+"""
 
 from .prompts import (
     PROMPT_CATALOG,

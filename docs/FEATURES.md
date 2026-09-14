@@ -3,6 +3,14 @@
 This document describes implemented behavior, role transitions, learning
 visibility, and the reliability scenarios used to verify them.
 
+Research proposal forecasts are available under **Workbench → Research timeline**,
+through a CLI, Python API, and authenticated preview/save endpoints. The web
+editor compares proposals, updates schedules as inputs change, and retains
+project forecast revisions across refreshes. See [proposal timelines](research-timeline.md)
+for three-point estimates, resource schedules, deadline adaptation, immutable
+revisions, and delay explanations. This is advisory planning; runtime dispatch
+and research verdict ownership are unchanged.
+
 ## 1. Entry routing
 
 Every operator message enters through Manager's front door.

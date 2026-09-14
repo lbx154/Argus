@@ -1,4 +1,7 @@
-"""Built-in domain overlays composed with workflow verticals."""
+"""Built-in domain overlays composed with workflow verticals.
+
+Layer: domain
+"""
 
 from ._base import (
     BUILTIN_DOMAINS,

@@ -116,3 +116,29 @@ projects that consume it.
 | Handoffs | `handoffs/<mission-id>/` contains `mission.json`, `CHECKPOINT.md`, `frontier.json`, `latest.json`, and round handoffs [`argus_skill/life/context_packet.py:17-344`]. |
 | Role sessions | `role-sessions/<role>.json` capsules, including Planner, Engineer, Reviewer, and teammate state where a role has a durable provider context. |
 | Operator context | `operator_context.jsonl` ledger plus `operator_context.json` projection and lock under the caller-selected project or shared global root. |
+
+## Glossary
+
+Canonical names for concepts that today carry several identifiers in code. The
+"Retired names" column lists spellings that must not spread to new code; the
+declared-layering section of `tests/test_architecture_invariants.py` pins the
+counts of the project-state-directory spellings (first row) and of `memory.root`
+so they can only go down; the other rows are conventions only. Permanent aliases
+are listed last and are not retired. Source: `docs/audits/architecture-clarity-2026-09-14.md`, 4.3,
+and decision card 2 for Curator.
+
+| Concept | Canonical name | Retired names | Notes |
+| --- | --- | --- | --- |
+| Project state directory `~/.argus-skill/projects/<id>/` | `life_dir` (identifier); "project state directory" (prose); `core.paths.project_state_root(sid)` once phase 7 adds it | `life_root`, `memory_root`, `session_root`, `project_dir`, `manager_session_root`, `session_state_root()`, `session_states_root()` | The 944 existing `life_dir` uses stay. Today `core.paths.session_states_root()` returns `projects/`. |
+| Host root `~/.argus-skill` | `global_root` (`core.paths.global_root()`) | `MemoryBundle.root` (after decision card 3), the three `_resolve_global_root` copies | `MemoryBundle.root` returns the host root while `LifeMemory.root` returns the project directory; the daemon injects a `MemoryBundle`. Phase 8 gives `.root` one meaning. |
+| Execution workdir | `workdir`; `project_root` keeps this meaning only inside `VerticalContract` hooks, `verticals/` and `domains/` | `project_root` meaning a state directory inside framework packages (for example `life/memory.py`, `manager/control_state.py`), or the host root (`webapi/routes/context.py`) | One word for the directory the roles edit. |
+| Backend name (`codex`, `claude`, `copilot`, ...) | `BackendName` in `core.backend_names` (phase 1) | the `Literal` also called `RunnerBackend` in `agent_cli/runner_backend.py` | `RunnerBackend` remains the name of the Protocol in `core/ports.py`; the alias is kept until phase 6. |
+| Runner vs Backend | A Runner executes one mission (the `_MissionRunner` protocol in `life/supervisor/_config.py`; `_SkillLoopRunner` in `apps/_runtime.py`, public as `SkillLoopRunner` from phase 5); `SkillLoop` (`loop.py`) is the round loop the runner drives and keeps its name; a Backend implements the `RunnerBackend` port | — | `planner_runner=` receives a backend today; documented here, parameter not renamed. |
+| life | `life`: one Project's continuous life across missions (memory, backlog, supervisor, operator channels), the `argus_skill/life/` package | — | Kept and defined rather than renamed: 149 test files, the `--life-dir` flag and 49 `life.*` event names depend on it. |
+| pipeline | which vertical, which stage, which checklist (`PIPELINE_STATE.json`); the `pipeline/` package from phase 3 | the stage machine living under `skills/` | Manager is the only role that advances the stage. |
+| Skill | a markdown document with two-field frontmatter in the project/vertical/global library (`skills/store.py`, `skills/layered.py`) | `skills/` as the home of the stage machine, RL gates and loop mixins | After phases 2-5 `skills/` holds only the library. |
+| Doctor / Terminal | `doctor/` and `terminal/` (phase 6) | `maintenance/` and `cli/` as package names | `argus_doctor.py` at the repository root is the stdlib-only bootstrap doctor; `argus_skill/maintenance/` is the runtime Doctor. |
+| Overlay vs data domain | Overlay: `domains/<name>/overlay.py`, composed onto a workflow vertical. DATA domain: a project-local, Manager-routed vertical stored as JSON (`verticals/_data_domain.py`) | — | Docstrings distinguish the two now; renaming `domains/` to `overlays/` awaits decision card 8. |
+| Mission | `BacklogItem` (class name unchanged); one bounded backlog item inside a Project | — | See "Hierarchy and cardinality" above. |
+| Curator | a daemon-resident component owned by `team/curator.py` (a thread of the daemon that owns the teammate pool), not a fifth persistent Role | — | It has routing/model/effort entries in `core/role_config.py` but is not in `RoleName`; decision card 2's recommended default. |
+| Permanent aliases | `--life-dir`, `sid`, the `ARGUS_SKILL_*` environment variables | — | Never removed; running daemons and installed launchers pass them. |

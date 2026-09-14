@@ -1,4 +1,7 @@
-"""Server-metered Argus trial. Provider credentials never enter client config."""
+"""Server-metered Argus trial. Provider credentials never enter client config.
+
+Layer: delivery
+"""
 
 TOKEN_LIMIT = 1_000_000
 WEB_TOKEN_LIMIT = 10_000_000

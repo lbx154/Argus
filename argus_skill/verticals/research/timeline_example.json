@@ -1,0 +1,69 @@
+{
+  "selected_proposal_id": "adapter-method",
+  "resources": {"gpu": 2, "researcher": 1},
+  "deadline_hours": 120,
+  "now_hours": 0,
+  "defer_optional": true,
+  "proposals": [
+    {
+      "id": "adapter-method",
+      "title": "参数高效微调方法论文（演示 proposal）",
+      "assumptions": [
+        "所有数字仅用于演示，不是实测；需用实际模型、数据规模、种子数和 GPU 吞吐校准。",
+        "两个 GPU 工作槽与一个研究人员工作槽持续可用；人工任务已计入等待和休息。",
+        "验证后可能需要新的机制或实验；此处上限仅覆盖已列出的工作。"
+      ],
+      "tasks": [
+        {"id":"grounding", "title":"文献定位与 proposal", "phase":"proposal",
+         "duration_hours":[2,4,12], "resources":{"researcher":1},
+         "basis":"演示估计：已有明确问题，需要核对最近工作"},
+        {"id":"implementation", "title":"模型实现与基线复现", "phase":"implementation",
+         "depends_on":["grounding"], "duration_hours":[6,12,36],
+         "resources":{"researcher":1}, "difficulty":"中：复用训练框架，实现新 adapter",
+         "basis":"演示估计：配置、数据处理和基线复现可能返工"},
+        {"id":"validation", "title":"idea 验证：方法与最强基线的决定性比较", "phase":"validation",
+         "depends_on":["implementation"], "duration_hours":[2,6,24], "resources":{"gpu":1},
+         "basis":"演示估计：验证关键假设，不把代码 smoke test 当验证"},
+        {"id":"main", "title":"主实验：匹配预算的多种子比较", "phase":"experiment",
+         "depends_on":["validation"], "duration_hours":[8,16,48], "resources":{"gpu":1},
+         "basis":"演示估计：需填入实际模型、数据集与重复次数"},
+        {"id":"ablation", "title":"关键机制消融", "phase":"experiment",
+         "depends_on":["validation"], "duration_hours":[4,8,24], "resources":{"gpu":1},
+         "basis":"演示估计：与主实验并行，占一个 GPU 槽"},
+        {"id":"extra", "title":"可选补充：额外规模的探索性测试", "phase":"experiment",
+         "depends_on":["validation"], "duration_hours":[24,72,168], "resources":{"gpu":2},
+         "optional":true, "basis":"仅演示可选排期，不承担论文核心 claim"},
+        {"id":"confirmation", "title":"冻结方法后的 held-out 确认", "phase":"confirmation",
+         "depends_on":["main","ablation"], "duration_hours":[4,12,36], "resources":{"gpu":1},
+         "basis":"演示估计：独立确认，不能为赶期限删除"},
+        {"id":"analysis", "title":"结果分析与图表", "phase":"analysis",
+         "depends_on":["confirmation"], "duration_hours":[4,8,24], "resources":{"researcher":1},
+         "basis":"演示估计：误差分析、结论边界和图表"},
+        {"id":"writing", "title":"论文初稿与论证", "phase":"writing",
+         "depends_on":["analysis"], "duration_hours":[8,16,48], "resources":{"researcher":1},
+         "basis":"演示估计：从证据组织论文，不保证接收"},
+        {"id":"review", "title":"独立审阅与修改", "phase":"review",
+         "depends_on":["writing"], "duration_hours":[4,8,24], "resources":{"researcher":1},
+         "basis":"演示估计：可能触发未列入本轮预测的新实验"}
+      ]
+    },
+    {
+      "id":"inference-method",
+      "title":"推理时轻量校正方法论文（备选演示）",
+      "assumptions":["数字仅用于对照功能演示；并未证明此 idea 更快或更好。"],
+      "tasks":[
+        {"id":"build", "title":"文献与推理方法实现", "phase":"implementation",
+         "duration_hours":[4,8,24], "resources":{"researcher":1},
+         "difficulty":"低到中：复用推理框架；方法有效性未知", "basis":"未校准的演示估计"},
+        {"id":"pilot", "title":"关键假设验证", "phase":"validation", "depends_on":["build"],
+         "duration_hours":[2,4,16], "resources":{"gpu":1}, "basis":"未校准的演示估计"},
+        {"id":"evidence", "title":"主实验、消融与 held-out 确认", "phase":"experiment",
+         "depends_on":["pilot"], "duration_hours":[8,16,48], "resources":{"gpu":1},
+         "basis":"演示中合并为一项；执行前按具体实验拆分"},
+        {"id":"paper", "title":"分析、论文与独立审阅", "phase":"writing",
+         "depends_on":["evidence"], "duration_hours":[12,24,72], "resources":{"researcher":1},
+         "basis":"未校准的演示估计"}
+      ]
+    }
+  ]
+}

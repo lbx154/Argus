@@ -643,6 +643,22 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
   修复 Argus 时，明确使用 `argus doctor --advisor auto`。
 - 用 `argus --config-help` 检查实际 backend/model，再判断 setup 或鉴权是否失败。
 
+## 仓库布局
+
+- `argus_skill/` —— Python 包本体；`argus`、`argus-skill` 与守护进程运行的全部代码。
+- `argus_skill/core/`、`proof_ledger/` —— 内核：模型、端口、契约、路径。目标是叶子：不得 import 任何更高层；今天残余的向上边钉在不变量测试（`tests/test_architecture_invariants.py`）里，第 1 阶段移除。
+- `argus_skill/agent_cli/`、`adapters/`、`provider_integrations/`、`advisor/` —— 模型 CLI（codex、claude、copilot……）的驱动与外部顾问侧信道。
+- `argus_skill/skills/`、`tools/`、`wiki/`、`cli/` —— 能力：Skill 库、操作者批准的工具、项目 Wiki、终端渲染。
+- `argus_skill/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：24 个内置垂直、overlay、种子 Skill。
+- `argus_skill/roles/`、`planner/`、`engineer/`、`reviewer/` —— 持久角色：提示词目录（`roles/`）加 Planner、Engineer、Reviewer 的代码（Manager 的代码在 `manager/`）。
+- `argus_skill/life/`、`manager/`、`messaging/` —— 运行时：项目记忆、backlog、supervisor、Manager 控制面与跨项目消息。
+- `argus_skill/daemon/`、`team/` —— 脱离终端的 7x24 worker 与 Agent Teams。
+- `argus_skill/apps/`、`webapi/`、`plugin/`、`maintenance/`、`trial/` —— 交付面：CLI、Web API、宿主插件、Doctor、托管试用。
+- `frontend/` —— Ink 终端 cockpit（`tui`）、React Web cockpit（`web`）、共享 TypeScript（`core`）。
+- `desktop-tauri/` —— Tauri 桌面壳（发布 Windows 版；CI 四个目标）；`plugins/` —— 可安装的宿主插件；`tests/` —— pytest 测试。
+
+完整地图与声明的分层见 [docs/LAYOUT.md](docs/LAYOUT.md)。
+
 ## Argus 目前取得的成果
 
 一份部分记录，按**由谁来判定这个结果算不算数**分组——而这些判定者里没有一个是 Argus 自己。

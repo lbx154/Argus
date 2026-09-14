@@ -350,6 +350,7 @@ decision, then return here. Do not read all the sources in advance.
 | Training or large inference infrastructure is required | `engineer/training-infrastructure-guide.md` | Select and reuse maintained frameworks |
 | A fresh project environment must be set up | `engineer/project-environment-management.md` | Create the project venv and install the ML stack cleanly |
 | A concrete dependency or resource may block execution | `engineer/environment-readiness.md` | Check only the resources this implementation uses |
+| An experiment changes a requested time estimate or misses a milestone | `engineer/research-timeline.md` | Recompute the forecast and explain the deviation with evidence |
 | The method is below its baseline | `engineer/research-grind.md` | Diagnose and improve the largest live gap |
 | The run may be misconfigured | `engineer/suspect-the-setup.md` | Separate setup failure from method evidence |
 | A mechanism needs one decisive ablation | `engineer/ablation-planner.md` | Choose only claim-changing ablations |

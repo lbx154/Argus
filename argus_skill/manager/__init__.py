@@ -1,5 +1,7 @@
 """User-facing Manager control plane.
 
+Layer: runtime
+
 The Manager routes operator input, selects and persists mission verticals,
 and decides stage transitions. Mission execution remains with the existing
 LifeSupervisor engine.

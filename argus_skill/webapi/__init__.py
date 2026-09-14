@@ -1,7 +1,20 @@
-"""Optional web/TUI backend API (the ``[web]`` extra).
+"""Web/TUI backend API: the FastAPI layer the Ink and React frontends consume.
+
+Layer: delivery
 
 Thin FastAPI layer over the file-based daemon pub/sub that the Ink terminal
 frontend and the React web frontend both consume. See :mod:`.server`.
+``fastapi`` and ``uvicorn`` are hard dependencies (``[project.dependencies]``
+in pyproject.toml); there is no ``[web]`` extra. The package-level
+``__getattr__`` below still defers importing :mod:`.server` so that importing
+``argus_skill.webapi`` itself stays cheap.
+
+Also hosted here today: the ``manager_*`` (bridge, dispatch, pending
+question, session intent, state), ``map_*`` (feed, history, model, narrative,
+notes, references, team, view) and ``daemon_*`` (lifecycle, liveness,
+upgrade) service modules. They are runtime services that happen to be
+reached through HTTP; a later service-layer proposal decides where they
+live (see docs/LAYOUT.md).
 """
 
 from __future__ import annotations

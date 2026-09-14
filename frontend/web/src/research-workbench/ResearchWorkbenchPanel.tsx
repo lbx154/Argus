@@ -3,6 +3,7 @@ import { useI18n } from '../i18n';
 import { EmptyState, Spinner } from './components/Common';
 import { ExperimentsPage } from './pages/ExperimentsPage';
 import { IdePage } from './pages/IdePage';
+import { TimelinePage } from './timeline/TimelinePage';
 import type { ActiveWorkbenchPageProps } from './pages/pageTypes';
 import { ProjectOverviewPage } from './pages/ProjectOverviewPage';
 import { WORKBENCH_MODULES } from './modules';
@@ -74,6 +75,7 @@ export function ResearchWorkbenchPanel({ sid, active }: { sid: string; active: b
       ) : WORKBENCH_MODULES.filter(({ id }) => openedPages.has(id)).map(({ id }) => (
         <div key={`${sid}:${id}`} className={`ros-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto ${activePage === id ? '' : 'hidden'}`} aria-hidden={activePage !== id}>
           {id === 'overview' ? <ProjectOverviewPage {...pageProps} active={active && activePage === id} />
+            : id === 'timeline' ? <TimelinePage sid={sid} />
             : id === 'experiments' ? <ExperimentsPage {...pageProps} active={active && activePage === id} />
             : <IdePage {...pageProps} active={active && activePage === id} />}
         </div>

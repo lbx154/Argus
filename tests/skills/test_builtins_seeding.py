@@ -58,6 +58,7 @@ RESEARCH_BASE_SKILLS = {
     "engineer/figure_spec_scripts/figure_renderer.py",
     "engineer/hypothesis-implementation-contract.md",
     "engineer/research-grind.md",
+    "engineer/research-timeline.md",
     "engineer/suspect-the-setup.md",
     "engineer/figure_spec_scripts/paper_chart_style.py",
     "engineer/paper-framework-figure-studio.md",

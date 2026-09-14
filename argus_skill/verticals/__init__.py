@@ -1,5 +1,7 @@
 """Domain-specific adapters on top of the domain-agnostic Argus runtime.
 
+Layer: domain
+
 The canonical built-in inventory and Manager-facing purpose descriptions live
 in :mod:`argus_skill.skills.vertical_select`. Keep package documentation free of
 a second handwritten inventory so registration and documentation cannot drift.
