@@ -406,22 +406,24 @@ def test_store_verticals_are_discovered_with_origin_store(store_release) -> None
     assert sys.modules["argus_verticals"].__path__ == [str(store.package_root())]
 
 
-def test_disabled_store_entries_are_hidden_and_the_registry_mtime_triggers_a_rescan(store_release) -> None:
+def test_disabled_store_entries_are_hidden_and_the_overlay_mtime_triggers_a_rescan(store_release) -> None:
     import json
 
     store = store_release
     store.install("store_lab", wait=True)
     assert "store_lab" in vertical_select.available_verticals()
-    # Edit registry.json behind the store's back: no refresh call, only the file changes.
-    path = store.registry_path()
-    data = json.loads(path.read_text(encoding="utf-8"))
-    data["verticals"]["store_lab"]["enabled"] = False
-    path.write_text(json.dumps(data), encoding="utf-8")
+    # Edit the user overlay behind the store's back: no refresh call, only the file changes.
+    path = store.user_state_path()
+    path.write_text(json.dumps({"schema": 1, "disabled": ["store_lab"]}), encoding="utf-8")
     assert "store_lab" not in vertical_select.available_verticals()
     assert _registry.vertical_plugin("store_lab") is None
-    data["verticals"]["store_lab"]["enabled"] = True
-    path.write_text(json.dumps(data), encoding="utf-8")
+    path.write_text(json.dumps({"schema": 1, "disabled": []}), encoding="utf-8")
     assert "store_lab" in vertical_select.available_verticals()
+    # The registry file changing (a removal) is noticed the same way.
+    registry = json.loads(store.registry_path().read_text(encoding="utf-8"))
+    del registry["verticals"]["store_lab"]
+    store.registry_path().write_text(json.dumps(registry), encoding="utf-8")
+    assert "store_lab" not in vertical_select.available_verticals()
 
 
 def test_store_scan_is_memoised_until_the_registry_changes(store_release, monkeypatch) -> None:

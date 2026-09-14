@@ -359,8 +359,26 @@ def migrate_legacy_manager_state(
     return True
 
 
+def _store_disabled(name: str) -> bool:
+    """Is ``name`` installed in the Vertical Store but switched off for this user?"""
+    from ..verticals import store
+
+    try:
+        return name in store.installed() and name in store.disabled_names()
+    except Exception:  # noqa: BLE001 - a broken store must not mask the real message
+        return False
+
+
 def uninstalled_vertical_message(name: str, project_root: object) -> str:
     """The operator-facing text for a persisted vertical this runtime cannot load."""
+    if _store_disabled(name):
+        return (
+            f"PIPELINE_STATE.json at {_state_path(project_root)} names vertical {name!r}, "
+            "which is installed in the Vertical Store but disabled for this workspace. "
+            f"Run `argus verticals enable {name}` (or enable it in the cockpit's Verticals "
+            f"page) (verticals available now: {', '.join(available_verticals())}). Nothing is "
+            "dispatched for this project until its vertical can be loaded."
+        )
     return (
         f"PIPELINE_STATE.json at {_state_path(project_root)} names vertical {name!r}, "
         "which is not built in, not an installed plugin vertical, and not a project "

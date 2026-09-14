@@ -82,7 +82,7 @@ def test_list_install_info_remove_round_trip(capsys) -> None:
 
     assert main(["verticals", "disable", "child_v"]) == 0
     assert "child_v: disabled" in capsys.readouterr().out
-    assert store.installed()["child_v"]["enabled"] is False
+    assert "child_v" in store.disabled_names() and "enabled" not in store.installed()["child_v"]
     assert main(["verticals", "enable", "child_v"]) == 0
 
     assert main(["verticals", "remove", "base_v"]) == 1

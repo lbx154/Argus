@@ -12,7 +12,9 @@ Contract (``verticals.store.v1``):
 * ``GET  /api/verticals/{name}/operation`` -> the operation record or 404
 
 Every write is same-origin only, like plugin management. On a hosted trial
-the store is host-managed: install/update/uninstall answer 403 there.
+the store is host-managed: install/update/uninstall answer 403 there, while
+enable/disable change only the caller's own overlay. Timestamps on the wire
+are ISO-8601 UTC strings and ``operation.progress`` is an integer percent.
 """
 
 from __future__ import annotations
@@ -51,14 +53,19 @@ def register_vertical_routes(app, ctx):
             name="vertical-preinstall",
         ).start()
 
+    def session_roots():
+        # Every root the server lists sessions from counts as a user of a vertical.
+        roots = getattr(ctx, "roots", None)
+        return list(roots) if roots else None
+
     @app.get("/api/verticals", dependencies=[Depends(ctx.require_auth)])
     def list_verticals():
-        return store.overview(ctx.global_root)
+        return store.overview(ctx.global_root, roots=session_roots())
 
     @app.post("/api/verticals/catalog/refresh", dependencies=[Depends(ctx.require_auth)])
     def refresh_catalog(request: Request):
         _same_origin(request)
-        return store.overview(ctx.global_root, refresh=True)
+        return store.overview(ctx.global_root, refresh=True, roots=session_roots())
 
     @app.post("/api/verticals/{name}/manage/{action}", dependencies=[Depends(ctx.require_auth)])
     def manage(name: str, action: str, request: Request, payload: dict = Body(default_factory=dict)):
@@ -76,7 +83,7 @@ def register_vertical_routes(app, ctx):
             elif action == "update":
                 operation = store.update(name, ctx.global_root)
             elif action == "uninstall":
-                operation = store.uninstall(name, ctx.global_root, force=force)
+                operation = store.uninstall(name, ctx.global_root, force=force, roots=session_roots())
             else:
                 store.set_enabled(name, action == "enable", ctx.global_root)
                 return {"name": name.strip().lower(), "action": action, "operation": None}

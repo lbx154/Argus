@@ -8,21 +8,31 @@ verifies it, extracts it under ``<store root>/argus_verticals/<name>/`` and
 records the result in ``registry.json``. Nothing here runs ``pip``; a vertical's
 ``python_requirements`` are shown to the operator, never installed.
 
-Layout under the store root (``<ARGUS_SKILL_HOME>/verticals`` or the directory
-named by ``ARGUS_VERTICALS_HOST_ROOT``)::
+Two kinds of state, deliberately apart:
 
-    argus_verticals/<name>/...            extracted trees (shared helpers at their
-    argus_verticals/literary/shared/...   repo-relative place)
-    registry.json                         what is installed, enabled, and who owns
-                                          which shared tree (portalocker ``store.lock``)
-    catalog.json                          the last catalog fetched, with its source
-    operations/<name>.json                the running or last install/update/remove job
-    logs/<name>.log                       one line per job step
+* the **store root** (``<ARGUS_SKILL_HOME>/verticals``, or the directory named
+  by ``ARGUS_VERTICALS_HOST_ROOT`` -- a prepared, possibly read-only root that
+  every tenant of a hosted image shares) holds what is *installed*::
 
-Discovery is ``_registry.py``'s job: it reads ``registry.json`` and makes the
-store's ``argus_verticals`` importable (appended to a pip-installed copy's
-``__path__`` when one exists -- the pip copy wins -- or as a synthetic namespace
-package otherwise), so the frozen desktop works without any dist-info.
+      argus_verticals/<name>/...            extracted trees (shared helpers at their
+      argus_verticals/literary/shared/...   repo-relative place)
+      registry.json                         installed trees and who owns which shared
+                                            tree (portalocker ``store.lock``)
+      catalog.json                          the last catalog fetched, or the last failure
+      operations/<name>.json                the running or last install/update/remove job
+      logs/<name>.log                       one line per job step
+      .staging/                             per-job scratch, swept when its owner is gone
+
+* the **user overlay** ``<ARGUS_SKILL_HOME>/verticals/state.json`` holds what
+  *this* user has disabled: ``{"schema": 1, "disabled": [names]}``. Enable and
+  disable write only the overlay, so they work on a read-only host root and
+  never change what another tenant sees. A vertical is *enabled* when it is
+  installed and not in the overlay.
+
+Discovery is ``_registry.py``'s job: it reads both files and makes the store's
+``argus_verticals`` importable (appended to a pip-installed copy's ``__path__``
+when one exists -- the pip copy wins -- or as a synthetic namespace package
+otherwise), so the frozen desktop works without any dist-info.
 
 Security: catalog and archive URLs must be https on an allow-listed GitHub
 host, redirects are followed only within that allow-list, archives are
@@ -30,6 +40,10 @@ size-capped, sha256-verified, and extracted only after every member is checked
 (no absolute paths, no ``..``, no symlinks, no file outside the trees the
 catalog declares for that vertical). Local ``file://`` sources are honoured only
 when the catalog itself came from a local file (offline mirrors and tests).
+
+Wire contract: timestamps (``operation.started``/``finished``, the catalog's
+``fetched_at``) are ISO-8601 UTC strings; ``operation.progress`` is an integer
+percent 0-100. Vertical names are lowercased on the way in.
 """
 from __future__ import annotations
 
@@ -49,7 +63,7 @@ import uuid
 import zipfile
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -74,6 +88,8 @@ HOST_ROOT_ENV = "ARGUS_VERTICALS_HOST_ROOT"
 CATALOG_ENV = "ARGUS_VERTICAL_CATALOG"
 #: Comma-separated vertical names a deployment prepares at startup.
 PREINSTALL_ENV = "ARGUS_VERTICALS_PREINSTALL"
+#: Extra session-state roots (``os.pathsep``-separated) whose projects count as users of a vertical.
+SESSION_ROOTS_ENV = "ARGUS_SKILL_WEB_SESSION_ROOTS"
 DEFAULT_CATALOG_URL = (
     "https://github.com/Argus-AiTeam/argus-verticals/releases/latest/download/catalog.json"
 )
@@ -82,16 +98,24 @@ ALLOWED_HOSTS = frozenset({
 })
 CATALOG_SCHEMA = 1
 REGISTRY_SCHEMA = 1
+STATE_SCHEMA = 1
 CATALOG_MAX_AGE = timedelta(hours=6)
+#: After a failed fetch the cached catalog (or the failure) is served without a
+#: retry for this long, so a blackholed host does not stall every poll.
+FAILURE_BACKOFF = timedelta(minutes=5)
 CATALOG_LIMIT = 8 * 1024 * 1024
 ARCHIVE_LIMIT = 256 * 1024 * 1024
 EXPANDED_LIMIT = 512 * 1024 * 1024
+CATALOG_TIMEOUT = 30.0
+ARCHIVE_TIMEOUT = 90.0
+LOCK_TIMEOUT = 30.0
+STAGING_GRACE = 60.0
 ACTIONS: tuple[str, ...] = ("install", "update", "enable", "disable", "uninstall")
 JOB_ACTIONS = frozenset({"install", "update", "uninstall"})
 KINDS: tuple[str, ...] = ("builtin", "package", "installed", "available")
 HOST_MANAGED = (
     "verticals are provided by the host of this deployment: install, update and remove "
-    "are disabled here (enable and disable still work)"
+    "are disabled here (enable and disable apply to your own workspace only)"
 )
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
@@ -153,6 +177,11 @@ def log_path(root: str | Path | None, name: str) -> Path:
     return store_root(root) / "logs" / f"{name}.log"
 
 
+def user_state_path(root: str | Path | None = None) -> Path:
+    """This user's overlay; always under the user's own home, never the host root."""
+    return core_paths.verticals_root(root) / "state.json"
+
+
 def managed_by_host(env: Any = None) -> bool:
     """Hosted deployments own installation; the operator may only enable/disable."""
     environment = os.environ if env is None else env
@@ -170,11 +199,31 @@ def preinstalled_names(env: Any = None) -> list[str]:
     return names
 
 
+def default_session_roots(root: str | Path | None = None) -> list[str | Path | None]:
+    """The home ``root`` plus every root ``ARGUS_SKILL_WEB_SESSION_ROOTS`` names, each once."""
+    roots: list[str | Path | None] = [root]
+    primary = Path(root).expanduser() if root is not None else core_paths.global_root()
+    seen = {primary.resolve()}
+    for part in os.environ.get(SESSION_ROOTS_ENV, "").split(os.pathsep):
+        candidate = part.strip()
+        if not candidate:
+            continue
+        try:
+            resolved = core_paths.resolve_runtime_path(candidate, context=SESSION_ROOTS_ENV).resolve()
+        except (core_paths.PathResolutionError, OSError):
+            continue
+        if resolved not in seen:
+            seen.add(resolved)
+            roots.append(candidate)
+    return roots
+
+
 def valid_module_name(module: str) -> bool:
     return bool(_MODULE.fullmatch(module))
 
 
 def _valid_name(name: object) -> str:
+    """Lower-case and check a vertical name; names are never case-sensitive here."""
     cleaned = name.strip().lower() if isinstance(name, str) else ""
     if not _NAME.fullmatch(cleaned):
         raise UnknownVerticalError(f"{name!r} is not a valid vertical name")
@@ -187,8 +236,19 @@ def _builtin_names() -> frozenset[str]:
     return frozenset(builtin_verticals())
 
 
+def _iso_now() -> str:
+    return _iso(time.time()) or ""
+
+
+def _iso(epoch: float | None) -> str | None:
+    """Epoch seconds as an ISO-8601 UTC string (``2026-09-14T19:00:00Z``); the wire never carries numbers."""
+    if epoch is None:
+        return None
+    return datetime.fromtimestamp(float(epoch), tz=timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 # --------------------------------------------------------------------------- #
-# Registry
+# Registry (host-owned) and the user overlay
 # --------------------------------------------------------------------------- #
 
 
@@ -216,7 +276,8 @@ def registry(root: str | Path | None = None) -> dict[str, Any]:
     return {
         "schema": REGISTRY_SCHEMA,
         "verticals": {
-            name: dict(entry) for name, entry in verticals.items()
+            name: {key: value for key, value in entry.items() if key != "enabled"}
+            for name, entry in verticals.items()
             if isinstance(name, str) and _NAME.fullmatch(name) and isinstance(entry, dict)
         },
         "shared": {
@@ -234,32 +295,83 @@ def installed(root: str | Path | None = None) -> dict[str, dict[str, Any]]:
     return registry(root)["verticals"]
 
 
-def enabled_entries(root: str | Path | None = None) -> dict[str, dict[str, Any]]:
-    return {name: entry for name, entry in installed(root).items() if entry.get("enabled")}
-
-
-def registry_signature(root: str | Path | None = None) -> tuple[int, int, int] | None:
-    """Identity of the registry file on disk (``None`` when nothing is installed)."""
+def disabled_names(root: str | Path | None = None) -> set[str]:
+    """The names this user has switched off; a damaged overlay disables nothing and is logged."""
+    path = user_state_path(root)
     try:
-        stat = registry_path(root).stat()
+        data = read_json(path, {})
+    except ValueError as exc:
+        log.warning("vertical overlay %s is not valid JSON (%s); treating it as empty", path, exc)
+        return set()
+    if not isinstance(data, dict) or not data:
+        return set()
+    if data.get("schema") != STATE_SCHEMA:
+        log.warning("vertical overlay %s has schema %r; treating it as empty", path, data.get("schema"))
+        return set()
+    raw = data.get("disabled")
+    return {name for name in (raw if isinstance(raw, list) else []) if isinstance(name, str) and _NAME.fullmatch(name)}
+
+
+def enabled_entries(root: str | Path | None = None) -> dict[str, dict[str, Any]]:
+    """Installed and not disabled by this user."""
+    disabled = disabled_names(root)
+    return {name: entry for name, entry in installed(root).items() if name not in disabled}
+
+
+def _file_signature(path: Path) -> tuple[int, int, int] | None:
+    try:
+        stat = path.stat()
     except FileNotFoundError:
         return None
     return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
 
 
+def registry_signature(root: str | Path | None = None) -> tuple[Any, Any] | None:
+    """Identity of the registry and the user overlay on disk (``None`` when nothing is installed)."""
+    registry_state = _file_signature(registry_path(root))
+    if registry_state is None:
+        return None
+    return (registry_state, _file_signature(user_state_path(root)))
+
+
+def overlay_writable(root: str | Path | None = None) -> bool:
+    """Can this user record an enable/disable? Checked before the actions are offered."""
+    path = user_state_path(root)
+    if path.exists():
+        return os.access(path, os.W_OK)
+    probe = path.parent
+    while not probe.exists():
+        if probe.parent == probe:
+            return False
+        probe = probe.parent
+    return os.access(probe, os.W_OK | os.X_OK)
+
+
 @contextmanager
-def _locked(root: str | Path | None) -> Iterator[None]:
-    store = store_root(root)
+def _file_lock(lock_file: Path, *, what: str) -> Iterator[None]:
     try:
-        store.mkdir(parents=True, exist_ok=True)
-        lock = portalocker.Lock(str(store / "store.lock"), timeout=30)
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        lock = portalocker.Lock(str(lock_file), timeout=LOCK_TIMEOUT)
         lock.acquire()
     except (OSError, portalocker.exceptions.LockException) as exc:
-        raise VerticalStoreError(f"the vertical store at {store} is not writable: {exc}") from exc
+        raise VerticalStoreError(f"{what} at {lock_file.parent} is not writable or is locked: {exc}") from exc
     try:
         yield
     finally:
         lock.release()
+
+
+@contextmanager
+def _locked(root: str | Path | None) -> Iterator[None]:
+    """The store-root lock: every registry write and every job start."""
+    with _file_lock(store_root(root) / "store.lock", what="the vertical store"):
+        yield
+
+
+@contextmanager
+def _user_locked(root: str | Path | None) -> Iterator[None]:
+    with _file_lock(user_state_path(root).with_name("state.lock"), what="the vertical overlay"):
+        yield
 
 
 def _save_registry(root: str | Path | None, data: dict[str, Any]) -> None:
@@ -267,6 +379,14 @@ def _save_registry(root: str | Path | None, data: dict[str, Any]) -> None:
         write_json(registry_path(root), data)
     except OSError as exc:
         raise VerticalStoreError(f"registry.json could not be written: {exc}") from exc
+
+
+def _save_user_state(root: str | Path | None, disabled: Iterable[str]) -> None:
+    path = user_state_path(root)
+    try:
+        write_json(path, {"schema": STATE_SCHEMA, "disabled": sorted(set(disabled))})
+    except OSError as exc:
+        raise VerticalStoreError(f"{path} could not be written: {exc}") from exc
 
 
 # --------------------------------------------------------------------------- #
@@ -300,12 +420,19 @@ def _check_https(url: str, *, what: str) -> None:
         )
 
 
-def _https_stream(url: str, sink: Callable[[bytes], object], *, limit: int, what: str) -> None:
+def _https_stream(
+    url: str,
+    sink: Callable[[bytes], object],
+    *,
+    limit: int,
+    what: str,
+    timeout: float = ARCHIVE_TIMEOUT,
+) -> None:
     """GET ``url`` following at most eight redirects, every hop on an allowed host."""
     _check_https(url, what=what)
     current = url
     try:
-        with httpx.Client(timeout=90) as client:
+        with httpx.Client(timeout=timeout) as client:
             for _ in range(8):
                 with client.stream("GET", current, follow_redirects=False) as response:
                     if response.is_redirect:
@@ -335,7 +462,7 @@ def _fetch_catalog(source: str) -> dict[str, Any]:
             raise VerticalStoreError(f"catalog {local} is unreadable: {exc}") from exc
     else:
         chunks: list[bytes] = []
-        _https_stream(source, chunks.append, limit=CATALOG_LIMIT, what="catalog")
+        _https_stream(source, chunks.append, limit=CATALOG_LIMIT, what="catalog", timeout=CATALOG_TIMEOUT)
         try:
             text = b"".join(chunks).decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -440,6 +567,23 @@ def _validate_entry(name: str, raw: object, *, local_source: bool) -> dict[str, 
     }
 
 
+def _check_tree_claims(verticals: dict[str, dict[str, Any]]) -> None:
+    """One directory, one owner: overlapping claims would let one removal delete another's files."""
+    owners: dict[str, str] = {}
+    for name, entry in verticals.items():
+        for path in entry["paths"]:
+            if path in owners:
+                raise VerticalStoreError(f"catalog verticals {owners[path]!r} and {name!r} both claim {path}")
+            owners[path] = name
+    for name, entry in verticals.items():
+        for tree in entry["shared"]:
+            for path, owner in owners.items():
+                if tree == path or tree.startswith(path + "/") or path.startswith(tree + "/"):
+                    raise VerticalStoreError(
+                        f"catalog vertical {name!r}: shared tree {tree} overlaps the directory {path} of {owner!r}"
+                    )
+
+
 def validate_catalog(data: object, *, local_source: bool) -> dict[str, Any]:
     """Return a normalised catalog or raise ``VerticalStoreError`` naming the fault."""
     if not isinstance(data, dict):
@@ -449,6 +593,12 @@ def validate_catalog(data: object, *, local_source: bool) -> dict[str, Any]:
     raw_verticals = data.get("verticals")
     if not isinstance(raw_verticals, dict):
         raise VerticalStoreError("catalog has no verticals object")
+    builtin = _builtin_names()
+    for name in raw_verticals:
+        if name in builtin:
+            raise VerticalStoreError(
+                f"catalog vertical {name!r} has the name of a built-in vertical; the catalog is refused"
+            )
     verticals = {
         str(name): _validate_entry(str(name), entry, local_source=local_source)
         for name, entry in raw_verticals.items()
@@ -457,6 +607,7 @@ def validate_catalog(data: object, *, local_source: bool) -> dict[str, Any]:
         for required in entry["requires"]:
             if required not in verticals:
                 raise VerticalStoreError(f"catalog vertical {name!r} requires unknown vertical {required!r}")
+    _check_tree_claims(verticals)
     raw_release = data.get("release")
     release: dict[Any, Any] = raw_release if isinstance(raw_release, dict) else {}
     tag = release.get("tag")
@@ -473,46 +624,76 @@ def validate_catalog(data: object, *, local_source: bool) -> dict[str, Any]:
     }
 
 
+def _catalog_result(catalog: dict[str, Any], fetched_at: float | None, source: str, error: str) -> dict[str, Any]:
+    return {"fetched_at": _iso(fetched_at), "source": source, "catalog": catalog, "error": error}
+
+
+def _write_catalog_cache(root: str | Path | None, record: dict[str, Any]) -> None:
+    try:
+        write_json(catalog_cache_path(root), record)
+    except OSError as exc:  # a read-only host root still serves what was fetched
+        log.warning("vertical catalog cache could not be written: %s", exc)
+
+
 def load_catalog(
     root: str | Path | None = None,
     *,
     refresh: bool = False,
     max_age: timedelta = CATALOG_MAX_AGE,
+    backoff: timedelta = FAILURE_BACKOFF,
 ) -> dict[str, Any]:
-    """Return ``{"fetched_at", "source", "catalog", "error"}``.
+    """Return ``{"fetched_at", "source", "catalog", "error"}`` (``fetched_at`` ISO-8601 UTC or ``None``).
 
     A fresh enough cache for the same source is served as is. When the fetch
-    fails and a stale cache exists, the cache is returned with ``error`` set;
-    with no usable cache the failure is raised.
+    fails, the failure is recorded in the cache file: a stale catalog is then
+    served with ``error`` set, and the network is not retried for ``backoff``
+    unless ``refresh`` is given. With no usable cache the failure is raised.
     """
     source = catalog_source()
     local_source = _local_path(source) is not None
     cache: dict[str, Any] = read_json(catalog_cache_path(root), {})
-    if not isinstance(cache, dict):
+    if not isinstance(cache, dict) or cache.get("source") != source:
         cache = {}
     cached: dict[str, Any] | None = None
-    if cache.get("source") == source and isinstance(cache.get("catalog"), dict):
+    if isinstance(cache.get("catalog"), dict):
         try:
             cached = validate_catalog(cache["catalog"], local_source=local_source)
         except VerticalStoreError:
             cached = None
-    if cached is not None and not refresh:
-        age = time.time() - float(cache.get("fetched_at") or 0)
-        if 0 <= age <= max_age.total_seconds():
-            return {"fetched_at": cache.get("fetched_at"), "source": source, "catalog": cached, "error": ""}
+    fetched_at = float(cache.get("fetched_at") or 0) if cached is not None else None
+    failed_at = float(cache.get("failed_at") or 0)
+    now = time.time()
+    # A failure newer than the last good fetch is reported (and not retried) for the
+    # backoff window, even while the cached catalog itself is still fresh enough.
+    recent_failure = (
+        bool(failed_at) and 0 <= now - failed_at <= backoff.total_seconds()
+        and (fetched_at is None or failed_at >= fetched_at)
+    )
+    last_error = (str(cache.get("error") or "") or f"catalog {source} could not be loaded") if recent_failure else ""
+    if not refresh:
+        if cached is not None and fetched_at is not None and 0 <= now - fetched_at <= max_age.total_seconds():
+            return _catalog_result(cached, fetched_at, source, last_error)
+        if recent_failure:
+            if cached is not None:
+                return _catalog_result(cached, fetched_at, source, last_error)
+            raise VerticalStoreError(last_error)
     try:
         catalog = _fetch_catalog(source)
     except VerticalStoreError as exc:
+        message = str(exc)
+        _write_catalog_cache(root, {
+            "source": source,
+            "catalog": cache.get("catalog") if cached is not None else None,
+            "fetched_at": fetched_at,
+            "failed_at": now,
+            "error": message,
+        })
         if cached is not None:
-            log.warning("serving the cached vertical catalog: %s", exc)
-            return {"fetched_at": cache.get("fetched_at"), "source": source, "catalog": cached, "error": str(exc)}
+            log.warning("serving the cached vertical catalog: %s", message)
+            return _catalog_result(cached, fetched_at, source, message)
         raise
-    payload = {"fetched_at": time.time(), "source": source, "catalog": catalog}
-    try:
-        write_json(catalog_cache_path(root), payload)
-    except OSError as exc:  # a read-only host root still serves the fetched catalog
-        log.warning("vertical catalog cache could not be written: %s", exc)
-    return {**payload, "error": ""}
+    _write_catalog_cache(root, {"fetched_at": now, "source": source, "catalog": catalog})
+    return _catalog_result(catalog, now, source, "")
 
 
 def _closure(catalog: dict[str, Any], names: Iterable[str]) -> list[str]:
@@ -606,8 +787,20 @@ def _fetch_archive(spec: dict[str, Any], destination: Path, source: str) -> None
         raise VerticalStoreError(f"{name}: archive sha256 {digest[:12]}... does not match the catalog; nothing was installed")
 
 
+def _safe_member(member: str) -> bool:
+    parts = member.split("/")
+    return bool(member) and not member.startswith("/") and "\\" not in member and not any(
+        part in {".", ".."} for part in parts
+    ) and not any(part == "" for part in parts[:-1])
+
+
 def _extract(archive: Path, destination: Path, *, trees: list[str], name: str) -> None:
-    """Extract only after every member is checked against the declared trees."""
+    """Extract only after every member is checked against the declared trees.
+
+    Directory entries (``zip -r`` style) are tolerated when they are one of the
+    vertical's trees or an ancestor of one (``argus_verticals/``); every file must
+    lie inside a declared tree.
+    """
     prefixes = tuple(f"{tree}/" for tree in trees)
     root = destination.resolve()
     try:
@@ -617,15 +810,13 @@ def _extract(archive: Path, destination: Path, *, trees: list[str], name: str) -
                 raise VerticalStoreError(f"{name}: archive expands beyond the size limit")
             for info in infos:
                 member = info.filename
-                parts = member.split("/")
-                if (
-                    not member
-                    or member.startswith("/")
-                    or "\\" in member
-                    or any(part in {"", ".", ".."} for part in parts[:-1])
-                    or parts[-1] in {".", ".."}
-                    or not member.startswith(prefixes)
-                ):
+                if not _safe_member(member):
+                    raise VerticalStoreError(f"{name}: unsafe archive member: {member}")
+                if info.is_dir():
+                    ancestor = any(prefix.startswith(member) for prefix in prefixes)
+                    if not (member.startswith(prefixes) or ancestor):
+                        raise VerticalStoreError(f"{name}: archive directory outside the vertical's trees: {member}")
+                elif not member.startswith(prefixes):
                     raise VerticalStoreError(f"{name}: archive member outside the vertical's trees: {member}")
                 if (info.external_attr >> 16) & 0o170000 == 0o120000:
                     raise VerticalStoreError(f"{name}: archive contains a symlink: {member}")
@@ -671,7 +862,13 @@ def _place(
     staging: Path,
     catalog: dict[str, Any],
 ) -> None:
-    """Swap the extracted trees into the store and record them; all or nothing."""
+    """Swap the extracted trees into the store and record them; all or nothing.
+
+    A tree being replaced is renamed into ``staging/replaced`` and stays complete
+    there: another installed vertical nested inside it (``digital_circuit/benchmark``)
+    is *copied* back into the new tree, so a failure at any later step restores
+    the backup as it was, nested vertical included.
+    """
     name = spec["name"]
     store = store_root(root)
     trees = [*spec["paths"], *spec["shared"]]
@@ -695,14 +892,13 @@ def _place(
                 os.replace(source, target)
                 moved.append(target)
                 if backup is not None:
-                    for inner in nested:  # another vertical's directory inside this tree survives the swap
+                    for inner in nested:
                         relative = inner[len(tree) + 1:]
                         kept = backup / relative
                         if kept.is_dir():
                             shutil.rmtree(target / relative, ignore_errors=True)
                             (target / relative).parent.mkdir(parents=True, exist_ok=True)
-                            os.replace(kept, target / relative)
-            previous = data["verticals"].get(name, {})
+                            shutil.copytree(kept, target / relative, symlinks=True)
             data["verticals"][name] = {
                 "version": spec["version"],
                 "sha256": spec["archive"]["sha256"],
@@ -712,7 +908,6 @@ def _place(
                     "tag": catalog["release"]["tag"],
                     "url": spec["archive"]["url"],
                 },
-                "enabled": bool(previous.get("enabled", True)),
                 "installed_at": time.time(),
                 "requires": list(spec["requires"]),
                 "shared": list(spec["shared"]),
@@ -720,9 +915,16 @@ def _place(
             }
             for tree in spec["shared"]:
                 owners = data["shared"].setdefault(tree, {"owners": [], "sha256s": {}})
+                digest = _tree_digest(store / tree)
+                for other, recorded in owners["sha256s"].items():
+                    if other != name and recorded != digest:
+                        log.warning(
+                            "shared tree %s shipped by %s differs from the copy %s installed; "
+                            "the newer archive's copy is now in place", tree, name, other,
+                        )
                 if name not in owners["owners"]:
                     owners["owners"].append(name)
-                owners["sha256s"][name] = _tree_digest(store / tree)
+                owners["sha256s"][name] = digest
             _save_registry(root, data)
         except Exception:
             for target in moved:
@@ -754,7 +956,7 @@ def _append_log(root: str | Path | None, name: str, action: str, message: str) -
         path = log_path(root, name)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {action} {message}\n")
+            handle.write(f"{_iso_now()} {action} {message}\n")
     except OSError:
         pass
 
@@ -782,7 +984,7 @@ def operation(name: str, root: str | Path | None = None) -> dict[str, Any] | Non
     if not isinstance(op, dict) or not op:
         return None
     if op.get("status") == "running" and not _job_alive(root, name, op):
-        op.update(status="failed", finished=time.time(),
+        op.update(status="failed", finished=_iso_now(),
                   message="the process running this operation ended before it finished")
         try:
             write_json(path, op)
@@ -803,13 +1005,14 @@ def _start_job(
     target: Callable[..., None],
     args: tuple[Any, ...],
 ) -> dict[str, Any]:
-    with _jobs_lock:
+    """Record and start one job; the check-then-write runs under the store's file lock."""
+    with _jobs_lock, _locked(root):
         current = operation(name, root)
         if current is not None and current.get("status") == "running":
             raise VerticalStoreError(f"{name}: a {current.get('action')} operation is already running")
         op: dict[str, Any] = {
             "status": "running", "action": action, "progress": 0, "message": "starting",
-            "started": time.time(), "finished": None, "pid": os.getpid(),
+            "started": _iso_now(), "finished": None, "pid": os.getpid(),
             "identity": capture_process_identity(os.getpid()),
         }
         try:
@@ -825,7 +1028,7 @@ def _start_job(
             thread.start()
         except RuntimeError as exc:
             _jobs.pop((str(store_root(root)), name), None)
-            op.update(status="failed", finished=time.time(), message="the job thread could not start")
+            op.update(status="failed", finished=_iso_now(), message="the job thread could not start")
             _write_operation(root, name, op)
             raise VerticalStoreError(f"{name}: the {action} job could not start") from exc
     return {k: v for k, v in op.items() if k != "identity"}
@@ -856,7 +1059,7 @@ def _run_job(
         op.update(status="failed", message=f"{type(exc).__name__}: {exc}")
         log.warning("vertical %s %s failed", name, action, exc_info=True)
     finally:
-        op["finished"] = time.time()
+        op["finished"] = _iso_now()
         _append_log(root, name, action, f"{op['status']}: {op['message']}")
         try:
             _write_operation(root, name, op)
@@ -915,6 +1118,31 @@ def _finish(
 # --------------------------------------------------------------------------- #
 
 
+def _sweep_staging(store: Path) -> None:
+    """Remove ``.staging`` directories whose owning process is gone (a killed install)."""
+    staging_root = store / ".staging"
+    try:
+        entries = list(staging_root.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        owner = read_json(entry / "owner.json", {}) if entry.is_dir() else {}
+        owner = owner if isinstance(owner, dict) else {}
+        pid = int(owner.get("pid") or 0)
+        if pid == os.getpid():
+            continue
+        if pid and process_identity_is_running(pid, owner.get("identity")):
+            continue
+        if not owner:
+            try:  # a sibling process may not have written its marker yet
+                if time.time() - entry.stat().st_mtime < STAGING_GRACE:
+                    continue
+            except OSError:
+                continue
+        log.info("removing orphaned vertical staging directory %s", entry)
+        shutil.rmtree(entry, ignore_errors=True)
+
+
 def _install_one(
     root: str | Path | None,
     spec: dict[str, Any],
@@ -926,9 +1154,13 @@ def _install_one(
     if spec["api_version"] != 1:
         raise VerticalStoreError(f"{name}: vertical API version {spec['api_version']} is not supported by this Argus")
     store = store_root(root)
+    _sweep_staging(store)
     try:
-        staging = store / ".staging" / f"{name}-{uuid.uuid4().hex[:8]}"
+        staging = store / ".staging" / f"{name}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         staging.mkdir(parents=True)
+        write_json(staging / "owner.json", {
+            "pid": os.getpid(), "identity": capture_process_identity(os.getpid()), "started": _iso_now(),
+        })
     except OSError as exc:
         raise VerticalStoreError(f"the vertical store at {store} is not writable: {exc}") from exc
     try:
@@ -957,10 +1189,12 @@ def _install_job(
 ) -> None:
     total = max(1, len(todo))
     for index, member in enumerate(todo):
-        base = index * 100 / total
 
-        def step(fraction: float, message: str, base: float = base, member: str = member) -> None:
-            progress(int(base + fraction * 100 / total), f"{member}: {message}")
+        def step(fraction: float, message: str, index: int = index, member: str = member) -> None:
+            # Whole members done plus the current member's share, as a whole percent;
+            # 100 is reserved for the finished job.
+            percent = round((index + fraction) / total * 100)
+            progress(max(1, min(99, percent)), f"{member}: {message}")
 
         _install_one(root, catalog["verticals"][member], catalog, source, step)
 
@@ -983,7 +1217,7 @@ def _begin_install(
     spec = catalog["verticals"][name]
     present = installed(root)
     if action == "install" and name in present and _is_current(present[name], spec):
-        state = "" if present[name].get("enabled") else " (disabled: enable it instead)"
+        state = " (disabled for this workspace: enable it instead)" if name in disabled_names(root) else ""
         raise VerticalStoreError(f"{name} {spec['version']} is already installed{state}")
     if action == "update":
         if name not in present:
@@ -1030,16 +1264,20 @@ def update(
 
 
 def set_enabled(name: str, enabled: bool, root: str | Path | None = None) -> dict[str, Any]:
+    """Flip ``name`` for this user only: the overlay changes, the host's registry never does."""
     name = _valid_name(name)
-    with _locked(root):
-        data = registry(root)
-        if name not in data["verticals"]:
-            raise UnknownVerticalError(f"{name} is not installed")
-        data["verticals"][name]["enabled"] = bool(enabled)
-        _save_registry(root, data)
-        entry = dict(data["verticals"][name])
+    entry = installed(root).get(name)
+    if entry is None:
+        raise UnknownVerticalError(f"{name} is not installed")
+    with _user_locked(root):
+        disabled = disabled_names(root)
+        if enabled:
+            disabled.discard(name)
+        else:
+            disabled.add(name)
+        _save_user_state(root, disabled)
     _after_change(entry.get("paths", []))
-    return entry
+    return {**entry, "enabled": bool(enabled)}
 
 
 def enable(name: str, root: str | Path | None = None) -> dict[str, Any]:
@@ -1050,33 +1288,62 @@ def disable(name: str, root: str | Path | None = None) -> dict[str, Any]:
     return set_enabled(name, False, root)
 
 
-def _sessions_by_vertical(root: str | Path | None) -> dict[str, list[str]]:
-    """Session ids grouped by the vertical their ``PIPELINE_STATE.json`` names."""
-    sessions = core_paths.session_states_root(root)
-    result: dict[str, list[str]] = {}
-    try:
-        directories = sorted(p for p in sessions.iterdir() if p.is_dir())
-    except OSError:
-        return result
-    for directory in directories:
+def _sessions_by_vertical(
+    roots: Iterable[str | Path | None],
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Session ids grouped by the vertical their ``PIPELINE_STATE.json`` names, plus the unreadable ones."""
+    known: dict[str, list[str]] = {}
+    unreadable: list[str] = []
+    seen: set[str] = set()
+    for root in roots:
         try:
-            payload = read_pipeline_state(directory)
-        except (OSError, ValueError):
+            directories = sorted(p for p in core_paths.session_states_root(root).iterdir() if p.is_dir())
+        except (OSError, core_paths.PathResolutionError):
             continue
-        raw = payload.get("vertical")
-        if not isinstance(raw, str):
-            continue
-        cleaned = raw.strip().lower()
-        if cleaned.endswith("-needed"):
-            cleaned = cleaned[: -len("-needed")]
-        if cleaned:
-            result.setdefault(cleaned, []).append(directory.name)
-    return result
+        for directory in directories:
+            sid = directory.name
+            if sid in seen:
+                continue
+            seen.add(sid)
+            try:
+                payload = read_pipeline_state(directory)
+            except (OSError, ValueError):
+                unreadable.append(sid)
+                continue
+            raw = payload.get("vertical")
+            if not isinstance(raw, str):
+                continue
+            cleaned = raw.strip().lower()
+            if cleaned.endswith("-needed"):
+                cleaned = cleaned[: -len("-needed")]
+            if cleaned:
+                known.setdefault(cleaned, []).append(sid)
+    return known, unreadable
 
 
-def used_by(name: str, root: str | Path | None = None) -> list[str]:
+def _session_roots(root: str | Path | None, roots: Iterable[str | Path | None] | None) -> list[str | Path | None]:
+    return list(roots) if roots is not None else default_session_roots(root)
+
+
+def used_by(
+    name: str,
+    root: str | Path | None = None,
+    *,
+    roots: Iterable[str | Path | None] | None = None,
+) -> list[str]:
     """Session ids whose persisted pipeline state names ``name`` as its vertical."""
-    return list(_sessions_by_vertical(root).get(_valid_name(name), []))
+    known, _ = _sessions_by_vertical(_session_roots(root, roots))
+    return list(known.get(_valid_name(name), []))
+
+
+def unreadable_sessions(
+    root: str | Path | None = None,
+    *,
+    roots: Iterable[str | Path | None] | None = None,
+) -> list[str]:
+    """Session ids whose ``PIPELINE_STATE.json`` cannot be read: their vertical is unknown."""
+    _, unreadable = _sessions_by_vertical(_session_roots(root, roots))
+    return unreadable
 
 
 def _uninstall_job(root: str | Path | None, name: str, *, progress: Callable[[int, str], None]) -> None:
@@ -1106,6 +1373,12 @@ def _uninstall_job(root: str | Path | None, name: str, *, progress: Callable[[in
         del data["verticals"][name]
         _save_registry(root, data)
         _prune_empty_parents(store, trees)
+    try:  # this user's overlay need not remember a vertical that is gone
+        if name in disabled_names(root):
+            with _user_locked(root):
+                _save_user_state(root, disabled_names(root) - {name})
+    except VerticalStoreError as exc:
+        log.info("vertical overlay not updated after removing %s: %s", name, exc)
     _after_change(trees)
     progress(100, "removed")
 
@@ -1127,6 +1400,7 @@ def uninstall(
     root: str | Path | None = None,
     *,
     force: bool = False,
+    roots: Iterable[str | Path | None] | None = None,
     wait: bool = False,
     timeout: float = 600,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
@@ -1143,10 +1417,16 @@ def uninstall(
         raise VerticalStoreError(
             f"{name} is required by installed vertical(s) {', '.join(dependents)}; remove them first"
         )
-    users = used_by(name, root)
+    known, unreadable = _sessions_by_vertical(_session_roots(root, roots))
+    users = known.get(name, [])
     if users and not force:
         raise VerticalStoreError(
             f"{name} is the vertical of session(s) {', '.join(users)}; pass force to remove it anyway"
+        )
+    if unreadable and not force:
+        raise VerticalStoreError(
+            f"{name}: session(s) {', '.join(unreadable)} have an unreadable PIPELINE_STATE.json, so whether "
+            "they use this vertical is unknown; pass force to remove it anyway"
         )
     op = _start_job(root, name, "uninstall", _uninstall_job, (root, name))
     return _finish(name, root, op, wait=wait, timeout=timeout, on_progress=on_progress)
@@ -1160,8 +1440,6 @@ def _preinstall_need(name: str, root: str | Path | None, catalog: dict[str, Any]
         return "install"
     if not _is_current(entry, catalog["verticals"][name]):
         return "update"
-    if not entry.get("enabled"):
-        return "enable"
     return None
 
 
@@ -1173,11 +1451,12 @@ def preinstall(
     timeout: float = 3600,
     logger: logging.Logger | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Bring every declared vertical to installed, current and enabled.
+    """Bring every declared vertical to installed and current.
 
     Used by the web server at startup (on its own thread) and by
     ``release_tools.preinstall_verticals`` when an image is built. The host
-    refusal does not apply here: this *is* the host preparing its root.
+    refusal does not apply here: this *is* the host preparing its root. Whether
+    a vertical is enabled is each user's overlay and is never touched.
     """
     logger = logger or log
     results: dict[str, dict[str, Any]] = {}
@@ -1194,15 +1473,11 @@ def preinstall(
             cleaned = _valid_name(name)
             need = _preinstall_need(cleaned, root, catalog)
             if need is None:
-                logger.info("vertical %s is installed, current and enabled under %s", cleaned, store_root(root))
+                logger.info("vertical %s is installed and current under %s", cleaned, store_root(root))
                 results[name] = {"status": "ready"}
                 continue
-            if need == "enable":
-                set_enabled(cleaned, True, root)
-                results[name] = {"status": "done", "action": "enable"}
-            else:
-                op = _begin_install(cleaned, root, action=need, wait=wait, timeout=timeout, on_progress=None)
-                results[name] = {"status": op["status"], "action": need, "message": op.get("message")}
+            op = _begin_install(cleaned, root, action=need, wait=wait, timeout=timeout, on_progress=None)
+            results[name] = {"status": op["status"], "action": need, "message": op.get("message")}
             (logger.info if results[name]["status"] in {"done", "running"} else logger.warning)(
                 "vertical %s: %s %s", cleaned, need, results[name]["status"]
             )
@@ -1285,14 +1560,23 @@ def missing_python(requirements: Iterable[str]) -> list[str]:
     return missing
 
 
-def _actions(kind: str, *, entry: dict[str, Any] | None, spec: dict[str, Any] | None,
-             update_available: bool, host: bool, running: bool) -> list[str]:
+def _actions(
+    kind: str,
+    *,
+    entry: dict[str, Any] | None,
+    spec: dict[str, Any] | None,
+    enabled: bool,
+    update_available: bool,
+    host: bool,
+    running: bool,
+    can_toggle: bool,
+) -> list[str]:
     if kind == "builtin" or running:
         return []
     if kind == "package":
         return ["uninstall"] if entry is not None and not host else []
     if kind == "installed":
-        actions = ["disable" if entry and entry.get("enabled") else "enable"]
+        actions = ["disable" if enabled else "enable"] if can_toggle else []
         if update_available and not host:
             actions.append("update")
         if not host:
@@ -1301,7 +1585,12 @@ def _actions(kind: str, *, entry: dict[str, Any] | None, spec: dict[str, Any] | 
     return ["install"] if spec is not None and not host else []
 
 
-def rows(root: str | Path | None = None, *, catalog: dict[str, Any] | None = _UNSET) -> list[dict[str, Any]]:
+def rows(
+    root: str | Path | None = None,
+    *,
+    catalog: dict[str, Any] | None = _UNSET,
+    roots: Iterable[str | Path | None] | None = None,
+) -> list[dict[str, Any]]:
     """One row per vertical name across built-ins, pip package, store and catalog."""
     from ..skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
     from ._registry import vertical_plugins
@@ -1319,13 +1608,15 @@ def rows(root: str | Path | None = None, *, catalog: dict[str, Any] | None = _UN
     except VerticalStoreError as exc:
         log.warning("vertical store registry unreadable: %s", exc)
         present = {}
+    disabled = disabled_names(root)
+    can_toggle = overlay_writable(root)
     try:
         plugins = vertical_plugins()
     except Exception:  # noqa: BLE001 - a broken plugin must not blank the store page
         log.warning("vertical plugin discovery failed", exc_info=True)
         plugins = {}
     packaged = {name: plugin for name, plugin in plugins.items() if plugin.origin == "entry_point"}
-    sessions = _sessions_by_vertical(root)
+    sessions, _ = _sessions_by_vertical(_session_roots(root, roots))
     result: list[dict[str, Any]] = []
     for name in VERTICALS:
         result.append({
@@ -1345,6 +1636,7 @@ def rows(root: str | Path | None = None, *, catalog: dict[str, Any] | None = _UN
         kind = "package" if plugin is not None else "installed" if entry is not None else "available"
         op = operation(name, root) if (entry is not None or spec is not None) else None
         update_available = bool(entry is not None and spec is not None and not _is_current(entry, spec))
+        enabled = kind == "package" or (entry is not None and name not in disabled)
         requirements = list(spec["python_requirements"]) if spec else []
         result.append({
             "name": name,
@@ -1353,7 +1645,7 @@ def rows(root: str | Path | None = None, *, catalog: dict[str, Any] | None = _UN
             "kind": kind,
             "version": spec["version"] if spec else None,
             "installed_version": entry.get("version") if entry else None,
-            "enabled": True if kind == "package" else bool(entry and entry.get("enabled")),
+            "enabled": enabled,
             "update_available": update_available,
             "requires": list(spec["requires"]) if spec else list(entry.get("requires", [])) if entry else [],
             "shared": list(spec["shared"]) if spec else list(entry.get("shared", [])) if entry else [],
@@ -1365,14 +1657,19 @@ def rows(root: str | Path | None = None, *, catalog: dict[str, Any] | None = _UN
             "operation": op,
             "managed_by_host": host,
             "actions": _actions(
-                kind, entry=entry, spec=spec, update_available=update_available, host=host,
-                running=bool(op and op.get("status") == "running"),
+                kind, entry=entry, spec=spec, enabled=enabled, update_available=update_available, host=host,
+                running=bool(op and op.get("status") == "running"), can_toggle=can_toggle,
             ),
         })
     return result
 
 
-def overview(root: str | Path | None = None, *, refresh: bool = False) -> dict[str, Any]:
+def overview(
+    root: str | Path | None = None,
+    *,
+    refresh: bool = False,
+    roots: Iterable[str | Path | None] | None = None,
+) -> dict[str, Any]:
     """The ``GET /api/verticals`` payload: rows plus catalog and host status."""
     loaded: dict[str, Any] | None
     try:
@@ -1382,7 +1679,7 @@ def overview(root: str | Path | None = None, *, refresh: bool = False) -> dict[s
         loaded = None
         error = str(exc)
     return {
-        "verticals": rows(root, catalog=loaded["catalog"] if loaded else None),
+        "verticals": rows(root, catalog=loaded["catalog"] if loaded else None, roots=roots),
         "catalog": {
             "source": catalog_source(),
             "fetched_at": loaded.get("fetched_at") if loaded else None,
@@ -1398,16 +1695,20 @@ __all__ = [
     "ALLOWED_HOSTS",
     "CATALOG_ENV",
     "DEFAULT_CATALOG_URL",
+    "FAILURE_BACKOFF",
     "HOST_MANAGED",
     "HOST_ROOT_ENV",
     "JOB_ACTIONS",
     "KINDS",
     "PACKAGE",
     "PREINSTALL_ENV",
+    "SESSION_ROOTS_ENV",
     "UnknownVerticalError",
     "VerticalStoreError",
     "catalog_source",
+    "default_session_roots",
     "disable",
+    "disabled_names",
     "enable",
     "enabled_entries",
     "ensure_importable",
@@ -1417,6 +1718,7 @@ __all__ = [
     "managed_by_host",
     "missing_python",
     "operation",
+    "overlay_writable",
     "overview",
     "package_root",
     "preinstall",
@@ -1427,8 +1729,10 @@ __all__ = [
     "set_enabled",
     "store_root",
     "uninstall",
+    "unreadable_sessions",
     "update",
     "used_by",
+    "user_state_path",
     "valid_module_name",
     "validate_catalog",
     "wait_for_operation",

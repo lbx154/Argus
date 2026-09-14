@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from argus.core.pipeline_state import write_pipeline_state
 from argus.verticals import _registry, store
 from argus.webapi.protocol import API_CAPABILITIES
 from argus.webapi.routes.verticals import register_vertical_routes
@@ -147,6 +148,31 @@ def test_hosted_trial_refuses_installation_but_allows_toggling(monkeypatch) -> N
         assert web.post(f"/api/verticals/base_v/manage/{action}").status_code == 403
     assert web.post("/api/verticals/base_v/manage/disable").status_code == 200
     assert web.post("/api/verticals/base_v/manage/enable").status_code == 200
+
+
+def test_removal_counts_sessions_from_every_root_the_server_lists(tmp_path) -> None:
+    root = Path(os.environ["ARGUS_SKILL_HOME"])
+    other = tmp_path / "other-root"
+    (other / "projects" / "s-remote").mkdir(parents=True)
+    write_pipeline_state(other / "projects" / "s-remote", {"vertical": "base_v"})
+    store.install("base_v", root, wait=True)
+    with TestClient(create_app(global_root=root, session_roots=[other])) as web:
+        assert _row(web.get("/api/verticals").json(), "base_v")["used_by"] == ["s-remote"]
+        blocked = web.post("/api/verticals/base_v/manage/uninstall")
+        assert blocked.status_code == 409 and "s-remote" in blocked.json()["detail"]
+        forced = web.post("/api/verticals/base_v/manage/uninstall", json={"force": True})
+        assert forced.status_code == 202
+        assert store.wait_for_operation("base_v", root)["status"] == "done"
+
+
+def test_operation_timestamps_are_iso_strings(client) -> None:
+    web, root = client
+    body = web.post("/api/verticals/base_v/manage/install", json={}).json()
+    assert isinstance(body["operation"]["started"], str) and body["operation"]["started"].endswith("Z")
+    store.wait_for_operation("base_v", root)
+    final = web.get("/api/verticals/base_v/operation").json()
+    assert final["finished"].endswith("Z") and isinstance(final["progress"], int)
+    assert web.get("/api/verticals").json()["catalog"]["fetched_at"].endswith("Z")
 
 
 def test_startup_prepares_declared_verticals_on_a_thread(monkeypatch) -> None:

@@ -7,11 +7,17 @@ from a copy of the ``argus-verticals`` checkout when it is present.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
+import stat
+import threading
+import time
 import zipfile
 from datetime import timedelta
 from pathlib import Path
 
+import portalocker
 import pytest
 
 from argus.core.pipeline_state import write_pipeline_state
@@ -20,6 +26,8 @@ from argus.skills.builtins import iter_vertical_skill_texts
 from argus.verticals import _registry, store
 from argus.verticals._base import load_vertical
 from tests.verticals import fake_release as fake
+
+_ISO_UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 
 
 @pytest.fixture(autouse=True)
@@ -301,27 +309,36 @@ def test_update_reinstalls_when_the_catalog_version_changes(release, tmp_path) -
     assert vertical_select.available_vertical_purposes()["solo_v"].endswith("v2")
 
 
-def test_replacing_a_tree_keeps_a_nested_installed_vertical(release, tmp_path) -> None:
-    """``digital_circuit/benchmark`` lives inside ``digital_circuit``; updating the parent keeps it."""
-    dist = tmp_path / "dist"
+def _nested_release(dist: Path) -> Path:
+    """``parent_v`` with ``parent_v_bench`` living inside its directory, as ``digital_circuit/benchmark`` does."""
     parent = fake.spec("parent_v")
     nested = fake.spec("parent_v_bench", requires=("parent_v",))
     catalog = fake.build_release(dist, [parent, nested])
-    # Re-home the nested vertical inside the parent's directory, as the community layout does.
     members = {k.replace("argus_verticals/parent_v_bench/", "argus_verticals/parent_v/bench/"): v
                for k, v in fake.archive_members(nested).items()}
     entry = fake.write_raw_archive(dist, nested, members)
     entry.update(module="argus_verticals.parent_v.bench.stages", paths=["argus_verticals/parent_v/bench"])
     _rewrite_catalog(catalog, lambda c: c["verticals"].update(parent_v_bench=entry))
-    store.load_catalog(refresh=True)
-    store.install("parent_v_bench", wait=True)
-    assert (store.package_root() / "parent_v" / "bench" / "stages.py").is_file()
+    return catalog
 
+
+def _publish_parent_v2(dist: Path, catalog: Path) -> None:
     parent2 = fake.spec("parent_v", version="0.2.0", marker=" v2")
     data = fake.zip_bytes(fake.archive_members(parent2))
     (dist / "parent_v-0.2.0.zip").write_bytes(data)
     _rewrite_catalog(catalog, lambda c: c["verticals"].update(parent_v=fake.catalog_entry(parent2, data, tag="vtest")))
     store.load_catalog(refresh=True)
+
+
+def test_replacing_a_tree_keeps_a_nested_installed_vertical(release, tmp_path) -> None:
+    """``digital_circuit/benchmark`` lives inside ``digital_circuit``; updating the parent keeps it."""
+    dist = tmp_path / "dist"
+    catalog = _nested_release(dist)
+    store.load_catalog(refresh=True)
+    store.install("parent_v_bench", wait=True)
+    assert (store.package_root() / "parent_v" / "bench" / "stages.py").is_file()
+
+    _publish_parent_v2(dist, catalog)
     store.update("parent_v", wait=True)
     assert store.installed()["parent_v"]["version"] == "0.2.0"
     assert (store.package_root() / "parent_v" / "bench" / "stages.py").is_file()
@@ -334,9 +351,13 @@ def test_replacing_a_tree_keeps_a_nested_installed_vertical(release, tmp_path) -
 def test_enable_and_disable_flip_the_flag_and_the_advertised_set(release) -> None:
     store.install("solo_v", wait=True)
     assert store.disable("solo_v")["enabled"] is False
-    assert store.registry()["verticals"]["solo_v"]["enabled"] is False
+    assert "enabled" not in store.registry()["verticals"]["solo_v"]  # host state never carries it
+    assert json.loads(store.user_state_path().read_text(encoding="utf-8")) == {"schema": 1, "disabled": ["solo_v"]}
+    assert store.disabled_names() == {"solo_v"}
     assert "solo_v" not in vertical_select.available_verticals()
+    assert next(r for r in store.rows() if r["name"] == "solo_v")["enabled"] is False
     assert store.enable("solo_v")["enabled"] is True
+    assert store.disabled_names() == set()
     assert "solo_v" in vertical_select.available_verticals()
     with pytest.raises(store.UnknownVerticalError):
         store.enable("child_v")
@@ -403,7 +424,8 @@ def test_preinstall_prepares_declared_verticals_even_under_a_host_root(release, 
     assert (tmp_path / "prepared" / "argus_verticals" / "base_v" / "stages.py").is_file()
     store.disable("solo_v")
     again = store.preinstall()
-    assert again == {"child_v": {"status": "ready"}, "solo_v": {"status": "done", "action": "enable"}}
+    assert again == {"child_v": {"status": "ready"}, "solo_v": {"status": "ready"}}
+    assert store.disabled_names() == {"solo_v"}  # enabled is each user's business, not the host's
     assert store.preinstall(names=["ghost_v"])["ghost_v"]["status"] == "failed"
 
 
@@ -439,15 +461,16 @@ def test_a_corrupt_archive_fails_atomically_and_an_update_keeps_the_old_version(
 @pytest.mark.parametrize(
     ("members", "symlink", "message"),
     [
-        ({"argus_verticals/solo_v/stages.py": "x", "../escape.py": "evil"}, None, "outside the vertical's trees"),
-        ({"argus_verticals/solo_v/stages.py": "x", "argus_verticals/solo_v/../../evil.py": "evil"}, None, "outside"),
-        ({"argus_verticals/solo_v/stages.py": "x", "/abs/evil.py": "evil"}, None, "outside"),
+        ({"argus_verticals/solo_v/stages.py": "x", "../escape.py": "evil"}, None, "unsafe archive member"),
+        ({"argus_verticals/solo_v/stages.py": "x", "argus_verticals/solo_v/../../evil.py": "evil"}, None, "unsafe"),
+        ({"argus_verticals/solo_v/stages.py": "x", "/abs/evil.py": "evil"}, None, "unsafe"),
+        ({"argus_verticals/solo_v/stages.py": "x", "argus_verticals/other_v/": ""}, None, "archive directory outside"),
         ({"argus_verticals/solo_v/stages.py": "x", "argus_verticals/__init__.py": ""}, None, "outside"),
         ({"argus_verticals/solo_v/stages.py": "x", "argus_verticals/other_v/stages.py": "x"}, None, "outside"),
         ({"argus_verticals/solo_v/stages.py": "x"}, "argus_verticals/solo_v/link", "symlink"),
         ({"argus_verticals/solo_v/__init__.py": ""}, None, "no argus_verticals/solo_v/stages.py"),
     ],
-    ids=["dotdot", "inner-dotdot", "absolute", "package-root-init", "foreign-vertical", "symlink", "no-stages"],
+    ids=["dotdot", "inner-dotdot", "absolute", "package-root-init", "foreign-vertical", "foreign-directory", "symlink", "no-stages"],
 )
 def test_unsafe_archives_are_refused_before_anything_is_written(release, home, members, symlink, message) -> None:
     item = fake.spec("solo_v")
@@ -498,7 +521,7 @@ def test_overview_reports_catalog_and_host_status(release, home) -> None:
     payload = store.overview()
     assert set(payload) == {"verticals", "catalog", "host"}
     assert payload["catalog"]["source"] == str(release) and payload["catalog"]["release_tag"] == "vtest"
-    assert payload["catalog"]["error"] == "" and payload["catalog"]["fetched_at"] > 0
+    assert payload["catalog"]["error"] == "" and _ISO_UTC.match(payload["catalog"]["fetched_at"])
     assert payload["host"] == {"managed_by_host": False, "store_root": str(home / "verticals")}
     release.write_text("{", encoding="utf-8")
     store.catalog_cache_path().unlink()
@@ -531,6 +554,312 @@ def test_requires_cycles_in_a_catalog_are_reported(release) -> None:
     catalog["verticals"]["base_v"]["requires"] = ["child_v"]
     with pytest.raises(store.VerticalStoreError, match="requires cycle"):
         store._closure(catalog, ["child_v"])
+
+
+def test_a_failure_after_the_nested_copy_restores_both_trees_and_the_registry(release, tmp_path, monkeypatch) -> None:
+    """The backup stays complete (nested trees are copied, not moved), so a late failure rolls back exactly."""
+    dist = tmp_path / "dist"
+    catalog = _nested_release(dist)
+    store.load_catalog(refresh=True)
+    store.install("parent_v_bench", wait=True)
+    package = store.package_root()
+    registry_before = store.registry()
+    parent_before = (package / "parent_v" / "stages.py").read_text(encoding="utf-8")
+    bench_before = (package / "parent_v" / "bench" / "stages.py").read_text(encoding="utf-8")
+    bench_digest = store._tree_digest(package / "parent_v" / "bench")
+
+    _publish_parent_v2(dist, catalog)
+    original = store._save_registry
+    failures: list[str] = []
+
+    def failing(root, data):
+        if not failures:
+            failures.append("disk full")
+            raise OSError("disk full")
+        return original(root, data)
+
+    monkeypatch.setattr(store, "_save_registry", failing)
+    with pytest.raises(store.VerticalStoreError, match="disk full"):
+        store.update("parent_v", wait=True)
+
+    assert store.registry() == registry_before
+    assert (package / "parent_v" / "stages.py").read_text(encoding="utf-8") == parent_before
+    assert (package / "parent_v" / "bench" / "stages.py").read_text(encoding="utf-8") == bench_before
+    assert store._tree_digest(package / "parent_v" / "bench") == bench_digest
+    assert not list((store.store_root() / ".staging").iterdir()) if (store.store_root() / ".staging").exists() else True
+    assert {"parent_v", "parent_v_bench"} <= set(vertical_select.available_verticals())
+    assert store.update("parent_v", wait=True)["status"] == "done"  # the retry succeeds
+    assert store.installed()["parent_v"]["version"] == "0.2.0"
+    assert (package / "parent_v" / "bench" / "stages.py").read_text(encoding="utf-8") == bench_before
+
+
+# --- the user overlay: enabled is per user, never host state -------------------------------
+
+
+def test_disable_is_per_user_when_tenants_share_a_host_root(release, tmp_path, monkeypatch) -> None:
+    host = tmp_path / "host-root"
+    monkeypatch.setenv(store.HOST_ROOT_ENV, str(host))
+    assert store.preinstall(names=["solo_v"])["solo_v"]["status"] == "done"
+    home_a, home_b = tmp_path / "home-a", tmp_path / "home-b"
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home_a))
+    _registry.refresh_vertical_plugins()
+    assert store.disable("solo_v")["enabled"] is False
+    assert "solo_v" not in vertical_select.available_verticals()
+    assert (home_a / "verticals" / "state.json").is_file() and not (host / "state.json").exists()
+    assert "enabled" not in store.registry()["verticals"]["solo_v"]
+    row_a = next(r for r in store.rows() if r["name"] == "solo_v")
+    assert row_a["enabled"] is False and row_a["actions"] == ["enable"] and row_a["managed_by_host"] is True
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home_b))
+    _registry.refresh_vertical_plugins()
+    assert "solo_v" in vertical_select.available_verticals()
+    row_b = next(r for r in store.rows() if r["name"] == "solo_v")
+    assert row_b["enabled"] is True and row_b["actions"] == ["disable"]
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home_a))
+    _registry.refresh_vertical_plugins()
+    assert "solo_v" not in vertical_select.available_verticals()
+
+
+def _chmod_tree(root: Path, mode: int) -> None:
+    for path in [root, *root.rglob("*")]:
+        if path.is_dir():
+            os.chmod(path, mode)
+
+
+def test_enable_and_disable_work_on_a_read_only_host_root(release, tmp_path, monkeypatch) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions")
+    host = tmp_path / "host-root"
+    monkeypatch.setenv(store.HOST_ROOT_ENV, str(host))
+    assert store.preinstall(names=["child_v"])["child_v"]["status"] == "done"
+    _chmod_tree(host, stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP)
+    try:
+        assert store.overlay_writable() is True
+        assert store.disable("child_v")["enabled"] is False
+        assert "child_v" not in vertical_select.available_verticals() and "base_v" in vertical_select.available_verticals()
+        assert store.enable("child_v")["enabled"] is True
+        row = next(r for r in store.rows() if r["name"] == "child_v")
+        assert row["actions"] == ["disable"]
+        with pytest.raises(store.VerticalStoreError, match="provided by the host"):
+            store.install("solo_v")
+        refreshed = store.overview(refresh=True)  # served even though the cache cannot be written
+        assert refreshed["catalog"]["error"] == "" and refreshed["catalog"]["release_tag"] == "vtest"
+    finally:
+        _chmod_tree(host, stat.S_IRWXU)
+
+
+def test_toggle_actions_are_not_offered_when_the_overlay_cannot_be_written(release, home) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions")
+    store.install("solo_v", wait=True)
+    verticals_dir = home / "verticals"
+    os.chmod(verticals_dir, stat.S_IRUSR | stat.S_IXUSR)
+    try:
+        assert store.overlay_writable() is False
+        row = next(r for r in store.rows() if r["name"] == "solo_v")
+        assert row["actions"] == ["uninstall"] and row["enabled"] is True
+        with pytest.raises(store.VerticalStoreError, match="not writable"):
+            store.disable("solo_v")
+    finally:
+        os.chmod(verticals_dir, stat.S_IRWXU)
+
+
+def test_a_disabled_store_vertical_is_reported_as_disabled_not_missing(release, tmp_path) -> None:
+    store.install("solo_v", wait=True)
+    store.disable("solo_v")
+    project = tmp_path / "project"
+    project.mkdir()
+    write_pipeline_state(project, {"vertical": "solo_v", "current_stage": "work"})
+    with pytest.raises(vertical_select.UninstalledVerticalError, match="disabled for this workspace.*argus verticals enable solo_v"):
+        vertical_select.resolve_vertical(project)
+    store.uninstall("solo_v", wait=True)
+    with pytest.raises(vertical_select.UninstalledVerticalError, match="argus verticals install solo_v"):
+        vertical_select.resolve_vertical(project)
+
+
+# --- wire contract, catalog backoff, catalog hygiene ---------------------------------------
+
+
+def test_timestamps_on_the_wire_are_iso_8601_utc_and_progress_an_integer(release) -> None:
+    final = store.install("solo_v", wait=True)
+    assert _ISO_UTC.match(final["started"]) and _ISO_UTC.match(final["finished"])
+    assert isinstance(final["progress"], int) and final["progress"] == 100
+    op = store.operation("solo_v")
+    assert _ISO_UTC.match(op["started"]) and _ISO_UTC.match(op["finished"])
+    assert _ISO_UTC.match(store.load_catalog()["fetched_at"])
+    assert _ISO_UTC.match(store.overview()["catalog"]["fetched_at"])
+    assert not any(isinstance(v, float) for v in final.values())
+
+
+def test_progress_is_a_monotone_integer_percent_across_a_requires_closure(release) -> None:
+    store.install("child_v", wait=True)  # two members: base_v then child_v
+    log = store.log_path(None, "child_v").read_text(encoding="utf-8")
+    percents = [int(m) for m in re.findall(r"\s(\d+)% ", log)]
+    assert percents and percents == sorted(percents)
+    assert all(1 <= p <= 99 for p in percents)  # 100 belongs to the finished record, never to a step
+    assert percents[0] >= 2  # the first step of the first member is not rounded down to 1%
+    child_steps = [int(m) for m in re.findall(r"\s(\d+)% child_v:", log)]
+    assert child_steps and min(child_steps) >= 50  # the second member starts after the first's whole share
+    assert store.operation("child_v")["progress"] == 100
+
+
+def test_a_failed_fetch_is_not_retried_within_the_backoff(release, monkeypatch) -> None:
+    store.load_catalog()
+    calls: list[str] = []
+
+    def failing(source):
+        calls.append(source)
+        raise store.VerticalStoreError("network down")
+
+    monkeypatch.setattr(store, "_fetch_catalog", failing)
+    first = store.load_catalog(max_age=timedelta(0))
+    assert first["error"] == "network down" and "solo_v" in first["catalog"]["verticals"]
+    assert _ISO_UTC.match(first["fetched_at"])
+    second = store.load_catalog(max_age=timedelta(0))
+    assert second["error"] == "network down" and len(calls) == 1  # the failure itself is cached
+    cache = json.loads(store.catalog_cache_path().read_text(encoding="utf-8"))
+    assert cache["failed_at"] > 0 and cache["error"] == "network down" and "solo_v" in cache["catalog"]["verticals"]
+    assert store.overview()["catalog"]["error"] == "network down" and len(calls) == 1
+    store.load_catalog(refresh=True)
+    assert len(calls) == 2  # an explicit refresh always tries
+    store.load_catalog(max_age=timedelta(0), backoff=timedelta(0))
+    assert len(calls) == 3  # after the backoff window the fetch is retried
+
+    store.catalog_cache_path().unlink()
+    with pytest.raises(store.VerticalStoreError, match="network down"):
+        store.load_catalog()
+    with pytest.raises(store.VerticalStoreError, match="network down"):
+        store.load_catalog()
+    assert len(calls) == 4  # no catalog at all: the failure is still remembered
+    assert store.overview()["catalog"]["error"] == "network down" and len(calls) == 4
+
+
+def test_catalogs_naming_a_builtin_or_claiming_a_tree_twice_are_refused(release) -> None:
+    data = json.loads(release.read_text(encoding="utf-8"))
+    impostor = dict(data["verticals"]["solo_v"], name="research", module="argus_verticals.research.stages",
+                    paths=["argus_verticals/research"])
+    with pytest.raises(store.VerticalStoreError, match="'research' has the name of a built-in"):
+        store.validate_catalog({**data, "verticals": {**data["verticals"], "research": impostor}}, local_source=True)
+
+    duplicate = json.loads(release.read_text(encoding="utf-8"))
+    duplicate["verticals"]["child_v"].update(paths=["argus_verticals/solo_v"], module="argus_verticals.solo_v.stages")
+    with pytest.raises(store.VerticalStoreError, match="both claim argus_verticals/solo_v"):
+        store.validate_catalog(duplicate, local_source=True)
+
+    inside = json.loads(release.read_text(encoding="utf-8"))
+    inside["verticals"]["solo_v"]["shared"] = ["argus_verticals/base_v/helpers"]
+    with pytest.raises(store.VerticalStoreError, match="overlaps the directory argus_verticals/base_v"):
+        store.validate_catalog(inside, local_source=True)
+
+
+def test_directory_entries_inside_the_vertical_are_tolerated(release) -> None:
+    item = fake.spec("solo_v")
+    members: dict[str, bytes | str] = dict(fake.archive_members(item))
+    members.update({"argus_verticals/": "", "argus_verticals/solo_v/": "", "argus_verticals/solo_v/skills/": ""})
+    _catalog_with(release, fake.write_raw_archive(release.parent, item, members))
+    assert store.install("solo_v", wait=True)["status"] == "done"
+    assert (store.package_root() / "solo_v" / "stages.py").is_file()
+    assert "solo_v" in vertical_select.available_verticals()
+
+
+# --- jobs: locking, orphaned staging, shared-tree drift --------------------------------------
+
+
+def test_starting_a_job_needs_the_store_file_lock(release, monkeypatch) -> None:
+    monkeypatch.setattr(store, "LOCK_TIMEOUT", 0.3)
+    store.store_root().mkdir(parents=True, exist_ok=True)
+    with portalocker.Lock(str(store.store_root() / "store.lock"), timeout=1):
+        with pytest.raises(store.VerticalStoreError, match="locked"):
+            store.install("solo_v")
+    assert store.operation("solo_v") is None
+    assert store.install("solo_v", wait=True)["status"] == "done"
+
+
+def test_orphaned_staging_directories_are_swept(release) -> None:
+    staging = store.store_root() / ".staging"
+    dead = staging / "solo_v-4194297-dead"
+    dead.mkdir(parents=True)
+    (dead / "owner.json").write_text(json.dumps({"pid": 2**22 - 7, "identity": {"pid": 2**22 - 7}}), encoding="utf-8")
+    mine = staging / "solo_v-mine"
+    mine.mkdir()
+    (mine / "owner.json").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    fresh = staging / "solo_v-fresh"  # no marker yet: a sibling may be about to write it
+    fresh.mkdir()
+    old = staging / "solo_v-old"
+    old.mkdir()
+    os.utime(old, (time.time() - 3600, time.time() - 3600))
+
+    store.install("solo_v", wait=True)
+
+    assert not dead.exists() and not old.exists()
+    assert mine.exists() and fresh.exists()
+
+
+def test_a_shared_tree_that_differs_between_owners_is_logged(release, tmp_path, caplog) -> None:
+    store.install("base_v", wait=True)
+    fake.build_release(tmp_path / "dist", [
+        fake.spec("base_v", shared=("argus_verticals/lit/shared",), python_requirements=("PyYAML>=6",)),
+        fake.spec("child_v", requires=("base_v",), parents=("base_v",), shared=("argus_verticals/lit/shared",),
+                  marker=" v2", purpose_zh="子垂直"),
+        fake.spec("solo_v", skills=False),
+    ])
+    store.load_catalog(refresh=True)
+    with caplog.at_level(logging.WARNING, logger="argus.verticals.store"):
+        store.install("child_v", wait=True)
+    assert any(
+        "shared tree argus_verticals/lit/shared shipped by child_v differs from the copy base_v installed" in r.getMessage()
+        for r in caplog.records
+    )
+    shared = store.registry()["shared"]["argus_verticals/lit/shared"]
+    assert shared["sha256s"]["base_v"] != shared["sha256s"]["child_v"]
+    assert (store.package_root() / "lit" / "shared" / "__init__.py").read_text(encoding="utf-8") == "SHARED = ' v2'\n"
+
+
+def test_used_by_covers_extra_session_roots_and_unreadable_state_blocks_removal(release, home, tmp_path, monkeypatch) -> None:
+    store.install("solo_v", wait=True)
+    other = tmp_path / "other-home"
+    (other / "projects" / "s-far").mkdir(parents=True)
+    write_pipeline_state(other / "projects" / "s-far", {"vertical": "solo_v"})
+    assert store.used_by("solo_v") == []
+    assert store.used_by("solo_v", roots=[None, other]) == ["s-far"]
+    monkeypatch.setenv(store.SESSION_ROOTS_ENV, os.pathsep.join([str(other), str(other)]))
+    assert store.default_session_roots() == [None, str(other)]
+    assert store.used_by("solo_v") == ["s-far"]
+    assert next(r for r in store.rows() if r["name"] == "solo_v")["used_by"] == ["s-far"]
+    with pytest.raises(store.VerticalStoreError, match=r"session\(s\) s-far"):
+        store.uninstall("solo_v")
+
+    monkeypatch.delenv(store.SESSION_ROOTS_ENV)
+    broken = home / "projects" / "s-broken" / ".argus"
+    broken.mkdir(parents=True)
+    (broken / "PIPELINE_STATE.json").write_text("{not json", encoding="utf-8")
+    assert store.unreadable_sessions() == ["s-broken"]
+    with pytest.raises(store.VerticalStoreError, match="s-broken.*unreadable PIPELINE_STATE.json"):
+        store.uninstall("solo_v")
+    assert store.uninstall("solo_v", force=True, wait=True)["status"] == "done"
+
+
+def test_a_second_process_cannot_start_the_same_job(release, monkeypatch) -> None:
+    """The check-then-write runs under the file lock; a job started by a live foreign process is seen."""
+    started = threading.Event()
+    hold = threading.Event()
+
+    def slow(*args, progress):
+        started.set()
+        hold.wait(5)
+
+    monkeypatch.setattr(store, "_install_job", slow)
+    op = store.install("solo_v")
+    started.wait(5)
+    record = json.loads(store.operation_path(None, "solo_v").read_text(encoding="utf-8"))
+    assert record["pid"] == os.getpid() and record["status"] == "running"
+    with pytest.raises(store.VerticalStoreError, match="already running"):
+        store.install("solo_v")
+    hold.set()
+    assert store.wait_for_operation("solo_v")["status"] == "done"
+    assert op["action"] == "install"
 
 
 # --- the real community release ---------------------------------------------------------
