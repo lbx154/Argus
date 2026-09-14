@@ -45,7 +45,7 @@ operation and debugging requires the global view it does not have.
 
 **What we did.** Supply the missing global check as an explicit rule rather than
 hoping for judgement. The skill
-[`suspect-the-setup.md`](../argus_skill/verticals/research/skills/engineer/suspect-the-setup.md)
+[`suspect-the-setup.md`](../argus/verticals/research/skills/engineer/suspect-the-setup.md)
 inverts the default: *a result far from what this model, method, or benchmark is
 known to do is a defect report until proven otherwise.* Concretely it forces the
 comparison the agent will not make on its own — the generation budget must be
@@ -81,7 +81,7 @@ for last year's model, confidently, and give a fluent justification for it.
 runtime a way to actually look things up.
 
 **Forbid recall.** Model recency is a rule, not a judgement call, in
-[`training-infrastructure-guide.md`](../argus_skill/builtin_skills/engineer/training-infrastructure-guide.md):
+[`training-infrastructure-guide.md`](../argus/builtin_skills/engineer/training-infrastructure-guide.md):
 
 > **Current generation only.** The backbone must be from a **current, actively
 > released open model family** (latest generation at decision time, e.g.
@@ -92,7 +92,7 @@ runtime a way to actually look things up.
 Recency must be *verified at decision time* against the model hub or a recent
 leaderboard, and the choice written down with the exact model id, parameter
 count, and release date. The literature path is stricter still: the
-[Research Idea Playbook](../argus_skill/verticals/research/skills/research-idea-playbook.md)
+[Research Idea Playbook](../argus/verticals/research/skills/research-idea-playbook.md)
 requires current primary sources and independent prior-art review. Bibliographic
 facts come from fetched sources rather than model memory.
 
@@ -102,9 +102,9 @@ independent reviews** before one selector:
 
 | Mechanism | What it looks up |
 | --- | --- |
-| [`idea_portfolio.py`](../argus_skill/verticals/research/idea_portfolio.py) | Forms the fixed source-only route/review portfolio and admits one selector only after all 24 tasks finish |
-| [`venue_research.py`](../argus_skill/verticals/research/venue_research.py) | A venue's official submission facts, fetched rather than recalled |
-| [`frontier_watch.py`](../argus_skill/verticals/kernel_engineering/frontier_watch.py) | Persists and validates continuous frontier search per stage, across the target repository, official toolchains, and the research frontier |
+| [`idea_portfolio.py`](../argus/verticals/research/idea_portfolio.py) | Forms the fixed source-only route/review portfolio and admits one selector only after all 24 tasks finish |
+| [`venue_research.py`](../argus/verticals/research/venue_research.py) | A venue's official submission facts, fetched rather than recalled |
+| [`frontier_watch.py`](../argus/verticals/kernel_engineering/frontier_watch.py) | Persists and validates continuous frontier search per stage, across the target repository, official toolchains, and the research frontier |
 
 **The general lesson.** Anything the agent knows from pretraining is, by
 construction, out of date. Where recency matters, the runtime must force a lookup
@@ -269,7 +269,7 @@ what failed than stating a success the evidence actually supports.
 **Why it happens.** The same load-bearing wall that lets a human leave the room.
 The Reviewer is deliberately weak — read-only, able to return `blocked`, unable
 to certify its own work — and it is instructed to
-[treat honest negative or null results as evidence](../argus_skill/builtin_skills/reviewer/argus-reviewer-role.md),
+[treat honest negative or null results as evidence](../argus/builtin_skills/reviewer/argus-reviewer-role.md),
 not as failure. That is correct, and it is why the system's numbers can be
 trusted. But an asymmetric penalty on overclaiming, with no corresponding
 penalty on *underclaiming*, produces a system that is safest when it says
@@ -283,7 +283,7 @@ review side. The results reviewer is asked, symmetrically:
 
 and it must check that null results are "honestly represented without turning the
 paper into an exhaustive failure log."
-[`result-to-claim.md`](../argus_skill/verticals/research/skills/engineer/result-to-claim.md)
+[`result-to-claim.md`](../argus/verticals/research/skills/engineer/result-to-claim.md)
 then blocks the failure loop directly:
 
 > Multiple rounds of `partial` on the same claim → crystallize the supported

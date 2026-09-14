@@ -42,7 +42,7 @@ for reproducing existing sources and examples; it is not a workflow entry.
 For a manual run, select the actual manuscript sections and method code:
 
 ```bash
-python -m argus_skill.verticals.research.pipeline_figure brief \
+python -m argus.verticals.research.pipeline_figure brief \
   --project-root . --paper paper/main.tex --paper paper/sections/method.tex \
   --code src/model.py --code src/train.py
 ```
@@ -54,12 +54,12 @@ sections and relevant code dependencies explicitly. The model then writes
 `paper/figures/src/method_pipeline.svg`; `brief` itself does not generate a figure.
 
 ```bash
-python -m argus_skill.verticals.research.pipeline_figure render \
+python -m argus.verticals.research.pipeline_figure render \
   --input paper/figures/src/method_pipeline.svg \
   --output paper/figures/method_pipeline.svg --pdf --png --width 624
 ```
 
-The tool requires Playwright/Chromium (`pip install 'argus-skill[visual-web]'`,
+The tool requires Playwright/Chromium (`pip install 'argus[visual-web]'`,
 then `python -m playwright install chromium`) and an installed copy of Times
 New Roman. It checks the actual font used for every label, including fallback
 glyphs, and reports a missing font instead of silently using a substitute.
@@ -80,7 +80,7 @@ Use the PDF with `\includegraphics[width=\linewidth]` and compile the paper.
 ## Reproduce the Argus framework example
 
 ```bash
-python -m argus_skill.verticals.research.pipeline_figure render \
+python -m argus.verticals.research.pipeline_figure render \
   --input docs/examples/argus-framework/architecture.source.svg \
   --output docs/examples/argus-framework/architecture.svg --pdf --png --width 624
 ```

@@ -100,7 +100,7 @@ only.
 
 ## 3. The evidence kernel
 
-The `argus_skill/proof_ledger` package is the core. It knows nothing about
+The `argus/proof_ledger` package is the core. It knows nothing about
 Lean, about literature, or about the stage machine; it knows about claims,
 evidence, and what follows from them. It also imports nothing from Argus and
 nothing outside the standard library, which is enforced by an AST sweep in

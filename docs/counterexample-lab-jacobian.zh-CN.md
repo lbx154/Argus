@@ -28,8 +28,8 @@ Argus 不会把 Jacobian import 到自身进程，而是把已发布的 `jacobia
 
 ```bash
 export ARGUS_SKILL_JACOBIAN_MCP_BIN="/path/to/jacobian-environment/bin/jacobian-mcp"
-python -m argus_skill.tools.jacobian status
-python -m argus_skill.tools.jacobian find --query "exact determinant"
+python -m argus.tools.jacobian status
+python -m argus.tools.jacobian find --query "exact determinant"
 ```
 
 只有发现该可执行文件时，数学 Engineer 与 Reviewer 才会收到 Jacobian 能力说明。

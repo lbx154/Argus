@@ -367,7 +367,7 @@ ownership、PID/start identity 和 daemon 控制协议 fail closed，不应以 T
 ## 验证
 
 ```powershell
-.\.venv\Scripts\python.exe -m ruff check argus_skill desktop-tauri/scripts tests/desktop
+.\.venv\Scripts\python.exe -m ruff check argus desktop-tauri/scripts tests/desktop
 .\.venv\Scripts\python.exe -m pytest -q tests/desktop
 npm --prefix frontend/web test
 npm --prefix desktop-tauri run ui:typecheck

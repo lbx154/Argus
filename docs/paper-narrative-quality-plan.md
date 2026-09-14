@@ -299,7 +299,7 @@ Scientific Reviewer 先排除造成结论或覆盖损失的版本，冷读 Revie
 
 ## 11. 代码改动面
 
-### 11.1 `argus_skill/verticals/research/stages.py`
+### 11.1 `argus/verticals/research/stages.py`
 
 - 扩展 Experiment handoff，加入 reader-change arc、evidence roles、canonical placement 和 repeat role；
 - 扩展 `paper.argument` / `paper.voice`，要求完整证据有主次地进入论文；
@@ -307,7 +307,7 @@ Scientific Reviewer 先排除造成结论或覆盖损失的版本，冷读 Revie
 - Review checklist 加入 semantic loss check 和 cold-reader PDF pass；
 - 保持 `HANDOFF.md` 与 `paper/REVIEW.md` 为唯一正常持久化交接。
 
-### 11.2 `argus_skill/verticals/research/prompt_policy.py`
+### 11.2 `argus/verticals/research/prompt_policy.py`
 
 - 使用 `operation` 区分 `author_draft`、`narrative_edit`、`science_loss_check` 和 `cold_read`；
 - Narrative Editor fragment 要求有具体问题才局部修复，保留清楚的原文，允许无需修改；

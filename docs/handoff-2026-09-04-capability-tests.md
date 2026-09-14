@@ -2614,3 +2614,117 @@ test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint`、
 `test_architecture_invariants` 的两条 `research_timeline` 行、`test_web_portal::
 test_invitation_only_copy_and_private_admin_entry_stays_hidden`。本分支之后的全套结果、
 白名单/棘轮数字、类型门与插件端到端探针见提交信息与交接报告。
+
+## 55. Package rename argus_skill → argus (2026-09-14 UTC)
+
+分支 `rename/argus-package`(从 `origin/dev` = `44c09f6d7` 切出,已含当天的垂直拆分)。import 包
+`argus_skill` → `argus`;控制台命令 `argus-skill` 并入 `argus`(`argus` 原本就是 TUI 启动器,现在
+接下全部 admin flag / 子命令;`python -m argus` 是纯 CLI,永不启动 Node);pip 发行名 `argus-skill`
+→ `argus`;版本仍是 0.1.7,不 bump。风险图:`/data/v-boxiuli/argus-rename-risk-map.md`(§1a 不动的
+名字、§2 运行时字符串匹配、§7 shim 设计、§8 步骤)。搬动本身是一笔零内容 `git mv argus_skill argus`
+(876 个 R100),之前先删掉 `.gitignore` 里从首个提交就存在的 `/argus/`。
+
+### 一个字节都没改的持久化名字
+
+- 全部 `ARGUS_SKILL_*` 环境变量 / knob(`~/.argus-skill/config.json` 的键)、`~/.argus-skill`、
+  `ARGUS_SKILL_HOME/PYTHON/BIN/SOURCE_ROOT/BUILD_REVISION`;
+- `/tmp/argus-skill-role-slots`、`argus-skill-workspaces-<uid>`、`.argus-skill-` 临时文件前缀、
+  `argus-skill-gpu-keepalive`、`~/argus-skill-tasks`、`~/.local/share/argus-skill`、
+  `~/.local/state/argus-skill`(lean-runs)、`/tenant/home/.argus-skill`;
+- wire id `argus-skill-webapi`(`/api/meta` 的 `service`)、图片工具 provenance id
+  `argus_skill.tools.image_tool`、更新源 `lbx154/argus-skill`、`_LAUNCHER_NAMES` 里的 `argus-skill`、
+  历史 wheel 文件名(`docs/trial-gateway.md` 的 `argus_skill-0.1.1-py3-none-any.whl`)。
+
+### 兼容窗口(一个发布周期)
+
+- `argus_skill/` 只剩 `__init__.py` + `__main__.py`:`sys.meta_path[0]` 的 finder 把 `argus_skill[.x]`
+  解析成已导入的 `argus[.x]` **同一个对象**(`import argus_skill.core.paths as a, argus.core.paths as b;
+  assert a is b`;`monkeypatch.setattr("argus_skill.core.paths.x")` 打的是同一个运行时),
+  `sys.modules["argus_skill"] is argus`,首次导入发一次 `DeprecationWarning`(pytest 已忽略该类);
+  `python -m argus_skill --version`、`python -m argus_skill.tools.subagent --help` 均可用。
+- 双拼写匹配:`daemon/state.py`、`team/curator.py`(teammate argv 的
+  `argus_skill.team.teammate_entry`)、`trial/training_bridge.py`(`LEGACY_IMAGE_PACKAGE =
+  /opt/argus/argus_skill/trial` + 两种 spawn_helper argv)、`life/supervisor/_helpers.py`
+  (`-m (argus_skill|argus)` → `-m argus`,checkout 目录名 `argus-skill` 仍算 Argus 源)、
+  `_planning_cycle.py`(`argus_skill.tools.subagent status`)、`runtime_failure_circuit.py`
+  (callsite 按包目录解析,`/argus_skill/` 旧标记也接受;旧指纹 `argus_skill/...:fn` 与新指纹
+  `argus/...:fn` 不同,同一故障合入后会重新 trip 一次)、`desktop_backend_entry.py`(`-m` 两种拼写都
+  接受,改写成 `argus.` 再 `runpy`)、`_life_worker_admission.py`(`argus:` / `argus-skill:` 前缀都锚定)。
+- entry-point 组:`ENTRY_POINT_GROUP = "argus.verticals"`,`LEGACY_ENTRY_POINT_GROUP =
+  "argus_skill.verticals"`,同一次扫描两组都读,按名字去重(新组优先),只在旧组注册的名字发一条
+  warning。今天的 `argus-verticals` 仍注册在旧组,可用。
+- `apps/package_update.py`:先查发行 `argus` 再查 `argus-skill`;pip / `uv pip` 自更新前先
+  `uninstall argus-skill`(否则 site-packages 里整棵旧 `argus_skill/` 会比两文件 shim 活得久,之后一次
+  `pip uninstall argus-skill` 还会把 shim 的文件一起删掉);旧名字的 uv tool 环境拒绝更新,给出
+  `uv tool uninstall argus-skill` + `uv tool install "argus @ <source>"`。
+- 控制台脚本:`argus = argus.apps.tui_launcher:main`(行为不变:裸命令进 TUI,admin flag / 子命令走
+  Python CLI);`argus-skill = argus.__main__:main` 保留,按 `argv[0]` 识别后 stderr 打一行弃用提示;
+  `_configure_tui_backend_bin` 与 `frontend/tui/src/ensureApi.ts` 先找同目录 `argus`,再退回 `argus-skill`。
+- 打包:`name = "argus"`,`packages = ["argus", "argus_skill"]`,force-include 到 `argus/_frontend/...`,
+  sdist 含两者;PyInstaller spec `hiddenimports += ["argus_skill", "argus_skill.__main__"]`;
+  `typecheck_gate` 把 `^argus(_skill)?/` 归一成 `argus/`,基线早于搬动时 `git archive … -- argus_skill`;
+  mypy `files` 只列 `argus/...`;ruff `known-first-party = ["argus", "argus_skill"]`;CI lint
+  `argus argus_skill tests`;`release.yml` 的 `pypi` job 置 `if: false`(见下)。
+- 不变量测试:`_KERNEL_PROBE` = `import argus.core.paths`;`SUBPROCESS_REENTRY_MODULES` 新名 +
+  `LEGACY_SUBPROCESS_REENTRY_MODULES`(`find_spec` 必须解析);`_DOTTED_PATH` 两种拼写都抓(旧拼写
+  因此报 unresolved);新增 `test_no_pre_rename_module_citations_remain_in_prose`(`argus/**/*.md`、
+  `roles/prompts/*.py`、`plugins/**`、`integrations/**`、`README*.md`、`docs/*.md`;历史文档
+  `handoff-2026-09-04`、`HANDOFF-2026-09-05-NEXT`、`team-intelligence-*`、`notes-2026-09-06-*`、
+  `WHAT_ARGUS_GREW` 除外)。白名单只改键名,棘轮没长。
+- 新测试文件 `tests/test_rename_compatibility.py`:shim 同一性、`-m` 双拼写子进程、弃用行、
+  teammate 进程组双拼写;各模块另有 legacy twin(frozen `-m`、package_update、typecheck_gate、
+  registry 旧组、curator cmdline、planner sanitizer、failure circuit、spawn helper 前缀、两个 doctor)。
+
+### 合入后操作者要做的事(风险图 §8 步骤 12)
+
+1. 每个 venv 重新 editable 安装:`<venv>/bin/python -m pip uninstall -y argus-skill &&
+   <venv>/bin/python -m pip install -e /data/v-boxiuli/Argus`(主树 `.venv` + 12 个
+   `_editable_impl_argus_skill.pth` 指向主树的兄弟 worktree venv;不重装也能靠 shim 跑,但 dist-info
+   仍叫 `argus_skill`,`argus update` 会走 legacy 分支)。
+2. 重启从主树 `.venv` 跑的进程:trial egress / web_admin serve-meter / relay_guardian / admin_runtime /
+   compute / web_portal、三个 `-m argus_skill --web`(8897/8901/8902)、socket_forward、serve.py
+   (PID 见风险图 §4;目录消失后的函数内懒 import 会 `ModuleNotFoundError`)。
+3. `python deploy/trial/web_services.py` 重新生成 systemd user units(现在写 `-m argus.trial.*`),
+   `systemctl --user daemon-reload` 后重启 `argus-web-trial-{compute,egress,meter,portal,relay-guardian}`;
+   `argus-web-8799.service` 的 ExecStart 同理改成 `-m argus --web`。
+4. 重建 trial 镜像:`deploy/trial/*.Dockerfile` 现在 `COPY argus`,容器内包路径 `/opt/argus/argus/trial`;
+   重建前 `training_bridge` 同时接受旧路径与旧 spawn_helper argv。
+5. runtime 树刷新时更新 `~/.local/bin/argus` 包装脚本的目标(现在指向
+   `argus-runtime-20260909-385d9b336/.venv/bin/argus`;那棵树自带旧包,pull 之前不受影响)。
+6. 重新 seed 工厂技能:`~/.argus-skill/skills/**` 里 43 份操作者副本仍写 `python -m argus_skill.tools.*`,
+   shim 期内可用;`argus --export-builtin-skills` / 重新 seed 后换成新拼写。
+7. PyPI:`argus` 在 PyPI 上属于一个不相关的 2019 年项目;Argus 一直是 git 安装(README 全文如此)。
+   `release.yml` 的 `pypi` job 已 `if: false` 并写明原因,拿到名字之前不要打开。
+8. `uv.lock` 已用 `uv lock`(uv 0.12.10)重锁:除 `argus-skill` → `argus` 外,还去掉了 torch / triton /
+   cuda-* 等 quant 依赖——它们在 §54 的垂直拆分里已从 `pyproject.toml` 移除,但当时没有重锁;
+   `uv lock --check` 通过。
+
+### 验证
+
+- `ruff check argus argus_skill tests`:干净。`python -m argus.release_tools.typecheck_gate --base origin/dev`
+  (在一次性 venv `/tmp/argus-rename-venv` 里跑,主树 `.venv` 没装 mypy;numpy 钉到 <2.5,否则其 3.12 专用
+  stub 让 mypy 在 3.11 目标下报 `[syntax]` 直接中止):基线 `44c09f6d7` 1313 条一方诊断,当前 1313,
+  introduced 0,removed 0——路径归一化把两边都记成 `argus/...`,没有"搬家即新债"的伪象。
+- 三个 `generate_*  --check`、`generate_manifest --check`、`check_artifacts` 全过;`npm --prefix frontend/tui test`
+  290 pass / 1 skip / 0 fail;`npm --prefix frontend/web run test` 1102 pass(123 文件);web `typecheck` 过。
+- 全套 `pytest -q -p no:cacheprovider`(PYTHONPATH=worktree,主树 `.venv` 解释器):32 个失败 = 基线 29 个
+  + 两条 `research_timeline` 不变量 + `test_training_public_paths` 的路径敏感度用例,三者均为既有;
+  没有新失败,也没有基线失败被"顺手修好"。第一遍全套多出一条
+  `tests/trial/test_billing.py::test_trial_usage_reads_its_own_cli_store`(单跑通过):
+  `_life_worker_boot.py` 在进程内 `os.environ.setdefault("ARGUS_WORKBENCH_HOST_ROOT", …)`,
+  而 conftest 只清 `ARGUS_SKILL_*`,先跑过 life worker 的测试把自己的临时根泄给了后面的 `trial_home()`;
+  conftest 的 autouse fixture 现在也清这个变量,第二遍全套即回到 32 个。
+- shim 同一性 / `-m` 双拼写 / 弃用行 / 进程组双拼写:`tests/test_rename_compatibility.py` 15 条全过;
+  一次性 venv `pip install -e '.[dev]'` 后 `argus --help`、`argus --version`、`argus --status`、
+  `argus-skill --version`(stderr 一行弃用提示)、`python -m argus_skill --version` 均正常;
+  `pip wheel` 得到 `argus-0.1.7-py3-none-any.whl`(1452 个文件),含 `argus/__init__.py`、
+  `argus_skill/__init__.py` + `__main__.py`(仅此两个 `argus_skill/` 条目)、`argus/_frontend/web/dist/index.html`、
+  `argus/_frontend/tui/bundle/argus.mjs`、`argus_doctor.py`,console_scripts 六条如 pyproject 所列。
+- 残留 `argus_skill`(git grep,全仓 6459 处):(a) shim 16 处;(b) 持久化名字——`ARGUS_SKILL_*`、
+  `_isolated_argus_skill_home` 等复合标识符、`.gitignore` 里两份历史 pitch 文件名;(c) 排除的历史/生成物——
+  `research/**` 5252、`docs/audits/**` 976、五份历史 handoff/notes 文档、`technical_report/**` 7、
+  `contrib/figure-studio` 审计 md 20、`frontend/web/dist` 未被 index.html 引用的旧 chunk、
+  `campaign-*.events.jsonl` fixture、`PRIVATE_TODO*`;(d) 故意保留的兼容代码 / 测试 / 文档(上文列出的
+  双拼写站点、pyproject、两个 README 的迁移段、`docs/LAYOUT.md`、`docs/trial-gateway.md` 的历史 wheel 名)。
+  连字符 `argus-skill` 同理:除 never-touch 模式外只剩兼容站点、README 迁移命令、FLYWHEEL 回退与
+  `docs/evaluations/*2026-08-17.md` 里的历史版本号。

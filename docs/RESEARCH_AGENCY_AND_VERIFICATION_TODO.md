@@ -166,11 +166,11 @@
 
 **建议代码触点**
 
-- 新模块：`argus_skill/core/verification_policy.py`；
-- `argus_skill/core/project_contract.py`：持久化/确认边界；
-- `argus_skill/manager/front_door.py`、`manager/_vertical_ops.py`、
+- 新模块：`argus/core/verification_policy.py`；
+- `argus/core/project_contract.py`：持久化/确认边界；
+- `argus/manager/front_door.py`、`manager/_vertical_ops.py`、
   `roles/prompts/manager.py`：选择和修改策略；
-- `argus_skill/roles/prompts/registry.py` 与 prompt types：统一解析 effective policy；
+- `argus/roles/prompts/registry.py` 与 prompt types：统一解析 effective policy；
 - Planner/Engineer/Reviewer prompt 只消费解析结果，不自行推断。
 
 **验收标准**
@@ -204,9 +204,9 @@
 
 **建议代码触点**
 
-- `argus_skill/skills/stage_machine.py`；
-- `argus_skill/verticals/*/stages.py`；
-- `argus_skill/roles/prompts/registry.py`；
+- `argus/skills/stage_machine.py`；
+- `argus/verticals/*/stages.py`；
+- `argus/roles/prompts/registry.py`；
 - `tests/skills/test_stage_checklists.py` 及新增 profile matrix tests。
 
 ### TODO P0-03：分离 Mission Verdict 与四态 Idea Evidence

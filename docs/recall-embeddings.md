@@ -9,7 +9,7 @@ current Markdown remain authoritative.
 Configure the project **state directory**, not its worktree:
 
 ```python
-from argus_skill.life.recall_embedding import save_embedding_config
+from argus.life.recall_embedding import save_embedding_config
 
 save_embedding_config(project_state_root, {
     "enabled": True,

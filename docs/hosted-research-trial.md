@@ -10,7 +10,7 @@ installations do not enable this service automatically.
 The original administrator workspace is enrolled as ordinary `trial-11`, alongside
 the ten invitation containers. Its original state and project paths are retained.
 Start this existing native workspace explicitly with
-`python -m argus_skill.trial.admin_runtime --portal-config /private/portal.json
+`python -m argus.trial.admin_runtime --portal-config /private/portal.json
 --state-dir /existing/admin/state --workdir /existing/admin/workspace
 --pi-bin /installed/Argus-Pi/packages/coding-agent/dist/bundle/cli.js
 --tenant trial-11 --uds /private/tenants/trial-11/run/web.sock
@@ -37,7 +37,7 @@ state. Project names come from the existing tenant project directory and are
 joined by tenant and SID. Loading more observations merges each episode by its
 recorded sequence; the displayed loaded count is separate from the retained total.
 
-`argus_skill/trial/data_page.py` only registers the page routes. The portal renders
+`argus/trial/data_page.py` only registers the page routes. The portal renders
 the shared build and serves its relative assets through `/admin/assets/*` for an
 administrator, or `/assets/*` for an invitation session. Configure `frontend_dir`
 to a completed build before enabling the data page; a missing build returns 503.
@@ -192,7 +192,7 @@ evidence, even when a different reviewer creates the export.
 After downloading a dataset ZIP, validate it locally with the standalone module:
 
 ```sh
-python -m argus_skill.trial.training_validate /path/to/dataset.zip \
+python -m argus.trial.training_validate /path/to/dataset.zip \
   --require-agentic \
   --evidence /path/to/acceptance-report.json \
   --report /path/to/validation-report.json
@@ -259,7 +259,7 @@ remain in effect, including direct local access.
 Initialize with the existing private administrator backend's token file:
 
 ```sh
-python -m argus_skill.trial.web_admin init \
+python -m argus.trial.web_admin init \
   --root "$ARGUS_TRIAL_ROOT" \
   --admin-token-file /path/to/private/backend-token \
   --admin-url http://127.0.0.1:8896
@@ -289,7 +289,7 @@ Set the generated deployment configurations to the selected image tags.
 Start newly provisioned workspace containers with the capture image:
 
 ```sh
-python -m argus_skill.trial.web_admin start-containers \
+python -m argus.trial.web_admin start-containers \
   --root "$ARGUS_TRIAL_ROOT" \
   --image argus-web-trial:pi-data-20260911-r6
 ```
@@ -307,7 +307,7 @@ Ship the frontend, portal and tenant image as one version with a single
 backend-first roll:
 
 ```sh
-python -m argus_skill.trial.web_admin release \
+python -m argus.trial.web_admin release \
   --root "$ARGUS_TRIAL_ROOT" \
   --image argus-web-trial:pi-<commit> \
   --source /path/to/deployed/checkout
@@ -388,7 +388,7 @@ Linux CI installs `.[dev,qr,trial]`, runs Ruff and the full Python suite. Web CI
 typechecks and tests the current Web frontend. Local focused validation is:
 
 ```sh
-python -m ruff check argus_skill/trial tests/trial
+python -m ruff check argus/trial tests/trial
 python -m pytest tests/trial tests/test_pi_backend.py
 ```
 

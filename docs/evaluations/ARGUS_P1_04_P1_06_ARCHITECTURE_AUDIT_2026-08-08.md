@@ -7,7 +7,7 @@ Baseline: private `origin/main` at `952911ef`
 
 | Surface | Before | Classification | Result |
 | --- | --- | --- | --- |
-| `core/project_api.py` | imported `verticals._base` to resolve completion | true dependency inversion | core now receives the validated `required_gate`; no core module imports `argus_skill.verticals` |
+| `core/project_api.py` | imported `verticals._base` to resolve completion | true dependency inversion | core now receives the validated `required_gate`; no core module imports `argus.verticals` |
 | `core/integrity_gate.py` | paper citation/scorer policy in core | true research leak | moved to `verticals/research/integrity_gate.py` |
 | Planner/Reviewer prompts | imported research canonical stage order | true research leak | use the active `VerticalContract.stage_order` |
 | mission setup | imported `kernel_engineering.baseline_workspace` | true vertical leak | calls the optional `prepare_mission` contract hook |
@@ -15,7 +15,7 @@ Baseline: private `origin/main` at `952911ef`
 | persisted data-domain completion names | `full_emnlp` / `full_paper` | compatibility adapter | read only in `_data_domain.py`, normalized to generic `certified` |
 | research/venue events and persisted target fields | already on disk and externally readable | compatibility/event vocabulary | retained; they do not select another vertical or change core completion policy |
 
-`argus_skill/core/vertical_contract.py` is the only framework contract. A vertical declares
+`argus/core/vertical_contract.py` is the only framework contract. A vertical declares
 stage order, checklist items, completion strength, optional role guidance/evidence schema,
 independent-review requirement, workflow mode, and optional mission/search hooks. The
 minimal non-research fixture in `tests/core/test_vertical_contract.py` runs without paper,

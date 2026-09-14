@@ -4,7 +4,7 @@ Argus provides the plugin center and lifecycle API. CrystalPilot is distributed 
 
 ## Install and use
 
-Open **Plugins → Argus CrystalPilot → Install**. Argus downloads the wheel specified by its bundled `argus_skill/plugin_catalog.json`, verifies SHA-256, creates an isolated Python environment, installs the plugin and scientific dependencies, and activates it only after its core and host interface validate.
+Open **Plugins → Argus CrystalPilot → Install**. Argus downloads the wheel specified by its bundled `argus/plugin_catalog.json`, verifies SHA-256, creates an isolated Python environment, installs the plugin and scientific dependencies, and activates it only after its core and host interface validate.
 
 The public distribution page is https://crystalpilot-downloads.argusbot.cn/. Immutable wheel and source archives are under `/releases/<version>/`. Argus installs the wheel; it never clones a private repository. The source ZIP is for inspection and independent builds. Upstream scientific binaries, model credentials and research datasets are not included in these artifacts.
 
@@ -44,7 +44,7 @@ To prepare a tenant before its first visit, use the same verified install:
 
 ```
 ARGUS_SKILL_HOME=/tenant/home/.argus-skill \
-python -m argus_skill.release_tools.preinstall_plugins crystalpilot --root /tenant/home/.argus-skill
+python -m argus.release_tools.preinstall_plugins crystalpilot --root /tenant/home/.argus-skill
 ```
 
 The command waits for completion and exits non-zero on failure. Run it inside
@@ -88,7 +88,7 @@ certificate downloads nor certificate-store changes.
 From the account container, with its normal Argus root and Pi/backend environment:
 
 ```
-python -m argus_skill.release_tools.provision_platon \
+python -m argus.release_tools.provision_platon \
   --root /tenant/home/.argus-skill \
   --directory /tenant/home/.argus-skill/extensions/crystalpilot/resources/software/platon-reviewed \
   --record /tenant/home/.argus-skill/extensions/crystalpilot/platon-record.json
@@ -127,7 +127,7 @@ The catalog is curated and pinned to reviewed HTTPS artifacts and SHA-256 digest
 
 Host release builds preserve external entries even when no plugin source exists in the checkout. They neither download nor rebuild CrystalPilot. Host contracts can run in public Argus CI without access to the private repository. A four-platform installer workflow example is provided in `docs/ci-examples/plugin-compatibility.yml`; it is not active until a maintainer with workflow permission copies it into `.github/workflows/`. Existing repository CI remains unchanged. An example is not evidence of a successful platform run.
 
-Optional in-tree plugins can still use `python -m argus_skill.release_tools.build_plugins`. That command merges generated entries with the externally maintained catalog; its developer catalog adds local wheel paths only for packages actually built in that checkout. `ARGUS_PLUGIN_CATALOG` is a host-side override for a curated local file. Release maintainers must publish every referenced artifact before updating the host catalog.
+Optional in-tree plugins can still use `python -m argus.release_tools.build_plugins`. That command merges generated entries with the externally maintained catalog; its developer catalog adds local wheel paths only for packages actually built in that checkout. `ARGUS_PLUGIN_CATALOG` is a host-side override for a curated local file. Release maintainers must publish every referenced artifact before updating the host catalog.
 
 ## CrystalPilot licensing
 

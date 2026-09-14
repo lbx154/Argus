@@ -247,7 +247,7 @@ Agent 将遵循 **[安装执行规范](docs/agent-install.md)**。
 py --version
 node --version
 py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 $Argus = Join-Path $Scripts "argus.exe"
 if (-not (Test-Path $Argus)) { throw "Argus entry point not found at $Argus" }
@@ -281,7 +281,7 @@ Windows 当前支持安装、Manager 对话、配对、Web/TUI、终端作用域
 uv --version
 node --version
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 ARGUS_BIN="$(uv tool dir --bin)/argus"
 test -x "$ARGUS_BIN"
 "$ARGUS_BIN" --version
@@ -468,7 +468,7 @@ Telegram、飞书 / Lark 和网页版都可以在手机上使用。两个聊天�
 
 ```bash
 # 飞书 / Lark —— WebSocket 长连接，无需配置请求地址
-pip install 'argus-skill[feishu]'
+pip install 'argus[feishu]'
 export ARGUS_SKILL_ENABLE_FEISHU=1
 export ARGUS_SKILL_FEISHU_APP_ID=cli_xxx ARGUS_SKILL_FEISHU_APP_SECRET=xxx
 
@@ -526,7 +526,7 @@ Argus 本体内置 7 个 vertical：`research`、`software`、`argus_maintenance
 `materials`、`physics`、`ale_last_exam`、`fiction_writing`、`prose`、`modern_poetry`、
 `classical_poetry`、`literary_editor`——放在社区包
 **[argus-verticals](https://github.com/Argus-AiTeam/argus-verticals)**，通过
-`argus_skill.verticals` entry-point 组被发现。把它装进运行 Argus 的那个 Python 环境即可：
+`argus.verticals` entry-point 组被发现。把它装进运行 Argus 的那个 Python 环境即可：
 
 ```bash
 pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
@@ -587,7 +587,7 @@ Linux 源码安装执行 `"$HOME/Argus/.venv/bin/argus" update`。
 Windows 首次引导更新：
 
 ```powershell
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Argus = Join-Path (py -c "import sysconfig; print(sysconfig.get_path('scripts'))") "argus.exe"
 & $Argus --version
 & $Argus doctor --advisor none --verify
@@ -597,7 +597,7 @@ macOS 首次引导更新：
 
 ```bash
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 "$(uv tool dir --bin)/argus" --version
 "$(uv tool dir --bin)/argus" doctor --advisor none --verify
 ```
@@ -619,16 +619,49 @@ git -C "$HOME/Argus" pull --ff-only
 打包的 Desktop EXE 使用独立的桌面签名更新渠道。CLI 更新器不会替换签名 EXE，
 参见 [Windows Desktop](docs/windows-desktop.md)。
 
+## 重命名:argus-skill → argus
+
+2026-09-14 起,Python 包 `argus_skill` 改名为 `argus`,pip 发行名 `argus-skill` 改为 `argus`,
+命令 `argus-skill` 并入 `argus`。`argus` 原本就是驾驭舱启动器,现在同时接受 `argus-skill` 的全部
+参数与子命令(`argus --status`、`argus doctor`、`argus --daemon`、`argus --web --web-port 8799` 等);
+`python -m argus` 是纯命令行,不会启动 Node 驾驭舱。
+
+**没有变的东西。** 所有 `ARGUS_SKILL_*` 环境变量与 knob(`~/.argus-skill/config.json` 里的键)、
+状态根目录 `~/.argus-skill`(项目、种子技能、日志)、Web API 的 `argus-skill-webapi` 服务标识,
+以及其它磁盘标记(`/tmp/argus-skill-role-slots`、`~/argus-skill-tasks`、`~/.local/share/argus-skill` 等)。
+`~/.argus-skill` 下的任何内容都不需要搬。
+
+**保留一个发布周期。** `import argus_skill` 与 `import argus` 是同一个包对象(两文件别名,不是副本),
+`python -m argus_skill ...` 运行同样的模块,`argus-skill` 命令仍然存在(stderr 打一行弃用提示),
+旧名字启动的 teammate 与 trial 容器仍被识别,注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
+
+**迁移已有安装。** 先卸载旧发行再装新发行,然后重启正在运行的守护进程或 `--web` 服务:
+
+```bash
+# 可编辑 checkout(Linux / macOS venv)
+"$HOME/Argus/.venv/bin/python" -m pip uninstall -y argus-skill && "$HOME/Argus/.venv/bin/python" -m pip install -e "$HOME/Argus"
+```
+
+```bash
+# macOS uv tool
+uv tool uninstall argus-skill
+uv tool install --force --python 3.12 \
+  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+```
+
+对仍叫 `argus-skill` 的 pip 安装,`argus update` 会自己先卸载;旧名字的 `uv tool` 环境会被拒绝并给出
+上面两条命令。PyPI 上的 `argus` 属于一个不相关的项目:Argus 一直从 Git 安装,与本文其它章节一致。
+
 ## 卸载
 
 ```powershell
 # Windows
-py -m pip uninstall argus-skill
+py -m pip uninstall argus
 ```
 
 ```bash
 # macOS
-uv tool uninstall argus-skill
+uv tool uninstall argus
 ```
 
 Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout 及其中的
@@ -662,15 +695,15 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 
 ## 仓库布局
 
-- `argus_skill/` —— Python 包本体；`argus`、`argus-skill` 与守护进程运行的全部代码。
-- `argus_skill/core/`、`proof_ledger/` —— 内核：模型、端口、契约、路径。目标是叶子：不得 import 任何更高层；今天残余的向上边钉在不变量测试（`tests/test_architecture_invariants.py`）里，第 1 阶段移除。
-- `argus_skill/agent_cli/`、`adapters/`、`provider_integrations/`、`advisor/` —— 模型 CLI（codex、claude、copilot……）的驱动与外部顾问侧信道。
-- `argus_skill/skills/`、`tools/`、`wiki/`、`cli/` —— 能力：Skill 库、操作者批准的工具、项目 Wiki、终端渲染。
-- `argus_skill/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：7 个内置垂直（另外 17 个由 `argus-verticals` 以 entry point 接入）、overlay、种子 Skill。
-- `argus_skill/roles/`、`planner/`、`engineer/`、`reviewer/` —— 持久角色：提示词目录（`roles/`）加 Planner、Engineer、Reviewer 的代码（Manager 的代码在 `manager/`）。
-- `argus_skill/life/`、`manager/`、`messaging/` —— 运行时：项目记忆、backlog、supervisor、Manager 控制面与跨项目消息。
-- `argus_skill/daemon/`、`team/` —— 脱离终端的 7x24 worker 与 Agent Teams。
-- `argus_skill/apps/`、`webapi/`、`plugin/`、`maintenance/`、`trial/` —— 交付面：CLI、Web API、宿主插件、Doctor、托管试用。
+- `argus/` —— Python 包本体；`argus`、`argus` 与守护进程运行的全部代码。
+- `argus/core/`、`proof_ledger/` —— 内核：模型、端口、契约、路径。目标是叶子：不得 import 任何更高层；今天残余的向上边钉在不变量测试（`tests/test_architecture_invariants.py`）里，第 1 阶段移除。
+- `argus/agent_cli/`、`adapters/`、`provider_integrations/`、`advisor/` —— 模型 CLI（codex、claude、copilot……）的驱动与外部顾问侧信道。
+- `argus/skills/`、`tools/`、`wiki/`、`cli/` —— 能力：Skill 库、操作者批准的工具、项目 Wiki、终端渲染。
+- `argus/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：7 个内置垂直（另外 17 个由 `argus-verticals` 以 entry point 接入）、overlay、种子 Skill。
+- `argus/roles/`、`planner/`、`engineer/`、`reviewer/` —— 持久角色：提示词目录（`roles/`）加 Planner、Engineer、Reviewer 的代码（Manager 的代码在 `manager/`）。
+- `argus/life/`、`manager/`、`messaging/` —— 运行时：项目记忆、backlog、supervisor、Manager 控制面与跨项目消息。
+- `argus/daemon/`、`team/` —— 脱离终端的 7x24 worker 与 Agent Teams。
+- `argus/apps/`、`webapi/`、`plugin/`、`maintenance/`、`trial/` —— 交付面：CLI、Web API、宿主插件、Doctor、托管试用。
 - `frontend/` —— Ink 终端 cockpit（`tui`）、React Web cockpit（`web`）、共享 TypeScript（`core`）。
 - `desktop-tauri/` —— Tauri 桌面壳（发布 Windows 版；CI 四个目标）；`plugins/` —— 可安装的宿主插件；`tests/` —— pytest 测试。
 

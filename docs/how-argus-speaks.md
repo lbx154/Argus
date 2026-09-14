@@ -163,17 +163,17 @@ Everywhere. The standard began in the research vertical and now covers the
 whole system: every vertical, the shared round loop, and the harness itself.
 In particular:
 
-- Every `.md` under `argus_skill/verticals/*/skills/` and the role
-  descriptions under `argus_skill/builtin_skills/`.
-- Every prose string a model reads: `argus_skill/verticals/*/stages.py` and
-  the other vertical modules, `argus_skill/roles/prompts/*.py`, and the
+- Every `.md` under `argus/verticals/*/skills/` and the role
+  descriptions under `argus/builtin_skills/`.
+- Every prose string a model reads: `argus/verticals/*/stages.py` and
+  the other vertical modules, `argus/roles/prompts/*.py`, and the
   prompt blocks assembled at runtime by the round loop
-  (`argus_skill/engineer/round_*.py`, `argus_skill/reviewer/*.py`) and the
-  supervisor (`argus_skill/apps/`, `argus_skill/life/`).
+  (`argus/engineer/round_*.py`, `argus/reviewer/*.py`) and the
+  supervisor (`argus/apps/`, `argus/life/`).
 - Everything Argus writes for a person: `RESEARCH_NOTES.md`, `paper/REVIEW.md`,
   the reason lines of the Manager, Planner, Reviewer, and Engineer, decision
   cards and questions to the operator, event texts, and status messages
-  (`argus_skill/cli/event_format.py`, `argus_skill/core/operator_messages.py`).
+  (`argus/cli/event_format.py`, `argus/core/operator_messages.py`).
 
 The machine's own tokens (principle 9) are the one standing exception: parsed
 lines, field names, enum values, paths, and identifiers stay exactly as the

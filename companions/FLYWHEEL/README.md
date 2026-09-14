@@ -2,7 +2,7 @@
 
 Argus Research Data Flywheel 是一个与 Argus 源码和运行目录完全隔离的研究活动控制平面。它把会议日历、团队条件、候选 Idea、结构化研究合同、算力与模型配置、Argus 实时状态、独立 Viewer 评审、人工标注和投稿后反馈放到同一套界面里。核心关系是“团队条件决定可行研究空间”：不同团队即使面向同一会议，也可以因专长、方法、数据权限、资源、时间、目标和政策不同而得到不同的 Idea 与 Prompt。
 
-它物理上位于 `Argus/companions/FLYWHEEL`，逻辑上是围绕 Argus 的伴生产品：Argus 继续负责模型、角色、daemon、研究执行与工件；FLYWHEEL 负责会议与团队条件、Prompt/Protocol 编译、人工门、可观测性和不可变数据闭环。两者通过版本化 WebAPI 连接，FLYWHEEL 不直接 import 或复制 `argus_skill` 内部实现。
+它物理上位于 `Argus/companions/FLYWHEEL`，逻辑上是围绕 Argus 的伴生产品：Argus 继续负责模型、角色、daemon、研究执行与工件；FLYWHEEL 负责会议与团队条件、Prompt/Protocol 编译、人工门、可观测性和不可变数据闭环。两者通过版本化 WebAPI 连接，FLYWHEEL 不直接 import 或复制 `argus` 内部实现。
 
 ```text
 Research team → FLYWHEEL control + data plane → versioned Argus WebAPI → Argus research engine
@@ -16,7 +16,7 @@ Research team → FLYWHEEL control + data plane → versioned Argus WebAPI → A
 
 ## 设计边界
 
-- Flywheel 不修改 `Argus/` 或 `argus-skill/`，也不会对正在运行或有未提交修改的 checkout 执行 `pull/reset`。
+- Flywheel 不修改 `Argus/` 或 `argus/`，也不会对正在运行或有未提交修改的 checkout 执行 `pull/reset`。
 - 远端检查只执行 `git ls-remote` 并原子记录 registry。候选 SHA 只有在操作者提供完整 SHA、显式确认且远端 ref 完全匹配时，才会 fetch 到 Flywheel 自己的内容寻址 staging 目录；不会修改现有 checkout。测试、canary 和采用仍是后续独立人工流程。
 - `Oral / Best Paper` 是研究与评审标准的高目标，不是完成条件、录用概率或可由模型自我认证的结果。
 - 负结果、`NO_WINNER_YET`、collision 与 kill criterion 都是合法、需要保留的科研结果。
