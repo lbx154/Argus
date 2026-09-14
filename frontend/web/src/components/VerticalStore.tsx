@@ -29,6 +29,7 @@ const badge = (tone: 'neutral' | 'ok' | 'warn' | 'blue') => `rounded px-1.5 py-0
   tone === 'ok' ? 'bg-ok/10 text-ok' : tone === 'warn' ? 'bg-warn/10 text-warn' : tone === 'blue' ? 'bg-blue/10 text-blue' : 'bg-line text-ink-dim'}`;
 const actionIcon: Record<VerticalAction, typeof Download> = { install: Download, update: RefreshCw, enable: Power, disable: PowerOff, uninstall: Trash2 };
 
+// Timestamps arrive as ISO-8601 UTC strings (never epoch numbers).
 function whenText(iso: string, locale: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -189,9 +190,9 @@ export function VerticalStoreView({ payload, filter, onFilter, hosted, supported
         <span className="min-w-0 truncate" title={catalog.source}>{t('verticals.catalogSource', { source: catalog.source })}</span>
         {catalog.release_tag && <span className="rounded bg-bg px-1.5 py-0.5 font-mono">{t('verticals.catalogRelease', { tag: catalog.release_tag })}</span>}
         <span>{catalog.fetched_at ? t('verticals.catalogFetched', { time: whenText(catalog.fetched_at, locale) }) : t('verticals.catalogNever')}</span>
-        {!hosted && <button type="button" className={`${control} ml-auto`} disabled={refreshing || loading} onClick={onRefresh} data-testid="vertical-refresh-catalog">
+        <button type="button" className={`${control} ml-auto`} disabled={refreshing || loading} onClick={onRefresh} data-testid="vertical-refresh-catalog">
           <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />{refreshing ? t('verticals.refreshing') : t('verticals.refreshCatalog')}
-        </button>}
+        </button>
       </div>}
       {catalog?.error && <p role="alert" className="mt-3 rounded-lg border border-warn/40 bg-warn/10 p-2.5 text-sm text-warn" data-testid="vertical-catalog-error">{t('verticals.catalogError', { error: catalog.error })}</p>}
       {error && <p role="alert" className="mt-3 text-sm text-err" data-testid="vertical-store-error">{error}</p>}

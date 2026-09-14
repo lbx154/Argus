@@ -60,7 +60,6 @@ export function CommandRail({
   onToggleConsole,
   onConfig,
   onCycleTheme,
-  onVerticals,
 }: {
   previewOpen: boolean;
   consoleOpen: boolean;
@@ -72,7 +71,6 @@ export function CommandRail({
   onToggleConsole: () => void;
   onConfig: () => void;
   onCycleTheme: () => void;
-  onVerticals?: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -94,7 +92,6 @@ export function CommandRail({
         </div>
       </div>
       <div className="mt-auto flex flex-col gap-1">
-        {onVerticals ? <RailButton icon="store" label={t('verticals.entry')} onClick={onVerticals} /> : null}
         <RailButton icon="theme" label={`Theme: ${themeMode}`} onClick={onCycleTheme} />
         <RailButton icon="settings" label="Runtime settings" onClick={onConfig} />
       </div>

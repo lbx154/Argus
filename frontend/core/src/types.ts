@@ -537,9 +537,10 @@ export type VerticalAction = 'install' | 'update' | 'enable' | 'disable' | 'unin
 export interface VerticalOperation {
   status: 'running' | 'done' | 'failed';
   action: string;
-  /** 0–1 fraction or 0–100 percent; 0 means the step count is unknown. */
+  /** Integer percent 0–100; 0 means the job has not reported a step yet. */
   progress: number;
   message: string | null;
+  /** ISO-8601 UTC timestamps, e.g. "2026-09-14T19:00:00Z". */
   started: string;
   finished: string | null;
 }
@@ -572,6 +573,7 @@ export interface VerticalRow {
 
 export interface VerticalCatalogStatus {
   source: string;
+  /** ISO-8601 UTC, or null when the catalog was never fetched. */
   fetched_at: string | null;
   release_tag: string | null;
   error: string | null;

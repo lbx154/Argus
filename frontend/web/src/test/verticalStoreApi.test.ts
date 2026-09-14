@@ -56,13 +56,13 @@ describe('vertical store API client', () => {
   it('refreshes the catalog and reads one operation', async () => {
     const fetchMock = vi.fn(async (path: string) => Response.json(
       path.endsWith('/operation')
-        ? { status: 'running', action: 'install', progress: 0.5, message: null, started: 'now', finished: null }
+        ? { status: 'running', action: 'install', progress: 50, message: null, started: '2026-09-14T08:00:00Z', finished: null }
         : { verticals: [], catalog: { source: 'fresh' }, host: {} },
     ));
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
     await expect(api.refreshVerticalCatalog()).resolves.toMatchObject({ catalog: { source: 'fresh' } });
-    await expect(api.verticalOperation('materials')).resolves.toMatchObject({ status: 'running', progress: 0.5 });
+    await expect(api.verticalOperation('materials')).resolves.toMatchObject({ status: 'running', progress: 50 });
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/verticals/catalog/refresh',
       '/api/verticals/materials/operation',

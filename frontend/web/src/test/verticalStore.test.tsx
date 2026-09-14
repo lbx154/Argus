@@ -29,7 +29,7 @@ const kernel = row({
 const materials = row({ name: 'materials', kind: 'available', purpose: 'Materials discovery', purpose_zh: '材料发现与筛选', tags: ['science'] });
 const installing = row({
   name: 'chem', kind: 'available', actions: [],
-  operation: { status: 'running', action: 'install', progress: 0.4, message: 'Downloading 3 of 7 files', started: '2026-09-14T08:00:00Z', finished: null },
+  operation: { status: 'running', action: 'install', progress: 40, message: 'Downloading 3 of 7 files', started: '2026-09-14T08:00:00Z', finished: null },
 });
 const failedInstall = row({
   name: 'bio', kind: 'available', actions: ['install'],
@@ -176,7 +176,7 @@ describe('hosted workspace', () => {
     expect(html).not.toContain('data-action="install"');
     expect(html).not.toContain('data-action="uninstall"');
     expect(html).not.toContain('data-action="update"');
-    expect(html).not.toContain('data-testid="vertical-refresh-catalog"');
+    expect(html).toContain('data-testid="vertical-refresh-catalog"'); // refreshing is read-only for the host
     expect(view({ payload: { ...payload, verticals: [row({ name: 'off', kind: 'installed', actions: ['enable', 'uninstall'] })] }, hosted: true })).toContain('data-action="enable"');
   });
 

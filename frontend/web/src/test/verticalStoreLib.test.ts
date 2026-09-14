@@ -91,10 +91,10 @@ describe('text helpers', () => {
     expect(formatSize(15 * 1024 ** 3)).toBe('15 GB');
   });
 
-  it('turns a fraction or a percent into a whole percent, and hides unknown progress', () => {
-    const op = { status: 'running' as const, action: 'install', message: null, started: '', finished: null };
-    expect(progressPercent({ ...op, progress: 0.4 })).toBe(40);
-    expect(progressPercent({ ...op, progress: 1 })).toBe(100);
+  it('shows the server percent as is, clamps it, and hides unknown progress', () => {
+    const op = { status: 'running' as const, action: 'install', message: null, started: '2026-09-14T08:00:00Z', finished: null };
+    expect(progressPercent({ ...op, progress: 1 })).toBe(1);
+    expect(progressPercent({ ...op, progress: 40 })).toBe(40);
     expect(progressPercent({ ...op, progress: 73 })).toBe(73);
     expect(progressPercent({ ...op, progress: 250 })).toBe(100);
     expect(progressPercent({ ...op, progress: 0 })).toBeNull();

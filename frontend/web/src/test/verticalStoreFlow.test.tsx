@@ -32,7 +32,7 @@ const payload: VerticalsPayload = {
 };
 const runningPayload: VerticalsPayload = {
   ...payload,
-  verticals: [kernel, { ...materials, actions: [], operation: { status: 'running', action: 'install', progress: 0.25, message: 'Fetching', started: 'now', finished: null } }],
+  verticals: [kernel, { ...materials, actions: [], operation: { status: 'running', action: 'install', progress: 25, message: 'Fetching', started: '2026-09-14T08:00:00Z', finished: null } }],
 };
 const meta = (capabilities: string[]) => ({ capabilities } as never);
 const conflict = new ApiError('POST /api/verticals/kernel_engineering/manage/uninstall → 409: used by projects s-1, s-2', 409, 'POST', '/api/verticals/kernel_engineering/manage/uninstall', '', 'used by projects s-1, s-2');

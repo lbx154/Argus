@@ -88,13 +88,12 @@ export function formatSize(bytes: number | null | undefined): string {
   return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
 }
 
-/** A 0–100 percent for a determinate bar, or null when the job cannot say how far along it is. */
+/** The server's integer percent (0–100) for a determinate bar, or null while the job has not reported a step. */
 export function progressPercent(operation: VerticalOperation | null | undefined): number | null {
   if (!operation || operation.status !== 'running') return null;
   const value = Number(operation.progress);
   if (!Number.isFinite(value) || value <= 0) return null;
-  const percent = value <= 1 ? value * 100 : value;
-  return Math.max(0, Math.min(100, Math.round(percent)));
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 export const isRunning = (row: Pick<VerticalRow, 'operation'>) => row.operation?.status === 'running';
