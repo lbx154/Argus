@@ -4,12 +4,15 @@ Layer: domain
 
 Seven verticals are built in (one directory each, ``<name>/stages.py``
 implementing ``VerticalContract``); everything else is discovered at runtime
-through the ``argus.verticals`` entry-point group (see ``_registry``),
-which is how the ``argus-verticals`` community package contributes its
-seventeen. The framework-owned bridge modules (``_base``, ``_registry``,
-``_data_domain``, ``research_bridge``, ``metric_evidence``,
-``optimization_base``, ``path_evidence``) are the public seam an external
-vertical imports; nothing outside this package names a vertical directly.
+by ``_registry``: workbench plugins, the **Vertical Store** (``store`` --
+community verticals installed one directory at a time from the
+``argus-verticals`` releases, no pip; ``argus verticals ...`` and
+``/api/verticals``), and the ``argus.verticals`` entry-point group, which is
+how a pip-installed ``argus-verticals`` package contributes its seventeen. The
+framework-owned bridge modules (``_base``, ``_registry``, ``_data_domain``,
+``store``, ``research_bridge``, ``metric_evidence``, ``optimization_base``,
+``path_evidence``) are the public seam an external vertical imports; nothing
+outside this package names a vertical directly.
 
 The canonical built-in inventory and Manager-facing purpose descriptions live
 in :mod:`argus.skills.vertical_select`. Keep package documentation free of

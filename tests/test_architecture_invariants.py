@@ -1928,7 +1928,10 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     "session_root": 40,
     "project_dir": 33,
     "manager_session_root": 24,
-    "session_states_root": 22,
+    # 23 = 22 + verticals/store.py: the Vertical Store's ``used_by`` scan walks the
+    # session-state collection through the one canonical accessor rather than a
+    # seventh spelling; it drops back when ``core.paths`` gains ``projects_root``.
+    "session_states_root": 23,
     "session_state_root": 31,
 }
 

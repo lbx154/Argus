@@ -29,6 +29,7 @@ __all__ = [
     "session_states_root",
     "session_state_root",
     "session_trash_root",
+    "verticals_root",
     "PathResolutionError",
     "resolve_runtime_path",
 ]
@@ -139,3 +140,8 @@ def session_state_root(
 
 def session_trash_root(root: str | Path | None = None) -> Path:
     return _root(root) / "projects_trash"
+
+
+def verticals_root(root: str | Path | None = None) -> Path:
+    """Return the Vertical Store root (community verticals installed per directory)."""
+    return _root(root) / "verticals"

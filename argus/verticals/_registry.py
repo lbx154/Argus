@@ -1,11 +1,19 @@
-"""Trusted out-of-tree verticals registered through Python entry points.
+"""Trusted out-of-tree verticals: managed plugins, the Vertical Store, entry points.
 
-Two sources feed one registry:
+Three sources feed one registry:
 
 * **managed plugins** installed by ``core.plugin_manager`` (the workbench
   catalog). Their activation state lives in ``registry.json`` and changes
   while the process runs (install, enable, disable, uninstall), so they are
   read afresh on every call; the plugin manager caches the loaded modules.
+* **store verticals** installed by :mod:`argus.verticals.store` one directory
+  at a time under ``<store root>/argus_verticals/<name>/``. The store's
+  ``registry.json`` names each enabled entry's module; the scan is memoised
+  and re-run whenever that file changes on disk. The store makes
+  ``argus_verticals`` importable itself (appended to a pip-installed copy's
+  ``__path__`` -- the pip copy wins for a duplicate name -- or as a synthetic
+  namespace package), so nothing here reads dist-info and the frozen desktop
+  discovers store verticals exactly like a source checkout.
 * **entry-point plugins** -- distributions that register
   ``argus.verticals`` entry points; the ``argus-verticals`` community
   package registers seventeen. The pre-rename group ``argus_skill.verticals``
@@ -15,8 +23,10 @@ Two sources feed one registry:
   dist-info via ``importlib.metadata``, then one ``entry.load()`` and contract
   check per plugin) runs once per process and is memoised. The Manager menu
   and skill seeding call ``vertical_plugins()`` repeatedly; without the memo
-  each call rescanned. ``refresh_vertical_plugins()`` forgets the scan; call
+  each call rescanned. ``refresh_vertical_plugins()`` forgets both scans; call
   it after installing a distribution into the running interpreter (tests do).
+
+Precedence for one name: managed plugin, then entry point, then store.
 
 A plugin module may expose ``VERTICAL_SKILL_PARENTS``: the verticals whose
 skill trees are seeded before its own (``kernelbench`` inherits
@@ -25,6 +35,8 @@ the contract -- an invalid declaration means the plugin is not advertised.
 """
 from __future__ import annotations
 
+import dataclasses
+import importlib
 import logging
 import os
 import re
@@ -41,8 +53,10 @@ ENTRY_POINT_GROUP = "argus.verticals"
 #: releases published under it keep working for one release.
 LEGACY_ENTRY_POINT_GROUP = "argus_skill.verticals"
 VERTICAL_API_VERSION = 1
+ORIGINS: tuple[str, ...] = ("managed", "store", "entry_point")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _ENTRY_POINT_CACHE: dict[str, VerticalPlugin] | None = None
+_STORE_CACHE: tuple[Any, dict[str, VerticalPlugin]] | None = None
 _CACHE_LOCK = threading.RLock()
 _SCAN = threading.local()  # ``partial``: the dict a scan on this thread is filling
 
@@ -56,6 +70,9 @@ class VerticalPlugin:
     #: Verticals whose skill trees are seeded before this one's own, in
     #: declaration order (``VERTICAL_SKILL_PARENTS`` on the plugin module).
     skill_parents: tuple[str, ...] = ()
+    #: Which source advertised the plugin: ``"managed"`` (workbench plugin),
+    #: ``"store"`` (Vertical Store directory) or ``"entry_point"`` (pip).
+    origin: str = "entry_point"
 
 
 def _skills_root(module: ModuleType) -> Any:
@@ -100,7 +117,7 @@ def _skill_parents(name: str, module: ModuleType) -> tuple[str, ...]:
     return tuple(parents)
 
 
-def _plugin(name: str, module: ModuleType) -> VerticalPlugin:
+def _plugin(name: str, module: ModuleType, *, origin: str = "entry_point") -> VerticalPlugin:
     """Read the advertised fields; raises ``ValueError`` on an invalid declaration."""
     purpose = str(getattr(module, "VERTICAL_PURPOSE", "") or "").strip()
     if not purpose:
@@ -111,7 +128,27 @@ def _plugin(name: str, module: ModuleType) -> VerticalPlugin:
         module=module,
         skills_root=_skills_root(module),
         skill_parents=_skill_parents(name, module),
+        origin=origin,
     )
+
+
+def _validated_plugin(name: str, module: ModuleType, *, origin: str) -> VerticalPlugin:
+    """The full third-party check: API version, advertised fields, then the contract."""
+    from ..core.vertical_contract import vertical_contract
+
+    version = int(getattr(module, "ARGUS_VERTICAL_API_VERSION", 0))
+    if version != VERTICAL_API_VERSION:
+        raise ValueError(f"ARGUS_VERTICAL_API_VERSION {version} != {VERTICAL_API_VERSION}")
+    plugin = _plugin(name, module, origin=origin)
+    vertical_contract(name, module)
+    location = getattr(module, "__file__", None)
+    if plugin.skills_root is None and origin == "store" and isinstance(location, str):
+        # A store directory carries its skills next to stages.py; a vertical
+        # that declares nothing still seeds them from there.
+        default = Path(location).resolve().parent / "skills"
+        if default.is_dir():
+            plugin = dataclasses.replace(plugin, skills_root=default)
+    return plugin
 
 
 def _managed_plugins() -> dict[str, VerticalPlugin]:
@@ -130,7 +167,7 @@ def _managed_plugins() -> dict[str, VerticalPlugin]:
             log.warning("ignoring managed vertical plugin %r: the name is a built-in vertical", name)
             continue
         try:
-            plugins[name] = _plugin(name, plugin.vertical_module())
+            plugins[name] = _plugin(name, plugin.vertical_module(), origin="managed")
         except Exception:  # noqa: BLE001
             log.warning("managed vertical plugin %r failed to load", name, exc_info=True)
     return plugins
@@ -158,7 +195,6 @@ def _entry_point_plugins(plugins: dict[str, VerticalPlugin]) -> dict[str, Vertic
         )
         discovered.extend(legacy_only)
     from ..core import plugin_manager
-    from ..core.vertical_contract import vertical_contract
 
     try:
         managed_names = set(plugin_manager.catalog())
@@ -185,11 +221,7 @@ def _entry_point_plugins(plugins: dict[str, VerticalPlugin]) -> dict[str, Vertic
             log.warning("vertical plugin %r failed to load", name, exc_info=True)
             continue
         try:
-            version = int(getattr(module, "ARGUS_VERTICAL_API_VERSION", 0))
-            if version != VERTICAL_API_VERSION:
-                raise ValueError(f"ARGUS_VERTICAL_API_VERSION {version} != {VERTICAL_API_VERSION}")
-            plugin = _plugin(name, module)
-            vertical_contract(name, module)
+            plugin = _validated_plugin(name, module, origin="entry_point")
         except Exception as exc:  # noqa: BLE001 - third-party declarations fail in any shape
             log.warning("vertical plugin %r has an incompatible contract: %s", name, exc)
             continue
@@ -216,10 +248,71 @@ def _cached_entry_point_plugins() -> dict[str, VerticalPlugin]:
         return _ENTRY_POINT_CACHE
 
 
+def _store_plugins(taken: frozenset[str]) -> dict[str, VerticalPlugin]:
+    """Enabled Vertical Store entries; rescanned when ``registry.json`` changes.
+
+    ``taken`` are the names an earlier source already provides (a pip copy of
+    the same vertical wins, as does a managed plugin); the store skips them.
+    """
+    global _STORE_CACHE
+    from . import store
+
+    try:
+        signature = store.registry_signature()
+    except Exception:  # noqa: BLE001 - an unresolvable home means no store
+        log.warning("vertical store root could not be resolved", exc_info=True)
+        return {}
+    if signature is None:
+        return {}
+    key = (signature, taken)
+    with _CACHE_LOCK:
+        if _STORE_CACHE is not None and _STORE_CACHE[0] == key:
+            return _STORE_CACHE[1]
+    plugins: dict[str, VerticalPlugin] = {}
+    try:
+        entries = store.enabled_entries()
+    except Exception:  # noqa: BLE001
+        log.warning("vertical store registry is unreadable", exc_info=True)
+        return {}
+    if entries:
+        try:
+            store.ensure_importable(store.package_root())
+        except Exception:  # noqa: BLE001
+            log.warning("the vertical store package could not be made importable", exc_info=True)
+            return {}
+        builtin = _builtin_names()
+        for name, entry in sorted(entries.items()):
+            if name in taken:
+                continue
+            if name in builtin:
+                log.warning("ignoring store vertical %r: the name is a built-in vertical", name)
+                continue
+            module_name = str(entry.get("module") or f"{store.PACKAGE}.{name}.stages")
+            if not store.valid_module_name(module_name):
+                log.warning("ignoring store vertical %r: invalid module %r", name, module_name)
+                continue
+            try:
+                module = importlib.import_module(module_name)
+            except Exception:  # noqa: BLE001
+                log.warning("store vertical %r failed to import", name, exc_info=True)
+                continue
+            try:
+                plugin = _validated_plugin(name, module, origin="store")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("store vertical %r has an incompatible contract: %s", name, exc)
+                continue
+            plugins[name] = plugin
+    with _CACHE_LOCK:
+        _STORE_CACHE = (key, plugins)
+    return plugins
+
+
 def vertical_plugins() -> dict[str, VerticalPlugin]:
-    """Valid plugins by name: managed plugins (fresh) first, then memoised entry points."""
+    """Valid plugins by name: managed (fresh), then memoised entry points, then the store."""
     plugins = _managed_plugins()
     for name, plugin in _cached_entry_point_plugins().items():
+        plugins.setdefault(name, plugin)
+    for name, plugin in _store_plugins(frozenset(plugins)).items():
         plugins.setdefault(name, plugin)
     return plugins
 
@@ -231,18 +324,20 @@ def vertical_plugin(name: object) -> VerticalPlugin | None:
 
 
 def refresh_vertical_plugins() -> None:
-    """Forget the entry-point scan so the next lookup re-reads ``importlib.metadata``.
+    """Forget the entry-point and store scans so the next lookup re-reads them.
 
     Managed plugins need no refresh: their activation is read on every call.
     """
-    global _ENTRY_POINT_CACHE
+    global _ENTRY_POINT_CACHE, _STORE_CACHE
     with _CACHE_LOCK:
         _ENTRY_POINT_CACHE = None
+        _STORE_CACHE = None
 
 
 __all__ = [
     "ENTRY_POINT_GROUP",
     "LEGACY_ENTRY_POINT_GROUP",
+    "ORIGINS",
     "VERTICAL_API_VERSION",
     "VerticalPlugin",
     "refresh_vertical_plugins",

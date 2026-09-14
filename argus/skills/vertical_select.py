@@ -124,8 +124,11 @@ class UninstalledVerticalError(VerticalResolutionError):
     """
 
 
-#: The one-line operator action that makes the community verticals available.
-INSTALL_COMMUNITY_VERTICALS: str = (
+#: The one-line operator action that makes the community verticals available:
+#: the Vertical Store installs one vertical (and what it requires) without pip.
+INSTALL_COMMUNITY_VERTICALS: str = "argus verticals install <name>"
+#: The whole-package alternative for environments that manage Python with pip.
+INSTALL_COMMUNITY_VERTICALS_PIP: str = (
     'pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"'
 )
 #: A syntactically valid vertical name (the same shape the plugin registry accepts).
@@ -241,7 +244,8 @@ def require_vertical(value: object, project_root: object = None) -> str:
             f"{value!r} is not a known vertical "
             f"(available: {', '.join(available_verticals())}) nor an existing project data domain; "
             "community verticals (quant, medical, speedrun, ...) appear only after "
-            f"{INSTALL_COMMUNITY_VERTICALS} in this runtime environment"
+            f"`{INSTALL_COMMUNITY_VERTICALS}` (the Vertical Store) or, for the whole package, "
+            f"`{INSTALL_COMMUNITY_VERTICALS_PIP}` in this runtime environment"
         )
     return known
 
@@ -361,7 +365,8 @@ def uninstalled_vertical_message(name: str, project_root: object) -> str:
         f"PIPELINE_STATE.json at {_state_path(project_root)} names vertical {name!r}, "
         "which is not built in, not an installed plugin vertical, and not a project "
         "data domain in this runtime environment. If it is one of the community "
-        f"verticals, install them here first: {INSTALL_COMMUNITY_VERTICALS} "
+        f"verticals, install it here first: `argus verticals install {name}` (the Vertical "
+        f"Store; or the whole package with `{INSTALL_COMMUNITY_VERTICALS_PIP}`) "
         f"(verticals available now: {', '.join(available_verticals())}). Nothing is "
         "dispatched for this project until its vertical can be loaded."
     )
@@ -1110,6 +1115,7 @@ __all__ = [
     "VerticalResolutionError",
     "uninstalled_vertical_message",
     "INSTALL_COMMUNITY_VERTICALS",
+    "INSTALL_COMMUNITY_VERTICALS_PIP",
     "UninstalledVerticalError",
     "UnknownVerticalError",
     "explicit_builtin_vertical",

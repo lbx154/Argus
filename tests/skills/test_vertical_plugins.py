@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -363,6 +364,143 @@ def test_managed_plugin_named_like_a_builtin_is_ignored(tmp_path, monkeypatch) -
 
     monkeypatch.setattr(plugin_manager, "installed", lambda root=None: {"software": Managed()})
     install(monkeypatch, [])
+
+    assert _registry.vertical_plugin("software") is None
+    assert load_vertical("software").__name__.endswith("verticals.software.stages")
+
+
+# --- the Vertical Store: a third source, read from registry.json, no dist-info ---
+
+
+@pytest.fixture
+def store_release(tmp_path, monkeypatch):
+    from argus.verticals import store
+    from tests.verticals import fake_release as fake
+
+    monkeypatch.delenv(store.HOST_ROOT_ENV, raising=False)
+    monkeypatch.delenv("ARGUS_TRIAL_HARNESS", raising=False)
+    catalog = fake.build_release(tmp_path / "dist", [
+        fake.spec("store_lab", purpose_zh="商店垂直"),
+        fake.spec("store_child", requires=("store_lab",), parents=("store_lab",)),
+    ])
+    monkeypatch.setenv(store.CATALOG_ENV, str(catalog))
+    install(monkeypatch, [])
+    yield store
+    _registry.refresh_vertical_plugins()
+    store._purge_modules(["argus_verticals"])
+
+
+def test_store_verticals_are_discovered_with_origin_store(store_release) -> None:
+    store = store_release
+    store.install("store_child", wait=True)
+
+    plugins = _registry.vertical_plugins()
+    assert plugins["store_lab"].origin == "store" and plugins["store_child"].origin == "store"
+    assert plugins["store_child"].skill_parents == ("store_lab",)
+    assert plugins["store_child"].skills_root == store.package_root() / "store_child" / "skills"
+    assert load_vertical("store_child") is plugins["store_child"].module
+    assert "store_child" in vertical_select.available_verticals()
+    assert [n for n, _ in iter_vertical_skill_texts("store_child")] == ["engineer/store_lab.md", "engineer/store_child.md"]
+    import sys
+
+    assert sys.modules["argus_verticals"].__path__ == [str(store.package_root())]
+
+
+def test_disabled_store_entries_are_hidden_and_the_registry_mtime_triggers_a_rescan(store_release) -> None:
+    import json
+
+    store = store_release
+    store.install("store_lab", wait=True)
+    assert "store_lab" in vertical_select.available_verticals()
+    # Edit registry.json behind the store's back: no refresh call, only the file changes.
+    path = store.registry_path()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["verticals"]["store_lab"]["enabled"] = False
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert "store_lab" not in vertical_select.available_verticals()
+    assert _registry.vertical_plugin("store_lab") is None
+    data["verticals"]["store_lab"]["enabled"] = True
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert "store_lab" in vertical_select.available_verticals()
+
+
+def test_store_scan_is_memoised_until_the_registry_changes(store_release, monkeypatch) -> None:
+    store = store_release
+    store.install("store_lab", wait=True)
+    reads: list[int] = []
+    original = store.enabled_entries
+
+    def counting(root=None):
+        reads.append(1)
+        return original(root)
+
+    monkeypatch.setattr(store, "enabled_entries", counting)
+    _registry.refresh_vertical_plugins()
+    vertical_select.available_verticals()
+    vertical_select.available_vertical_purposes()
+    _registry.vertical_plugin("store_lab")
+    assert len(reads) == 1
+    store.disable("store_lab")
+    vertical_select.available_verticals()
+    assert len(reads) == 2
+
+
+def test_a_pip_installed_copy_wins_over_the_store_and_is_reported_as_a_package(store_release, tmp_path, monkeypatch) -> None:
+    import sys
+
+    store = store_release
+    store.install("store_lab", wait=True)
+    pip_copy = module(tmp_path / "pip", purpose="Registered by pip")
+    install(monkeypatch, [Entry("store_lab", pip_copy)])
+
+    plugins = _registry.vertical_plugins()
+    assert plugins["store_lab"].module is pip_copy and plugins["store_lab"].origin == "entry_point"
+    assert load_vertical("store_lab") is pip_copy
+    row = next(r for r in store.rows() if r["name"] == "store_lab")
+    assert row["kind"] == "package" and row["installed_version"] == "0.1.0" and row["actions"] == ["uninstall"]
+    # The store dir is appended to a real pip package's search path when one exists.
+    fake_pkg = ModuleType("argus_verticals")
+    fake_pkg.__path__ = [str(tmp_path / "site" / "argus_verticals")]
+    monkeypatch.setitem(sys.modules, "argus_verticals", fake_pkg)
+    store.ensure_importable(store.package_root())
+    assert fake_pkg.__path__ == [str(tmp_path / "site" / "argus_verticals"), str(store.package_root())]
+
+
+def test_store_discovery_works_in_the_frozen_desktop(store_release, monkeypatch) -> None:
+    """No dist-info, no entry points: the frozen bundle still finds store directories."""
+    store = store_release
+    store.install("store_lab", wait=True)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(_registry, "entry_points", lambda group: [])
+    _registry.refresh_vertical_plugins()
+    store._purge_modules(["argus_verticals"])
+
+    assert "store_lab" in vertical_select.available_verticals()
+    plugin = _registry.vertical_plugin("store_lab")
+    assert plugin.origin == "store"
+    assert Path(plugin.module.__file__).resolve().is_relative_to(store.package_root().resolve())
+
+
+def test_a_broken_store_entry_costs_only_itself(store_release) -> None:
+    store = store_release
+    store.install("store_child", wait=True)
+    (store.package_root() / "store_lab" / "stages.py").write_text("raise RuntimeError('boom')\n", encoding="utf-8")
+    store._purge_modules(["argus_verticals"])
+    _registry.refresh_vertical_plugins()
+
+    available = vertical_select.available_verticals()
+    assert "store_child" in available and "store_lab" not in available
+
+
+def test_a_store_entry_named_like_a_builtin_is_ignored(store_release) -> None:
+    import json
+
+    store = store_release
+    store.install("store_lab", wait=True)
+    path = store.registry_path()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["verticals"]["software"] = dict(data["verticals"]["store_lab"], module="argus_verticals.store_lab.stages")
+    path.write_text(json.dumps(data), encoding="utf-8")
 
     assert _registry.vertical_plugin("software") is None
     assert load_vertical("software").__name__.endswith("verticals.software.stages")
