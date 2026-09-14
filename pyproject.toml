@@ -45,6 +45,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The seventeen community verticals (quant, speedrun, kernelbench, medical, the
+# literary verticals, ...) and their own extras (the former ``quant`` and
+# ``zh-fold``) live in https://github.com/Argus-AiTeam/argus-verticals and
+# register through the ``argus_skill.verticals`` entry-point group:
+#   pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
+# Deliberately not a dependency here: the framework must run without any
+# particular vertical installed.
 # Server-only authenticated encryption and HTTP forwarding for the hosted trial.
 trial = [
   "cryptography>=41",
@@ -55,17 +62,6 @@ figures = [
   "matplotlib>=3.8",
   "seaborn>=0.13",
   "SciencePlots>=2.1",
-]
-# Quantitative analysis and model tooling.
-quant = [
-  "numpy>=1.26",
-  "pandas>=2",
-  "scipy>=1.11",
-  "scikit-learn>=1.4",
-  "matplotlib>=3.8",
-  "mplfinance>=0.12.10b0",
-  "lightgbm>=4",
-  "torch>=2.2",
 ]
 # Browser-based figure rendering.
 visual-web = [
@@ -79,10 +75,6 @@ paper = [
 # Optional Ed25519 provenance signing.
 signing = [
   "cryptography>=41",
-]
-# Traditional/simplified Chinese folding for literary checks.
-zh-fold = [
-  "opencc>=1.1",
 ]
 # Feishu / Lark chat bridge. Only the inbound WebSocket long connection needs
 # the SDK — outbound replies go through urllib like the Telegram bridge — so
@@ -102,6 +94,9 @@ harbor = [
   "hatchling>=1.27",
   "harbor>=0.21,<0.22; python_version >= '3.12'",
 ]
+# The plotting trio is the ``figures`` extra: the research vertical's chart
+# styling tests import it. The quant vertical's stack (pandas, scipy,
+# scikit-learn, lightgbm, mplfinance, torch) left with the vertical.
 dev = [
   "build>=1",
   "mypy>=1.8,<2",
@@ -110,16 +105,9 @@ dev = [
   "ruff>=0.4",
   "cryptography>=41",
   "httpx2>=2.9,<3",
-  "numpy>=1.26",
-  "pandas>=2",
-  "scipy>=1.11",
-  "scikit-learn>=1.4",
   "matplotlib>=3.8",
   "seaborn>=0.13",
   "SciencePlots>=2.1",
-  "mplfinance>=0.12.10b0",
-  "lightgbm>=4",
-  "torch>=2.2",
 ]
 
 [project.scripts]

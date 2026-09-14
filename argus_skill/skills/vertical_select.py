@@ -218,7 +218,9 @@ def require_vertical(value: object, project_root: object = None) -> str:
     if known is None:
         raise UnknownVerticalError(
             f"{value!r} is not a known vertical "
-            f"(available: {', '.join(available_verticals())}) nor an existing project data domain"
+            f"(available: {', '.join(available_verticals())}) nor an existing project data domain; "
+            "community verticals (quant, medical, speedrun, ...) appear only after "
+            "`pip install argus-verticals` in this runtime environment"
         )
     return known
 

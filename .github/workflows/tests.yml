@@ -36,13 +36,11 @@ jobs:
           cache: pip
       - name: Install
         # The project's own dev extra, rather than a hand-listed subset that
-        # drifts: the full suite exercises the quant vertical, which needs
-        # matplotlib, mplfinance, scikit-learn, lightgbm and torch. CPU torch
-        # is installed first so the dev extra resolves against it instead of
-        # pulling the multi-gigabyte CUDA build.
+        # drifts. The community verticals (argus-verticals) and their heavy
+        # scientific stack are not installed here: this suite tests the
+        # framework and its seven built-in verticals only.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e '.[dev,qr,trial]'
       - name: Lint
         run: python -m ruff check argus_skill tests

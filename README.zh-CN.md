@@ -54,7 +54,8 @@
 
 它还能不重训就变强：被采纳的 Skill 和带来源链接的 Wiki 发现，会按"它被证明成立的范围"放进
 `project` → `vertical` → `global`；而新领域以 **vertical** 的形式接入一个不会改变的核心
-——目前 24 个，全部 53,871 行领域代码里对权限边界的引用为零。
+——内置 7 个，另有 17 个在社区包 [`argus-verticals`](https://github.com/Argus-AiTeam/argus-verticals) 中，
+全部领域代码里对权限边界的引用为零。
 
 正因为干活的人不能给自己打分，没有人需要盯着它：在 27 场战役、1,548 小时里，它平均**每约
 310 小时**才需要人做一次研究判断，占空比 **95–99%**。其余内容都在
@@ -517,6 +518,22 @@ export ARGUS_SKILL_AUTONOMY_MODE=autonomous
 
 由那份审计推出的是 **[精简计划](docs/simplification-plan.zh-CN.md)**：一组排好序的删除、一条用来机械分拣 2,277 个异常处理器的判据、一份明确的"不能删"清单，以及要避开的陷阱——把删掉的机械换成一个"统一系统"，那会变成同一个错误。
 
+### Verticals
+
+Argus 本体内置 7 个 vertical：`research`、`software`、`argus_maintenance`、`kernel_engineering`、
+`math`、`math_synth`、`learning`。其余 17 个——`quant`、`speedrun`、`kernelbench`、`nanochat`、
+`nanogpt_speedrun`、`chip_design`、`digital_circuit`、`digital_circuit_benchmark`、`medical`、
+`materials`、`physics`、`ale_last_exam`、`fiction_writing`、`prose`、`modern_poetry`、
+`classical_poetry`、`literary_editor`——放在社区包
+**[argus-verticals](https://github.com/Argus-AiTeam/argus-verticals)**，通过
+`argus_skill.verticals` entry-point 组被发现。把它装进运行 Argus 的那个 Python 环境即可：
+
+```bash
+pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
+```
+
+`git pull` Argus 不会安装它们；每个需要这些 vertical 的运行环境都要装一次。
+
 ### 创建自己的 Vertical
 
 Vertical 可以为你的领域提供专属阶段、Skill、数据集、工具、证据要求、评测方法与完成标准。规划与审查将遵循该领域真正重要的规范，而不是一套通用流程。
@@ -649,7 +666,7 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 - `argus_skill/core/`、`proof_ledger/` —— 内核：模型、端口、契约、路径。目标是叶子：不得 import 任何更高层；今天残余的向上边钉在不变量测试（`tests/test_architecture_invariants.py`）里，第 1 阶段移除。
 - `argus_skill/agent_cli/`、`adapters/`、`provider_integrations/`、`advisor/` —— 模型 CLI（codex、claude、copilot……）的驱动与外部顾问侧信道。
 - `argus_skill/skills/`、`tools/`、`wiki/`、`cli/` —— 能力：Skill 库、操作者批准的工具、项目 Wiki、终端渲染。
-- `argus_skill/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：24 个内置垂直、overlay、种子 Skill。
+- `argus_skill/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：7 个内置垂直（另外 17 个由 `argus-verticals` 以 entry point 接入）、overlay、种子 Skill。
 - `argus_skill/roles/`、`planner/`、`engineer/`、`reviewer/` —— 持久角色：提示词目录（`roles/`）加 Planner、Engineer、Reviewer 的代码（Manager 的代码在 `manager/`）。
 - `argus_skill/life/`、`manager/`、`messaging/` —— 运行时：项目记忆、backlog、supervisor、Manager 控制面与跨项目消息。
 - `argus_skill/daemon/`、`team/` —— 脱离终端的 7x24 worker 与 Agent Teams。

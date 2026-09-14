@@ -58,8 +58,9 @@ Credentials, payment, irreversible actions, and publication always stop for a hu
 
 It also improves without retraining: admitted Skills and source-linked Wiki findings are
 scoped `project` → `vertical` → `global` by how far they were shown to hold, and new
-domains ship as **verticals** against a core that does not change — 24 of them, with zero
-references to the authority boundary across 53,871 lines of domain code.
+domains ship as **verticals** against a core that does not change — seven built in and
+seventeen more in the community package [`argus-verticals`](https://github.com/Argus-AiTeam/argus-verticals),
+with zero references to the authority boundary in any of them.
 
 Because the worker cannot grade its own work, nobody has to watch it: across 27 campaigns
 and 1,548 hours it needed a human research decision about **once every 310 hours**, at
@@ -571,6 +572,24 @@ Maintainers can use the **[runtime maintenance map](docs/runtime-maintainability
 
 What follows from that audit is **[the simplification plan](docs/simplification-plan.md)**: an ordered set of deletions, a mechanical rule for sorting 2,277 exception handlers, an explicit list of what must not be removed, and the trap to avoid — replacing deleted machinery with a unified system that becomes the same mistake.
 
+### Verticals
+
+Seven verticals ship with Argus itself: `research`, `software`, `argus_maintenance`,
+`kernel_engineering`, `math`, `math_synth`, `learning`. The other seventeen — `quant`,
+`speedrun`, `kernelbench`, `nanochat`, `nanogpt_speedrun`, `chip_design`, `digital_circuit`,
+`digital_circuit_benchmark`, `medical`, `materials`, `physics`, `ale_last_exam`,
+`fiction_writing`, `prose`, `modern_poetry`, `classical_poetry`, `literary_editor` — live in
+the community package **[argus-verticals](https://github.com/Argus-AiTeam/argus-verticals)**
+and are discovered through the `argus_skill.verticals` entry-point group. Install them into
+the same Python environment that runs Argus:
+
+```bash
+pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
+```
+
+A `git pull` of Argus never installs them; each runtime environment that should offer
+them needs that install once.
+
 ### Build your own Vertical
 
 A Vertical gives your field its own stages, Skills, datasets, tools, evidence expectations, evaluation methods, and completion criteria. Planning and review can then follow the real standards of your domain instead of a generic process.
@@ -717,7 +736,7 @@ logs.
 - `argus_skill/core/`, `proof_ledger/` — kernel: models, ports, contracts, paths. Intended leaf: must import nothing above itself; today's remaining upward edges are pinned in the invariants test (`tests/test_architecture_invariants.py`) and removed in phase 1.
 - `argus_skill/agent_cli/`, `adapters/`, `provider_integrations/`, `advisor/` — drivers for the model CLIs (codex, claude, copilot, ...).
 - `argus_skill/skills/`, `tools/`, `wiki/`, `cli/` — capabilities: the Skill library, operator-approved tools, the project Wiki, terminal rendering.
-- `argus_skill/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 24 built-in verticals, overlays, seeded Skills.
+- `argus_skill/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 7 built-in verticals (17 more arrive as entry points from `argus-verticals`), overlays, seeded Skills.
 - `argus_skill/roles/`, `planner/`, `engineer/`, `reviewer/` — the persistent roles: the prompt catalog (`roles/`) plus the Planner, Engineer and Reviewer code (the Manager's code is in `manager/`).
 - `argus_skill/life/`, `manager/`, `messaging/` — runtime: project memory, backlog, supervisor, the Manager control plane, cross-project messages.
 - `argus_skill/daemon/`, `team/` — the detached 7x24 worker and agent teams.

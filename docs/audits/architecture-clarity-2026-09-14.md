@@ -127,7 +127,7 @@ plugin ---------+ |  +-- team --+  |   +-- tools -+  +---- agent_cli <-11/12-> c
 
 ## 3. 什么是清楚的、要保留的
 
-- `VerticalContract` 三层缝（`core/vertical_contract.py` → `verticals/*.py` 桥模块 → `verticals/<domain>/`），24/24 个垂直都声明 `STAGE_ORDER`/`CHECKLIST_ITEMS`，`completion_gate` 三值封闭词汇在加载时校验；`tests/test_architecture_invariants.py` 27 条已有不变量。
+- `VerticalContract` 三层缝（`core/vertical_contract.py` → `verticals/*.py` 桥模块 → `verticals/<domain>/`），24/24 个垂直都声明 `STAGE_ORDER`/`CHECKLIST_ITEMS`，`completion_gate` 三值封闭词汇在加载时校验；`tests/test_architecture_invariants.py` 27 条已有不变量。（2026-09-14 注：审计后同日，17 个垂直拆到社区包 `argus-verticals`，树内 24 → 7；本文其余的 24 计数是审计当时的事实，见 `docs/handoff-2026-09-04-capability-tests.md` §54。）
 - 线性执行链本身和它的两个缝：`_MissionRunner` 协议（`life/supervisor/_config.py:181`，只要 `.execute`）与 `RunnerBackend` 端口；`Backlog.claim_next` 原子 CAS 作为唯一的 cockpit/daemon 协调原语。
 - `life/event_log.py` 的 `JsonlEventSink` 作为唯一 appender；`Backlog` 内部封装的 20 处 status 写入 + `IllegalStateTransition`。
 - `core/mission_view/` 的内部分解（按事件族一模块、dispatch 表、所有人话句子隔离在 `_wording.py`）——形状对，位置和一个依赖方向不对。

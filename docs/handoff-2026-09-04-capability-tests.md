@@ -2504,3 +2504,76 @@ ph8(卡 3)/ ph9(卡 9、10)/ ph10(卡 11)门控。详见方案 4.4。
 决策;卡 1(八层顺序)在 ph1 前确认;卡 7(`pipeline/`、`mission_runner/` 包名)前一天
 无回复则用默认;卡 3(`MemoryBundle.root` 返回主机根,项目级写入落哪里)门控 ph8,是
 首个有行为风险的阶段。
+
+## 54. Verticals split into argus-verticals (2026-09-14 UTC)
+
+分支 `split/community-verticals`(从 `origin/dev` = `7a98d4445` 切出)。17 个垂直搬到
+新仓库 `Argus-AiTeam/argus-verticals`(pip 名 `argus-verticals`,import 包
+`argus_verticals`,每个垂直一个目录);树内只保留 7 个内置。历史已由另一位代理提取,
+Argus 侧只做删除 + 让框架对"垂直从哪里来"保持诚实。
+
+### 搬走了什么 / 留下了什么
+
+- **搬走(16 个目录 + `literary/` 辅助包,20,880 行 Python,80 个测试文件)**:`quant`、
+  `kernelbench`、`speedrun`、`nanogpt_speedrun`、`nanochat`、`chip_design`、`digital_circuit`
+  (含 `benchmark/` 子包 = `digital_circuit_benchmark` 垂直)、`fiction_writing`、`prose`、
+  `modern_poetry`、`classical_poetry`、`literary_editor`、`literary/shared`、`medical`、
+  `materials`、`physics`、`ale_last_exam`。
+- **留下(内置 7 个)**:`research`、`software`、`argus_maintenance`、`kernel_engineering`、
+  `math`、`math_synth`、`learning`。
+- **留下的公共缝(社区包 import 的全部面)**:`verticals/{_base,_data_domain,metric_evidence,
+  optimization_base,path_evidence,research_bridge}.py` 与
+  `verticals/kernel_engineering/tool_registry.py`(chip_design 用)。`metric_evidence` 里
+  speedrun / nanogpt / kernelbench 的证据校验器是通用校验器,原地不动。
+  `optimization_base` 原来把四阶段优化清单从 `speedrun` 反向 import 回来;现在清单本体
+  (`OPTIMIZATION_CHECKLIST_ITEMS`)住在桥模块里,`speedrun_base_contract()` 保留名字作 import 缝。
+- 删掉 `_base._VERTICAL_IMPORT_ALIASES`(唯一别名 `digital_circuit_benchmark ->
+  digital_circuit.benchmark`;外部包注册真实 entry point)。
+
+### 发现机制
+
+- entry-point 组 `argus_skill.verticals`(`verticals/_registry.py`),entry 名 = 垂直名,
+  值 = `argus_verticals.<dir>.stages`(`digital_circuit_benchmark` →
+  `argus_verticals.digital_circuit.benchmark.stages`)。`load_vertical` 顺序不变:树内 →
+  插件 → 项目数据域;内置名永远不会被外部包遮蔽。
+- `vertical_plugins()` 现在**按进程记忆** entry-point 扫描(Manager 菜单和技能种入反复调用,
+  以前每次重扫 dist-info);`refresh_vertical_plugins()` 真正清缓存。workbench 受管插件
+  (`core.plugin_manager`)每次调用仍然新鲜读取,因为它们的启用状态会在运行中改变——所以不
+  需要从 `core` 反向调用 refresh,也就没有新增 core → verticals 向上边。受管分支单独兜底:
+  一个坏掉的受管插件或不可读的目录不再让 entry-point 插件全部消失。
+- 新插件属性 `VERTICAL_SKILL_PARENTS: tuple[str, ...]`——其技能树先于自身被种入的垂直。取代
+  Argus 里写死的 `_VERTICAL_SKILL_INHERITANCE`(kernelbench←kernel_engineering、
+  nanogpt_speedrun←speedrun、chip_design / digital_circuit_benchmark←digital_circuit,四行全是
+  搬走的垂直)。父可以是内置(从 `verticals/<name>/skills` 取)也可以是插件(从其
+  `skills_root` 取)。非法声明 ⇒ 记日志、不发布该插件,与其它契约失败一致。
+- **清单只有一个真源**:`VERTICALS` / `VERTICAL_PURPOSES` 只是内置清单(冻结桌面构建和 trial
+  公共资产校验故意只枚举它);运行时一切"这是不是垂直 / 用途是什么 / 种哪些技能"都走
+  `available_verticals()` / `available_vertical_purposes()`。修了 `manager/_vertical_ops.py`
+  里唯一还用 `VERTICALS` 判"是否学习型数据域"的地方——否则装了社区包的 `quant` 会被当成
+  数据域去读一个不存在的状态文件。
+
+### 操作者部署步骤(这是操作者动作,不是维护任务能做的)
+
+社区垂直**不会**随 `git checkout` / `git pull` 出现。每个应当提供它们的运行 venv 都要各装
+一次:
+
+    <venv>/bin/pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
+
+`argus_skill` 自身**不**依赖 `argus-verticals`(pyproject 里只留注释指路;`quant` / `zh-fold`
+extras 随垂直搬走)。既有纪律照旧:维护任务从不往运行 venv 里 pip install,包括
+`/data/v-boxiuli/Argus/.venv` 和 pinned checkout 的 venv——装不装社区包由操作者决定并执行。
+装完不需要改任何配置;进程重启后 `available_verticals()` 就是 24 个。
+
+### 对线上进程的影响
+
+正在运行的守护进程用的全是 `research`(内置),不受影响;它们的 `.venv` 里此刻没有
+`argus-verticals`,合入后菜单会从 24 个缩成 7 个直到操作者安装社区包。
+
+### 验证
+
+基线(未改动的 worktree,`origin/dev`)全套 5 个既有失败:`test_native_window_chrome::
+test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint`、
+`test_experience_tools::test_actual_gateway_composes_extensions_and_executes_native_experience_tool`、
+`test_architecture_invariants` 的两条 `research_timeline` 行、`test_web_portal::
+test_invitation_only_copy_and_private_admin_entry_stays_hidden`。本分支之后的全套结果、
+白名单/棘轮数字、类型门与插件端到端探针见提交信息与交接报告。
