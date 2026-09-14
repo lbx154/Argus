@@ -2770,13 +2770,13 @@ test_invitation_only_copy_and_private_admin_entry_stays_hidden`。本分支之�
   查)→ 校验 size + sha256 → 解压到 `.staging/`(拒绝绝对路径、`..`、符号链接、**不在该垂直声明的
   `paths`+`shared` 树内的成员**,含 `argus_verticals/__init__.py`)→ 确认 `<paths[0]>/stages.py` →
   逐树 rename 换入(失败全部回滚;更新父目录时保留嵌套已装垂直如 `digital_circuit/benchmark`)→ 写
-  registry 与共享树属主。`update` 版本/sha 不同才重装;`enable/disable` 翻标志;`uninstall(force=False)`
+  registry 与共享树属主。`update` 版本/sha 不同才重装;`enable/disable` 只写用户覆盖层(见下);`uninstall(force=False)`
   被本地会话 `.argus/PIPELINE_STATE.json` 命名时拒绝(报 sid,`force` 可越过),被其他已装垂直
   `requires` 时拒绝(不越过),共享树失去最后属主才删,依赖保留。
 - 后台 job:`operations/<name>.json` `{status running|done|failed, action, progress 0-100, message, started,
   finished, pid}`;进程死亡即标 failed;`wait=True` 同步等待。
 - 托管:`managed_by_host()` = `ARGUS_TRIAL_HARNESS` 或 `ARGUS_VERTICALS_HOST_ROOT` 已设 → install/update/
-  uninstall 拒绝(CLI 1、API 409;trial 路由先 403),enable/disable 仍可;`preinstall(names)` +
+  uninstall 拒绝(CLI 1、API 409;trial 路由先 403),enable/disable 仍可(只写租户自己的覆盖层);`preinstall(names)` +
   `ARGUS_VERTICALS_PREINSTALL` 不受该拒绝约束(那正是宿主在准备根);`release_tools/preinstall_verticals`
   镜像 `preinstall_plugins`。
 - 目录来源:`ARGUS_VERTICAL_CATALOG`(https / 本地路径 / `file://`)否则 GitHub latest release;本地目录旁
@@ -2817,3 +2817,31 @@ test_verticals_portal_gate.py`、`tests/apps/test_cli_verticals.py`。辅助:`te
 - 商店不解析 `min_argus`(README 说"按特性探测比较",目前只存不比);不做垂直签名(sha256 来自 GitHub
   release 的 catalog,信任链止于 https 白名单)。
 - 前端页面在另一 worktree;本分支只动了 `protocol.ts` 一行(capability)。
+
+### 对抗评审修正(同日晚,已并入 store/backend)
+
+- **M1 回滚完整**:`_place` 替换父目录时,嵌套已装垂直(`digital_circuit/benchmark`)从备份 *复制*
+  而非移动进新树,备份始终完整;任何后续失败(registry 写失败等)都 rmtree 新树、整份还原备份。
+  测试注入 `_save_registry` 一次 OSError,断言两棵树与 registry 逐字节不变。
+- **M2 状态拆分**:`registry.json`(宿主拥有,只记已装树;不再有 `enabled`)vs 每用户覆盖层
+  `<ARGUS_SKILL_HOME>/verticals/state.json` `{"schema":1,"disabled":[…]}`。enable/disable 只写覆盖层
+  (只读宿主根可用、租户隔离),发现/`rows()`/CLI 都按"已装且不在 disabled"算 enabled;覆盖层目录不可写时
+  行里不给 enable/disable;`registry_signature()` 同时看两份文件的 mtime。`preinstall` 不再碰 enabled。
+  测试:两个 home 共用一个 `ARGUS_VERTICALS_HOST_ROOT`,A 停用 B 仍可见;只读宿主根 enable/disable 成功。
+- **M3 时间戳合同**:`operation.started/finished`、`catalog.fetched_at` 一律 ISO-8601 UTC 字符串
+  (`2026-09-14T19:00:00Z`)或 null;前端 `types.ts` 同步注释,测试改用真实值。
+- **M4 负缓存**:抓取失败写进 `catalog.json`(`failed_at`,`error`),5 分钟内不再重试(`refresh=True` 除外),
+  `catalog.error` 从缓存读出;比上次成功更新的失败即使缓存仍"新鲜"也会显示。目录抓取超时 30 s。
+- m1 目录含内置名的条目整份拒绝;m2 两条目声明同一目录、或 shared 树与某垂直目录重叠 → 拒绝;
+  m3 `uninstalled_vertical_message` 对"已装但已停用"改说 `argus verticals enable <name>`;
+  m4 进度 = `round((已完成成员数 + 当前步骤份额) / 总数 × 100)`,步骤钳在 1–99,100 只属于完成记录,
+  前端去掉"≤1 视为小数"的猜测;m5 `.staging/<name>-<pid>-<id>/owner.json`,每次安装先清扫属主已死的目录
+  (无标记且 60 s 内的不动);m6 `_start_job` 的"已在运行"检查+写入放进 `store.lock` 文件锁;
+  m7 共享树摘要与已记录属主不同时 warning(`sha256s` 现在有读者);m8 `used_by`/`uninstall`/`rows`
+  接受 roots 列表(路由传 `ctx.roots`,CLI 读 `ARGUS_SKILL_WEB_SESSION_ROOTS`),PIPELINE_STATE.json
+  不可读的会话视为"未知",无 `--force` 拒绝并点名 sid;m9 托管态保留"刷新目录"按钮;
+  m10 保留 ratchet +1(`list_sessions` 给不出状态目录)。
+- Nits:`_extract` 容忍 `zip -r` 风格目录项(自身树或其祖先),树外目录项仍拒绝;名字统一小写写进文档;
+  `HOST_MANAGED` 措辞改为"enable/disable 只作用于你自己的工作区";删掉未用的 `CommandRail.onVerticals`。
+- 社区 README 说商店会写合成的 `argus_verticals/__init__.py`——实际不写(命名空间包 / 追加 `__path__`),
+  待社区侧修正。

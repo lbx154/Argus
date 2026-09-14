@@ -36,24 +36,38 @@ directory named by `ARGUS_VERTICALS_HOST_ROOT` when that is set.
 verticals/
   argus_verticals/<name>/...          the vertical's directory, exactly as in the repository
   argus_verticals/literary/shared/    a shared helper tree, at its repo-relative place
-  registry.json                       installed verticals + shared-tree ownership
-  store.lock                          portalocker lock around every registry write
-  catalog.json                        {"fetched_at", "source", "catalog": {...}}  (6 h cache)
+  registry.json                       installed verticals + shared-tree ownership (host state)
+  store.lock                          portalocker lock around every registry write and job start
+  catalog.json                        the last catalog fetched, or the last failure (see Catalog)
   operations/<name>.json              the running or last job for that name
   logs/<name>.log                     one line per job step
-  .staging/                           per-job scratch, removed when the job ends
+  .staging/<name>-<pid>-<id>/         per-job scratch; swept when its owner.json names a dead process
 ```
 
-`registry.json`:
+Next to it, but always under the *user's* home even when the store root is a shared host
+root, lives the per-user overlay:
+
+```
+~/.argus-skill/verticals/state.json   {"schema": 1, "disabled": ["quant"]}
+```
+
+`registry.json` records what is installed and never whether it is enabled:
 
 ```json
 {"schema": 1,
  "verticals": {"chip_design": {"version": "0.1.0", "sha256": "…", "module": "argus_verticals.chip_design.stages",
                                "source": {"repo": "Argus-AiTeam/argus-verticals", "tag": "v0.1.0", "url": "https://…/chip_design-0.1.0.zip"},
-                               "enabled": true, "installed_at": 1789400000.0,
+                               "installed_at": 1789400000.0,
                                "requires": ["digital_circuit"], "shared": [], "paths": ["argus_verticals/chip_design"]}},
  "shared": {"argus_verticals/literary/shared": {"owners": ["prose", "modern_poetry"], "sha256s": {"prose": "…", "modern_poetry": "…"}}}}
 ```
+
+**Enabled is per user.** A vertical is enabled when it is installed and not in the user's
+`disabled` list. `enable`/`disable` write only `state.json`, so they work on a read-only
+host root and one tenant's choice never changes what another tenant sees. When the overlay
+directory cannot be written, the rows simply do not offer `enable`/`disable`. The
+`sha256s` per owner are compared when a second owner installs the same shared tree; a
+differing copy is installed (the newer archive wins) and logged as a warning.
 
 There is no `argus_verticals/__init__.py` on disk. Discovery registers `argus_verticals`
 as a namespace package pointing at the store directory; when a pip-installed
@@ -69,8 +83,13 @@ repository (`https://github.com/Argus-AiTeam/argus-verticals/releases/latest/dow
 Per vertical it names the version, module, `paths`, `requires`, `shared`,
 `python_requirements`, tags, and the archive's `url`, `sha256` and `size` (see the
 repository's README, "Store metadata"). The store validates `schema == 1` and every
-field it uses, caches the result for six hours, and serves a stale cache with an
-`error` when a refresh fails.
+field it uses and caches the result for six hours. A failed fetch is recorded in the
+same cache file (`failed_at`, `error`): the stale catalog is served with `catalog.error`
+set and the network is **not retried for five minutes** (a blackholed host would otherwise
+stall every poll for the whole HTTP timeout); `argus verticals refresh` and
+`POST /api/verticals/catalog/refresh` always try. The catalog is refused as a whole when
+an entry carries a built-in vertical's name or two entries claim the same directory (a
+shared tree may not lie inside a vertical's directory either).
 
 `ARGUS_VERTICAL_CATALOG` overrides the source: an https URL on an allowed host, a
 local path, or a `file://` URL. A local catalog turns its directory into an offline
@@ -93,7 +112,10 @@ Point every tenant at that root with `ARGUS_VERTICALS_HOST_ROOT=/opt/argus-verti
 With that variable (or `ARGUS_TRIAL_HARNESS`) set the store is **host-managed**:
 `install`, `update` and `uninstall` are refused (CLI exit 1, API 409; the hosted trial
 answers 403 before reaching the store), the rows carry `managed_by_host: true`, and
-only `enable`/`disable` remain. The invitation portal whitelists exactly
+only `enable`/`disable` remain. Those two write the tenant's own
+`<ARGUS_SKILL_HOME>/verticals/state.json`, never the host root, so they work on a
+read-only root and are private to that tenant by construction; refreshing the catalog is
+read-only for the host and stays available. The invitation portal whitelists exactly
 `POST /api/verticals/catalog/refresh` and `POST /api/verticals/<name>/manage/(enable|disable)`.
 
 ## Security
@@ -110,9 +132,14 @@ only `enable`/`disable` remain. The invitation portal whitelists exactly
   cannot drop a file into another vertical's directory or a package-root `__init__.py`.
   The tree must contain `<paths[0]>/stages.py`.
 - **Atomic placement.** Archives are unpacked in `.staging/` and swapped into place per
-  tree with a rename; a failure anywhere restores what was there. An update of a
-  parent directory (`digital_circuit`) keeps an installed nested vertical
-  (`digital_circuit/benchmark`).
+  tree with a rename; the replaced tree is kept complete as a backup, so a failure at
+  any later step restores exactly what was there. An update of a parent directory
+  (`digital_circuit`) keeps an installed nested vertical (`digital_circuit/benchmark`)
+  by copying it into the new tree. Staging directories carry an `owner.json`; those
+  whose process is gone are swept at the next install.
+- **One job per name, across processes.** The "already running" check and the
+  operation record are written under the store's file lock, so two `argus verticals
+  install` processes cannot both run the same job.
 - **No pip, no code execution during install.** The module is imported only by
   discovery, after installation, and validated like an entry-point plugin
   (`ARGUS_VERTICAL_API_VERSION`, `VERTICAL_PURPOSE`, `vertical_contract`,
@@ -133,7 +160,11 @@ argus verticals remove chip_design [--force]    # --force: even when a session's
 ```
 
 Exit status: 0 success, 1 the store refused or the job failed (message on stderr),
-2 an unresolved path placeholder or a usage error.
+2 an unresolved path placeholder or a usage error. Names are lowercased on the way in
+(`argus verticals install Quant` installs `quant`). `remove` also refuses when a session's
+`PIPELINE_STATE.json` cannot be read (its vertical is unknown); `--force` overrides both.
+Sessions are looked up under the home and under every root in
+`ARGUS_SKILL_WEB_SESSION_ROOTS`; the web server passes its own session roots.
 
 ## API
 
@@ -146,6 +177,11 @@ Exit status: 0 success, 1 the store refused or the job failed (message on stderr
 | `POST /api/verticals/{name}/manage/uninstall` | `{"force": true}` to override `used_by` | 202, same |
 | `POST /api/verticals/{name}/manage/enable` / `disable` | – | 200 `{"name", "action", "operation": null}` |
 | `GET /api/verticals/{name}/operation` | – | `{"status": "running"\|"done"\|"failed", "action", "progress": 0–100, "message", "started", "finished", "pid"}` or 404 |
+
+Wire types: `catalog.fetched_at`, `operation.started` and `operation.finished` are
+ISO-8601 UTC strings (`"2026-09-14T19:00:00Z"`) or `null` — never epoch numbers;
+`operation.progress` is an integer percent, `1`–`99` while a step runs and `100` on
+the finished record (`0` before the first step).
 
 Errors: a store refusal is 409 `{"detail": message}`; an unknown name or action is
 404; writes are same-origin only (403 otherwise); every route needs the usual bearer
@@ -170,7 +206,10 @@ accepts in its current state.
 - *`verticals are provided by the host`* — `ARGUS_VERTICALS_HOST_ROOT` or
   `ARGUS_TRIAL_HARNESS` is set; installation belongs to the image build.
 - *A vertical is installed but not in `available_verticals()`* — check
-  `argus verticals info NAME` (`enabled`), then the server log: a store module that
+  `argus verticals info NAME` (`enabled`; a project naming a disabled vertical is told
+  to run `argus verticals enable NAME`), then the server log: a store module that
   fails to import or violates the contract is skipped with a warning naming it.
+- *`enable`/`disable` missing from a row* — `~/.argus-skill/verticals/` is not writable
+  for this user; the overlay `state.json` cannot be recorded.
 - *`missing_python`* lists a requirement — install it into the Python that runs Argus
   (`pip install <requirement>`), or accept the documented gap for optional ones.
