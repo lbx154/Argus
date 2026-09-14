@@ -7,7 +7,7 @@ import {
   unlink,
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, posix, resolve, win32 } from 'node:path';
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -214,6 +214,55 @@ export async function writeOwnershipRecord(
   await rename(tmp, path);
 }
 
+// Backend launcher names that are the same install: `argus` and the pre-rename
+// `argus-skill` beside it in one venv (2026-09-14 rename, kept one release).
+// Ownership records written before the rename say `.../bin/argus-skill` and a
+// backend started by that launcher still carries it in argv; the cockpit now
+// resolves `.../bin/argus`. Without this equivalence every upgrade would fail
+// closed with "ownership could not be proven" until the operator killed the
+// old backend by hand.
+const BACKEND_BIN_NAMES = ['argus', 'argus-skill'] as const;
+const BACKEND_BIN_BASENAMES = new Set<string>(
+  BACKEND_BIN_NAMES.flatMap((name) => [name, `${name}.exe`]),
+);
+
+function pathFor(platform: NodeJS.Platform) {
+  return platform === 'win32' ? win32 : posix;
+}
+
+/** True for the same launcher file, or sibling `argus`/`argus-skill` launchers in one directory. */
+export function sameBackendBin(
+  left: string,
+  right: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const fold = (value: string) => (platform === 'win32' ? value.toLowerCase() : value);
+  if (fold(left) === fold(right)) return true;
+  const path = pathFor(platform);
+  const leftBase = fold(path.basename(left));
+  const rightBase = fold(path.basename(right));
+  if (!BACKEND_BIN_BASENAMES.has(leftBase) || !BACKEND_BIN_BASENAMES.has(rightBase)) return false;
+  return fold(path.dirname(left)) === fold(path.dirname(right));
+}
+
+/** `bin` plus its sibling launcher spellings, for matching a live process's argv. */
+export function backendBinAliases(
+  bin: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const path = pathFor(platform);
+  const base = path.basename(bin);
+  const lower = base.toLowerCase();
+  if (!BACKEND_BIN_BASENAMES.has(lower)) return [bin];
+  const extension = lower.endsWith('.exe') ? base.slice(-4) : '';
+  const directory = path.dirname(bin);
+  const siblings = BACKEND_BIN_NAMES
+    .map((name) => `${name}${extension}`)
+    .filter((name) => name.toLowerCase() !== lower)
+    .map((name) => path.join(directory, name));
+  return [bin, ...siblings];
+}
+
 /** Verify that a live PID is exactly the local Argus WebAPI for this endpoint. */
 export async function verifyApiProcess(
   opts: Omit<ReadOwnedApiOptions, 'path'> & { pid: number },
@@ -226,12 +275,13 @@ export async function verifyApiProcess(
     caseInsensitive ? left.toLowerCase() === right.toLowerCase() : left === right
   );
   if (!Number.isInteger(pid) || pid <= 0) return false;
+  const backendBins = backendBinAliases(backendBin, platform);
 
   const { alive, argv, commandLine } = await inspect(pid);
   if (!alive) return false;
   if (argv.length > 0) {
     const indexOf = (argument: string) => argv.findIndex((value) => equals(value, argument));
-    if (indexOf(backendBin) === -1 || indexOf('--web') === -1) return false;
+    if (!backendBins.some((bin) => indexOf(bin) !== -1) || indexOf('--web') === -1) return false;
     const webPortIdx = indexOf('--web-port');
     if (webPortIdx === -1 || !equals(argv[webPortIdx + 1] ?? '', String(port))) return false;
     const webHostIdx = indexOf('--web-host');
@@ -240,7 +290,7 @@ export async function verifyApiProcess(
   }
   if (!commandLine) return false;
   if (
-    !commandHasArgument(commandLine, backendBin, caseInsensitive)
+    !backendBins.some((bin) => commandHasArgument(commandLine, bin, caseInsensitive))
     || !commandHasArgument(commandLine, '--web', caseInsensitive)
   ) {
     return false;
@@ -332,8 +382,9 @@ export async function readOwnedApi(
     if (record.host !== host) return null;
     if (record.port !== port) return null;
 
-    // Backend binary
-    if (record.backendBin !== backendBin) return null;
+    // Backend binary: the same launcher, or its pre-rename sibling in the same venv.
+    if (typeof record.backendBin !== 'string') return null;
+    if (!sameBackendBin(record.backendBin, backendBin, platform)) return null;
 
     if (!await verifyApiProcess({ pid, host, port, backendBin, inspect, platform })) return null;
 
