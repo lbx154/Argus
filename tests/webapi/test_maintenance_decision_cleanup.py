@@ -1,4 +1,4 @@
-"""Declining a deployment preserves operator stops and uncommitted evidence."""
+"""Maintenance decisions publish once and preserve stops and authoring evidence."""
 from __future__ import annotations
 
 import json
@@ -14,10 +14,10 @@ from argus_skill.life.memory import BacklogItem, MemoryBundle
 from argus_skill.webapi.manager_pending_question import manager_resolve_operator_decision
 
 
-def _git(root: Path, *args: str) -> None:
-    subprocess.run(
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(
         ["git", *args], cwd=root, check=True, capture_output=True, text=True,
-    )
+    ).stdout.strip()
 
 
 def _pending_maintenance(tmp_path: Path, *, layout: str = "global"):
@@ -30,6 +30,12 @@ def _pending_maintenance(tmp_path: Path, *, layout: str = "global"):
     (repository / ".gitignore").write_text("evidence.log\n")
     _git(repository, "add", ".")
     _git(repository, "commit", "-qm", "reviewed candidate")
+    _git(repository, 'branch', '-M', 'main')
+    origin = tmp_path / 'origin.git'
+    _git(repository, 'init', '--bare', '-q', str(origin))
+    _git(repository, 'remote', 'add', 'origin', str(origin))
+    _git(repository, 'push', '-q', 'origin', 'main')
+    candidate = _git(repository, 'rev-parse', 'HEAD')
     worktree = tmp_path / "maintenance-worktree"
     _git(repository, "worktree", "add", "--detach", str(worktree), "HEAD")
 
@@ -65,7 +71,7 @@ def _pending_maintenance(tmp_path: Path, *, layout: str = "global"):
     sidecar.parent.mkdir(parents=True)
     sidecar.write_text(json.dumps({
         "repository": str(repository), "worktree": str(worktree),
-        "mission_id": item.id, "reviewed_candidate": "reviewed-candidate",
+        "mission_id": item.id, "reviewed_candidate": candidate,
         "reviewer_verdict": "done",
     }))
     write_continuous_config(
@@ -73,6 +79,120 @@ def _pending_maintenance(tmp_path: Path, *, layout: str = "global"):
         done_reason=GRACEFUL_STOP_REASON,
     )
     return mem, card, sidecar, worktree
+
+
+@pytest.mark.parametrize('layout', ['global', 'project'])
+def test_adopt_publishes_once_and_handoff_is_project_scoped(tmp_path, monkeypatch, layout):
+    from argus_skill.daemon.handoff import _consume_deployment_handoff
+    from argus_skill.maintenance import publication
+
+    mem, card, sidecar, worktree = _pending_maintenance(tmp_path, layout=layout)
+    publish = publication.publish_reviewed_change
+    calls = []
+
+    def record(*args):
+        calls.append(args)
+        return publish(*args)
+
+    monkeypatch.setattr(publication, 'publish_reviewed_change', record)
+    first = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
+    assert first['application_status'] == 'accepted'
+    assert first['deployment']['verdict'] == 'ADOPT'
+    runtime = Path(first['deployment']['runtime_source_root'])
+    assert runtime.is_dir() and runtime != worktree
+    assert _consume_deployment_handoff(mem.project_root) == runtime
+    assert not sidecar.exists() and not worktree.exists()
+    assert first['resume_requested'] is False
+    assert 'baseline_failure_count' not in first['deployment']
+    assert 'both_publication_routes_complete' not in first['deployment']
+    again = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
+    assert again['application_status'] == 'already_applied' and len(calls) == 1
+
+
+def test_publication_failure_retains_same_decision_and_authoring_evidence(tmp_path, monkeypatch):
+    from argus_skill.maintenance import publication
+
+    mem, card, sidecar, worktree = _pending_maintenance(tmp_path)
+    before = sidecar.read_bytes()
+    publish = publication.publish_reviewed_change
+
+    def fail(*_args):
+        raise RuntimeError('remote temporarily unavailable')
+
+    monkeypatch.setattr(publication, 'publish_reviewed_change', fail)
+    first = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
+    assert first['application_status'] == 'retryable' and not first['resolved']
+    assert sidecar.read_bytes() == before and worktree.is_dir()
+    [pending] = mem.backlog.history()
+    assert pending.operator_decision == card
+    assert pending.status == 'paused_operator'
+    assert not (mem.project_root / 'maintenance/receipts/daemon-roll.json').exists()
+    monkeypatch.setattr(publication, 'publish_reviewed_change', publish)
+    second = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
+    assert second['application_status'] == 'accepted'
+
+
+def test_handoff_failure_retries_same_decision_without_republishing(tmp_path, monkeypatch):
+    from argus_skill.daemon import handoff
+    from argus_skill.maintenance import publication
+
+    mem, card, sidecar, worktree = _pending_maintenance(tmp_path)
+    (worktree / 'tracked.txt').write_text('new reviewed content\n')
+    _git(worktree, 'commit', '-qam', 'reviewed repair')
+    candidate = _git(worktree, 'rev-parse', 'HEAD')
+    metadata = json.loads(sidecar.read_text())
+    metadata['reviewed_candidate'] = candidate
+    sidecar.write_text(json.dumps(metadata))
+    card['reviewed_candidate'] = candidate
+    mem.backlog.update('maintenance', operator_decision=card)
+    before = sidecar.read_bytes()
+    continuous = (mem.project_root / 'continuous.json').read_bytes()
+    original_git = publication._git
+    request_handoff = handoff.request_deployment_handoff
+    pushes = []
+
+    def record_git(root, *args, **kwargs):
+        if args[0] == 'push':
+            pushes.append(args)
+        return original_git(root, *args, **kwargs)
+
+    def fail_handoff(*_args):
+        raise OSError('handoff write failed')
+
+    monkeypatch.setattr(publication, '_git', record_git)
+    monkeypatch.setattr(handoff, 'request_deployment_handoff', fail_handoff)
+    first = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
+    assert first['application_status'] == 'retryable' and not first['resolved']
+    assert _git(tmp_path / 'origin.git', 'rev-parse', 'main') == candidate
+    assert len(pushes) == 1
+    assert sidecar.read_bytes() == before and worktree.is_dir()
+    [pending] = mem.backlog.history()
+    assert pending.operator_decision == card and pending.status == 'paused_operator'
+    assert handoff._consume_deployment_handoff(mem.project_root) is None
+
+    monkeypatch.setattr(handoff, 'request_deployment_handoff', request_handoff)
+    second = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
+    assert second['application_status'] == 'accepted'
+    assert len(pushes) == 1
+    assert handoff._consume_deployment_handoff(mem.project_root) == Path(second['deployment']['runtime_source_root'])
+    assert not sidecar.exists() and not worktree.exists()
+    assert (mem.project_root / 'continuous.json').read_bytes() == continuous
+
+
+def test_adopt_cannot_switch_to_a_commit_changed_after_review(tmp_path, monkeypatch):
+    from argus_skill.maintenance import publication
+
+    mem, card, sidecar, _worktree = _pending_maintenance(tmp_path)
+    metadata = json.loads(sidecar.read_text())
+    card['reviewed_candidate'] = metadata['reviewed_candidate']
+    mem.backlog.update('maintenance', operator_decision=card)
+    metadata['reviewed_candidate'] = '0' * 40
+    sidecar.write_text(json.dumps(metadata))
+    calls = []
+    monkeypatch.setattr(publication, 'publish_reviewed_change', lambda *args: calls.append(args))
+    result = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
+    assert not result['resolved'] and calls == []
+    assert 'candidate changed' in result['error']
 
 
 def _decline(mem, card):
@@ -169,44 +289,3 @@ def test_http_decline_does_not_start_a_daemon(
     assert response.json()["resume_requested"] is False
     assert starts == []
     assert (mem.project_root / "continuous.json").read_bytes() == before
-
-
-def test_partial_publication_reports_that_the_sidecar_is_retained(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from argus_skill.maintenance import deploy_boundary
-
-    mem, card, sidecar, worktree = _pending_maintenance(tmp_path)
-    metadata = json.loads(sidecar.read_text())
-    metadata.update(
-        public_base="base", acceptance_command=["python", "-V"],
-        evidence_refs=[], receipt_dir=str(tmp_path / "receipts"),
-        origin_remote="origin", private_remote="private",
-        approval_binding={"input_digest": "reviewed-identity"},
-    )
-    sidecar.write_text(json.dumps(metadata))
-    before = sidecar.read_bytes()
-    monkeypatch.setattr(deploy_boundary, "approve_reviewed_change", lambda *args: object())
-    monkeypatch.setattr(deploy_boundary, "deploy_reviewed_change", lambda *args: {
-        "verdict": "REJECT", "baseline_failures": [], "candidate_failures": [],
-        "acceptance_passed": True,
-        "both_publication_routes_complete": False, "partial_publication": True,
-        "daemon_roll_permitted": False,
-    })
-    monkeypatch.setattr(
-        "argus_skill.life.supervisor.pending_notify.notify_pending_question",
-        lambda *args: None,
-    )
-
-    result = manager_resolve_operator_decision(
-        mem.project.fingerprint, card["id"], "adopt", global_root=mem.global_root,
-    )
-
-    assert result["deployment"]["partial_publication"] is True
-    assert not worktree.exists()
-    assert sidecar.read_bytes() == before
-    assert result["maintenance_cleanup"]["status"] == "removed"
-    assert result["maintenance_cleanup"]["sidecar_retained"] is True
-    [item] = mem.backlog.history()
-    assert item.operator_decision["status"] == "pending"
-    assert item.operator_decision["maintenance_cleanup"] == result["maintenance_cleanup"]

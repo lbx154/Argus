@@ -19,8 +19,10 @@ description: "Inspect and simplify Argus with small reusable changes and clear c
 7. Never install the framework package: no `pip install -e .`, no `--user`, and nothing
    else that writes user site-packages or `~/.local/bin`. A user-level install rewrites
    the shared `argus` launcher to point at this worktree and hijacks every later
-   deployment; shipping goes only through the deploy boundary.
+   deployment; shipping uses the reviewed-commit publication path.
 8. Install an extra third-party dependency, when the task truly needs one, into a
    throwaway venv inside the worktree or with `pip install --target <worktree dir>`.
+9. Include affected generated assets in the reviewed commit. Adoption publishes
+   that commit directly; it does not install dependencies, rebuild assets or rerun tests.
 
 Do not create a new abstraction unless the patch already has more than one real user.

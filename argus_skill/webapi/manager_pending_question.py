@@ -315,201 +315,91 @@ def _apply_framework_deployment_decision(
     decision_id: str,
     note: str,
 ) -> dict[str, Any]:
-    """Resolve a reviewed maintenance card without creating another mission."""
+    """Apply the existing adopt/decline decision without another validation run."""
+    import subprocess
+
+    from ..core.secret_guard import redact_secrets_text
     from ..life.event_log import JsonlEventSink
     from ..life.supervisor._mission_execution_runtime import (
         _maintenance_sidecar_path,
         dispose_maintenance_worktree,
     )
 
-    # The producer writes beneath global memory; keep existing project-scoped
-    # cards readable, and use the same selected path for adoption and cleanup.
     sidecar = _maintenance_sidecar_path(
         mem.global_root, item.id, fallback_root=mem.project_root,
     )
     card = dict(item.operator_decision)
     revision = int(card.get("revision", 1) or 1)
-    card.update({
-        "status": "resolved",
-        "selected_option": option_id,
-        "note": note.strip(),
-        "resolved_from_revision": revision,
-        "revision": revision + 1,
-        "continuation_item_id": "",
-        "resume_requested": False,
-        "resolution_id": f"{card.get('id', decision_id)}:r{revision}",
-    })
     if option_id == "decline":
         reply = "The reviewed change was declined. The current runtime is unchanged."
         deployment = {"verdict": "DECLINED"}
         status = "aborted"
         last_error = "operator declined the reviewed framework change"
     else:
-        metadata = json.loads(sidecar.read_text(encoding="utf-8"))
-        approval_binding = metadata["approval_binding"]
-        from ..maintenance.deploy_boundary import (
-            ReviewedChange,
-            approve_reviewed_change,
-            deploy_reviewed_change,
-        )
+        from ..daemon.handoff import request_deployment_handoff
+        from ..maintenance.publication import publish_reviewed_change
 
-        change = ReviewedChange(
-            repository=Path(metadata["repository"]),
-            public_base=str(metadata["public_base"]),
-            reviewed_candidate=str(metadata["reviewed_candidate"]),
-            reviewer_verdict=str(metadata["reviewer_verdict"]),
-            acceptance_command=tuple(metadata["acceptance_command"]),
-            evidence_refs=tuple(metadata["evidence_refs"]),
-            mission_id=str(metadata["mission_id"]),
-            receipt_dir=Path(metadata["receipt_dir"]),
-            origin_remote=str(metadata["origin_remote"]),
-            private_remote=str(metadata["private_remote"]),
+        try:
+            metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+            candidate = str(metadata["reviewed_candidate"])
+            if metadata.get("mission_id") != item.id or metadata.get("reviewer_verdict") != "done":
+                raise ValueError("the stored change does not belong to this reviewed task")
+            if card.get("reviewed_candidate", candidate) != candidate:
+                raise ValueError("the candidate changed after this decision was created")
+            # The daemon consumes handoff requests from its project life_dir,
+            # even when the authoring sidecar lives in the shared state root.
+            receipt_dir = Path(mem.project_root) / "maintenance" / "receipts"
+            deployment = publish_reviewed_change(Path(metadata["repository"]), candidate, receipt_dir)
+            request_deployment_handoff(receipt_dir, Path(deployment["runtime_source_root"]))
+        except (OSError, KeyError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            reason = redact_secrets_text(str(exc))[-1200:]
+            mem.backlog.update(item.id, last_error=reason)
+            return {
+                "answered_item_id": item.id, "decision_id": decision_id,
+                "resolved": False, "application_status": "retryable", "resume_requested": False,
+                "error": "Could not apply the reviewed change: " + reason
+                    + ". The runtime has not been switched; the reviewed work is retained.",
+            }
+        reply = (
+            "The reviewed commit is published on origin/main. "
+            "The daemon will adopt it at a task boundary."
         )
-        approval = approve_reviewed_change(
-            change,
-            {**card, "input_digest": str(approval_binding["input_digest"])},
-        )
-        receipt = deploy_reviewed_change(change, approval)
-        deployment = {
-            "verdict": str(receipt["verdict"]),
-            "baseline_failure_count": len(receipt["baseline_failures"]),
-            "candidate_failure_count": len(receipt["candidate_failures"]),
-            "acceptance_passed": bool(receipt["acceptance_passed"]),
-            "both_publication_routes_complete": bool(
-                receipt["both_publication_routes_complete"]
-            ),
-            "partial_publication": bool(receipt["partial_publication"]),
-            "daemon_roll_permitted": bool(receipt["daemon_roll_permitted"]),
-        }
-        if deployment["verdict"] == "ADOPT":
-            from ..daemon.handoff import request_deployment_handoff
+        status, last_error = "done", ""
 
-            request_deployment_handoff(
-                change.receipt_dir,
-                Path(receipt["runtime_source_root"]),
-            )
-            reply = (
-                "The reviewed change passed its checks and both publication "
-                "routes completed. The daemon will adopt it at a mission boundary."
-            )
-            status = "done"
-            last_error = ""
-        elif deployment["partial_publication"]:
-            reply = (
-                "Deployment stopped after partial publication. The daemon was not "
-                "changed; a fresh deployment run must finish the same reviewed change."
-            )
-            status = "paused_operator"
-            last_error = "reviewed framework change was only partially published"
-        else:
-            reply = (
-                "Deployment rejected the reviewed change. The current runtime and "
-                "public main remain unchanged."
-            )
-            status = "failed"
-            last_error = "reviewed framework deployment was rejected"
-
-    resolution_id = card["resolution_id"]
-    card["reply"] = reply
-    card["deployment"] = deployment
-    pending_question = ""
-    stored_card = card
-    if deployment.get("partial_publication"):
-        pending_question = (
-            "A publication route remains incomplete. Run a fresh bounded "
-            "deployment for the same reviewed change?"
-        )
-        stored_card = dict(card)
-        for key in (
-            "continuation_item_id",
-            "deployment",
-            "reply",
-            "resolved_from_revision",
-            "resolution_id",
-            "resume_requested",
-        ):
-            stored_card.pop(key, None)
-        stored_card.update({
-            "id": f"decision-{item.id}-deployment-{revision + 1}",
-            "status": "pending",
-            "revision": revision + 1,
-            "options": [
-                option
-                for option in card.get("options", ())
-                if option.get("id") == "adopt"
-            ],
-            "superseded_decision_ids": [
-                *card.get("superseded_decision_ids", ()),
-                str(card.get("id") or decision_id),
-            ],
-            "question": pending_question,
-            "asked_at": time.time(),
-            "reason": (
-                "The reviewed change reached only part of its publication route."
-            ),
-            "selected_option": "",
-            "note": "",
-        })
+    card.update({
+        "status": "resolved", "selected_option": option_id, "note": note.strip(),
+        "resolved_from_revision": revision, "revision": revision + 1,
+        "continuation_item_id": "", "resume_requested": False,
+        "resolution_id": f"{card.get('id', decision_id)}:r{revision}",
+        "reply": reply, "deployment": deployment,
+    })
     mem.backlog.update(
-        item.id,
-        status=status,
-        finished_ts=time.time(),
-        last_error=last_error,
-        pending_question=pending_question,
-        operator_decision=stored_card,
+        item.id, status=status, finished_ts=time.time(), last_error=last_error,
+        pending_question="", operator_decision=card,
     )
     cleanup: dict[str, Any] = {"status": "not_found", "sidecar_path": str(sidecar)}
     had_sidecar = sidecar.is_file()
     try:
-        dispose_maintenance_worktree(
-            sidecar.parents[2],
-            item.id,
-            keep_sidecar=bool(deployment.get("partial_publication")),
-        )
+        dispose_maintenance_worktree(sidecar.parents[2], item.id)
     except (OSError, KeyError, RuntimeError, ValueError) as exc:
-        # The decision is already durable. Preserve authoring evidence and
-        # report cleanup separately, rather than failing a resolved decision.
         cleanup.update(status="retained", reason=str(exc))
     else:
         if had_sidecar:
             cleanup["status"] = "removed"
     cleanup["sidecar_retained"] = sidecar.is_file()
-    stored_card["maintenance_cleanup"] = cleanup
-    mem.backlog.update(item.id, operator_decision=stored_card)
+    card["maintenance_cleanup"] = cleanup
+    mem.backlog.update(item.id, operator_decision=card)
     JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
-        "type": "life.operator_question.answered",
-        "item_id": item.id,
-        "continuation_item_id": "",
-        "question": str(item.pending_question or ""),
-        "manager_decision": option_id,
-        "decision_id": decision_id,
-        "decision_revision": revision,
-        "deployment": deployment,
-        "maintenance_cleanup": cleanup,
+        "type": "life.operator_question.answered", "item_id": item.id,
+        "continuation_item_id": "", "question": str(item.pending_question or ""),
+        "manager_decision": option_id, "decision_id": decision_id,
+        "decision_revision": revision, "deployment": deployment, "maintenance_cleanup": cleanup,
     })
-    if pending_question:
-        from ..life.supervisor.pending_notify import notify_pending_question
-
-        item.pending_question = pending_question
-        item.operator_decision = stored_card
-        notify_pending_question(mem.project_root, item)
-        JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
-            "type": "life.operator_question.pending",
-            "item_id": item.id,
-            "title": item.title,
-            "question": pending_question,
-            "agent_layer": "manager",
-        })
     return {
-        "answered_item_id": item.id,
-        "decision_id": decision_id,
-        "resolved": True,
-        "application_status": "accepted",
-        "resolution_id": resolution_id,
-        "resume_requested": False,
-        "reply": reply,
-        "maintenance_cleanup": cleanup,
-        "deployment": deployment,
+        "answered_item_id": item.id, "decision_id": decision_id, "resolved": True,
+        "application_status": "accepted", "resolution_id": card["resolution_id"],
+        "resume_requested": False, "reply": reply,
+        "maintenance_cleanup": cleanup, "deployment": deployment,
     }
 
 

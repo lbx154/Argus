@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shlex
 import shutil
 import subprocess
 import time
@@ -85,8 +84,6 @@ def _remove_clean_maintenance_worktree(repository: Path, worktree: Path) -> None
 def dispose_maintenance_worktree(
     life_root: Path | str,
     item_id: str,
-    *,
-    keep_sidecar: bool = False,
 ) -> None:
     """Remove the authoring worktree recorded for one maintenance mission."""
     sidecar = _maintenance_sidecar_path(life_root, item_id)
@@ -97,8 +94,7 @@ def dispose_maintenance_worktree(
     repository = Path(metadata["repository"]).expanduser().resolve(strict=True)
     worktree = Path(metadata["worktree"]).expanduser().resolve()
     _remove_clean_maintenance_worktree(repository, worktree)
-    if not keep_sidecar:
-        sidecar.unlink(missing_ok=True)
+    sidecar.unlink(missing_ok=True)
 
 
 def _refreshes_mission_prelude(runner: Any) -> bool:
@@ -326,7 +322,6 @@ class MissionExecutionRuntimeMixin:
         item = state.item
         sidecar = _maintenance_sidecar_path(self.memory.root, item.id)
         metadata = json.loads(sidecar.read_text(encoding="utf-8"))
-        repository = Path(metadata["repository"]).expanduser().resolve(strict=True)
         worktree = Path(metadata["worktree"]).expanduser().resolve(strict=True)
         execution_workdir = state.execution_workdir
         assert execution_workdir is not None, "maintenance settlement requires prepared workdir"
@@ -370,45 +365,18 @@ class MissionExecutionRuntimeMixin:
             capture_output=True,
             text=True,
         ).stdout.strip()
-        acceptance_command = tuple(shlex.split(item.acceptance_check))
-        if not acceptance_command:
+        if not str(item.acceptance_check or '').strip():
             raise ValueError("maintenance mission requires an executable acceptance command")
-
-        from ...maintenance.deploy_boundary import (
-            ReviewedChange,
-            deployment_input_digest,
-        )
-
-        change = ReviewedChange(
-            repository=repository,
-            public_base=str(metadata["public_base"]),
-            reviewed_candidate=candidate,
-            reviewer_verdict="done",
-            acceptance_command=acceptance_command,
-            evidence_refs=tuple(
-                json.dumps(ref, sort_keys=True, separators=(",", ":"))
-                for ref in item.context_refs
-            ),
-            mission_id=item.id,
-            receipt_dir=Path(self.memory.root) / "maintenance" / "receipts",
-        )
-        input_digest = deployment_input_digest(change)
         metadata.update({
-            "reviewed_candidate": change.reviewed_candidate,
-            "reviewer_verdict": change.reviewer_verdict,
-            "acceptance_command": list(change.acceptance_command),
-            "evidence_refs": list(change.evidence_refs),
-            "mission_id": change.mission_id,
-            "receipt_dir": str(change.receipt_dir),
-            "origin_remote": change.origin_remote,
-            "private_remote": change.private_remote,
-            "input_digest": input_digest,
+            "reviewed_candidate": candidate,
+            "reviewer_verdict": "done",
+            "mission_id": item.id,
         })
         sidecar.write_text(
             json.dumps(metadata, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        return input_digest
+        return candidate
 
     def _mission_vertical_root(
         self,

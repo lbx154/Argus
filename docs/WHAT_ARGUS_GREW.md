@@ -20,8 +20,9 @@ human in the loop, with paths so you can go check it.
 Argus's retired resident self-maintenance loop ran against its own source tree. It
 did not merely suggest improvements: it diagnosed defects in its own code, named the
 files, wrote fixes, and stated the commands that decided whether they worked. Current
-self-maintenance uses the ordinary mission flow and an operator-approved deployment
-boundary instead of that resident loop.
+self-maintenance uses the ordinary mission flow and an operator-approved publication
+of the reviewed commit instead of that resident loop. Publication no longer repeats
+CI or acceptance checks; Engineer and Reviewer own those checks within the task.
 
 **The historical record: 16 defects diagnosed in its own runtime. All 16 carry an
 executable acceptance command.**

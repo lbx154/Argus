@@ -12,4 +12,5 @@ description: "Review an Argus maintenance patch for real simplification, reuse, 
 - Reject any pip install of the framework package or into user site-packages /
   `~/.local/bin`; extra dependencies belong in a task-local venv or `--target` directory.
 - Run the decisive tests and build checks.
+- Confirm affected generated assets are included; adoption publishes this commit without another build or test pass.
 - Judge behavior and ownership, not warning-count reduction.

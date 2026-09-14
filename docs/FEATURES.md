@@ -349,13 +349,15 @@ hypothesis; systems with already-complete contracts may have a different bottlen
 - Execution: the normal Engineer→Reviewer loop runs in an explicit disposable
   worktree. Reviewer `done` makes the change eligible for an ordinary operator
   decision; it does not deploy it.
-- Safety: one synchronous boundary compares the repository CI lanes on public
-  base and candidate, runs the acceptance reproducer, rebuilds the release, and
-  completes both public and private publication routes before permitting a
-  natural-boundary daemon roll. Approval is single-use and process-local.
-- Failure: rejected runs dispose their worktrees and never touch the loaded
-  runtime. A public-success/private-failure receipt records partial publication;
-  it neither rolls the daemon nor force-reverts public main.
+- Adoption: the ordinary adopt decision publishes the frozen reviewed commit to
+  `origin/main` and prepares that exact source checkout for a task-boundary daemon
+  handoff. It does not repeat CI, acceptance tests, dependency installation or
+  release builds, and does not require a private remote. Any affected builds and
+  generated assets belong in the maintenance task before Reviewer completes it.
+- Failure: publication failure retains the same pending decision and authoring
+  evidence for retry. Git refuses divergent remote updates; an already-published
+  candidate can be retried without rewinding a newer main. No extra approval card
+  is generated. The existing daemon standby/rollback lifecycle remains in use.
 - Scope: Argus framework source and runtime release state. It does not learn user
   preferences and does not write SELF Skills or project Wiki pages.
 

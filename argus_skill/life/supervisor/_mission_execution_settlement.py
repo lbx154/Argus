@@ -10,7 +10,6 @@ plus the ``_run_one`` return dict.
 
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
 import time
@@ -814,10 +813,10 @@ class MissionExecutionSettlementMixin:
                 getattr(outcome, "final_review_source", "") or ""
             ).strip().lower() == "reviewer"
         )
-        maintenance_input_digest = ""
+        maintenance_candidate = ""
         if maintenance_reviewed:
             try:
-                maintenance_input_digest = self._freeze_reviewed_maintenance_change(
+                maintenance_candidate = self._freeze_reviewed_maintenance_change(
                     state
                 )
             except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as exc:
@@ -883,8 +882,7 @@ class MissionExecutionSettlementMixin:
             resumable = True
             operator_question = (
                 f"The Reviewer read the change for “{item.title}” and it holds. "
-                f"Should I run the repository CI and the agreed check "
-                f"({item.acceptance_check}), then apply it?"
+                "Publish this reviewed version and use it at the next task boundary?"
             )
             decision_card = build_operator_decision(
                 item_id=item.id,
@@ -899,8 +897,8 @@ class MissionExecutionSettlementMixin:
                         "id": "adopt",
                         "label": "Adopt reviewed change",
                         "description": (
-                            "Run the bounded deployment checks and publish the "
-                            "reviewed change."
+                            "Publish the reviewed commit to origin/main and switch "
+                            "the runtime at the next task boundary."
                         ),
                     },
                     {
@@ -916,17 +914,7 @@ class MissionExecutionSettlementMixin:
                 previous_decision=item.operator_decision,
             )
             decision_card["decision_kind"] = "framework_deployment"
-            from ._mission_execution_runtime import _maintenance_sidecar_path
-
-            sidecar = _maintenance_sidecar_path(self.memory.root, item.id)
-            metadata = json.loads(sidecar.read_text(encoding="utf-8"))
-            metadata["approval_binding"] = {
-                "input_digest": maintenance_input_digest,
-            }
-            sidecar.write_text(
-                json.dumps(metadata, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
+            decision_card["reviewed_candidate"] = maintenance_candidate
             outcome_dimensions = mission_outcome_dimensions(
                 status=status,
                 success=True,

@@ -336,7 +336,7 @@ def test_claim_lost_is_not_counted_as_mission(
     assert rows[second.id].status == "pending"
 
 
-def test_framework_maintenance_uses_private_worktree_and_review(
+def test_framework_maintenance_uses_isolated_worktree_and_review(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -344,12 +344,7 @@ def test_framework_maintenance_uses_private_worktree_and_review(
 
     source = tmp_path / "framework"
     origin = tmp_path / "origin.git"
-    private_remote = tmp_path / "private.git"
     subprocess.run(["git", "init", "--bare", "-q", str(origin)], check=True)
-    subprocess.run(
-        ["git", "init", "--bare", "-q", str(private_remote)],
-        check=True,
-    )
     subprocess.run(["git", "init", "-q", str(source)], check=True)
     subprocess.run(["git", "checkout", "-qb", "main"], cwd=source, check=True)
     subprocess.run(
@@ -367,15 +362,7 @@ def test_framework_maintenance_uses_private_worktree_and_review(
         ["git", "remote", "add", "origin", str(origin)], cwd=source, check=True
     )
     subprocess.run(
-        ["git", "remote", "add", "private", str(private_remote)],
-        cwd=source,
-        check=True,
-    )
-    subprocess.run(
         ["git", "push", "-qu", "origin", "main"], cwd=source, check=True
-    )
-    subprocess.run(
-        ["git", "push", "-q", "private", "main"], cwd=source, check=True
     )
     monkeypatch.setattr(
         "argus_skill.core.runtime_identity.source_root",
@@ -437,9 +424,7 @@ def test_framework_maintenance_uses_private_worktree_and_review(
     assert settled.operator_decision["decision_kind"] == "framework_deployment"
     assert settled.pending_question == (
         "The Reviewer read the change for “repair framework” and it holds. "
-        "Should I run the repository CI and the agreed check (python -c \"from "
-        "pathlib import Path; "
-        "raise SystemExit(not Path('reviewed-change.txt').is_file())\"), then apply it?"
+        "Publish this reviewed version and use it at the next task boundary?"
     )
     sidecar = json.loads(
         (memory.root / "maintenance" / "pending" / f"{item.id}.json").read_text(
@@ -448,12 +433,9 @@ def test_framework_maintenance_uses_private_worktree_and_review(
     )
     assert sidecar["worktree"] == str(worktree)
     assert sidecar["reviewed_candidate"] != sidecar["public_base"]
-    assert sidecar["input_digest"]
-    assert sidecar["approval_binding"] == {
-        "input_digest": sidecar["input_digest"],
-    }
-    assert "input_digest" not in settled.operator_decision
-    assert sidecar["input_digest"] not in json.dumps(settled.operator_decision)
+    assert settled.operator_decision['reviewed_candidate'] == sidecar['reviewed_candidate']
+    assert 'input_digest' not in sidecar and 'approval_binding' not in sidecar
+    assert 'private_remote' not in sidecar and 'acceptance_command' not in sidecar
 
     runner.success = False
     runner.status = "error"
