@@ -51,6 +51,20 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         direction=context.direction,
         state_root=context.state_root,
     )
+    try:
+        display_root = team_root.relative_to(context.workdir)
+    except ValueError:
+        display_root = team_root
+    context.prompt_blocks.append(
+        "## Canonical research idea portfolio\n"
+        f"- The runtime has already formed the only authorized Idea portfolio at "
+        f"`{display_root}`.\n"
+        "- Inspect and settle that exact team. Do not call `team form`, create a "
+        "second portfolio, or use a different `.argus/teams/...` path.\n"
+        "- If the mission contract names another team path, that path is stale and "
+        "does not authorize a replacement; the canonical runtime-owned path above "
+        "takes precedence."
+    )
     selection = idea_portfolio_selection(
         context.workdir,
         state_root=context.state_root,

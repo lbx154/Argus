@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from argus_skill.core.vertical_contract import VerticalLibraryContext
+from argus_skill.skills.loop_skill_library import SkillLibraryMixin
+from argus_skill.skills.loop_state import MissionContext
 from argus_skill.skills.vertical_select import reset_stage_for_new_intent
 from argus_skill.team import task_board
 from argus_skill.verticals.research.idea_portfolio import (
@@ -18,6 +21,7 @@ from argus_skill.verticals.research.idea_portfolio import (
 from argus_skill.verticals.research.library_preparation import (
     prepare_skill_libraries,
 )
+from argus_skill.verticals.research.stages import planner_task_issues
 
 
 def _state(root: Path) -> None:
@@ -305,6 +309,111 @@ def test_direct_idea_only_research_does_not_prepare_a_paper_portfolio(
     root = tmp_path / ".argus" / "teams" / f"{TEAM_ID}-g1"
     assert not root.exists()
     assert idea_portfolio_completion_issues(tmp_path) == ()
+
+
+def test_preparation_exposes_the_only_canonical_portfolio_to_engineer(
+    tmp_path: Path,
+) -> None:
+    _state(tmp_path)
+    prompt_blocks: list[str] = []
+
+    prepare_skill_libraries(
+        VerticalLibraryContext(
+            workdir=tmp_path,
+            state_root=tmp_path,
+            stage="idea",
+            objective="select one strong idea",
+            direction="reliable agents",
+            workflow_mode="staged",
+            paper_mission=True,
+            team_task_id=None,
+            runner=None,
+            model=None,
+            emit=lambda _event: None,
+            prompt_blocks=prompt_blocks,
+        )
+    )
+
+    assert len(prompt_blocks) == 1
+    assert f".argus/teams/{TEAM_ID}-g1" in prompt_blocks[0]
+    assert "only authorized Idea portfolio" in prompt_blocks[0]
+    assert "Do not call `team form`" in prompt_blocks[0]
+
+
+def test_skill_library_state_includes_vertical_prompt_blocks() -> None:
+    class Harness(SkillLibraryMixin):
+        engineer_mission = SimpleNamespace(
+            libraries=lambda **_kwargs: SimpleNamespace(block="library index")
+        )
+        reviewer = SimpleNamespace(
+            mission=SimpleNamespace(
+                libraries=lambda: SimpleNamespace(block="reviewer index")
+            )
+        )
+
+        def _prepare_vertical_libraries(
+            self,
+            _mission: MissionContext,
+        ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+            return (("required.md",), ("runtime-owned portfolio",))
+
+    state = Harness()._prepare_skill_libraries(
+        MissionContext(
+            workdir=Path("/project"),
+            run_id="run-1",
+            task="task",
+            skill_task="task",
+            request_anchor="request",
+            active_vertical="research",
+            engineer_role_banner="",
+            seed_thread_id=None,
+            scope="",
+        )
+    )
+
+    assert state.skill_text == "library index\n\nruntime-owned portfolio"
+    assert state.reviewer_skill_block == "reviewer index"
+
+
+def test_planner_cannot_claim_a_second_idea_portfolio_path(
+    tmp_path: Path,
+) -> None:
+    task = SimpleNamespace(
+        title="Select an idea tournament",
+        objective="Produce twelve routes and twelve independent reviews.",
+        acceptance_check="The portfolio has one selector.",
+        owns_paths=[".argus/teams/idea-tournament-20260913", "RESEARCH_NOTES.md"],
+    )
+
+    issues = planner_task_issues("idea", tmp_path, task)
+
+    assert len(issues) == 1
+    assert "runtime owns the canonical Idea portfolio" in issues[0]
+    assert planner_task_issues("experiment", tmp_path, task) == ()
+
+
+def test_planner_may_use_nonportfolio_team_in_idea_stage(tmp_path: Path) -> None:
+    task = SimpleNamespace(
+        title="Audit one source",
+        objective="Delegate one bounded citation audit.",
+        acceptance_check="The citation is checked.",
+        owns_paths=[".argus/teams/citation-audit"],
+    )
+
+    assert planner_task_issues("idea", tmp_path, task) == ()
+
+
+def test_planner_may_benchmark_twelve_items_in_a_nonportfolio_team(
+    tmp_path: Path,
+) -> None:
+    task = SimpleNamespace(
+        title="Benchmark kernels",
+        objective="Benchmark 12 kernels in parallel.",
+        acceptance_check="All measurements are recorded.",
+        owns_paths=[".argus/teams/kernel-benchmark"],
+    )
+
+    assert planner_task_issues("idea", tmp_path, task) == ()
 
 
 def test_locked_paper_idea_uses_playbook_without_reselection(

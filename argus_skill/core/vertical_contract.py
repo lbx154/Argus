@@ -151,6 +151,7 @@ class VerticalLibraryContext:
     model: str | None
     emit: Callable[[dict], None]
     required_skill_paths: list[str] = field(default_factory=list)
+    prompt_blocks: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
