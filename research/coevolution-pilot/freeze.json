@@ -1,9 +1,0 @@
-{
-  "frozen_at": "2026-09-14T07:10:37.714985+00:00",
-  "before_heldout_evaluation": true,
-  "manager_skill": "/data/v-boxiuli/argus-coevolution-pilot-20260914/learning/current/skills/manager/evidence-bounded-development-review.md",
-  "runtime_wiki": "/data/v-boxiuli/argus-coevolution-pilot-20260914/learning/current/wiki/pages/argus-pi-bounded-data-inspection-runtime.md",
-  "final_review_run": "review-manufacturing-codebook-normalization-joint-final",
-  "note": "Tool-free completion uses the same development evidence after the initial Manager review hit its budget; initial failed review retained.",
-  "path_prefix_normalized_before_evaluation": true
-}

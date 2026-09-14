@@ -28,6 +28,10 @@ class WikiPage:
 
 
 def serialize_page(page: WikiPage) -> str:
+    if any(not isinstance(value, str) or not value.strip() for value in (page.title, page.description)):
+        raise ValueError('Wiki title and description must be non-empty strings')
+    if page.content.replace('\r\n', '\n').lstrip().startswith('---\n'):
+        raise ValueError('Wiki content must omit frontmatter; pass title and description separately')
     front = yaml.safe_dump(
         {"title": page.title, "description": page.description},
         sort_keys=False,

@@ -20,7 +20,8 @@ import pytest
 PI_CLI = os.environ.get("ARGUS_PI_TEST_CLI")
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED = {"consult_advisor", "list_peer_projects", "send_peer_message", "peer_message_status",
-            "search_experiences", "get_experience", "revise_experience", "retract_experience"}
+            "search_experiences", "get_experience", "revise_experience", "retract_experience",
+            "list_learned_tools", "run_learned_tool", "evolve_runtime", "rollback_runtime"}
 
 
 @pytest.fixture(scope="module")
@@ -41,6 +42,9 @@ def wheel_root(tmp_path_factory):
         "argus_skill/tools/experience.py", "argus_skill/life/experience_tools.py",
         "argus_skill/life/experience_runtime.py", "argus_skill/life/experience_extension.mjs",
         "argus_skill/life/experience_pi_tools.mjs",
+        "argus_skill/skills/runtime_extension.mjs", "argus_skill/skills/runtime_pi_tools.mjs",
+        "argus_skill/skills/runtime_worker.py", "argus_skill/skills/runtime_tools.py",
+        "argus_skill/skills/runtime_tools_context.py",
         *[str(path.relative_to(ROOT)) for package in ("advisor", "messaging")
           for path in (ROOT / "argus_skill" / package).glob("*.py")],
     }
@@ -87,7 +91,8 @@ export default function(pi) {
   });
   pi.on("session_start", () => {
     const required=["consult_advisor","list_peer_projects","send_peer_message","peer_message_status",
-      "search_experiences","get_experience","revise_experience","retract_experience"];
+      "search_experiences","get_experience","revise_experience","retract_experience",
+      "list_learned_tools","run_learned_tool","evolve_runtime","rollback_runtime"];
     const tools=pi.getAllTools().filter(tool=>required.includes(tool.name));
     const active=pi.getActiveTools();
     writeFileSync(process.env.ARGUS_LOADER_RECEIPT, JSON.stringify({stage:"session_start",tools,active}));
@@ -102,6 +107,7 @@ export default function(pi) {
         "--extension", str(package_root / "argus_skill/advisor/pi_extension.mjs"),
         "--extension", str(package_root / "argus_skill/messaging/pi_extension.mjs"),
         "--extension", str(package_root / "argus_skill/life/experience_extension.mjs"),
+        "--extension", str(package_root / "argus_skill/skills/runtime_extension.mjs"),
         "--extension", str(probe), "Load tools only; do not send a provider request.",
     ]
     try:
@@ -109,6 +115,7 @@ export default function(pi) {
             "PATH": os.defpath, "PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "CI": "true",
             "PI_HARNESS_PROFILE": "argus", "ARGUS_LOADER_RECEIPT": str(receipt),
             "ARGUS_PLUGIN_EXPERIENCE_WRITABLE": "1",
+            "ARGUS_PLUGIN_RUNTIME_WRITABLE": "1",
         })
         assert result.returncode == 0, result.stdout + result.stderr
         record = json.loads(receipt.read_text())

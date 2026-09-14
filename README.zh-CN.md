@@ -66,6 +66,9 @@ Argus 任务的优化，包括任务提示、PDF 阅读以及执行与重试状�
 Argus 作为 Driver 负责调度、角色分配和任务生命周期；Argus-Pi 作为 Harness
 专注于模型和工具执行。
 
+普通 Pi 任务现已接入[项目工具自进化](docs/pi-runtime-learning.md)：在当前任务中
+生成、验证并使用可复用的 JSON 处理工具，再把 Skill 和 Wiki 留给后续任务，沿用当前任务预算。
+
 **Harbor 评测：** Harbor Framework 可以把完整的有界 Argus
 Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。配置和边界见
 **[Harbor 接入说明](docs/harbor.md)**。

@@ -88,6 +88,8 @@ class Skill:
     path: str = ""
 
     def render(self) -> str:
+        if self.content.replace('\r\n', '\n').lstrip().startswith('---\n'):
+            raise ValueError('Skill content must omit frontmatter; pass name and description separately')
         # JSON string literals are valid YAML scalars and safely preserve colons,
         # quotes, and non-ASCII text without expanding the schema. The scalars
         # must be strings: a mapping reaching this point renders as a JSON object

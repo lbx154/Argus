@@ -73,6 +73,10 @@ optional, and you can continue using any of the other supported backends.
 Argus remains the Driver for scheduling, role assignment, and task lifecycle;
 Argus-Pi focuses on the Harness for model and tool execution.
 
+Ordinary Pi tasks can now [learn project runtime tools](docs/pi-runtime-learning.md):
+validate a reusable JSON transformation, use it in the current task, and retain its
+Skill and Wiki for later tasks under the existing task budget.
+
 **Harbor evaluation:** Harbor Framework can invoke the complete bounded Argus
 Manager/Planner/Engineer/Reviewer runtime as a custom agent. See
 **[Harbor integration](docs/harbor.md)**.

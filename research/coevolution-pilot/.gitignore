@@ -1,7 +1,0 @@
-/benchmark/
-/socket/
-/gateway.pid
-/learning/current/
-/publication-verification.json
-__pycache__/
-*.pyc
