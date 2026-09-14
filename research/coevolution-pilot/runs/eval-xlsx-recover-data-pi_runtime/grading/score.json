@@ -1,0 +1,9 @@
+{
+  "passed": 7,
+  "failed": 1,
+  "tests": 8,
+  "skipped": 0,
+  "pass_rate": 0.875,
+  "reward": 0,
+  "pytest_exit": 1
+}

@@ -1,0 +1,13 @@
+..                                                                       [100%]
+=============================== warnings summary ===============================
+../usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475
+  /usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /verifier/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/verifier/pytest-cache-files-olpabhaf'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../verifier/test_outputs.py::TestOutputs::test_file_exists
+PASSED ../verifier/test_outputs.py::TestOutputs::test_content
+2 passed, 1 warning in 0.02s
+

@@ -1,0 +1,36 @@
+{
+  "run": "eval-invoice-fraud-detection-knowledge",
+  "task": "invoice-fraud-detection",
+  "condition": "knowledge",
+  "training": false,
+  "returncode": 0,
+  "timed_out": false,
+  "wall_seconds": 95.53023552894592,
+  "agent_seconds": 91.8583173751831,
+  "output_present": true,
+  "tokens": {
+    "input": 36,
+    "output": 5292,
+    "cacheRead": 192338,
+    "cacheWrite": 25465,
+    "reasoning": 1902,
+    "totalTokens": 223131,
+    "cost_usd": 0.3102442,
+    "model_calls": 12
+  },
+  "tools": {
+    "read": 8,
+    "bash": 8,
+    "edit": 1
+  },
+  "last_reply": "Created `/root/fraud_report.json` with 50 flagged invoices. Independent validation covered all 53 PDF pages, confirmed the prescribed reason precedence and source-field values, and verified pages 51–53 were correctly unflagged.\n\nDecision:\nMILESTONE_STATUS=done\nRESULT=Fraud report saved with 50 flagged invoices: 9 Unknown Vendor, 9 IBAN Mismatch, 5 Invalid PO, and 27 Amount Mismatch.\nNEXT_OWNER=reviewer",
+  "score": {
+    "passed": 1,
+    "failed": 1,
+    "tests": 2,
+    "skipped": 0,
+    "pass_rate": 0.5,
+    "reward": 0,
+    "pytest_exit": 1
+  }
+}

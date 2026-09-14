@@ -1,0 +1,4 @@
+{
+  "reason": "Experiment controller incorrectly used Argus continuation prompt for a new task, omitting benchmark instructions. Identified from prompt construction before inspecting task score; no benchmark score from this attempt is included. Full trace and cost retained.",
+  "corrected": "Use full compact Engineer prompt and assert original task body is included before launch."
+}

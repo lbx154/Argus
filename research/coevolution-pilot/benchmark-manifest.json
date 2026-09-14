@@ -1,0 +1,186 @@
+[
+  {
+    "path": "AGENTS.md",
+    "sha256": "11d227e867bab2deaa0bec1f9b5db15ede927bf19a323ef7c4d7eb5d3eee14ed"
+  },
+  {
+    "path": "LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "path": "README.md",
+    "sha256": "da52e1ecd8c992e9125ec46b6237bd14d4c4b6a5ca7be896e2a06c97be1d79eb"
+  },
+  {
+    "path": "tasks/invoice-fraud-detection/environment/Dockerfile",
+    "sha256": "971f8682d9505d0bae1a83faffda2891e15a3cf162738aae6b3128aa910135b9"
+  },
+  {
+    "path": "tasks/invoice-fraud-detection/environment/invoices.pdf",
+    "sha256": "a76ee7651a4e088ba566d3e5d5d9f499e773f1166cb2d7f888ea19291c4a813e"
+  },
+  {
+    "path": "tasks/invoice-fraud-detection/environment/purchase_orders.csv",
+    "sha256": "6f84df07d8195331d71940dbcd65e4369094063acece2fe86ca4883a50e35be8"
+  },
+  {
+    "path": "tasks/invoice-fraud-detection/environment/vendors.xlsx",
+    "sha256": "19ff6138112d84c2c695c8369fa315d0de42bd966dfdbd95d5a9553e8e9a08d3"
+  },
+  {
+    "path": "tasks/invoice-fraud-detection/oracle/solve.sh",
+    "sha256": "62a8bc6fc7a6ccf23476a0aa15aaa2156b877e06364c36658fcacc8146073621"
+  },
+  {
+    "path": "tasks/invoice-fraud-detection/task.md",
+    "sha256": "f37803e2c0221b47fe2cd206ea1c995a4c320de3d4ece97cf36d6f3ef88fc44b"
+  },
+  {
+    "path": "tasks/invoice-fraud-detection/verifier/ground_truth.json",
+    "sha256": "1e8e6cf9bd28298f5bb4a8c8e07fcdc8199cb877bdbc9def87d9541f596d385d"
+  },
+  {
+    "path": "tasks/invoice-fraud-detection/verifier/test.sh",
+    "sha256": "dfb59780bbce55de353a8c7f25ad136e7c0fc75da3744bd54b273aed42a8bb16"
+  },
+  {
+    "path": "tasks/invoice-fraud-detection/verifier/test_outputs.py",
+    "sha256": "51365f014273d149a67c19484dadb9f494083fd82f242d524a15014838fd8649"
+  },
+  {
+    "path": "tasks/manufacturing-codebook-normalization/environment/Dockerfile",
+    "sha256": "af1d7c7bf19a27a63f3e0a2731b6318f2b7eb1fa0648b4bc162b6b9698b6eba4"
+  },
+  {
+    "path": "tasks/manufacturing-codebook-normalization/environment/data/codebook_P1_POWER.csv",
+    "sha256": "8015e665af920161219554f3b65e880e1011a1236ae4bba48d494738798ba9e1"
+  },
+  {
+    "path": "tasks/manufacturing-codebook-normalization/environment/data/codebook_P2_CTRL.csv",
+    "sha256": "013a91449215fd785ecbbe5524885ec764c9e6654770299c33e14379ec8f47d1"
+  },
+  {
+    "path": "tasks/manufacturing-codebook-normalization/environment/data/codebook_P3_RF.csv",
+    "sha256": "273905dafe4a9dd42a631b016e369636dfcf3e376b3a41f28874f701092a05e1"
+  },
+  {
+    "path": "tasks/manufacturing-codebook-normalization/environment/data/test_center_logs.csv",
+    "sha256": "8d10d9160caa5f8667cb0941d6bdc775be1fe9f2c4d54a40ca135db7be0fd6a4"
+  },
+  {
+    "path": "tasks/manufacturing-codebook-normalization/oracle/solve.sh",
+    "sha256": "92e8cd0346df1bda809fcdd8ace165da4a004c3713611c7a66b4261681740c20"
+  },
+  {
+    "path": "tasks/manufacturing-codebook-normalization/task.md",
+    "sha256": "6554e3e0172bb3ae9ace14b4728a194e0be0cea1fe5e3c726c5b8759d3b4ee62"
+  },
+  {
+    "path": "tasks/manufacturing-codebook-normalization/verifier/test.sh",
+    "sha256": "42027720cc961a84910926116d7b6032c76465eb886bdcbd6ab650aa4069fdaf"
+  },
+  {
+    "path": "tasks/manufacturing-codebook-normalization/verifier/test_outputs.py",
+    "sha256": "faab891e7ca82e0efe0d7f578fa3f43c25b0fdde24bc269bb1d785f193f3e979"
+  },
+  {
+    "path": "tasks/pdf-excel-diff/environment/Dockerfile",
+    "sha256": "1baf957923ddb2343e0764a3d9b03c8792a6411e867b44e3afef850d8e2bf062"
+  },
+  {
+    "path": "tasks/pdf-excel-diff/environment/employees_backup.pdf",
+    "sha256": "c26575e464f5d20bb80964f7775e23786c0ca2ab0597295c0efb2241e1c41c6c"
+  },
+  {
+    "path": "tasks/pdf-excel-diff/environment/employees_current.xlsx",
+    "sha256": "4a0020c3afa31f7a40e1d25c478a8480e2c8c8337a8b6250f51bfef7895b38a8"
+  },
+  {
+    "path": "tasks/pdf-excel-diff/oracle/solve.sh",
+    "sha256": "ea12dbaf1606e3a1e4dfafb653f9896a5f2524a2a1bd2fadf66353de69eb0a13"
+  },
+  {
+    "path": "tasks/pdf-excel-diff/task.md",
+    "sha256": "625db911a5491cdc6c87e14b405537faa2e67f92793a9519958c465d98e6e39d"
+  },
+  {
+    "path": "tasks/pdf-excel-diff/verifier/expected_output.json",
+    "sha256": "0656aa53dc1c992068aa94e9fcdafcf9ee944879ed69523e5a5651fc879bc25f"
+  },
+  {
+    "path": "tasks/pdf-excel-diff/verifier/test.sh",
+    "sha256": "8793d4be74268ffb9c492f85a094d871709e9a11f7c9cf4f3a023381d7b454ec"
+  },
+  {
+    "path": "tasks/pdf-excel-diff/verifier/test_outputs.py",
+    "sha256": "4ac05115f9c9d9555f37849434de0ec9a74ac2e3cb53946c0b27c57bf300b5d0"
+  },
+  {
+    "path": "tasks/sales-pivot-analysis/environment/Dockerfile",
+    "sha256": "385cb88d95271d73b72796dc0e66387997ff08d9e3a00a09afc02cade91349b2"
+  },
+  {
+    "path": "tasks/sales-pivot-analysis/environment/income.xlsx",
+    "sha256": "4ea46473be5e9e380a2ba3d5c80e87f1d0d6375c607092d5758a8107fbc4c730"
+  },
+  {
+    "path": "tasks/sales-pivot-analysis/environment/population.pdf",
+    "sha256": "cfa3c33ba4468bcad811b8782de412d927a4a2357ac01fc1a9e93a44f5cc5ec3"
+  },
+  {
+    "path": "tasks/sales-pivot-analysis/oracle/solve.sh",
+    "sha256": "c32145e5992af57a10859ea7b3d48ab9f56f955286f1fac2511cf4f1c89e4f84"
+  },
+  {
+    "path": "tasks/sales-pivot-analysis/task.md",
+    "sha256": "aed27c7a62b1307a6d3dbdc89abacd373150fffd5f02e5e6df30c7ad84ee3232"
+  },
+  {
+    "path": "tasks/sales-pivot-analysis/verifier/test.sh",
+    "sha256": "89a25f079630a5015cafce30c8bd9d94b314de7efeaf95fbe3b6dffdae1797a1"
+  },
+  {
+    "path": "tasks/sales-pivot-analysis/verifier/test_outputs.py",
+    "sha256": "e8cf8f07ba92961daa3eb5a2f8f173378770e5f80aafdf3626305643040d4ba9"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/environment/Dockerfile",
+    "sha256": "67526a29388bceee7b09a9a05aaae19356f52de42c0f77a7b85a1391b679c712"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/environment/groundtruth/DATA_SOURCES.md",
+    "sha256": "e78deacfaf963f3ffe35d7ef046584e6c8e420f0895daca6e80d1542d4f6015c"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/environment/groundtruth/answers.txt",
+    "sha256": "9b3ba3bea3fd26bc4eb1aa752591cf38fd9099df6c8be462c0d0043fd4507f4a"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/environment/groundtruth/create_incomplete_xlsx.py",
+    "sha256": "58e74028f2099692a18e24b943e6a40b2cfcef21feafab58d070a7729414496b"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/environment/groundtruth/read_xlsx.py",
+    "sha256": "41dc90aa148ee89ca402982be00ebafe9b96e3373c738e146cf3bf24fd1f7c55"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/environment/nasa_budget_incomplete.xlsx",
+    "sha256": "d15aeb8720d52525d99e7196f8c00dd5daddf90e4262255a98177da0ffb573bf"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/oracle/solve.sh",
+    "sha256": "0f98a8f8310cc5cfce4db6fb9fc361ea163dc795d960eb66e3881448f9b68f2b"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/task.md",
+    "sha256": "1fa882f4c2ccee0356c5e1798b6fd65a6b9bf1a7a40ddf8f97ca9618e1120fec"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/verifier/test.sh",
+    "sha256": "98c0db99d835fa80e2c748233e71aa9b7bd6d1969fed615707181013b5a5b244"
+  },
+  {
+    "path": "tasks/xlsx-recover-data/verifier/test_outputs.py",
+    "sha256": "8bb25e42832dc540674dd8f1fe5603288f1f72a801e58c424a8aee07c5a64ee9"
+  }
+]

@@ -1,0 +1,17 @@
+run,task,condition,training,reward,passed,failed,skipped,model_calls,tokens,estimated_usd,agent_seconds,inspect_data_calls
+train-manufacturing-codebook-normalization-joint,manufacturing-codebook-normalization,joint,True,0,15,1,0,19,844058,1.0860346,273.764776468277,0
+train-manufacturing-codebook-normalization-joint-cycle2,manufacturing-codebook-normalization,joint,True,1,16,0,0,20,689034,0.8722759999999999,255.39025354385376,1
+train-sales-pivot-analysis-joint,sales-pivot-analysis,joint,True,0,5,4,1,26,531214,0.6806344,222.66511225700378,0
+train-sales-pivot-analysis-joint-cycle2,sales-pivot-analysis,joint,True,1,9,0,1,29,604148,0.7386884,243.3203411102295,2
+eval-invoice-fraud-detection-baseline,invoice-fraud-detection,baseline,False,0,1,1,0,14,163934,0.2664224,94.85651302337646,0
+eval-invoice-fraud-detection-joint,invoice-fraud-detection,joint,False,0,1,1,0,6,65705,0.1669266,65.1252703666687,3
+eval-invoice-fraud-detection-knowledge,invoice-fraud-detection,knowledge,False,0,1,1,0,12,223131,0.3102442,91.8583173751831,0
+eval-invoice-fraud-detection-pi_runtime,invoice-fraud-detection,pi_runtime,False,0,1,1,0,13,107840,0.1986246,82.90133213996887,3
+eval-pdf-excel-diff-baseline,pdf-excel-diff,baseline,False,1,11,0,0,12,78175,0.15322380000000002,188.9616231918335,0
+eval-pdf-excel-diff-joint,pdf-excel-diff,joint,False,1,11,0,0,8,110023,0.18726759999999998,184.88360714912415,3
+eval-pdf-excel-diff-knowledge,pdf-excel-diff,knowledge,False,1,11,0,0,10,84414,0.16674840000000002,120.84182214736938,0
+eval-pdf-excel-diff-pi_runtime,pdf-excel-diff,pi_runtime,False,1,11,0,0,16,291128,0.2995134,175.3936676979065,2
+eval-xlsx-recover-data-baseline,xlsx-recover-data,baseline,False,0,7,1,0,7,36780,0.1061554,50.18187069892883,0
+eval-xlsx-recover-data-joint,xlsx-recover-data,joint,False,0,7,1,0,9,95294,0.1670582,60.196988582611084,1
+eval-xlsx-recover-data-knowledge,xlsx-recover-data,knowledge,False,0,7,1,0,8,79986,0.15325060000000001,50.1221718788147,0
+eval-xlsx-recover-data-pi_runtime,xlsx-recover-data,pi_runtime,False,0,7,1,0,11,72238,0.1440952,62.49969267845154,1

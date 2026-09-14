@@ -1,0 +1,201 @@
+FFFFFFFFsssF..........FF..                                               [100%]
+=================================== FAILURES ===================================
+_ TestPivotTableConfiguration.test_pivot_row_is_state[Population by State-sum-None] _
+
+self = <test_outputs.TestPivotTableConfiguration object at 0x7186d0f360c0>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+sheet_name = 'Population by State', expected_agg = 'sum', col_field = None
+
+    @pytest.mark.parametrize("sheet_name,expected_agg,col_field", PIVOT_SHEETS)
+    def test_pivot_row_is_state(self, workbook, sheet_name, expected_agg, col_field):
+        """Pivot row field should be STATE."""
+>       pivot = workbook[sheet_name]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:66: IndexError
+_ TestPivotTableConfiguration.test_pivot_row_is_state[Earners by State-sum-None] _
+
+self = <test_outputs.TestPivotTableConfiguration object at 0x7186d4a70a70>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+sheet_name = 'Earners by State', expected_agg = 'sum', col_field = None
+
+    @pytest.mark.parametrize("sheet_name,expected_agg,col_field", PIVOT_SHEETS)
+    def test_pivot_row_is_state(self, workbook, sheet_name, expected_agg, col_field):
+        """Pivot row field should be STATE."""
+>       pivot = workbook[sheet_name]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:66: IndexError
+_ TestPivotTableConfiguration.test_pivot_row_is_state[Regions by State-count-None] _
+
+self = <test_outputs.TestPivotTableConfiguration object at 0x7186ca0aa150>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+sheet_name = 'Regions by State', expected_agg = 'count', col_field = None
+
+    @pytest.mark.parametrize("sheet_name,expected_agg,col_field", PIVOT_SHEETS)
+    def test_pivot_row_is_state(self, workbook, sheet_name, expected_agg, col_field):
+        """Pivot row field should be STATE."""
+>       pivot = workbook[sheet_name]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:66: IndexError
+_ TestPivotTableConfiguration.test_pivot_row_is_state[State Income Quartile-sum-quarter] _
+
+self = <test_outputs.TestPivotTableConfiguration object at 0x7186d5542810>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+sheet_name = 'State Income Quartile', expected_agg = 'sum'
+col_field = 'quarter'
+
+    @pytest.mark.parametrize("sheet_name,expected_agg,col_field", PIVOT_SHEETS)
+    def test_pivot_row_is_state(self, workbook, sheet_name, expected_agg, col_field):
+        """Pivot row field should be STATE."""
+>       pivot = workbook[sheet_name]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:66: IndexError
+_ TestPivotTableConfiguration.test_pivot_uses_correct_aggregation[Population by State-sum-None] _
+
+self = <test_outputs.TestPivotTableConfiguration object at 0x7186c25a52b0>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+sheet_name = 'Population by State', expected_agg = 'sum', col_field = None
+
+    @pytest.mark.parametrize("sheet_name,expected_agg,col_field", PIVOT_SHEETS)
+    def test_pivot_uses_correct_aggregation(self, workbook, sheet_name, expected_agg, col_field):
+        """Pivot data field should use correct aggregation."""
+>       pivot = workbook[sheet_name]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:73: IndexError
+_ TestPivotTableConfiguration.test_pivot_uses_correct_aggregation[Earners by State-sum-None] _
+
+self = <test_outputs.TestPivotTableConfiguration object at 0x7186ca0cda90>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+sheet_name = 'Earners by State', expected_agg = 'sum', col_field = None
+
+    @pytest.mark.parametrize("sheet_name,expected_agg,col_field", PIVOT_SHEETS)
+    def test_pivot_uses_correct_aggregation(self, workbook, sheet_name, expected_agg, col_field):
+        """Pivot data field should use correct aggregation."""
+>       pivot = workbook[sheet_name]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:73: IndexError
+_ TestPivotTableConfiguration.test_pivot_uses_correct_aggregation[Regions by State-count-None] _
+
+self = <test_outputs.TestPivotTableConfiguration object at 0x7186ca0cc6e0>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+sheet_name = 'Regions by State', expected_agg = 'count', col_field = None
+
+    @pytest.mark.parametrize("sheet_name,expected_agg,col_field", PIVOT_SHEETS)
+    def test_pivot_uses_correct_aggregation(self, workbook, sheet_name, expected_agg, col_field):
+        """Pivot data field should use correct aggregation."""
+>       pivot = workbook[sheet_name]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:73: IndexError
+_ TestPivotTableConfiguration.test_pivot_uses_correct_aggregation[State Income Quartile-sum-quarter] _
+
+self = <test_outputs.TestPivotTableConfiguration object at 0x7186d0f9ac30>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+sheet_name = 'State Income Quartile', expected_agg = 'sum'
+col_field = 'quarter'
+
+    @pytest.mark.parametrize("sheet_name,expected_agg,col_field", PIVOT_SHEETS)
+    def test_pivot_uses_correct_aggregation(self, workbook, sheet_name, expected_agg, col_field):
+        """Pivot data field should use correct aggregation."""
+>       pivot = workbook[sheet_name]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:73: IndexError
+_ TestPivotTableConfiguration.test_pivot_col_field[State Income Quartile-sum-quarter] _
+
+self = <test_outputs.TestPivotTableConfiguration object at 0x7186b878cc50>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+sheet_name = 'State Income Quartile', expected_agg = 'sum'
+col_field = 'quarter'
+
+    @pytest.mark.parametrize("sheet_name,expected_agg,col_field", PIVOT_SHEETS)
+    def test_pivot_col_field(self, workbook, sheet_name, expected_agg, col_field):
+        """Matrix pivots must have column fields configured correctly."""
+        if not col_field:
+            pytest.skip(f"'{sheet_name}' is not a matrix pivot")
+>       pivot = workbook[sheet_name]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:82: IndexError
+______________ TestSourceDataContent.test_state_values_are_valid _______________
+
+self = <test_outputs.TestSourceDataContent object at 0x7186b878dac0>
+source_data = ([{'EARNERS': 2817, 'MEAN_INCOME': 63025, 'MEDIAN_INCOME': 49963, 'POPULATION_2023': 4396, ...}, {'EARNERS': 5731, 'ME...ULATION_2023': 7352, ...}, ...], ['SA2_CODE', 'SA2_NAME', 'STATE', 'POPULATION_2023', 'EARNERS', 'MEDIAN_INCOME', ...])
+
+    def test_state_values_are_valid(self, source_data):
+        """STATE column must contain valid Australian states."""
+        data, headers = source_data
+        state_col = next((h for h in headers if "state" in h.lower()), None)
+        states_found = {row.get(state_col) for row in data if row.get(state_col)}
+        invalid = states_found - VALID_STATES
+>       assert not invalid, f"Invalid states: {invalid}"
+E       AssertionError: Invalid states: {'Other Territories'}
+E       assert not {'Other Territories'}
+
+/verifier/test_outputs.py:158: AssertionError
+________ TestDataTransformationCorrectness.test_pivot_cache_has_fields _________
+
+self = <test_outputs.TestDataTransformationCorrectness object at 0x7186b878dc70>
+workbook = <openpyxl.workbook.workbook.Workbook object at 0x7186ca0d8aa0>
+
+    def test_pivot_cache_has_fields(self, workbook):
+        """Pivot cache must have field definitions."""
+>       pivot = workbook["Population by State"]._pivots[0]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+/verifier/test_outputs.py:166: IndexError
+=============================== warnings summary ===============================
+../usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475
+  /usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /verifier/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/verifier/pytest-cache-files-0_w306gh'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+../usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:429
+  /usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:429: PytestCacheWarning: could not create cache path /verifier/.pytest_cache/v/cache/lastfailed: [Errno 30] Read-only file system: '/verifier/pytest-cache-files-o8g9x374'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[SA2_CODE-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[SA2_NAME-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[STATE-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[POPULATION_2023-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[EARNERS-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[MEDIAN_INCOME-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[Quarter-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[Total-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataContent::test_source_data_has_reasonable_row_count
+PASSED ../verifier/test_outputs.py::TestSourceDataContent::test_quarter_values_are_valid
+PASSED ../verifier/test_outputs.py::TestDataTransformationCorrectness::test_total_equals_earners_times_median_income
+PASSED ../verifier/test_outputs.py::TestDataTransformationCorrectness::test_sa2_codes_from_income_file_present
+SKIPPED [1] ../verifier/test_outputs.py:81: 'Population by State' is not a matrix pivot
+SKIPPED [1] ../verifier/test_outputs.py:81: 'Earners by State' is not a matrix pivot
+SKIPPED [1] ../verifier/test_outputs.py:81: 'Regions by State' is not a matrix pivot
+FAILED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_row_is_state[Population by State-sum-None]
+FAILED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_row_is_state[Earners by State-sum-None]
+FAILED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_row_is_state[Regions by State-count-None]
+FAILED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_row_is_state[State Income Quartile-sum-quarter]
+FAILED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_uses_correct_aggregation[Population by State-sum-None]
+FAILED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_uses_correct_aggregation[Earners by State-sum-None]
+FAILED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_uses_correct_aggregation[Regions by State-count-None]
+FAILED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_uses_correct_aggregation[State Income Quartile-sum-quarter]
+FAILED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_col_field[State Income Quartile-sum-quarter]
+FAILED ../verifier/test_outputs.py::TestSourceDataContent::test_state_values_are_valid
+FAILED ../verifier/test_outputs.py::TestDataTransformationCorrectness::test_pivot_cache_has_fields
+11 failed, 12 passed, 3 skipped, 2 warnings in 1.01s
+

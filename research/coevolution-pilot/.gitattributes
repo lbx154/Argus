@@ -1,0 +1,11 @@
+# Historical evidence must retain original bytes, including CRLF and whitespace.
+scores.csv -text -whitespace
+ablation.svg -text -whitespace linguist-generated=true
+runs/** -text -whitespace linguist-generated=true
+oracle-checks/** -text -whitespace linguist-generated=true
+setup-invalid-runs/** -text -whitespace linguist-generated=true
+learning/** -text -whitespace
+*.gz binary linguist-generated=true
+*.xlsx binary linguist-generated=true
+report.html linguist-generated=true
+results.json linguist-generated=true

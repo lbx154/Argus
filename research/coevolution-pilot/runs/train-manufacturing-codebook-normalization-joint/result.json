@@ -1,0 +1,37 @@
+{
+  "run": "train-manufacturing-codebook-normalization-joint",
+  "task": "manufacturing-codebook-normalization",
+  "condition": "joint",
+  "training": true,
+  "returncode": 0,
+  "timed_out": false,
+  "wall_seconds": 273.764776468277,
+  "output_present": true,
+  "tokens": {
+    "input": 57,
+    "output": 20380,
+    "cacheRead": 747804,
+    "cacheWrite": 75817,
+    "reasoning": 6985,
+    "totalTokens": 844058,
+    "cost_usd": 1.0860346,
+    "model_calls": 19
+  },
+  "tools": {
+    "bash": 21,
+    "read": 6,
+    "evolve_runtime": 3,
+    "write": 4,
+    "edit": 1
+  },
+  "last_reply": "Created `/app/output/solution.json` with 12,000 records and 14,940 normalized segments.\n\nValidation found zero structural or semantic-reference errors: every source record is present, segment identifiers are sequential, spans occur verbatim in the source text, and all predicted code-label pairs belong to the corresponding product codebook. Known predictions use 33 distinct codes. Their confidence range is 0.58–0.96, while `UNKNOWN` predictions range from 0.18–0.39.\n\nThe reusable normalization procedure and observed codebook limitations were recorded under `/learning/skills/engineer/` and `/learning/wiki/`.\n\nDecision:\nMILESTONE_STATUS=done\nRESULT=/app/output/solution.json contains 12,000 validated records and 14,940 segments; the final validation reported zero errors.\nNEXT_OWNER=reviewer",
+  "score": {
+    "passed": 15,
+    "failed": 1,
+    "tests": 16,
+    "skipped": 0,
+    "pass_rate": 0.9375,
+    "reward": 0,
+    "pytest_exit": 1
+  }
+}

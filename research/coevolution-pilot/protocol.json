@@ -1,0 +1,56 @@
+{
+  "benchmark": "SkillsBench",
+  "repository": "https://github.com/benchflow-ai/skillsbench",
+  "revision": "9a1f4dd5f7659f75707435da3ce854b6e48321d1",
+  "external_data_revision": "2982259afd39ec77df4c324bd29208f77986e9de",
+  "training_tasks": [
+    "sales-pivot-analysis",
+    "manufacturing-codebook-normalization"
+  ],
+  "heldout_tasks": [
+    "invoice-fraud-detection",
+    "pdf-excel-diff",
+    "xlsx-recover-data"
+  ],
+  "conditions": [
+    "baseline",
+    "knowledge",
+    "pi_runtime",
+    "joint"
+  ],
+  "model": "gpt-5.6-sol",
+  "reasoning": "high",
+  "replicates": 1,
+  "heldout_wall_seconds": 240,
+  "heldout_model_calls": 20,
+  "training_wall_seconds": 420,
+  "training_model_calls": 35,
+  "total_request_cap": 360,
+  "total_cost_cap_usd": 20,
+  "concurrency": 1,
+  "primary_score": "unchanged upstream verifier pass rate and all-tests-pass reward",
+  "secondary_scores": [
+    "input/output/cache tokens",
+    "estimated USD",
+    "tool calls",
+    "wall seconds"
+  ],
+  "knowledge": "Agent-authored Argus Engineer/Manager Skills and project Wiki from training only",
+  "pi_evolution": "Agent-authored executable document-inspection helper installed and used during a training run",
+  "frozen_at_evaluation": true,
+  "deviations": [
+    "Five-task pilot, not a full benchmark score",
+    "Common pinned Python/Pi Docker environment instead of individual upstream images",
+    "Four-minute heldout budget, smaller than some upstream task budgets",
+    "Direct pytest invocation of unchanged test_outputs.py; no runtime dependency installation",
+    "Curated upstream Skills, oracle scripts and verifiers are never mounted in agent runs"
+  ],
+  "training_cycles": 2,
+  "amendments_before_heldout": [
+    {
+      "change": "Two development cycles on the same two training tasks; retain all first-cycle results and costs.",
+      "reason": "Prototype publisher initially mismatched signed Copilot tool-call IDs and excluded validator failures from allowed evidence. Both bridge issues fixed before heldout runs."
+    }
+  ],
+  "pass_rate_definition": "passed / (passed + failed); skipped tests reported separately; primary reward remains upstream pytest success"
+}

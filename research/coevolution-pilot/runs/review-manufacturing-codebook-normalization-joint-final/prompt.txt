@@ -1,0 +1,178 @@
+You are performing a bounded Argus Manager review of development artifacts. Do not launch other agents, access heldout tasks or alter the evaluation protocol.
+Budget: at most 12 model requests and 420 seconds; reserve time for validation and requested learning artifacts.
+You are the Argus Manager finishing the development review from supplied evidence. A prior tool-based review exhausted its call budget while reading files; no review documents were completed. All needed documents and runtime source are provided below, so do not request tools.
+Return ONLY one valid JSON object with keys:
+- quality_review: object with documents (one assessment per existing Skill/Wiki, each including path, specificity/evidence/transferability/limitations scores 1–5, concrete issues, and verdict), overall_verdict, and uncertainties. Do not claim unseen-task improvements.
+- manager_skill: {path: a semantic filename ending .md, name, description, content}. Write a concise reusable orchestration/review procedure grounded in this development: distinguish validation from real-task use, keep evidence and scope, include a counterexample. Do not embed benchmark answers or score thresholds.
+- runtime_wiki: {path: a semantic filename ending .md, title, description, content}. Record verified facts about the learned Argus-Pi inspection runtime, its input/output contract and limitations. Cite the source and version metadata under pi/history. State assumptions such as XLSX first-row headers and cached formula values where applicable. Facts and limits belong here; procedures belong in the Skill. No task history or evaluator score ledger.
+Do not rewrite Engineer-owned Skills; flag their defects in the review. The executor will persist your exact fields using Argus SkillStore and WikiStore.
+
+Development measurements:
+[{"run": "train-manufacturing-codebook-normalization-joint", "task": "manufacturing-codebook-normalization", "score": {"passed": 15, "failed": 1, "tests": 16, "skipped": 0, "pass_rate": 0.9375, "reward": 0, "pytest_exit": 1}, "tokens": {"input": 57, "output": 20380, "cacheRead": 747804, "cacheWrite": 75817, "reasoning": 6985, "totalTokens": 844058, "cost_usd": 1.0860346, "model_calls": 19}, "tools": {"bash": 21, "read": 6, "evolve_runtime": 3, "write": 4, "edit": 1}}, {"run": "train-manufacturing-codebook-normalization-joint-cycle2", "task": "manufacturing-codebook-normalization", "score": {"passed": 16, "failed": 0, "tests": 16, "skipped": 0, "pass_rate": 1.0, "reward": 1, "pytest_exit": 0}, "tokens": {"input": 60, "output": 17481, "cacheRead": 616315, "cacheWrite": 55178, "reasoning": 7578, "totalTokens": 689034, "cost_usd": 0.8722759999999999, "model_calls": 20}, "tools": {"bash": 20, "read": 10, "inspect_data": 1, "write": 1, "edit": 3}}, {"run": "train-sales-pivot-analysis-joint", "task": "sales-pivot-analysis", "score": {"passed": 5, "failed": 4, "tests": 10, "skipped": 1, "pass_rate": 0.5555555555555556, "reward": 0, "pytest_exit": 1}, "tokens": {"input": 75, "output": 14608, "cacheRead": 477061, "cacheWrite": 39470, "reasoning": 3719, "totalTokens": 531214, "cost_usd": 0.6806344, "model_calls": 26}, "tools": {"bash": 24, "read": 4, "evolve_runtime": 4, "write": 1, "edit": 2}}, {"run": "train-sales-pivot-analysis-joint-cycle2", "task": "sales-pivot-analysis", "score": {"passed": 9, "failed": 0, "tests": 10, "skipped": 1, "pass_rate": 1.0, "reward": 1, "pytest_exit": 0}, "tokens": {"input": 87, "output": 16122, "cacheRead": 548651, "cacheWrite": 39288, "reasoning": 5142, "totalTokens": 604148, "cost_usd": 0.7386884, "model_calls": 29}, "tools": {"bash": 32, "read": 4, "evolve_runtime": 1, "inspect_data": 2, "write": 3, "edit": 1}}]
+Existing documents:
+### Learned Skill: skills/engineer/codebook-text-normalization.md
+---
+name: Product-codebook text normalization
+description: Normalize noisy multilingual reason text conservatively against product-specific codebooks while preserving source spans and calibrated ambiguity.
+---
+
+## Procedure
+
+1. Load each product's codebook and constrain every candidate by the record's product before comparing text.
+2. Detect complete reason phrases rather than splitting blindly on commas or slashes. Treat translated repetitions with the same category and subject as one reason, but retain genuinely different categories as separate segments in source order.
+3. Copy each reported span exactly from the source text.
+4. Resolve component- or signal-specific classes only when filtering leaves one distinct standard label. A unique codebook association from a named signal to a component may support a lower-confidence inference; multiple distinct labels require `UNKNOWN`.
+5. When several codes have the same label and no distinguishing metadata, select one deterministic code and reduce confidence rather than inventing a distinction.
+6. Keep all unknown confidences below all accepted-match confidences. Lower confidence for spelling repair, inferred entities, station-scope mismatch, and indistinguishable code aliases.
+7. For every accepted match, retain a concise literal evidence span that contains a codebook keyword, signal, or component whenever the source provides one. Before finalizing, tokenize each span and its selected label, keywords, and categories; review accepted matches with no lexical overlap rather than relying on metadata alone.
+8. Validate record coverage, sequential segment identifiers, literal span inclusion, product/code/label integrity, confidence bounds, known-versus-unknown confidence separation, per-product unknown rates, station-scope agreement, and evidence-overlap quantiles.
+
+
+### Learned Skill: skills/engineer/native-pivot-workbooks-with-openpyxl.md
+---
+name: Native pivot workbooks with openpyxl
+description: Create refreshable Excel pivot definitions from a regular source table when a desktop spreadsheet application is unavailable.
+---
+
+## Procedure
+
+1. Write the source records to one rectangular worksheet range and add an Excel table with stable, unique column names.
+2. Compute and write the visible summaries before adding pivot definitions. These stored cells let readers and data-only consumers use the report without refreshing it.
+3. Build one `openpyxl.pivot.cache.CacheDefinition` whose worksheet source is the source-table range. Give categorical row and column fields ordered `SharedItems`; include a `Missing` item when blanks occur.
+4. Build each `TableDefinition` with a unique name, a `Location` matching the stored summary, row and column `PivotField` items aligned to the cache's shared-item indices, and the requested `DataField` aggregation.
+5. Assign the same cache to related pivots and attach each definition with `worksheet.add_pivot`. Set the cache to refresh on load while retaining the visible summaries as the immediate result.
+6. Validate the saved file in a fresh process: reopen it normally and data-only, check worksheet names and stored values, confirm one pivot definition per requested pivot sheet, verify every pivot points to the source range, and test the ZIP container. Do not save the workbook again after this check unless a change is required, because unsupported readers may discard or rewrite pivot metadata.
+
+
+### Wiki: pages/australian-sa2-demographic-source-compatibility.md
+---
+title: Australian SA2 demographic source compatibility
+description: Join coverage and suppressed-value limits in the supplied regional population and personal-income sources.
+---
+
+The regional population PDF at `/root/population.pdf` contains 2,454 distinct nine-digit SA2 codes. The `Data` sheet in `/root/income.xlsx` contains 2,450 distinct SA2 codes, all of which occur in the PDF. The four population-only records belong to Other Territories. Consequently, an income-led combined source has 2,450 records and does not represent Other Territories in state summaries.
+
+The income sheet uses the text `np` in `EARNERS`, `MEDIAN_INCOME`, and `MEAN_INCOME` for 45 records. These values are publication suppressions, not zeros. Arithmetic and median-income quartile assignment should therefore leave the corresponding calculated values blank and derive boundaries from the 2,405 numeric median-income observations.
+
+These facts were measured directly from `/root/population.pdf` and `/root/income.xlsx` during the bounded inspection recorded in observations `call_JGnwT2AbJ7Nu3Zr88GoeUJBB`, `call_LtoBgUS6VH8aBYbi9tcZXdC0`, and `call_lJuFGk61sEhLFUcUOV6Zi9LL`.
+
+
+### Wiki: pages/test-center-codebook-support-limits.md
+---
+title: Test-center codebook support limits
+description: Structural ambiguities that affect normalization of the supplied test-center reason logs.
+---
+
+The product codebooks in `/app/data/codebook_P1_POWER.csv`, `/app/data/codebook_P2_CTRL.csv`, and `/app/data/codebook_P3_RF.csv` contain groups of different codes with identical standard labels, keywords, and station scopes. Text and station metadata cannot distinguish codes within such a group. A normalization procedure should therefore use a documented deterministic representative and lower its confidence rather than claim an evidence-based code distinction.
+
+Several classes are component-specific even when log phrases are not. In particular, missing-component, reversed-component, and cold-solder labels often name a component, while records in `/app/data/test_center_logs.csv` may state only the defect class or a signal name. Such text supports a code only when the product codebook yields one distinct label after entity association; otherwise `UNKNOWN` is the appropriate engineering alert.
+
+These limits were observed directly in the source codebooks during the bounded inspection summarized by observation `call_9Gqj7VK8pMpNHtfMeKSgr61j`.
+
+Runtime source (/learning/pi/inspect_data.py):
+#!/usr/bin/env python3
+"""Bounded, read-only inspection of CSV, XLSX, and text PDFs."""
+import os
+# Keep optional numerical backends imported by spreadsheet libraries from
+# creating large thread pools in constrained inspection environments.
+for key in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
+    os.environ[key] = '1'
+import argparse
+import csv
+import json
+import sys
+from pathlib import Path
+
+MAX_TEXT = 4000
+
+
+def clipped(value):
+    if isinstance(value, str) and len(value) > MAX_TEXT:
+        return value[:MAX_TEXT] + '…'
+    return value
+
+
+def inspect_csv(path, limit):
+    with path.open('r', encoding='utf-8-sig', newline='') as handle:
+        reader = csv.DictReader(handle)
+        columns = reader.fieldnames or []
+        items = []
+        for row_no, row in enumerate(reader, 2):
+            if len(items) >= limit:
+                break
+            items.append({'source_id': f'row:{row_no}', 'row': {name: clipped(row.get(name, '')) for name in columns}})
+    return {'kind': 'csv', 'items': items, 'columns': columns}
+
+
+def inspect_xlsx(path, limit):
+    from openpyxl import load_workbook
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    items = []
+    try:
+        sheets = list(workbook.sheetnames)
+        for sheet in workbook.worksheets:
+            rows = sheet.iter_rows(values_only=True)
+            header = next(rows, None)
+            if header is None:
+                continue
+            columns = [str(value) if value is not None else f'column_{index}' for index, value in enumerate(header, 1)]
+            for row_no, values in enumerate(rows, 2):
+                if len(items) >= limit:
+                    break
+                record = {columns[index]: clipped(values[index] if index < len(values) else None) for index in range(len(columns))}
+                items.append({'source_id': f'{sheet.title}!{row_no}', 'sheet': sheet.title, 'row': record})
+            if len(items) >= limit:
+                break
+    finally:
+        workbook.close()
+    return {'kind': 'xlsx', 'items': items, 'sheets': sheets}
+
+
+def inspect_pdf(path, limit):
+    from pypdf import PdfReader
+    reader = PdfReader(str(path))
+    items = []
+    for page_no, page in enumerate(reader.pages, 1):
+        if len(items) >= limit:
+            break
+        items.append({'source_id': f'page:{page_no}', 'page': page_no, 'text': clipped(page.extract_text() or '')})
+    return {'kind': 'pdf', 'items': items, 'pages': len(reader.pages)}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('path')
+    parser.add_argument('--limit', type=int, default=20)
+    args = parser.parse_args()
+    path = Path(args.path)
+    if args.limit < 0:
+        parser.error('--limit must be non-negative')
+    if not path.is_file():
+        print(json.dumps({'kind': 'error', 'items': [], 'path': str(path), 'error': 'file not found'}, ensure_ascii=False))
+        return 2
+    readers = {'.csv': inspect_csv, '.xlsx': inspect_xlsx, '.pdf': inspect_pdf}
+    reader = readers.get(path.suffix.lower())
+    if reader is None:
+        print(json.dumps({'kind': 'error', 'items': [], 'path': str(path), 'error': 'unsupported format'}, ensure_ascii=False))
+        return 2
+    try:
+        result = reader(path, args.limit)
+        result['path'] = str(path)
+        print(json.dumps(result, ensure_ascii=False, default=str))
+        return 0
+    except Exception as exc:
+        print(json.dumps({'kind': 'error', 'items': [], 'path': str(path), 'error': f'{type(exc).__name__}: {exc}'}, ensure_ascii=False))
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())
+
+Runtime validated activations:
+[{"version": 1, "activated_at": "2026-09-14T06:55:57.750Z", "toolCallId": "call_doPrexf97QXoIrATacMfhQ5u", "rationale": "Three useful inspections exposed two recurring formats: the workbook has a five-column Data sheet with 2,450 records, while the 74-page PDF stores one SA2 record as four vertically extracted lines. The prior reusable candidate was rejected because importing spreadsheet dependencies triggered oversized OpenBLAS thread creation. This revision retains the generic bounded readers, sets numerical-library thread limits before optional imports, uses pypdf rather than pdfplumber, and caps long strings as well as item count.", "evidence": ["call_xVGyQEhWtShWTqZwQdA1MgwC", "call_4afoHoxS1IoCKfnTJqYkk70r", "call_mh7Y5QSixISNOrJ89RBicpb3"], "contract": {"passed": true, "formats": [".csv", ".xlsx", ".pdf"], "missing_input_error": true, "read_only": true}}]
+## Manager self-evolution
+Before finishing this Manager turn, retain a reusable procedure only when it would materially improve a future turn of the same role. Do not store this task's history, outcome, or advice that names no evidence.
+Manager Skill directory (project layer only): /learning/skills/manager
+Inspect existing Markdown first. Each Skill has exactly `name` and `description` frontmatter followed by Markdown. Use an explicit semantic path, update a related Skill instead of duplicating it, and never write shared/global layers. Keep only reusable role learning here; when a shared project Wiki is listed in the prompt, route durable project facts, contracts, support limits, environment constraints, and scoped measurements to that Wiki instead.
+If there is no durable role-specific learning, make no Skill edit.
+

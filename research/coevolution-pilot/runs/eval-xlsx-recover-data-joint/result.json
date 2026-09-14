@@ -1,0 +1,35 @@
+{
+  "run": "eval-xlsx-recover-data-joint",
+  "task": "xlsx-recover-data",
+  "condition": "joint",
+  "training": false,
+  "returncode": 0,
+  "timed_out": false,
+  "wall_seconds": 63.949177980422974,
+  "agent_seconds": 60.196988582611084,
+  "output_present": true,
+  "tokens": {
+    "input": 27,
+    "output": 3490,
+    "cacheRead": 78638,
+    "cacheWrite": 13139,
+    "reasoning": 1428,
+    "totalTokens": 95294,
+    "cost_usd": 0.1670582,
+    "model_calls": 9
+  },
+  "tools": {
+    "bash": 7,
+    "inspect_data": 1
+  },
+  "last_reply": "Recovered all 15 missing numeric values and saved the completed workbook as [nasa_budget_recovered.xlsx](sandbox:/root/nasa_budget_recovered.xlsx).\n\nValidation confirmed that no `???` values remain and that all row totals, year-over-year changes, directorate shares, and growth calculations reconcile.\n\nDecision:\nMILESTONE_STATUS=done\nRESULT=Recovered 15 missing values in /root/nasa_budget_recovered.xlsx; all 235 cross-sheet calculations reconcile.\nNEXT_OWNER=reviewer",
+  "score": {
+    "passed": 7,
+    "failed": 1,
+    "tests": 8,
+    "skipped": 0,
+    "pass_rate": 0.875,
+    "reward": 0,
+    "pytest_exit": 1
+  }
+}

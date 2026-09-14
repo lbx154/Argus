@@ -1,0 +1,2 @@
+[solver] wrote /app/output/solution.json records=12000 segments=21139
+

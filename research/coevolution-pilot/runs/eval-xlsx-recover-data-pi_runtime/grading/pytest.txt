@@ -1,0 +1,53 @@
+.............F.....                                                      [100%]
+=================================== FAILURES ===================================
+_______________ test_growth_values[B8-7444.4-Science Avg Budget] _______________
+
+growth_sheet = <Worksheet "Growth Analysis">, cell = 'B8', expected = 7444.4
+desc = 'Science Avg Budget'
+
+    @pytest.mark.parametrize("cell,expected,desc", GROWTH_VALUES)
+    def test_growth_values(growth_sheet, cell, expected, desc):
+        """Test all recovered Growth sheet values."""
+        actual = growth_sheet[cell].value
+        if isinstance(expected, int):
+            assert actual == expected, f"{desc} ({cell}): expected {expected}, got {actual}"
+        else:
+>           assert abs(actual - expected) < 0.5, f"{desc} ({cell}): expected {expected}, got {actual}"
+E           AssertionError: Science Avg Budget (B8): expected 7444.4, got 7610.3
+E           assert 165.90000000000055 < 0.5
+E            +  where 165.90000000000055 = abs((7610.3 - 7444.4))
+
+/verifier/test_outputs.py:118: AssertionError
+=============================== warnings summary ===============================
+../usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475
+  /usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /verifier/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/verifier/pytest-cache-files-um_xjkfm'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+../usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:429
+  /usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:429: PytestCacheWarning: could not create cache path /verifier/.pytest_cache/v/cache/lastfailed: [Errno 30] Read-only file system: '/verifier/pytest-cache-files-emnw0hqd'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../verifier/test_outputs.py::test_file_exists
+PASSED ../verifier/test_outputs.py::test_budget_values[F8-4639-FY2019 SpaceOps]
+PASSED ../verifier/test_outputs.py::test_budget_values[K5-19285-FY2016 Total]
+PASSED ../verifier/test_outputs.py::test_budget_values[B9-7139-FY2020 Science]
+PASSED ../verifier/test_outputs.py::test_budget_values[C12-936-FY2023 Aeronautics]
+PASSED ../verifier/test_outputs.py::test_budget_values[K10-23285-FY2021 Total]
+PASSED ../verifier/test_outputs.py::test_budget_values[E10-6555-FY2021 Exploration]
+PASSED ../verifier/test_outputs.py::test_yoy_values[D7-21.97-FY2019 SpaceTech YoY]
+PASSED ../verifier/test_outputs.py::test_yoy_values[F9--0.08-FY2021 SpaceOps YoY]
+PASSED ../verifier/test_outputs.py::test_yoy_values[B9-2.27-FY2021 Science YoY]
+PASSED ../verifier/test_outputs.py::test_shares_values[F5-26.08-FY2016 SpaceOps Share]
+PASSED ../verifier/test_outputs.py::test_shares_values[B10-31.35-FY2021 Science Share]
+PASSED ../verifier/test_outputs.py::test_growth_values[B7-1534-Science 5yr Change]
+PASSED ../verifier/test_outputs.py::test_growth_values[E4-8.58-Exploration CAGR]
+PASSED ../verifier/test_outputs.py::test_growth_values[E5-5047-FY2019 Exploration]
+PASSED ../verifier/test_outputs.py::test_no_remaining_placeholders
+PASSED ../verifier/test_outputs.py::test_row_sums_consistent
+PASSED ../verifier/test_outputs.py::test_cross_sheet_consistency
+FAILED ../verifier/test_outputs.py::test_growth_values[B8-7444.4-Science Avg Budget]
+1 failed, 18 passed, 2 warnings in 0.68s
+

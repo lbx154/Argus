@@ -1,0 +1,85 @@
+{
+  "purpose": "Independent audit after all evaluation runs; original scores remain unchanged",
+  "growth_labels": [
+    [
+      "5-Year Growth Analysis (FY2019-2024)",
+      null,
+      null
+    ],
+    [
+      "Metric",
+      "Science",
+      "Aeronautics"
+    ],
+    [
+      "5-Year CAGR (%)",
+      4.09,
+      5.91
+    ],
+    [
+      "FY2019 Budget ($M)",
+      6906,
+      725
+    ],
+    [
+      "FY2024 Budget ($M)",
+      8440,
+      966
+    ],
+    [
+      "5-Year Change ($M)",
+      "???",
+      241
+    ],
+    [
+      "Avg Annual Budget ($M)",
+      "???",
+      859.3
+    ]
+  ],
+  "science_2019_to_2024": [
+    6906,
+    7139,
+    7301,
+    7614,
+    8262,
+    8440
+  ],
+  "science_five_year_average": 7444.4,
+  "science_six_year_average": 7610.3,
+  "other_supplied_averages": [
+    {
+      "column": "D",
+      "supplied_average": 1100.2,
+      "five_year_average": 1083.8,
+      "six_year_average": 1100.2
+    },
+    {
+      "column": "G",
+      "supplied_average": 131,
+      "five_year_average": 128.6,
+      "six_year_average": 131
+    },
+    {
+      "column": "H",
+      "supplied_average": 2970.2,
+      "five_year_average": 2951.8,
+      "six_year_average": 2970.2
+    },
+    {
+      "column": "I",
+      "supplied_average": 430.2,
+      "five_year_average": 429.8,
+      "six_year_average": 430.2
+    },
+    {
+      "column": "J",
+      "supplied_average": 44.8,
+      "five_year_average": 44.2,
+      "six_year_average": 44.8
+    }
+  ],
+  "official_expected_science_average": 7444.4,
+  "all_four_agents_science_average": 7610.3,
+  "finding": "The oracle averages five science entries (2019\u20132023), while the other supplied average-budget entries follow the six-entry 2019\u20132024 window. All agents use that six-entry convention. This is a reference/data consistency issue, not evidence that learned skills improved or degraded accuracy."
+}

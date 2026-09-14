@@ -1,0 +1,119 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 11,
+            "passed": 11,
+            "failed": 0,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1789370821.1682878,
+            "stop": 1789370821.1993406
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::TestFileExists::test_output_file_exists",
+                "status": "passed",
+                "duration": 0.480826070997864,
+                "start": 1789370821.1910312,
+                "stop": 1789370821.191723,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestFileExists::test_output_file_valid_json",
+                "status": "passed",
+                "duration": 0.4760240553878248,
+                "start": 1789370821.191895,
+                "stop": 1789370821.1924996,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestFileExists::test_output_has_required_keys",
+                "status": "passed",
+                "duration": 0.43881399324163795,
+                "start": 1789370821.1926553,
+                "stop": 1789370821.1932108,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestDeletedEmployees::test_correct_deleted_count",
+                "status": "passed",
+                "duration": 0.479474023450166,
+                "start": 1789370821.1933606,
+                "stop": 1789370821.1939692,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestDeletedEmployees::test_correct_deleted_ids",
+                "status": "passed",
+                "duration": 0.4822550108656287,
+                "start": 1789370821.1941214,
+                "stop": 1789370821.1947205,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestModifiedEmployees::test_correct_modified_count",
+                "status": "passed",
+                "duration": 0.44747302308678627,
+                "start": 1789370821.1948776,
+                "stop": 1789370821.195437,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestModifiedEmployees::test_modified_employee_structure",
+                "status": "passed",
+                "duration": 0.4134339978918433,
+                "start": 1789370821.195598,
+                "stop": 1789370821.1961257,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestModifiedEmployees::test_correct_modified_ids",
+                "status": "passed",
+                "duration": 0.5537469405680895,
+                "start": 1789370821.1962807,
+                "stop": 1789370821.1969495,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestModifiedEmployees::test_correct_modified_fields",
+                "status": "passed",
+                "duration": 0.47605298459529877,
+                "start": 1789370821.1970985,
+                "stop": 1789370821.1976907,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestModifiedEmployees::test_correct_modified_values",
+                "status": "passed",
+                "duration": 0.48133404925465584,
+                "start": 1789370821.1978452,
+                "stop": 1789370821.19844,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::TestIntegration::test_full_comparison",
+                "status": "passed",
+                "duration": 0.47649501357227564,
+                "start": 1789370821.198608,
+                "stop": 1789370821.1991944,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

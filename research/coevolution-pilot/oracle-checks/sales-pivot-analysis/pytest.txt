@@ -1,0 +1,37 @@
+........sss...............                                               [100%]
+=============================== warnings summary ===============================
+../usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475
+  /usr/local/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /verifier/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/verifier/pytest-cache-files-ljoya0lt'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_row_is_state[Population by State-sum-None]
+PASSED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_row_is_state[Earners by State-sum-None]
+PASSED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_row_is_state[Regions by State-count-None]
+PASSED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_row_is_state[State Income Quartile-sum-quarter]
+PASSED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_uses_correct_aggregation[Population by State-sum-None]
+PASSED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_uses_correct_aggregation[Earners by State-sum-None]
+PASSED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_uses_correct_aggregation[Regions by State-count-None]
+PASSED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_uses_correct_aggregation[State Income Quartile-sum-quarter]
+PASSED ../verifier/test_outputs.py::TestPivotTableConfiguration::test_pivot_col_field[State Income Quartile-sum-quarter]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[SA2_CODE-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[SA2_NAME-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[STATE-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[POPULATION_2023-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[EARNERS-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[MEDIAN_INCOME-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[Quarter-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataSheet::test_source_data_has_required_column[Total-<lambda>]
+PASSED ../verifier/test_outputs.py::TestSourceDataContent::test_source_data_has_reasonable_row_count
+PASSED ../verifier/test_outputs.py::TestSourceDataContent::test_quarter_values_are_valid
+PASSED ../verifier/test_outputs.py::TestSourceDataContent::test_state_values_are_valid
+PASSED ../verifier/test_outputs.py::TestDataTransformationCorrectness::test_pivot_cache_has_fields
+PASSED ../verifier/test_outputs.py::TestDataTransformationCorrectness::test_total_equals_earners_times_median_income
+PASSED ../verifier/test_outputs.py::TestDataTransformationCorrectness::test_sa2_codes_from_income_file_present
+SKIPPED [1] ../verifier/test_outputs.py:81: 'Population by State' is not a matrix pivot
+SKIPPED [1] ../verifier/test_outputs.py:81: 'Earners by State' is not a matrix pivot
+SKIPPED [1] ../verifier/test_outputs.py:81: 'Regions by State' is not a matrix pivot
+23 passed, 3 skipped, 1 warning in 0.91s
+

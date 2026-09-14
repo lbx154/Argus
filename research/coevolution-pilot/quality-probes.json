@@ -1,0 +1,83 @@
+{
+  "purpose": "Post-freeze functional/knowledge audit, never included in benchmark score or fed to evaluation agents",
+  "csv_multiline": {
+    "preview": {
+      "kind": "csv",
+      "items": [
+        {
+          "source_id": "row:2",
+          "row": {
+            "id": "0007",
+            "note": "two\nlines"
+          }
+        },
+        {
+          "source_id": "row:3",
+          "row": {
+            "id": "0008",
+            "note": "end"
+          }
+        }
+      ],
+      "columns": [
+        "id",
+        "note"
+      ],
+      "path": "/tmp/tmpo4mjth4w/multiline.csv"
+    },
+    "physical_positions": [
+      {
+        "id": "0007",
+        "physical_end_line": 3
+      },
+      {
+        "id": "0008",
+        "physical_end_line": 4
+      }
+    ],
+    "finding": "source_id is a logical record index, not a physical CSV line number; the generated Wiki wording is too strong"
+  },
+  "csv_duplicate_headers": {
+    "preview": {
+      "kind": "csv",
+      "items": [
+        {
+          "source_id": "row:2",
+          "row": {
+            "id": "A",
+            "value": "9"
+          }
+        }
+      ],
+      "columns": [
+        "id",
+        "value",
+        "value"
+      ],
+      "path": "/tmp/tmpo4mjth4w/duplicate.csv"
+    },
+    "finding": "Duplicate column names overwrite an earlier value, including zero; the Wiki explicitly notes this for XLSX but not CSV"
+  },
+  "xlsx_formula_and_sheet_limit": {
+    "preview": {
+      "kind": "xlsx",
+      "items": [
+        {
+          "source_id": "Values!2",
+          "sheet": "Values",
+          "row": {
+            "id": "A",
+            "formula": null,
+            "zero": 0
+          }
+        }
+      ],
+      "sheets": [
+        "Values",
+        "Later"
+      ],
+      "path": "/tmp/tmpo4mjth4w/formulas.xlsx"
+    },
+    "finding": "Uncached formulas appear as null, zero is preserved, and later-sheet row data is omitted at the global limit; these limits are documented in the Wiki"
+  }
+}
