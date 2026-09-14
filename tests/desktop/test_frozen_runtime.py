@@ -28,7 +28,7 @@ SPEC_PATH = ROOT / "desktop-tauri" / "argus_backend.spec"
 
 
 def test_desktop_multicommand_test_step_fails_on_first_error() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+    workflow = (ROOT / ".github" / "workflows" / "extended.yml").read_text(
         encoding="utf-8"
     )
     step = workflow.split("- name: Lint and test desktop sources", 1)[1].split(
@@ -43,7 +43,7 @@ def test_desktop_build_stops_on_each_failed_command(tmp_path, failed_stage) -> N
     shell = shutil.which("pwsh") or shutil.which("powershell")
     if shell is None:
         pytest.skip("PowerShell is required to execute the Windows CI build step")
-    workflow = yaml.safe_load((ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8"))
+    workflow = yaml.safe_load((ROOT / ".github/workflows/extended.yml").read_text(encoding="utf-8"))
     step = next(step for step in workflow["jobs"]["desktop"]["steps"]
                 if step.get("name") == "Build frozen backend and unsigned Tauri package layout")
     backend = tmp_path / "desktop-tauri/scripts/build-backend.ps1"

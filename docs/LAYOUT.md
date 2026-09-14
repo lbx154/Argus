@@ -120,7 +120,7 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 
 - `.agents/` - agent-host marketplace manifest plus the `minimal-rigorous-work` Skill for agents working on this repository.
 - `.claude-plugin/` - Claude Code marketplace manifest pointing at `plugins/argus`.
-- `.github/` - CI workflows (tests, PR gate, release, desktop cache and trial) and Copilot instructions.
+- `.github/` - CI workflows: `tests` (the single per-push check: ruff, mypy gate, full pytest on Linux), `extended` (portable macOS/Windows surface, frontend, Windows desktop package; on demand only), `pr-gate`, `release`, `desktop-cache`, `desktop-trial`; plus Copilot instructions.
 - `argus_skill/` - the Python package; everything above. Also carries `plugin_catalog.json`.
 - `companions/` - `FLYWHEEL`, a standalone research-data-flywheel control plane that talks to Argus only over the versioned WebAPI. Not built, not tested, not shipped.
 - `contrib/` - community contributions (`figure-studio` paper-figure pipeline, `pi-research-workflow-skill` for Pi/Hermes). Not built, not tested, not shipped.
