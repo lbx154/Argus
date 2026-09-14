@@ -239,10 +239,14 @@ def _configure_tui_backend_bin() -> None:
         return
     if os.environ.get("ARGUS_SKILL_BIN", "").strip():
         return
-    backend_name = "argus.exe" if os.name == "nt" else "argus"
-    sibling = Path(sys.executable).parent / backend_name
-    if sibling.is_file():
-        os.environ["ARGUS_SKILL_BIN"] = str(sibling)
+    # ``argus`` routes ``--web --web-host/--web-port`` to the Python CLI; the
+    # pre-rename ``argus-skill`` launcher is the fallback for one release.
+    suffix = ".exe" if os.name == "nt" else ""
+    for backend_name in ("argus", "argus-skill"):
+        sibling = Path(sys.executable).parent / f"{backend_name}{suffix}"
+        if sibling.is_file():
+            os.environ["ARGUS_SKILL_BIN"] = str(sibling)
+            return
 
 
 def _configure_tui_life_dir(argv: list[str]) -> list[str]:

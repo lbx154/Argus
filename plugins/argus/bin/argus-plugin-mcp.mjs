@@ -5,7 +5,10 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const moduleName = 'argus.plugin.mcp_server';
+// The MCP server module. `argus_skill` is the package's pre-rename import
+// name, still importable through its alias for one release.
+const LEGACY_PACKAGE = 'argus_skill';
+const MODULE_NAMES = ['argus.plugin.mcp_server', `${LEGACY_PACKAGE}.plugin.mcp_server`];
 
 function pythonCandidates() {
   const explicit = process.env.ARGUS_PLUGIN_PYTHON?.trim();
@@ -30,17 +33,25 @@ function pythonCandidates() {
 }
 
 function supportsArgus(command, prefix) {
-  const probe = spawnSync(
-    command,
-    [...prefix, '-c', 'import argus'],
-    { stdio: 'ignore', windowsHide: true },
-  );
-  return probe.status === 0;
+  for (const candidate of MODULE_NAMES) {
+    const probe = spawnSync(
+      command,
+      [...prefix, '-c', `import importlib.util, sys; sys.exit(0 if importlib.util.find_spec(${JSON.stringify(candidate)}) else 1)`],
+      { stdio: 'ignore', windowsHide: true },
+    );
+    if (probe.status === 0) return candidate;
+  }
+  return null;
 }
 
-const selected = pythonCandidates().find(([command, prefix]) =>
-  supportsArgus(command, prefix)
-);
+let selected = null;
+for (const [command, prefix] of pythonCandidates()) {
+  const moduleName = supportsArgus(command, prefix);
+  if (moduleName) {
+    selected = [command, prefix, moduleName];
+    break;
+  }
+}
 if (!selected) {
   console.error(
     'Argus Python package is unavailable. Install Argus and run argus doctor, '
@@ -49,7 +60,7 @@ if (!selected) {
   process.exit(127);
 }
 
-const [command, prefix] = selected;
+const [command, prefix, moduleName] = selected;
 if (process.env.ARGUS_PLUGIN_LAUNCHER_DRY_RUN === '1') {
   console.log(JSON.stringify({
     command,

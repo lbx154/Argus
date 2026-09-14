@@ -22,9 +22,21 @@ def _finding(code, name, ok, detail, fix=""):
     }
 
 
+# The package directory is ``argus/``; ``argus_skill/`` in a checkout from
+# before the 2026-09-14 rename (a current checkout also carries a two-file
+# ``argus_skill/`` alias, so ``argus`` is probed first).
+_PACKAGE_DIRECTORIES = ("argus", "argus_skill")
+_IMPORT_PROBE = (
+    "import importlib, importlib.util\n"
+    "name = next((n for n in ('argus', 'argus_skill') if importlib.util.find_spec(n)), 'argus')\n"
+    "print(importlib.import_module(name).__version__)\n"
+)
+
+
 def _checkout(path):
     candidate = Path(path).expanduser().resolve()
-    return candidate if (candidate / "pyproject.toml").is_file() and (candidate / "argus").is_dir() else None
+    has_package = any((candidate / name).is_dir() for name in _PACKAGE_DIRECTORIES)
+    return candidate if (candidate / "pyproject.toml").is_file() and has_package else None
 
 
 def _find_checkout(explicit):
@@ -106,7 +118,7 @@ def run_bootstrap_doctor(root=None):
     runtime = checkout_runtime or Path(sys.executable)
     try:
         result = subprocess.run(
-            [str(runtime), "-c", "import argus; print(argus.__version__)"],
+            [str(runtime), "-c", _IMPORT_PROBE],
             cwd=str(checkout) if checkout is not None else None,
             check=False,
             capture_output=True,

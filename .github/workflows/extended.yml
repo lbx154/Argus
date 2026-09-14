@@ -159,6 +159,7 @@ jobs:
           uv tool install --python 3.12 .
           "$UV_TOOL_BIN_DIR/argus" --version
           "$UV_TOOL_BIN_DIR/argus" --help
+          "$UV_TOOL_BIN_DIR/argus-skill" --version
 
       - name: Smoke Windows direct pip install
         if: runner.os == 'Windows'
@@ -166,10 +167,11 @@ jobs:
         run: |
           python -m pip install build
           python -m build --wheel
-          python -m pip uninstall -y argus
+          python -m pip uninstall -y argus argus-skill
           python -m pip install --no-deps (Get-ChildItem dist\*.whl).FullName
           argus --version
           argus --help
+          argus-skill --version
 
       # The pairing banner is written to stderr, which on Windows uses the ANSI
       # code page (cp1252/cp936) whenever output is redirected — not UTF-8.
@@ -250,7 +252,7 @@ jobs:
       - name: Lint and test desktop sources
         shell: bash
         run: |
-          python -m ruff check argus desktop-tauri/scripts tests/desktop
+          python -m ruff check argus argus_skill desktop-tauri/scripts tests/desktop
           python -m pytest -q tests/desktop/test_frozen_runtime.py
           python -m pytest -q tests/desktop/test_native_window_chrome.py tests/desktop/test_windows_installer_preflight.py tests/desktop/test_windows_backend_build.py
           npm --prefix desktop-tauri run test:release

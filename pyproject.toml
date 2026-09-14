@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "argus-skill"
+name = "argus"
 version = "0.1.7"
 description = "Argus — a persistent, reviewed runtime for autonomous research and engineering."
 readme = "README.md"
@@ -48,7 +48,8 @@ dependencies = [
 # The seventeen community verticals (quant, speedrun, kernelbench, medical, the
 # literary verticals, ...) and their own extras (the former ``quant`` and
 # ``zh-fold``) live in https://github.com/Argus-AiTeam/argus-verticals and
-# register through the ``argus_skill.verticals`` entry-point group:
+# register through the ``argus.verticals`` entry-point group (the pre-rename
+# ``argus_skill.verticals`` group is still read for one release):
 #   pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
 # Deliberately not a dependency here: the framework must run without any
 # particular vertical installed.
@@ -111,25 +112,27 @@ dev = [
 ]
 
 [project.scripts]
-argus-trial-server = "argus_skill.trial.admin:main"
-argus-compute = "argus_skill.trial.compute_client:main"
-argus = "argus_skill.apps.tui_launcher:main"
+argus-trial-server = "argus.trial.admin:main"
+argus-compute = "argus.trial.compute_client:main"
+argus = "argus.apps.tui_launcher:main"
 argus-doctor = "argus_doctor:main"
-argus-skill = "argus_skill.__main__:main"
-argus-plugin-server = "argus_skill.plugin.mcp_server:main"
+# Pre-rename command name, kept for one release; prints a deprecation line.
+argus-skill = "argus.__main__:main"
+argus-plugin-server = "argus.plugin.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/lbx154/Argus"
 Repository = "https://github.com/lbx154/Argus"
 
 [tool.hatch.build.targets.wheel]
-packages = ["argus_skill"]
+# ``argus_skill`` is the two-file import alias kept for one release.
+packages = ["argus", "argus_skill"]
 # Package Markdown and JSON files are runtime Skill data.
 
 [tool.hatch.build.targets.wheel.force-include]
 "argus_doctor.py" = "argus_doctor.py"
-"frontend/tui/bundle/argus.mjs" = "argus_skill/_frontend/tui/bundle/argus.mjs"
-"frontend/web/dist" = "argus_skill/_frontend/web/dist"
+"frontend/tui/bundle/argus.mjs" = "argus/_frontend/tui/bundle/argus.mjs"
+"frontend/web/dist" = "argus/_frontend/web/dist"
 
 [tool.hatch.build.targets.sdist]
 # Include checked-in frontend artifacts in source distributions.
@@ -138,6 +141,7 @@ artifacts = [
 ]
 include = [
   "argus_doctor.py",
+  "argus/**",
   "argus_skill/**",
   "tests/**",
   "frontend/tui/bundle/**",
@@ -168,7 +172,7 @@ ignore = [
 "tests/*" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["argus_skill"]
+known-first-party = ["argus", "argus_skill"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
@@ -184,13 +188,14 @@ filterwarnings = [
 [tool.mypy]
 python_version = "3.11"
 exclude = '''^(?:build|dist|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv)(?:/|$)'''
-# Type-check stable shared contracts.
+# Type-check stable shared contracts (the argus_skill alias package is not
+# type-checked: it is an import-time shim).
 files = [
-  "argus_skill/core",
-  "argus_skill/life/router.py",
-  "argus_skill/manager/config_intent.py",
-  "argus_skill/agent_cli/copilot_acp.py",
-  "argus_skill/webapi/diagnostics.py",
+  "argus/core",
+  "argus/life/router.py",
+  "argus/manager/config_intent.py",
+  "argus/agent_cli/copilot_acp.py",
+  "argus/webapi/diagnostics.py",
 ]
 warn_unused_ignores = true
 warn_redundant_casts = true

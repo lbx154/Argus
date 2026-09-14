@@ -35,7 +35,7 @@ def plan_local_argus(
     campaign_root: Path,
     objective_file: Path,
     backend: str,
-    executable: str = "argus",
+    executable: str | None = None,
     mission_width: int = 2,
 ) -> dict[str, Any]:
     """Return a dry-run argv; route code must make execution a separate approval."""

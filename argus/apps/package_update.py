@@ -19,6 +19,10 @@ from .update_install import validate_pip_target
 from .update_launcher import preserve_windows_launchers
 
 PACKAGE = "argus"
+#: Distribution name before the 2026-09-14 rename. An installation made under
+#: it is still found, and is uninstalled before ``argus`` is installed so a
+#: stale full ``argus_skill/`` tree cannot outlive the two-file alias.
+LEGACY_PACKAGE = "argus-skill"
 _REPOSITORIES = {"lbx154/argus", "lbx154/argus-skill", "microsoft/argusagent"}
 
 
@@ -147,6 +151,20 @@ def _package_source(distribution) -> tuple[str, str, bool]:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")), note, False
 
 
+def _normalized_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", str(name or "")).lower()
+
+
+def _installed_distribution() -> metadata.Distribution:
+    """The running Argus distribution: ``argus``, else the pre-rename ``argus-skill``."""
+    for name in (PACKAGE, LEGACY_PACKAGE):
+        try:
+            return metadata.distribution(name)
+        except metadata.PackageNotFoundError:
+            continue
+    raise metadata.PackageNotFoundError(PACKAGE)
+
+
 def _uv_tool_receipt(prefix: Path, installer: str) -> dict | None:
     from .update import UpdateError
 
@@ -161,8 +179,15 @@ def _uv_tool_receipt(prefix: Path, installer: str) -> dict | None:
         normalized = re.sub(r"[-_.]+", "-", name).lower()
     except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
         raise UpdateError("could not identify the current uv tool environment from its receipt") from exc
-    if installer != "uv" or normalized != PACKAGE or prefix.name.lower() != PACKAGE:
+    if (installer != "uv" or normalized not in {PACKAGE, LEGACY_PACKAGE}
+            or prefix.name.lower() != normalized):
         raise UpdateError("the current uv tool receipt does not identify an Argus tool environment")
+    if normalized == LEGACY_PACKAGE:
+        raise UpdateError(
+            "this uv tool environment was installed under the pre-rename name argus-skill; "
+            "run `uv tool uninstall argus-skill` and then "
+            "`uv tool install \"argus @ <source>\"` to migrate it"
+        )
     return receipt["tool"]
 
 
@@ -230,9 +255,10 @@ def update_installed_package(*, runner=None) -> PackageUpdateResult:
 
     run = runner or _run_command
     try:
-        distribution = metadata.distribution(PACKAGE)
+        distribution = _installed_distribution()
     except metadata.PackageNotFoundError as exc:
         raise UpdateError("no installed argus package metadata was found") from exc
+    legacy_install = _normalized_name(distribution.metadata["Name"]) == LEGACY_PACKAGE
     prefix = Path(sys.prefix).resolve()
     installed_root = Path(distribution.locate_file("")).resolve()
     user_site = Path(site.getusersitepackages()).resolve()
@@ -270,6 +296,8 @@ def update_installed_package(*, runner=None) -> PackageUpdateResult:
         channel = "uv tool"
     elif installer != "uv" and importlib.util.find_spec("pip") is not None:
         validate_pip_target(sys.executable, prefix, run, user_install=user_install)
+        if legacy_install:
+            _checked(run, [sys.executable, "-m", "pip", "uninstall", "-y", LEGACY_PACKAGE], cwd=prefix)
         command = [
             sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall",
             "--no-cache-dir", source,
@@ -286,6 +314,8 @@ def update_installed_package(*, runner=None) -> PackageUpdateResult:
                 "this Python environment has no pip and uv is unavailable; "
                 "install pip in this environment or restore uv before updating"
             )
+        if legacy_install:
+            _checked(run, [uv, "pip", "uninstall", "--python", sys.executable, LEGACY_PACKAGE], cwd=prefix)
         command = [
             uv, "pip", "install", "--python", sys.executable,
             "--reinstall-package", PACKAGE, "--upgrade-package", PACKAGE, "--no-cache", source,

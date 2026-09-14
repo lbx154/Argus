@@ -1287,6 +1287,12 @@ def _terminate_windows_process_tree(
         return False
 
 
+#: Teammate entry modules by argv token. Teammates spawned before the
+#: 2026-09-14 package rename still carry the ``argus_skill`` spelling; both
+#: are recognised for one release.
+_TEAMMATE_ENTRY_MODULES = ("argus.team.teammate_entry", "argus_skill.team.teammate_entry")
+
+
 def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
     """Return verified POSIX process groups led by Team teammate entries."""
     if os.name == "nt":
@@ -1303,7 +1309,7 @@ def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
         except (OSError, ProcessLookupError, ValueError):
             continue
         if (
-            "argus.team.teammate_entry" in argv
+            any(module in argv for module in _TEAMMATE_ENTRY_MODULES)
             and pgid == int(pid)
             and pgid > 1
         ):

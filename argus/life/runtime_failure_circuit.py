@@ -114,20 +114,42 @@ def normalize_runtime_failure_message(message: object) -> str:
     return _WHITESPACE_RE.sub(" ", text.replace("\\", "/")).strip()[:2000]
 
 
+# The package directory as imported (and symlink-resolved): frames below it are
+# Argus's own code. Fingerprints persisted before the 2026-09-14 rename spell
+# the callsite ``argus_skill/...``; new ones spell it ``argus/...``, so a
+# circuit that tripped on the old tree re-arms once on the same failure.
+_PACKAGE_ROOTS = tuple(
+    dict.fromkeys(
+        str(root).replace("\\", "/").rstrip("/") + "/"
+        for root in (Path(__file__).parents[1], Path(__file__).resolve().parents[1])
+    )
+)
+_LEGACY_PACKAGE_MARKER = "/argus_skill/"
+
+
+def _package_relative_filename(filename: str) -> str | None:
+    """``argus/<path>`` for a frame inside this package (either spelling), else ``None``."""
+    normalized = filename.replace("\\", "/")
+    for root in _PACKAGE_ROOTS:
+        if normalized.startswith(root):
+            return "argus/" + normalized[len(root):]
+    marker = normalized.rfind(_LEGACY_PACKAGE_MARKER)
+    if marker >= 0:
+        return "argus/" + normalized[marker + len(_LEGACY_PACKAGE_MARKER):]
+    return None
+
+
 def _exception_callsite(exc: BaseException) -> str:
     frames = traceback.extract_tb(exc.__traceback__)
     selected = frames[-1] if frames else None
+    filename = selected.filename.replace("\\", "/") if selected is not None else ""
     for frame in reversed(frames):
-        normalized = frame.filename.replace("\\", "/")
-        if "/argus/" in normalized:
-            selected = frame
+        relative = _package_relative_filename(frame.filename)
+        if relative is not None:
+            selected, filename = frame, relative
             break
     if selected is None:
         return "unknown"
-    filename = selected.filename.replace("\\", "/")
-    marker = filename.rfind("/argus/")
-    if marker >= 0:
-        filename = filename[marker + 1 :]
     return f"{filename}:{selected.name}"
 
 

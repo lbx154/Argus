@@ -11,6 +11,22 @@ from pathlib import Path
 from typing import Any
 
 _VERIFY_FROZEN_RUNTIME = "--verify-frozen-runtime"
+_PACKAGE = "argus"
+#: Import name before the 2026-09-14 rename. Seeded Skill copies and older
+#: daemons still spell ``-m argus_skill.…``; accepted for one release.
+_LEGACY_PACKAGE = "argus_skill"
+
+
+def _canonical_frozen_module(module: str) -> str | None:
+    """``unittest`` or an in-package module under its canonical name; else ``None``."""
+    if module == "unittest":
+        return module
+    for package in (_PACKAGE, _LEGACY_PACKAGE):
+        if module == package:
+            return _PACKAGE
+        if module.startswith(package + "."):
+            return _PACKAGE + module[len(package):]
+    return None
 
 
 def _install_windows_signal_zero_guard(*, platform_name: str | None = None) -> None:
@@ -131,14 +147,10 @@ def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
     original_path = sys.path[:]
     try:
         if len(args) >= 2 and args[0] == "-m":
-            module = args[1].strip()
-            if (
-                module != "unittest"
-                and module != "argus"
-                and not module.startswith("argus.")
-            ):
+            module = _canonical_frozen_module(args[1].strip())
+            if module is None:
                 print(
-                    f"argus-backend: refusing non-Argus frozen module {module!r}",
+                    f"argus-backend: refusing non-Argus frozen module {args[1].strip()!r}",
                     file=sys.stderr,
                     flush=True,
                 )

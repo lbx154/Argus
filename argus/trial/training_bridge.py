@@ -31,7 +31,15 @@ from .training_capture import (
 )
 
 IMAGE_PACKAGE = Path("/opt/argus/argus/trial")
+#: Trial images built before the 2026-09-14 package rename install the package
+#: at this path and spawn ``-m argus_skill.daemon.spawn_helper``; both layouts
+#: are verified for one release until the images are rebuilt.
+LEGACY_IMAGE_PACKAGE = Path("/opt/argus/argus_skill/trial")
 EXTENSION_NAME = "pi_training_extension.mjs"
+_SPAWN_HELPER_ARGV = (
+    ["-m", "argus.daemon.spawn_helper"],
+    ["-m", "argus_skill.daemon.spawn_helper"],
+)
 
 
 def _process(pid):
@@ -113,7 +121,7 @@ class PeerVerifier:
                     or _process(control_parent["pid"])["started"] != control_parent["started"]):
                 raise AnalyticsError(403, "training_peer_parent_mismatch")
             # Both fork children retain the exact fresh-interpreter helper argv.
-            if [arg for arg in proc["argv"][1:] if arg] != ["-m", "argus.daemon.spawn_helper"]:
+            if [arg for arg in proc["argv"][1:] if arg] not in _SPAWN_HELPER_ARGV:
                 raise AnalyticsError(403, "training_daemon_helper_arguments_mismatch")
         elif registered is not None:
             executable = Path(os.readlink(Path("/proc") / str(pid) / "exe")).name
@@ -315,7 +323,8 @@ class TrainingBridge:
                 extensions = [argv[index + 1] for index, arg in enumerate(argv[:-1]) if arg in {"-e", "--extension"}]
                 accepts_extension = getattr(self.verify, "accepts_extension", None)
                 if (not any(accepts_extension(path) for path in extensions) if accepts_extension
-                        else str(IMAGE_PACKAGE / EXTENSION_NAME) not in extensions):
+                        else not any(str(package / EXTENSION_NAME) in extensions
+                                     for package in (IMAGE_PACKAGE, LEGACY_IMAGE_PACKAGE))):
                     raise AnalyticsError(403, "training_observer_arguments_mismatch")
                 parent = self._parent(peer, value["sid"])
                 # Registration is metadata-only; grant eligibility is checked

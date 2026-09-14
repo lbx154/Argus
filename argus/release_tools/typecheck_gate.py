@@ -13,6 +13,10 @@ from collections import Counter
 from pathlib import Path
 
 _ERROR = re.compile(r"^(.+?):\d+(?::\d+)?: error: (.+)$")
+# The package was ``argus_skill/`` before 2026-09-14; diagnostics from a base
+# revision that predates the rename are keyed by the current path.
+_PACKAGE_PREFIX = re.compile(r"^argus(?:_skill)?/")
+_PACKAGE_DIRECTORIES = ("argus", "argus_skill")
 
 
 def diagnostic_counts(output: str, *, source_only: bool = False) -> Counter[str]:
@@ -20,7 +24,7 @@ def diagnostic_counts(output: str, *, source_only: bool = False) -> Counter[str]
     counts: Counter[str] = Counter()
     for line in output.splitlines():
         if match := _ERROR.match(line):
-            filename = match[1].replace("\\", "/")
+            filename = _PACKAGE_PREFIX.sub("argus/", match[1].replace("\\", "/"))
             if source_only and not filename.startswith("argus/"):
                 continue  # Dependencies are analyzed; their diagnostics stay in the raw logs.
             message = match[2]
@@ -45,6 +49,19 @@ def _run_mypy(root: Path) -> str:
     return output
 
 
+def _archive_base(revision: str, root: Path) -> bytes:
+    """``git archive`` of the package and pyproject at ``revision``, either package name."""
+    failure: subprocess.CalledProcessError | None = None
+    for directory in _PACKAGE_DIRECTORIES:
+        command = ["git", "archive", revision, "--", directory, "pyproject.toml"]
+        result = subprocess.run(command, cwd=root, capture_output=True, check=False)
+        if result.returncode == 0:
+            return result.stdout
+        failure = subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
+    assert failure is not None
+    raise failure
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="HEAD^", help="Git revision to compare against")
@@ -56,9 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         revision = subprocess.check_output(
             ["git", "rev-parse", "--verify", f"{base_ref}^{{commit}}"], cwd=root, text=True,
         ).strip()
-        archive = subprocess.check_output(
-            ["git", "archive", revision, "--", "argus", "pyproject.toml"], cwd=root,
-        )
+        archive = _archive_base(revision, root)
         with tempfile.TemporaryDirectory(prefix="argus-typecheck-base-") as directory:
             baseline = Path(directory)
             with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:

@@ -153,7 +153,7 @@ def _sanitize_planner_task_text(text: str) -> str:
         (
             r"(?:PYTHONPATH=(?P<source>/[^\s`]+)\s+)?"
             r"(?:/[^\s`]+/)?python(?:\d+(?:\.\d+)*)?"
-            r"\s+-m\s+argus"
+            r"\s+-m\s+(?:argus_skill|argus)\b"  # both spellings; emits ``-m argus``
         ),
         _replace_entry_command,
         value,
@@ -168,7 +168,7 @@ def _sanitize_planner_task_text(text: str) -> str:
     )
     for source in sorted(legacy_sources, key=len, reverse=True):
         source_path = PurePosixPath(source)
-        if source_path.name not in {"Argus", "argus"}:
+        if source_path.name not in {"Argus", "argus", "argus-skill"}:  # checkout dir names
             continue
         research_playbook = str(source_path.parent / "research.md")
         value = _replace_path_token(

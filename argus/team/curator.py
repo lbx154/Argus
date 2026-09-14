@@ -107,6 +107,14 @@ def _windows_process_handle_alive(handle: int) -> bool:
     return wait(ctypes.c_void_p(handle), 0) == _WAIT_TIMEOUT
 
 
+#: Teammates spawned before the 2026-09-14 package rename still carry the
+#: ``argus_skill`` spelling in argv; both are recognised for one release.
+_TEAMMATE_ENTRY_MODULES = ("argus.team.teammate_entry", "argus_skill.team.teammate_entry")
+_TEAMMATE_ENTRY_COMMAND_LINE = re.compile(
+    r"(?:^|\s)(?:argus|argus_skill)\.team\.teammate_entry(?:\s|$)"
+)
+
+
 def _pid_is_teammate(pid: int, member_id: str, root: Path | None = None) -> bool:
     """Verify an adopted PID against exact teammate command-line arguments."""
     command_line = _windows_process_command_line(pid) if os.name == "nt" else ""
@@ -134,12 +142,9 @@ def _pid_is_teammate(pid: int, member_id: str, root: Path | None = None) -> bool
             return False
         command_line = result.stdout.strip()
     if argv:
-        if "argus.team.teammate_entry" not in argv:
+        if not any(module in argv for module in _TEAMMATE_ENTRY_MODULES):
             return False
-    elif not re.search(
-        r"(?:^|\s)argus\.team\.teammate_entry(?:\s|$)",
-        command_line,
-    ):
+    elif not _TEAMMATE_ENTRY_COMMAND_LINE.search(command_line):
         return False
 
     def option(name: str) -> str:

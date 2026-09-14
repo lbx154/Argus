@@ -535,7 +535,8 @@ def _launcher_failure_message(detail: str, returncode: int) -> str:
     collapsing it left the operator with "- or start this objective in a
     different directory" and no idea what was holding the directory.
 
-    So anchor on the framework's own ``argus:`` prefix when it is there
+    So anchor on the framework's own ``argus:`` prefix (``argus-skill:``
+    from a launcher that predates the rename) when it is there
     and keep that message whole, and fall back to the last-line rule only for
     output the framework did not format — which in practice means a crash.
     """
@@ -543,7 +544,7 @@ def _launcher_failure_message(detail: str, returncode: int) -> str:
     starts = [
         index
         for index, line in enumerate(lines)
-        if line.strip().startswith("argus:")
+        if line.strip().startswith(("argus:", "argus-skill:"))
     ]
     if starts:
         return "\n".join(lines[starts[-1]:]).strip()

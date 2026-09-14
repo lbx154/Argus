@@ -93,6 +93,9 @@ domain_overlay_modules = collect_provider_modules(
 
 hiddenimports = (
     ["tzdata", "argus.trial.desktop", "certifi"]
+    # The pre-rename import alias: ``-c "from argus_skill... import"`` snippets
+    # from older daemons and Skill copies still resolve in the frozen backend.
+    + ["argus_skill", "argus_skill.__main__"]
     + collect_submodules("unittest")
     + collect_submodules("uvicorn")
     + collect_submodules("fastapi")
