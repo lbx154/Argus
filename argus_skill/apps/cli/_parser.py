@@ -389,6 +389,7 @@ def build_parser() -> argparse.ArgumentParser:
     capability_grp.add_argument(
         "--allow-prerelease",
         action="store_true",
+        default=None,
         help="allow an explicitly selected prerelease backend CLI",
     )
     capability_grp.add_argument(

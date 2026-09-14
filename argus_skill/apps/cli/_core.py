@@ -588,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
             backend=getattr(args, "backend", None),
             auth_mode=getattr(args, "auth_mode", None),
             non_interactive=bool(getattr(args, "non_interactive", False)),
-            allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+            allow_prerelease=getattr(args, "allow_prerelease", None),
             api_url=getattr(args, "api_url", None),
             api_key=getattr(args, "api_key", None),
             api_model=getattr(args, "api_model", None),
@@ -754,7 +754,7 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
         getattr(args, "auth_mode", None),
         probe_auth=True,
         probe_vault=not skip_vault_probe,
-        allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+        allow_prerelease=getattr(args, "allow_prerelease", None),
     )
     if not readiness.ok:
         sys.stderr.write(format_backend_readiness(readiness) + "\n")
@@ -841,7 +841,7 @@ def _maintenance_context(args: argparse.Namespace):
         install_mode=install_mode,
         backend=getattr(args, "backend", None),
         auth_mode=getattr(args, "auth_mode", None),
-        allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+        allow_prerelease=getattr(args, "allow_prerelease", None),
     )
 
 
