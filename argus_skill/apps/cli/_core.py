@@ -1,20 +1,25 @@
-"""argus-skill CLI — single-entry 7×24 lifetime agent.
+"""argus-skill CLI — the ``argus-skill`` console script of the 7×24 lifetime agent.
 
-The product has exactly one positioning: a long-running supervised
-coding agent that drains a backlog forever. There is therefore exactly
-one entry point — ``argus-skill`` — which:
+The product has one positioning: a long-running supervised coding agent
+that drains a backlog forever. ``argus-skill`` is the operator's entry to
+it and, with no subcommand:
 
 * launches the Ink cockpit, and
 * by default ensures a detached daemon is alive draining the backlog
   in the background even after you log out.
 
+It is not the only console script: ``pyproject.toml`` also installs
+``argus`` (TUI launcher), ``argus-doctor``, ``argus-plugin-server``,
+``argus-trial-server`` and ``argus-compute``; this module owns only
+``argus-skill``.
+
 Top-level flags control daemon lifecycle and read-only operator help
 (``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
-``--daemon-runbook``, ``--no-daemon``). The only subcommand is a small
-admin helper for explicitly bootstrapping and backfilling per-project
-idea wikis: ``argus-skill wiki init <project>`` and
-``argus-skill wiki ingest --wiki <path>``. The cockpit and backlog remain the
-single runtime workflow.
+``--daemon-runbook``, ``--no-daemon``). Subcommands are admin helpers —
+``doctor``, ``repair``, ``update``, ``learn`` and ``wiki`` (``wiki init
+<project>``, ``wiki ingest --wiki <path>``, ``wiki migrate``); ``_parser.py``
+is the authoritative list. The cockpit and backlog remain the single runtime
+workflow.
 """
 from __future__ import annotations
 

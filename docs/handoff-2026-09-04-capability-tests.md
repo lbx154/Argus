@@ -2430,3 +2430,77 @@ failed subagents and generic external work, full Engineer-to-Reviewer order,
 duplicate wait requests, new runs, monitored completion, and shutdown. The
 tests check that Reviewer sees the handled result rather than the old artifact.
 The change introduces no review schema, quality-round limit or acceptance shortcut.
+
+## 53. Declared package layering (2026-09-14 UTC)
+
+依据:`docs/audits/architecture-clarity-2026-09-14.md`(只读审计 + 十阶段方案 + 12 张
+待操作者决策卡)。核验过的结论(审计基线 `051c2948c`,27 个包;合入 main 时已是 29 个,新增 `advisor`、`messaging`):27 个包之间约 1,588 条跨包 import、68% 在函数体内、
+35 对互依,而代码、文档、测试没有任何一处声明谁可以依赖谁;core / skills / apps 名实
+相悖。第 0 阶段(命名与钉规则)不搬任何模块、不改行为(包根 `__init__` 改懒加载除外)、
+不需要重启任何进程。
+
+### 本批次落地(第 0 阶段)
+
+- `docs/LAYOUT.md`(新):八层分层表、29 个包各一句(诚实标出 core 的四个待抽出 tier、
+  skills 里的阶段机 + RL gate、apps 里的任务运行时、webapi 里的服务模块、cli 是终端
+  渲染、maintenance 是 Doctor)、17 个顶层目录各一句、ph1–10 计划搬动(标为计划)。
+- `docs/CORE_CONCEPTS.md` 追加 `## Glossary`:规范名 / 退役名表;Curator 按决策卡 2 的
+  默认写成"守护进程组件(`team/curator.py`),不是第五个持久角色"。
+- 29 个包 `__init__.py` 的 docstring 各含一行 `Layer: <层名>`;六个原 0 字节的 `__init__`
+  (core、skills、apps、adapters、daemon、engineer)补"属于这里 / 不属于这里(去哪)"。
+- `argus_skill/__init__.py` 改 PEP 562 懒加载,`import argus_skill.core.paths` 从加载
+  71 个 `argus_skill` 模块(其中 44 个引擎模块)降到 7 个(全部在 `argus_skill.core`
+  之内;测试断言 kernel 之外为 0)。
+- `tests/test_architecture_invariants.py` 第 8 节 "Declared layering":`LAYERS` 表 + 三张
+  **严格相等**的白名单(模块级向上边 25 条,键为 `文件 -> 目标包`;延迟向上对 82 个,
+  按 (文件, 目标包),函数体内与 `if TYPE_CHECKING:` 下的 import 同记为延迟;跨包私有
+  import 120 条,键为 `来源文件 -> 模块[.名字]`)+ 包 docstring 与 LAYOUT 表一致性 +
+  子进程验证 kernel 之外零模块加载 + 计数棘轮(非 manager 的阶段写入引用 10 处、退役名、
+  `memory.root` 读取 79 处)。
+  白名单以合入 main 时的树为基线;对照审计基线 `051c2948c`,09-11 到 09-14 这三天上游
+  自然新增了 4 条模块级向上边(`manager/observation.py`、`manager/supervision.py` → daemon,
+  `tools/experience.py` → life,`tools/peer.py` → messaging)、16 个延迟向上对、13 条私有
+  import——这正是没有棘轮时的漂移速度。
+- README 两版各加 "Repository layout / 仓库布局" 一节,指向 `docs/LAYOUT.md`。
+
+### 此后每个会话必须遵守的规则
+
+1. **修一条向上边 = 同一 PR 删掉它的白名单行。** 白名单是严格相等而非上界:修好了边却
+   没删行,测试同样红;失败信息直接打印要删的那一行。两个 PR 同时缩同一张表会冲突,
+   这是棘轮在工作,rebase 后重跑。
+2. **新包必须同时加进**测试里的 `LAYERS` 表和 `docs/LAYOUT.md`(分层表 + Packages 节),
+   否则分层测试红;新顶层目录必须写进 LAYOUT.md 的 "Repository top level"。
+3. **包 `__init__.py` 必须有且只有一行 `Layer: <层名>`**,层名与 LAYERS 一致。
+4. 模块顶层 import 只能指向本层或更低层;函数体内的向上 import 只许减少。`if TYPE_CHECKING:`
+   下的仅类型 import 记为延迟,不算模块级,进的是同一张延迟白名单。约 387 个懒
+   import 名字是测试的 monkeypatch 目标,**不要**为了"修边"一刀切提到顶层。
+
+### 后续计划日(每阶段 = 零内容 git mv + 一行 import + `sys.modules` 别名 shim + 缩一行白名单)
+
+ph1 core 成为模块级叶子(`core/backend_names.py` 等五个叶模块下沉、`agent_probe` 上移
+adapters、`core/version.py`);ph2 `ChecklistItem` 进契约、`verticals/inventory.py`、RL gate
+搬 `verticals/research/` 经 `research_bridge` 再导出(`stages.py` 是最热文件,当天早上落);
+ph3 `pipeline/`(卡 7);ph4 `_inbox` / `_life_actions` 进 life/;ph5 `mission_runner/`(卡 7);
+ph6 `cli/`→`terminal/`、`maintenance/`→`doctor/`、一次 sed、删 shim;ph7 `_base/_registry/
+_data_domain` → `loader/registry/data_domain`、`core.paths` 加 `project_state_root`;
+ph8(卡 3)/ ph9(卡 9、10)/ ph10(卡 11)门控。详见方案 4.4。
+
+### 搬动后必须重启开发树进程
+
+从 ph1 起,开发树里的每一次 `git mv` 都会立刻改变直接从 `/data/v-boxiuli/Argus/.venv`
+运行的进程的懒 import 目标。方案统计为 14 个,写作本节时 `ps` 可见 12 个开发树 .venv
+进程,其中真正 import `argus_skill` 的 9 个:trial 的 `egress` / `web_admin serve-meter` /
+`relay_guardian` / `admin_runtime` / `compute` / `web_portal`;三个
+`python -m argus_skill --web --no-daemon`(8897 / 8901 / 8902)。不受搬动影响的:
+`trial/socket_forward.py`(以另一 checkout 的脚本路径启动,只用标准库)和一个只轮询
+文件的 `python -u -` heredoc。同一提交带别名 shim 不能替代重启:每个搬动阶段都要重启这些
+进程或把它们迁到 pinned checkout;ph6 之后旧进程在 ff 过的树里会 import 失败,kill-first
+不可省。pinned checkout(`argus-runtime-20260909-385d9b336`、`argus-runtime-latest`)上的
+守护进程按既有 kill-first 纪律随各阶段重启。
+
+### 待拍板
+
+决策卡 1–12 见 `docs/audits/architecture-clarity-2026-09-14.md` 第 5 节。ph0 不依赖任何
+决策;卡 1(八层顺序)在 ph1 前确认;卡 7(`pipeline/`、`mission_runner/` 包名)前一天
+无回复则用默认;卡 3(`MemoryBundle.root` 返回主机根,项目级写入落哪里)门控 ph8,是
+首个有行为风险的阶段。

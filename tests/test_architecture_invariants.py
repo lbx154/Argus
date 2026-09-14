@@ -15,9 +15,16 @@ docstring, what breaks in production when that property stops holding.
 from __future__ import annotations
 
 import ast
+import functools
+import importlib.util
 import json
+import re
+import subprocess
+import sys
+from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import NamedTuple
 
 import pytest
 
@@ -55,22 +62,98 @@ def _python_files(*packages: str) -> list[Path]:
     return files
 
 
+class _ImportRecord(NamedTuple):
+    lineno: int
+    module: str
+    names: tuple[str, ...]
+    deferred: bool
+
+
+def _is_type_checking_guard(test: ast.expr) -> bool:
+    """``if TYPE_CHECKING:`` / ``if typing.TYPE_CHECKING:`` -- false at runtime."""
+    return (
+        (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING")
+        or (isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING")
+    )
+
+
+def _split_submodules(module: str, names: tuple[str, ...]) -> list[tuple[str, tuple[str, ...]]]:
+    """``from pkg import a, b`` -> ``pkg.a`` for each name that is a submodule on disk.
+
+    A name that is a directory or a ``<name>.py`` under ``argus_skill/pkg/``
+    is the same import as ``from pkg.a import ...`` and is recorded as
+    ``pkg.a`` with no names (one record per submodule). Plain attributes --
+    ``__version__``, ``builtin_verticals`` -- stay with ``pkg``. Imports
+    outside ``argus_skill`` are passed through untouched.
+    """
+    parts = module.split(".")
+    if parts[0] != "argus_skill":
+        return [(module, names)]
+    package_dir = ARGUS.joinpath(*parts[1:])
+    if not package_dir.is_dir():
+        return [(module, names)]
+    submodules = tuple(
+        name for name in names
+        if (package_dir / name).is_dir() or (package_dir / f"{name}.py").is_file()
+    )
+    attributes = tuple(name for name in names if name not in submodules)
+    split: list[tuple[str, tuple[str, ...]]] = [(f"{module}.{name}", ()) for name in submodules]
+    if attributes or not names:
+        split.append((module, attributes))
+    return split
+
+
+@functools.lru_cache(maxsize=None)
+def _import_records(path: Path) -> tuple[_ImportRecord, ...]:
+    """Every import in ``path``: absolute dotted module, imported names, deferred flag.
+
+    Relative imports are resolved against the file's own package. ``deferred``
+    is true when the statement does not run when the module is loaded: it
+    sits inside a function body (runs at call time) or under ``if
+    TYPE_CHECKING:`` (never runs; ``TYPE_CHECKING`` is false at runtime).
+    Class bodies execute at import time and count as module level. ``from
+    pkg import submodule`` is normalised to ``pkg.submodule`` (see
+    ``_split_submodules``) so a target never depends on which of two
+    equivalent spellings was used. Cached: every scan in this file reads the
+    tree's imports from one parse per session.
+    """
+    own_package = ["argus_skill", *path.relative_to(ARGUS).parts[:-1]]
+    found: list[_ImportRecord] = []
+
+    def visit(nodes: Iterable[ast.AST], deferred: bool) -> None:
+        for node in nodes:
+            if isinstance(node, ast.ImportFrom):
+                tail = node.module.split(".") if node.module else []
+                if node.level:
+                    # level 1 == the module's own package; each extra level pops one.
+                    base = own_package[: len(own_package) - (node.level - 1)]
+                else:
+                    base = []
+                names = tuple(alias.name for alias in node.names)
+                found.extend(
+                    _ImportRecord(node.lineno, module, kept, deferred)
+                    for module, kept in _split_submodules(".".join([*base, *tail]), names)
+                )
+            elif isinstance(node, ast.Import):
+                found.extend(
+                    _ImportRecord(node.lineno, alias.name, (), deferred) for alias in node.names
+                )
+            elif isinstance(node, ast.If) and _is_type_checking_guard(node.test):
+                visit(node.body, True)
+                visit(node.orelse, deferred)
+            else:
+                visit(
+                    ast.iter_child_nodes(node),
+                    deferred or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)),
+                )
+
+    visit(ast.iter_child_nodes(ast.parse(path.read_text(encoding="utf-8"))), False)
+    return tuple(found)
+
+
 def _imported_modules(path: Path) -> list[tuple[int, str]]:
     """Absolute dotted names imported by ``path``, relative imports resolved."""
-    own_package = ["argus_skill", *path.relative_to(ARGUS).parts[:-1]]
-    found: list[tuple[int, str]] = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.ImportFrom):
-            tail = node.module.split(".") if node.module else []
-            if node.level:
-                # level 1 == the module's own package; each extra level pops one.
-                base = own_package[: len(own_package) - (node.level - 1)]
-            else:
-                base = []
-            found.append((node.lineno, ".".join([*base, *tail])))
-        elif isinstance(node, ast.Import):
-            found.extend((node.lineno, alias.name) for alias in node.names)
-    return found
+    return [(record.lineno, record.module) for record in _import_records(path)]
 
 
 def _concrete_vertical_imports(paths: list[Path]) -> list[str]:
@@ -79,7 +162,12 @@ def _concrete_vertical_imports(paths: list[Path]) -> list[str]:
     ``argus_skill/verticals/*.py`` is the framework-owned bridge (the loader,
     the plugin registry, the data-domain shim, the shared evidence helpers).
     Every *subdirectory* of ``verticals/`` is domain-owned. The rule needs no
-    allowlist: a new bridge module or a new vertical classifies itself.
+    allowlist: a new bridge module or a new vertical classifies itself. All
+    three spellings are caught -- ``from ..verticals.math import stages``,
+    ``from ..verticals import math`` and ``from argus_skill.verticals import
+    quant as q`` -- because ``_import_records`` resolves an imported name that
+    is a directory under ``verticals/`` to that vertical's module path, while
+    a bridge module or a plain attribute (``builtin_verticals``) stays put.
     """
     offenders: list[str] = []
     for path in paths:
@@ -267,11 +355,16 @@ def test_no_framework_package_imports_a_named_vertical() -> None:
     same obligation, and nothing checked it. One ``from ..verticals.math import
     ...`` in the supervisor is enough to make every non-math mission import
     math's dependencies, and to make math's stage names special-cased in code
-    that is supposed to read them off a contract.
+    that is supposed to read them off a contract. The provider, capability and
+    delivery packages are held to the same rule; ``apps`` is the one package
+    with an admitted exception, pinned by
+    ``test_the_operator_cli_is_the_only_admitted_domain_dependency`` below.
     """
     offenders = _concrete_vertical_imports(_python_files(
         "core", "life", "engineer", "reviewer", "planner", "manager",
         "roles", "skills", "daemon", "team", "webapi", "wiki",
+        "tools", "adapters", "agent_cli", "provider_integrations", "plugin",
+        "maintenance", "trial", "release_tools", "cli", "integrations", "proof_ledger",
     ))
 
     assert offenders == []
@@ -893,3 +986,908 @@ def test_an_absent_registry_is_read_as_no_work_rather_than_created(
     assert external_work.render_external_work_advisory(tmp_path, now=110) == ""
 
     assert list(tmp_path.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# 8. Declared layering
+# ---------------------------------------------------------------------------
+#
+# Eight layers, low to high. A module-level import may point at its own layer
+# or a lower one; every upward edge that exists today is pinned by name, so
+# repairing an edge without deleting its allowlist line is red too -- the
+# lists can only shrink. This table is the single source that the package
+# docstrings (test_every_package_docstring_names_its_layer) and
+# docs/LAYOUT.md (test_layout_map_lists_every_directory) are checked against.
+# The four package-root modules (``__init__``, ``__main__``, ``loop``,
+# ``desktop_backend_entry``) form one pseudo-package ``<root>`` in the
+# delivery layer.
+
+LAYERS: dict[str, tuple[str, ...]] = {
+    "kernel": ("core", "proof_ledger"),
+    "providers": ("agent_cli", "provider_integrations", "adapters", "advisor"),
+    "capabilities": ("tools", "wiki", "cli", "skills"),
+    "domain": ("verticals", "domains", "builtin_skills"),
+    "roles": ("roles", "planner", "engineer", "reviewer"),
+    "runtime": ("life", "manager", "messaging"),
+    "process": ("daemon", "team"),
+    "delivery": (
+        "apps", "webapi", "plugin", "maintenance", "trial", "integrations", "release_tools",
+    ),
+}
+LAYER_ORDER = tuple(LAYERS)
+REPO_ROOT = ARGUS.parent
+_ROOT = "<root>"
+_PACKAGE_LAYER = {
+    package: layer for layer, packages in LAYERS.items() for package in packages
+}
+
+
+def _layer_of(package: str) -> str:
+    if package == _ROOT:
+        return "delivery"
+    layer = _PACKAGE_LAYER.get(package)
+    assert layer is not None, f"argus_skill/{package} is not assigned to any layer in LAYERS"
+    return layer
+
+
+def _layer_rank(package: str) -> int:
+    return LAYER_ORDER.index(_layer_of(package))
+
+
+def _source_package(path: Path) -> str:
+    parts = path.relative_to(ARGUS).parts
+    return parts[0] if len(parts) > 1 else _ROOT
+
+
+def _target_package(module: str) -> str:
+    """The package a dotted ``argus_skill...`` name lives in; root modules are ``<root>``.
+
+    ``from .. import core`` arrives here as ``argus_skill.core`` (a package),
+    ``from .. import __version__`` and ``import argus_skill`` as bare
+    ``argus_skill`` and ``argus_skill.loop`` as a root module file; the last
+    two are ``<root>``. ``_import_records`` does the per-name resolution.
+    """
+    parts = module.split(".")
+    if len(parts) < 2 or (ARGUS / f"{parts[1]}.py").is_file():
+        return _ROOT
+    return parts[1]
+
+
+def _every_python_file() -> list[Path]:
+    # Every ``.py`` under the package on purpose, including the three
+    # directories with no ``__init__.py`` (``verticals/fiction_writing/
+    # evaluations`` and research's ``figure_spec_scripts`` /
+    # ``research_visual_scripts``): they ship in the wheel and run as scripts,
+    # so what they import is a coupling the tree still pays for.
+    return sorted(ARGUS.rglob("*.py"))
+
+
+def _cross_package_imports(path: Path) -> list[_ImportRecord]:
+    """The ``_import_records`` of ``path`` whose target is another ``argus_skill`` package."""
+    source = _source_package(path)
+    return [
+        record for record in _import_records(path)
+        if (record.module == "argus_skill" or record.module.startswith("argus_skill."))
+        and _target_package(record.module) != source
+    ]
+
+
+def _allowlist_report(noun: str, measured: frozenset[str], allowlist: frozenset[str]) -> str:
+    """Two set differences, each phrased as the action the reader has to take."""
+    return "\n".join([
+        *(f"remove {entry} from the allowlist (the edge is gone; keep the win)"
+          for entry in sorted(allowlist - measured)),
+        *(f"new {noun} {entry}" for entry in sorted(measured - allowlist)),
+    ])
+
+
+def _upward_imports(deferred: bool) -> frozenset[str]:
+    """``file -> target package`` for imports whose target layer is strictly above the source's."""
+    keys: set[str] = set()
+    for path in _every_python_file():
+        source = _source_package(path)
+        relpath = path.relative_to(ARGUS).as_posix()
+        for record in _cross_package_imports(path):
+            if record.deferred != deferred:
+                continue
+            target = _target_package(record.module)
+            if _layer_rank(target) > _layer_rank(source):
+                keys.add(f"{relpath} -> {target}")
+    return frozenset(keys)
+
+
+# Module-level imports that point at a higher layer, keyed by (file, target
+# package) exactly like the deferred list below, so re-spelling an import
+# inside the target package (``from ..life import event_log`` vs ``from
+# ..life.event_log import X``) or renaming a module there does not churn a
+# line. Each is a real coupling that fires when the lower package is merely
+# imported; phases 1-5 of the architecture plan remove them one at a time,
+# deleting the line here as they go. ``core/usage.py ->
+# provider_integrations`` (``copilot_usage``) is the one the plan expects to
+# survive longest (until the accounting tier leaves core). A target of
+# ``<root>`` is ``from .. import __version__``; it goes when
+# ``core/version.py`` exists (phase 1).
+MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
+    "cli/event_format.py -> life",
+    "core/backend_readiness.py -> agent_cli",
+    "core/knobs.py -> agent_cli",
+    "core/mission_view/_reduce_mission.py -> life",
+    "core/operator_messages.py -> life",
+    "core/runtime_identity.py -> <root>",
+    "core/usage.py -> provider_integrations",
+    "engineer/round_prompt.py -> life",
+    "engineer/round_reviewer.py -> life",
+    "life/chat/router.py -> apps",
+    "life/telegram_bot.py -> apps",
+    "manager/config_intent.py -> apps",
+    "manager/dispatch.py -> apps",
+    "manager/observation.py -> daemon",
+    "manager/supervision.py -> daemon",
+    "provider_integrations/authorization_retry.py -> tools",
+    "tools/event_log_query.py -> life",
+    "tools/experience.py -> life",
+    "tools/manager_live_view.py -> life",
+    "tools/manager_live_view.py -> manager",
+    "tools/peer.py -> messaging",
+    "tools/subagent/_direct_run.py -> daemon",
+    "tools/team.py -> team",
+    "verticals/fiction_writing/evaluations/run_evals.py -> manager",
+    "verticals/research/idea_portfolio.py -> team",
+})
+
+# Deferred imports that point at a higher layer, keyed by (file, target
+# package): statements inside a function body (run at call time) or under
+# ``if TYPE_CHECKING:`` (never run). The constant keeps its original name;
+# typing-only imports are counted here too because, like a function-body
+# import, they do not fire when the lower package is loaded. They are
+# tolerated for that reason, but each one is still a place where a low layer
+# knows a high layer's name. ``<root>`` is the package root (``import
+# argus_skill`` for its path, or ``from .. import __version__``).
+FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
+    "adapters/agent_cli_backend/_core.py -> tools",
+    "adapters/agent_cli_backend/_exec.py -> life",
+    "adapters/agent_cli_backend/_exec.py -> messaging",
+    "adapters/agent_cli_backend/_exec.py -> skills",
+    "adapters/agent_cli_backend/_exec.py -> trial",
+    "adapters/agent_cli_backend/_exec_finalize.py -> trial",
+    "advisor/service.py -> life",
+    "advisor/service.py -> trial",
+    "agent_cli/_sandbox_commands.py -> reviewer",
+    "agent_cli/_sandbox_commands.py -> trial",
+    "agent_cli/copilot_acp.py -> daemon",
+    "agent_cli/copilot_acp.py -> trial",
+    "agent_cli/copilot_home.py -> trial",
+    "core/agent_probe.py -> adapters",
+    "core/backend_readiness.py -> agent_cli",
+    "core/backend_readiness.py -> tools",
+    "core/jsonl_reader.py -> life",
+    "core/knob_store.py -> agent_cli",
+    "core/knobs.py -> agent_cli",
+    "core/knobs.py -> tools",
+    "core/knobs.py -> trial",
+    "core/mission_view/_replay.py -> life",
+    "core/operator_context.py -> life",
+    "core/operator_context.py -> manager",
+    "core/operator_context.py -> tools",
+    "core/operator_presence.py -> apps",
+    "core/plugin_manager.py -> agent_cli",
+    "core/project_api.py -> life",
+    "core/provider_quota.py -> provider_integrations",
+    "core/role_config.py -> agent_cli",
+    "core/sandbox.py -> <root>",
+    "core/stage_certificate.py -> skills",
+    "core/vault_preflight.py -> tools",
+    "daemon/_life_worker_admission.py -> trial",
+    "daemon/_life_worker_boot.py -> apps",
+    "daemon/_life_worker_run.py -> apps",
+    "daemon/_life_worker_runtime_context.py -> apps",
+    "daemon/process.py -> trial",
+    "daemon/spawn_helper.py -> trial",
+    "engineer/round_execution.py -> life",
+    "engineer/round_manager_wait.py -> manager",
+    "engineer/round_settlement.py -> life",
+    "engineer/round_settlement.py -> manager",
+    "life/chat/router.py -> apps",
+    "life/chat/router.py -> daemon",
+    "life/chat/router.py -> webapi",
+    "life/recall_embedding.py -> daemon",
+    "life/runtime_failure_circuit.py -> <root>",
+    "life/supervisor/_core.py -> daemon",
+    "life/supervisor/_idle_cycle.py -> apps",
+    "life/supervisor/_idle_cycle.py -> daemon",
+    "life/supervisor/_planning_context.py -> <root>",
+    "life/supervisor/_planning_context.py -> apps",
+    "life/supervisor/_planning_cycle_intake.py -> apps",
+    "life/supervisor/_planning_cycle_verdict.py -> daemon",
+    "manager/_session_ops.py -> daemon",
+    "manager/directive.py -> daemon",
+    "manager/dispatch.py -> apps",
+    "manager/dispatch.py -> daemon",
+    "manager/front_door.py -> apps",
+    "manager/front_door.py -> daemon",
+    "manager/supervision.py -> daemon",
+    "provider_integrations/copilot_usage.py -> trial",
+    "reviewer/_core.py -> manager",
+    "reviewer/review_file.py -> manager",
+    "roles/prompts/manager.py -> manager",
+    "skills/builtins.py -> domains",
+    "skills/builtins.py -> verticals",
+    "skills/checklist_store.py -> verticals",
+    "skills/loop_prompt.py -> life",
+    "skills/loop_prompt.py -> roles",
+    "skills/loop_skill_library.py -> verticals",
+    "skills/stage_machine.py -> domains",
+    "skills/stage_machine.py -> verticals",
+    "skills/vertical_select.py -> domains",
+    "skills/vertical_select.py -> verticals",
+    "team/teammate_entry.py -> apps",
+    "tools/setup.py -> trial",
+    "tools/subagent/_reporting.py -> apps",
+    "verticals/kernelbench/official_eval_server.py -> team",
+    "verticals/research/idea_portfolio.py -> manager",
+    "verticals/research/second_reading.py -> manager",
+})
+
+# Cross-package imports of an underscore-private module or name. Every entry
+# is a public surface that was never declared; phase 7 (public loader modules)
+# is expected to delete the ``verticals._base`` / ``_registry`` /
+# ``_data_domain`` rows wholesale.
+PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
+    "<root> -> argus_skill.apps.tui_launcher._configure_windows_console_encoding",
+    "<root> -> argus_skill.verticals._base",
+    "adapters -> argus_skill.agent_cli._env",
+    "adapters -> argus_skill.agent_cli._structured_output",
+    "adapters -> argus_skill.core.cost_control._local_day_start",
+    "agent_cli -> argus_skill.daemon.state._terminate_windows_process_tree",
+    "apps -> argus_skill.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
+    "apps -> argus_skill.manager._session_ops",
+    "apps -> argus_skill.manager.config_intent._front_door_classify",
+    "apps -> argus_skill.manager.front_door._ensure_manager_runner",
+    "apps -> argus_skill.skills.vertical_select._persisted_vertical",
+    "apps -> argus_skill.verticals._base",
+    "apps -> argus_skill.webapi.manager_state._chat_state_for",
+    "core -> argus_skill.agent_cli._process_control",
+    "core -> argus_skill.apps._inbox",
+    "core -> argus_skill.manager.directive._active_steering_records",
+    "core -> argus_skill.manager.directive._read_steering_records",
+    "daemon -> argus_skill.agent_cli._process_control",
+    "daemon -> argus_skill.apps._inbox",
+    "daemon -> argus_skill.apps._runtime",
+    "daemon -> argus_skill.life.supervisor._config",
+    "daemon -> argus_skill.manager._session_ops",
+    "daemon -> argus_skill.skills.vertical_select._persisted_domain",
+    "daemon -> argus_skill.skills.vertical_select._persisted_vertical",
+    "daemon -> argus_skill.verticals._base",
+    "engineer -> argus_skill.reviewer._core",
+    "life -> argus_skill.agent_cli._process_control",
+    "life -> argus_skill.apps._inbox",
+    "life -> argus_skill.apps._inbox_delivery",
+    "life -> argus_skill.apps._life_actions",
+    "life -> argus_skill.core.mission_view._replay",
+    "life -> argus_skill.core.operator_context._current_mission_id",
+    "life -> argus_skill.daemon.state._fsync_directory",
+    "life -> argus_skill.manager.config_intent._apply_config_intent",
+    "life -> argus_skill.manager.config_intent._front_door_classify",
+    "life -> argus_skill.manager.front_door._accepts_parameter",
+    "life -> argus_skill.planner.planner._GLOBAL_KEY_VALUE_KEYS",
+    "life -> argus_skill.roles.prompts.manager._IDENTITY_GUARD",
+    "life -> argus_skill.skills.vertical_select._persisted_vertical",
+    "life -> argus_skill.tools.subagent._registry",
+    "life -> argus_skill.verticals._base",
+    "life -> argus_skill.verticals._data_domain",
+    "life -> argus_skill.webapi.manager_bridge._answer_inline",
+    "maintenance -> argus_skill.agent_cli._process_control",
+    "manager -> argus_skill.apps._inbox",
+    "manager -> argus_skill.apps._life_actions",
+    "manager -> argus_skill.apps._runtime",
+    "manager -> argus_skill.apps._runtime_construction",
+    "manager -> argus_skill.apps.cli._follow",
+    "manager -> argus_skill.daemon.state._fsync_directory",
+    "manager -> argus_skill.life.memory._TERMINAL_STATUSES",
+    "manager -> argus_skill.life.memory._read_jsonl_tail_history",
+    "manager -> argus_skill.skills.stage_machine._active_vertical_checklist_defs",
+    "manager -> argus_skill.skills.stage_machine._ensure_stage_completion",
+    "manager -> argus_skill.verticals._base",
+    "manager -> argus_skill.verticals._data_domain",
+    "messaging -> argus_skill.manager._session_ops",
+    "reviewer -> argus_skill.core.role_reply._line_pattern",
+    "reviewer -> argus_skill.roles.prompts.reviewer._REEVALUATE_HEADER",
+    "reviewer -> argus_skill.roles.prompts.reviewer._engineer_log_audit_block",
+    "reviewer -> argus_skill.roles.prompts.reviewer._load_wiki_curator_skill_if_present",
+    "reviewer -> argus_skill.roles.prompts.reviewer._verification_directive",
+    "roles -> argus_skill.skills.vertical_select._persisted_vertical",
+    "roles -> argus_skill.verticals._base",
+    "skills -> argus_skill.verticals._base",
+    "skills -> argus_skill.verticals._data_domain",
+    "skills -> argus_skill.verticals._registry",
+    "skills -> argus_skill.wiki.store._atomic_write_text",
+    "team -> argus_skill.apps._runtime",
+    "team -> argus_skill.apps._runtime_supervisor",
+    "team -> argus_skill.daemon.state._terminate_windows_process_tree",
+    "team -> argus_skill.verticals._base",
+    "tools -> argus_skill.agent_cli._process_control",
+    "tools -> argus_skill.apps._inbox",
+    "tools -> argus_skill.daemon.state._terminate_windows_process_tree",
+    "trial -> argus_skill.agent_cli.copilot_home._read_managed_config",
+    "trial -> argus_skill.skills.builtins._VERTICAL_SKILL_INHERITANCE",
+    "trial -> argus_skill.tools.setup._verify_setup_smoke",
+    "verticals -> argus_skill.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
+    "verticals -> argus_skill.skills.rl_training_plots._is_probe",
+    "verticals -> argus_skill.skills.rl_training_plots._read_optimizer_steps",
+    "verticals -> argus_skill.tools.image_api._DEFAULT_MAX_RETRIES",
+    "verticals -> argus_skill.tools.image_api._DEFAULT_TIMEOUT_SECONDS",
+    "verticals -> argus_skill.tools.image_api._atomic_write_json",
+    "verticals -> argus_skill.tools.image_api._data_url",
+    "verticals -> argus_skill.tools.image_api._json_request",
+    "verticals -> argus_skill.tools.image_api._load_sidecar_prompt",
+    "verticals -> argus_skill.tools.image_api._parse_chat_text",
+    "verticals -> argus_skill.tools.image_api._parse_responses_text",
+    "verticals -> argus_skill.tools.image_api._read_prompt",
+    "verticals -> argus_skill.tools.image_api._redact",
+    "verticals -> argus_skill.tools.image_api._require_route",
+    "verticals -> argus_skill.tools.lean_check._artifact_directory_lock",
+    "verticals -> argus_skill.tools.lean_check._atomic_artifact_write",
+    "verticals -> argus_skill.tools.lean_check._resolve_lake_workspace",
+    "webapi -> argus_skill.agent_cli._env",
+    "webapi -> argus_skill.apps._inbox",
+    "webapi -> argus_skill.apps._life_actions",
+    "webapi -> argus_skill.apps.cli._follow",
+    "webapi -> argus_skill.daemon.life_worker._acquire_daemon_spawn_lock",
+    "webapi -> argus_skill.daemon.life_worker._active_daemon_count",
+    "webapi -> argus_skill.daemon.life_worker._active_workspace_owner",
+    "webapi -> argus_skill.daemon.life_worker._launcher_failure_message",
+    "webapi -> argus_skill.daemon.life_worker._max_active_daemons",
+    "webapi -> argus_skill.daemon.life_worker._release_daemon_spawn_lock",
+    "webapi -> argus_skill.daemon.life_worker._workspace_start_error",
+    "webapi -> argus_skill.life.memory._TERMINAL_STATUSES",
+    "webapi -> argus_skill.life.memory._append_jsonl",
+    "webapi -> argus_skill.life.memory._jsonl_history_paths",
+    "webapi -> argus_skill.life.memory._read_jsonl_tail",
+    "webapi -> argus_skill.life.memory._read_jsonl_tail_history",
+    "webapi -> argus_skill.life.supervisor._mission_execution_runtime",
+    "webapi -> argus_skill.manager._session_ops",
+    "webapi -> argus_skill.manager.config_intent._apply_config_intent",
+    "webapi -> argus_skill.manager.config_intent._front_door_classify",
+    "webapi -> argus_skill.manager.dispatch._daemon_status",
+    "webapi -> argus_skill.manager.front_door._accepts_parameter",
+    "webapi -> argus_skill.manager.front_door._derive_session_name",
+    "webapi -> argus_skill.manager.front_door._ensure_manager_runner",
+    "webapi -> argus_skill.manager.front_door._operator_workspace",
+})
+
+
+def test_every_package_is_assigned_to_exactly_one_layer() -> None:
+    """A package with no layer has no import rule, so nothing below can judge it.
+
+    The three allowlist tests derive "upward" from ``LAYERS``. A new
+    ``argus_skill/<pkg>/`` that is not in the table would make ``_layer_of``
+    fail on the first file that imports it -- or, worse, never be scanned at
+    all if it only *imports* others. A package listed twice would have two
+    ranks and the rule would depend on dict iteration order.
+    """
+    on_disk = {
+        path.name for path in ARGUS.iterdir()
+        if path.is_dir() and (path / "__init__.py").is_file()
+    }
+    declared = [package for packages in LAYERS.values() for package in packages]
+
+    unassigned = sorted(on_disk - set(declared))
+    assert unassigned == [], (
+        f"add the package to LAYERS in tests/test_architecture_invariants.py: {unassigned}"
+    )
+    vanished = sorted(set(declared) - on_disk)
+    assert vanished == [], (
+        f"no longer on disk; remove from LAYERS in tests/test_architecture_invariants.py: {vanished}"
+    )
+    assert len(declared) == len(set(declared)), "a package is listed in two layers"
+
+
+def test_module_level_imports_never_point_to_a_higher_layer() -> None:
+    """Loading a low layer must not drag a high one into the process.
+
+    A module-level import runs when the importer is imported, so ``core/`` --
+    which every entry point and every test loads first -- pulling in
+    ``agent_cli`` or ``life`` means there is no such thing as a cheap or
+    isolated import anywhere in the tree, and any cycle through the high layer
+    surfaces as an ``ImportError`` in whichever module happens to be loaded
+    first that day. The set above is today's exact list of such edges, keyed
+    ``file -> target package``. Strict equality means both directions are red:
+    a new edge, and an edge that was repaired without deleting its line (the
+    ratchet only turns one way).
+    """
+    measured = _upward_imports(deferred=False)
+
+    assert measured == MODULE_LEVEL_UPWARD_ALLOWLIST, _allowlist_report(
+        "upward import", measured, MODULE_LEVEL_UPWARD_ALLOWLIST
+    )
+
+
+def test_function_body_imports_to_higher_layers_are_pinned() -> None:
+    """Deferred upward imports are tolerated, counted, and not allowed to multiply.
+
+    An import inside a function is how a low layer reaches a high one without
+    coupling at load time, and the tree relies on it in sixty-odd places. It
+    is still a place where ``core`` knows the name of ``trial`` or ``skills``
+    knows ``verticals``; each one is a monkeypatch target, a hidden cycle
+    waiting for the function to be called at import time, and a line that has
+    to move when the target package does. An import under ``if
+    TYPE_CHECKING:`` is counted here for the same reason: it never runs, so
+    it is not a load-time edge, but the name is still known. Coarse keys
+    (file -> package) so that reorganising *inside* the target package stays
+    green.
+    """
+    measured = _upward_imports(deferred=True)
+
+    assert measured == FUNCTION_BODY_UPWARD_ALLOWLIST, _allowlist_report(
+        "upward import", measured, FUNCTION_BODY_UPWARD_ALLOWLIST
+    )
+
+
+def test_private_modules_are_not_imported_across_packages() -> None:
+    """A leading underscore is a promise that only the owning package reads it.
+
+    Every cross-package import of ``_base``, ``_process_control`` or a
+    ``_helper`` name silently converts a private into a public surface that
+    its owner does not know it is maintaining: a rename that looks local
+    breaks another package at import time, and the private's caller has no
+    contract to point at. Pinning today's set means a new one has to be
+    argued for, and the phase that publishes the loader modules has to delete
+    its rows here to prove the leak is closed.
+    """
+    measured: set[str] = set()
+    for path in _every_python_file():
+        source = _source_package(path)
+        for record in _cross_package_imports(path):
+            components = record.module.split(".")[1:]
+            if any(_is_private(component) for component in components):
+                measured.add(f"{source} -> {record.module}")
+                continue
+            measured.update(
+                f"{source} -> {record.module}.{name}" for name in record.names if _is_private(name)
+            )
+
+    assert frozenset(measured) == PRIVATE_IMPORT_ALLOWLIST, _allowlist_report(
+        "private import", frozenset(measured), PRIVATE_IMPORT_ALLOWLIST
+    )
+
+
+def _is_private(name: str) -> bool:
+    return name.startswith("_") and not name.startswith("__")
+
+
+_LAYER_LINE = re.compile(r"^Layer: (\w+)$")
+
+
+def test_every_package_docstring_names_its_layer() -> None:
+    """The layer a package sits in is written where its reader will look first.
+
+    ``LAYERS`` is the enforced truth, but nobody opens a test file to learn
+    where a package belongs; they open its ``__init__``. A docstring that is
+    empty, or that names a different layer than the table, sends the next
+    contributor's import to the wrong place with the test as their only
+    warning. Exactly one ``Layer:`` line, matching the table, per package.
+    """
+    problems: list[str] = []
+    for package, layer in sorted(_PACKAGE_LAYER.items()):
+        init = ARGUS / package / "__init__.py"
+        docstring = ast.get_docstring(ast.parse(init.read_text(encoding="utf-8"))) or ""
+        declared = [
+            match.group(1) for line in docstring.splitlines()
+            if (match := _LAYER_LINE.match(line.strip()))
+        ]
+        if not docstring.strip():
+            problems.append(f"argus_skill/{package}/__init__.py has no docstring")
+        elif declared != [layer]:
+            problems.append(
+                f"argus_skill/{package}/__init__.py declares Layer: {declared or 'nothing'}, "
+                f"LAYERS says {layer}"
+            )
+
+    assert problems == []
+
+
+LAYOUT_MAP = REPO_ROOT / "docs" / "LAYOUT.md"
+
+
+def _table_cells(line: str) -> list[str]:
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return []
+    return [cell.strip() for cell in stripped.strip("|").split("|")]
+
+
+def _layer_table(text: str) -> dict[str, frozenset[str]]:
+    """layer -> packages, from the first ``| Layer | Packages | May import |`` table."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if _table_cells(line)[:3] == ["Layer", "Packages", "May import"]:
+            break
+    else:
+        pytest.fail("docs/LAYOUT.md has no table headed | Layer | Packages | May import |")
+    mapping: dict[str, frozenset[str]] = {}
+    for line in lines[index + 1:]:
+        cells = _table_cells(line)
+        if not cells:
+            break
+        if all(re.fullmatch(r":?-+:?", cell) for cell in cells):
+            continue  # the header/body separator row
+        if len(cells) < 2:
+            pytest.fail(f"docs/LAYOUT.md layer table row has no Packages cell: {line!r}")
+        mapping[cells[0]] = frozenset(
+            entry.strip().strip("`") for entry in cells[1].split(",") if entry.strip()
+        )
+    return mapping
+
+
+def _tracked_top_level_directories() -> list[str]:
+    try:
+        listing = subprocess.run(
+            ["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True,
+            check=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        pytest.skip(f"git ls-files is unavailable here: {exc}")
+    return sorted({line.split("/", 1)[0] for line in listing.stdout.splitlines() if "/" in line})
+
+
+def _has_bullet(text: str, entry: str) -> bool:
+    """A line of the map's own form ``- `entry` ...``, not a mention in passing.
+
+    ``integrations/`` occurs inside ``argus_skill/integrations/`` and
+    ``docs/`` inside ``docs/audits/``; a substring test would let the bullet
+    for either disappear unnoticed.
+    """
+    return re.search(rf"^- `{re.escape(entry)}`", text, re.M) is not None
+
+
+def test_layout_map_lists_every_directory() -> None:
+    """The written map and the enforced table are the same table.
+
+    ``docs/LAYOUT.md`` is what a reader is pointed at; ``LAYERS`` is what the
+    tests enforce. If a package moves layers in one and not the other, the
+    document teaches an import the tests then reject -- or accepts one they
+    would have caught. The second half pins coverage: every package and every
+    tracked top-level directory has its own bullet, so the next ``research/``
+    or ``companions/`` cannot appear without saying whether it is built,
+    tested and shipped.
+    """
+    tracked_directories = _tracked_top_level_directories()  # skips before any assert without git
+    assert LAYOUT_MAP.is_file(), "docs/LAYOUT.md is missing; the layering has no written map"
+    text = LAYOUT_MAP.read_text(encoding="utf-8")
+
+    assert _layer_table(text) == {
+        layer: frozenset(packages) for layer, packages in LAYERS.items()
+    }
+    unmentioned_packages = [
+        f"argus_skill/{package}/" for package in sorted(_PACKAGE_LAYER)
+        if not _has_bullet(text, f"argus_skill/{package}/")
+    ]
+    assert unmentioned_packages == [], (
+        "each needs its own docs/LAYOUT.md line starting with '- `argus_skill/<pkg>/`'"
+    )
+    unmentioned_directories = [
+        f"{directory}/" for directory in tracked_directories
+        if not _has_bullet(text, f"{directory}/")
+    ]
+    assert unmentioned_directories == [], (
+        "each needs its own docs/LAYOUT.md line starting with '- `<dir>/`'"
+    )
+
+
+# After the import, every ``argus_skill.*`` module in ``sys.modules`` must be
+# the package root itself or live in a kernel package (``LAYERS["kernel"]``).
+_KERNEL_PROBE = "; ".join([
+    "import argus_skill.core.paths, sys",
+    f"kernel = tuple('argus_skill.' + package for package in {LAYERS['kernel']!r})",
+    "bad = sorted(m for m in sys.modules if m.startswith('argus_skill.')"
+    " and m not in kernel and not m.startswith(tuple(k + '.' for k in kernel)))",
+    "print(chr(10).join(bad))",
+])
+
+
+def test_importing_the_kernel_does_not_load_the_engine() -> None:
+    """``import argus_skill.core.paths`` must cost the kernel, not the whole runtime.
+
+    Python imports ``argus_skill/__init__`` before any submodule, so an eager
+    ``from .loop import SkillLoop`` there means every subprocess that wants a
+    path helper -- the daemon spawn helper, the desktop entry, a vertical's
+    evaluation script -- pays for the Engineer, the Reviewer, the skill store
+    and every role prompt, and inherits every import-time side effect they
+    carry. The assertion is the invariant itself, not a list of suspects:
+    anything outside ``core`` and ``proof_ledger`` -- ``tools``, ``manager``,
+    ``verticals``, ``daemon`` included -- is a failure. Measured in a fresh
+    interpreter because this process already has all of it loaded.
+    """
+    probe = subprocess.run(
+        [sys.executable, "-c", _KERNEL_PROBE], cwd=REPO_ROOT,
+        capture_output=True, text=True, timeout=120,
+    )
+
+    assert probe.returncode == 0, probe.stderr
+    loaded = probe.stdout.split()
+    assert loaded == [], (
+        f"importing argus_skill.core.paths loaded {len(loaded)} modules outside the kernel:\n"
+        f"{probe.stdout}"
+    )
+
+
+_DOTTED_PATH = re.compile(r"\bargus_skill(\.[A-Za-z_][A-Za-z0-9_]*)+")
+
+# Cited paths that are illustrative rather than real modules. Empty today:
+# every ``argus_skill.x.y`` in a Skill, plugin document or role prompt resolves.
+CITED_PATH_EXCEPTIONS: frozenset[str] = frozenset()
+
+
+def _cited_module_paths() -> dict[str, str]:
+    """dotted path -> where it was first seen, from Skill/plugin markdown and role prompts."""
+    cited: dict[str, str] = {}
+
+    def note(text: str, where: str) -> None:
+        for match in _DOTTED_PATH.finditer(text):
+            cited.setdefault(match.group(0), where)
+
+    for base in ("argus_skill", "plugins", "integrations"):
+        for path in sorted((REPO_ROOT / base).rglob("*.md")):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for lineno, line in enumerate(text.splitlines(), 1):
+                note(line, f"{path.relative_to(REPO_ROOT).as_posix()}:{lineno}")
+    for path in sorted((ARGUS / "roles" / "prompts").glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                note(node.value, f"{path.relative_to(REPO_ROOT).as_posix()}:{node.lineno}")
+    return cited
+
+
+def _resolves_on_disk(dotted: str) -> bool:
+    """Walk the dotted path against the tree under ``argus_skill/``; nothing is imported.
+
+    Each segment must be a directory (a package, with or without
+    ``__init__.py``) or a ``<name>.py`` module file. Once a module *file* is
+    reached, up to two further segments are accepted as an attribute
+    (``module.func``, ``module.Class.method``). A directory ends the path, so
+    ``argus_skill.bogus`` does not pass merely because ``argus_skill`` exists.
+    ``find_spec`` would execute every parent package (and, for ``module.attr``
+    citations, the module itself); this walk executes none of them.
+    """
+    parts = dotted.split(".")
+    if parts[0] != "argus_skill":
+        return False
+    current = ARGUS
+    for index, part in enumerate(parts[1:], start=1):
+        if (current / part).is_dir():
+            current = current / part
+        elif (current / f"{part}.py").is_file():
+            return len(parts) - index - 1 <= 2
+        else:
+            return False
+    return True
+
+
+def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
+    """A path the model is told to run must be a path that exists.
+
+    Skills and role prompts say ``python -m argus_skill.tools.subagent`` and
+    ``argus_skill.verticals.math.citation_check`` in prose the runtime never
+    parses. When a module moves, nothing fails at import time -- the Engineer
+    fails at mission time, after burning a round on ``No module named``, and
+    the Reviewer may never see why. Paths are resolved against the filesystem,
+    so the check is cheap and imports nothing -- a vertical whose
+    ``__init__`` raises in a trimmed environment still gets a readable
+    "unresolved" list rather than a traceback from here.
+    """
+    cited = _cited_module_paths()
+    assert cited, "no module paths are cited anywhere; the scan is broken, not the prose"
+
+    unresolved = [
+        f"{dotted} (cited at {where})" for dotted, where in sorted(cited.items())
+        if dotted not in CITED_PATH_EXCEPTIONS and not _resolves_on_disk(dotted)
+    ]
+    stale_exceptions = sorted(CITED_PATH_EXCEPTIONS - set(cited))
+
+    assert unresolved == []
+    assert stale_exceptions == [], "no longer cited; remove from CITED_PATH_EXCEPTIONS"
+
+
+# Module paths that appear on a ``python -m`` / argv line somewhere in the tree
+# and are therefore matched back by string in a *different* process.
+SUBPROCESS_REENTRY_MODULES = (
+    "argus_skill.team.teammate_entry",
+    "argus_skill.tools.subagent",
+    "argus_skill.daemon.spawn_helper",
+    "argus_skill.reviewer.review_file",
+    "argus_skill.tools.manager_live_view",
+    "argus_skill.desktop_backend_entry",
+    "argus_skill.plugin.mcp_server",
+    "argus_skill.__main__",
+)
+
+
+def test_subprocess_reentry_module_paths_stay_importable() -> None:
+    """These names cross a process boundary as strings, so a move is invisible to Python.
+
+    The daemon spawns ``python -m argus_skill.daemon.spawn_helper``; teammates
+    re-enter through ``team.teammate_entry``; liveness checks match those same
+    strings against ``argv`` of running processes. Rename one and the
+    importer-side tests stay green while the live system either fails to
+    spawn or -- worse -- stops recognising its own workers as its own.
+    """
+    missing = [
+        dotted for dotted in SUBPROCESS_REENTRY_MODULES
+        if importlib.util.find_spec(dotted) is None
+    ]
+
+    assert missing == []
+
+
+_STAGE_WRITERS = frozenset({"advance_stage", "rollback_stage", "complete_final_stage"})
+
+# References to the stage writers from outside argus_skill/manager/ (and
+# outside skills/stage_machine.py, which defines them), per file. Counted:
+# every ``from ... import advance_stage [as alias]`` binding, plus every load
+# of a bound alias or of the literal name -- a call, ``stage_machine.
+# rollback_stage(...)`` through a module attribute, or the function passed on
+# as a callback. One statement that imports and calls once is therefore 2.
+STAGE_WRITER_REFERENCES_OUTSIDE_MANAGER: dict[str, int] = {
+    "life/supervisor/_mission_execution_settlement.py": 2,
+    "life/supervisor/_planning_cycle_enqueue.py": 6,
+    "skills/vertical_select.py": 2,
+}
+
+
+def _stage_writer_references(path: Path) -> int:
+    """Bindings of a stage writer plus loads of any name bound to one (see the dict above)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    bound = set(_STAGE_WRITERS)
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in _STAGE_WRITERS:
+                    bound.add(alias.asname or alias.name)
+                    count += 1
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(node.ctx, ast.Load):
+            continue
+        if isinstance(node, ast.Name) and node.id in bound:
+            count += 1
+        elif isinstance(node, ast.Attribute) and node.attr in _STAGE_WRITERS:
+            count += 1
+    return count
+
+
+def _baseline_report(measured: dict[str, int], baseline: dict[str, int], constant: str) -> str:
+    """Per-key differences, then the one edit that resolves each direction."""
+    moved = [
+        f"{key}: baseline {baseline.get(key, 0)}, now {measured.get(key, 0)}"
+        for key in sorted(set(measured) | set(baseline))
+        if measured.get(key, 0) != baseline.get(key, 0)
+    ]
+    return "\n".join([
+        *moved,
+        f"lower {constant} in tests/test_architecture_invariants.py if the reduction is intended; "
+        "a new or larger entry is a second authority and has to be argued for, not pinned",
+    ])
+
+
+def test_only_the_manager_advances_the_pipeline_stage() -> None:
+    """"Manager is the sole writer of the pipeline stage" as a number that can only fall.
+
+    The prose rule has five exceptions today, all in the supervisor and the
+    vertical selector, each of them acting on the Manager's behalf. A sixth
+    caller of ``advance_stage`` / ``rollback_stage`` / ``complete_final_stage``
+    -- in a vertical, a tool, a web route -- is a second authority over which
+    stage the project is in, and stage-scoped state (checklists, certificates,
+    skill selection) would start disagreeing with itself. The count follows
+    the *binding*, so ``import advance_stage as _adv; _adv(...)`` -- the house
+    idiom inside ``manager/_stage_ops.py`` -- is not a way around it.
+    """
+    counts: dict[str, int] = {}
+    for path in _every_python_file():
+        relpath = path.relative_to(ARGUS).as_posix()
+        if relpath.startswith("manager/") or relpath == "skills/stage_machine.py":
+            continue
+        if references := _stage_writer_references(path):
+            counts[relpath] = references
+
+    assert counts == STAGE_WRITER_REFERENCES_OUTSIDE_MANAGER, _baseline_report(
+        counts, STAGE_WRITER_REFERENCES_OUTSIDE_MANAGER, "STAGE_WRITER_REFERENCES_OUTSIDE_MANAGER"
+    )
+
+
+@functools.lru_cache(maxsize=None)
+def _package_sources() -> dict[str, str]:
+    return {
+        path.relative_to(ARGUS).as_posix(): path.read_text(encoding="utf-8")
+        for path in _every_python_file()
+    }
+
+
+def _ratchet_report(name: str, baseline: int, per_file: dict[str, int], constant: str) -> str:
+    """A pinned count moved: which way, where most of the occurrences are, what to edit."""
+    actual = sum(per_file.values())
+    top = sorted(
+        ((relpath, count) for relpath, count in per_file.items() if count),
+        key=lambda item: (-item[1], item[0]),
+    )[:3]
+    where = ", ".join(f"{relpath} ({count})" for relpath, count in top) or "nowhere"
+    action = (
+        f"lower {constant} in tests/test_architecture_invariants.py if the reduction is intended"
+        if actual < baseline else
+        f"remove the new occurrences (or raise {constant} in tests/test_architecture_invariants.py "
+        "with a reason)"
+    )
+    return f"{name}: baseline {baseline}, now {actual} (most in {where}); {action}"
+
+
+# Retired spellings of "the project state directory" (canonical: ``life_dir``
+# and ``core.paths.project_state_root``). Whole-word occurrence counts, today.
+RETIRED_NAME_OCCURRENCES: dict[str, int] = {
+    "life_root": 13,
+    "memory_root": 42,
+    "session_root": 40,
+    "project_dir": 33,
+    "manager_session_root": 24,
+    "session_states_root": 22,
+    "session_state_root": 31,
+}
+
+# Prose that describes a runtime this tree no longer contains.
+STALE_PROSE = (
+    "MissionExecutor",
+    "JsonlCommandBus",
+    "_VENDORED",
+    "matcher → distiller",
+    "vendored from ArgusBot",
+)
+
+
+def test_retired_names_do_not_spread() -> None:
+    """Six names for one directory is how a path ends up computed six ways.
+
+    ``life_root``, ``memory_root``, ``session_root`` and the rest all mean
+    ``~/.argus-skill/projects/<id>/``; each spelling is a place where the next
+    reader guesses whether it is the host root or the project root. Their
+    counts are pinned so that a new occurrence is a conscious choice, and a
+    removal is banked. The stale prose is pinned at zero: a docstring that
+    names ``MissionExecutor`` or a vendored ``ArgusBot`` reviewer sends a
+    reader looking for code that does not exist.
+    """
+    sources = _package_sources()
+    problems: list[str] = []
+    for name, expected in RETIRED_NAME_OCCURRENCES.items():
+        pattern = re.compile(rf"\b{re.escape(name)}\b")
+        per_file = {relpath: len(pattern.findall(text)) for relpath, text in sources.items()}
+        if sum(per_file.values()) != expected:
+            problems.append(_ratchet_report(
+                name, expected, per_file, f"RETIRED_NAME_OCCURRENCES[{name!r}]"
+            ))
+    for phrase in STALE_PROSE:
+        hits = {relpath: text.count(phrase) for relpath, text in sources.items() if phrase in text}
+        if hits:
+            problems.append(
+                f"{phrase!r}: baseline 0, now {sum(hits.values())} in {sorted(hits)}; "
+                "the prose describes code this tree no longer has -- rewrite it"
+            )
+
+    assert problems == []
+
+
+MEMORY_ROOT_READS = 79
+
+
+def test_memory_root_reads_do_not_grow() -> None:
+    """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
+
+    ``life/memory.py`` defines ``root`` as ``~/.argus-skill``, not the
+    project state directory a supervisor author expects when the bundle they
+    hold is per-project. Today ``memory.root`` is read 79 times, all in
+    ``life/supervisor``, and each read is a candidate for writing project
+    state into the host root. Phase 8 renames them to ``global_root`` /
+    ``project_root`` one by one; the count is pinned so it can only fall.
+    """
+    pattern = re.compile(r"\bmemory\.root\b")
+    per_file = {relpath: len(pattern.findall(text)) for relpath, text in _package_sources().items()}
+
+    assert sum(per_file.values()) == MEMORY_ROOT_READS, _ratchet_report(
+        "memory.root", MEMORY_ROOT_READS, per_file, "MEMORY_ROOT_READS"
+    )

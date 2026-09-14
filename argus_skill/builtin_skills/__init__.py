@@ -1,2 +1,5 @@
-"""Bundled default skills seeded into a new argus-skill home."""
+"""Bundled default skills seeded into a new argus-skill home.
+
+Layer: domain
+"""
 

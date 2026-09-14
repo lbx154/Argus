@@ -1,8 +1,9 @@
 """Runtime dependency loading for the agent CLI backend.
 
-The only supported runner implementation is the bundled
-``argus_skill.agent_cli`` package (see ``argus_skill/agent_cli/_VENDORED.md``
-for its provenance). This module resolves that runtime lazily so importing
+The only supported runner implementation is the in-tree
+``argus_skill.agent_cli`` package (its provenance and licence are described in
+``argus_skill/agent_cli/__init__.py`` and ``argus_skill/agent_cli/LICENSE``).
+This module resolves that runtime lazily so importing
 ``argus_skill.adapters.agent_cli_backend`` never eagerly pulls in the
 subprocess driver, and raises a friendly error when the bundled module is
 somehow missing (e.g. a broken/partial install).

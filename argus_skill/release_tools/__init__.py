@@ -1,1 +1,4 @@
-"""Release generation and artifact validation tools."""
+"""Release generation and artifact validation tools.
+
+Layer: delivery
+"""

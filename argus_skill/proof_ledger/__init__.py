@@ -1,5 +1,7 @@
 """An append-only ledger of claims, evidence and proof routes.
 
+Layer: kernel
+
 This package owns one question: *what does this project currently believe, on
 what evidence, and is that evidence still about what it says it is about?* It
 answers that with four record types (``ContextVersion``, ``ClaimVersion``,

@@ -1,4 +1,7 @@
-"""Minimal per-project Wiki: semantic pages plus one INDEX.md."""
+"""Minimal per-project Wiki: semantic pages plus one INDEX.md.
+
+Layer: capabilities
+"""
 from __future__ import annotations
 
 from .schema import WikiPage, parse_page, serialize_page

@@ -1,8 +1,10 @@
-"""argus.reviewer — the L2 Reviewer agent (split into its own top-level package).
+"""argus_skill.reviewer — the Reviewer role (split into its own top-level package).
 
-Historically the Reviewer lived at ``argus_skill.engineer.reviewer`` next to the
-L1 ``SupervisedEngineer``. It is its own agent layer (the single source of truth
-for "done / continue / blocked"), so it now lives in its own package:
+Layer: roles
+
+Historically the Reviewer lived at ``argus_skill.engineer.reviewer`` next to
+``SupervisedEngineer``. It is its own role (the single source of truth for
+"done / continue / blocked"), so it now lives in its own package:
 
   * :mod:`._core`    — the ``Reviewer`` agent + ``ReviewerConfig`` and prompt build.
   * :mod:`._parsing` — pure verdict/decision parsers (unit-testable, no runner).
