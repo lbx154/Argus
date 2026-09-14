@@ -16,6 +16,10 @@ import type {
   RequestUsage,
   Role,
   Snapshot,
+  VerticalAction,
+  VerticalManageResult,
+  VerticalOperation,
+  VerticalsPayload,
 } from '../../core/src/types';
 import { ApiError, ensureResponseOk } from '../../core/src/http';
 import { readerPreview, type ReaderPreview } from './map/copyMode';
@@ -39,8 +43,18 @@ export type {
   Role,
   Snapshot,
   UsageSummary,
+  VerticalAction,
+  VerticalCatalogStatus,
+  VerticalKind,
+  VerticalManageResult,
+  VerticalOperation,
+  VerticalRow,
+  VerticalsPayload,
 } from '../../core/src/types';
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
+
+/** Advertised by GET /api/meta once the backend serves the vertical store. */
+export const VERTICAL_STORE_CAPABILITY = 'verticals.store.v1';
 
 export type SkillScope = 'global' | 'vertical' | 'project';
 export interface SkillLibraryItem {
@@ -883,6 +897,20 @@ export const api = {
   },
   restoreTrash: (trashId: string) =>
     postJson<{ ok: boolean; sid: string }>(`/api/trash/${encodeURIComponent(trashId)}/restore`),
+
+  // Vertical store. Errors keep the service's own sentence in ApiError.detail,
+  // so a 409 such as "used by projects s-…" can be shown on the card as written.
+  verticals: (signal?: AbortSignal) =>
+    getJson<VerticalsPayload>('/api/verticals', signal),
+  refreshVerticalCatalog: () =>
+    postJson<VerticalsPayload>('/api/verticals/catalog/refresh'),
+  manageVertical: (name: string, action: VerticalAction, options: { force?: boolean } = {}) =>
+    postJson<VerticalManageResult>(
+      `/api/verticals/${encodeURIComponent(name)}/manage/${action}`,
+      options.force ? { force: true } : {},
+    ),
+  verticalOperation: (name: string, signal?: AbortSignal) =>
+    getJson<VerticalOperation>(`/api/verticals/${encodeURIComponent(name)}/operation`, signal),
 
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),

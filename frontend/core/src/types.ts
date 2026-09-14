@@ -525,3 +525,70 @@ export interface GitDiffView {
   diff: string;
   truncated: boolean;
 }
+
+// --- Vertical store (GET /api/verticals; capability "verticals.store.v1") ---
+
+/** Where a vertical comes from: shipped in core, bundled with the package, installed from the catalog, or only listed there. */
+export type VerticalKind = 'builtin' | 'package' | 'installed' | 'available';
+
+export type VerticalAction = 'install' | 'update' | 'enable' | 'disable' | 'uninstall';
+
+/** The store's record of the last or current lifecycle job for one vertical. */
+export interface VerticalOperation {
+  status: 'running' | 'done' | 'failed';
+  action: string;
+  /** 0–1 fraction or 0–100 percent; 0 means the step count is unknown. */
+  progress: number;
+  message: string | null;
+  started: string;
+  finished: string | null;
+}
+
+export interface VerticalRow {
+  name: string;
+  purpose: string;
+  purpose_zh: string | null;
+  kind: VerticalKind;
+  version: string | null;
+  installed_version: string | null;
+  enabled: boolean;
+  update_available: boolean;
+  /** Other verticals this one needs, by name. */
+  requires: string[];
+  /** Verticals this one shares resources with, by name. */
+  shared: string[];
+  python_requirements: string[];
+  /** Python distributions not importable from the environment Argus runs in. */
+  missing_python: string[];
+  tags: string[];
+  size_bytes: number | null;
+  /** Project sids currently bound to this vertical. */
+  used_by: string[];
+  operation: VerticalOperation | null;
+  managed_by_host: boolean;
+  /** The only actions the server accepts right now; the UI offers nothing else. */
+  actions: VerticalAction[];
+}
+
+export interface VerticalCatalogStatus {
+  source: string;
+  fetched_at: string | null;
+  release_tag: string | null;
+  error: string | null;
+}
+
+export interface VerticalsPayload {
+  verticals: VerticalRow[];
+  catalog: VerticalCatalogStatus;
+  host: {
+    managed_by_host: boolean;
+    store_root: string;
+  };
+}
+
+/** 202 for install/update/uninstall jobs, 200 for enable/disable. */
+export interface VerticalManageResult {
+  name: string;
+  action: VerticalAction;
+  operation: VerticalOperation | null;
+}

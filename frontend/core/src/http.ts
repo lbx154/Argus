@@ -13,14 +13,17 @@ export class ApiError extends Error {
   readonly path: string;
   /** A machine-readable reason from the service, such as "trial_route_unavailable"; empty when none was given. */
   readonly code: string;
+  /** The service's own sentence (the JSON `detail`), without the request line; empty when none was given. */
+  readonly detail: string;
 
-  constructor(message: string, status: number, method: string, path: string, code = '') {
+  constructor(message: string, status: number, method: string, path: string, code = '', detail = '') {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.method = method;
     this.path = path;
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -69,7 +72,7 @@ export async function responseError(
   const status = response.status || 0;
   const prefix = `${method.toUpperCase()} ${path} → ${status || 'network error'}`;
   const suffix = body.detail || response.statusText?.trim() || '';
-  return new ApiError(suffix ? `${prefix}: ${suffix}` : prefix, status, method.toUpperCase(), path, body.code);
+  return new ApiError(suffix ? `${prefix}: ${suffix}` : prefix, status, method.toUpperCase(), path, body.code, body.detail);
 }
 
 export async function ensureResponseOk(
