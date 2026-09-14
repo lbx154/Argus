@@ -19,6 +19,7 @@ interface BuildWebCommandHandlersOptions {
   onOpenNewDaemon: () => void;
   onOpenOperations: () => void;
   onOpenSidebar: () => void;
+  onOpenSkills: () => void;
   onReconnectEvents: () => void;
   onRenameProject: (name: string) => Promise<void>;
   onRewriteDraft: (draft: string) => void;
@@ -48,6 +49,7 @@ export function buildWebCommandHandlers({
   onOpenNewDaemon,
   onOpenOperations,
   onOpenSidebar,
+  onOpenSkills,
   onReconnectEvents,
   onRenameProject,
   onRewriteDraft,
@@ -167,6 +169,7 @@ export function buildWebCommandHandlers({
       notify('success', 'Manager context reset.');
     },
     skills: async (rest) => {
+      if (!rest.trim() || rest.trim() === 'ls') { onOpenSkills(); return; }
       if (!activeSid) return;
       const text = await api.skills(activeSid, rest || 'ls');
       notify('info', text.slice(0, 400));

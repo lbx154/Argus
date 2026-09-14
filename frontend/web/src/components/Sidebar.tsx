@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ProjectRow } from '../api';
+import type { ProjectRow, SkillLibraryItem } from '../api';
+import { SkillLibraryEntry } from './SkillLibrary';
 import { PluginLauncher } from './PluginLauncher';
 import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
@@ -55,6 +56,7 @@ export function Sidebar({
   onResume,
   resumingId,
   onOpenPanel,
+  onOpenSkills,
   onNew,
   loading,
   creating = false,
@@ -76,6 +78,7 @@ export function Sidebar({
   onResume?: (id: string) => void;
   resumingId?: string | null;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
+  onOpenSkills?: (item?: SkillLibraryItem) => void;
   onNew: () => void;
   loading: boolean;
   creating?: boolean;
@@ -144,6 +147,7 @@ export function Sidebar({
       ) : null}
 
       {slim ? <PluginLauncher compact /> : null}
+      {slim && onOpenSkills ? <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} compact /> : null}
       {!slim ? (
         <>
           <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-5">
@@ -317,6 +321,7 @@ export function Sidebar({
             ))}
           </div>
 
+          {onOpenSkills && <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} />}
           <details className="sidebar-tools mx-3 mb-2 border-t border-line/60 pt-2">
             <summary className="cursor-pointer px-2 py-2 text-xs text-ink-dim">{locale === 'zh-CN' ? '工具与资源' : 'Tools and resources'}</summary>
             <PluginLauncher />
