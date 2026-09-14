@@ -3,12 +3,15 @@
 Per the rubber-duck critique:
 
 - Supervisor (not observer): we OWN the outer loop and call
-  ``MissionExecutor.execute(...)`` once per backlog item. We never try
-  to push ``/run`` into a finished single-mission daemon.
-- Single inbox owner: we don't tail any JsonlCommandBus. The optional
-  ``user_inbox`` callable lets a host process feed user-provided
-  high-priority objectives into the supervisor's own queue without two
-  consumers racing on the same offset file.
+  ``runner.execute(...)`` once per backlog item — ``runner`` is the
+  ``_MissionRunner`` from ``_config.py``, in production the
+  ``_SkillLoopRunner`` defined in ``apps._runtime`` and built by
+  ``build_life_runner`` in ``apps._runtime_construction``. We never try to
+  push ``/run`` into a finished single-mission daemon.
+- Single inbox owner: the supervisor is the only consumer of operator
+  input. The optional ``user_inbox`` callable lets a host process feed
+  user-provided high-priority objectives into the supervisor's own queue
+  without two consumers racing on the same offset file.
 - Bounded autonomy: ``LifeBudget`` enforces a per-mission preflight cap
   AND a daily cap. Defaults are generous enough for long polish runs
   (max 6 autonomous missions in one supervisor run, $30/mission,
@@ -163,7 +166,7 @@ _PLAN_PROJECT_DONE = "project_done"
 
 
 
-# ----- thin protocol describing what we need from a MissionExecutor --------
+# ----- thin protocol describing what we need from the mission runner ------
 
 
 class LifeSupervisor(

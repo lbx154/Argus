@@ -1,4 +1,7 @@
-"""Lifetime-agent layer.
+"""Lifetime-agent layer: "life" is a Project's continuous lifetime — its
+memory, backlog, supervisor and operator channels (chat, telegram, inbox).
+
+Layer: runtime
 
 This package adds cross-mission persistent memory and a supervisor that
 runs an ordered backlog of missions back-to-back, so the agent behaves
@@ -12,8 +15,10 @@ Public surface (intentionally small):
 - :class:`memory.LifeMemory` — small facade bundling the three above plus
   recent project-journal retrieval.
 - :class:`supervisor.LifeSupervisor` — owns the outer process; pulls one
-  backlog item, runs one mission via ``MissionExecutor``, writes a
-  journal entry, repeats until budget / iteration cap reached.
+  backlog item, runs one mission through the mission runner it is handed
+  (in production the ``_SkillLoopRunner`` defined in ``apps._runtime`` and
+  built by ``build_life_runner`` in ``apps._runtime_construction``), writes
+  a journal entry, repeats until budget / iteration cap reached.
 - :class:`supervisor.LifeBudget` — preflight + post-flight cost gating.
 
 Notes:
@@ -66,6 +71,6 @@ __all__ = [
 
 def __getattr__(name: str):  # PEP 562 lazy attrs
     if name in {"LifeBudget", "LifeSupervisor"}:
-        from . import supervisor  # noqa: WPS433 — intentional lazy import
+        from . import supervisor  # intentional lazy import (PEP 562)
         return getattr(supervisor, name)
     raise AttributeError(f"module 'argus_skill.life' has no attribute {name!r}")

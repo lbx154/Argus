@@ -711,6 +711,22 @@ logs.
 - Use `argus --config-help` to check the effective backend/model before blaming
   setup or authentication.
 
+## Repository layout
+
+- `argus_skill/` — the Python package; everything `argus`, `argus-skill` and the daemon run.
+- `argus_skill/core/`, `proof_ledger/` — kernel: models, ports, contracts, paths. Intended leaf: must import nothing above itself; today's remaining upward edges are pinned in the invariants test (`tests/test_architecture_invariants.py`) and removed in phase 1.
+- `argus_skill/agent_cli/`, `adapters/`, `provider_integrations/`, `advisor/` — drivers for the model CLIs (codex, claude, copilot, ...).
+- `argus_skill/skills/`, `tools/`, `wiki/`, `cli/` — capabilities: the Skill library, operator-approved tools, the project Wiki, terminal rendering.
+- `argus_skill/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 24 built-in verticals, overlays, seeded Skills.
+- `argus_skill/roles/`, `planner/`, `engineer/`, `reviewer/` — the persistent roles: the prompt catalog (`roles/`) plus the Planner, Engineer and Reviewer code (the Manager's code is in `manager/`).
+- `argus_skill/life/`, `manager/`, `messaging/` — runtime: project memory, backlog, supervisor, the Manager control plane, cross-project messages.
+- `argus_skill/daemon/`, `team/` — the detached 7x24 worker and agent teams.
+- `argus_skill/apps/`, `webapi/`, `plugin/`, `maintenance/`, `trial/` — delivery: CLI, web API, host plugin, Doctor, hosted trial.
+- `frontend/` — Ink terminal cockpit (`tui`), React web cockpit (`web`), shared TypeScript (`core`).
+- `desktop-tauri/` — Tauri desktop shell (Windows release; four CI targets); `plugins/` — installable host plugin; `tests/` — pytest suite.
+
+See [docs/LAYOUT.md](docs/LAYOUT.md) for the full map and the declared layering.
+
 ## What Argus has done so far
 
 A partial record, grouped by **who decides whether the result counts** — and none of

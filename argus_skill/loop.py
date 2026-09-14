@@ -1,11 +1,16 @@
-"""SkillLoop — agent-native Skill discovery plus supervised engineering.
+"""SkillLoop — the per-mission round loop (Engineer <-> Reviewer).
 
-This is the new code that argus-skill exists to deliver. It composes:
+One ``SkillLoop.run(task)`` is one mission. Inside the mission runner
+(``_SkillLoopRunner`` in ``apps/_runtime.py``), ``_runtime_construction.py``
+wires the backend and Manager; ``_runtime_execute.py`` builds the config, the
+layered Skill store and one ``SkillLoop`` per backlog item and runs it; phase
+5 of docs/LAYOUT.md moves this module and the runner into ``mission_runner/``.
+The loop composes:
 
   * ``SkillStore``: path-only access to agent-readable Skill libraries.
-  * ``SupervisedEngineer`` (new, with ``Reviewer`` vendored from ArgusBot):
-    vertical round-loop that accepts decisive Engineer self-verification for
-    bounded work or otherwise supervises until the Reviewer is satisfied.
+  * ``SupervisedEngineer`` with ``Reviewer``: the round-loop that accepts
+    decisive Engineer self-verification for bounded work or otherwise
+    supervises until the Reviewer is satisfied.
 
 Skill and wiki memory normally use independent review. For a bounded mission,
 the Engineer may explicitly self-verify and waive Reviewer; if it also identifies

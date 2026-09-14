@@ -1,4 +1,7 @@
-"""Read-only Planner sub-agent that delegates implementation to Engineer."""
+"""Read-only Planner sub-agent that delegates implementation to Engineer.
+
+Layer: roles
+"""
 
 from .planner import (
     NO_CONCRETE_TASKS_ERROR,
