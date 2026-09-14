@@ -4,16 +4,58 @@
 用户选择 idea、期限或资源后可重新计算；记录版本后可以追溯初版估计、
 历次修改、实际延期与具体原因。模块位于 research vertical，不引入新 daemon。
 
-## 直接使用
+## 在网页版验证
+
+功能开发在公开仓库 `lbx154/Argus` 的 `dev` 分支。入口：选择项目 → 顶部
+**工作台** → **研究排期**。也可在当前网页版地址后加
+`?project=<项目ID>&view=workbench&module=timeline` 直接进入。
+
+1. 点击 **加载论文示例**。显示两个候选 proposal、点估计与区间，以及实验时间条。
+   默认示例第一个方案预计 **103.0 小时**，区间 **38–252 小时**。
+2. 把 **期望完成时间（小时）** 从 `120` 改为 `60`，排期自动更新；第一个方案
+   显示 **预计超期 43.0 小时**，必需实验没有被缩短。
+3. 切换 **选择 idea / proposal** 或修改可用资源；展开具体任务可编辑三点工期、
+   实现难度、资源占用、依赖和进展状态。也可添加候选方案与实验任务。
+4. 填写 **本次保存 / 调整原因**，点击 **保存计划版本**，然后刷新页面，确认
+   原来的输入、排期和版本仍在。
+5. 修改任务工期，在该任务填写 **变化 / 延期原因** 与 **证据引用**，保存下一版。
+   结果底部显示 **版本对照与延期原因**，包括相对初版的变化和逐任务偏差。
+
+未保存修改不会自动落盘。版本冲突时保留当前草稿：先导出 proposal，再点击
+“重新载入已保存计划”取得最新版本。保存计划不会启动实验。
+进展和失败原因仍需由实际实验结果或操作者更新，不是后台自动监控通知。
+
+源码用户更新方式（已有运行服务需从更新后的源码重新启动）：
+
+```bash
+git switch dev
+git pull --ff-only origin dev
+python -m argus_skill --web
+```
+
+这里假设本机 `origin` 指向 `https://github.com/lbx154/Argus.git`。
+分支包含构建后的网页资源；本地继续修改前端时再执行：
+
+```bash
+cd frontend/web
+npm ci
+PYTHONPATH=../.. npm run build
+```
+
+开发时也可用 `npm run dev`，默认网页 `http://localhost:5173`，API 代理到
+`http://127.0.0.1:8799`。远程机器通过 SSH 转发实际端口后访问。
+已安装的旧 App 或旧服务器不会因 GitHub 推送自动升级。
+
+## CLI 与 API
 
 在源码根目录运行：
 
 ```bash
 python -m argus_skill.verticals.research.timeline \
-  --input docs/examples/research-timeline.json
+  --input argus_skill/verticals/research/timeline_example.json
 ```
 
-[完整示例](examples/research-timeline.json)包括实现难度、idea 验证、主实验、
+[完整示例](../argus_skill/verticals/research/timeline_example.json)包括实现难度、idea 验证、主实验、
 消融、held-out 确认、分析、写作与审阅，以及一个备选 proposal。
 所有示例数字均为演示估计，不是该模型或研究方法的实测工期。
 
@@ -29,7 +71,15 @@ Authorization: Bearer <configured-token>
 ```
 
 接口不启动模型调用、实验或 daemon。输入结构错误返回 422。
-当前交付是计算模块、CLI、API 与研究 Skill 接入；尚无专门的前端编辑页面。
+网页版与 CLI 使用相同的估计器和版本存储。额外接口：
+
+- `GET /api/research/timeline/example`：读取随包发布的演示输入。
+- `GET /api/projects/{sid}/research/timeline`：返回 `{latest: null | 版本记录}`。
+- `POST /api/projects/{sid}/research/timeline`：使用
+  `{input, expected_version, reason}` 保存版本；版本冲突返回 409。
+
+所有接口使用现有认证。保存路径由服务端绑定的项目工作目录解析，浏览器不能指定
+任意磁盘路径；拒绝越出项目的 timeline 符号链接。预估与版本保存不改变 backlog。
 自然语言 proposal 由现有 Agent 按 `research-timeline` Skill 形成输入，不用关键词猜任务。
 
 ## 时间的含义
@@ -105,4 +155,7 @@ Engineer 在实验里程碑或用户修改约束后更新预测；Planner 使用
 
 ```bash
 python -m pytest tests/skills/test_research_timeline.py tests/webapi/test_research_timeline.py
+cd frontend/web
+npm test -- src/test/researchTimeline.test.tsx src/test/researchWorkbenchApi.test.ts
+npm run typecheck
 ```

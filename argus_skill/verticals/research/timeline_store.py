@@ -13,6 +13,16 @@ from .timeline import estimate
 from .timeline_models import label
 
 
+class TimelineVersionConflict(ValueError):
+    """Another writer has published a forecast since the caller loaded it."""
+
+
+def latest(project_root: Path) -> dict | None:
+    root = Path(project_root) / ".argus" / "timeline"
+    versions = sorted(root.glob("[0-9][0-9][0-9][0-9][0-9][0-9].json"))
+    return json.loads(versions[-1].read_text(encoding="utf-8")) if versions else None
+
+
 def _tasks(payload):
     return {(p["id"], task["id"]): task for p in payload["proposals"] for task in p["tasks"]}
 
@@ -124,7 +134,7 @@ def record(project_root: Path, payload: dict, *, expected_version: int, reason: 
         versions = sorted(root.glob("[0-9][0-9][0-9][0-9][0-9][0-9].json"))
         version = int(versions[-1].stem) if versions else 0
         if version != expected_version:
-            raise ValueError(
+            raise TimelineVersionConflict(
                 f"timeline version conflict: expected {expected_version}, found {version}"
             )
         if version >= 999999:
