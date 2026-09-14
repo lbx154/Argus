@@ -528,8 +528,18 @@ class CommandRouter:
         self._reply(f"<pre>{_esc(render_reset_cmd(self._state))}</pre>")
 
     def _cmd_skills(self, arg: str) -> None:
+        from ...core.campaign_workdir import active_campaign_workdir
+        from ...core.session import read_session_meta, resolve_session_workdir
+
         tokens = shlex.split(arg) if arg.strip() else []
-        self._reply(f"<pre>{_esc(render_skills_cmd(tokens))}</pre>")
+        root = self.life_dir.parent.parent
+        try:
+            workdir = resolve_session_workdir(read_session_meta(root, self.life_dir.name), state_dir=self.life_dir)
+            workdir = active_campaign_workdir(self.life_dir, workdir) or workdir
+        except (OSError, RuntimeError):
+            workdir = None  # An unavailable project must not hide global Skills.
+        result = render_skills_cmd(tokens, global_root=root, project_state=self.life_dir, workdir=workdir)
+        self._reply(f"<pre>{_esc(result)}</pre>")
 
     def _cmd_backlog(self, arg: str) -> None:
         from ..memory import LifeMemory

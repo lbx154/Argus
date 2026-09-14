@@ -574,10 +574,13 @@ def set_identity(
     return True
 
 
-def run_skill_command(tokens: list[str]) -> str:
+def run_skill_command(
+    tokens: list[str], *, global_root: Path | None = None,
+    project_state: Path | None = None, workdir: Path | None = None,
+) -> str:
     from ..apps._life_actions import render_skills_cmd
 
-    return render_skills_cmd(tokens)
+    return render_skills_cmd(tokens, global_root=global_root, project_state=project_state, workdir=workdir)
 
 
 def get_transcript(

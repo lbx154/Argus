@@ -14,13 +14,12 @@ import {
   faMagnifyingGlass,
   faNoteSticky,
   faPaperPlane,
-  faPlay,
   faRotateLeft,
   faTrashArrowUp,
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 import { requestFailureText, routeRefused } from '../lib/requestFailure';
-import { metricsFigures, outputSummary } from '../lib/rawSummary';
+import { metricsFigures } from '../lib/rawSummary';
 import { ResourceStatusView } from './ResourceStatus';
 import { RawDisclosure } from './primitives';
 
@@ -55,6 +54,7 @@ export function OperationsModal({
   onClose,
   onChanged,
   onRestored,
+  onOpenSkills,
 }: {
   open: boolean;
   sid: string;
@@ -62,17 +62,16 @@ export function OperationsModal({
   onClose: () => void;
   onChanged: () => void;
   onRestored: (sid: string) => void | Promise<void>;
+  onOpenSkills: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [action, setAction] = useState<QuickAction>('task');
   const [text, setText] = useState('');
   const [workdir, setWorkdir] = useState(snap.session.workdir ?? snap.session.cwd ?? '');
-  const [skillsArgs, setSkillsArgs] = useState('ls');
   // What a command came back with: the sentence on the page, the record in a fold.
   const [output, setOutput] = useState<{ text: string; raw?: string } | null>(null);
   const [failure, setFailure] = useState<{ text: string; technical: string } | null>(null);
   const [unavailable, setUnavailable] = useState<ReadonlySet<Capability>>(() => new Set());
-  const [skillsOutput, setSkillsOutput] = useState('');
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const [sourceUpdate, setSourceUpdate] = useState<SourceUpdateStatus | null>(null);
   const [resources, setResources] = useState<ResourceStatus | null>(null);
@@ -311,24 +310,8 @@ export function OperationsModal({
 
         {tab === 'system' ? <section className="rounded-lg border border-line bg-panel p-4">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-dim">{t('operations.skills')}</h3>
-          <div className="mt-3 flex gap-2">
-            <input value={skillsArgs} onChange={(event) => setSkillsArgs(event.target.value)} className="h-9 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" placeholder="ls, stats, show NAME…" />
-            <button type="button" disabled={!!busy} onClick={() => void run('skills', async () => { const result = await api.skills(sid, skillsArgs); setSkillsOutput(result); return result; }, null)} title={t('operations.runSkill')} aria-label={t('operations.runSkill')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/50 text-xs text-blue disabled:opacity-40"><FontAwesomeIcon icon={faPlay} /></button>
-          </div>
-          {skillsOutput ? (() => {
-            const glance = outputSummary(skillsOutput);
-            return (
-              <div className="mt-3 text-xs text-ink-dim">
-                <p className="break-words">
-                  {glance.first}
-                  {glance.lines > 1 ? <span className="text-ink-faint"> · {t('operations.outputLines', { count: glance.lines })}</span> : null}
-                </p>
-                <RawDisclosure>
-                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-xs text-ink-dim scroll-thin">{skillsOutput}</pre>
-                </RawDisclosure>
-              </div>
-            );
-          })() : null}
+          <p className="mt-2 text-xs text-ink-faint">{locale === 'zh-CN' ? '全局技能对所有任务可用。在技能库中查看各分类与最近更新。' : 'Global skills are available to every task. Browse all classes and recent updates in the skill library.'}</p>
+          <button type="button" onClick={onOpenSkills} className="mt-3 rounded border border-line px-3 py-2 text-sm text-blue hover:bg-bg">{locale === 'zh-CN' ? '打开技能库' : 'Open skill library'}</button>
         </section> : null}
 
         {tab === 'system' && !unavailable.has('metrics') ? <section className="rounded-lg border border-line bg-panel p-4">

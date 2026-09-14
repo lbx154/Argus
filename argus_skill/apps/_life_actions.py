@@ -454,15 +454,28 @@ def render_reset_cmd(chat_state: dict[str, Any]) -> str:
     return "reset: no active codex session"
 
 
-def render_skills_cmd(tokens: Sequence[str]) -> str:
+def render_skills_cmd(
+    tokens: Sequence[str], *, global_root: Path | None = None,
+    project_state: Path | None = None, workdir: Path | None = None,
+) -> str:
     op = (tokens[0].lower() if tokens else "ls")
     if op in ("ls", "list"):
         from ..core import paths as core_paths
-        from ..skills.store import SkillStore
+        from ..skills.catalog import SCOPES, catalog, library_roots
 
-        global_store = SkillStore(core_paths.shared_skills_root())
-        rows = global_store.list_summaries()
-        if not rows:
-            return "(no global skills)"
-        return "\n".join(f"- {s['path']}" for s in rows)
+        libraries = library_roots(global_root or core_paths.global_root(), project_state, workdir)
+        data = catalog(libraries)
+        sections = []
+        for scope in SCOPES:
+            rows = [row for row in data["items"] if row["scope"] == scope]
+            heading = f"{scope.title()} skills ({len(rows)})"
+            if scope == "global":
+                heading += " — available to every task"
+            entries = [f"- {row['name']} — {row['path']}" for row in rows]
+            if not entries:
+                entries = ["Select a project to see its saved skills." if scope == "project" and project_state is None
+                           else "No saved project skills yet." if scope == "project"
+                           else "Skill library unavailable."]
+            sections.append("\n".join([heading, *entries]))
+        return "\n\n".join(sections)
     return f"unknown /skills subcommand: {op}  (try ls)"

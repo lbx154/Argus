@@ -169,7 +169,7 @@ export function buildWebCommandHandlers({
       notify('success', 'Manager context reset.');
     },
     skills: async (rest) => {
-      if (!rest.trim() || rest.trim() === 'ls') { onOpenSkills(); return; }
+      if (['', 'ls', 'list'].includes(rest.trim().toLowerCase())) { onOpenSkills(); return; }
       if (!activeSid) return;
       const text = await api.skills(activeSid, rest || 'ls');
       notify('info', text.slice(0, 400));

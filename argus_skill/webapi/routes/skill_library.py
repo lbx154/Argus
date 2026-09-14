@@ -5,8 +5,8 @@ from typing import Any
 
 from fastapi import Depends, HTTPException, Query
 
+from ...skills import catalog as skill_library
 from ...skills.vertical_select import resolve_skill_scope
-from .. import skill_library
 from ..artifacts import project_workspace
 from .context import ServerContext
 

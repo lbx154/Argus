@@ -54,23 +54,24 @@ export function SkillLibraryEntry({ sid, onOpen, compact = false, visible = true
   </section>;
 }
 
-export function SkillLibrary({ sid, projectName, initialSelection = null }: {
+export function SkillLibrary({ sid, projectName, initialSelection = null, initialScope = 'recent' }: {
   sid: string | null;
   projectName?: string;
   initialSelection?: SkillLibraryItem | null;
+  initialScope?: SkillScope | 'recent';
 }) {
   // A project change remounts the browser, including its document selection.
   const initialSid = useRef(sid);
-  return <LibraryBrowser key={sid ?? 'no-project'} sid={sid} projectName={projectName} initialSelection={initialSid.current === sid ? initialSelection : null} />;
+  return <LibraryBrowser key={sid ?? 'no-project'} sid={sid} projectName={projectName} initialSelection={initialSid.current === sid ? initialSelection : null} initialScope={initialScope} />;
 }
 
-function LibraryBrowser({ sid, projectName, initialSelection }: {
-  sid: string | null; projectName?: string; initialSelection: SkillLibraryItem | null;
+function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
+  sid: string | null; projectName?: string; initialSelection: SkillLibraryItem | null; initialScope: SkillScope | 'recent';
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const names = labels[zh ? 'zh' : 'en'];
-  const [scope, setScope] = useState<SkillScope | 'recent'>('recent');
+  const [scope, setScope] = useState<SkillScope | 'recent'>(initialScope);
   const [search, setSearch] = useState('');
   const [vertical, setVertical] = useState('');
   const [selection, setSelection] = useState(initialSelection);
@@ -111,6 +112,7 @@ function LibraryBrowser({ sid, projectName, initialSelection }: {
             {catalog.data?.verticals.map(value => <option key={value} value={value}>{value}{value === catalog.data.active_vertical ? (zh ? ' · 当前项目' : ' · this project') : ''}</option>)}
           </select>}
           {scope === 'recent' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '按文件更新时间排列，涵盖所有分类；不含未修改的内置技能。' : 'All classes, newest file updates first. Unchanged built-in skills are excluded.'}</p>}
+          {scope === 'global' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '所有项目和任务均可访问，执行时按需读取。' : 'Available to every project and task; read as needed during work.'}</p>}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4" aria-label={zh ? '技能列表' : 'Skills'}>
           {catalog.isPending && <p className="p-3 text-sm text-ink-faint">{zh ? '正在加载技能…' : 'Loading skills…'}</p>}

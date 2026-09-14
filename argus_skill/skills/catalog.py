@@ -11,10 +11,10 @@ from typing import Any
 import yaml
 
 from ..core import paths
-from ..skills.builtins import builtin_skill_source_path, vertical_skill_source_path
-from ..skills.layered import shared_skill_scope_dir
-from ..skills.store import role_of_path
-from ..skills.vertical_select import VERTICALS, resolve_skill_scope
+from .builtins import builtin_skill_source_path, vertical_skill_source_path
+from .layered import shared_skill_scope_dir
+from .store import role_of_path
+from .vertical_select import VERTICALS, resolve_skill_scope
 
 SCOPES = ("global", "vertical", "project")
 MAX_DOCUMENT_BYTES = 256 * 1024

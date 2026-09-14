@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.webapi import skill_library as library
+from argus_skill.skills import catalog as library
 from argus_skill.webapi.server import create_app
 
 HEADERS = {"Authorization": "Bearer test-token"}
@@ -160,3 +160,52 @@ def test_browsing_is_read_only_and_oversized_documents_are_explicit(workspace):
     assert before == after
     path.write_bytes(b"\xff")
     assert document(client).status_code == 409
+
+
+def test_legacy_command_reads_the_same_bound_library_in_a_fresh_profile(workspace, monkeypatch):
+    home, client, _ = workspace
+    other_home = home.parent / "other-profile"
+    skill(other_home / "skills/private.md", "Other profile secret")
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(other_home))
+    skill(home / "skills/engineer/saved.md", "Shared learning")
+    skill(home / "projects/one/skills/engineer/project.md", "Project One")
+    skill(home / "projects/two/skills/engineer/project.md", "Project Two")
+    for sid in ("one", "two"):
+        route = f"/api/projects/{sid}/skills"
+        assert client.post(route, json={"args": "ls"}).status_code == 401
+        output = client.post(route, headers=HEADERS, json={"args": "ls"}).json()["text"]
+        catalog = client.get("/api/skill-library", params={"sid": sid}, headers=HEADERS).json()
+        for row in catalog["items"]:
+            assert row["name"] in output
+        assert output.index("Global skills") < output.index("Vertical skills") < output.index("Project skills")
+        assert "Common" in output and "available to every task" in output
+        assert "Other profile secret" not in output
+        assert ("Project Two" if sid == "one" else "Project One") not in output
+        assert "(no global skills)" not in output
+    assert client.post("/api/projects/missing/skills", headers=HEADERS, json={"args": "ls"}).status_code == 404
+
+
+def test_legacy_command_respects_configured_shared_directory(workspace, monkeypatch):
+    home, client, _ = workspace
+    configured = home.parent / "configured"
+    skill(configured / "engineer/shared.md", "Configured global skill")
+    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(configured))
+    output = client.post("/api/projects/one/skills", headers=HEADERS, json={"args": "list"}).json()["text"]
+    assert "Configured global skill" in output and "Common" in output
+    assert not (home / "skills").exists()
+
+
+def test_chat_command_keeps_global_access_when_project_workspace_is_unavailable(workspace, monkeypatch):
+    from types import SimpleNamespace
+
+    from argus_skill.life.chat.router import CommandRouter
+
+    home, _, _ = workspace
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home.parent / "wrong-profile"))
+    write_session_meta(home, SessionMeta(id="one", workdir=str(home.parent / "removed-workspace")))
+    replies = []
+    router = CommandRouter(life_dir=home / "projects/one", transport=SimpleNamespace(channel="test", send=replies.append))
+    router._cmd_skills("ls")
+    assert len(replies) == 1
+    assert "Global skills (1)" in replies[0] and "Common" in replies[0]
+    assert not (home / "skills").exists()

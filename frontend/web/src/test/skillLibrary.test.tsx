@@ -92,6 +92,16 @@ it('shows a new saved skill directly in the sidebar and opens that document', as
   expect(onOpen).toHaveBeenLastCalledWith(next);
 });
 
+it('opens listing commands on global skills even when there are no recent updates', async () => {
+  vi.mocked(api.skillLibrary).mockResolvedValue({ ...fixture, items: [fixture.items[0]] });
+  await act(async () => { renderer = create(<QueryClientProvider client={client}><SkillLibrary sid={null} initialScope="global" /></QueryClientProvider>); });
+  await settle();
+  expect(button('Global').props['aria-pressed']).toBe(true);
+  expect(button('Default')).toBeDefined();
+  expect(content(renderer.root)).toContain('Available to every project and task');
+  expect(content(renderer.root)).not.toContain('No skill updates yet.');
+});
+
 it('does not apply an inactive vertical filter to the project empty state', async () => {
   vi.mocked(api.skillLibrary).mockResolvedValue({ ...fixture, items: fixture.items.filter(row => row.scope !== 'project') });
   await mount();

@@ -277,9 +277,14 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
 
     @app.post("/api/projects/{sid}/skills", dependencies=[Depends(ctx.require_auth)])
     def _skills(sid: str, body: SkillsIn) -> dict[str, Any]:
-        ctx.project_root_or_404(sid)
+        root = ctx.project_root_or_404(sid)
+        state = ctx.resolve_or_404(sid)
+        from ..artifacts import project_workspace
         try:
             tokens = shlex.split(body.args)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"invalid skill arguments: {exc}") from exc
-        return {"text": server_mod.run_skill_command(tokens)}
+        return {"text": server_mod.run_skill_command(
+            tokens, global_root=root, project_state=state,
+            workdir=project_workspace(sid, global_root=root),
+        )}
