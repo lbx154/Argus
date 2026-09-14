@@ -26,8 +26,8 @@ def test_release_digest_covers_runtime_and_frontend_build_inputs() -> None:
     }
 
     assert {
-        "argus_skill/verticals/classical_poetry/sources.yaml",
-        "argus_skill/verticals/chip_design/references/workflow.md",
+        "argus_skill/verticals/kernel_engineering/references/specialized_tool_registry.json",
+        "argus_skill/verticals/kernel_engineering/references/toolchain-selection.md",
         "frontend/tui/scripts/build-bundle.mjs",
         "frontend/web/src/index.css",
         "frontend/web/public/manifest.webmanifest",
