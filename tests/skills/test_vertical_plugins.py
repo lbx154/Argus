@@ -78,12 +78,19 @@ def test_invalid_plugins_are_not_advertised(tmp_path, monkeypatch) -> None:
 
 
 def test_builtin_name_cannot_be_replaced(tmp_path, monkeypatch) -> None:
+    from argus_skill.skills.builtins import vertical_skill_parents
+
+    before = dict(iter_vertical_skill_texts("research"))
     impostor = module(tmp_path)
+    impostor.VERTICAL_SKILL_PARENTS = ("software",)
     install(monkeypatch, [Entry("research", impostor)])
 
     assert vertical_select.available_verticals().count("research") == 1
     assert load_vertical("research") is not impostor
     assert load_vertical("research").__name__.endswith("verticals.research.stages")
+    assert _registry.vertical_plugin("research") is None
+    assert vertical_skill_parents("research") == ()
+    assert dict(iter_vertical_skill_texts("research")) == before
 
 
 # --- VERTICAL_SKILL_PARENTS: a plugin declares whose skills seed before its own ---
@@ -192,9 +199,17 @@ def test_manager_treats_an_installed_plugin_as_a_vertical_not_a_data_domain(
 ) -> None:
     from argus_skill.manager import Manager
     from argus_skill.manager.domain_author import VerticalDecision
+    from argus_skill.verticals._data_domain import write_data_domain
 
     install(monkeypatch, [Entry("external_lab", module(tmp_path / "plugin"))])
     project = tmp_path / "project"
+    # A same-named project data domain exists too: with the old built-in-only
+    # check the plugin name was "not a built-in", its status was read off this
+    # file and the domain's stages would have been planned.
+    write_data_domain(
+        project, "external_lab", stages=["draft", "ship"],
+        checklist_stage_order=["draft", "ship"], created_by="manager",
+    )
     decision = VerticalDecision(
         choice="existing", vertical="external_lab", execution_task="do the plugin's work",
     )
@@ -202,7 +217,117 @@ def test_manager_treats_an_installed_plugin_as_a_vertical_not_a_data_domain(
     division = Manager(project_root=project).commit_vertical_decision("do the work", decision)
 
     assert division.vertical == "external_lab"
-    assert division.learned_vertical_status == ""  # a data domain would carry its status
-    assert division.stages == ["work", "deliver"]
+    assert division.learned_vertical_status == ""  # the plugin wins; no domain status is read
+    assert division.stages == ["work", "deliver"]  # the plugin's stages, not the domain's
     assert Manager._kind_for("external_lab") == "custom"
-    assert not (project / "research" / "DOMAINS").exists()
+
+
+# --- registry hardening: third-party declarations fail in any shape ---
+
+
+def test_a_contract_that_raises_a_type_error_is_skipped_not_raised(tmp_path, monkeypatch) -> None:
+    broken = module(tmp_path)
+    broken.CHECKLIST_STAGE_ORDER = 5  # escapes as TypeError from inside the contract
+    install(monkeypatch, [Entry("broken_order", broken), Entry("fine", module(tmp_path / "b"))])
+
+    available = vertical_select.available_verticals()
+
+    assert "broken_order" not in available and "fine" in available
+
+
+@pytest.mark.parametrize("skills", [42, object(), ["a"]], ids=["int", "object", "list"])
+def test_an_invalid_vertical_skills_declaration_is_rejected_at_registration(tmp_path, monkeypatch, skills) -> None:
+    plugin = module(tmp_path)
+    plugin.VERTICAL_SKILLS = skills
+    install(monkeypatch, [Entry("odd_skills", plugin)])
+
+    assert "odd_skills" not in vertical_select.available_verticals()
+
+
+def test_a_traversable_vertical_skills_is_accepted(tmp_path, monkeypatch) -> None:
+    from importlib import resources
+
+    plugin = module(tmp_path)
+    plugin.VERTICAL_SKILLS = resources.files("argus_skill.verticals.software") / "skills"
+    install(monkeypatch, [Entry("traversable", plugin)])
+
+    names = dict(iter_vertical_skill_texts("traversable"))
+    assert "engineer/software-change-implementation.md" in names
+
+
+def test_a_parent_that_resolves_nowhere_is_warned_about_and_skipped(tmp_path, monkeypatch, caplog) -> None:
+    import logging
+
+    plugin = _with_parents(module(tmp_path), "no_such_vertical")
+    install(monkeypatch, [Entry("orphan_child", plugin)])
+
+    with caplog.at_level(logging.WARNING, logger="argus_skill.skills.builtins"):
+        names = [name for name, _ in iter_vertical_skill_texts("orphan_child")]
+
+    assert names == ["engineer/plugin.md"]
+    assert any("no_such_vertical" in record.getMessage() for record in caplog.records)
+
+
+def test_a_plugin_that_reads_the_registry_while_loading_does_not_trigger_a_second_scan(
+    tmp_path, monkeypatch, caplog,
+) -> None:
+    import logging
+
+    scans: list[int] = []
+    plugin = module(tmp_path)
+
+    class ReentrantEntry(Entry):
+        def load(self):
+            # A plugin module whose import touches the registry (for example
+            # through ``available_verticals()``) re-enters the scan.
+            vertical_select.available_verticals()
+            return plugin
+
+    entries = [ReentrantEntry("reentrant", plugin)]
+
+    def fake_entry_points(group):
+        scans.append(1)
+        return list(entries)
+
+    monkeypatch.setattr(_registry, "entry_points", fake_entry_points)
+    _registry.refresh_vertical_plugins()
+
+    with caplog.at_level(logging.WARNING, logger="argus_skill.verticals._registry"):
+        available = vertical_select.available_verticals()
+
+    assert "reentrant" in available
+    assert scans == [1]
+    assert not any("incompatible contract" in r.getMessage() for r in caplog.records)
+
+
+# --- a plugin may not take a built-in's name, module or skill tree ---
+
+
+def test_builtin_name_cannot_hijack_skill_seeding(tmp_path, monkeypatch) -> None:
+    from argus_skill.skills.builtins import vertical_skill_parents
+
+    before = dict(iter_vertical_skill_texts("research"))
+    impostor = _with_parents(module(tmp_path), "software")
+    impostor.VERTICAL_SKILLS = tmp_path / "nonexistent"
+    install(monkeypatch, [Entry("research", impostor)])
+
+    assert _registry.vertical_plugin("research") is None
+    assert vertical_skill_parents("research") == ()
+    assert dict(iter_vertical_skill_texts("research")) == before
+    assert len(before) > 4
+
+
+def test_managed_plugin_named_like_a_builtin_is_ignored(tmp_path, monkeypatch) -> None:
+    from argus_skill.core import plugin_manager
+
+    impostor = module(tmp_path)
+
+    class Managed:
+        def vertical_module(self):
+            return impostor
+
+    monkeypatch.setattr(plugin_manager, "installed", lambda root=None: {"software": Managed()})
+    install(monkeypatch, [])
+
+    assert _registry.vertical_plugin("software") is None
+    assert load_vertical("software").__name__.endswith("verticals.software.stages")

@@ -24,6 +24,7 @@ the contract -- an invalid declaration means the plugin is not advertised.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -38,6 +39,7 @@ VERTICAL_API_VERSION = 1
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _ENTRY_POINT_CACHE: dict[str, VerticalPlugin] | None = None
 _CACHE_LOCK = threading.RLock()
+_SCAN = threading.local()  # ``partial``: the dict a scan on this thread is filling
 
 
 @dataclass(frozen=True)
@@ -52,12 +54,23 @@ class VerticalPlugin:
 
 
 def _skills_root(module: ModuleType) -> Any:
+    """Validate ``VERTICAL_SKILLS``: absent, a path, or a Traversable-like object."""
     value = getattr(module, "VERTICAL_SKILLS", None)
     if value is None:
         return None
-    if isinstance(value, (str, Path)):
+    if isinstance(value, (str, os.PathLike)):
         return Path(value).expanduser()
-    return value
+    if callable(getattr(value, "is_dir", None)) and callable(getattr(value, "iterdir", None)):
+        return value
+    raise ValueError(
+        f"VERTICAL_SKILLS must be a path or a Traversable, got {type(value).__name__}"
+    )
+
+
+def _builtin_names() -> frozenset[str]:
+    from . import builtin_verticals  # lazy: the package init imports the inventory
+
+    return frozenset(builtin_verticals())
 
 
 def _skill_parents(name: str, module: ModuleType) -> tuple[str, ...]:
@@ -105,8 +118,12 @@ def _managed_plugins() -> dict[str, VerticalPlugin]:
     except Exception:  # noqa: BLE001
         log.warning("managed vertical plugin discovery failed", exc_info=True)
         return {}
+    builtin = _builtin_names()
     plugins: dict[str, VerticalPlugin] = {}
     for name, plugin in installed.items():
+        if name in builtin:
+            log.warning("ignoring managed vertical plugin %r: the name is a built-in vertical", name)
+            continue
         try:
             plugins[name] = _plugin(name, plugin.vertical_module())
         except Exception:  # noqa: BLE001
@@ -114,13 +131,13 @@ def _managed_plugins() -> dict[str, VerticalPlugin]:
     return plugins
 
 
-def _entry_point_plugins() -> dict[str, VerticalPlugin]:
-    """Scan the entry-point group once; invalid registrations are not advertised."""
+def _entry_point_plugins(plugins: dict[str, VerticalPlugin]) -> dict[str, VerticalPlugin]:
+    """Scan the entry-point group once into ``plugins``; invalid registrations are not advertised."""
     try:
         discovered = entry_points(group=ENTRY_POINT_GROUP)
     except Exception:  # noqa: BLE001
         log.warning("vertical entry-point discovery failed", exc_info=True)
-        return {}
+        return plugins
     from ..core import plugin_manager
     from ..core.vertical_contract import vertical_contract
 
@@ -130,11 +147,16 @@ def _entry_point_plugins() -> dict[str, VerticalPlugin]:
         log.warning("plugin catalog is unreadable; entry points are not filtered against it",
                     exc_info=True)
         managed_names = set()
-    plugins: dict[str, VerticalPlugin] = {}
+    builtin = _builtin_names()
     for entry in sorted(discovered, key=lambda row: (row.name, row.value)):
         name = str(entry.name or "").strip().lower()
         if name in managed_names:
             continue  # catalog ids are activated by the plugin manager, never by pip
+        if name in builtin:
+            # A built-in is served from this package alone: an entry point of
+            # the same name could otherwise redirect its skill seeding.
+            log.warning("ignoring vertical entry point %r: the name is a built-in vertical", name)
+            continue
         if not _NAME.fullmatch(name) or name in plugins:
             log.warning("ignoring invalid or duplicate vertical entry point %r", name)
             continue
@@ -149,7 +171,7 @@ def _entry_point_plugins() -> dict[str, VerticalPlugin]:
                 raise ValueError(f"ARGUS_VERTICAL_API_VERSION {version} != {VERTICAL_API_VERSION}")
             plugin = _plugin(name, module)
             vertical_contract(name, module)
-        except (TypeError, ValueError) as exc:
+        except Exception as exc:  # noqa: BLE001 - third-party declarations fail in any shape
             log.warning("vertical plugin %r has an incompatible contract: %s", name, exc)
             continue
         plugins[name] = plugin
@@ -159,8 +181,19 @@ def _entry_point_plugins() -> dict[str, VerticalPlugin]:
 def _cached_entry_point_plugins() -> dict[str, VerticalPlugin]:
     global _ENTRY_POINT_CACHE
     with _CACHE_LOCK:
-        if _ENTRY_POINT_CACHE is None:
-            _ENTRY_POINT_CACHE = _entry_point_plugins()
+        if _ENTRY_POINT_CACHE is not None:
+            return _ENTRY_POINT_CACHE
+        partial = getattr(_SCAN, "partial", None)
+        if partial is not None:
+            # Re-entered from a plugin module that imports the registry while
+            # it is being loaded: hand back what the running scan has so far
+            # instead of loading the half-initialised module a second time.
+            return partial
+        _SCAN.partial = {}
+        try:
+            _ENTRY_POINT_CACHE = _entry_point_plugins(_SCAN.partial)
+        finally:
+            _SCAN.partial = None
         return _ENTRY_POINT_CACHE
 
 

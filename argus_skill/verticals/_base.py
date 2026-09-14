@@ -44,8 +44,9 @@ def load_vertical(name: object, project_root: object = None) -> VerticalDefiniti
     Order: a built-in ``argus_skill.verticals.<name>.stages`` wins, then a
     vertical registered through the ``argus_skill.verticals`` entry-point group
     (the ``argus-verticals`` community package registers seventeen), then a
-    project-local data domain. A built-in name can therefore never be shadowed
-    by an installed package.
+    project-local data domain. The registry additionally refuses to advertise
+    a plugin whose name is a built-in, so a built-in's module *and* its skill
+    tree both always come from this package.
     """
     cleaned = _normalize_vertical_name(name)
     module_name = f"argus_skill.verticals.{cleaned}.stages"
