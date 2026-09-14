@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
-from . import CLIENT_MODEL, MAX_CONCURRENCY, MAX_OUTPUT_TOKENS, MODEL, TOKEN_LIMIT
+from . import DEFAULT_UPSTREAM_MODEL, MAX_CONCURRENCY, MAX_OUTPUT_TOKENS, MODEL, TOKEN_LIMIT
 from .copilot import Copilot
 from .gateway_accounting import GatewayAccounting, RequestMonitor
 from .gateway_observation import GatewayAttempt, GatewayStreamingResponse
@@ -60,7 +60,7 @@ class TrialFiles(StaticFiles):
 class Settings:
     state_dir: Path
     key_file: Path
-    model: str = CLIENT_MODEL
+    model: str = DEFAULT_UPSTREAM_MODEL
     timeout: float = 300
     site_dir: Path | None = None
     token_limit: int | None = TOKEN_LIMIT

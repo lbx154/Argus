@@ -17,17 +17,24 @@ import logging
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from ..core.models import ReviewDecision, RunnerOptions
 from ..core.operator_messages import uses_cjk
 from ..core.ports import RunnerBackend
 from ..core.role_decision import latest_role_decision
 from ..core.run_gateway import run_exec as gateway_run_exec
-from ..core.stop_kinds import normalize_stop_kind
+from ..core.stop_kinds import StopKind, normalize_stop_kind
 from ._parsing import _find_decision_in_messages, decision_from_payload
 
 log = logging.getLogger(__name__)
+
+
+class _ReviewUsage(TypedDict):
+    input_tokens: int
+    cached_input_tokens: int
+    output_tokens: int
+    reasoning_output_tokens: int
 
 
 def _parallel_final_review_passes(
@@ -438,15 +445,13 @@ def _parallel_final_review_passes(
                 close()
         workspace_stack.close()
 
-    usage = {
-        field: sum(int(getattr(result, field, 0) or 0) for result in results.values())
-        for field in (
-            "input_tokens",
-            "cached_input_tokens",
-            "output_tokens",
-            "reasoning_output_tokens",
-        )
-    }
+    def total(field: str) -> int:
+        return sum(int(getattr(result, field, 0) or 0) for result in results.values())
+
+    usage = _ReviewUsage(
+        input_tokens=total("input_tokens"), cached_input_tokens=total("cached_input_tokens"),
+        output_tokens=total("output_tokens"), reasoning_output_tokens=total("reasoning_output_tokens"),
+    )
     premium_requests = sum(
         float(getattr(result, "premium_requests", 0.0) or 0.0)
         for result in results.values()
@@ -456,13 +461,14 @@ def _parallel_final_review_passes(
         "operator_pause": 1,
         "daemon_shutdown": 2,
         "budget_exhausted": 3,
-        "provider_cooldown": 4,
-        "provider_fence": 5,
-        "permanent_error": 6,
-        "transient_error": 7,
-        "backend_unavailable": 8,
+        "cost_unreconciled": 4,
+        "provider_cooldown": 5,
+        "provider_fence": 6,
+        "permanent_error": 7,
+        "transient_error": 8,
+        "backend_unavailable": 9,
     }
-    failures: list[tuple[int, str, str, str, int | None, str]] = []
+    failures: list[tuple[int, str, StopKind, str, int | None, str]] = []
     for label, error in errors.items():
         stop_kind = normalize_stop_kind(getattr(error, "stop_kind", None))
         if stop_kind is None and getattr(error, "login_required", False):
@@ -497,14 +503,14 @@ def _parallel_final_review_passes(
             ),
         ))
     if failures:
-        _, _, stop_kind, fatal, exit_code, reason = min(failures)
+        _, _, stop_kind, fatal, failed_exit_code, reason = min(failures)
         return ReviewDecision(
             status="blocked",
             reason=reason,
             next_action="Resolve the failed review provider call before retrying.",
             backend_unavailable=True,
             backend_fatal_error=fatal,
-            backend_exit_code=exit_code,
+            backend_exit_code=failed_exit_code,
             backend_stop_kind=stop_kind,
             premium_requests=premium_requests,
             **usage,

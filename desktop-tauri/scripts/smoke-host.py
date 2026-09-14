@@ -17,6 +17,7 @@ import socket
 import subprocess
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 
 
@@ -28,6 +29,8 @@ def main() -> int:
         default=Path(__file__).resolve().parents[1] / "src-tauri" / "target" / "release" / "Argus.exe",
     )
     parser.add_argument("--preview", action="store_true")
+    parser.add_argument("--keep-state", action="store_true", help="Preserve this run's isolated QA directory as private evidence")
+    parser.add_argument("--report", type=Path, help="Write a new credential-free minimum-check report")
     parser.add_argument("--timeout", type=float, default=55.0)
     parser.add_argument(
         "--health-window",
@@ -37,6 +40,8 @@ def main() -> int:
     )
     args = parser.parse_args()
     binary = args.binary.resolve()
+    if args.report and args.report.exists():
+        raise SystemExit("Report already exists; inspect it before retrying")
     if os.name != "nt":
         raise SystemExit("desktop host smoke is Windows-only")
     if not binary.is_file():
@@ -57,7 +62,7 @@ def main() -> int:
 
     sandbox = Path(tempfile.mkdtemp(prefix="argus-tauri-host-smoke-"))
     app_data = sandbox / "appdata"
-    desktop_data = app_data / ("argus-desktop-preview" if args.preview else "argus-desktop")
+    desktop_data = app_data / ("argus-desktop-preview-integration-20260913" if args.preview else "argus-desktop")
     desktop_data.mkdir(parents=True)
     token = secrets.token_urlsafe(32)
     with socket.socket() as listener:
@@ -76,25 +81,43 @@ def main() -> int:
                 "runnerConfigured": True,
                 "setupComplete": True,
                 "appearanceTheme": "light",
+                # Old saved choices are ignored by the fixed-on host.
+                "startupEyeMotion": "off",
             }
         ),
         encoding="utf-8",
     )
     env = os.environ.copy()
+    for name in list(env):
+        if any(word in name.upper() for word in ("TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "API_KEY")) or name.startswith(("ARGUS_", "PI_", "WEBVIEW2_")):
+            env.pop(name, None)
     env.update(
         {
             "APPDATA": str(app_data),
             "LOCALAPPDATA": str(sandbox / "localappdata"),
+            "HOME": str(sandbox / "home"), "USERPROFILE": str(sandbox / "home"),
+            "CODEX_HOME": str(sandbox / "codex"), "COPILOT_HOME": str(sandbox / "copilot"),
+            "PI_CODING_AGENT_DIR": str(sandbox / "pi"), "CLAUDE_CONFIG_DIR": str(sandbox / "claude"),
             "ARGUS_SKILL_HOME": str(sandbox / "argus-home"),
+            "XDG_CONFIG_HOME": str(sandbox / "config"),
+            "XDG_CACHE_HOME": str(sandbox / "cache"),
+            "XDG_DATA_HOME": str(sandbox / "data"),
             "PYTHONUTF8": "1",
             "PYTHONIOENCODING": "utf-8",
             "ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE": "1",
+            "ARGUS_DESKTOP_TEST_INSTANCE": secrets.token_hex(16),
+            "ARGUS_DESKTOP_QA_ROOT": str(sandbox),
             # Packaged-host smoke must be deterministic and must not depend on
             # GitHub availability or compete with the startup measurement.
             "ARGUS_DESKTOP_DISABLE_UPDATE_CHECK": "1",
         }
     )
     env.pop("ARGUS_DESKTOP_DEV", None)
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
+    for name in ("APPDATA", "LOCALAPPDATA", "HOME", "USERPROFILE", "ARGUS_SKILL_HOME",
+                 "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR", "CLAUDE_CONFIG_DIR"):
+        Path(env[name]).mkdir(parents=True, exist_ok=True)
     # Do not let the smoke inherit nvm's live variables/PATH: this emulates a
     # stale Explorer environment after Node installation.  The temporary nvm
     # settings are the only allowed recovery source for the desktop host.
@@ -142,6 +165,21 @@ def main() -> int:
                                 "the host must not create periodic loopback stalls"
                             )
                         ready_seconds = ready_observed_at - launched_at
+                        expected = json.loads((binary.parent / "argus-backend/_internal/argus_skill/release_manifest.json").read_text(encoding="utf-8"))
+                        request = urllib.request.Request(f"http://127.0.0.1:{port}/api/meta", headers={"Authorization": f"Bearer {token}"})
+                        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=5) as response:
+                            metadata = json.load(response)
+                        if metadata.get("authentication", {}).get("authenticated") is not True or metadata.get("runtime", {}).get("release_id") != expected["release_id"]:
+                            raise RuntimeError("Native backend authentication or release identity did not match")
+                        if args.report:
+                            with args.report.open("x", encoding="utf-8") as report:
+                                json.dump({"scope": "isolated Windows packaged-host check", "release_id": expected["release_id"],
+                                           "preview": args.preview, "qa_state_preserved": args.keep_state,
+                                           "backend_health_soak_passed": args.health_window >= 1800,
+                                           "native_host_started": True, "authenticated_backend": True,
+                                           "real_cli_version_preflight": True, "ready_seconds": round(ready_seconds, 3),
+                                           "health_observation_seconds": args.health_window, "paid_model_calls": 0,
+                                           "pixel_motion_checked": False, "full_ui_checked": False, "long_soak_checked": False}, report, indent=2)
                         print(
                             "Tauri desktop host smoke passed: authenticated backend and cockpit "
                             f"ready in {ready_seconds:.3f}s, npm runner launched with recovered "
@@ -167,7 +205,10 @@ def main() -> int:
                 stderr=subprocess.DEVNULL,
                 check=False,
             )
-        shutil.rmtree(sandbox, ignore_errors=True)
+        if args.keep_state:
+            print(f"Private isolated QA state preserved: {sandbox}")
+        else:
+            shutil.rmtree(sandbox, ignore_errors=True)
 
 
 if __name__ == "__main__":

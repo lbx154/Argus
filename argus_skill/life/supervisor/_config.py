@@ -56,7 +56,9 @@ class LifeBudget:
         now: float | None = None,
         global_root: Path | None = None,
     ) -> tuple[bool, str]:
-        """Preflight current settings; call admission rechecks concurrent spend."""
+        """Follow current caps and recheck the same strict gate as call admission."""
+        from ...core.cost_control import cost_admission_reason, cost_control_enabled
+
         if self.follow_operator_config:
             from ...core.knobs import resolve_budget_caps
 
@@ -64,6 +66,9 @@ class LifeBudget:
                 global_root=global_root,
             ).global_daily_cap_usd
         global_cap = float(self.global_daily_cap_usd or 0.0)
+        if cost_control_enabled():
+            reason = cost_admission_reason(global_root=global_root, cap=global_cap, now=now)
+            return not reason, reason
         if global_cap > 0:
             spent = global_daily_spend(global_root=global_root, now=now)
             if spent >= global_cap:

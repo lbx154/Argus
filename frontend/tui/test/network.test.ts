@@ -6,6 +6,7 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../core/src/protocol.js';
+import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
 import { ApiClient } from '../src/api.js';
 import { describeFetchFailure, fetchWithTimeout } from '../src/network.js';
 
@@ -16,7 +17,11 @@ function compatibleMeta(): Record<string, unknown> {
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
-      package_version: '0.1.1',
+      package_version: RELEASE_ID.split('+')[0],
+      release_id: RELEASE_ID,
+      manifest_source_digest: RELEASE_SOURCE_DIGEST,
+      runtime_source_digest: RELEASE_SOURCE_DIGEST,
+      release_matches_source: true,
       source_root: 'G:\\code\\argus',
       configured_source_root: 'G:\\code\\argus',
       source_root_matches_config: true,

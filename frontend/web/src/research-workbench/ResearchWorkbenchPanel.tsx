@@ -15,8 +15,7 @@ export function ResearchWorkbenchPanel({ sid, active }: { sid: string; active: b
   const { locale } = useI18n();
   const [page, setPage] = useState<PageId>(() => {
     const requested = new URLSearchParams(window.location.search).get('module');
-    // The workbench opens on the execution page; the overview only describes the project.
-    return WORKBENCH_MODULES.find((module) => module.id === requested)?.id ?? 'experiments';
+    return WORKBENCH_MODULES.find((module) => module.id === requested)?.id ?? 'overview';
   });
   const [openedPages, setOpenedPages] = useState(() => new Set<PageId>([page]));
   const navigate = useCallback((next: PageId) => {

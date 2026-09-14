@@ -16,7 +16,7 @@ from ._sandbox_commands import (
     _OPENCODE_NO_TOOLS_AGENT,
     _OPENCODE_READ_ONLY_AGENT,
 )
-from .copilot_home import apply_copilot_home
+from .copilot_home import apply_copilot_home, apply_copilot_provider
 from .runner_backend import (
     BACKEND_COPILOT,
     BACKEND_DSH,
@@ -116,6 +116,9 @@ def _opencode_full_access_env() -> dict[str, str]:
 
 class PromptDeliveryMixin:
     """Deliver large role prompts without exposing them in process arguments."""
+
+    backend: str
+    agent_bin: str
 
     @staticmethod
     @contextmanager
@@ -347,6 +350,10 @@ class PromptDeliveryMixin:
             env["GH_CONFIG_DIR"] = str(
                 Path(tempfile.gettempdir()) / "argus-no-gh-auth"
             )
+        if self.backend == BACKEND_COPILOT and env is not None and options.isolate_workdir:
+            # Workdir isolation strips ambient credentials. Reapply only the
+            # explicitly selected trial provider, never unrelated accounts.
+            apply_copilot_provider(env)
         plugin_env = getattr(options, "extension_env", None)
         if plugin_env and not options.disable_tools:
             env = dict(os.environ) if env is None else env

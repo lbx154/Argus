@@ -12,7 +12,7 @@ from .socket_forward import start_forward
 def configure_provider(root: Path, config: dict) -> None:
     from ..core.knob_store import write_persisted_knobs
     from ..core.knobs import KNOBS, resolve_knob
-    from . import CLIENT_MODEL, MAP_REASONING_DEFAULTS, REASONING_EFFORT
+    from . import CLIENT_MODEL, DEFAULT_UPSTREAM_MODEL, MAP_REASONING_DEFAULTS, REASONING_EFFORT
     from .model_catalog import configured_model_ids
 
     backend = os.environ.get("ARGUS_TRIAL_HARNESS", "copilot")
@@ -27,7 +27,7 @@ def configure_provider(root: Path, config: dict) -> None:
         "ARGUS_SKILL_RUNNER_BACKEND": "pi" if pi else "copilot",
         "ARGUS_SKILL_LIFE_BACKEND": "pi" if pi else "copilot",
         "ARGUS_SKILL_RUNNER_BIN": "/usr/local/bin/argus-pi" if pi else "/usr/local/bin/copilot",
-        "ARGUS_SKILL_MODEL": CLIENT_MODEL,
+        "ARGUS_SKILL_MODEL": DEFAULT_UPSTREAM_MODEL if pi else CLIENT_MODEL,
         "ARGUS_SKILL_BACKEND_AUTH_MODE": "subscription_cli",
     }
     if pi:

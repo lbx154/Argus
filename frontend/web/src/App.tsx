@@ -839,11 +839,20 @@ export default function App() {
   const sendMessageRef = useRef(sendMessage);
   sendMessageRef.current = sendMessage;
 
-  const sendComposerMessage = async (text: string, files: File[] = []): Promise<boolean> => {
+  const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver): Promise<boolean> => {
     const draft = composerDraftRef.current;
     const sid = sidRef.current;
-    const accepted = await sendMessage(text, files);
-    if (accepted && sidRef.current === sid) {
+    let failedBeforeAcceptance = false;
+    const accepted = await sendMessage(text, files, (result) => {
+      if (sidRef.current !== sid) return;
+      if (result.type === 'settled' && result.outcome === 'error') {
+        failedBeforeAcceptance = true;
+        setComposerDraft((current) => current.trim() ? current : draft || text);
+        setComposerAttachments((current) => current.length ? current : files);
+      }
+      observe?.(result);
+    });
+    if (accepted && !failedBeforeAcceptance && sidRef.current === sid) {
       setComposerDraft((current) => current === draft ? '' : current);
       setComposerAttachments((current) => current.filter((file) => !files.includes(file)));
     }
@@ -1032,7 +1041,7 @@ export default function App() {
                   {locale === 'zh-CN' ? '文件' : 'Files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
                 </button>
               </nav>
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={setComposerAttachments} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
                 conversationEvents={mapConversationEvents} connected={connected} artifacts={artifactsQ.data ?? []}

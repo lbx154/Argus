@@ -524,20 +524,30 @@ class CopilotAcpClient:
         )
 
     def _query_error_receipt(self, sid: str, text: str) -> dict[str, Any] | None:
+        """Use the current structured receipt, never classify error-like prose.
+
+        Upstream 2906499e fixes Copilot 1.0.83 reporting query errors alongside
+        end_turn. Keep the CLI-owned receipt inside its session-state root.
+        """
         root = self._session_events_root
         if root is None or "Error: " not in text:
             return None
+        directory = (root / sid).resolve()
+        if directory.parent != root.resolve():
+            return None
         error = None
         try:
-            with (root / sid / "events.jsonl").open(encoding="utf-8") as events:
+            with (directory / "events.jsonl").open(encoding="utf-8") as events:
                 for line in events:
                     event = json.loads(line)
+                    if not isinstance(event, dict):
+                        continue
                     if event.get("type") in {"user.message", "assistant.message"}:
                         error = None
                     elif event.get("type") == "session.error":
                         error = event.get("data")
-        except (OSError, ValueError) as exc:
-            log.warning("Cannot read Copilot query error receipt: %s", exc)
+        except (OSError, ValueError):
+            log.warning("Cannot read the current Copilot query error receipt")
             return None
         if isinstance(error, dict) and error.get("errorType") == "query":
             if text.endswith(f"Error: {error.get('message')}"):

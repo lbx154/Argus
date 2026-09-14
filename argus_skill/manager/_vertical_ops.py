@@ -431,12 +431,11 @@ class _VerticalDecisionMixin:
             )
         except ManagerClassificationContractError as exc:
             try:
-                with self.pipeline_lock():
-                    count = record_contract_failure(
-                        self.project_root,
-                        model_id=resolved_model_id,
-                        clause=exc.clause,
-                    )
+                count = record_contract_failure(
+                    self.project_root,
+                    model_id=resolved_model_id,
+                    clause=exc.clause,
+                )
             except Exception:  # noqa: BLE001 - diagnostics must not mask fail-closed routing
                 log.exception("could not persist Manager contract-failure streak")
                 count = 0
@@ -446,11 +445,10 @@ class _VerticalDecisionMixin:
             )
             raise
         try:
-            with self.pipeline_lock():
-                reset_contract_failures(
-                    self.project_root,
-                    model_id=resolved_model_id,
-                )
+            reset_contract_failures(
+                self.project_root,
+                model_id=resolved_model_id,
+            )
         except Exception:  # noqa: BLE001 - a diagnostic reset must not reject a valid route
             log.exception("could not reset Manager contract-failure streak")
         return decision

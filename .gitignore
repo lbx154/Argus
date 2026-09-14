@@ -132,3 +132,14 @@ docs/Argus_BP*
 
 # Optional plugin release assets are published separately.
 /dist-plugins/
+
+# Download caches are not release source.
+/pip/
+# PowerShell may create this metadata cache under an isolated HOME/cwd.
+/Microsoft/Windows/PowerShell/ModuleAnalysisCache
+
+# Private integration evidence, isolated QA homes and local delivery notes.
+/.integration/
+/HANDOFF-*.md
+# First-party adapters are rebuilt from desktop-tauri/scripts/*.rs.
+/argus_skill/_native/

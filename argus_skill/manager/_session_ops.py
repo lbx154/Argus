@@ -48,6 +48,14 @@ _LOCK_POLL_SECONDS = 0.2
 class ManagerLockCancelled(RuntimeError):
     """A caller cancelled its wait before entering the protected boundary."""
 
+    phase = "cancelled"
+
+
+class ManagerPipelineWaitTimeout(TimeoutError):
+    """A foreground commit boundary timed out, not a model/provider call."""
+
+    phase = "handoff_wait"
+
 
 def _lock_is_contended(exc: BaseException) -> bool:
     """Recognize contention without retrying bad descriptors or broken locking.
@@ -141,7 +149,8 @@ _pipeline_lock_delegation: ContextVar[frozenset[str]] = ContextVar(
 
 @contextmanager
 def manager_pipeline_lock(
-    root: Path | str, *, cancelled: Callable[[], bool] | None = None,
+    root: Path | str, *, timeout: float | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ):
     """Serialize Manager pipeline commits with daemon mission execution.
 
@@ -197,13 +206,14 @@ def manager_pipeline_lock(
         # Our delegation chain already holds the on-disk flock: don't touch
         # it (a second file handle would deadlock — see docstring); serialise
         # against sibling delegated workers on the gate instead.
-        if cancelled is None:
-            state.gate.acquire()
-        else:
-            while True:
-                _check_lock_cancelled(cancelled)
-                if state.gate.acquire(timeout=_LOCK_POLL_SECONDS):
-                    break
+        deadline = time.monotonic() + max(0.0, timeout) if timeout is not None else None
+        while True:
+            _check_lock_cancelled(cancelled)
+            if state.gate.acquire(blocking=False):
+                break
+            if deadline is not None and time.monotonic() >= deadline:
+                raise ManagerPipelineWaitTimeout("Timed out waiting for Manager pipeline handoff; no commit was made")
+            time.sleep(0.05)
         try:
             _check_lock_cancelled(cancelled)
             yield
@@ -211,7 +221,8 @@ def manager_pipeline_lock(
             state.gate.release()
         return
     with lock_path.open("a+b") as handle:
-        _acquire_session_lock(handle, cancelled=cancelled)
+        if not _acquire_session_lock(handle, timeout=timeout, cancelled=cancelled):
+            raise ManagerPipelineWaitTimeout("Timed out waiting for Manager pipeline handoff; no commit was made")
         try:
             _check_lock_cancelled(cancelled)
             # Grant the entitlement only after the flock is ours, inside the
@@ -221,6 +232,7 @@ def manager_pipeline_lock(
                 _pipeline_lock_delegation.get() | {key}
             )
             try:
+                _check_lock_cancelled(cancelled)
                 yield
             finally:
                 _pipeline_lock_delegation.reset(token)
@@ -231,6 +243,7 @@ def manager_pipeline_lock(
 @contextmanager
 def manager_pipeline_boundary(
     manager: Any, *, cancelled: Callable[[], bool] | None = None,
+    timeout: float | None = None,
 ):
     """Enter a Manager's boundary, adapting legacy no-argument lock factories.
 
@@ -242,17 +255,18 @@ def manager_pipeline_boundary(
     _check_lock_cancelled(cancelled)
     factory = getattr(manager, "pipeline_lock", None)
     kwargs: dict[str, Any] = {}
-    if callable(factory) and cancelled is not None:
+    if callable(factory):
         try:
             parameters = tuple(signature(factory).parameters.values())
         except (TypeError, ValueError):
             parameters = ()
-        if any(
-            parameter.kind == Parameter.VAR_KEYWORD
-            or (parameter.name == "cancelled" and parameter.kind != Parameter.POSITIONAL_ONLY)
-            for parameter in parameters
-        ):
-            kwargs["cancelled"] = cancelled
+        for name, value in (("cancelled", cancelled), ("timeout", timeout)):
+            if value is not None and any(
+                parameter.kind == Parameter.VAR_KEYWORD
+                or (parameter.name == name and parameter.kind != Parameter.POSITIONAL_ONLY)
+                for parameter in parameters
+            ):
+                kwargs[name] = value
     with factory(**kwargs) if callable(factory) else nullcontext():
         _check_lock_cancelled(cancelled)
         yield

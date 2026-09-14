@@ -18,6 +18,15 @@ from .context import ServerContext
 from .models import CommandIn, ContinuousIn, CreateDaemonIn, ReplaceDaemonIn, StopIn
 
 
+def _resume_provider_fences_after_start(life_dir, result, *, enabled=True):
+    # Only an authenticated, explicit start/continue command reaches this
+    # callback. Automatic supervision/restarts never clear this boundary.
+    # Account attention and unknown-cost acknowledgements are separate gates.
+    if enabled and type(result.get("rc")) is int and result["rc"] == 0:
+        LifeMemory.open(life_dir).backlog.resume_paused_statuses({"paused_provider_fence"})
+    return result
+
+
 def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
     @app.post("/api/daemons", dependencies=[Depends(ctx.require_auth)])
     async def _create_daemon(body: CreateDaemonIn) -> dict[str, Any]:
@@ -81,9 +90,7 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
                 ),
                 sid,
             )
-            if result.get("rc") == 0:
-                LifeMemory.open(life_dir).backlog.resume_all_paused()
-            return result
+            return _resume_provider_fences_after_start(life_dir, result)
 
         receipt = await run_in_threadpool(
             server_mod.execute_daemon_command,
@@ -138,9 +145,9 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
                 ),
                 sid,
             )
-            if result.get("rc") == 0 and body.resume_continuous:
-                LifeMemory.open(life_dir).backlog.resume_all_paused()
-            return result
+            return _resume_provider_fences_after_start(
+                life_dir, result, enabled=body.resume_continuous,
+            )
 
         receipt = await run_in_threadpool(
             server_mod.execute_daemon_command,

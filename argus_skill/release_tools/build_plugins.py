@@ -76,13 +76,15 @@ def main():
             raise ValueError(f"Plugin {spec['id']} needs an HTTPS release URL and SHA-256")
     # The shipped catalog never embeds paths to the maintainer's computer.
     (ROOT / "argus_skill/plugin_catalog.json").write_text(
-        json.dumps({"plugins": catalog}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps({"plugins": catalog}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8", newline="\n",
     )
     for spec in catalog:
         if spec["id"] in built:
             spec["artifact"]["local"] = spec["artifact"]["filename"]
     (destination / "catalog.json").write_text(
-        json.dumps({"plugins": catalog}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps({"plugins": catalog}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8", newline="\n",
     )
     print(
         f"Built {len(built)} optional packages; retained {len(catalog) - len(built)} external releases"

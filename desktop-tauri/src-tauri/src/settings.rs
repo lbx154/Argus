@@ -150,7 +150,9 @@ pub fn available_backend_port(settings: &DesktopSettings) -> io::Result<u16> {
 }
 
 pub(crate) fn desktop_data_dir() -> PathBuf {
-    let name = if crate::release::preview_mode() { "argus-desktop-preview" } else { CANONICAL_USER_DATA_DIR };
+    // A new preview namespace gives manual acceptance a genuinely empty profile
+    // without deleting or silently importing an earlier preview's account/data.
+    let name = if crate::release::preview_mode() { "argus-desktop-preview-integration-20260913" } else { CANONICAL_USER_DATA_DIR };
     #[cfg(not(windows))]
     {
         let home = env::var_os("HOME")
@@ -453,6 +455,48 @@ mod tests {
         changed.port = 19876;
         assert!(store.replace(changed).is_err());
         assert_ne!(store.snapshot().port, 19876);
+    }
+
+    #[test]
+    fn a_new_profile_defaults_to_light_without_following_the_os_theme() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("appearance-fixture.json");
+        let (settings, _) = super::load_settings_file(&file).unwrap();
+        assert_eq!(settings.appearance_theme, crate::models::AppearanceTheme::Light);
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn an_existing_explicit_theme_is_not_reset_to_the_new_default() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("appearance-fixture.json");
+        for (name, theme) in [
+            ("dark", crate::models::AppearanceTheme::Dark),
+            ("system", crate::models::AppearanceTheme::System),
+            ("light", crate::models::AppearanceTheme::Light),
+        ] {
+            let raw = format!(r#"{{"appearanceTheme":"{name}"}}"#);
+            std::fs::write(&file, &raw).unwrap();
+            let (settings, _) = super::load_settings_file(&file).unwrap();
+            assert_eq!(settings.appearance_theme, theme);
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), raw);
+        }
+    }
+
+    #[test]
+    fn legacy_eye_choices_are_ignored_without_resetting_saved_theme_or_runner() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("appearance-fixture.json");
+        for choice in ["off", "system", "on"] {
+            let original = format!(r#"{{"appearanceTheme":"dark","runnerKind":"pi","runnerConfigured":true,"setupComplete":true,"startupEyeMotion":"{choice}"}}"#);
+            std::fs::write(&file, &original).unwrap();
+            let (settings, _) = super::load_settings_file(&file).unwrap();
+            assert_eq!(settings.appearance_theme, crate::models::AppearanceTheme::Dark);
+            assert_eq!(settings.runner_kind, crate::models::RunnerKind::Pi);
+            assert!(settings.runner_configured && settings.setup_complete);
+            assert!(serde_json::to_value(&settings).unwrap().get("startupEyeMotion").is_none());
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+        }
     }
 
     #[test]

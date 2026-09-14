@@ -1131,7 +1131,7 @@ class MissionExecutionRuntimeMixin:
             pause_status = "paused_operator"
         if state.status == "budget_exhausted":
             state.status = "paused_budget"
-            pause_status = state.status
+            pause_status = "paused_budget"
         if not pause_status:
             return None
         if pause_status == "paused_provider_cooldown":

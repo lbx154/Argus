@@ -54,7 +54,8 @@ test('titles expand with the pane and trial model/Key controls remain visible in
       getSetup: async () => ({ complete: true, trialMode: true, host: '127.0.0.1', port: 8799,
         runnerKind: 'copilot', runnerConfigured: true, runnerBins: {}, detectedRunners: {},
         piConfiguration: { configDir: '' }, releaseIdentity: {}, runtimeIdentity: {} }),
-      getAppearance: async () => ({ theme: 'light', resolvedTheme: 'light' }),
+      isWindowVisible: async () => true,
+      getAppearance: async () => ({ theme: 'light', resolvedTheme: 'light', startupEyeMotion: 'off' }),
       getUpdateStatus: async () => ({ state: 'idle', currentVersion: '0.1.5', userInitiated: false }),
       openCockpit: async () => ${JSON.stringify(`${origin}/?token=local-layout-test&project=s-layout&view=activity`)}
     }, { get: (object, key) => object[key] || (() => undefined) });`,
@@ -79,6 +80,7 @@ test('titles expand with the pane and trial model/Key controls remain visible in
   ]);
   expect(configResponse.ok()).toBe(true);
   expect(await configResponse.json()).toMatchObject({ trial_mode: true });
+  await expect(page.locator('#splash')).toBeHidden();
   const frame = page.frameLocator('#cockpitFrame');
   const title = frame.locator('.topbar-title').filter({ visible: true });
   await expect(title).toBeVisible({ timeout: 20_000 });
@@ -137,12 +139,14 @@ test('real embedded workbench retains typography and fits the pane between both 
       getSetup: async () => ({ complete: true, trialMode: true, host: '127.0.0.1', port: 8799,
         runnerKind: 'copilot', runnerConfigured: true, runnerBins: {}, detectedRunners: {},
         piConfiguration: { configDir: '' }, releaseIdentity: {}, runtimeIdentity: {} }),
-      getAppearance: async () => ({ theme: 'light', resolvedTheme: 'light' }),
+      isWindowVisible: async () => true,
+      getAppearance: async () => ({ theme: 'light', resolvedTheme: 'light', startupEyeMotion: 'off' }),
       getUpdateStatus: async () => ({ state: 'idle', currentVersion: '0.1.3', userInitiated: false }),
       openCockpit: async () => ${JSON.stringify(`${origin}/?token=local-layout-test&project=s-layout&view=activity`)}
     }, { get: (object, key) => object[key] || (() => undefined) });`,
   }));
   await page.goto('/');
+  await expect(page.locator('#splash')).toBeHidden();
   const frame = page.frameLocator('#cockpitFrame');
   const composer = frame.locator('.conversation-composer');
   try {

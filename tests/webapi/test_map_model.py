@@ -324,13 +324,14 @@ def test_expired_map_deadline_does_not_report_a_model_phase(tmp_path, monkeypatc
     phases = []
     receipts = []
     monkeypatch.setattr(map_model, "run_exec", lambda *args, **kwargs: pytest.fail("Expired request ran a model"))
-    with pytest.raises(OSError, match="timed out"):
+    with pytest.raises(map_model.MapGenerationError) as failure:
         map_model.run_map_model(
             "Expired request", {}, map_model.MapModel("pi", "gpt-5.5", "medium", sys.executable),
             project_root=tmp_path, global_root=tmp_path, deadline=time.monotonic() - 1,
             on_progress=phases.append, phase="writing", on_result=receipts.append,
             output_format=output_format,
         )
+    assert failure.value.code == "map_timeout"
     assert phases == []
     assert receipts == []
     assert not (tmp_path / "map-presentation").exists()

@@ -144,7 +144,15 @@ class LifeWorkerRunMixin:
         # anyway would silently revert every persisted switch at once (the
         # backend of every role, the model of every route, the budget cap).
         from ..core.knob_store import KnobStoreCorruptError, read_persisted_knobs
-        from ..core.runtime_identity import source_root_preflight_error
+        from ..core.runtime_identity import (
+            release_match_preflight_error,
+            source_root_preflight_error,
+        )
+
+        release_error = release_match_preflight_error()
+        if release_error:
+            log.error("daemon refused inconsistent release: %s", release_error)
+            return 2
 
         try:
             read_persisted_knobs()

@@ -9,7 +9,11 @@ MAX_CONCURRENCY = 10
 GLOBAL_TPM = 10_000_000
 TPM_WINDOW_SECONDS = 60
 MODEL = "argus-trial"
-CLIENT_MODEL = "gpt-5.5"
+# The client selector is not evidence of the actual upstream model.
+CLIENT_MODEL = MODEL
+# Server configuration is distinct from the opaque desktop/wire selector.
+# Operators may choose another actual upstream model in gateway Settings.
+DEFAULT_UPSTREAM_MODEL = "gpt-5.5"
 REASONING_EFFORT = "high"
 MAP_REASONING_DEFAULTS = {
     "ARGUS_SKILL_MAP_REASONING_EFFORT": "medium",

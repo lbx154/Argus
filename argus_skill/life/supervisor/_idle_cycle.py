@@ -362,6 +362,8 @@ class IdleCycleMixin:
             global_root=self._budget_global_root(),
         )
         if not allowed:
+            if _reason.startswith("unresolved provider cost"):
+                return "paused_cost"
             try:
                 if self.memory.backlog.next_pending() is not None:
                     return "paused_budget"

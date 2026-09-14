@@ -37,16 +37,17 @@ def test_windows_caption_buttons_use_a_native_non_client_frame() -> None:
     assert windows["bundle"]["resources"]["../resources/WebView2Loader.dll"] == "WebView2Loader.dll"
 
 
-def test_installer_bypasses_close_to_tray_before_replacing_files() -> None:
+def test_installer_blocks_occupied_target_without_killing_other_installations() -> None:
     config = _config()
     hooks = (TAURI_ROOT / "src-tauri" / "installer-hooks.nsh").read_text(encoding="utf-8")
 
     nsis = config["bundle"]["windows"]["nsis"]
     assert nsis["installerHooks"] == "installer-hooks.nsh"
-    assert "NSIS_HOOK_PREINSTALL" in hooks
-    assert '/IM "Argus.exe"' in hooks
-    assert '/IM "argus-backend.exe"' in hooks
-    assert "taskkill.exe" in hooks
+    assert "!macroundef CheckIfAppIsRunning" in hooks
+    assert "installer-preflight.ps1" in hooks
+    assert '-InstallDirectory "$INSTDIR"' in hooks
+    assert "KillProcess" not in hooks
+    assert "taskkill" not in hooks
 
 
 def test_desktop_launches_backend_without_a_console_or_forced_backend() -> None:
@@ -89,7 +90,11 @@ def test_ready_cockpit_checks_initial_setup_without_duplicate_reload() -> None:
     assert "if (!setup.value.complete)" in ready_path
     assert "cockpitMounted && sameCockpitConnection(cockpitFrame.src, url)" in shell
     assert "url.searchParams.delete('desktopTheme')" in shell
-    assert "}, 180);" in shell
+    assert "visibleEyeCycle({" in shell
+    assert "nativeVisible: () => desktopBridge.isWindowVisible()" in shell
+    # Motion is always on; native visibility still gates elapsed animation time.
+    assert "motionEnabled: () => true" in shell
+    assert "eyeMotionEnabled" not in shell
 
 
 def test_onboarding_requires_a_selected_available_runner_before_saving() -> None:
@@ -120,7 +125,10 @@ def test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint() ->
     )
 
     assert "window.parent !== window" in entry
-    assert "useState(!embeddedDesktop)" in entry
+    # Current dev removed the startup scene entirely instead of gating a
+    # second splash with the old React state hook. Keep that stronger boundary.
+    assert "StartupScene" not in entry
+    assert "document.documentElement.dataset.argusEmbedded = String(embeddedDesktop)" in entry
     assert "data-argus-embedded" in styles
     assert "content-visibility: auto" in styles
     assert "backdrop-filter: blur(8px)" in styles
@@ -192,9 +200,13 @@ def test_release_build_requires_signed_tauri_update_artifacts() -> None:
     assert "desktop-tauri" in workflow
     assert "TAURI_SIGNING_PRIVATE_KEY" in workflow
     assert "stage_webview2_loader" in (TAURI_ROOT / "src-tauri" / "build.rs").read_text(encoding="utf-8")
-    stage = (TAURI_ROOT / "scripts" / "stage-release.ps1").read_text(encoding="utf-8")
+    stage = (TAURI_ROOT / "scripts" / "stage-windows-release.mjs").read_text(encoding="utf-8")
     assert "Expected exactly one NSIS installer for version" in stage
     assert "Argus_${escapedVersion}" in stage
+    assert "verifyTauriSignature" in stage
+    assert "Release output already exists" in stage
+    wrapper = (TAURI_ROOT / "scripts" / "stage-release.ps1").read_text(encoding="utf-8")
+    assert "Remove-Item" not in wrapper
     assert (TAURI_ROOT / "scripts" / "smoke-host.py").is_file()
     assert "dangerousInsecureTransportProtocol" not in json.dumps(config)
     assert "也不允许证书绕过" in desktop_doc

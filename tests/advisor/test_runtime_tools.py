@@ -19,7 +19,7 @@ from argus_skill.core.usage import UsageLedger
 
 
 @pytest.mark.parametrize("role", ["manager", "planner", "engineer", "reviewer"])
-def test_actual_role_gateway_exposes_native_advisor_with_independent_budget_and_receipt(tmp_path, monkeypatch, role):
+def test_actual_role_gateway_exposes_native_advisor_with_independent_budget_and_receipt(tmp_path, monkeypatch, role, platform_process_env):
     """Real parent/child backend orchestration; only provider execution is fake."""
     from argus_skill.adapters.agent_cli_backend._exec_finalize import finalize_result
     from argus_skill.core import cost_control
@@ -84,7 +84,7 @@ process.stdout.write(JSON.stringify(result.details));
             process = subprocess.run(
                 [node, "--input-type=module", "-e", script, Path(runtime.EXTENSION).with_name("pi_tools.mjs").as_uri()],
                 capture_output=True, text=True, timeout=10,
-                env={"PATH": os.defpath, **ctx.options.extension_env},
+                env={**platform_process_env, "PATH": os.defpath, **ctx.options.extension_env},
             )
             assert process.returncode == 0, process.stderr
             receipt = json.loads(process.stdout)

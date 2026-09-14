@@ -112,7 +112,7 @@ def test_powershell_51_rejects_posix_operator_and_accepts_documented_branch() ->
     def run(command):
         return subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
-            capture_output=True, text=True, check=False, timeout=10,
+            capture_output=True, text=True, encoding="mbcs", check=False, timeout=10,
         )
 
     old = run("Write-Output first || Write-Output second")
@@ -138,7 +138,7 @@ def test_npx_cmd_avoids_blocked_powershell_wrapper_without_changing_policy(tmp_p
                 "powershell.exe", "-NoProfile", "-NonInteractive",
                 "-ExecutionPolicy", "Restricted", "-Command", command,
             ],
-            env=environment, capture_output=True, text=True, check=False, timeout=10,
+            env=environment, capture_output=True, text=True, encoding="mbcs", check=False, timeout=10,
         )
 
     resolved = run("(Get-Command npx).Source")

@@ -3,6 +3,7 @@ mod diagnostics;
 mod identity;
 mod logger;
 mod models;
+mod native_paths;
 mod process;
 mod probe;
 mod redaction;
@@ -11,6 +12,7 @@ mod resilience;
 mod runner;
 mod settings;
 mod trial;
+mod update_install;
 mod update_policy;
 mod updater;
 
@@ -279,7 +281,11 @@ fn make_release_context(app: &AppHandle) -> ReleaseContext {
 }
 
 fn initialize(app: &AppHandle) -> tauri::Result<()> {
-    if release::preview_mode() && app.config().identifier != "cn.argusbot.desktop.preview" {
+    let expected_preview_id = identity::preview_instance_identifier(
+        "cn.argusbot.desktop.preview.integration20260913", true,
+        std::env::var("ARGUS_DESKTOP_TEST_INSTANCE").ok().as_deref(),
+    );
+    if release::preview_mode() && app.config().identifier != expected_preview_id {
         return Err(tauri::Error::Anyhow(anyhow::anyhow!("预览构建必须使用独立应用标识；请运行 build:preview。")));
     }
     let settings = Arc::new(SettingsStore::open().map_err(tauri::Error::Anyhow)?);
@@ -332,8 +338,15 @@ fn get_status(app: AppHandle) -> models::BackendStatus {
 }
 
 #[tauri::command]
-fn get_setup(app: AppHandle) -> Result<DesktopSetup, String> {
-    let app_state = state(&app);
+async fn get_setup(app: AppHandle) -> Result<DesktopSetup, String> {
+    // Runner discovery may traverse installations. Keep it off the native UI
+    // thread so WebView2 can paint the startup/loading eye continuously.
+    tokio::task::spawn_blocking(move || read_setup(&app)).await
+        .map_err(|_| "无法读取桌面设置。".to_owned())?
+}
+
+fn read_setup(app: &AppHandle) -> Result<DesktopSetup, String> {
+    let app_state = state(app);
     let settings = app_state.settings.snapshot();
     let status = app_state.supervisor.current_status();
     let configured = resolve_runner_configuration(&settings).map_err(|error| error.to_string())?;
@@ -342,6 +355,7 @@ fn get_setup(app: AppHandle) -> Result<DesktopSetup, String> {
         .as_ref()
         .map(|runner| runner.kind.clone())
         .unwrap_or_else(|| settings.runner_kind.clone());
+    let can_restore_own_account = settings.own_account.as_ref().is_some_and(|own| own.setup_complete);
     let mut runner_bins = settings.runner_bins;
     if let Some(executable) = configured
         .as_ref()
@@ -352,6 +366,7 @@ fn get_setup(app: AppHandle) -> Result<DesktopSetup, String> {
     Ok(DesktopSetup {
         complete,
         trial_mode: settings.trial_mode,
+        can_restore_own_account,
         host: settings.host,
         port: settings.port,
         runner_kind,
@@ -422,47 +437,120 @@ async fn choose_runner(kind: models::RunnerKind) -> Result<Option<String>, Strin
 }
 
 #[tauri::command]
+async fn choose_local_path(app: AppHandle, kind: native_paths::PathKind) -> Result<Option<String>, String> {
+    let _guard = native_paths::PickerGuard::acquire()?;
+    let window = app.get_webview_window(MAIN_WINDOW)
+        .ok_or_else(|| "主窗口不可用。".to_owned())?;
+    let dialog = rfd::AsyncFileDialog::new().set_parent(&window);
+    let selection = match kind {
+        native_paths::PathKind::Folder => dialog.set_title("选择研究项目文件夹").pick_folder().await,
+        native_paths::PathKind::Cif => dialog.set_title("选择 CIF 晶体结构文件")
+            .add_filter("CIF 晶体结构", &["cif"]).pick_file().await,
+    };
+    match selection {
+        None => Ok(None),
+        Some(file) if native_paths::valid_selection(kind, file.path()) =>
+            Ok(Some(file.path().to_string_lossy().into_owned())),
+        Some(_) => Err("所选路径不可用或文件类型不符；原项目未更改。".to_owned()),
+    }
+}
+
+#[tauri::command]
 async fn complete_setup(app: AppHandle, input: CompleteSetupInput) -> SetupResult {
     let app_state = state(&app);
-    let Ok(_guard) = app_state.configuration_operation.try_lock() else {
-        return SetupResult::error("正在应用设置，请稍候。");
+    let Ok(_operation) = app_state.configuration_operation.try_lock() else {
+        return SetupResult::error("正在更新本地服务，请稍候再试。");
     };
-    apply_setup(&app, input, false).await
+    let result = apply_setup(&app, input, false).await;
+    if !result.ok { recover_previous_runtime(&app).await; }
+    result
 }
 
 #[tauri::command]
 async fn complete_trial_setup(app: AppHandle, input: trial::TrialSetupInput) -> SetupResult {
     let app_state = state(&app);
-    let Ok(_guard) = app_state.configuration_operation.try_lock() else {
+    let Ok(_operation) = app_state.configuration_operation.try_lock() else {
         return SetupResult::error("正在准备试用，请稍候。");
     };
-    let release = make_release_context(&app);
-    let executable = match trial::configure(&app, &release, input.api_key.trim()).await {
-        Ok(path) => path,
-        Err(message) => return SetupResult::error(message),
+    let prepared = match trial::configure(&app, &make_release_context(&app), input.api_key.trim()).await {
+        Ok(value) => value, Err(error) => return SetupResult::error(error),
     };
     let settings = app_state.settings.snapshot();
+    let mut profile = match trial::ProfileChange::begin(input.api_key.trim()) {
+        Ok(value) => value, Err(error) => return SetupResult::error(error),
+    };
     let mut bins = settings.runner_bins;
-    bins.insert("copilot".to_owned(), executable);
-    apply_setup(
-        &app,
-        CompleteSetupInput {
-            port: settings.port as u32,
-            runner_kind: models::RunnerKind::Copilot,
-            runner_bins: bins,
-        },
-        true,
-    )
-    .await
+    bins.insert("copilot".to_owned(), prepared.runner_bin);
+    let result = apply_setup(&app, CompleteSetupInput {
+        port: settings.port as u32, runner_kind: models::RunnerKind::Copilot, runner_bins: bins,
+    }, true).await;
+    if result.ok {
+        profile.commit();
+        trial::cache_balance(&prepared.balance);
+    } else {
+        if let Err(error) = profile.rollback() { return SetupResult::error(error); }
+        recover_previous_runtime(&app).await;
+    }
+    result
+}
+
+#[tauri::command]
+async fn get_trial_status(app: AppHandle) -> Result<trial::TrialBalance, String> {
+    let app_state = state(&app);
+    let _operation = app_state.configuration_operation.try_lock().map_err(|_| "正在更新设置，请稍候。")?;
+    if !app_state.settings.snapshot().trial_mode { return Err("当前使用自己的账号。".to_owned()); }
+    trial::status(&app, &make_release_context(&app), false).await
+}
+
+#[tauri::command]
+async fn resume_trial(app: AppHandle) -> Result<trial::TrialBalance, String> {
+    let app_state = state(&app);
+    let _operation = app_state.configuration_operation.try_lock().map_err(|_| "正在更新设置，请稍候。")?;
+    if !app_state.settings.snapshot().trial_mode { return Err("当前使用自己的账号。".to_owned()); }
+    trial::status(&app, &make_release_context(&app), true).await
+}
+
+#[tauri::command]
+async fn restore_own_account(app: AppHandle) -> SetupResult {
+    let app_state = state(&app);
+    let Ok(_operation) = app_state.configuration_operation.try_lock() else {
+        return SetupResult::error("正在更新本地服务，请稍候。");
+    };
+    let settings = app_state.settings.snapshot();
+    let Some(own) = settings.own_account else {
+        return SetupResult::error("没有已保存的原账号设置，请在设置中选择自己的 Agent CLI。");
+    };
+    let result = apply_setup(&app, CompleteSetupInput {
+        port: settings.port as u32, runner_kind: own.runner_kind, runner_bins: own.runner_bins,
+    }, false).await;
+    if !result.ok { recover_previous_runtime(&app).await; }
+    result
+}
+
+async fn recover_previous_runtime(app: &AppHandle) {
+    let app_state = state(app);
+    if app_state.settings.snapshot().setup_complete
+        && app_state.supervisor.current_status().state != BackendState::Ready {
+        let _ = app_state.supervisor.restart().await;
+    }
 }
 
 async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: bool) -> SetupResult {
     if !(1024..=65535).contains(&input.port) {
         return SetupResult::error("端口需在 1024 - 65535 之间");
     }
-    let app_state = state(&app);
+    let app_state = state(app);
     let previous = app_state.settings.snapshot();
     let mut next = previous.clone();
+    if trial_mode && !previous.trial_mode {
+        next.own_account = Some(models::OwnAccountSettings {
+            runner_kind: previous.runner_kind.clone(), runner_bins: previous.runner_bins.clone(),
+            runner_configured: previous.runner_configured, setup_complete: previous.setup_complete,
+        });
+    } else if !trial_mode {
+        next.own_account = None;
+    }
+    next.trial_mode = trial_mode;
     next.port = input.port as u16;
     next.runner_kind = input.runner_kind;
     next.runner_bins = normalized_runner_bins(&input.runner_bins);
@@ -492,8 +580,7 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
         || previous.runner_kind != next.runner_kind
         || previous.runner_configured != next.runner_configured
         || previous.runner_bins != next.runner_bins;
-    // Trial startup selects a free port after checking for an owned backend.
-    // Manual choices must still fail before saving or stopping anything.
+    // Trial startup chooses a free port without taking over a foreign listener.
     if !trial_mode
         && (previous.port != next.port || app_state.supervisor.current_status().state != BackendState::Ready)
     {
@@ -504,7 +591,8 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
     if let Err(error) = app_state.supervisor.release().validate_payload() {
         return SetupResult::error(error);
     }
-    next.appearance_theme = app_state.settings.snapshot().appearance_theme;
+    let current_preferences = app_state.settings.snapshot();
+    next.appearance_theme = current_preferences.appearance_theme;
     let theme = next.appearance_theme.clone();
     if let Err(error) = app_state.settings.replace(next) {
         return SetupResult::error(error.to_string());
@@ -515,7 +603,7 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
     }
     let supervisor = Arc::clone(&app_state.supervisor);
     if let Err(error) = supervisor.restart().await {
-        if let Err(rollback) = app_state.settings.replace(previous) {
+        if let Err(rollback) = app_state.settings.replace(previous.clone()) {
             return SetupResult::error(format!("{error}\n恢复原设置失败：{rollback}"));
         }
         return SetupResult::error(error);
@@ -527,6 +615,9 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
             return SetupResult::ok();
         }
         if status.state == BackendState::Error || tokio::time::Instant::now() >= deadline {
+            if let Err(error) = app_state.settings.replace(previous.clone()) {
+                return SetupResult::error(format!("启动失败且原设置恢复失败：{error}"));
+            }
             return SetupResult::error(status.detail.unwrap_or(status.message));
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -570,7 +661,7 @@ fn show_about(app: AppHandle) {
         .set_description(format!(
             "Argus {version}{}\nTauri / Rust · Windows x64\n运行身份：{}\n桌面数据：{}\n关闭窗口后任务继续；停止本地后端并退出才会结束任务。",
             if release::preview_mode() { " · Preview（不安装发布更新）" } else { "" },
-            state(&app).supervisor.release().identity().package_version,
+            state(&app).supervisor.release().identity().release_id,
             state(&app).settings.data_dir().display(),
         ))
         .set_buttons(rfd::MessageButtons::Ok)
@@ -705,7 +796,11 @@ async fn check_for_update(app: AppHandle, manual: bool) -> UpdateStatus {
 
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
-    state(&app).updater.install().await
+    let app_state = state(&app);
+    // Do not race a Windows installer handoff with setup/restart commands.
+    #[cfg(windows)]
+    let _configuration = app_state.configuration_operation.lock().await;
+    app_state.updater.install().await
 }
 
 #[tauri::command]
@@ -714,22 +809,37 @@ fn dismiss_update(app: AppHandle) {
 }
 
 pub fn run() {
-    // Test-only escape hatch: the packaged smoke test owns an isolated AppData
-    // directory but must not interfere with a real operator's single instance.
-    // Production always remains single-instance.
-    let builder = if std::env::var("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE").as_deref() == Ok("1") {
+    // On Windows an ambient test flag alone must not duplicate a real profile.
+    let qa_requested = std::env::var("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE").as_deref() == Ok("1");
+    let isolated_qa = qa_requested && (!cfg!(windows) || identity::isolated_host_qa_from_env());
+    if qa_requested && !isolated_qa {
+        rfd::MessageDialog::new()
+            .set_title("Argus 测试环境未隔离")
+            .set_description("请移除单实例测试开关，或使用完整隔离的宿主验收脚本。未打开或修改现有用户配置。")
+            .set_level(rfd::MessageLevel::Error)
+            .show();
+        return;
+    }
+    let builder = if isolated_qa {
         tauri::Builder::default()
     } else {
         tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            reveal_window(app)
+            reveal_window(app);
+            // Explicit EXE launch, not a tray restore. The live backend is reused.
+            let _ = app.emit("argus:launch-activation", ());
         }))
     }
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .setup(|app| {
+    .setup(move |app| {
         let config = &app.config().app.windows[0];
         // Wry cancels macOS downloads unless a handler accepts them.
+        let qa_devtools = identity::preview_qa_enabled(
+            release::preview_mode(),
+            std::env::var("ARGUS_DESKTOP_TEST_INSTANCE").ok().as_deref(),
+        );
         let mut window = tauri::WebviewWindowBuilder::from_config(app, config)?
+            .devtools(qa_devtools)
             .initialization_script(include_str!("shell-init.js"))
             .on_download(|webview, event| match event {
                 tauri::webview::DownloadEvent::Requested { url, .. } =>
@@ -738,9 +848,7 @@ pub fn run() {
                     ),
                 _ => true,
             });
-        if release::preview_mode()
-            || std::env::var("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE").as_deref() == Ok("1")
-        {
+        if release::preview_mode() || isolated_qa {
             // WebView cookies/localStorage must be isolated as well as Python
             // state. Windows known-folder APIs do not follow a test APPDATA.
             window = window.data_directory(settings::desktop_data_dir().join("webview"));
@@ -769,8 +877,12 @@ pub fn run() {
         set_window_theme,
         set_large_preview,
         choose_runner,
+        choose_local_path,
         complete_setup,
         complete_trial_setup,
+        get_trial_status,
+        resume_trial,
+        restore_own_account,
         restart_backend,
         export_diagnostics,
         hide_desktop,
@@ -786,7 +898,14 @@ pub fn run() {
         install_update,
         dismiss_update,
     ]);
-    let app = match builder.build(tauri::generate_context!()) {
+    let mut context = tauri::generate_context!();
+    let test_identifier = identity::preview_instance_identifier(
+        &context.config().identifier,
+        release::preview_mode(),
+        std::env::var("ARGUS_DESKTOP_TEST_INSTANCE").ok().as_deref(),
+    );
+    context.config_mut().identifier = test_identifier;
+    let app = match builder.build(context) {
         Ok(app) => app,
         Err(error) => {
             rfd::MessageDialog::new()

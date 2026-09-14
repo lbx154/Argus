@@ -69,6 +69,7 @@ def test_metrics_snapshot_aggregates_rates_percentiles_and_slo(tmp_path: Path) -
     assert snapshot["web"]["error_rate_5xx"] == 1.0
     assert snapshot["event_validation_failures"] == 1
     assert snapshot["slo"]["status"] == "degraded"
+    assert "error" not in snapshot["cost_control"], snapshot["cost_control"]
     assert len(snapshot["slo"]["violations"]) == 4
 
     prometheus = render_prometheus(snapshot)

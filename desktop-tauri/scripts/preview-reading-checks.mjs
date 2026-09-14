@@ -52,6 +52,11 @@ async function assertReachableEdges(viewer) {
   for (const edge of ['left', 'top', 'right', 'bottom']) assert(edges[edge] >= -1, `PDF ${edge} edge is outside reachable scrolling space.`);
 }
 
+export async function selectWorkspaceView(frame, view) {
+  await frame.locator(`[data-workspace-view="${view}"]`).click();
+  await expect(frame.locator('.workspace-tabs')).toHaveAttribute('data-active', view);
+}
+
 export async function verifyReadingExperience(page, frame, stage, record) {
   const conversation = frame.locator('.conversation-composer');
   const input = conversation.locator('textarea');
@@ -66,8 +71,11 @@ export async function verifyReadingExperience(page, frame, stage, record) {
   // Read-only map navigation validates shared state without a provider call.
   await input.focus();
   await page.keyboard.press('Control+.');
-  await frame.locator('.workspace-tab').nth(3).click();
-  await frame.locator('.workspace-tab').nth(1).click();
+  await selectWorkspaceView(frame, 'map');
+  const openComposer = frame.locator('.map-island-launch[aria-expanded="false"]');
+  if (await openComposer.isVisible()) await openComposer.click();
+  await expect(frame.locator('.map-composer textarea:visible')).toHaveValue('Draft retained across views');
+  await selectWorkspaceView(frame, 'activity');
   await page.keyboard.press('Control+.');
   await expect(input).toHaveValue('Draft retained across views');
   await expect(conversation).toContainText('note.txt');
@@ -101,23 +109,26 @@ export async function verifyReadingExperience(page, frame, stage, record) {
   assert(fits, 'Fit page must restore a fully visible page.');
   record('PDF portrait/landscape zoom, all four reachable edges, fit-page and wider explicit preview');
 
-  await frame.locator('.workspace-tab').nth(0).click();
-  const team = frame.getByRole('region', { name: /AI 研究团队|AI research team/ });
-  for (const mode of ['light', 'dark']) {
-    const current = await frame.locator('html').getAttribute('data-theme');
-    if (current !== mode) await frame.getByRole('button', { name: /theme; switch|主题；切换/ }).click();
-    await expect(frame.locator('html')).toHaveAttribute('data-theme', mode);
-    const colors = await team.locator('[data-role-dot]').evaluateAll((dots) => dots.map((dot) => getComputedStyle(dot).backgroundColor));
-    assert.equal(colors.length, 4);
-    assert.equal(new Set(colors).size, 4, `All four role markers must be distinct in ${mode} mode.`);
-  }
-  record('Four distinct role colors in the real mission UI under both global themes');
-
-  await frame.locator('.workspace-tab').nth(2).click();
+  await selectWorkspaceView(frame, 'workbench');
   const modules = frame.locator('.workbench-module-tabs button');
   await expect(modules).toHaveCount(3);
   assert.deepEqual(await modules.evaluateAll((buttons) => buttons.map((button) => button.dataset.module)), ['overview', 'experiments', 'ide']);
   await expect(frame.locator('.module-card')).toHaveCount(2);
+  await frame.locator('[data-module="experiments"]').click();
+  await expect(frame.getByRole('button', { name: /继续运行|Resume/, exact: true })).toBeVisible();
+  // The upstream mission view hides a team that has never worked. The stopped
+  // experiment view is a real navigable surface exposing all four role marks.
+  const markers = frame.locator('.ros-content[aria-hidden="false"] [data-role-dot]');
+  assert.deepEqual((await markers.evaluateAll(dots => dots.map(dot => dot.dataset.roleDot))).sort(),
+    ['engineer', 'manager', 'planner', 'reviewer']);
+  for (const mode of ['light', 'dark']) {
+    const current = await frame.locator('html').getAttribute('data-theme');
+    if (current !== mode) await frame.getByRole('button', { name: /theme; switch|主题；切换/ }).click();
+    await expect(frame.locator('html')).toHaveAttribute('data-theme', mode);
+    const colors = await markers.evaluateAll(dots => dots.map(dot => getComputedStyle(dot).backgroundColor));
+    assert.equal(new Set(colors).size, 4, `All four role markers must be distinct in ${mode} mode.`);
+  }
+  record('Four role colors remain distinct in both themes; stopped executor exposes Resume without starting a model task');
   await frame.locator('[data-module="ide"]').click();
   const tree = frame.locator('.vscode-sidebar .workspace-tree');
   const folder = tree.getByRole('button', { name: 'src', exact: true });
@@ -165,7 +176,7 @@ export async function verifyReadingExperience(page, frame, stage, record) {
   const countWorkspaceReads = (request) => {
     if (new URL(request.url()).pathname.startsWith('/api/v2/workspace/')) backgroundWorkspaceReads++;
   };
-  await frame.locator('.workspace-tab').nth(1).click();
+  await selectWorkspaceView(frame, 'activity');
   await page.waitForTimeout(250);
   page.on('request', countWorkspaceReads);
   await page.waitForTimeout(8500);

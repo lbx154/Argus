@@ -85,7 +85,7 @@ def test_trial_workers_replace_inherited_provider_credentials(tmp_path, monkeypa
     assert env["COPILOT_PROVIDER_BASE_URL"] == "https://trial.example.com/v1"
     assert env["COPILOT_PROVIDER_API_KEY"] == key
     assert env["COPILOT_PROVIDER_WIRE_MODEL"] == "argus-trial"
-    assert env["COPILOT_MODEL"] == env["COPILOT_PROVIDER_MODEL_ID"] == "gpt-5.5"
+    assert env["COPILOT_MODEL"] == env["COPILOT_PROVIDER_MODEL_ID"] == "argus-trial"
     assert env["COPILOT_HOME"] == str(tmp_path / "copilot-trial-home")
     assert "COPILOT_PROVIDER_BEARER_TOKEN" not in env and "GITHUB_TOKEN" not in env
     assert env["COPILOT_PROVIDER_HEADERS"] == "User-Agent: Argus/0.1.1"
@@ -112,16 +112,19 @@ def test_failed_trial_verification_restores_previous_profile(tmp_path, monkeypat
     assert os.environ[client.TRIAL_ENV] == "0"
 
 
-def test_old_trial_models_resolve_to_the_current_provider_without_changing_personal_mode(tmp_path, monkeypatch):
+def test_explicit_incompatible_trial_model_is_rejected_without_rewriting_personal_mode(tmp_path, monkeypatch):
     from argus_skill.core.knob_store import write_persisted_knobs
     from argus_skill.core.knobs import resolve_role_model, resolve_role_reasoning_effort
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv(client.TRIAL_ENV, raising=False)
     write_persisted_knobs({client.TRIAL_ENV: "1", "ARGUS_SKILL_MODEL": "gpt-4.1"})
-    assert resolve_role_model("engineer", env={}) == "gpt-5.5"
+    assert resolve_role_model("engineer", env={}) == "gpt-4.1"
     assert resolve_role_reasoning_effort("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", env={}) == "high"
-    assert client.trial_model_options("gpt-4.1", "low") == ("gpt-5.5", "high")
+    with pytest.raises(ValueError, match="argus-trial / auto"):
+        client.trial_model_options("gpt-4.1", "low")
+    assert client.trial_model_options("auto", "low") == ("argus-trial", "low")
+    assert resolve_role_model("engineer", env={}) == "gpt-4.1"
     monkeypatch.setenv(client.TRIAL_ENV, "0")
     assert client.trial_model_options("gpt-4.1", "low") == ("gpt-4.1", "low")
     assert resolve_role_model("engineer", env={client.TRIAL_ENV: "0"}) == "gpt-4.1"

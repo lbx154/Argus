@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import fcntl
 import json
 import logging
 import math
@@ -34,6 +33,7 @@ from contextlib import asynccontextmanager, closing, contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
+import portalocker
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -261,8 +261,8 @@ class ComputeService:
         self.config["state_dir"].mkdir(parents=True, exist_ok=True, mode=0o700)
         self.lock_file = (self.config["state_dir"] / "owner.lock").open("a")
         try:
-            fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+            portalocker.lock(self.lock_file, portalocker.LOCK_EX | portalocker.LOCK_NB)
+        except (OSError, portalocker.exceptions.LockException):
             self.lock_file.close()
             self.lock_file = None
             raise RuntimeError("Another compute service owns this state directory") from None

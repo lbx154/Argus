@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -12,7 +13,15 @@ from typing import Literal
 from weakref import WeakValueDictionary
 
 from ..core.file_lock import exclusive_file_lock
-from .map_model import MapModel, MapProgress, resolve_map_model, run_map_model
+from .map_model import (
+    MapGenerationError,
+    MapModel,
+    MapProgress,
+    map_limit,
+    map_timeout_seconds,
+    resolve_map_model,
+    run_map_model,
+)
 from .map_outcomes import project_task_outcome
 from .map_teaching_review import (
     BRIEF_LIMITS,
@@ -28,7 +37,7 @@ from .map_teaching_review import (
 )
 from .map_view import digest, task_content_revision, text
 
-PROMPT_VERSION = 24
+PROMPT_VERSION = 25
 SOURCE_SNAPSHOT_VERSION = 2
 Preview = bool | Literal["learning-path", "question-foundation"]
 _LOCK = threading.Lock()
@@ -211,17 +220,54 @@ def schema(keys: list[str], task_ids: list[str]) -> dict:
             ),
             "relations": {
                 "type": "array",
+                "maxItems": 8,
                 "items": obj(
                     {
                         "source": {"type": "string", "enum": task_ids},
                         "target": {"type": "string", "enum": task_ids},
-                        "label": string,
-                        "evidence": string,
+                        "label": {**string, "maxLength": 32},
+                        "evidence": {**string, "maxLength": 500},
                     }
                 ),
             },
         }
     )
+
+
+def _bounded_document(document: dict) -> dict:
+    """Bound presentation inputs without rewriting canonical research evidence."""
+    original_task = document.get("task", {})
+    original_events = document.get("events", [])
+    task = {
+        key: text(value, 160 if key == "title" else 1000) if isinstance(value, str) else value
+        for key, value in original_task.items()
+    }
+    events = [
+        {**event, "text": text(event.get("text"), 1200),
+         "next_action": text(event.get("next_action"), 600)}
+        for event in original_events[-4:]
+    ]
+    return {**document, "task": task, "events": events,
+            "evidence_truncated": bool(document.get("evidence_truncated"))
+            or task != original_task or events != original_events}
+
+
+def _failure_metadata(cache: dict) -> dict:
+    try:
+        retry_at = float(cache.get("retry_at", 0))
+        remaining = min(3600, max(0, math.ceil(retry_at - time.time()))) if math.isfinite(retry_at) else 0
+    except (TypeError, ValueError, OverflowError):
+        remaining = 0
+    error = cache.get("generation_error")
+    if isinstance(error, dict):
+        code = error.get("code")
+        if code not in {"map_timeout", "cost_unreconciled", "budget_exhausted", "invalid_response", "provider_error", "map_input_too_large"}:
+            code = "provider_error"
+        error = {"code": code, "message": "Map summary unavailable; existing evidence and cached text are retained."}
+    else:
+        error = None
+    # Explicit zero clears a previous cooldown in clients that merge cache fields.
+    return {"generation_error": error, "retry_after": remaining}
 
 
 def generate(
@@ -230,14 +276,17 @@ def generate(
     cached_reviews: dict | None = None,
     on_progress: MapProgress | None = None,
 ) -> dict:
-    # Draft and teaching check share the existing source lock and one deadline.
-    deadline = time.monotonic() + 170
+    # Draft and teaching check share the source lock and one bounded deadline.
+    deadline = time.monotonic() + map_timeout_seconds()
+    documents = [_bounded_document(document) for document in documents]
     source_captured_at = time.time()
     source_context = {d["key"]: teaching_context({
         "task": d.get("task", {}), "events": d.get("events", []),
         "related_tasks": [task for task in tasks if task.get("id") != d["task_id"]],
-    })
-                      for d in documents}
+    }) for d in documents}
+    for document in documents:
+        if document["evidence_truncated"]:
+            source_context[document["key"]]["evidence_truncated"] = True
     # Keep exactly what both model calls receive, not a later live-data lookup.
     # Binding and capture time are server metadata, never model-authored facts.
     source_snapshots = {d["key"]: {
@@ -261,7 +310,7 @@ def generate(
 - 保留当前尝试及历史事件的时间关系。review_skipped=true 表示没有该次审阅，review_source=engineer_self_review 表示执行者自检；缺独立复核记录不能改称已独立核验。不能把旧尝试的结果套到新尝试。
 - 简短不等于删除决定性条件或理由。一般教学例子与本次发现分清；不使用“赋能”“可追溯”等宣传措辞。
 - relations 可为有内容联系的已给定任务输出简短关系词与依据；这是内容关联，不改变执行依赖，不自连、不重复，不能确定就不输出。
-必须覆盖每一个 card key。"""
+必须覆盖每一个 card key。evidence_truncated 为 true 时，只解释提供的片段，不声称已检查完整记录。"""
     output_schema = schema([d["key"] for d in documents], [t["id"] for t in tasks])
     prompt = (
         instructions + "\n仅输出符合以下 JSON Schema 的 JSON 对象，不使用工具。\n"
@@ -269,6 +318,8 @@ def generate(
         + "\n研究记录：\n"
         + json.dumps({"cards": list(source_documents.values()), "related_tasks": related_tasks}, ensure_ascii=False)
     )
+    if len(prompt) > 40000:
+        raise MapGenerationError("map_input_too_large")
     value = run_map_model(
         prompt, output_schema, config, project_root=project_root, global_root=global_root, deadline=deadline,
         **({"on_progress": on_progress, "phase": "writing"} if on_progress is not None else {}),
@@ -334,7 +385,7 @@ def generation_context_tasks(all_tasks: list[dict], documents: list[dict], known
                 key=lambda task_id: (known_tasks.get(task_id) == digest(by_id[task_id]),
                                      min(abs(positions[task_id] - anchor) for anchor in anchors), positions[task_id]),
             )[:2 * len(selected)]
-    return [by_id[task_id] for task_id in (selected + neighbors)[:24] if task_id in by_id]
+    return [by_id[task_id] for task_id in (selected + neighbors)[:16] if task_id in by_id]
 
 
 def _related_sources_changed(saved: dict, current_tasks: dict[str, dict]) -> bool:
@@ -405,6 +456,10 @@ def enrich(
         cache = read_cache(root, source)
         metadata["cache_revision"] = cache.get("cache_revision", 0)
         existing = cache.get("cards", {})
+        failure = _failure_metadata(cache)
+        if failure.get("retry_after"):
+            return {"cards": existing, "relations": cache.get("relations", []),
+                    "cached": bool(existing), "available": True, **metadata, **failure}
         # Missing/currently incompatible input metadata requires regeneration
         # when requested; it cannot certify an old teaching passage as checked.
         todo = [
@@ -414,7 +469,8 @@ def enrich(
             or _related_sources_changed(existing.get(d["key"], {}), current_tasks)
         ]
         if not todo:
-            return {"cards": existing, "relations": cache.get("relations", []), "cached": True, **metadata}
+            return {"cards": existing, "relations": cache.get("relations", []), "cached": True,
+                    **metadata, **_failure_metadata(cache)}
         if project_root is None or not configured():
             return {"cards": existing, "relations": cache.get("relations", []), "available": False, **metadata}
         # Coalesce rapid progress updates and multiple open browser tabs.
@@ -437,43 +493,57 @@ def enrich(
         all_tasks = [teaching_context({"related_tasks": [task]})["related_tasks"][0]
                      for task in dataset["tasks"]]
         prior_relation_tasks = cache.get("relation_tasks", {}) if cache.get("relation_context_version") == 2 else {}
-        tasks = generation_context_tasks(all_tasks, todo[:8], prior_relation_tasks)
+        batch = todo[:map_limit("ARGUS_SKILL_MAP_BATCH_SIZE", "2")]
+        tasks = generation_context_tasks(all_tasks, batch, prior_relation_tasks)
         relation_tasks = {t["id"]: digest(t) for t in tasks}
-        if foundation_ref:
-            value = generate_application(
-                todo[:8], tasks, locale, foundation=foundation, config=config,
-                project_root=project_root, global_root=root,
-                **({"on_progress": on_progress} if on_progress is not None else {}),
-            )
-        elif preview:
-            value = generate_source_first(
-                todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
-                **({"learning_path": True} if preview == "learning-path" else {}),
-                **({"on_progress": on_progress} if on_progress is not None else {}),
-            )
-        else:
-            value = generate(
-                todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
-                cached_reviews=cache.get("teaching_reviews", {}),
-                **({"on_progress": on_progress} if on_progress is not None else {}),
-            )
-        wanted = {d["key"] for d in todo[:8]}
-        generated = value.get("cards", [])
-        if (
-            not isinstance(generated, list)
-            or {c.get("key") for c in generated if isinstance(c, dict)} != wanted
-            or len(generated) != len(wanted)
-        ):
-            raise ValueError("card coverage mismatch")
-        for card in generated:
-            card.update(checked_text_fields({field: card.get(field) for field in CARD_TEXT_LIMITS},
-                                            CARD_TEXT_LIMITS, "invalid card copy"))
-            if "reader_brief" in card:
-                card["reader_brief"] = _reader_brief(card["reader_brief"])
-            if "learning_path" in card:
-                from .map_learning import checked_learning_path
+        try:
+            if foundation_ref:
+                value = generate_application(
+                    batch, tasks, locale, foundation=foundation, config=config,
+                    project_root=project_root, global_root=root,
+                    **({"on_progress": on_progress} if on_progress is not None else {}),
+                )
+            elif preview:
+                value = generate_source_first(
+                    batch, tasks, locale, config=config, project_root=project_root, global_root=root,
+                    **({"learning_path": True} if preview == "learning-path" else {}),
+                    **({"on_progress": on_progress} if on_progress is not None else {}),
+                )
+            else:
+                value = generate(
+                    batch, tasks, locale, config=config, project_root=project_root, global_root=root,
+                    cached_reviews=cache.get("teaching_reviews", {}),
+                    **({"on_progress": on_progress} if on_progress is not None else {}),
+                )
+            wanted = {d["key"] for d in batch}
+            generated = value.get("cards", [])
+            if (
+                not isinstance(generated, list)
+                or {c.get("key") for c in generated if isinstance(c, dict)} != wanted
+                or len(generated) != len(wanted)
+            ):
+                raise ValueError("card coverage mismatch")
+            for card in generated:
+                card.update(checked_text_fields({field: card.get(field) for field in CARD_TEXT_LIMITS},
+                                                CARD_TEXT_LIMITS, "invalid card copy"))
+                if "reader_brief" in card:
+                    card["reader_brief"] = _reader_brief(card["reader_brief"])
+                if "learning_path" in card:
+                    from .map_learning import checked_learning_path
 
-                card["learning_path"] = checked_learning_path(card["learning_path"])
+                    card["learning_path"] = checked_learning_path(card["learning_path"])
+        except (OSError, ValueError, RuntimeError) as exc:
+            code = exc.code if isinstance(exc, MapGenerationError) else (
+                "invalid_response" if isinstance(exc, ValueError) else "provider_error"
+            )
+            cache.update(
+                retry_at=time.time() + map_limit("ARGUS_SKILL_MAP_RETRY_SECONDS", "300"),
+                generation_error={"code": code},
+            )
+            _write_cache(path, cache)
+            return {"cards": existing, "relations": cache.get("relations", []),
+                    "cached": bool(existing), "available": True,
+                    **metadata, **_failure_metadata(cache)}
         progress_sid = dataset["id"][5:] if dataset["id"].startswith("live:") else None
         if progress_sid:
             from .reader_clarification import ReaderSourceUnavailable
@@ -566,6 +636,8 @@ def enrich(
         }
         cache.update(
             cache_revision=cache.get("cache_revision", 0) + 1,
+            generation_error=None,
+            retry_at=0,
             cards=existing,
             # Expanding a child card must not redraw the outer graph. Reconsider
             # presentation links only when the task structure/content changes.
@@ -589,4 +661,5 @@ def enrich(
             "cached": False,
             "version": version,
             **metadata,
+            **_failure_metadata(cache),
         }

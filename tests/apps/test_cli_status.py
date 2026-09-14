@@ -34,7 +34,8 @@ def project_with_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
     inbox = project_root / "inbox.jsonl"
     first = json.dumps({"text": "old guidance"}) + "\n"
     second = json.dumps({"text": "fresh guidance"}) + "\n"
-    inbox.write_text(first + second, encoding="utf-8")
+    # The persisted cursor is measured in bytes, not platform-translated text.
+    inbox.write_bytes((first + second).encode("utf-8"))
     (project_root / "inbox.offset").write_text(str(len(first.encode("utf-8"))), encoding="utf-8")
     return home, repo
 

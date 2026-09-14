@@ -1754,6 +1754,24 @@ def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> No
     assert stops == []
 
 
+@pytest.mark.parametrize("rc", [0, 2])
+def test_explicit_injected_start_only_resumes_provider_fences_after_success(ctx, rc):
+    root, sid, life = ctx
+    memory = LifeMemory.open(life)
+    for status in ("paused_provider_fence", "paused_cost", "paused_budget"):
+        item = BacklogItem.new(title=status, objective="Synthetic paused work")
+        item.status = status
+        memory.backlog.add(item)
+    services = DaemonServices(read_status=server.read_daemon_status, start=lambda *_a, **_kw: {"rc": rc})
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
+    response = client.post(f"/api/projects/{sid}/daemon/start", json={"command_id": "explicit-start"})
+    assert response.status_code == 200 and response.json()["rc"] == rc
+    states = {item.title: item.status for item in memory.backlog.all()}
+    assert states["paused_provider_fence"] == ("pending" if rc == 0 else "paused_provider_fence")
+    assert states["paused_cost"] == "paused_cost"
+    assert states["paused_budget"] == "paused_budget"
+
+
 def test_project_update_renames_session(ctx) -> None:
     root, sid, life = ctx
     (life / "session.json").write_text(

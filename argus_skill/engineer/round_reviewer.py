@@ -17,7 +17,7 @@ import logging
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
@@ -772,8 +772,8 @@ class RoundReviewerMixin:
                 )
                 if interrupt_reason:
                     interrupt_kind = stop_kind_from_external_interrupt(interrupt_reason) or "operator_pause"
-                    status = cast(LoopStatus, "aborted" if interrupt_kind == "operator_abort"
-                                  else pause_status_for_stop_kind(interrupt_kind) or "paused_operator")
+                    status: LoopStatus = ("aborted" if interrupt_kind == "operator_abort"
+                                          else pause_status_for_stop_kind(interrupt_kind) or "paused_operator")
                     reason_text = (
                         "The wait after a Reviewer backend failure ended "
                         f"early: {interrupt_reason}."

@@ -64,10 +64,47 @@ def verify_cli(executable: Path):
         raise ValueError("Copilot 未能启动，请重试或检查系统是否阻止了此程序。")
 
 
-def install_native_copilot(*, progress=print,
-                          download_progress: Callable[[int, int | None], None] | None = None) -> str:
+def _download_archive(request, archive: Path, expected: str, progress=None):
+    digest = hashlib.sha256()
+    context = ssl.create_default_context(cafile=certifi.where())
+    received = 0
+    last_report = 0.0
+    try:
+        with urllib.request.urlopen(request, timeout=90, context=context) as response, archive.open("wb") as target:
+            try:
+                total = int(response.headers.get("Content-Length", "0")) or None
+                if total is not None and total < 0:
+                    total = None
+            except (TypeError, ValueError):
+                total = None
+            if progress:
+                progress(0, total)
+            read = getattr(response, "read1", response.read)
+            while chunk := read(64 * 1024):
+                digest.update(chunk)
+                target.write(chunk)
+                received += len(chunk)
+                now = time.monotonic()
+                if progress and now - last_report >= 0.25:
+                    progress(received, total)
+                    last_report = now
+            if total is not None and received != total:
+                raise ValueError("Copilot 下载中断，安装包不完整。" + DOWNLOAD_HELP)
+            if progress:
+                progress(received, total)
+    except (TimeoutError, urllib.error.URLError, ConnectionError, ssl.SSLError, http.client.HTTPException):
+        raise ValueError("Copilot 下载中断或等待网络响应超时；原设置未更改，不会自动重复下载。" + DOWNLOAD_HELP) from None
+    if digest.hexdigest() != expected:
+        raise ValueError("Copilot 下载校验失败，请重试。")
+
+
+def install_native_copilot(
+    *, progress=print,
+    download_progress: Callable[[int, int | None], None] | None = None,
+) -> str:
     from ..core.paths import global_root
 
+    report = progress or (lambda _message: None)
     system = platform.system()
     name, expected = asset_for(system, platform.machine())
     executable_name = "copilot.exe" if system == "Windows" else "copilot"
@@ -75,7 +112,7 @@ def install_native_copilot(*, progress=print,
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     executable = root / executable_name
     if executable.is_file():
-        progress("正在检查已安装的 Copilot…")
+        report("正在检查已安装的 Copilot…")
         verify_cli(executable)
         return str(executable)
     # A failed or interrupted download leaves no partly installed executable.
@@ -85,44 +122,15 @@ def install_native_copilot(*, progress=print,
             f"https://github.com/github/copilot-cli/releases/download/v{VERSION}/{name}",
             headers={"User-Agent": "Argus/0.1.1"},
         )
-        digest = hashlib.sha256()
-        context = ssl.create_default_context(cafile=certifi.where())
-        progress("正在下载 Copilot…")
-        if download_progress:
-            download_progress(0, None)
-        downloaded, last_report = 0, time.monotonic()
-        try:
-            with urllib.request.urlopen(request, timeout=90, context=context) as response, archive.open("wb") as target:
-                length = response.headers.get("Content-Length", "")
-                total = int(length) if length.isdigit() and int(length) > 0 else None
-                if download_progress:
-                    download_progress(0, total)
-                # read1 reports available bytes without waiting for a large
-                # buffer to fill on slow networks.
-                while chunk := response.read1(64 * 1024):
-                    digest.update(chunk)
-                    target.write(chunk)
-                    downloaded += len(chunk)
-                    now = time.monotonic()
-                    if download_progress and now - last_report >= 0.2:
-                        download_progress(downloaded, total)
-                        last_report = now
-                if total is not None and downloaded != total:
-                    raise ValueError("Copilot 下载中断，安装包不完整。" + DOWNLOAD_HELP)
-                if download_progress:
-                    download_progress(downloaded, total)
-        except (urllib.error.URLError, TimeoutError, ConnectionError, ssl.SSLError, http.client.HTTPException):
-            raise ValueError("Copilot 下载失败或连接超时。" + DOWNLOAD_HELP) from None
-        progress("下载完成，正在校验 Copilot 安装包…")
-        if digest.hexdigest() != expected:
-            raise ValueError("Copilot 下载校验失败，请重试。")
-        progress("正在安装 Copilot…")
+        report("正在下载 Copilot…")
+        _download_archive(request, archive, expected, download_progress)
+        report("下载完成，正在安装已校验的 Copilot…")
         staged = Path(temporary) / executable_name
         extract_binary(archive, staged, executable_name)
         # Publish the checksum-verified bytes before launching: on Windows the
         # CLI's background processes can keep its executable locked after help
         # exits, preventing a rename or temporary-directory cleanup.
         os.replace(staged, executable)
-    progress("正在检查 Copilot 运行环境…")
+    report("正在检查 Copilot 运行环境…")
     verify_cli(executable)
     return str(executable)

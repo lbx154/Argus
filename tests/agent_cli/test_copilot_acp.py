@@ -340,6 +340,7 @@ def test_content_filter_notice_is_a_permanent_failure_not_agent_output(
 @pytest.mark.parametrize("receipt_kind", ["current", "stale", "assistant"])
 @pytest.mark.parametrize("preamble", ["", "I will inspect the file first.\n"])
 def test_query_error_requires_current_structured_receipt(tmp_path, monkeypatch, receipt_kind, preamble):
+    """Regression reused from upstream 2906499e; no provider is contacted."""
     message = "400 Trial provider rejected the request format; retrying unchanged will not help."
     text = preamble + "Error: " + message
     events = tmp_path / "session-state/sess-1/events.jsonl"
@@ -352,7 +353,7 @@ def test_query_error_requires_current_structured_receipt(tmp_path, monkeypatch, 
         [error, user] if receipt_kind == "stale" else
         [user, {"type": "assistant.message", "data": {"content": text}}]
     )
-    events.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    events.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
 
     def script(req, proc):

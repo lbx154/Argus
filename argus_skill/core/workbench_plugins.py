@@ -33,6 +33,11 @@ def native_plugin_command(text, *, sid, life_dir, global_root):
 def prepare_plugin_run(prompt, options, *, backend, run_label, project_root=None):
     import portalocker
 
+    if project_root is not None:
+        manager.require_session_plugin(
+            project_root, working_dir=getattr(options, "working_dir", None),
+            check_binding=options is not None and not options.disable_tools,
+        )
     if options is None or project_root is None:
         return prompt, options
     project_root = Path(project_root).resolve()

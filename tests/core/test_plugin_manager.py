@@ -84,6 +84,8 @@ def test_install_constrains_nested_pip_and_requires_real_scientific_imports(
     import subprocess
     import sys
     from pathlib import Path
+    from urllib.parse import urlsplit
+    from urllib.request import url2pathname
 
     spec = {**pm.catalog()["crystalpilot"], "setup": {"automatic": False}}
     prior = {"old-plugin": {"enabled": True}}
@@ -114,7 +116,9 @@ def test_install_constrains_nested_pip_and_requires_real_scientific_imports(
         assert pm.registry(empty_host) == prior
     else:
         assert operation["status"] == "completed"
-        constraint_file = Path(install_calls[0]["env"]["PIP_CONSTRAINT"].split()[-1])
+        constraint_uri = urlsplit(install_calls[0]["env"]["PIP_CONSTRAINT"].split()[-1])
+        assert constraint_uri.scheme == "file" and not constraint_uri.netloc
+        constraint_file = Path(url2pathname(constraint_uri.path))
         assert constraint_file.read_text() == "numpy<2\n"
         assert pm.registry(empty_host)["crystalpilot"]["python_constraints"] == ["numpy<2"]
 
@@ -237,7 +241,7 @@ def test_native_plugin_requires_this_sessions_enabled_binding(empty_host, monkey
     plugin = SimpleNamespace(owns_workdir=lambda _path: True, prepare_run=prepare)
     monkeypatch.setattr(pm, "installed", lambda root=None: {"crystalpilot": plugin})
     monkeypatch.setattr(pm, "load_plugin", lambda *a, **k: plugin)
-    options = SimpleNamespace(working_dir=shared)
+    options = SimpleNamespace(working_dir=shared, disable_tools=False)
     with portalocker.Lock(str(pm.install_root(empty_host) / "crystalpilot/manage.lock"), timeout=0):
         for project in (None, second, shared / "state/s-unbound"):
             assert prepare_plugin_run(
@@ -281,3 +285,42 @@ def test_workbench_daemon_keeps_the_plugin_installation_root(empty_host, monkeyp
 
     assert os.environ["ARGUS_SKILL_HOME"] == str(workbench)
     assert pm.host_root() == empty_host
+
+
+@pytest.mark.parametrize("value", ["true", 1, None])
+def test_host_software_consent_is_typed_and_authenticated(empty_host, monkeypatch, value):
+    from fastapi.testclient import TestClient
+
+    from argus_skill.webapi.server import create_app
+
+    monkeypatch.setattr(pm, "mutate", lambda *a, **k: pytest.fail("invalid consent must not reach a job"))
+    client = TestClient(create_app(global_root=empty_host, auth_token="test"))
+    route = "/api/plugins/crystalpilot/manage/platon_runtime"
+    assert client.post(route, json={"accept_software_license": True}).status_code == 401
+    assert client.post(route, json={"accept_software_license": value},
+                       headers={"Authorization": "Bearer test"}).status_code == 409
+
+
+def test_host_runtime_uses_installed_plugin_contract_and_needs_consent(empty_host, monkeypatch):
+    import os
+    if os.name != "nt":
+        pytest.skip("Windows host operation")
+    release = "crystalpilot/releases/test"
+    spec = pm.catalog()["crystalpilot"]
+    pm.write_json(pm.install_root(empty_host) / release / "plugin.json", spec)
+    pm.write_json(pm.install_root(empty_host) / "registry.json", {
+        "crystalpilot": {"release": release, "enabled": False, "python": "fixture-python"},
+    })
+    monkeypatch.setattr(pm, "load_plugin", lambda *a, **kw: None)
+    jobs = []
+    def start(root, name, action, target, args):
+        jobs.append((action, args))
+        return {"status": "running"}
+    monkeypatch.setattr(pm, "_start_job", start)
+    with pytest.raises(pm.PluginError, match="许可"):
+        pm.mutate("crystalpilot", "platon_runtime", empty_host)
+    assert not jobs
+    assert pm.mutate("crystalpilot", "platon_runtime", empty_host,
+                     payload={"accept_software_license": True})["status"] == "running"
+    assert jobs[0][0] == "platon_runtime"
+    assert jobs[0][1][1]["setup"]["module"] == spec["setup"]["module"]

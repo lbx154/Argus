@@ -20,7 +20,7 @@ from argus_skill.trial.secrets import Vault, write_private
 
 @pytest.mark.e2e
 @pytest.mark.skipif(shutil.which("pi") is None, reason="Pi CLI required for real client smoke test")
-def test_real_pi_chat_completions_text_tools_and_follow_up(tmp_path, monkeypatch):
+def test_real_pi_chat_completions_text_tools_and_follow_up(tmp_path, monkeypatch, platform_process_env):
     """Real Pi custom provider -> HTTP trial gateway -> simulated Responses."""
     state, home, agent = (tmp_path / name for name in ("server", "home", "agent"))
     for directory in (state, home, agent):
@@ -31,13 +31,13 @@ def test_real_pi_chat_completions_text_tools_and_follow_up(tmp_path, monkeypatch
     requests, upstream_requests, rejected, runs = [], [], [], []
     original_prepare = gateway.prepare
 
-    def inspect_payload(data, model):
+    def inspect_payload(data, model, *, models=()):
         requests.append(data)
         try:
             gateway.Completion.model_validate(data)
         except ValidationError as exc:
             rejected.extend(exc.errors(include_input=False))
-        return original_prepare(data, model)
+        return original_prepare(data, model, models=models)
 
     monkeypatch.setattr(gateway, "prepare", inspect_payload)
     evidence, result_file = tmp_path / "evidence.txt", tmp_path / "result.txt"
@@ -119,6 +119,7 @@ def test_real_pi_chat_completions_text_tools_and_follow_up(tmp_path, monkeypatch
     (agent / "models.json").write_text(json.dumps(config, indent=2))
     # No inherited credentials, user extensions, project context, or startup networking.
     env = {
+        **platform_process_env,
         "PATH": os.environ["PATH"], "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent),
         "PI_OFFLINE": "1", "CI": "true",
     }

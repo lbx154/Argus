@@ -401,9 +401,16 @@ class TrainingBridge:
             raise ValueError("Invalid training bridge action")
 
 
-class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    daemon_threads = True
-    block_on_close = False
+if hasattr(socketserver, "UnixStreamServer") and hasattr(socket, "SO_PEERCRED"):
+    class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+        daemon_threads = True
+        block_on_close = False
+else:
+    class _Server:
+        def __init__(self, *args, **kwargs):
+            # Importing shared training/portal logic must work on Windows, but
+            # never substitute unauthenticated TCP for Linux peer credentials.
+            raise OSError("Hosted training IPC requires Unix sockets and SO_PEERCRED")
 
 
 class _Handler(socketserver.StreamRequestHandler):

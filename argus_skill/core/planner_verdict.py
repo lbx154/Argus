@@ -17,6 +17,7 @@ class PlannerVerdictStatus(str, Enum):
     COMPLETED = "completed"
     RESEARCH_INCOMPLETE = "research_incomplete"
     PAUSED_BUDGET = "paused_budget"
+    PAUSED_COST = "paused_cost"
     PAUSED_NO_BREAKTHROUGH = "paused_no_breakthrough"
     EXHAUSTED_CURRENT_METHODS = "exhausted_current_methods"
     PROVIDER_COOLDOWN = "provider_cooldown"
@@ -29,6 +30,7 @@ _STATUS_POLICY: dict[PlannerVerdictStatus, tuple[bool, bool]] = {
     PlannerVerdictStatus.COMPLETED: (True, False),
     PlannerVerdictStatus.RESEARCH_INCOMPLETE: (False, True),
     PlannerVerdictStatus.PAUSED_BUDGET: (False, True),
+    PlannerVerdictStatus.PAUSED_COST: (False, True),
     PlannerVerdictStatus.PAUSED_NO_BREAKTHROUGH: (False, True),
     PlannerVerdictStatus.EXHAUSTED_CURRENT_METHODS: (False, True),
     PlannerVerdictStatus.PROVIDER_COOLDOWN: (False, True),
@@ -123,6 +125,8 @@ def _legacy_status(
     stop_kind = normalize_stop_kind(payload.get("stop_kind"))
     if stop_kind == "budget_exhausted":
         return PlannerVerdictStatus.PAUSED_BUDGET
+    if stop_kind == "cost_unreconciled":
+        return PlannerVerdictStatus.PAUSED_COST
     if stop_kind == "provider_cooldown":
         return PlannerVerdictStatus.PROVIDER_COOLDOWN
     if stop_kind in {"backend_unavailable", "transient_error"}:

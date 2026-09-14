@@ -252,15 +252,34 @@ def copilot_log_dir(env: Mapping[str, str] | None = None) -> Path:
     return home / "logs"
 
 
+def copilot_runtime_redactions() -> tuple[str, ...]:
+    """Keep hosted-provider redactions behind the existing Copilot boundary."""
+    from ..trial.client import runtime_redactions
+
+    return runtime_redactions()
+
+
+def copilot_uses_metered_provider() -> bool:
+    """Whether replaying a failed Copilot transport could double-charge a turn."""
+    from ..trial.client import trial_enabled
+
+    return trial_enabled()
+
+
+def apply_copilot_provider(env: dict[str, str]) -> None:
+    """Reapply only the explicitly selected provider to an isolated child."""
+    from ..trial.client import apply_trial_provider
+
+    apply_trial_provider(env)
+
+
 def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:
     """Point ``env`` at the Argus Copilot home unless one is already chosen.
 
     Mutates and returns ``env`` so it can be used inline while building a child
     environment.
     """
-    from ..trial.client import apply_trial_provider
-
-    apply_trial_provider(env)
+    apply_copilot_provider(env)
     if str(env.get(COPILOT_HOME_ENV) or "").strip():
         return env
     home = prepare_copilot_home(env)
@@ -273,6 +292,9 @@ __all__ = [
     "prune_copilot_sessions",
     "COPILOT_HOME_ENV",
     "apply_copilot_home",
+    "apply_copilot_provider",
+    "copilot_runtime_redactions",
+    "copilot_uses_metered_provider",
     "copilot_log_dir",
     "argus_copilot_home",
     "prepare_copilot_home",

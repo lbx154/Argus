@@ -360,6 +360,7 @@ async function main() {
       port: args.port,
       project: '_',
       token: args.token,
+      onCompatibilityWarning: reportWarning,
     });
     let project: string;
     try {

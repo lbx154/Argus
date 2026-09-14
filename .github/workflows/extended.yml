@@ -224,6 +224,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             frontend/web/package-lock.json
+            frontend/tui/package-lock.json
             desktop-tauri/package-lock.json
       - uses: actions/setup-python@v5
         with:
@@ -244,13 +245,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . pytest ruff "httpx2>=2.9,<3" "pyinstaller>=6.11,<7"
           npm --prefix frontend/web ci
+          npm --prefix frontend/tui ci
           npm --prefix desktop-tauri ci
       - name: Lint and test desktop sources
         shell: bash
         run: |
           python -m ruff check argus_skill desktop-tauri/scripts tests/desktop
           python -m pytest -q tests/desktop/test_frozen_runtime.py
-          python -m pytest -q tests/desktop/test_native_window_chrome.py
+          python -m pytest -q tests/desktop/test_native_window_chrome.py tests/desktop/test_windows_installer_preflight.py tests/desktop/test_windows_backend_build.py
+          npm --prefix desktop-tauri run test:release
           python -m pytest --collect-only -q ${{ env.WINDOWS_COLLECTION_TESTS }}
           python -m pytest -q ${{ env.WINDOWS_CORE_TESTS }}
           npm --prefix desktop-tauri run ui:typecheck

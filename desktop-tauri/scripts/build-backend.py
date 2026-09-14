@@ -15,6 +15,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
+    if os.name == "nt":
+        command = [sys.executable, str(ROOT / "scripts/build-windows-backend.py")]
+        if args.prepare_only:
+            command.append("--prepare-only")
+        subprocess.run(command, cwd=REPO, check=True)
+        return
     source = ROOT / "build/argus-backend"
     executable = source / ("argus-backend.exe" if os.name == "nt" else "argus-backend")
     if not args.prepare_only:

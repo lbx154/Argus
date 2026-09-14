@@ -345,6 +345,16 @@ export interface BudgetUnpricedBlockedEvent extends EventMsg {
   "run_label"?: string;
 }
 
+export interface BudgetUnpricedAcknowledgedEvent extends EventMsg {
+  type: "budget.unpriced.acknowledged";
+  payload_schema_version?: 1;
+  "call_id": string;
+  "project_id": string;
+  "liability_usd": number;
+  "reason": string;
+  "acknowledged_at": number;
+}
+
 export interface LifeMissionStartedEvent extends EventMsg {
   type: "life.mission.started";
   payload_schema_version?: 1;
@@ -381,7 +391,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "pricing_status"?: string;
   "research_result"?: Record<string, unknown> | null;
   "repair_capability"?: Record<string, unknown> | null;
-  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
+  "stop_kind"?: "budget_exhausted" | "cost_unreconciled" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "recoverable"?: boolean;
   "delivery_id"?: string;
   "delivery"?: { "schema_version"?: number; "delivery_id"?: string; "kind"?: string; "item_id"?: string; "title"?: string; "summary"?: string; "status"?: string; "review_status"?: string; "delivered_at"?: number; "primary_target"?: Record<string, unknown> | null; "targets"?: Array<Record<string, unknown>>; } | null;
@@ -408,7 +418,7 @@ export interface RoundMainCompletedEvent extends EventMsg {
   "cached_input_tokens"?: number;
   "output_tokens"?: number;
   "reasoning_output_tokens"?: number;
-  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
+  "stop_kind"?: "budget_exhausted" | "cost_unreconciled" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
 }
 
 export interface RoundReviewStartedEvent extends EventMsg {
@@ -456,7 +466,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "premium_requests"?: number;
   "backend_unavailable"?: boolean;
   "usage_scope"?: "delta";
-  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
+  "stop_kind"?: "budget_exhausted" | "cost_unreconciled" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "failure_kind"?: string;
   "failure_cause"?: string;
 }
@@ -484,7 +494,7 @@ export interface LifePlannerStartEvent extends EventMsg {
 export interface LifePlannerVerdictEvent extends EventMsg {
   type: "life.planner.verdict";
   payload_schema_version?: 1;
-  "status": "planned" | "completed" | "research_incomplete" | "paused_budget" | "paused_no_breakthrough" | "exhausted_current_methods" | "provider_cooldown" | "infra_blocked" | "error";
+  "status": "planned" | "completed" | "research_incomplete" | "paused_budget" | "paused_cost" | "paused_no_breakthrough" | "exhausted_current_methods" | "provider_cooldown" | "infra_blocked" | "error";
   "success": boolean;
   "recoverable": boolean;
   "reason": string;
@@ -1986,6 +1996,7 @@ export interface EventPayloadByType {
   "budget.reservation.settled": BudgetReservationSettledEvent;
   "budget.reservation.released": BudgetReservationReleasedEvent;
   "budget.unpriced.blocked": BudgetUnpricedBlockedEvent;
+  "budget.unpriced.acknowledged": BudgetUnpricedAcknowledgedEvent;
   "life.mission.started": LifeMissionStartedEvent;
   "life.mission.completed": LifeMissionCompletedEvent;
   "round.start": RoundStartEvent;

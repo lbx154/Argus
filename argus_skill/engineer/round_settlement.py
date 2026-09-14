@@ -91,10 +91,12 @@ def _enforce_operator_question_policy(
 
 
 def enforce_terminal_question_policy(
-    terminal: tuple,
+    terminal: tuple | None,
     supervised_config: "SupervisedConfig",
 ) -> tuple:
     """Remove forbidden questions from terminal records without losing metadata."""
+    if terminal is None:
+        raise ValueError("A terminal round control must include its outcome")
     if _operator_questions_allowed(supervised_config):
         return terminal
     status, rounds, final_message, reason, thread_id = terminal
