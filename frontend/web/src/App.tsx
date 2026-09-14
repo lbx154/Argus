@@ -9,7 +9,6 @@ import { WorkspaceShell } from './components/WorkspaceShell';
 import ResearchBrief from './research-brief';
 import { EventStream, latestConversationDelivery } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
-import { ComposerRuntime } from './components/ComposerRuntime';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
@@ -34,8 +33,7 @@ import { ProjectInspectorModal } from './components/ProjectInspectorModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
 import { currentWorkStatus } from './lib/workStatus';
 import { SplitHandle } from './components/SplitHandle';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
+import { Modal, ModalHeader } from './components/Modal';
 import { MissionControl } from './components/MissionControl';
 import { OperationsModal } from './components/OperationsModal';
 import { Landing } from './components/Landing';
@@ -78,7 +76,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -997,21 +995,32 @@ export default function App() {
                 readOnly={kiosk}
                 missionView={missionView}
               />}
-              <div className="hidden h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3 lg:flex">
-                <div className="workspace-tabs" data-active={workspaceView}>
-                  <span className="workspace-tab-indicator" aria-hidden="true" />
+              <nav aria-label={t('mobile.views')} className="hidden h-11 shrink-0 items-center gap-3 border-b border-line/60 px-5 lg:flex">
+                <div className="workspace-tabs">
                   <button type="button" onClick={() => setWorkspaceView('mission')} className="workspace-tab" data-selected={workspaceView === 'mission'}>{t('mobile.mission')}</button>
                   <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
-                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{t('mobile.workbench')}</button>
-                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{t('mobile.map')}</button>
                 </div>
-                <span className="ml-auto" />
-                {!kiosk && workspaceView !== 'map' ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-xs text-ink-faint hover:border-blue/50 hover:text-blue">{t('mission.operations')}</button> : null}
-              </div>
-              {readerPreview() === 'question-foundation' && loadedSid ? <QuestionFoundation key={loadedSid} sid={loadedSid}
-                objective={snap.session.objective} readOnly={kiosk}
-                onOpenArtifact={setArtifactPath} /> : null}
-              <div className="mx-4 flex gap-2"><ProgressQuestionHistoryButton /></div>
+                <details className="workspace-more" onKeyDown={event => {
+                  if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
+                }}>
+                  <summary>{workspaceView === 'map' ? t('mobile.map') : workspaceView === 'workbench' ? t('mobile.workbench') : locale === 'zh-CN' ? '更多' : 'More'}</summary>
+                  <div className="workspace-more-menu" onClick={event => {
+                    if ((event.target as HTMLElement).closest('button')) event.currentTarget.closest('details')?.removeAttribute('open');
+                  }}>
+                    <button type="button" onClick={() => setOverlay('reading')}>{locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}</button>
+                    <button type="button" onClick={() => setWorkspaceView('workbench')}>{t('mobile.workbench')}</button>
+                    <button type="button" onClick={() => setWorkspaceView('map')}>{t('mobile.map')}</button>
+                    {!kiosk ? <button type="button" onClick={() => setOverlay('operations')}>{t('mission.operations')}</button> : null}
+                  </div>
+                </details>
+                <button type="button" className="ml-auto px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
+                  onClick={() => {
+                    if (rightPanelOpen) { setRightPanelOpen(false); setMobileView('activity'); }
+                    else openPreview();
+                  }}>
+                  {locale === 'zh-CN' ? '文件' : 'Files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
+                </button>
+              </nav>
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
@@ -1024,11 +1033,6 @@ export default function App() {
               /></Suspense>}
               <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
-                {missionView?.mission.id && activeSid ? <div className={`flex min-h-0 flex-col ${compactViewport ? 'shrink-0' : 'shrink'}`}>
-                  <ResearchBrief key={activeSid} sid={activeSid} snapshot={snap} view={missionView}
-                    active={workspaceView === 'mission' || workspaceView === 'activity'} readOnly={kiosk} compact={compactViewport} onOpenArtifact={setArtifactPath}
-                    onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }} />
-                </div> : null}
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                 {standardWorkspaceView === 'mission' && missionView ? (
                   <MissionControl
@@ -1096,7 +1100,6 @@ export default function App() {
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRouteOverride}
                     />
-                    <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive} />
                     </div>
                   </div>
                 ) : null}
@@ -1121,11 +1124,9 @@ export default function App() {
               />
             ) : null}
 
-            {(workspaceView !== 'map' || mobileView === 'preview') && <aside
+            {((rightPanelOpen && workspaceView !== 'map') || mobileView === 'preview') && <aside
               data-resizable-panel="right"
-              className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel transition-[width] duration-[250ms] ease-panel lg:flex lg:flex-none ${
-              rightPanelOpen ? 'lg:w-[var(--preview-width)]' : 'lg:w-14'
-            }`}>
+              className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel lg:flex lg:flex-none lg:w-[var(--preview-width)]`}>
               <div className="lg:hidden">
                 <TopBar
                   events={activityEvents}
@@ -1148,7 +1149,7 @@ export default function App() {
                 error={artifactsQ.isError}
                 onExpand={setArtifactPath}
                 onOpenFile={openPreview}
-                className={`min-h-0 flex-1 mobile-scroll-region ${rightPanelOpen ? 'lg:flex' : 'lg:hidden'}`}
+                className="min-h-0 flex-1 mobile-scroll-region"
                 embedded
                 onCollapse={() => setRightPanelOpen(false)}
                 missionView={missionView}
@@ -1157,13 +1158,6 @@ export default function App() {
                 requestedPathToken={previewPathRequest.token}
                 routeVisible={workspaceView !== 'mission'}
               />
-              {!rightPanelOpen ? (
-                <div className="hidden h-12 items-center justify-center border-b border-line/50 text-ink-faint lg:flex">
-                  <button type="button" onClick={openPreview} aria-label={t('common.expandPreview')} title={t('common.expandPreview')} className="flex h-8 w-8 items-center justify-center rounded-md border border-line/50 bg-bg/40 hover:border-blue/50 hover:text-ink">
-                    <FontAwesomeIcon icon={faAnglesLeft} className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ) : null}
             </aside>}
           </>
         ) : (
@@ -1189,6 +1183,15 @@ export default function App() {
       </main>
 
       {/* global overlays */}
+      <Modal open={overlay === 'reading'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}>
+        <ModalHeader title={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'} />
+        {overlay === 'reading' && snap && missionView?.mission.id && activeSid ? <>
+          {readerPreview() === 'question-foundation' ? <QuestionFoundation sid={activeSid} objective={snap.session.objective} readOnly={kiosk} onOpenArtifact={setArtifactPath} /> : null}
+          <ResearchBrief key={activeSid} sid={activeSid} snapshot={snap} view={missionView} active readOnly={kiosk} onOpenArtifact={setArtifactPath}
+            onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); setOverlay('none'); }} />
+          <div className="px-4 pb-4"><ProgressQuestionHistoryButton /></div>
+        </> : <p className="px-6 pb-6 text-sm text-ink-dim">{locale === 'zh-CN' ? '开始任务后，可以在这里查看说明和依据。' : 'Task explanations and evidence appear here once work begins.'}</p>}
+      </Modal>
       <CommandPalette open={overlay === 'palette'} onClose={() => setOverlay('none')} items={paletteItems} />
       <KeybindingHelp open={overlay === 'help'} onClose={() => setOverlay('none')} />
       {activeSid && <DoctorModal sid={activeSid} open={overlay === 'doctor'} onClose={() => setOverlay('none')} />}
@@ -1286,6 +1289,7 @@ export default function App() {
             setWorkspaceView(tab);
           }}
           onOpenSessions={() => setSidebarOpen(true)}
+          onRead={() => setOverlay('reading')}
         />
       ) : null}
     </WorkspaceShell>

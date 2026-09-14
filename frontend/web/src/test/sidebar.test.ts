@@ -125,11 +125,10 @@ describe('Sidebar session identity and health', () => {
     expect(markup).not.toContain('Update available');
   });
 
-  it('uses a compact, collapsible project group without exposing the full path', () => {
+  it('shows a single project directly without repeating its directory', () => {
     const markup = sidebarMarkup([rows[0]]);
-    expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain('title="/workspace/test"');
-    expect(markup).toContain('>test</span>');
+    expect(markup).not.toContain('aria-expanded="true"');
+    expect(markup).not.toContain('>test</span>');
     expect(markup).not.toContain('>/workspace/test</');
   });
 

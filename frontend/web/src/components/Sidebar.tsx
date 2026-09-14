@@ -143,38 +143,29 @@ export function Sidebar({
         </div>
       ) : null}
 
-      <PluginLauncher compact={slim} />
+      {slim ? <PluginLauncher compact /> : null}
       {!slim ? (
         <>
-          <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line/50 px-3">
-            {(['local', 'all'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setScope(value)}
-                className={`h-8 rounded-md px-3 text-xs font-medium capitalize transition-colors ${
-                  scope === value ? 'bg-bg text-ink' : 'text-ink-faint hover:text-ink-dim'
-                }`}
-              >
-                {t(`common.${value}`)}
-              </button>
-            ))}
+          <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-5">
+            <span className="text-xs font-medium text-ink-faint">{locale === 'zh-CN' ? '项目' : 'Projects'}</span>
+            {localProjects.length > 0 && localProjects.length < projects.length ? <select aria-label={locale === 'zh-CN' ? '项目范围' : 'Project scope'} value={scope} onChange={event => setScope(event.target.value as Scope)} className="min-w-0 bg-transparent text-xs text-ink-faint">
+              <option value="local">{t('common.local')}</option><option value="all">{t('common.all')}</option>
+            </select> : null}
             <button
               type="button"
               onClick={onNew}
               disabled={creating}
               aria-label={t('sidebar.create')}
               title={t('sidebar.create')}
-              className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-lg text-blue hover:bg-bg disabled:opacity-40"
+              className="ml-auto flex h-8 items-center justify-center rounded-md px-2 text-xs text-ink-dim hover:bg-bg disabled:opacity-40"
             >
-              {creating ? '…' : '+'}
+              {creating ? '…' : locale === 'zh-CN' ? '+ 新建' : '+ New'}
             </button>
           </div>
 
           <div className="px-3 py-2">
             <label className="sr-only" htmlFor="daemon-search">{t('sidebar.find')}</label>
             <div className="flex items-center rounded-md border border-line/60 bg-bg/60 px-2 focus-within:border-blue/60">
-              <span aria-hidden="true" className="mr-1.5 text-xs text-ink-faint">/</span>
               <input
                 id="daemon-search"
                 value={query}
@@ -210,8 +201,8 @@ export function Sidebar({
               </div>
             ) : null}
             {grouped.map(([path, rows]) => (
-              <section key={path} className="mb-4 last:mb-0">
-                <button
+              <section key={path} className="mb-1 last:mb-0">
+                {rows.length > 1 && grouped.length > 1 ? <button
                   type="button"
                   aria-expanded={!groupIsCollapsed(path)}
                   title={path}
@@ -226,8 +217,8 @@ export function Sidebar({
                   <FontAwesomeIcon icon={faChevronDown} className={`h-2.5 w-2.5 transition-transform ${groupIsCollapsed(path) ? '-rotate-90' : ''}`} />
                   <FontAwesomeIcon icon={faFolder} className="h-3 w-3" />
                   <span className="min-w-0 flex-1 truncate">{projectGroupLabel(path)}</span>
-                </button>
-                {!groupIsCollapsed(path) ? rows.map((project) => {
+                </button> : null}
+                {rows.length === 1 || grouped.length === 1 || !groupIsCollapsed(path) ? rows.map((project) => {
                   const active = project.id === activeId;
                   const work = active && activeWork?.sessionId === project.id ? activeWork : undefined;
                   const workLabel = work ? workStatusLabel(work.status, locale, work.connected) : undefined;
@@ -326,12 +317,16 @@ export function Sidebar({
             ))}
           </div>
 
+          <details className="sidebar-tools mx-3 mb-2 border-t border-line/60 pt-2">
+            <summary className="cursor-pointer px-2 py-2 text-xs text-ink-dim">{locale === 'zh-CN' ? '工具与资源' : 'Tools and resources'}</summary>
+            <PluginLauncher />
           {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
             <a href="/invite/compute" className="mx-3 mb-2 flex items-center gap-2 rounded-md border border-line/50 px-3 py-2 text-xs text-blue hover:bg-bg">
               <FontAwesomeIcon icon={faMicrochip} className="h-3.5 w-3.5" />
               {t('sidebar.compute')}
             </a>
           ) : null}
+          </details>
           <div className="flex min-h-14 items-center justify-between border-t border-line/50 px-4 py-2">
             <button type="button" onClick={() => onOpenPanel('config')} className="icon-control flex h-8 w-8 items-center justify-center" aria-label={t('sidebar.openSettings')} title={t('common.settings')}>
               <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />

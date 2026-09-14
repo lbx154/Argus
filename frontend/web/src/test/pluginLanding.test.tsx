@@ -6,7 +6,7 @@ vi.mock('../i18n', () => ({
   useI18n: () => ({ locale: 'en', t: (key: string) => key }),
 }));
 
-it('opens plugin discovery without requiring a placeholder Argus session', () => {
+it('gives an empty workspace one primary action', () => {
   const html = renderToStaticMarkup(<Landing
     loading={false}
     hasProjects={false}
@@ -15,7 +15,9 @@ it('opens plugin discovery without requiring a placeholder Argus session', () =>
     onNew={() => undefined}
     onChoose={() => undefined}
   />);
-  expect(html).toContain('aria-label="Plugins"');
+  expect(html).toContain('Start a project');
+  expect(html).toContain('landing.new');
+  expect(html.match(/<button /g)).toHaveLength(1);
 });
 
 it('does not offer plugin management while the host is disconnected', () => {

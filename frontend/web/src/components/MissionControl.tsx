@@ -309,6 +309,10 @@ export function MissionControl({
           : 'waiting';
   const executionStatus = String(view.outcome.execution_status || '').toLowerCase();
   const stoppedShort = missionDone && !['completed', 'done', 'success'].includes(executionStatus);
+  const acceptedReview = missionDone && !stoppedShort
+    && view.outcome.review_status === 'done' && view.review.status === 'done'
+    ? plainDetail(view.review.reason, locale).text.trim() : '';
+  const summary = acceptedReview || view.mission.summary;
   // When the work stopped short, the story needs one plain reason and one
   // sentence about what happens next. The reviewer's note is the best reason
   // when there is one; otherwise the kind of interruption has to do.
@@ -375,12 +379,13 @@ export function MissionControl({
     </section>;
   }
   return (
-    <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label={t('mission.control')}>
-      <header className="border-b border-line/60 px-5 py-5">
+    <section className="mission-overview min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label={t('mission.control')}>
+      <div className="mx-auto w-full max-w-[960px]">
+      <header className="px-5 pb-6 pt-7 sm:px-8">
         <div
           role="heading"
           aria-level={1}
-          className="mt-1 line-clamp-4 max-w-4xl text-lg font-semibold leading-snug text-ink"
+          className="mt-1 line-clamp-4 max-w-4xl text-xl font-semibold leading-snug text-ink"
           title={objective}
         >
           <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{objective}</MarkdownContent>
@@ -410,11 +415,14 @@ export function MissionControl({
             <p className="mt-1 pl-[1.125rem] text-sm leading-relaxed text-ink-dim">{nextStep}</p>
           ) : null}
         </div>
-        {view.mission.summary || hasFullOutput ? (
-          <div className={`mt-3 rounded border px-3 py-2 ${stoppedShort ? 'border-line/60 bg-bg/40' : 'border-ok/25 bg-ok/5'}`}>
+        {missionRunning && currentWork?.detail ? <div className="mt-4 text-sm text-ink-dim">
+          <DetailDisclosure detail={plainDetail(currentWork.detail, locale).text} previewLength={EVENT_DETAIL_PREVIEW_LENGTH} textClassName="leading-6" />
+        </div> : null}
+        {summary || hasFullOutput ? (
+          <div className="mt-5">
             <div className="flex flex-wrap items-center gap-3">
-              <div className={`min-w-0 flex-1 text-xs font-medium ${stoppedShort ? 'text-ink-faint' : 'text-ok'}`}>
-                {delivery && deliveryRepeatsSummary
+              <div className="min-w-0 flex-1 text-sm font-semibold text-ink">
+                {acceptedReview ? (locale === 'zh-CN' ? '验收结果' : 'Review result') : delivery && deliveryRepeatsSummary
                   ? t(delivery.kind === 'submission_certified' ? 'mission.deliveryCertified' : 'mission.taskCompleted')
                   : t(stoppedShort ? 'mission.lastProgress' : 'mission.summary')}
               </div>
@@ -425,17 +433,21 @@ export function MissionControl({
                   title={delivery.primary_target
                     ? artifactByPath.get(delivery.primary_target.path)?.storage_path || delivery.primary_target.path
                     : delivery.title}
-                  className="shrink-0 rounded border border-ok/40 px-2 py-1 font-mono text-xs text-ok hover:border-ok"
+                  className="shrink-0 rounded-md bg-ink px-3 py-2 text-sm font-medium text-surface hover:opacity-80"
                 >
                   {t(delivery.primary_target ? 'mission.openResult' : 'mission.viewTask')}
                 </button>
               ) : null}
             </div>
-            <div className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink-dim">
+            <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-ink-dim" data-testid="mission-result-summary">
               <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>
-                {view.mission.summary}
+                {summary}
               </MarkdownContent>
             </div>
+            {acceptedReview && view.mission.summary && acceptedReview !== view.mission.summary ? <details className="mt-3 text-xs text-ink-faint">
+              <summary className="cursor-pointer">{locale === 'zh-CN' ? '执行者记录' : 'Execution note'}</summary>
+              <div className="mt-2 text-sm leading-6"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{view.mission.summary}</MarkdownContent></div>
+            </details> : null}
             {hasFullOutput ? (
               <details className="mt-2 border-t border-ok/20 pt-2 text-xs text-ink-dim">
                 <summary className="cursor-pointer font-medium text-ok hover:text-ink">
@@ -476,12 +488,28 @@ export function MissionControl({
         ) : null}
       </header>
 
+      {view.artifacts.length ? (
+        <section className="px-5 pb-6 sm:px-8" aria-label={locale === 'zh-CN' ? '成果文件' : 'Result files'}>
+          <h2 className="mb-3 text-sm font-semibold text-ink">{locale === 'zh-CN' ? '成果文件' : 'Result files'}</h2>
+          <div className="flex flex-wrap gap-2">
+            {view.artifacts.slice(-8).map((artifact) => {
+              const path = String(artifact.path || '');
+              const info = artifactByPath.get(path);
+              return <button key={String(artifact.id || path)} type="button"
+                disabled={!path || !onOpenArtifact || info?.exists === false}
+                onClick={() => path && onOpenArtifact?.(path)} title={info?.storage_path || path}
+                className="rounded-md border border-line px-3 py-2 text-sm text-ink-dim hover:border-ink-faint hover:text-ink disabled:opacity-50">
+                {String(artifact.title || path.split('/').at(-1) || t('research.artifact'))}
+              </button>;
+            })}
+          </div>
+        </section>
+      ) : null}
+
       {snapshot?.continuous?.done_at && (
-        <div className="mb-3 flex items-center gap-3 rounded-lg border-l-2 border-blue bg-blue/5 px-3 py-2">
-          <span className="text-base">↩</span>
+        <div className="mx-5 mb-6 flex items-center gap-3 border-t border-line/60 py-3 sm:mx-8">
           <span className="min-w-0 flex-1 truncate text-sm text-ink-dim">
             {t('mission.continuousDone')}
-            {snapshot.continuous.objective ? ` · ${snapshot.continuous.objective}` : ''}
           </span>
           <button
             type="button"
@@ -494,6 +522,8 @@ export function MissionControl({
         </div>
       )}
 
+      <details className="mission-detail-records mx-5 mb-8 border-t border-line sm:mx-8">
+        <summary className="cursor-pointer py-4 text-sm text-ink-dim">{locale === 'zh-CN' ? '执行过程与记录' : 'Execution details and records'}{view.dag.length ? ` · ${view.dag.length}` : ''}</summary>
       <Achievement view={view} />
 
       {teamEngaged ? <section className="border-b border-line/60 px-5 py-4" aria-label={t('mission.team')}>
@@ -736,26 +766,6 @@ export function MissionControl({
           })}
           {!view.timeline.length ? <div className="py-10 text-center text-xs text-ink-faint">{t('mission.waitingEvents')}</div> : null}
         </div>
-        {view.artifacts.length ? (
-          <div className="mt-5 flex flex-wrap gap-2 border-t border-line/50 pt-4">
-            {view.artifacts.slice(-8).map((artifact) => {
-              const path = String(artifact.path || '');
-              const info = artifactByPath.get(path);
-              return (
-                <button
-                  key={String(artifact.id || path)}
-                  type="button"
-                  disabled={!path || !onOpenArtifact || info?.exists === false}
-                  onClick={() => path && onOpenArtifact?.(path)}
-                  title={info?.storage_path || path}
-                  className="rounded border border-line px-2 py-1 font-mono text-xs text-blue-sky hover:border-blue-sky/50 disabled:text-ink-faint"
-                >
-                  {String(artifact.title || t('research.artifact'))}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
         {gitDiff?.available && (gitDiff.status || gitDiff.diff) ? (
           <div className="mt-5 border-t border-line/50 pt-4 text-xs text-ink-faint">
             <span className="font-semibold uppercase tracking-[0.14em]">{t('mission.projectFilesChanged')}</span>
@@ -763,6 +773,8 @@ export function MissionControl({
           </div>
         ) : null}
       </section>
+      </details>
+      </div>
     </section>
   );
 }

@@ -96,7 +96,6 @@ export function TopBar({
             style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
           /> : null}
           <span className="shrink-0 text-[10px] font-medium text-ink-dim">{!streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale') : workStatusLabel(work, locale)}</span>
-          <span className="truncate text-[10px] text-ink-faint" title={focus}>{focus}</span>
         </div> : null}
       </div>
       <span

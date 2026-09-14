@@ -1748,7 +1748,7 @@ def test_authenticated_launcher_links_workspace_compute_quota_and_logout(provisi
         assert 'id="login"' not in page.text
         assert "trial-01" in page.text
         assert 'href="/invite/compute">GPU任务队列' in page.text
-        assert 'href="/invite/compute">模型与GPU额度' in page.text
+        assert page.text.count('href="/invite/compute"') == 1
         assert 'href="/invite/status"' in page.text
         assert 'method="post" action="/invite/logout"' in page.text
         assert "<script" not in page.text

@@ -1,8 +1,5 @@
 import { BackendHandshake } from './BackendHandshake';
-import { PluginLauncher } from './PluginLauncher';
-import { Wordmark } from './Wordmark';
 import { Button } from './primitives';
-import { TAGLINE } from '../lib/soul';
 import { useI18n } from '../i18n';
 
 /** Full-viewport picker/empty landing shown until a daemon is selectable. */
@@ -23,12 +20,12 @@ export function Landing({
   onChoose: () => void;
   canCreate: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+    <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
       {loading ? <BackendHandshake /> : (
         <>
-          <Wordmark size={32} tag={TAGLINE} />
+          <h1 className="text-2xl font-semibold text-ink">{locale === 'zh-CN' ? hasProjects ? '继续你的项目' : '开始一个项目' : hasProjects ? 'Continue your work' : 'Start a project'}</h1>
           <p className={`max-w-md text-sm leading-relaxed ${error ? 'text-err' : 'text-ink-faint'}`}>
             {error
               ? error
@@ -48,7 +45,6 @@ export function Landing({
           ) : canCreate ? (
             <Button onClick={onNew} variant="primary">{t('landing.new')}</Button>
           ) : null}
-          {!error ? <PluginLauncher /> : null}
         </div>
       )}
     </div>

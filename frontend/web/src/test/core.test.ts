@@ -38,7 +38,6 @@ import {
 } from '../components/ResearchCanvas';
 import { emptyMissionView } from '../../../core/src/missionView';
 import { MarkdownContent } from '../components/MarkdownContent';
-import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
 import { Sidebar } from '../components/Sidebar';
 import { BackendHandshake } from '../components/BackendHandshake';
@@ -152,7 +151,6 @@ describe('shared frontend core', () => {
     expect(css).not.toContain('--spectral-');
     expect(css).not.toContain('#89dceb');
     expect(css).not.toContain('#cba6f7');
-    expect(css).toContain('.workspace-tab-indicator');
     expect(css).toContain('.role-log-group[data-open=\"true\"]');
   });
 
@@ -543,10 +541,6 @@ describe('shared frontend core', () => {
     expect(formatBytes(12 * 1024 * 1024)).toBe('12 MB');
   });
 
-  it('keeps the opening animation lightweight and bounded', () => {
-    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(1000);
-  });
-
   it('reserves stable shell, scrollbar, and font geometry', () => {
     const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
     const html = fs.readFileSync(path.resolve('index.html'), 'utf8');
@@ -556,18 +550,6 @@ describe('shared frontend core', () => {
     expect(html.match(/rel="preload"/g)).toHaveLength(2);
     expect(canvas).not.toContain('key={showLiveProgress');
     expect(canvas).not.toContain('gsap.fromTo');
-  });
-
-  it('uses one large animated mark for the boot splash', () => {
-    const html = renderToStaticMarkup(
-      createElement(BootSplash, { onDone: () => undefined }),
-    );
-    expect(html).toContain('data-logo="rounded-mark"');
-    expect(html.match(/data-logo=/g)).toHaveLength(1);
-    expect(html).toContain('argus-mark-eye');
-    expect(html).toContain('width:168px');
-    expect(html).not.toContain('<pre');
-    expect(html).not.toContain('ARGUS-SKILL');
   });
 
   it('favicon uses monochrome Rounded 02 geometry', () => {

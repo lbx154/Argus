@@ -20,7 +20,8 @@ describe('shared conversation surface', () => {
     }));
     for (const html of [main, map]) {
       expect(html).toMatch(/class="map-composer(?:"| )/);
-      expect(html).toContain('data-logo="rounded-mark"');
+      expect(html).toContain('type="file"');
+      expect(html).toContain('aria-label="attach files"');
       expect(html).toContain('class="map-send');
       expect(html).not.toContain('📎');
     }

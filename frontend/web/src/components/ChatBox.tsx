@@ -177,7 +177,7 @@ export function ChatBox({
           disabled={disabled || pending} title={t('chat.routeHint')} aria-label={t('chat.routeLabel')}>
           <option value="task">{t('chat.routeTask')}</option><option value="auto">{t('chat.routeAuto')}</option><option value="chat">{t('chat.routeChat')}</option>
         </select> : null}
-        {onRewrite ? <button type="button" onClick={() => onRewrite(value.trim())} disabled={disabled || pending || rewriting || !value.trim()}
+        {onRewrite && value.trim() ? <button type="button" onClick={() => onRewrite(value.trim())} disabled={disabled || pending || rewriting}
           title={`Ctrl/⌘+R · ${t('chat.rewriteHint')}`} aria-label={t('chat.rewriteLabel')} aria-keyshortcuts="Control+R Meta+R">
           {rewriting ? `${spinnerFrame(thinkTick)} ${t('chat.rewriting')}` : t('chat.rewrite')}
         </button> : null}

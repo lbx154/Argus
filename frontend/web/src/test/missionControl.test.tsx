@@ -18,6 +18,23 @@ function missionSnapshot(view: MissionView, status: string, alive = true): Snaps
 }
 
 describe('MissionControl', () => {
+  it('leads with the accepted review and keeps the earlier execution note available', () => {
+    const view = emptyMissionView();
+    view.mission.status = 'completed';
+    view.mission.summary = 'Implementation ready; ask the Reviewer to run the checks.';
+    view.outcome = { execution_status: 'completed', review_status: 'done' };
+    view.review = { status: 'done', reason: 'All six independent checks passed.', rejected_attempts: 0 };
+    const html = renderToStaticMarkup(<MissionControl view={view} />);
+    const headline = html.match(/data-testid="mission-result-summary">([\s\S]*?)<\/div>/)?.[1];
+    expect(headline).toContain('All six independent checks passed.');
+    expect(headline).not.toContain('ask the Reviewer');
+    expect(html).toContain('Execution note');
+    expect(html).toContain(view.mission.summary);
+
+    view.mission.status = 'working';
+    const running = renderToStaticMarkup(<MissionControl view={view} />);
+    expect(running.match(/data-testid="mission-result-summary">([\s\S]*?)<\/div>/)?.[1]).toContain('ask the Reviewer');
+  });
   it('gives an idle project one useful entry while retaining real history and unreadable state', () => {
     const view = emptyMissionView();
     const snapshot: Snapshot = {

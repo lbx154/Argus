@@ -1,13 +1,12 @@
-.conversation-composer { width: 100%; max-width: 680px; margin: 0 auto; }
+.conversation-composer { width: 100%; max-width: 896px; margin: 0 auto; }
 .composer-surface { min-width: 0; }
 .map-composer {
   display: flex; align-items: center; gap: 15px;
-  border: 1px solid rgb(var(--line) / .8); border-radius: 29px;
-  background: rgb(var(--surface)); padding: 14px 15px 14px 22px;
-  box-shadow: 0 9px 28px #233b5510, 0 2px 5px #233b5509;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  border: 1px solid rgb(var(--line)); border-radius: 10px;
+  background: rgb(var(--surface)); padding: 10px 12px;
+  transition: border-color 160ms ease;
 }
-.map-composer:focus-within { border-color: rgb(var(--blue) / .5); box-shadow: 0 4px 22px rgb(var(--blue) / .08); }
+.map-composer:focus-within { border-color: rgb(var(--blue) / .65); }
 .map-composer-brand { color: rgb(var(--ink)); flex-shrink: 0; }
 .map-attach { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; transition: background 140ms ease; }
 .map-attach:hover, .map-attach:focus-visible { background: rgb(var(--line) / .6); outline: 2px solid rgb(var(--blue) / .4); outline-offset: 2px; }
@@ -27,7 +26,5 @@
 .map-reference-chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 7px; }
 .map-reference-chips > span { display: flex; align-items: center; max-width: 100%; gap: 9px; border: 1px solid rgb(var(--blue) / .25); background: rgb(var(--surface)); color: rgb(var(--blue)); padding: 5px 9px; border-radius: 9px; font-size: 11px; }
 .map-reference-chips > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-surface[data-pending='true'] .argus-mark-eye { transform-box: fill-box; transform-origin: center; animation: composer-eye-working 1800ms ease-in-out infinite; }
-@keyframes composer-eye-working { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(16deg); } }
-@media (max-width: 640px) { .map-composer { padding: 10px 12px; gap: 10px; border-radius: 24px; } .map-composer textarea { font-size: 14px; } }
+@media (max-width: 640px) { .map-composer { padding: 10px; gap: 8px; } .map-composer textarea { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) { .conversation-composer, .map-composer, .map-send { transition: none; } .composer-surface .argus-mark-eye { animation: none !important; } }

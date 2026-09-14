@@ -45,7 +45,7 @@ export function useWorkbenchLayout() {
     setWorkspaceViewState(view);
   }, []);
   const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');
-  const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v5', true));
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v6', false));
   const [leftWidth, setLeftWidth] = useState(() => {
     const value = Number(readLocalStorage('argus.sidebar.width.v2') || 256);
     return Number.isFinite(value) ? Math.max(220, Math.min(400, value)) : 256;
@@ -62,7 +62,7 @@ export function useWorkbenchLayout() {
 
   useEffect(() => {
     writeLocalStorage('argus.sidebar.expanded.v4', String(leftPanelOpen));
-    writeLocalStorage('argus.preview.expanded.v5', String(rightPanelOpen));
+    writeLocalStorage('argus.preview.expanded.v6', String(rightPanelOpen));
     writeLocalStorage('argus.sidebar.width.v2', String(leftWidth));
     writeLocalStorage('argus.preview.width.v2', String(rightWidth));
   }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
@@ -97,7 +97,7 @@ export function useWorkbenchLayout() {
     document.body.style.userSelect = 'none';
     const move = (pointer: PointerEvent) => {
       if (side === 'left') {
-        const occupiedRight = rightPanelOpen ? rightWidth + 8 : 56;
+        const occupiedRight = rightPanelOpen ? rightWidth + 8 : 0;
         const max = Math.max(220, Math.min(400, rect.width - occupiedRight - 360 - 8));
         pendingWidth = Math.max(220, Math.min(max, pointer.clientX - rect.left));
       } else {
@@ -140,7 +140,7 @@ export function useWorkbenchLayout() {
       if (window.innerWidth < 1024 || !shellRef.current) return;
       const shellWidth = shellRef.current.clientWidth;
       const left = leftPanelOpen ? leftWidth : 56;
-      const right = rightPanelOpen ? rightWidth : 56;
+      const right = rightPanelOpen ? rightWidth : 0;
       const handles = (leftPanelOpen ? 8 : 0) + (rightPanelOpen ? 8 : 0);
       const availableForSides = Math.max(540, shellWidth - 360 - handles);
       if (left + right <= availableForSides) return;

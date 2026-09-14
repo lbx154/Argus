@@ -1,6 +1,5 @@
 import { useEffect, type ChangeEventHandler, type ReactNode, type RefObject, type TextareaHTMLAttributes } from 'react';
-import { ArrowUp, Square, X } from 'lucide-react';
-import { ArgusMark } from './Wordmark';
+import { ArrowUp, Paperclip, Square, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { MESSAGE_ATTACHMENT_ACCEPT } from '../lib/attachments';
 import { isImeComposing } from '../lib/ime';
@@ -56,7 +55,7 @@ export function ComposerSurface({
       <form className="map-composer" onSubmit={(event) => { event.preventDefault(); if (!pending && !disabled) onSend(); }}>
         <input ref={fileInputRef} type="file" multiple accept={MESSAGE_ATTACHMENT_ACCEPT} hidden disabled={disabled || pending} onChange={onFiles} />
         <button type="button" className="map-composer-brand map-attach" aria-label={t('chat.attach')} title={t('chat.attach')} disabled={disabled || pending} onClick={() => fileInputRef.current?.click()}>
-          <ArgusMark size={24} />
+          <Paperclip size={19} strokeWidth={1.6} />
         </button>
         <textarea {...inputProps} ref={inputRef} rows={1} value={text} disabled={disabled}
           onChange={(event) => onChange(refs.map(referenceText).join('') + event.target.value)}

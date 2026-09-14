@@ -13,7 +13,7 @@ describe('MobileTabBar', () => {
   it('offers every destination that is otherwise reachable only on desktop', () => {
     const html = markup();
 
-    for (const label of ['Sessions', 'Mission', 'Activity', 'Workbench', 'Preview']) {
+    for (const label of ['Projects', 'Mission', 'Conversation', 'Workbench', 'Files', 'More']) {
       expect(html).toContain(`>${label}<`);
     }
   });
@@ -27,7 +27,7 @@ describe('MobileTabBar', () => {
     const html = markup();
 
     // 3.25rem = 52px, past Apple's 44pt and Material's 48dp.
-    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(6);
+    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(5);
   });
 
   it('respects the safe area and rides above the keyboard', () => {
@@ -44,8 +44,8 @@ describe('MobileTabBar', () => {
       <MobileTabBar active="activity" onSelect={() => {}} />,
     );
 
-    expect(html).not.toContain('>Sessions<');
-    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(5);
+    expect(html).not.toContain('>Projects<');
+    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(4);
   });
 });
 

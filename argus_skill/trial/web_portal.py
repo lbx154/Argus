@@ -559,6 +559,28 @@ def json_body(body: bytes) -> dict:
     return value
 
 
+PORTAL_STYLE = """
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;
+font:15px/1.7 system-ui,sans-serif;color:#23262b;background:#fafafa}
+main{width:min(100%,520px);padding:48px 32px}small{color:#656b73;font-size:13px}
+h1{font-size:28px;font-weight:600;letter-spacing:-.03em;margin:12px 0 8px}
+p{color:#656b73;margin:8px 0 24px}label{display:block;margin-top:20px}
+input[type=password]{width:100%;padding:12px;margin-top:8px;border:1px solid #cbd0d6;
+border-radius:6px;color:#23262b;background:#fff;font:inherit}
+input[type=checkbox]{accent-color:#23262b}button{width:100%;padding:12px;border:0;
+border-radius:6px;margin-top:24px;background:#23262b;color:#fff;font:inherit;font-weight:500;cursor:pointer}
+button:disabled{opacity:.5}#error{color:#b42318;min-height:1.7em}
+footer,details{margin-top:24px;color:#656b73;font-size:13px}
+summary{cursor:pointer}footer nav{margin-top:12px}a{color:#3c566e;text-underline-offset:3px}
+nav[aria-label="研究服务"]{display:grid;gap:0;margin:24px 0}
+nav[aria-label="研究服务"] a{padding:12px 0;border-bottom:1px solid #e5e7eb;text-decoration:none}
+nav[aria-label="研究服务"] a:first-child{background:#23262b;color:white;border:0;border-radius:6px;padding:12px 16px;margin-bottom:12px}
+:is(input,button,a,summary):focus-visible{outline:2px solid #0066cc;outline-offset:3px}
+fieldset label{font-size:13px;line-height:1.7}fieldset{margin-top:20px}
+@media(max-width:540px){body{align-items:start}main{padding:40px 24px}}
+"""
+
+
 def login_page(nonce: str, token_limit: int | None = WEB_TOKEN_LIMIT,
                notice_version: str | None = None, *, defer_notice: bool = False) -> str:
     if token_limit is None:
@@ -596,33 +618,20 @@ def login_page(nonce: str, token_limit: int | None = WEB_TOKEN_LIMIT,
         )
     return """<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Argus · 邀请码入口</title>
-<style>
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;
-font:16px/1.7 system-ui,sans-serif;color:#e7edf8;background:radial-gradient(ellipse at top,#203050,#0a1020)}
-main{width:min(92vw,480px);padding:42px;background:#111c30;border:1px solid #30425e;
-border-radius:24px;box-shadow:0 24px 90px #0006}small{color:#9eb5d3;letter-spacing:.14em}
-h1{font-size:30px;margin:12px 0}p{color:#b5c5dc}label{display:block;margin-top:20px}
-input[type=password]{width:100%;padding:14px;margin-top:8px;border:1px solid #526583;
-border-radius:10px;color:#fff;background:#0b1424;font-size:16px}
-button{width:100%;padding:14px;border:0;border-radius:10px;margin-top:24px;
-background:#9dc2ff;color:#101a2e;font-size:16px;font-weight:700;cursor:pointer}
-button:disabled{opacity:.5}#error{color:#ffb5b5;min-height:1.7em}
-footer{margin-top:20px;color:#8fa4c0;font-size:13px}
-footer nav{margin-top:14px}a{color:#9dc2ff;text-underline-offset:3px}</style>
-<main><small>ARGUS · PRIVATE TRIAL</small><h1>把想法交给 Argus</h1>
-<p>输入专属邀请码，进入独立研究空间。工作空间与历史记录按邀请码隔离，
-""" + quota_copy + """</p>
+<style>""" + PORTAL_STYLE + """</style>
+<main><small>Argus · 试用</small><h1>进入你的工作区</h1>
+<p>使用邀请码，继续项目、查看结果或开始新任务。</p>
 <form id="login"><label for="code">专属邀请码</label>
 <input id="code" type="password" autocomplete="off" spellcheck="false" required
 placeholder="请输入邀请码" maxlength="76">
-<label><input id="readonly" type="checkbox"> 只读浏览（不可提交或修改任务）</label>
+<details><summary>访问方式</summary><label><input id="readonly" type="checkbox"> 只读浏览（不可提交或修改任务）</label></details>
 """ + notice + """
-<button id="submit" type="submit">进入工作区 →</button>
+<button id="submit" type="submit">进入工作区</button>
 <div id="error" role="alert" aria-live="polite"></div></form>
-<footer>仅需邀请码，无需注册或其他身份验证。同一邀请码可在不同设备继续进入同一独立工作空间。<br>
-浏览器会保留 7 天安全访问会话，不保存邀请码原文。请勿共享邀请码。
+<footer>""" + quota_copy + """
+<details><summary>使用说明</summary>同一邀请码可在不同设备继续同一工作区。访问会话保留 7 天，不保存邀请码原文。
 <nav aria-label="邀请码与计算"><a href="/invite/status">邀请码额度（进入后查看）</a>
- · <a href="/invite/compute">GPU任务队列（进入后查看）</a></nav></footer></main>
+ · <a href="/invite/compute">GPU任务队列（进入后查看）</a></nav></details></footer></main>
 <script nonce='""" + nonce + """'>
 const form=document.querySelector('#login'),code=document.querySelector('#code');
 form.addEventListener('submit',async event=>{
@@ -649,7 +658,7 @@ finally{button.disabled=false;}});
 def admin_login_page(nonce: str) -> str:
     return """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Argus · 数据后台登录</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f7fa;color:#303345;font:14px/1.7 system-ui,sans-serif}main{width:min(84vw,380px);padding:34px;background:white;border:1px solid #e7e8ef;border-radius:16px}h1{font-size:23px;margin:8px 0}small,p{color:#9195a4}label{display:block;margin:24px 0 8px}input,button{box-sizing:border-box;width:100%;border-radius:8px;padding:12px;font:inherit}input{border:1px solid #dfe1e9}button{margin-top:16px;border:0;background:#635bca;color:white;cursor:pointer}a{color:#77719f;text-decoration:none;font-size:12px}#error{color:#b86161;font-size:12px;min-height:20px}button:disabled{opacity:.5}</style></head>
+<style>""" + PORTAL_STYLE + """</style></head>
 <body><main><small>ARGUS / 数据工作台</small><h1>登录数据后台</h1><p>使用专用管理员密钥查看团队过程数据。</p>
 <form id="admin-login"><label for="admin-key">管理员密钥</label><input id="admin-key" type="password" autocomplete="current-password" required autofocus><button type="submit">进入数据后台</button><p id="error" role="alert"></p></form><a href="/invite">进入用户工作区 →</a></main>
 <script nonce="__LOGIN_NONCE__">
@@ -664,22 +673,15 @@ def launcher_page(identity: dict, compute_enabled: bool, analytics_enabled: bool
     if identity["role"] == "trial":
         compute_links = (
             '<a href="/invite/compute">GPU任务队列 →</a>'
-            '<a href="/invite/compute">模型与GPU额度 →</a>'
             if compute_enabled else '<p>GPU任务队列尚未配置。</p>'
         )
         if analytics_enabled:
             compute_links += '<a href="/invite/research">研究记录与反馈 / 删除研究副本 →</a>'
     return f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Argus · 我的研究空间</title>
-<style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#0a1020;
-color:#e7edf8;font:16px/1.7 system-ui,sans-serif}}main{{width:min(86vw,520px);padding:32px;
-border:1px solid #30425e;background:#111c30;border-radius:20px}}h1{{margin:12px 0}}
-small,p{{color:#b5c5dc}}nav{{display:grid;gap:12px;margin:24px 0}}a,button{{padding:12px 18px;
-border:1px solid #526583;border-radius:10px;color:#b5d2ff;background:#0b1424;font:inherit}}
-a{{text-decoration:none}}button{{cursor:pointer}}a:focus-visible,button:focus-visible{{outline:2px solid #b5d2ff}}</style>
-<main><small>ARGUS · RESEARCH CLOUD / {identity["tenant"]}</small>
+<style>{PORTAL_STYLE}</style>
+<main><small>Argus · {identity["tenant"]}</small>
 <h1>我的研究空间</h1><p>{role}</p>
-<p>从研究想法、代码与实验，到任务队列和结果：同一邀请码可跨设备继续同一研究过程。</p>
 <nav aria-label="研究服务"><a href="{workspace}">进入工作区 →</a>{compute_links}
 <a href="/invite/status">邀请码与模型额度明细 →</a></nav>
 <form method="post" action="/invite/logout"><button type="submit">退出当前空间</button></form>
