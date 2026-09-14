@@ -808,6 +808,45 @@ def test_default_identity_is_not_model_context(tmp_path: Path) -> None:
     assert card.prompt_text() == ""
 
 
+def test_untouched_pre_rename_default_identity_is_still_the_default(tmp_path: Path) -> None:
+    """An install seeded before the rename must not start injecting the template as operator text.
+
+    The pre-rename card differs from the current one only in its heading
+    (``# argus-skill -- operator identity card``); ``prompt_text()`` treats both
+    as "no identity" and ``ensure_default()`` upgrades the byte-identical old
+    default to the current template.
+    """
+    from argus.life.memory import _DEFAULT_IDENTITY, _LEGACY_DEFAULT_IDENTITY
+
+    assert _LEGACY_DEFAULT_IDENTITY.startswith("# argus-skill — operator identity card\n")
+    assert _DEFAULT_IDENTITY.startswith("# argus — operator identity card\n")
+    assert _LEGACY_DEFAULT_IDENTITY.split("\n", 1)[1] == _DEFAULT_IDENTITY.split("\n", 1)[1]
+
+    path = tmp_path / "identity.md"
+    path.write_text(_LEGACY_DEFAULT_IDENTITY, encoding="utf-8")  # the on-disk card of an old install
+    card = IdentityCard(path)
+    assert card.prompt_text() == ""
+
+    assert card.ensure_default() is True
+    assert card.read() == _DEFAULT_IDENTITY
+    assert card.prompt_text() == ""
+    assert card.ensure_default() is False
+
+
+def test_edited_pre_rename_identity_is_kept_and_injected(tmp_path: Path) -> None:
+    from argus.life.memory import _LEGACY_DEFAULT_IDENTITY
+
+    edited = _LEGACY_DEFAULT_IDENTITY.replace("<!-- fill in -->", "Alex", 1)
+    assert edited != _LEGACY_DEFAULT_IDENTITY
+    path = tmp_path / "identity.md"
+    path.write_text(edited, encoding="utf-8")
+    card = IdentityCard(path)
+
+    assert card.ensure_default() is False
+    assert card.read() == edited
+    assert "Alex" in card.prompt_text()
+
+
 # ---------- LifeMemory facade + retrieval ----------------------------------
 
 def test_life_memory_init(tmp_path: Path) -> None:

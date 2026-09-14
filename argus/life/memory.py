@@ -2812,12 +2812,23 @@ your habits, your projects, conventions. The agent reads this every
 mission. -->
 """
 
+# The card seeded before the 2026-09-14 rename (package ``argus_skill``,
+# command ``argus-skill``): identical apart from its heading. An install whose
+# ``identity.md`` is still that untouched default must keep reading as "no
+# operator identity" -- otherwise the whole template would be injected into
+# every role prompt as if the operator had written it.
+_LEGACY_DEFAULT_IDENTITY = _DEFAULT_IDENTITY.replace(
+    "# argus — operator identity card", "# argus-skill — operator identity card", 1
+)
+_DEFAULT_IDENTITY_TEXTS = frozenset({_DEFAULT_IDENTITY.strip(), _LEGACY_DEFAULT_IDENTITY.strip()})
+
 
 class IdentityCard:
     """A single markdown file the user can hand-edit.
 
-    We never overwrite an existing card. ``ensure_default()`` only
-    seeds it once on first ``argus life init``.
+    We never overwrite an operator's card. ``ensure_default()`` seeds it once
+    on first ``argus life init``; the only file it rewrites is one still
+    byte-identical to the pre-rename default template (heading only).
     """
 
     def __init__(self, path: Path) -> None:
@@ -2830,12 +2841,20 @@ class IdentityCard:
 
     def prompt_text(self) -> str:
         text = self.read().strip()
-        return "" if text == _DEFAULT_IDENTITY.strip() else text
+        return "" if text in _DEFAULT_IDENTITY_TEXTS else text
 
     def ensure_default(self) -> bool:
+        """Seed the default card; return True when the file was written.
+
+        An operator-edited card is never touched. The one exception is a card
+        byte-identical to the pre-rename default template, which is rewritten
+        to the current template (only its heading differs).
+        """
         if self.path.exists():
-            return False
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+            if self.read() != _LEGACY_DEFAULT_IDENTITY:
+                return False
+        else:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(_DEFAULT_IDENTITY, encoding="utf-8")
         return True
 
