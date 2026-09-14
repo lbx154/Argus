@@ -2660,6 +2660,14 @@ test_invitation_only_copy_and_private_admin_entry_stays_hidden`。本分支之�
 - 控制台脚本:`argus = argus.apps.tui_launcher:main`(行为不变:裸命令进 TUI,admin flag / 子命令走
   Python CLI);`argus-skill = argus.__main__:main` 保留,按 `argv[0]` 识别后 stderr 打一行弃用提示;
   `_configure_tui_backend_bin` 与 `frontend/tui/src/ensureApi.ts` 先找同目录 `argus`,再退回 `argus-skill`。
+- TUI ownership:`frontend/tui/src/apiOwnership.ts` 的 `sameBackendBin()` / `backendBinAliases()` 把同一目录下的
+  `argus` 与 `argus-skill[.exe]` 视为同一个后端——磁盘上 `webapi-<host>-<port>.owner.json` 里旧的
+  `.venv/bin/argus-skill` 记录、以及仍以 `argus-skill --web` 跑着的进程 argv,都能被新驾驭舱认领并在版本不
+  匹配时安全替换。若仍出现 `incompatible Argus API at <host>:<port>: … — ownership could not be proven`
+  (记录指向别的目录),补救是 `kill` owner 文件里的 PID 或换端口启动驾驭舱。
+- identity card:`life/memory.py` 的 `_DEFAULT_IDENTITY` 标题改成 `# argus — operator identity card`;
+  `_LEGACY_DEFAULT_IDENTITY`(旧标题、其余逐字相同)与新模板都算"默认卡",`prompt_text()` 对两者都返回空,
+  `ensure_default()` 只把逐字节等于旧模板的文件改写成新模板,被操作者编辑过的卡一字不动。
 - 打包:`name = "argus"`,`packages = ["argus", "argus_skill"]`,force-include 到 `argus/_frontend/...`,
   sdist 含两者;PyInstaller spec `hiddenimports += ["argus_skill", "argus_skill.__main__"]`;
   `typecheck_gate` 把 `^argus(_skill)?/` 归一成 `argus/`,基线早于搬动时 `git archive … -- argus_skill`;
@@ -2687,8 +2695,10 @@ test_invitation_only_copy_and_private_admin_entry_stays_hidden`。本分支之�
 3. `python deploy/trial/web_services.py` 重新生成 systemd user units(现在写 `-m argus.trial.*`),
    `systemctl --user daemon-reload` 后重启 `argus-web-trial-{compute,egress,meter,portal,relay-guardian}`;
    `argus-web-8799.service` 的 ExecStart 同理改成 `-m argus --web`。
-4. 重建 trial 镜像:`deploy/trial/*.Dockerfile` 现在 `COPY argus`,容器内包路径 `/opt/argus/argus/trial`;
-   重建前 `training_bridge` 同时接受旧路径与旧 spawn_helper argv。
+4. 重建 trial 镜像:`deploy/trial/*.Dockerfile` 现在 `COPY argus` **和** `COPY argus_skill`(两文件别名,
+   `.dockerignore` 同时放行 `argus_skill/**`),容器内包路径 `/opt/argus/argus/trial`;租户已 seed 的技能
+   副本与脚本里的 `python -m argus_skill.*` 在兼容发布期内继续可用。重建前 `training_bridge` 同时接受
+   旧路径与旧 spawn_helper argv。
 5. runtime 树刷新时更新 `~/.local/bin/argus` 包装脚本的目标(现在指向
    `argus-runtime-20260909-385d9b336/.venv/bin/argus`;那棵树自带旧包,pull 之前不受影响)。
 6. 重新 seed 工厂技能:`~/.argus-skill/skills/**` 里 43 份操作者副本仍写 `python -m argus_skill.tools.*`,

@@ -686,10 +686,13 @@ updater does not replace a signed EXE; see [Windows Desktop](docs/windows-deskto
 
 On 2026-09-14 the Python package `argus_skill` became `argus`, the pip
 distribution `argus-skill` became `argus`, and the `argus-skill` command was
-folded into `argus`. `argus` was already the cockpit launcher; it now also takes
-every `argus-skill` flag and subcommand (`argus --status`, `argus doctor`,
-`argus --daemon`, `argus --web --web-port 8799`, ...). `python -m argus` is the
-plain command-line interface and never starts the Node cockpit.
+folded into `argus`. `argus` was already the cockpit launcher; its admin flags
+and subcommands (`argus --status`, `argus doctor`, `argus --daemon`,
+`argus --web --web-host H --web-port P`, ...) now reach the Python CLI, while
+mission-start and daemon-client flags (`--objective`, `--resume`, `--continue`,
+`--new`, `--drain`, `--trial`, `--json`, `--host/--port`) still belong to the
+cockpit. Headless automation should call `python -m argus ...`: the plain
+command-line interface, which never starts the Node cockpit.
 
 **What did not change.** Every `ARGUS_SKILL_*` environment variable and knob
 (the keys in `~/.argus-skill/config.json`), the state root `~/.argus-skill`
@@ -724,6 +727,14 @@ uv tool install --force --python 3.12 \
 uninstall itself; a `uv tool` environment under the old name is refused with
 the two commands above. The name `argus` on PyPI belongs to an unrelated
 project: Argus is installed from Git, as everywhere in this README.
+
+A cockpit launched right after the upgrade may still find the Web API that the
+old `argus-skill` launcher started. It treats `argus` and `argus-skill` in the
+same venv as the same backend, so its ownership record keeps working; if it
+nevertheless reports `incompatible Argus API at <host>:<port>: ... — ownership
+could not be proven`, stop the old `--web` backend (its PID is recorded in
+`~/.argus-skill/runtime/webapi-<host>-<port>.owner.json`; `kill <pid>`) or
+start the cockpit on another port.
 
 ## Uninstall
 

@@ -622,9 +622,11 @@ git -C "$HOME/Argus" pull --ff-only
 ## 重命名:argus-skill → argus
 
 2026-09-14 起,Python 包 `argus_skill` 改名为 `argus`,pip 发行名 `argus-skill` 改为 `argus`,
-命令 `argus-skill` 并入 `argus`。`argus` 原本就是驾驭舱启动器,现在同时接受 `argus-skill` 的全部
-参数与子命令(`argus --status`、`argus doctor`、`argus --daemon`、`argus --web --web-port 8799` 等);
-`python -m argus` 是纯命令行,不会启动 Node 驾驭舱。
+命令 `argus-skill` 并入 `argus`。`argus` 原本就是驾驭舱启动器,它的管理参数与子命令
+(`argus --status`、`argus doctor`、`argus --daemon`、`argus --web --web-host H --web-port P` 等)
+现在走 Python 命令行;任务启动与守护进程客户端参数(`--objective`、`--resume`、`--continue`、`--new`、
+`--drain`、`--trial`、`--json`、`--host/--port`)仍属于驾驭舱。无人值守的自动化请用 `python -m argus ...`:
+纯命令行,不会启动 Node 驾驭舱。
 
 **没有变的东西。** 所有 `ARGUS_SKILL_*` 环境变量与 knob(`~/.argus-skill/config.json` 里的键)、
 状态根目录 `~/.argus-skill`(项目、种子技能、日志)、Web API 的 `argus-skill-webapi` 服务标识,
@@ -651,6 +653,11 @@ uv tool install --force --python 3.12 \
 
 对仍叫 `argus-skill` 的 pip 安装,`argus update` 会自己先卸载;旧名字的 `uv tool` 环境会被拒绝并给出
 上面两条命令。PyPI 上的 `argus` 属于一个不相关的项目:Argus 一直从 Git 安装,与本文其它章节一致。
+
+升级后立刻启动的驾驭舱可能还会连到旧 `argus-skill` 启动的 Web API。驾驭舱把同一 venv 里的 `argus` 与
+`argus-skill` 视为同一个后端,所以原有的 ownership 记录仍然有效;如果它仍报
+`incompatible Argus API at <host>:<port>: ... — ownership could not be proven`,请停掉旧的 `--web` 后端
+(PID 记在 `~/.argus-skill/runtime/webapi-<host>-<port>.owner.json` 里,`kill <pid>`),或换一个端口启动驾驭舱。
 
 ## 卸载
 

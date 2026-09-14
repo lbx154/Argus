@@ -2402,7 +2402,7 @@ def _cmd_daemon_runbook(args: argparse.Namespace) -> int:
         "2. Treat the live daemon as the control plane: do not restart the process that owns your current session.",
         "3. Persist context first. Global identity/journal live under the global root; the backlog, inbox, and project memory live under the project root.",
         "4. For an ad-hoc detached worker, run `argus --daemon-stop --drain` from the external shell (waits for the current mission to finish at a clean boundary — no mid-mission SIGKILL), then once it exits, update the code and relaunch with `argus --daemon`.",
-        "5. For a systemd-managed worker, edit the unit from the maintenance shell, then run `systemctl daemon-reload && systemctl restart argus.service`.",
+        "5. For a systemd-managed worker, edit the unit from the maintenance shell, then run `systemctl daemon-reload && systemctl restart <your-argus-unit>.service`.",
         "6. Verify the new process with `argus --status` before resuming work.",
     ]
     print("\n".join(lines))
