@@ -573,6 +573,16 @@ def render_reviewer_prompt(
         if raw_evidence.strip()
         else ""
     )
+    # Source handoff is a workspace fact, not another unconditional role rule.
+    # Keep ordinary reviews small and the static prefix stable across projects.
+    source_block = ""
+    source_cache = Path(working_dir or Path.cwd()).expanduser() / ".argus" / "sources"
+    if source_cache.is_dir():
+        source_block = (
+            "\nWeb source cache: "
+            + sanitize_model_visible_text(str(source_cache.resolve()))
+            + "\n" + REVIEWER_SOURCE_HANDOFF + "\n"
+        )
     # Background-subagent context (rendered by the engineer/runner from the
     # live ``.argus_subagents`` registry). Present only when this mission has
     # in-flight subagents. A SUPERVISED subagent advancing on its own is NOT
@@ -732,7 +742,6 @@ def render_reviewer_prompt(
         "Negative results, hedging, limitations, and reruns need grounded "
         "consequences; positive and negative claims share one evidence standard.\n\n"
         + RESEARCHER_VOICE + "\n\n"
-        + REVIEWER_SOURCE_HANDOFF + "\n\n"
         + decision_policy
         + ("" if _requires_engineering_audit else _verification_directive())
         + verification_instruction
@@ -778,6 +787,7 @@ def render_reviewer_prompt(
         + engineer_account
         + "\n\n"
         + f"{evidence_block}"
+        + source_block
         # OperatorContext is intentionally the final live-facts block: this
         # preserves the static cache prefix and improves steering recency.
         + "Operator messages:\n"
@@ -803,6 +813,7 @@ def render_reviewer_prompt(
             "shared_context": shared_context_block + incremental_review_block,
             "main_summary": main_summary,
             "raw_evidence": evidence_block,
+            "web_sources": source_block,
         }
     )
     return static, delta

@@ -17,25 +17,15 @@ from urllib.request import Request, urlopen
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 
 ENGINEER_SOURCE_HANDOFF = (
-    "For web research, retain fetched primary-source text in `.argus/sources/` "
-    "inside this workspace. Use the supplied Argus Python with "
-    "`-m argus.tools.web_source URL` to fetch HTML, text, or PDF; it returns the "
-    "exact cached path. If another fetch method is needed, retain its actual "
-    "source text there with URL and access date. Cite each exact local path "
-    "beside its URL in the existing deliverable/notes, and name that deliverable "
-    "in your handoff. Source caches are reusable inputs, not extra evidence "
-    "reports. Do not leave review-critical sources only in shared `/tmp`."
+    "Web sources: Argus Python `-m argus.tools.web_source URL`. Cite exact paths "
+    "in the deliverable; retain other fetched text in `.argus/sources`, not `/tmp`."
 )
 
 REVIEWER_SOURCE_HANDOFF = (
-    "For web claims, read the deliverable's cited local source paths and compare "
-    "the actual source text with the consequential claims. Fetched sources belong "
-    "in `.argus/sources/` under the execution workspace; cached text is source "
-    "material, not proof that a claim is true. Never guess `/tmp` filenames or "
-    "search shared temporary/system directories for another role's downloads. "
-    "If a cited path is missing, check the named project source directory once. "
-    "If essential source text is still unavailable, return the exact claim and "
-    "missing URL/path for Engineer to repair. HTTP 200 alone does not verify a claim."
+    "Compare web claims with cited source text, not HTTP status or summaries. "
+    "For a missing path, check this cache once; never hunt downloads in shared "
+    "`/tmp`. Return the exact claim and missing URL/path if essential evidence "
+    "is absent."
 )
 
 
