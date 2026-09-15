@@ -451,6 +451,7 @@ class _TurnEmitter:
                 "summary",
                 "delivery_id",
                 "delivery",
+                "decision_card",
             )
             if key in result
         }
@@ -489,7 +490,7 @@ class _TurnEmitter:
         """
         self.reply_fragment(text, message_id=message_id)
         self.journal(text, result)
-        if result.get("kind") == "chat" and self.after_reply is not None:
+        if result.get("kind") == "chat" and not result.get("decision_card") and self.after_reply is not None:
             self.after_reply(text)
         return {"reply": text, **result}
 

@@ -166,6 +166,7 @@ def manager_message(
     source_message_id: str = "",
     route_override: str = "",
     defer_dispatch_ack: bool = False,
+    domain_answer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a Manager turn with request-scoped provider interruption."""
     from ..core.run_gateway import run_interrupt_scope
@@ -185,7 +186,7 @@ def manager_message(
             sid, text, global_root=global_root, attachments=attachments,
             on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
             source_message_id=source_message_id, route_override=route_override,
-            defer_dispatch_ack=defer_dispatch_ack,
+            defer_dispatch_ack=defer_dispatch_ack, domain_answer=domain_answer,
         )
 
 
@@ -201,6 +202,7 @@ def _manager_message(
     source_message_id: str = "",
     route_override: str = "",
     defer_dispatch_ack: bool = False,
+    domain_answer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -235,11 +237,13 @@ def _manager_message(
     from .attachments import attachment_context_refs, compose_message_body
 
     resolved_attachments = list(attachments or [])
-    operator_text = str(text or "").strip()
+    # Structured answers are validated under the project lock below. Never
+    # interpret their transport text as a command or a different pending task.
+    operator_text = "Workflow response" if domain_answer is not None else str(text or "").strip()
     body = compose_message_body(operator_text, resolved_attachments).strip()
     if not body:
         return {"kind": "error", "reply": "empty message"}
-    explicit_chat = str(route_override or "").strip().lower() == "chat"
+    explicit_chat = domain_answer is None and str(route_override or "").strip().lower() == "chat"
     message_attachment_refs = attachment_context_refs(resolved_attachments)
 
     control_generation = manager_control_generation(sid)
@@ -413,6 +417,18 @@ def _manager_message(
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
         active_mission = mission_is_running(mem)
+        from ..manager.domain_intake import intake_answer, intake_card, read_intake, write_intake
+
+        choice_action = ""
+        if domain_answer is not None:
+            try:
+                if active_mission:
+                    raise ValueError("当前任务仍在运行，请完成或停止后再选择流程。 / Finish or stop the active task before choosing a workflow.")
+                operator_text, choice_action = intake_answer(read_intake(life_dir), domain_answer)
+            except ValueError as exc:
+                return {"kind": "error", "resolved": False, "reply": str(exc)}
+            body = operator_text
+            emitter.task_objective = operator_text
         prior_turns: list[dict[str, Any]] = []
         try:
             from ..core.transcript import read_turns
@@ -442,7 +458,7 @@ def _manager_message(
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
 
-        duplicate_item = None if explicit_chat else _recent_team_replay(mem, body, prior_turns)
+        duplicate_item = None if explicit_chat or domain_answer is not None else _recent_team_replay(mem, body, prior_turns)
         if duplicate_item is not None:
             from ..manager.dispatch import _daemon_status
 
@@ -470,7 +486,7 @@ def _manager_message(
             }
 
         pending_result = None
-        if not explicit_chat:
+        if not explicit_chat and domain_answer is None:
             pending_questions = [
                 item
                 for item in mem.backlog.active()
@@ -516,20 +532,29 @@ def _manager_message(
                 ) + 1
 
         chat_state["_frontdoor_credential_imported"] = credential_record is not None
-        from ..manager.domain_intake import read_intake
-
         pending_domain = read_intake(life_dir).get("phase") in {"offered", "clarifying"}
-        classify = _classify_operator_turn(
-            mem,
-            body,
-            chat_state,
-            active_mission,
-            life_dir,
-            startup_handoff,
-            emitter,
-            _cancelled,
-            route_override="" if pending_domain and not explicit_chat else route_override,
-        )
+        if choice_action:
+            # A button already carries an explicit choice; no LLM is needed to
+            # infer consent. The subsequent work still uses normal execution.
+            current_intake = read_intake(life_dir)
+            classify = _classify_operator_turn(
+                mem, body, chat_state, active_mission, life_dir,
+                startup_handoff, emitter, _cancelled, route_override="chat",
+            )
+            chat_state["_frontdoor_domain"] = {"action": choice_action}
+            chat_state["_frontdoor_self_mode"] = current_intake.get("self_mode") or "inspect"
+        else:
+            classify = _classify_operator_turn(
+                mem,
+                body,
+                chat_state,
+                active_mission,
+                life_dir,
+                startup_handoff,
+                emitter,
+                _cancelled,
+                route_override="" if pending_domain and not explicit_chat else route_override,
+            )
         if isinstance(classify, dict):
             return classify
         intent, control, route = classify.intent, classify.control, classify.route
@@ -592,19 +617,22 @@ def _manager_message(
             return config_result
 
         public_task = operator_text
+        intake_before = None
         chat_state["_domain_setup_enabled"] = not active_mission and not explicit_chat
         domain_decision = chat_state.pop("_frontdoor_domain", None)
         if domain_decision and not frontdoor_failure and not active_mission and not explicit_chat and control is None:
             from ..manager.domain_intake import handle_intake
             from ..skills.vertical_select import available_verticals
-            from ..verticals._data_domain import list_all_data_domain_names
+            from ..verticals import list_all_data_domain_names
 
+            previous_intake = read_intake(life_dir)
             intake = handle_intake(life_dir, operator_text, domain_decision, route=route,
                                    self_mode=chat_state.get("_frontdoor_self_mode", "inspect"),
                                    known_verticals=tuple(available_verticals()) + tuple(list_all_data_domain_names(life_dir)))
             if intake is not None:
                 if "reply" in intake:
-                    return emitter.respond(intake["reply"], {"kind": "chat"})
+                    return emitter.respond(intake["reply"], {"kind": "chat", "decision_card": intake_card(read_intake(life_dir))})
+                intake_before = previous_intake
                 send_body = routing_body = intake["task"]
                 public_task = emitter.task_objective = intake["objective"]
                 route = intake["route"]
@@ -631,6 +659,8 @@ def _manager_message(
             cancelled=_cancelled,
         )
         if triage_result is not None:
+            if intake_before and (triage_result.get("kind") in {"error", "cancelled"} or _cancelled()):
+                write_intake(life_dir, intake_before)
             if _cancelled():
                 return _cancelled_result()
             return triage_result
@@ -643,6 +673,8 @@ def _manager_message(
         # projects raise RuntimeError which is caught below and returned as a
         # structured ``{"kind": "error"}`` response — never a bare HTTP 500.
         if _cancelled():
+            if intake_before:
+                write_intake(life_dir, intake_before)
             return _cancelled_result()
         try:
             item, daemon_alive, daemon_pid = _dispatch_team_mission(
@@ -657,14 +689,17 @@ def _manager_message(
                 public_objective=public_task,
             )
         except Exception as exc:  # noqa: BLE001
+            from ..manager.dispatch import MissionPersistenceError
+
+            if intake_before and not isinstance(exc, MissionPersistenceError):
+                write_intake(life_dir, intake_before)
             if _cancelled():
                 return _cancelled_result()
             from ..manager.domain_intake import DomainOfferRequired
 
             if isinstance(exc, DomainOfferRequired):
-                return emitter.respond(str(exc), {"kind": "chat"})
+                return emitter.respond(str(exc), {"kind": "chat", "decision_card": intake_card(read_intake(life_dir))})
             log.warning("Manager could not safely prepare operator work: %s", exc)
-            from ..manager.dispatch import MissionPersistenceError
             from ..manager.front_door import ManagerModelCapabilityMismatchError
 
             if isinstance(exc, MissionPersistenceError):

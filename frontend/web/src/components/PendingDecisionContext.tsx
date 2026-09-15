@@ -14,7 +14,7 @@ export function PendingDecisionContext({ card }: { card: OperatorDecisionCard })
     {card.task_title ? <span className="min-w-0 basis-full break-words text-xs leading-relaxed text-ink-dim" title={card.task_title}>
       {t('decision.taskName', { title: card.task_title })}
     </span> : null}
-    {card.is_current_task != null ? <span>{t(card.is_current_task ? 'decision.currentTask' : 'decision.otherTask')}</span> : null}
+    {card.kind !== 'domain_intake' && card.is_current_task != null ? <span>{t(card.is_current_task ? 'decision.currentTask' : 'decision.otherTask')}</span> : null}
     <Chip>{t('decision.awaitingReply')}</Chip>
     {card.task_status ? <span>{paused ? t('label.status.paused') : statusLabel(card.task_status, t)}</span> : null}
     {askedAt && !Number.isNaN(askedAt.getTime()) ? <time dateTime={askedAt.toISOString()} title={askedAt.toLocaleString(locale)}>

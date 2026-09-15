@@ -1037,3 +1037,22 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
   assert.match(backlog, /› running/);
   assert.doesNotMatch(backlog, /Old result/);
 });
+
+test('workflow choice card shows request, options and optional note in a narrow terminal', async () => {
+  const { operatorDecisionCards } = await import('../../core/src/decisions.js');
+  const [card] = operatorDecisionCards([{ operator_decision: {
+    id: 'intake-1', kind: 'domain_intake', status: 'pending', item_id: '', title: '选择处理方式',
+    task_title: '给我解释日历日期', question: '你希望怎么处理？', options_source: 'workflow',
+    options: [{ id: 'direct', label: '直接做', description: '单个 agent 处理', requires_note: false },
+      { id: 'build', label: '建立专门流程', description: '确认需求并查资料', requires_note: false }],
+  } }], []);
+  const output = await renderNode(React.createElement(PendingDecisionPrompt, {
+    card, selection: 1, note: { value: '注明来源', cursor: 4 }, busy: false, error: '',
+  }), 40);
+  assert.match(output, /选择处理方式/);
+  assert.match(output, /给我解释日历日期/);
+  assert.match(output, /› 2. 建立专门流程/);
+  assert.match(output, /注明来源/);
+  assert.doesNotMatch(output, /ACTION REQUIRED/);
+  assert.ok(output.split('\n').every(line => stringWidth(line) <= 40));
+});

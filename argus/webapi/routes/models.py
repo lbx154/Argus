@@ -23,6 +23,12 @@ class AttachmentRefIn(BaseModel):
     attachment_id: str
 
 
+class DomainAnswerIn(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    option_id: Literal["direct", "build", "custom"]
+    note: str = Field(default="", max_length=2000)
+
+
 class MessageIn(BaseModel):
     text: str
     request_id: str = Field(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")
@@ -30,6 +36,7 @@ class MessageIn(BaseModel):
     # Explicit Task/Chat is operator authority and skips only the category
     # classifier. Task still follows Manager -> Planner -> Engineer -> Reviewer.
     route_override: Literal["auto", "chat", "task"] = "auto"
+    domain_answer: DomainAnswerIn | None = None
 
 
 class CancelMessageIn(BaseModel):

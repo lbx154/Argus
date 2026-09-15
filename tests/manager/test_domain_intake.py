@@ -4,6 +4,19 @@ from argus.life.router import classify_front_door
 from argus.manager.domain_intake import handle_intake, intake_prompt, read_intake
 
 
+def test_legacy_pending_question_has_stable_actionable_card(tmp_path):
+    import json
+    from argus.manager.domain_intake import intake_card, intake_answer
+
+    legacy = {"phase": "offered", "request": "给我分析一下这个日历", "answers": [], "last_question": "旧文本问题"}
+    (tmp_path / "domain-intake.json").write_text(json.dumps(legacy))
+    card = intake_card(read_intake(tmp_path))
+    assert card == intake_card(read_intake(tmp_path))
+    assert card["title"] == "选择处理方式"
+    assert intake_answer(legacy, {"id": card["id"], "option_id": "direct", "note": "说明不确定性"}) == ("直接做\n说明不确定性", "skip")
+    assert not (tmp_path / "backlog.jsonl").exists()
+
+
 def turn(root, message, action, **fields):
     return handle_intake(root, message, {"action": action, **fields}, route="simple",
                          self_mode="reply", known_verticals=("research", "software"))

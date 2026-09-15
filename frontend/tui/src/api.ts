@@ -655,6 +655,10 @@ export class ApiClient {
     return this.post(`/backlog/${encodeURIComponent(itemId)}/answer`, { text });
   }
 
+  answerDomain(id: string, optionId: string, note: string): Promise<Record<string, unknown>> {
+    return this.post('/message', { text: note || optionId, domain_answer: { id, option_id: optionId, note } });
+  }
+
   resolveDecision(
     decisionId: string,
     optionId: string,

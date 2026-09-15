@@ -2654,6 +2654,25 @@
     },
     {
       "event": {
+        "message_id": "message id",
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000178,
+        "type": "manager.turn.started"
+      },
+      "id": "manager.turn.started"
+    },
+    {
+      "event": {
+        "message_id": "message id",
+        "payload_schema_version": 1,
+        "ts": 1700000179,
+        "type": "manager.turn.cancelled"
+      },
+      "id": "manager.turn.cancelled"
+    },
+    {
+      "event": {
         "id": "id",
         "payload_schema_version": 1,
         "summary": "Implemented and verified the requested change.",
@@ -2662,7 +2681,7 @@
         ],
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000178,
+        "ts": 1700000180,
         "type": "user.note"
       },
       "id": "user.note"
@@ -2673,7 +2692,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000179,
+        "ts": 1700000181,
         "type": "ui.operator"
       },
       "id": "ui.operator"
@@ -2689,7 +2708,7 @@
           }
         ],
         "text": "Renderer event detail",
-        "ts": 1700000180,
+        "ts": 1700000182,
         "type": "ui.argus"
       },
       "id": "ui.argus"

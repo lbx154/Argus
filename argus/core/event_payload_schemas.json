@@ -2415,6 +2415,21 @@
         "text": {"type": "string", "minLength": 1}
       }
     },
+    "manager.turn.started": {
+      "version": 1,
+      "required": ["message_id", "text"],
+      "properties": {
+        "message_id": {"type": "string", "minLength": 1},
+        "text": {"type": "string"}
+      }
+    },
+    "manager.turn.cancelled": {
+      "version": 1,
+      "required": ["message_id"],
+      "properties": {
+        "message_id": {"type": "string", "minLength": 1}
+      }
+    },
     "manager.live_view.updated": {
       "version": 1,
       "required": ["title", "paths", "explicit_clear"],

@@ -959,6 +959,10 @@ export const api = {
     files.forEach((file) => form.append('files', file, file.name));
     return postMultipart<AttachmentUploadResponse>(P(sid, '/attachments'), form, signal);
   },
+  answerDomain: (sid: string, id: string, optionId: string, note: string) =>
+    postJson<{ kind: string; reply?: string; resolved?: boolean; daemon?: { rc?: number; error?: string } }>(
+      P(sid, '/message'), { text: note || optionId, domain_answer: { id, option_id: optionId, note } },
+    ),
   /** The Manager front-door: NL message → chat reply or an enqueued mission. */
   message: (
     sid: string,

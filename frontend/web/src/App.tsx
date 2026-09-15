@@ -422,6 +422,7 @@ export default function App() {
     answerPendingReply,
     pendingReply,
     pendingReplyBusy,
+    pendingReplyError,
     pendingReplyOpen,
     setPendingReplyOpen,
   } = usePendingReplySession({
@@ -1306,6 +1307,7 @@ export default function App() {
         reply={pendingReply}
         open={pendingReplyOpen}
         busy={pendingReplyBusy}
+        error={pendingReplyError}
         onClose={() => setPendingReplyOpen(false)}
         onSubmit={answerPendingReply}
       />

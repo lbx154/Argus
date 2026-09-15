@@ -1926,6 +1926,19 @@ export interface DomainPromotionEvent extends EventMsg {
   "text": string;
 }
 
+export interface ManagerTurnStartedEvent extends EventMsg {
+  type: "manager.turn.started";
+  payload_schema_version?: 1;
+  "message_id": string;
+  "text": string;
+}
+
+export interface ManagerTurnCancelledEvent extends EventMsg {
+  type: "manager.turn.cancelled";
+  payload_schema_version?: 1;
+  "message_id": string;
+}
+
 export interface ManagerLiveViewUpdatedEvent extends EventMsg {
   type: "manager.live_view.updated";
   payload_schema_version?: 1;
@@ -2149,6 +2162,8 @@ export interface EventPayloadByType {
   "self.learning.review.completed": SelfLearningReviewCompletedEvent;
   "self.learning.review.failed": SelfLearningReviewFailedEvent;
   "domain.promotion": DomainPromotionEvent;
+  "manager.turn.started": ManagerTurnStartedEvent;
+  "manager.turn.cancelled": ManagerTurnCancelledEvent;
   "manager.live_view.updated": ManagerLiveViewUpdatedEvent;
   "manager.live_view.rejected": ManagerLiveViewRejectedEvent;
   "user.note": UserNoteEvent;

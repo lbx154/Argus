@@ -5,7 +5,7 @@ import { usePendingReplySession } from "../usePendingReplySession";
 import { api } from "../api";
 import { PendingReplyDialog } from "../components/PendingReplyDialog";
 
-vi.mock("../api", () => ({ api: { resolveDecision: vi.fn() } }));
+vi.mock("../api", () => ({ api: { resolveDecision: vi.fn(), answerDomain: vi.fn() } }));
 vi.mock("../components/Modal", () => ({
   Modal: ({ open, children }: { open: boolean; children: ReactNode }) => open ? <div>{children}</div> : null,
   ModalHeader: ({ title, sub }: { title: string; sub: string }) => <div>{title}{sub}</div>,
@@ -36,6 +36,7 @@ function Probe({ autoOpen }: { autoOpen?: boolean }) {
 const storage = new Map<string, string>();
 beforeEach(() => {
   vi.mocked(api.resolveDecision).mockReset();
+  vi.mocked(api.answerDomain).mockReset();
   storage.clear();
   opened = null;
   vi.stubGlobal("window", {
@@ -234,5 +235,40 @@ it('closes a question removed by a loaded snapshot and uses the remaining task o
   act(() => renderer!.update(<TaskProbe currentTaskId="b" autoOpen={false} questions={[]} />));
   expect(taskSession.pendingReplyOpen).toBe(false);
   expect(taskSession.pendingReply).toBeNull();
+  act(() => renderer!.unmount());
+});
+
+it('opens an intake on the map, submits its typed choice once, and retains the draft on failure', async () => {
+  const questions = [{ operator_decision: {
+    id: 'intake-new', kind: 'domain_intake', item_id: '', status: 'pending',
+    title: 'Choose how to proceed', task_title: 'Interpret a calendar date', question: 'How should I proceed?',
+    options_source: 'workflow', options: [
+      { id: 'direct', label: 'Do it directly', requires_note: false },
+      { id: 'build', label: 'Build a specialist workflow', requires_note: false },
+    ],
+  } }];
+  let finish!: (value: { kind: string; reply: string }) => void;
+  vi.mocked(api.answerDomain).mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  let renderer: ReactTestRenderer;
+  act(() => { renderer = create(<TaskProbe currentTaskId="" autoOpen={false} questions={questions} />); });
+  expect(taskSession.pendingReplyOpen).toBe(true);
+  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'Include sources' } }));
+  act(() => renderer!.root.findAllByType('button').find(b => b.props.children?.[0]?.props?.children === 'Build a specialist workflow')!.props.onClick());
+  let answer!: Promise<void>;
+  act(() => {
+    answer = taskSession.answerPendingReply('build', 'Include sources');
+    void taskSession.answerPendingReply('build', 'Include sources');
+  });
+  expect(api.answerDomain).toHaveBeenCalledExactlyOnceWith('s-1', 'intake-new', 'build', 'Include sources');
+  expect(api.resolveDecision).not.toHaveBeenCalled();
+  expect(taskSession.pendingReplyBusy).toBe(true);
+  act(() => renderer!.update(<TaskProbe currentTaskId="" autoOpen={false} questions={[]} />));
+  expect(taskSession.pendingReplyOpen).toBe(true);
+  expect(renderer!.root.findByType('textarea').props.value).toBe('Include sources');
+  act(() => renderer!.update(<TaskProbe currentTaskId="" autoOpen={false} questions={questions} />));
+  await act(async () => { finish({ kind: 'error', reply: 'Temporary failure' }); await answer; });
+  expect(taskSession.pendingReplyOpen).toBe(true);
+  expect(taskSession.pendingReplyError).toBe('Temporary failure');
+  expect(renderer!.root.findByType('textarea').props.value).toBe('Include sources');
   act(() => renderer!.unmount());
 });

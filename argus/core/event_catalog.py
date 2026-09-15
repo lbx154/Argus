@@ -226,6 +226,8 @@ class EventType(StrEnum):
     OPERATOR_ALERT = "operator_alert"
     MANAGER_LIVE_VIEW_UPDATED = "manager.live_view.updated"
     MANAGER_LIVE_VIEW_REJECTED = "manager.live_view.rejected"
+    MANAGER_TURN_STARTED = "manager.turn.started"
+    MANAGER_TURN_CANCELLED = "manager.turn.cancelled"
     USER_NOTE = "user.note"
     UI_OPERATOR = "ui.operator"
     UI_ARGUS = "ui.argus"
@@ -380,6 +382,8 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.TEAM_LEARNING_PROMOTION_QUARANTINED,
     EventType.DOMAIN_PROMOTION,
     EventType.MANAGER_LIVE_VIEW_UPDATED,
+    EventType.MANAGER_TURN_STARTED,
+    EventType.MANAGER_TURN_CANCELLED,
     EventType.USER_NOTE,
     EventType.UI_OPERATOR,
     EventType.UI_ARGUS,

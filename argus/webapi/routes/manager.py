@@ -343,6 +343,8 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                 kwargs["attachments"] = attachments
             if body.route_override != "auto":
                 kwargs["route_override"] = body.route_override
+            if body.domain_answer is not None:
+                kwargs["domain_answer"] = body.domain_answer.model_dump()
 
             return await run_in_threadpool(_run)
         except BaseException:
@@ -412,6 +414,8 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                     kwargs["attachments"] = attachments
                 if body.route_override != "auto":
                     kwargs["route_override"] = body.route_override
+                if body.domain_answer is not None:
+                    kwargs["domain_answer"] = body.domain_answer.model_dump()
                 result = manager_message(
                     sid,
                     body.text,

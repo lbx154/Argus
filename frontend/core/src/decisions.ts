@@ -12,6 +12,7 @@ export interface DecisionOption {
 }
 
 export interface OperatorDecisionCard {
+  kind?: 'domain_intake';
   id: string;
   item_id: string;
   revision: number;
@@ -21,7 +22,7 @@ export interface OperatorDecisionCard {
   question: string;
   evidence: DecisionEvidence[];
   options: DecisionOption[];
-  options_source?: 'agent' | 'none';
+  options_source?: 'agent' | 'workflow' | 'none';
   selected_option: string;
   note: string;
   legacy?: boolean;
@@ -72,17 +73,21 @@ export function operatorDecisionCards(
       if (!id || seen.has(id) || text(card.status) !== 'pending') continue;
       seen.add(id);
       const optionsSource = text(card.options_source);
-      const options = optionsSource === 'agent' && Array.isArray(card.options)
+      const intake = card.kind === 'domain_intake';
+      const options = (optionsSource === 'agent' || (intake && optionsSource === 'workflow')) && Array.isArray(card.options)
         ? (card.options as DecisionOption[])
             .filter((option) => (
               Boolean(text(option?.id)) && Boolean(text(option?.label))
             ))
             .map((option) => ({ ...option, requires_note: option.requires_note === true }))
         : [];
-      options.push(customDecisionOption(text(card.title), text(card.question)));
+      if (!options.some(option => option.id === 'custom')) {
+        options.push(customDecisionOption(text(card.title), text(card.question)));
+      }
       const ownerId = text(card.item_id) || itemId;
       cards.push({
         id,
+        ...(intake ? { kind: 'domain_intake' as const } : {}),
         item_id: ownerId,
         revision: Number(card.revision ?? 1),
         status: 'pending',
@@ -95,10 +100,11 @@ export function operatorDecisionCards(
             )
           : [],
         options,
-        options_source: options.length ? 'agent' : 'none',
+        options_source: intake ? 'workflow' : options.length ? 'agent' : 'none',
         selected_option: '',
         note: '',
         ...taskContext(ownerId, row),
+        ...(intake ? { task_title: text(card.task_title), task_status: undefined } : {}),
         ...(typeof card.asked_at === 'number' && Number.isFinite(card.asked_at) && card.asked_at > 0
           ? { asked_at: card.asked_at } : {}),
       });
@@ -127,6 +133,6 @@ export function operatorDecisionCards(
     });
   }
   if (!currentTaskId) return cards;
-  const scoped = cards.map(card => ({ ...card, is_current_task: card.item_id === currentTaskId }));
-  return [...scoped.filter(card => card.is_current_task), ...scoped.filter(card => !card.is_current_task)];
+  const scoped = cards.map(card => ({ ...card, is_current_task: card.kind === 'domain_intake' ? undefined : card.item_id === currentTaskId }));
+  return [...scoped.filter(card => card.kind === 'domain_intake'), ...scoped.filter(card => card.is_current_task), ...scoped.filter(card => card.kind !== 'domain_intake' && !card.is_current_task)];
 }

@@ -182,3 +182,23 @@ describe('operator decision cards', () => {
     expect(html).not.toContain('disabled=""');
   });
 });
+
+it('renders a workflow choice as options with optional details and no blocked-task language', () => {
+  const [row] = operatorDecisionCards([{ operator_decision: {
+    ...card, id: 'intake-1', kind: 'domain_intake', item_id: '', options_source: 'workflow',
+    title: 'Choose how to proceed', task_title: 'Interpret a calendar date', reason: '', evidence: [],
+    options: [{ id: 'direct', label: 'Do it directly', description: 'One agent.', requires_note: false },
+      { id: 'build', label: 'Build a specialist workflow', description: 'Clarify and research.', requires_note: false }],
+  } }], [], 'old-task');
+  const html = renderToStaticMarkup(<PendingReplyDialog reply={row} open busy={false} error="Please retry" onClose={vi.fn()} onSubmit={vi.fn()} />);
+  expect(row.kind).toBe('domain_intake');
+  expect(row.is_current_task).toBeUndefined();
+  expect(html).toContain('Choose how to proceed');
+  expect(html).toContain('Do it directly');
+  expect(html).toContain('Build a specialist workflow');
+  expect(html).toContain('Additional details (optional)');
+  expect(html).toContain('aria-pressed="true"');
+  expect(html).toContain('Please retry');
+  expect(html).not.toContain('Decision required');
+  expect(html).not.toContain('Paused');
+});

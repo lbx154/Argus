@@ -48,6 +48,8 @@ export function usePendingReplySession({
     card: OperatorDecisionCard;
   } | null>(null);
   const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
+  const [pendingReplyError, setPendingReplyError] = useState('');
+  const submitting = useRef(false);
   const promptedReplyRef = useRef('');
 
   const decisionCards = useMemo<OperatorDecisionCard[]>(() => {
@@ -64,9 +66,10 @@ export function usePendingReplySession({
   // another task. Its current-task label can still follow the live mission.
   const pendingReply = pendingReplyOpen ? {
     ...openedReply.card,
-    is_current_task: currentTaskId ? openedReply.card.item_id === currentTaskId : undefined,
+    is_current_task: currentTaskId && openedReply.card.kind !== 'domain_intake' ? openedReply.card.item_id === currentTaskId : undefined,
   } : preferredReply;
   const setPendingReplyOpen = (open: boolean) => {
+    setPendingReplyError('');
     if (!open) {
       setOpenedReply(null);
     } else if (activeSid && preferredReply) {
@@ -77,25 +80,30 @@ export function usePendingReplySession({
 
   useEffect(() => {
     if (openedReply && (openedReply.sid !== activeSid || (
-      hasSnapshot && !decisionCards.some(card => card.id === openedReply.card.id)
+      hasSnapshot && !pendingReplyBusy && !decisionCards.some(card => card.id === openedReply.card.id)
     ))) {
       setOpenedReply(null);
     }
-    if (!activeSid || !preferredReply || !autoOpen || pendingReplyOpen || pendingReplyBusy) return;
+    if (!activeSid || !preferredReply || (!autoOpen && preferredReply.kind !== 'domain_intake') || pendingReplyOpen || pendingReplyBusy) return;
     const key = `${activeSid}:${preferredReply.id}`;
     // Session storage remembers across reloads: a decision hijacks the screen
     // once per tab, not on every visit while it stays unanswered.
     if (promptedReplyRef.current === key || readPrompted() === key) return;
     promptedReplyRef.current = key;
     writePrompted(key);
+    setPendingReplyError('');
     setOpenedReply({ sid: activeSid, card: preferredReply });
   }, [activeSid, autoOpen, decisionCards, hasSnapshot, preferredReply, openedReply, pendingReplyOpen, pendingReplyBusy]);
 
   const answerPendingReply = async (optionId: string, note: string) => {
-    if (!activeSid || !pendingReply || pendingReplyBusy) return;
+    if (!activeSid || !pendingReply || submitting.current) return;
+    submitting.current = true;
     setPendingReplyBusy(true);
+    setPendingReplyError('');
     try {
-      const result = pendingReply.legacy
+      const result = pendingReply.kind === 'domain_intake'
+        ? await api.answerDomain(activeSid, pendingReply.id, optionId, note)
+        : pendingReply.legacy
         ? await api.answerPending(activeSid, pendingReply.item_id, note)
         : await api.resolveDecision(
           activeSid,
@@ -103,11 +111,9 @@ export function usePendingReplySession({
           optionId,
           note,
         );
-      if (result.resolved === false) {
-        notify(
-          'info',
-          String(result.reply || 'Manager needs a more specific answer.'),
-        );
+      if (result.resolved === false || ('kind' in result && ['error', 'cancelled'].includes(String(result.kind)))) {
+        setPendingReplyError(String(result.reply || 'Could not send answer.'));
+        await refetchSnapshot();
         return;
       }
       // A request may finish after the operator has opened another dialog.
@@ -118,16 +124,18 @@ export function usePendingReplySession({
           'error',
           `Answer queued, but the daemon did not start: ${result.daemon.error || 'operator action required'}`,
         );
-      } else {
+      } else if (pendingReply.kind !== 'domain_intake') {
         notify(
           'success',
           String(result.reply || 'Manager delivered your answer to the team.'),
         );
       }
     } catch (error) {
-      await refetchSnapshot();
+      setPendingReplyError(errorText(error));
       notify('error', `Could not send answer: ${errorText(error)}`);
+      await refetchSnapshot();
     } finally {
+      submitting.current = false;
       setPendingReplyBusy(false);
     }
   };
@@ -136,6 +144,7 @@ export function usePendingReplySession({
     answerPendingReply,
     pendingReply,
     pendingReplyBusy,
+    pendingReplyError,
     pendingReplyOpen,
     setPendingReplyOpen,
   };

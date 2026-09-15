@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import time
+import uuid
 from pathlib import Path
 
 from ..core.operator_messages import uses_cjk
@@ -21,11 +24,69 @@ def read_intake(root: Path) -> dict:
         return {}
 
 
+def write_intake(root: Path, state: dict) -> None:
+    path = root / "domain-intake.json"
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    temp.replace(path)
+
+
+def intake_card(state: dict) -> dict | None:
+    """Project-scoped question, using the shared decision UI without a backlog task.
+
+    Legacy pending intakes acquire a stable content ID on read. New questions
+    have unique IDs, so a reply from another tab cannot answer a later question.
+    """
+    phase = state.get("phase")
+    if phase not in {"offered", "clarifying"}:
+        return None
+    chinese = uses_cjk(str(state.get("request", "")))
+    options = []
+    if phase == "offered":
+        options = [
+            {"id": "direct", "label": "直接做" if chinese else "Do it directly",
+             "description": "单个 agent 处理这次任务。" if chinese else "One agent handles this request.",
+             "requires_note": False},
+            {"id": "build", "label": "建立专门流程" if chinese else "Build a specialist workflow",
+             "description": "先确认需求，再查资料，整理可复用的方法与检查标准。" if chinese else
+                            "Clarify requirements, research sources, then develop reusable methods and checks.",
+             "requires_note": False},
+        ]
+    legacy_id = hashlib.sha256(json.dumps(state, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:20]
+    return {
+        "id": state.get("question_id") or "intake-" + legacy_id,
+        "kind": "domain_intake", "item_id": "", "revision": 1, "status": "pending",
+        "title": ("选择处理方式" if chinese else "Choose how to proceed") if phase == "offered" else
+                 ("完善流程需求" if chinese else "Define your workflow"),
+        "task_title": state.get("request", ""), "reason": "", "evidence": [],
+        "question": ("这类任务还没有匹配的专门流程，你希望怎么处理？" if chinese else
+                     "This task has no matching specialist workflow. How would you like to proceed?")
+                    if phase == "offered" else state.get("last_question", ""),
+        "options_source": "workflow", "options": options,
+        "asked_at": state.get("asked_at"), "selected_option": "", "note": "",
+    }
+
+
+def intake_answer(state: dict, answer: dict) -> tuple[str, str]:
+    """Validate a UI answer before any model call or journal mutation."""
+    card = intake_card(state)
+    if not card or answer.get("id") != card["id"]:
+        raise ValueError("这个问题已更新或已回答，请刷新后查看。 / This question has changed or was answered; refresh to continue.")
+    option_id = answer.get("option_id")
+    note = str(answer.get("note") or "").strip()
+    if option_id == "custom" and note:
+        return note, ""
+    for option in card["options"]:
+        if option["id"] == option_id:
+            return option["label"] + ("\n" + note if note else ""), {"direct": "skip", "build": "ask"}[option_id]
+    raise ValueError("请选择处理方式或填写回答。 / Choose an option or enter an answer.")
+
+
 def intake_prompt(catalog: dict[str, str], state: dict) -> str:
     if not catalog:
         return ""
     menu = {name: purpose[:180] for name, purpose in list(sorted(catalog.items()))[:32]}
-    pending = state if state.get("phase") in {"offered", "clarifying"} else {}
+    pending = {key: value for key, value in state.items() if key not in {"question_id", "asked_at"}} if state.get("phase") in {"offered", "clarifying"} else {}
     return (
         "\nDomain fit (independent of SELF/TEAM): match the requested work to the listed "
         "capabilities. Research means scientific inquiry, not every request for an analysis. "
@@ -61,12 +122,11 @@ def handle_intake(root: Path, message: str, decision: dict, *, route: str, self_
         state = {"phase": "offered", "request": message[:6000], "answers": [],
                  "route": route, "self_mode": self_mode, "consented": False}
         result = {"reply": (
-            "这类任务还没有匹配的专门流程。你希望我直接用单个 agent 处理，还是先建立一套可复用的领域流程？"
-            "如果选择建立，我会先问清关键需求，再查资料、整理方法和检查标准。回复“直接做”或“建立专门流程”即可。"
+            "这类任务还没有匹配的专门流程。可以直接由单个 agent 处理，也可以先建立可复用的流程。请在卡片中选择。"
             if uses_cjk(message) else
             "There is no matching specialist workflow for this task. Should I handle it directly "
             "with one agent, or develop a reusable workflow? For the latter, I will clarify the "
-            "key requirements, research sources, then establish methods and checks."
+            "key requirements, research sources, then establish methods and checks. Choose on the card."
         )}
     elif pending and action in {"ask", "prepare"}:
         state["answers"] = [*state.get("answers", []), message[:2000]][-8:]
@@ -121,8 +181,6 @@ def handle_intake(root: Path, message: str, decision: dict, *, route: str, self_
     else:
         return None
     state["last_question"] = (result or {}).get("reply", "")
-    path = root / "domain-intake.json"
-    temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-    temp.replace(path)
+    state.update(question_id="intake-" + uuid.uuid4().hex, asked_at=time.time())
+    write_intake(root, state)
     return result

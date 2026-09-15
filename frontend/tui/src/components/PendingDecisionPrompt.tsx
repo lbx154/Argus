@@ -19,10 +19,13 @@ export function PendingDecisionPrompt({
 }) {
   const selected = card.options[selection];
   const freeform = card.options.length === 0;
+  const intake = card.kind === 'domain_intake';
+  const zh = /[\u3400-\u9fff]/.test(card.title);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.warning} paddingX={1} marginTop={1}>
-      <Text color={theme.warning} bold>ACTION REQUIRED</Text>
+      {!intake ? <Text color={theme.warning} bold>ACTION REQUIRED</Text> : null}
       <Text bold wrap="wrap">{card.title}</Text>
+      {intake && card.task_title ? <Text dimColor wrap="wrap">{card.task_title}</Text> : null}
       <Box marginTop={1}><Text wrap="wrap">{card.question}</Text></Box>
       {card.options.length ? (
         <Box flexDirection="column" marginTop={1}>
@@ -36,9 +39,9 @@ export function PendingDecisionPrompt({
           ))}
         </Box>
       ) : null}
-      {freeform || selected?.requires_note ? (
+      {intake || freeform || selected?.requires_note ? (
         <Box marginTop={1}>
-          <Text color={theme.accent}>Your response › </Text>
+          <Text color={theme.accent}>{zh ? '回答 / 补充 › ' : 'Your response › '}</Text>
           <Text>{note.value}</Text>
           {!busy ? <Text inverse> </Text> : null}
         </Box>
@@ -46,7 +49,9 @@ export function PendingDecisionPrompt({
       {error ? <Text color={theme.error} wrap="wrap">{error}</Text> : null}
       <Text dimColor>
         {busy
-          ? 'Sending your answer…'
+          ? (zh ? '正在提交…' : 'Sending your answer…')
+          : intake
+            ? (zh ? '↑/↓ 选择 · Enter 确认 · 可输入补充说明' : '↑/↓ select · Enter confirm · type to add details')
           : freeform
             ? 'Type your answer · Enter send'
             : '↑/↓ or number select · Enter confirm · typing selects an option that accepts guidance'}

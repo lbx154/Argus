@@ -609,6 +609,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.daemon.ready': case 'plan.draft.start':
     case 'team.learning.review.skipped': case 'self.learning.review.started': case 'self.learning.review.completed':
     case 'manager.live_view.updated': case 'manager.live_view.rejected': case 'idea.portfolio.nested_skipped':
+    case 'manager.turn.started': case 'manager.turn.cancelled':
       return fallback(event, context);
     default: {
       const exhaustive: never = event;

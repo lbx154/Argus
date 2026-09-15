@@ -21,6 +21,13 @@ a second handwritten inventory so registration and documentation cannot drift.
 from __future__ import annotations
 
 
+def list_all_data_domain_names(project_root: object = ".", *, learned_root: object | None = None) -> list[str]:
+    """Names of project and learned workflows, without exposing storage internals."""
+    from ._data_domain import list_all_data_domain_names as list_names
+
+    return list_names(project_root, learned_root=learned_root)
+
+
 def builtin_verticals() -> tuple[str, ...]:
     """Return the canonical built-in inventory without creating an import cycle."""
     from ..skills.vertical_select import VERTICALS
@@ -28,4 +35,4 @@ def builtin_verticals() -> tuple[str, ...]:
     return VERTICALS
 
 
-__all__ = ["builtin_verticals"]
+__all__ = ["builtin_verticals", "list_all_data_domain_names"]

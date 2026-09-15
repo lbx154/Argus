@@ -36,7 +36,7 @@ export function PendingBanner({
         </div>
       </div>
       {cards.length > 1 ? <span className="font-mono text-xs text-ink-faint">+{cards.length - 1}</span> : null}
-      {onLocate ? (
+      {onLocate && card.item_id ? (
         <button onClick={() => onLocate(card.item_id)} className="shrink-0 text-xs text-ink-dim hover:text-gold">
           {t('pending.showOnMap')}
         </button>

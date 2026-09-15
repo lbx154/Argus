@@ -797,9 +797,13 @@ def build_snapshot(
         snapshot["daemon_admission"] = admission
     if compact:
         snapshot["continuous"] = continuous_payload
-        snapshot["pending_questions"] = [
-            compact_backlog_item(item) for item in items if item.pending_question
-        ]
+    snapshot["pending_questions"] = [
+        compact_backlog_item(item) for item in items if item.pending_question
+    ]
+    from ..manager.domain_intake import intake_card, read_intake
+
+    if card := intake_card(read_intake(life_dir)):
+        snapshot["pending_questions"].insert(0, {"operator_decision": card})
     snapshot["partial"] = bool(diagnostics)
     snapshot["diagnostics"] = diagnostics
     return snapshot
