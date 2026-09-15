@@ -1,4 +1,3 @@
-import { cleanDeliverySummary } from './deliveryPresentation';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
@@ -570,7 +569,6 @@ function DeliveryCard({
           {t(certified ? 'mission.deliveryCertified' : 'mission.taskCompleted')}
         </div>
         <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
-        {delivery.summary ? <p className="mt-1 text-xs leading-5 text-ink-dim">{cleanDeliverySummary(delivery.summary)}</p> : null}
         {onOpen ? (
           <button
             type="button"

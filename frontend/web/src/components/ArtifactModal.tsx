@@ -1,5 +1,6 @@
 import type { DeliveryReceipt } from '../../../core/src/types';
-import { cleanDeliverySummary, deliveryFiles } from './deliveryPresentation';
+import { deliveryFiles } from './deliveryPresentation';
+import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { CheckCircle2, PackageCheck, Maximize2, Minimize2 } from 'lucide-react';
 import './delivery.css';
 import { useEffect, useState } from 'react';
@@ -120,7 +121,7 @@ export function ArtifactModal({
           {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{receipt.title}</option>)}
         </select> : <p className="delivery-task-title" title={delivery.title}>{delivery.title}</p>}
         <div className="delivery-facts"><span><CheckCircle2 size={13} />{['done', 'passed', 'approved', 'accepted'].includes(delivery.review_status) ? (zh ? '任务已完成' : 'Task completed') : (zh ? '可查看' : 'Available')}</span><span>{files.length} {zh ? '个文件' : 'files'}</span></div>
-        {delivery.summary && <details className="delivery-summary"><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><p>{cleanDeliverySummary(delivery.summary)}</p></details>}
+        {delivery.summary && <details className="delivery-summary"><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><p><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></p></details>}
       </header>}
       {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
       <div className={`flex shrink-0 items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
@@ -160,7 +161,7 @@ export function ArtifactModal({
         ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-bg/40'
         : 'flex min-h-64 max-h-[72vh] flex-col overflow-x-hidden overflow-y-auto bg-bg/40 p-3 scroll-thin sm:p-4'
       }>
-        {!path && delivery && <p className="m-auto p-6 text-sm text-ink-dim">{cleanDeliverySummary(delivery.summary)}</p>}
+        {!path && delivery && <div className="m-auto p-6 text-sm text-ink-dim"><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></div>}
         {artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
         {artifactQ.isError ? (
           <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · {(artifactQ.error as Error).message}</div>

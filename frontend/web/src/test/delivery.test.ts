@@ -15,6 +15,7 @@ import {
   deliveryNotificationPayload,
 } from '../lib/desktopBridge';
 import { latestConversationDelivery } from '../components/EventStream';
+import { DeliveryNotice } from '../components/DeliveryNotice';
 import { mergeConversationEvents } from '../lib/conversationEvents';
 
 const delivery: DeliveryReceipt = {
@@ -55,6 +56,16 @@ const artifact = (path: string, source: ArtifactInfo['source']): ArtifactInfo =>
 });
 
 describe('completed delivery presentation', () => {
+  it('shows formatted outcome text without raw Markdown or workspace link targets', () => {
+    const markup = renderToStaticMarkup(createElement(DeliveryNotice, {
+      delivery: { ...delivery, summary: '**CNY**: 130.00\n\n[Download summary.csv](sandbox:/private/workspace/summary.csv)' },
+      onOpen: () => undefined, onDismiss: () => undefined,
+    }));
+    expect(markup).toContain('<strong>CNY</strong>');
+    expect(markup).toContain('Download summary.csv');
+    expect(markup).not.toContain('sandbox:/private');
+    expect(markup).not.toContain('**CNY**');
+  });
   it('opens the receipt primary target before a stale live checkpoint', () => {
     const view = emptyMissionView();
     view.delivery = delivery;

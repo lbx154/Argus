@@ -1,5 +1,6 @@
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { useI18n } from '../i18n';
+import { MarkdownExcerpt } from './MarkdownExcerpt';
 
 export function DeliveryNotice({
   delivery,
@@ -29,7 +30,7 @@ export function DeliveryNotice({
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ok">{heading}</div>
           <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
-          {delivery.summary ? <p className="mt-1 line-clamp-3 text-xs leading-5 text-ink-dim">{delivery.summary}</p> : null}
+          {delivery.summary ? <div className="mt-1 line-clamp-3 text-xs leading-5 text-ink-dim"><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></div> : null}
           {delivery.review_status && delivery.review_status !== 'not_assessed' ? (
             <div className="mt-2 font-mono text-[10px] text-ink-faint">
               Reviewer · {delivery.review_status}
