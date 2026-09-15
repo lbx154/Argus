@@ -254,20 +254,24 @@ def test_busy_writer_has_short_bounded_wait_and_message_survives(tmp_path):
     assert take(tmp_path).text == "message"
 
 
-def test_crash_after_commit_before_ack_keeps_claim_for_restart(tmp_path):
+def test_crash_after_commit_before_ack_keeps_claim_for_restart(tmp_path, monkeypatch):
     put(tmp_path)
+    claimed_at = time.time()
     script = """
 import os, sys
 from argus.apps import _inbox_protocol as q
-c = q.claim_inbox_message(sys.argv[1], lease_seconds=0.05)
+# Exercise the crash boundary, not the machine's ability to fsync several
+# transactions inside 50 ms. The parent advances this same clock on restart.
+q.time.time = lambda: float(sys.argv[2])
+c = q.claim_inbox_message(sys.argv[1], lease_seconds=30)
 c = q.freeze_inbox_decision(sys.argv[1], c, decision={'kind':'transient'}, target_root=None, transient_text=c.text)
 c = q.accept_inbox_claim(sys.argv[1], c)
 q.acknowledge_inbox_claim(sys.argv[1], c)
 os._exit(73)
 """
-    run = subprocess.run([sys.executable, "-B", "-c", script, str(tmp_path)], cwd=Path(__file__).parents[2], check=False)
+    run = subprocess.run([sys.executable, "-B", "-c", script, str(tmp_path), str(claimed_at)], cwd=Path(__file__).parents[2], check=False)
     assert run.returncode == 73
-    time.sleep(0.06)
+    monkeypatch.setattr(inbox.time, "time", lambda: claimed_at + 31)
     recovered = take(tmp_path)
     assert recovered.acknowledged and recovered.transient_text == "message"
     inbox.settle_inbox_claim(tmp_path, recovered)
