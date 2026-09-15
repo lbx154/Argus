@@ -76,8 +76,6 @@ _FRONT_DOOR_FIELDS = (
     "greeting",
     "name",
     "domain_action",
-    "domain_name",
-    "domain_question",
 )
 
 
@@ -411,8 +409,7 @@ def classify_front_door(
     fields = _front_door_fields(result)
     intent = _parse_config_decision(fields["config"])
     if callable(domain_sink) and fields["domain_action"].lower() in {"none", "offer", "ask", "prepare", "skip", "cancel"}:
-        domain_sink({"action": fields["domain_action"].lower(), "name": fields["domain_name"],
-                     "question": fields["domain_question"]})
+        domain_sink({"action": fields["domain_action"].lower()})
     control_token = fields["control"].upper().replace("-", "_")
     control: ControlIntent | None
     if control_token.startswith("ABORT"):

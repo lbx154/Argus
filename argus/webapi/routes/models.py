@@ -25,7 +25,7 @@ class AttachmentRefIn(BaseModel):
 
 class DomainAnswerIn(BaseModel):
     id: str = Field(min_length=1, max_length=128)
-    option_id: Literal["direct", "build", "custom"]
+    option_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     note: str = Field(default="", max_length=2000)
 
 

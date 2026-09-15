@@ -475,7 +475,7 @@ class _ManagerSession:
     ) -> Any:
         from .session_context import manager_interaction_priority
 
-        foreground = run_label in {"manager-quick-reply", "manager-ask", "simple-1"}
+        foreground = run_label in {"manager-quick-reply", "manager-ask", "manager-domain-dialogue", "simple-1"}
         with manager_interaction_priority(self.project_root) if foreground else nullcontext():
             return self._run_exec(
                 prompt=prompt, options=options, run_label=run_label,

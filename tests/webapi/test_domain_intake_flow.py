@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -20,11 +21,24 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
     life.mkdir(parents=True)
     write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
     manager_state._STATES.pop(sid, None)
-    manager = Manager(life, memory_maintenance_enabled=False)
+    calls = []
+    class Backend:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            calls.append((prompt, options, run_label, resume_thread_id))
+            if len(calls) == 1:
+                reply = 'Decision:\nDOMAIN_ACTION=ASK\nDOMAIN_QUESTION=Explain cultural conventions or convert dates?\nOPERATOR_OPTIONS=' + json.dumps([
+                    {"label": "Cultural education", "description": "Cite conventions and state uncertainty"},
+                    {"label": "Date conversion", "description": "Produce a calendar comparison"},
+                ])
+            else:
+                assert 'Cultural education' in prompt
+                reply = 'Decision:\nDOMAIN_ACTION=PREPARE\nDOMAIN_NAME=calendar_conventions'
+            return SimpleNamespace(exit_code=0, thread_id='manager-conversation', last_agent_message=reply)
+    manager = Manager(life, runner=Backend(), memory_maintenance_enabled=False)
     choices = iter([
         *([] if forced else [{"action": "offer"}]),
         *([] if cards else [{"action": "ask", "question": "What output and verification do you want?"}]),
-        {"action": "prepare", "name": "calendar_conventions"},
+        *([] if cards else [{"action": "ask"}]),
     ])
 
     def classify(_mem, _body, state, **_kwargs):
@@ -77,17 +91,20 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
 
         second = answer(card, "build") if cards else send("Yes, build a specialist workflow")
         assert second["decision_card"]["id"] != card["id"]
-        assert second["decision_card"]["options"] == []
-        assert "What should it produce" in second["reply"] if cards else second["reply"] == "What output and verification do you want?"
+        assert [o["label"] for o in second["decision_card"]["options"]] == ["Cultural education", "Date conversion"]
+        assert second["reply"] == "Explain cultural conventions or convert dates?"
         assert not (life / "research/DOMAINS/calendar_conventions.json").exists()
         if cards:
             assert answer(card, "direct")["resolved"] is False, "An old tab must not answer the next question"
             assert answer(second["decision_card"], "custom")["resolved"] is False
         note = "Cultural education, cite conventions, state uncertainty"
-        third = answer(second["decision_card"], "custom", note) if cards else send(note)
+        third = answer(second["decision_card"], "option-1", note) if cards else send(note)
         assert third["kind"] == "task", third
         if cards:
             assert answer(second["decision_card"], "custom", note)["resolved"] is False
+    assert len(calls) == 2
+    assert calls[0][3] is None and calls[1][3] == 'manager-conversation'
+    assert all(call[1].disable_tools and call[2] == 'manager-domain-dialogue' for call in calls)
     assert len(started) == 1
     items = Backlog(life / "backlog.jsonl").history()
     assert len(items) == 1
@@ -149,3 +166,35 @@ def test_direct_card_retries_failure_without_losing_question_or_repeating_succes
     assert not Backlog(life / 'backlog.jsonl').history()
     assert any(task['status'] == 'done' for task in read_map(sid, tmp_path, life)['tasks'])
     assert not any('/stop' in row['text'] for row in read_turns(life)), 'Transport text is not a command'
+
+
+def test_bad_manager_question_keeps_offer_and_does_not_fabricate_options(tmp_path, monkeypatch):
+    from argus.manager.domain_intake import handle_intake, intake_card
+
+    sid = 's-options-failure'
+    life = tmp_path / 'projects' / sid
+    life.mkdir(parents=True)
+    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
+    handle_intake(life, 'Interpret my calendar date', {'action': 'offer'}, route='simple', self_mode='reply', known_verticals=())
+    before = read_intake(life)
+    card = intake_card(before)
+    calls = []
+
+    class Backend:
+        def run_exec(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(exit_code=0, thread_id='manager-failed-question',
+                last_agent_message='Decision:\nDOMAIN_ACTION=ASK\nDOMAIN_QUESTION=Who is this for?')
+
+    manager = Manager(life, runner=Backend(), memory_maintenance_enabled=False)
+    monkeypatch.setattr(front_door, '_ensure_manager_runner', lambda *_a: SimpleNamespace(manager=manager))
+    app = server.create_app(global_root=tmp_path)
+    with TestClient(app) as client:
+        url = f'/api/projects/{sid}/message'
+        invalid = client.post(url, json={'text': 'forged', 'domain_answer': {'id': card['id'], 'option_id': 'not-a-choice'}}).json()
+        assert invalid['resolved'] is False and calls == []
+        reply = client.post(url, json={'text': 'build', 'domain_answer': {'id': card['id'], 'option_id': 'build'}}).json()
+        assert reply['kind'] == 'error' and reply['resolved'] is False
+    assert len(calls) == 1, 'A malformed question must not start an unbounded repair loop'
+    assert read_intake(life) == before
+    assert not Backlog(life / 'backlog.jsonl').history()

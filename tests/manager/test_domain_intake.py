@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from argus.life.router import classify_front_door
 from argus.manager.domain_intake import handle_intake, intake_prompt, read_intake
 
@@ -19,6 +21,9 @@ def test_legacy_pending_question_has_stable_actionable_card(tmp_path):
 
 
 def turn(root, message, action, **fields):
+    if action == "ask" and "options" not in fields:
+        fields["options"] = [{"label": "Cultural education", "description": "Cite conventions and uncertainty"},
+                             {"label": "Date conversion", "description": "Calendar table with sources"}]
     return handle_intake(root, message, {"action": action, **fields}, route="simple",
                          self_mode="reply", known_verticals=("research", "software"))
 
@@ -29,8 +34,8 @@ def test_unknown_domain_requires_opt_in_and_clarification_before_preparing(tmp_p
     assert read_intake(tmp_path)["consented"] is False
     assert not (tmp_path / "research").exists()
 
-    question = turn(tmp_path, "Yes, develop it", "prepare", name="calendar_interpretation")
-    assert "What should it produce" in question["reply"]
+    question = turn(tmp_path, "Yes, develop it", "ask", question="Explain conventions or convert dates?")
+    assert question["reply"] == "Explain conventions or convert dates?"
     assert read_intake(tmp_path)["phase"] == "clarifying"
     assert not (tmp_path / "research").exists()
 
@@ -84,7 +89,7 @@ def test_pending_context_and_domain_decision_share_the_existing_classifier_call(
                                 domain_prompt=intake_prompt({"research": "Scientific inquiry"}, read_intake(tmp_path)))
     assert len(prompts) == 1 and result[2] == "simple"
     assert "Original task" in prompts[0] and "Scientific inquiry" in prompts[0]
-    assert decisions == [{"action": "ask", "name": "", "question": "What output should it produce?"}]
+    assert decisions == [{"action": "ask"}]
 
 
 def test_approved_domain_reuses_the_normal_dispatch_without_another_classifier(tmp_path):
@@ -104,3 +109,38 @@ def test_approved_domain_reuses_the_normal_dispatch_without_another_classifier(t
     )
     assert prepared.decision is ready["decision"]
     assert "_approved_domain_decision" not in state
+
+
+def test_ask_without_manager_options_never_replaces_the_card(tmp_path):
+    from argus.manager.domain_intake import IntakeDialogueError
+    turn(tmp_path, "Interpret my calendar date", "offer")
+    previous = read_intake(tmp_path)
+    with pytest.raises(IntakeDialogueError):
+        turn(tmp_path, "Build it", "ask", question="Who is this for?", options=[])
+    assert read_intake(tmp_path) == previous
+
+
+def test_model_choices_keep_their_meaning_and_enforce_required_details(tmp_path):
+    from argus.manager.domain_intake import intake_answer, intake_card
+    turn(tmp_path, "Interpret this date", "offer")
+    turn(tmp_path, "Build it", "ask", question="Which level of precision?", options=[
+        {"label": "Use the date only", "description": "Discuss broad cultural conventions."},
+        {"id": "build", "label": "Supply the birth time", "description": "Use hour-level conventions.", "requires_note": True},
+    ])
+    state = read_intake(tmp_path)
+    card = intake_card(state)
+    assert [o["id"] for o in card["options"]] == ["option-1", "option-2"]
+    text, action = intake_answer(state, {"id": card["id"], "option_id": "option-1"})
+    assert action == "dialogue" and "broad cultural conventions" in text
+    with pytest.raises(ValueError):
+        intake_answer(state, {"id": card["id"], "option_id": "option-2"})
+    text, action = intake_answer(state, {"id": card["id"], "option_id": "option-2", "note": "09:00"})
+    assert action == "dialogue" and "09:00" in text
+
+
+def test_manager_can_prepare_after_explicit_consent_when_requirements_are_already_known(tmp_path):
+    turn(tmp_path, "For a cultural education handout, compare documented calendar conventions and cite sources", "offer")
+    ready = turn(tmp_path, "Build this workflow using those requirements", "prepare", name="calendar_conventions")
+    assert ready["route"] == "complex"
+    assert read_intake(tmp_path)["consented"] is True
+    assert not (tmp_path / "research").exists()

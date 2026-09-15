@@ -231,6 +231,7 @@ def _manager_message(
     boilerplate (streaming/journaling a reply) is now shared via
     ``_TurnEmitter``.
     """
+    from ..core.operator_messages import uses_cjk
     from ..core.transcript import append_turn
     from ..life.memory import MemoryBundle
     from ..manager.front_door import mission_is_running
@@ -534,8 +535,8 @@ def _manager_message(
         chat_state["_frontdoor_credential_imported"] = credential_record is not None
         pending_domain = read_intake(life_dir).get("phase") in {"offered", "clarifying"}
         if choice_action:
-            # A button already carries an explicit choice; no LLM is needed to
-            # infer consent. The subsequent work still uses normal execution.
+            # Card answers already identify this conversation. Skip stateless
+            # routing; the persistent Manager authors the next question below.
             current_intake = read_intake(life_dir)
             classify = _classify_operator_turn(
                 mem, body, chat_state, active_mission, life_dir,
@@ -621,14 +622,28 @@ def _manager_message(
         chat_state["_domain_setup_enabled"] = not active_mission and not explicit_chat
         domain_decision = chat_state.pop("_frontdoor_domain", None)
         if domain_decision and not frontdoor_failure and not active_mission and not explicit_chat and control is None:
-            from ..manager.domain_intake import handle_intake
+            from ..manager.domain_intake import handle_intake, manager_intake_decision
             from ..skills.vertical_select import available_verticals
             from ..verticals import list_all_data_domain_names
 
             previous_intake = read_intake(life_dir)
-            intake = handle_intake(life_dir, operator_text, domain_decision, route=route,
-                                   self_mode=chat_state.get("_frontdoor_self_mode", "inspect"),
-                                   known_verticals=tuple(available_verticals()) + tuple(list_all_data_domain_names(life_dir)))
+            try:
+                if previous_intake.get("phase") in {"offered", "clarifying"} and domain_decision.get("action") in {"ask", "prepare", "dialogue"}:
+                    emitter.phase("Manager 正在结合任务整理建议选项…" if uses_cjk(operator_text) else
+                                  "Manager is preparing options for this task…")
+                    domain_decision = manager_intake_decision(mem, chat_state, operator_text, root_task_id=root_task_id)
+                    if _cancelled():
+                        return _cancelled_result()
+                intake = handle_intake(life_dir, operator_text, domain_decision, route=route,
+                                       self_mode=chat_state.get("_frontdoor_self_mode", "inspect"),
+                                       known_verticals=tuple(available_verticals()) + tuple(list_all_data_domain_names(life_dir)))
+            except Exception as exc:  # noqa: BLE001 — retain the user's card and answer on provider/format failure
+                if _cancelled():
+                    return _cancelled_result()
+                log.warning("Manager workflow dialogue failed: %s", type(exc).__name__)
+                reply = ("Manager 暂时没能整理好建议选项，请重试；你的任务和回答已保留。" if uses_cjk(operator_text) else
+                         "Manager could not prepare the options just now. Retry; your task and answer are preserved.")
+                return emitter.respond(reply, {"kind": "error", "resolved": False})
             if intake is not None:
                 if "reply" in intake:
                     return emitter.respond(intake["reply"], {"kind": "chat", "decision_card": intake_card(read_intake(life_dir))})
@@ -755,8 +770,6 @@ def _manager_message(
         or body
     )
     if defer_dispatch_ack:
-        from ..core.operator_messages import uses_cjk
-
         emitter.phase(
             "已保存，正在确认执行状态" if uses_cjk(text)
             else "Saved; checking executor status"
