@@ -461,6 +461,7 @@ def enqueue_mission(
         front_door._maybe_name_session(
             chat_state,
             execution_body,
+            suggested_name=display_title,
             promote_task_name=True,
         )
         alive, pid = _daemon_status(life_dir)
@@ -822,6 +823,7 @@ def enqueue_mission(
         front_door._maybe_name_session(
             chat_state,
             execution_body,
+            suggested_name=display_title,
             promote_task_name=True,
         )
         return item

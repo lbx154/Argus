@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from argus.core.session import SessionMeta, write_session_meta
+from argus.core.session import SessionMeta, read_session_meta, write_session_meta
 from argus.life.memory import Backlog
 from argus.manager import Manager, config_intent, front_door
 from argus.manager.domain_author import VerticalDecision, parse_domain_proposal
@@ -113,6 +113,7 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
     assert calls[0][3] is None and calls[1][3] == 'manager-conversation'
     assert all(call[1].disable_tools and call[2] == 'manager-domain-dialogue' for call in calls)
     assert len(started) == 1
+    assert read_session_meta(tmp_path, sid).display_name.startswith("Build a reusable calendar")
     items = Backlog(life / "backlog.jsonl").history()
     assert len(items) == 1
     assert "First fetch relevant primary references" in items[0].objective
