@@ -161,6 +161,36 @@ def _make_runner(backend: _FakeBackend) -> Any:
     return runner
 
 
+@pytest.mark.parametrize("mode", ["project_status", "argus_status", "host_status"])
+def test_scoped_status_reads_facts_without_another_model_turn(tmp_path, monkeypatch, mode):
+    from argus.daemon.runtime_status import register_web_status
+
+    root = tmp_path / "projects" / "s-current"
+    root.mkdir(parents=True)
+    backend = _FakeBackend(response_message="Incorrect invented status")
+    runner = _make_runner(backend)
+    runner._manager_session_root = root
+    sink = _RecordingSink()
+    close = register_web_status(tmp_path, lambda sid: 1)
+    try:
+        outcome = runner._maybe_chat_outcome(objective="你现在的服务器上在干什么？argus", sink=sink, route="simple", self_mode=mode)
+    finally:
+        close()
+    assert outcome.success and outcome.chat_mode and outcome.rounds == 0
+    assert backend.calls == [] and backend.classify_calls == []
+    reply = next(row["last_message"] for row in sink.events if row["type"] == "round.main.completed")
+    assert "网页服务正在运行" in reply and "Incorrect invented status" not in reply
+    assert not (root / "backlog.jsonl").exists()
+    from argus.core import transcript
+
+    def no_learning_probe(*args, **kwargs):
+        raise AssertionError("Routine status must not trigger a learning review")
+
+    monkeypatch.setattr(transcript, "read_turns", no_learning_probe)
+    runner.manager.memory_maintenance_enabled = True
+    runner._schedule_self_learning_review(objective="服务器状态", reply=reply)
+
+
 def test_execute_config_loads_custom_vertical_from_session_state(
     tmp_path: Path,
 ) -> None:

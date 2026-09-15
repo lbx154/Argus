@@ -40,7 +40,7 @@ import re
 import threading  # noqa: F401 - used via server.threading in tests/webapi/test_commands_m1.py
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..apps.cli._follow import (
     _merge_recent_event_rows,
@@ -577,6 +577,26 @@ def create_app(
             shutdown_manager_bridge()
         except Exception:  # noqa: BLE001
             pass
+
+    status_registrations: list[Callable[[], None]] = []
+
+    @app.on_event("startup")
+    def _register_status_surface() -> None:
+        from ..daemon.runtime_status import register_web_status
+
+        for root in roots:
+            def foreground_count(sid: str, owner: Path = root) -> int | None:
+                return len(app.state.message_requests.active(sid)) if ctx.root_for_project(sid) == owner else None
+
+            status_registrations.append(register_web_status(
+                root, foreground_count,
+            ))
+
+    @app.on_event("shutdown")
+    def _unregister_status_surface() -> None:
+        for close in status_registrations:
+            close()
+        status_registrations.clear()
 
     # Localhost dev only: allow the Vite dev server + same-origin. Not a wildcard.
     app.add_middleware(

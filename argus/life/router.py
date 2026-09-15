@@ -233,6 +233,9 @@ ControlIntent = Literal["abort", "pause", "no_dispatch", "steer"]
 SelfModeIntent = Literal[
     "reply",
     "inspect",
+    "project_status",
+    "argus_status",
+    "host_status",
     "micro",
     "implement",
     "debug",
@@ -463,14 +466,17 @@ def classify_front_door(
     self_mode: SelfModeIntent | None = None
     if route == "simple":
         self_mode_token = _first_alpha_token(fields["self_mode"]).upper()
-        self_mode = {
+        self_mode = cast(SelfModeIntent, {
             "REPLY": "reply",
+            "PROJECTSTATUS": "project_status",
+            "ARGUSSTATUS": "argus_status",
+            "HOSTSTATUS": "host_status",
             "MICRO": "micro",
             "IMPLEMENT": "implement",
             "DEBUG": "debug",
             "REVIEW": "review",
             "SYNTHESIZE": "synthesize",
-        }.get(self_mode_token, "inspect")
+        }.get(self_mode_token, "inspect"))
     if callable(self_mode_sink) and self_mode is not None:
         try:
             self_mode_sink(self_mode)

@@ -443,8 +443,26 @@ class SelfReplyMixin:
                     root_task_id=root_task_id,
                 )
         if route == "simple":
-            _phase("Argus 自己动手处理…")
             mode = str(self_mode or "inspect").strip().lower()
+            from ..daemon.runtime_status import (
+                STATUS_MODES,
+                observe_runtime_status,
+                render_runtime_status,
+            )
+
+            if mode in STATUS_MODES:
+                _phase("正在读取运行状态…")
+                root = self._manager_state_path()
+                facts = observe_runtime_status(root, mode)
+                reply = render_runtime_status(facts, chinese=bool(re.search(r"[\u3400-\u9fff]", objective)))
+                self._last_self_mode = mode
+                sink.handle_event({
+                    "type": "round.main.completed", "round_index": 1,
+                    "exit_code": 0, "turn_completed": True, "last_message": reply,
+                    "input_tokens": 0, "output_tokens": 0, "usage_scope": "delta",
+                })
+                return _Outcome(success=True, status="done", rounds=0, chat_mode=True)
+            _phase("Argus 自己动手处理…")
             return self._simple_quick_reply(
                 objective=objective,
                 sink=_PhaseSink(sink),
@@ -484,6 +502,9 @@ class SelfReplyMixin:
     def reset_chat_session(self) -> None:
         self._next_seed_thread_id = None
         self.last_thread_id = None
+
+    def _manager_state_path(self) -> Path:
+        return Path(getattr(self, "_manager_session_root", None) or self.manager.manager_session_root)
 
     def _manager_reply_runtime_context(self, run_label: str) -> str:
         workspace_context = ""
@@ -558,12 +579,14 @@ class SelfReplyMixin:
             root = Path(session_root)
             daemon = read_daemon_status(root)
             daemon_lines = [
-                "## Authoritative daemon status",
+                "## Current project's background worker",
                 f"- alive: {'true' if daemon.alive else 'false'}",
                 f"- pid: {daemon.pid if daemon.alive and daemon.pid is not None else 'none'}",
                 (
                     "- evidence source: daemon status/pid files for this session; "
-                    "WebAPI activity and events.jsonl writes do not prove daemon liveness."
+                    "this is not WebAPI or host liveness. No worker PID may simply mean "
+                    "this project has never started background work. Foreground requests "
+                    "and other projects can still be running."
                 ),
             ]
             daemon_block = "\n".join(daemon_lines)
@@ -721,7 +744,7 @@ class SelfReplyMixin:
             prompt = build_quick_reply_prompt(objective=objective)
             from ..manager.observation import observe_project
 
-            state_root = getattr(self, "_manager_session_root", None) or self.manager.manager_session_root
+            state_root = self._manager_state_path()
             prompt += "\n\n" + observe_project(state_root).render()
             read_dirs = None
             native_skill_paths: list[str] = []
@@ -1035,7 +1058,9 @@ class SelfReplyMixin:
         reply: str,
     ) -> None:
         """Review every fifth successful chat reply without delaying the answer."""
-        if getattr(self, "_last_self_mode", "") in _SELF_EXECUTION_CONTRACTS:
+        from ..daemon.runtime_status import STATUS_MODES
+
+        if getattr(self, "_last_self_mode", "") in {*_SELF_EXECUTION_CONTRACTS, *STATUS_MODES}:
             return
         if not bool(self.manager.memory_maintenance_enabled):
             return

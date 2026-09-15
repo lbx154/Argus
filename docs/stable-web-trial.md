@@ -25,6 +25,17 @@ not start another background steering call during daemon shutdown. Continuous
 campaigns, pending tasks, and issued decisions awaiting delivery retain their
 normal supervision.
 
+## Status questions
+
+Simple status questions use one classification call, followed by a native read
+of the requested scope: the current project, projects in this Argus instance,
+or host activity. The native reply distinguishes a live WebAPI and foreground
+requests from each project's background worker. Unreadable or unobserved scopes
+remain unknown; an empty project never establishes that the server is idle.
+Host summaries read resource totals and process names for the service account,
+without reading command arguments, environment variables, or other accounts'
+process details. These queries create no tasks or background learning calls.
+
 ## Concurrency
 
 Research candidate count and worker concurrency are independent. A twelve-route

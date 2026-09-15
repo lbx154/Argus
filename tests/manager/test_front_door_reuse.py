@@ -205,7 +205,7 @@ def test_existing_manager_thread_disables_context_free_fast_reply() -> None:
 
 @pytest.mark.parametrize(
     "self_mode",
-    ["micro", "implement", "debug", "review", "synthesize"],
+    ["micro", "implement", "debug", "review", "synthesize", "project_status", "argus_status", "host_status"],
 )
 def test_existing_manager_thread_preserves_isolated_execute_mode(
     self_mode: str,

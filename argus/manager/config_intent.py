@@ -167,6 +167,9 @@ def _front_door_classify(
                     if str(value).strip().lower() in {
                         "reply",
                         "inspect",
+                        "project_status",
+                        "argus_status",
+                        "host_status",
                         "micro",
                         "implement",
                         "debug",

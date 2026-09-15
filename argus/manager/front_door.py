@@ -1510,10 +1510,11 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
 
     try:
         mode = str(self_mode or "inspect").strip().lower()
+        status_modes = {"project_status", "argus_status", "host_status"}
         execution_modes = {
             "micro", "implement", "debug", "review", "synthesize",
         }
-        if mode not in {"reply", "inspect", *execution_modes}:
+        if mode not in {"reply", "inspect", *execution_modes, *status_modes}:
             mode = "inspect"
         triage_kwargs: dict[str, Any] = {
             "objective": body,
