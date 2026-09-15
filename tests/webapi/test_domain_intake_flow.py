@@ -37,7 +37,9 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
                          'VERTICAL_BRIEF=Scope: explain calendar conventions with cited cultural context.\n'
                          'Inputs: date and calendar convention; ask for the convention when absent.\n'
                          'Output: a cited explanation and uncertainty. Method: use primary calendar references.\n'
-                         'Checks: a second date and missing-calendar input; exclude predictions.')
+                         'Checks: a second date and missing-calendar input; exclude predictions.\n'
+                         'TASK_TITLE=Build a reusable calendar workflow\n'
+                         'TASK_SUMMARY=Explain calendar conventions with cited sources. Validate 2005-07-31 and another date, including missing-calendar input.')
             return SimpleNamespace(exit_code=0, thread_id='manager-conversation', last_agent_message=reply)
     manager = Manager(life, runner=Backend(), memory_maintenance_enabled=False)
     choices = iter([
@@ -77,7 +79,7 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
         def send(text):
             return client.post(url, json={"text": text, "route_override": "task" if forced else "auto"}).json()
 
-        first = send("Explain a traditional calendar date")
+        first = send("17\nExplain a traditional calendar date: 2005-07-31")
         assert first["kind"] == "chat" and "one agent" in first["reply"]
         assert not started and not Backlog(life / "backlog.jsonl").history()
         card = first["decision_card"]
@@ -120,9 +122,11 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
     from argus.webapi.map_view import read_map
 
     card = read_map(sid, tmp_path, life)["tasks"][0]
-    assert card["title"].startswith("Build a reusable vertical:")
-    assert "Explain a traditional calendar date" in card["objective"]
-    assert "Inputs: date and calendar convention" in card["objective"]
+    assert card["title"] == "Build a reusable calendar workflow"
+    assert card["objective"] == "Explain calendar conventions with cited sources. Validate 2005-07-31 and another date, including missing-calendar input."
+    assert "17\nExplain" not in card["objective"]
+    assert "17\nExplain a traditional calendar date: 2005-07-31" in items[0].objective
+    assert "Yes, build" not in card["objective"]
     assert "provided project Skill libraries" not in card["objective"]
     assert "provided project Skill libraries" in items[0].objective
     assert "different-input example" in items[0].objective

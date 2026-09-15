@@ -31,6 +31,8 @@ def turn(root, message, action, **fields):
     if action == "prepare":
         fields.setdefault("purpose", CAPABILITY_PURPOSE)
         fields.setdefault("brief", CAPABILITY_BRIEF)
+        fields.setdefault("title", "Build a reusable calendar workflow")
+        fields.setdefault("summary", "Explain traditional calendar conventions with cited sources and reuse checks.")
     if action == "ask" and "options" not in fields:
         fields["options"] = [{"label": "Cultural education", "description": "Cite conventions and uncertainty"},
                              {"label": "Date conversion", "description": "Calendar table with sources"}]

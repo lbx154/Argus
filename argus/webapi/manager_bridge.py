@@ -657,6 +657,7 @@ def _manager_message(
                     chat_state["_approved_domain_decision"] = intake["decision"]
                     chat_state["_domain_display_objective"] = {
                         "execution_task": routing_body, "objective": intake["display_objective"],
+                        "title": intake["title"],
                     }
                 else:
                     chat_state["_frontdoor_self_mode"] = intake["self_mode"]

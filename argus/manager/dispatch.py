@@ -276,6 +276,8 @@ def enqueue_mission(
     domain_display = chat_state.pop("_domain_display_objective", {})
     display_objective = (str(domain_display.get("objective") or "")
                          if domain_display.get("execution_task") == body else "")
+    display_title = (str(domain_display.get("title") or "")
+                     if domain_display.get("execution_task") == body else "")
     if chat_state.get("blocked_item_id"):
         prior = str(chat_state.get("last_objective") or body)
         blocked_id = chat_state.pop("blocked_item_id", None)
@@ -527,7 +529,7 @@ def enqueue_mission(
         if direct_workflow:
             from types import SimpleNamespace
 
-            compact = " ".join((display_objective or execution_body).split()).replace("`", "")
+            compact = " ".join((display_title or display_objective or execution_body).split()).replace("`", "")
             node = SimpleNamespace(
                 key="manager_direct",
                 deps=(),

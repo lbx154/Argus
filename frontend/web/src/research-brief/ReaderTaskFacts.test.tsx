@@ -123,7 +123,11 @@ it('shows loaded task records before any generated explanation exists', () => {
   const facts = renderer!.root.findByProps({ 'data-reader-task-facts': task.id });
   expect(facts.findByProps({ 'data-reader-fact-state': 'current' }).findByType('p').children).toContain('Done');
   expect(markdown(facts)).toEqual([main.text]);
-  expect(facts.findAllByType('details')).toHaveLength(0);
+  expect(facts.findAllByType('details')).toHaveLength(1);
+  expect(facts.findByType('details').props.open).toBeUndefined();
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain('No verifiable source events');
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain('No explanation has been generated');
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain('reading explanation is pending');
   expect(renderer!.root.findAllByProps({ 'data-reader-next-interpretation': task.id })).toHaveLength(0);
 });
 

@@ -60,7 +60,7 @@ function TaskState({ record, current, capturedAt, runtimeStatus, ...artifacts }:
       {current ? execution ? zh ? '当前执行：' : 'Current execution: '
         : zh ? '任务记录：' : 'Task record: ' : zh ? '说明生成时：' : 'At explanation time: '}
       {execution ? workStatusLabel(execution, locale) : status ? plainStatus(status, locale) : zh ? '未记录' : 'Not recorded'}
-      {typeof record.attempt === 'number' ? <span className="ml-2 text-ink-faint">{zh ? `第 ${record.attempt} 次尝试` : `Attempt ${record.attempt}`}</span> : null}
+      {typeof record.attempt === 'number' && record.attempt > 1 ? <span className="ml-2 text-ink-faint">{zh ? `第 ${record.attempt} 次尝试` : `Attempt ${record.attempt}`}</span> : null}
       {typeof capturedAt === 'number' && Number.isFinite(capturedAt) && capturedAt > 0 ? <time className="ml-2 text-ink-faint" dateTime={new Date(capturedAt * 1000).toISOString()}>{new Date(capturedAt * 1000).toLocaleString(locale)}</time> : null}
     </p>
     {question ? <div className="mt-1"><p className="text-xs font-medium text-ink">{current ? zh ? '任务记录中待你补充的问题' : 'Question awaiting your input in the task record' : zh ? '当时记录的待补充问题' : 'Question retained from that time'}</p><MarkdownContent {...artifacts}>{question}</MarkdownContent>
@@ -86,13 +86,15 @@ function FactRecord({ row, current = false, ...artifacts }: ReadingArtifacts & {
 }
 
 /** Recorded state and reports do not depend on generated explanation prose. */
-export function ReaderTaskFacts({ selection, runtimeStatus, hideEmptyReports = false, ...artifacts }: ReadingArtifacts & {
-  selection: ReaderEvidenceSelection; runtimeStatus?: WorkStatus; hideEmptyReports?: boolean;
+export function ReaderTaskFacts({ selection, runtimeStatus, hideEmptyReports = false, compact = false, ...artifacts }: ReadingArtifacts & {
+  selection: ReaderEvidenceSelection; runtimeStatus?: WorkStatus; hideEmptyReports?: boolean; compact?: boolean;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const retained = selection.mode === 'snapshot' ? selection.usedTask?.record : undefined;
   const current = selection.currentTask ?? selection.usedTask?.fullRecord;
+  const currentRecords = selection.current.map(({ record }, index) => <FactRecord key={`${record.id}:${index}`} current
+    row={{ id: record.id, revision: record.revision, state: 'unverified', record: { ...record } }} {...artifacts} />);
   return <section className="mt-4 min-w-0 border-t border-line/60 pt-3 text-[13px] leading-6 text-ink-dim"
     data-reader-task-facts={selection.taskId} data-reader-fact-card={selection.cardKey}>
     <h3 className="text-xs font-medium text-ink">{zh ? '任务状态' : 'Recorded task status'}</h3>
@@ -107,11 +109,12 @@ export function ReaderTaskFacts({ selection, runtimeStatus, hideEmptyReports = f
       {selection.used.map((row, index) => <FactRecord key={`${row.id}:${index}`} row={row} {...artifacts} />)}
     </div> : <p className="text-xs text-ink-faint">{zh ? '这份说明没有可核对的来源事件。' : 'No verifiable source events are retained for this explanation.'}</p>}</> : null}
     {selection.current.length ? <div className="mt-3" data-reader-fact-group="current">
-      <p className="text-xs font-medium text-ink">{selection.mode === 'none'
+      {!compact && <p className="text-xs font-medium text-ink">{selection.mode === 'none'
         ? zh ? '进展记录' : 'Progress records'
-        : zh ? '其他已加载记录' : 'Other loaded records'}</p>
-      {selection.current.map(({ record }, index) => <FactRecord key={`${record.id}:${index}`} current
-        row={{ id: record.id, revision: record.revision, state: 'unverified', record: { ...record } }} {...artifacts} />)}
+        : zh ? '其他已加载记录' : 'Other loaded records'}</p>}
+      {compact ? <RawDisclosure label={zh ? `查看 ${selection.current.length} 条执行与审核记录` : `View ${selection.current.length} execution and review records`}>
+        {currentRecords}
+      </RawDisclosure> : currentRecords}
     </div> : null}
   </section>;
 }

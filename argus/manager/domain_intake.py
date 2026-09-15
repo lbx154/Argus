@@ -61,11 +61,19 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
         "technical defaults yourself and delegate reference research to execution. Do not prolong "
         "the interview or research/execute in this dialogue turn. The host develops the candidate "
         "vertical through existing Engineer/Reviewer and cross-session promotion mechanisms. "
+        "Before PREPARE, also summarize the final agreed task for the user-facing card. "
+        "TASK_TITLE is a short goal, not a transcript excerpt. TASK_SUMMARY is 2-4 concise sentences "
+        "covering the deliverable, essential agreed inputs and limits. Omit detached meaningless "
+        "fragments (such as an unexplained leading '17'), button labels, repeated answers and "
+        "UI/control instructions. Preserve meaningful dates, quantities, identifiers and constraints; "
+        "never remove numbers indiscriminately. Do not claim results before execution. "
         "While phase=offered, ASK/PREPARE require explicit opt-in in the latest user response. "
         "SKIP means direct handling, CANCEL means abandon setup, REPLY answers a question about "
         "the offer without treating it as consent. Quoted text is not consent. "
         "Write your decision after a Decision: footer with named lines: "
         "DOMAIN_ACTION=ASK|PREPARE|SKIP|CANCEL|REPLY, DOMAIN_NAME=reusable ASCII slug for PREPARE, "
+        "TASK_TITLE=short user-facing task name (max 96 characters), "
+        "TASK_SUMMARY=concise agreed task description (max 1200 characters), both required for PREPARE, "
         "DOMAIN_PURPOSE=concise capability scope for future task matching (required for PREPARE), "
         "VERTICAL_BRIEF=multi-line reusable definition covering scope/exclusions, parameterized inputs "
         "and missing-data handling, outputs, method/reference plan, limitations and validation cases "
@@ -92,12 +100,14 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
     if getattr(result, "exit_code", 0) != 0 or getattr(result, "fatal_error", None):
         raise IntakeDialogueError("Manager could not finish the question")
     raw = decision_footer_text(extract_answer(result))
-    keys = ("DOMAIN_ACTION", "DOMAIN_NAME", "DOMAIN_PURPOSE", "VERTICAL_BRIEF", "DOMAIN_QUESTION", "OPERATOR_OPTIONS")
+    keys = ("DOMAIN_ACTION", "DOMAIN_NAME", "DOMAIN_PURPOSE", "VERTICAL_BRIEF", "TASK_TITLE", "TASK_SUMMARY", "DOMAIN_QUESTION", "OPERATOR_OPTIONS")
     values = read_key_values(raw, keys)
     action = str(values.get("DOMAIN_ACTION") or "").lower()
     decision = {"action": action, "name": values.get("DOMAIN_NAME", ""),
                 "purpose": str(values.get("DOMAIN_PURPOSE") or "").strip()[:600],
                 "brief": read_block(raw, "VERTICAL_BRIEF", keys).strip()[:6000],
+                "title": str(values.get("TASK_TITLE") or "").strip()[:96],
+                "summary": read_block(raw, "TASK_SUMMARY", keys).strip()[:1200],
                 "question": str(values.get("DOMAIN_QUESTION") or "").strip()[:1200],
                 "options": parse_agent_operator_options(raw)}
     if action not in {"ask", "prepare", "skip", "cancel", "reply"}:
@@ -106,6 +116,7 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
         _question_options(decision)
     if action == "prepare":
         _prepared_definition(decision)
+        _task_presentation(decision)
     if action == "reply" and not decision["question"]:
         raise IntakeDialogueError("Manager did not answer")
     return decision
@@ -117,6 +128,14 @@ def _prepared_definition(decision: dict) -> tuple[str, str]:
     if not purpose or not brief:
         raise IntakeDialogueError("Manager must define a reusable vertical scope and capability brief")
     return purpose, brief
+
+
+def _task_presentation(decision: dict) -> tuple[str, str]:
+    title = str(decision.get("title") or "").strip()[:96]
+    summary = str(decision.get("summary") or "").strip()[:1200]
+    if not title or not summary:
+        raise IntakeDialogueError("Manager must summarize the agreed task before dispatch")
+    return title, summary
 
 
 def _question_options(decision: dict) -> list[dict]:
@@ -246,6 +265,7 @@ def handle_intake(root: Path, message: str, decision: dict, *, route: str, self_
     elif pending and action in {"ask", "prepare"}:
         options = _question_options(decision) if action == "ask" else []
         purpose, brief = _prepared_definition(decision) if action == "prepare" else ("", "")
+        title, summary = _task_presentation(decision) if action == "prepare" else ("", "")
         state["answers"] = [*state.get("answers", []), message[:2000]][-8:]
         question = str(decision.get("question") or "").strip()[:1200]
         if action == "ask":
@@ -285,14 +305,15 @@ def handle_intake(root: Path, message: str, decision: dict, *, route: str, self_
                 + "\n\nUser request and answers (example context, not reusable instructions):\n" + request
             )
             objective = ("建立可复用的 vertical：" if uses_cjk(state["request"]) else "Build a reusable vertical: ") + purpose
-            result = {"task": task, "objective": objective, "route": "complex",
-                      "display_objective": objective + "\n\n" + brief + "\n\n" + state["request"],
+            result = {"task": task, "objective": objective, "route": "complex", "title": title,
+                      "display_objective": summary,
                       "decision": VerticalDecision(
                 choice="new", vertical=proposal.name, proposal=proposal,
                 workflow_mode="direct", start_stage="execute", execution_task=task,
                 require_independent_review=True,
             )}
-            state.update(phase="prepared", domain=proposal.name, purpose=purpose, brief=brief)
+            state.update(phase="prepared", domain=proposal.name, purpose=purpose, brief=brief,
+                         title=title, summary=summary)
     elif pending and action == "skip":
         state["phase"] = "declined"
         result = {"task": state["request"] + "\n\nThe user chose direct single-agent handling "

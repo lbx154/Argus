@@ -103,7 +103,7 @@ it('keeps legacy step details readable and clears the reader selection when leav
   const reader = renderer!.root.findByProps({ 'data-testid': 'map-reader' });
   expect(reader.findAllByType(ReaderExplanation)).toHaveLength(0);
   expect(reader.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(oldCopy.detail);
-  expect(reader.findAllByType('p').some(node => node.children.some(child => typeof child === 'string' && child.includes('explanation is pending')))).toBe(true);
+  expect(reader.findAllByType('p').some(node => node.children.some(child => typeof child === 'string' && child.includes('explanation is pending')))).toBe(false);
   act(() => renderer!.update(<MacroTaskNode {...value} data={{ ...value.data, detailed: false, focused: false }} />));
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, null);
   expect(renderer!.root.findAllByProps({ 'data-testid': 'map-reader' })).toHaveLength(0);

@@ -38,27 +38,20 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
     currentEvents: selected?.evidence.filter(event => selected.request.event_ids.includes(event.id)) });
   const root = cardKey === taskId;
   return <div className="font-sans" data-reader-card={cardKey} data-reader-task-id={taskId}>
-    <p className="text-xs text-ink-faint">{root
-      ? zh ? '任务说明；来源按保存的材料核对。' : 'Task explanation with retained sources.'
-      : zh ? '环节说明；来源按保存的材料核对。' : 'Step explanation with retained sources.'}</p>
     <ReaderExplanationStatus generatedAt={card?.generated_at} pending={selected?.pending} generating={selected?.generating} hasExplanation={!!card}
       phase={selected?.phase} error={selected?.error} unavailable={selected?.unavailable} retry={selected?.retry} retryDisabled={selected?.retryDisabled} />
-    <ReaderEvidenceSummary selection={sources} />
+    {card ? <ReaderEvidenceSummary selection={sources} /> : null}
     {selected?.foundationRequired ? <p className="mt-2 text-xs text-ink-dim">{zh ? '先在“问题基础”里选择一份说明，再阅读本次进展的解释。原始记录仍可查看。' : 'Choose a saved foundation to explain this progress. The original records remain available.'}</p> : null}
     {brief ? <ReaderExplanation brief={brief} identity={cardKey} detail={card?.detail} learningPath={card?.learning_path} foundation={card?.foundation_ref}
       readingUnavailable={card?.teaching_review?.reading_review?.status === 'unavailable'}
       teachingUnavailable={card?.teaching_review?.status === 'unavailable'} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
-      : <>
-        <p className="my-2 text-xs text-ink-faint">{selected?.error || selected?.unavailable
-          ? zh ? '可以先读已保留的详细记录。' : 'The retained detailed record is available below.'
-          : zh ? '阅读说明待整理；可以先读已保留的详细记录。' : 'A reading explanation is pending. The retained detailed record is available below.'}</p>
-        <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{cleanDeliverySummary(card?.detail || originalDetail)}</MarkdownContent></div>
-      </>}
-    <ReaderTaskFacts selection={sources} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
+      : <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{cleanDeliverySummary(card?.detail || originalDetail)}</MarkdownContent></div>}
+    <ReaderTaskFacts selection={sources} hideEmptyReports={!card} compact={!card && root}
+      artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
     <div className="my-3"><ProgressQuestionButton card={card} cardKey={cardKey} taskId={taskId} readOnly={readOnly} /></div>
-    <RawDisclosure label={zh ? '当前加载的任务与环节记录' : 'Currently loaded task and step record'}>
+    {card && <RawDisclosure label={zh ? '当前加载的任务与环节记录' : 'Currently loaded task and step record'}>
       <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{originalDetail}</MarkdownContent></div>
-    </RawDisclosure>
+    </RawDisclosure>}
     <RawDisclosure label={zh ? '查看依据' : 'View evidence'}>
       <ReaderEvidence selection={sources} showSummary={false} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
     </RawDisclosure>
