@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { adoptTokenFromUrl } from './api';
 import { I18nProvider, useI18n } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
+import { PageUpdateNotice } from './components/PageUpdateNotice';
 import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
 import { RELEASE_ID } from '../../core/src/release.generated';
@@ -40,6 +41,7 @@ function WebApp() {
   const { locale } = useI18n();
   return (
     <>
+      <PageUpdateNotice />
       <WorkspaceErrorBoundary locale={locale}>
         <Suspense fallback={<div className="grid min-h-screen place-items-center text-sm text-ink-faint">{locale === 'zh-CN' ? '正在加载工作台…' : 'Loading workbench…'}</div>}>
           {isAdminData ? <AdminDataApp /> : <App />}

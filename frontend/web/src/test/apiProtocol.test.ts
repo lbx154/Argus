@@ -642,3 +642,45 @@ describe('web API protocol handshake', () => {
     expect(result.reply).toBe('ok');
   });
 });
+
+describe('a page left open across a deployment', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubGlobal('window', { location: { search: '' } });
+    vi.stubGlobal('localStorage', { getItem: () => null });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('detects a newer snapshot after the cached handshake and stops old option parsing', async () => {
+    let updated = false;
+    const fetchMock = vi.fn(async (path: string) => Response.json(
+      path === '/api/meta' ? currentMeta : path.includes('/snapshot') ? currentSnapshot : { projects: [] },
+      { headers: { 'X-Argus-Release': updated ? 'next-release' : RELEASE_ID } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api, LocalArgusUnavailableError } = await import('../api');
+    const { getPageUpdateAvailable, observePageRelease, PageUpdateRequiredError } = await import('../lib/pageUpdate');
+    await api.listProjects();
+    updated = true;
+    const failure = await api.activeSnapshot('s-one').catch(error => error);
+    expect(failure).toBeInstanceOf(PageUpdateRequiredError);
+    expect(failure).not.toBeInstanceOf(LocalArgusUnavailableError);
+    expect(getPageUpdateAvailable()).toBe(true);
+    observePageRelease(RELEASE_ID); // A delayed response from before deployment.
+    expect(getPageUpdateAvailable()).toBe(true);
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/meta')).toHaveLength(1);
+    const calls = fetchMock.mock.calls.length;
+    await expect(api.answerDomain('s-one', 'intake-1', 'build', '')).rejects.toThrow(/Refresh/);
+    expect(fetchMock).toHaveBeenCalledTimes(calls);
+  });
+
+  it('delivers an already accepted mutation receipt while raising the update notice', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(
+      { kind: 'task', reply: 'Accepted' }, { headers: { 'X-Argus-Release': 'next-release' } },
+    )));
+    const { api } = await import('../api');
+    const { getPageUpdateAvailable } = await import('../lib/pageUpdate');
+    expect(await api.answerDomain('s-one', 'intake-1', 'direct', '')).toEqual({ kind: 'task', reply: 'Accepted' });
+    expect(getPageUpdateAvailable()).toBe(true);
+  });
+});

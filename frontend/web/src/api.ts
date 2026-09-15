@@ -23,6 +23,7 @@ import type {
 } from '../../core/src/types';
 import { ApiError, ensureResponseOk } from '../../core/src/http';
 import { readerPreview, type ReaderPreview } from './map/copyMode';
+import { observePageRelease, requireCurrentPage } from './lib/pageUpdate';
 import {
   requireCompatibleApiMeta,
   requireSnapshotContract,
@@ -363,14 +364,22 @@ export function isConnectionError(error: unknown): boolean {
 }
 
 async function fetchArgus(path: string, init: RequestInit): Promise<Response> {
+  let response: Response;
   try {
-    return await fetch(path, init);
+    response = await fetch(path, init);
   } catch (error) {
     // React Query cancellation is normal lifecycle control, not a backend
     // outage. Preserve it so unmount/navigation cannot raise a false alarm.
     if (init.signal?.aborted) throw error;
     throw new LocalArgusUnavailableError(String(init.method ?? 'GET'), path);
   }
+  if (response.ok) {
+    observePageRelease(response.headers.get('X-Argus-Release'));
+    // Do not decode a newer snapshot with the old UI schema. Mutation
+    // receipts still belong to their accepted request and must be delivered.
+    if (!init.method || init.method === 'GET') requireCurrentPage();
+  }
+  return response;
 }
 
 export async function requestWithTimeout<T>(
@@ -455,6 +464,7 @@ async function postResponse(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<Response> {
+  requireCurrentPage();
   const r = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -462,6 +472,7 @@ async function postResponse(
     signal,
   });
   await ensureResponseOk(r, 'POST', path);
+  observePageRelease(r.headers.get('X-Argus-Release'));
   return r;
 }
 
@@ -478,6 +489,7 @@ async function postMultipart<T>(
   body: FormData,
   signal?: AbortSignal,
 ): Promise<T> {
+  requireCurrentPage();
   const r = await fetch(path, {
     method: 'POST',
     headers: authHeaders(),
@@ -485,6 +497,7 @@ async function postMultipart<T>(
     signal,
   });
   await ensureResponseOk(r, 'POST', path);
+  observePageRelease(r.headers.get('X-Argus-Release'));
   return (await r.json()) as T;
 }
 
@@ -504,12 +517,14 @@ async function mutationJson<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  requireCurrentPage();
   const r = await fetch(path, {
     method,
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   await ensureResponseOk(r, method, path);
+  observePageRelease(r.headers.get('X-Argus-Release'));
   return (await r.json()) as T;
 }
 
@@ -572,8 +587,10 @@ export function compatibleApiMeta(): Promise<ApiMeta> {
             throw new Error('incompatible Argus API: service does not expose /api/meta');
           }
           await ensureResponseOk(response, 'GET', path);
+          const payload = await response.json();
+          observePageRelease(payload?.runtime?.release_id);
           return requireCompatibleApiMeta(
-            await response.json(),
+            payload,
             (warning) => console.warn(`Argus API compatibility warning: ${warning}`),
           );
         },

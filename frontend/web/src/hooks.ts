@@ -3,6 +3,7 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import { api, isAuthenticationError, openStream, type EventMsg, type ProjectIndex, type Snapshot } from './api';
 import { eventKey } from '../../core/src/events';
 import { cacheProjectName } from './lib/projectName';
+import { PageUpdateRequiredError } from './lib/pageUpdate';
 
 /* ------------------------------------------------------------------ REST */
 
@@ -14,7 +15,7 @@ export const ARTIFACTS_POLL_MS = 10_000;
 export const GIT_DIFF_POLL_MS = 10_000;
 
 export function queryRetryPolicy(failureCount: number, error: unknown): boolean {
-  return !isAuthenticationError(error) && failureCount < 1;
+  return !isAuthenticationError(error) && !(error instanceof PageUpdateRequiredError) && failureCount < 1;
 }
 
 export function projectCostPollInterval(error: unknown): number | false {
