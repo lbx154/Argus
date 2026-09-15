@@ -69,6 +69,17 @@ it("keeps an empty map as an island until activation, then focuses synchronously
   expect(island().props["data-compact"]).toBe(true);
 });
 
+it("keeps an oversized map draft and blocks both Enter and form submission", async () => {
+  const onSend = vi.fn();
+  const value = 'x'.repeat(32_001);
+  act(() => { renderer = create(<MapComposer {...defaults} value={value} onSend={onSend} />, { createNodeMock: nodeMock }); });
+  await act(async () => textarea().props.onKeyDown(key("Enter")));
+  await act(async () => renderer!.root.findByType('form').props.onSubmit({ preventDefault: vi.fn() }));
+  expect(onSend).not.toHaveBeenCalled();
+  expect(textarea().props.value).toBe(value);
+  expect(renderer!.root.findByProps({ role: 'alert' })).toBeDefined();
+});
+
 it("collapses an accepted send into live status and allows another draft while waiting", async () => {
   function Harness() {
     const [value, setValue] = useState("Make a city map");
@@ -108,6 +119,17 @@ it("does not send IME candidate confirmation or lose the draft on failure", asyn
   expect(island().props["data-compact"]).toBe(false);
   expect(island().props["data-state"]).toBe("error");
   expect(textarea().props.value).toBe("做一个城市地图");
+});
+
+it("reopens a restored draft when HTTP fails after local dispatch", async () => {
+  const onSend = vi.fn(async () => true);
+  act(() => { renderer = create(<MapComposer {...defaults} value="Retry this request" onSend={onSend} />, { createNodeMock: nodeMock }); });
+  await act(async () => textarea().props.onKeyDown(key("Enter")));
+  expect(island().props['data-compact']).toBe(true);
+  act(() => renderer!.update(<MapComposer {...defaults} value="Retry this request" onSend={onSend} dispatchStatus="error" />));
+  expect(island().props['data-compact']).toBe(false);
+  expect(textarea().props.value).toBe("Retry this request");
+  expect(onSend).toHaveBeenCalledOnce();
 });
 
 it("does not blur or hide a newer draft when an earlier send is acknowledged", async () => {

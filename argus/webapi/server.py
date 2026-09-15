@@ -501,6 +501,18 @@ def create_app(
         title="argus web API",
         version=str(api_meta["runtime"]["package_version"]),
     )
+    from fastapi.exceptions import RequestValidationError
+
+    from .request_limits import RequestSizeLimitMiddleware
+
+    app.add_middleware(RequestSizeLimitMiddleware)
+
+    @app.exception_handler(RequestValidationError)
+    async def _invalid_request(_request, exc):
+        # Do not echo a large pasted document or attachment contents in errors.
+        problems = [{key: error[key] for key in ("loc", "msg", "type")}
+                    for error in exc.errors()]
+        return JSONResponse(status_code=422, content={"detail": problems})
 
     @app.exception_handler(QueryUnavailable)
     @app.exception_handler(CacheWaitTimeout)

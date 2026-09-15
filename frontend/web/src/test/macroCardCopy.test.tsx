@@ -81,6 +81,24 @@ afterEach(() => {
 });
 
 describe("macro card copy", () => {
+  it("shows an explicitly cancelled solo run as cancelled", () => {
+    const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([], {
+      task: { ...task, status: "cancelled" }, live: false,
+    })} />);
+    expect(markup).toContain("Cancelled");
+    expect(markup).not.toContain("Unknown status");
+    expect(markup).not.toContain('class="macro-state">Paused');
+  });
+  it("does not present the last small edit as the outcome of the whole task", () => {
+    const completed = { ...task, status: "done", objective: "Build a reusable date workflow" };
+    const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([
+      step("last-edit", { summary: "Removed a fingerprint from one footnote" }),
+    ], { task: completed, part: 2, partCount: 2, live: false })} />);
+    expect(markup).toContain("Build a reusable date workflow");
+    expect(markup).not.toContain('class="map-card-copy"');
+    expect(markup).toContain("Removed a fingerprint from one footnote"); // retained inside execution history
+    expect(markup.match(/Build a reusable date workflow/g)).toHaveLength(2); // text plus title tooltip
+  });
   it("keeps yesterday's summary when the status drifted and hints at the refresh", () => {
     const markup = renderToStaticMarkup(
       <MacroTaskNode

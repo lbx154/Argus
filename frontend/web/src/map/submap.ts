@@ -288,6 +288,7 @@ function outcomeSentence(status: string, zh: boolean): string {
   switch (status) {
     case "done": return zh ? "这项任务已经完成。" : "This task was completed.";
     case "failed": return zh ? "这项任务没有达到目标。" : "This task did not reach its goal.";
+    case "cancelled":
     case "aborted": return zh ? "这项任务被取消了。" : "This task was cancelled.";
     case "skipped": return zh ? "这项任务被跳过了。" : "This task was skipped.";
     case "superseded": return zh ? "这项任务被一个新的计划取代了。" : "A new plan took the place of this task.";
@@ -517,7 +518,7 @@ export function buildSubmap(
     });
   if (
     !rows.some((r) => r.kind === "result") &&
-    ["done", "failed", "aborted", "skipped", "superseded"].includes(task.status)
+    ["done", "failed", "aborted", "cancelled", "skipped", "superseded"].includes(task.status)
   )
     rows.push({
       id: `${task.id}:outcome`,

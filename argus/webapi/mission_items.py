@@ -447,6 +447,7 @@ _CONFIG_ALIASES = {
     "planner_effort": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
     "manager_effort": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
+    "global_daily_tokens": "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP",
     "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
     "daemon_limit": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
     "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
@@ -500,6 +501,7 @@ def set_operator_config(
             "ARGUS_SKILL_MAP_MODEL", "ARGUS_SKILL_MAP_REASONING_EFFORT",
             "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT",
             "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
+            "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP",
         },
     }
 
@@ -523,11 +525,12 @@ def set_budget_config(
     from ..core.knob_store import write_persisted_knobs
     from ..core.knobs import normalize_cockpit_knob_value
 
-    unknown = sorted(set(values) - _BUDGET_BATCH_ALIASES)
+    optional = {"global_daily_tokens"}
+    unknown = sorted(set(values) - _BUDGET_BATCH_ALIASES - optional)
     if unknown:
         raise ValueError(f"unsupported budget setting(s): {', '.join(unknown)}")
     normalized: dict[str, str] = {}
-    for alias in _BUDGET_BATCH_ALIASES:
+    for alias in _BUDGET_BATCH_ALIASES | (optional & set(values)):
         if alias not in values:
             raise ValueError(f"missing budget setting: {alias}")
         env_name = _CONFIG_ALIASES[alias]
@@ -537,25 +540,21 @@ def set_budget_config(
         )
     from ..core.operator_context import IntakeDecision, persist_intake_decision
 
-    rendered = ", ".join(f"{key}={normalized[key]}" for key in sorted(normalized))
-    persist_intake_decision(
-        project_state_dir,
-        rendered,
-        IntakeDecision(
-            kind="preference",
-            scope="project",
-            applies_to_roles=("manager", "planner"),
-            preference_kind="workflow",
-            preference_value=rendered,
-        ),
-        source="web.config.budget",
-    )
     # Budget caps are ordinary config.json knobs now (budget.json retired) — write
     # the whole normalized batch (caps + quota knobs) to the knob_store.
-    for key, value in normalized.items():
-        os.environ[key] = value
     if not write_persisted_knobs(normalized):
         raise RuntimeError("budget settings could not be persisted")
+    for key, value in normalized.items():
+        os.environ[key] = value
+    rendered = ", ".join(f"{key}={normalized[key]}" for key in sorted(normalized))
+    try:
+        persist_intake_decision(project_state_dir, rendered, IntakeDecision(
+            kind="preference", scope="project", applies_to_roles=("manager", "planner"),
+            preference_kind="workflow", preference_value=rendered), source="web.config.budget")
+    except OSError:
+        # The authoritative setting is already saved. A failed optional context
+        # note must not tell the user that the budget change failed.
+        pass
     return {"values": dict(normalized), "restart_required": True}
 
 

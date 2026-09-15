@@ -24,7 +24,15 @@ def budget_refusal_reply(reason: str, *, language_hint: str = "") -> str | None:
     raw = str(reason or "").strip()
     lowered = raw.casefold()
     zh = uses_cjk(language_hint)
-    if "global daily budget exhausted" in lowered:
+    if "global daily token budget exhausted" in lowered:
+        explanation = (
+            "已达到今日 token 上限，新的模型调用已暂停。已有文件和任务记录会保留；"
+            "可在设置中调整上限，或下一个预算日继续。"
+            if zh else
+            "Today's token limit has been reached. New model calls are paused; files and task records "
+            "are preserved. Adjust the limit in Settings or continue on the next budget day."
+        )
+    elif "global daily budget exhausted" in lowered:
         explanation = (
             "暂未执行：已达到全局日预算上限，任务没有入队。"
             "请等待下一个预算日，或由你明确调整预算；这不是 Agent CLI 登录故障。"

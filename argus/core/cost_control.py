@@ -237,7 +237,9 @@ def _prune_reservations(
             or (record.cost_usd is not None and record.pricing_status not in {"partial", "unpriced"})
         ):
             continue
-        if _pid_alive(int(row.get("pid") or 0)) or float(row.get("observed_cost_usd") or 0) > 0:
+        if (_pid_alive(int(row.get("pid") or 0))
+                or float(row.get("observed_cost_usd") or 0) > 0
+                or int(row.get("observed_tokens") or 0) > 0):
             kept.append({**row, "amount_usd": 0.0})
     return kept
 
@@ -348,10 +350,36 @@ def _cost_projection(
     return live, live_extra, sum(unacknowledged.values()), liabilities
 
 
+def _observed_tokens(records: list[UsageRecord], state: dict[str, Any]) -> tuple[int, int]:
+    # Input already includes cache reads/writes. Reasoning is a separate count
+    # in the normalized ledger; do not add cache a second time.
+    def count(summary: UsageSummary) -> int:
+        return summary.input_tokens + summary.output_tokens + summary.reasoning_output_tokens
+
+    records = list({r.call_id: r for r in records}.values())
+    settled = [r for r in records if r.status != "denied"]
+    known = {r.call_id: count(summarize_usage([r])) for r in settled}
+    extra: dict[str, int] = {}
+    rows = [*_prune_reservations(state["reservations"], records=records),
+            *_unresolved_costs(records, state["unresolved"])]
+    for row in rows:
+        call_id = str(row.get("call_id") or "")
+        remaining = max(0, int(row.get("observed_tokens") or 0) - known.get(call_id, 0))
+        extra[call_id] = max(extra.get(call_id, 0), remaining)
+    # The shared ledger fold deduplicates Copilot SQLite rows that arrive in
+    # overlapping final receipts from resumed sessions.
+    unsettled = sum(extra.values())
+    return count(summarize_usage(settled)) + unsettled, unsettled
+
+
 def _budget_reason(
     records: list[UsageRecord], state: dict[str, Any], cap: float,
-    *, check_unresolved: bool = True,
+    *, check_unresolved: bool = True, token_cap: int = 0,
 ) -> str:
+    if token_cap > 0:
+        tokens, _ = _observed_tokens(records, state)
+        if tokens >= token_cap:
+            return f"global daily token budget exhausted ({tokens}/{token_cap} tokens)"
     _live, live_cost, observed_unknown, liabilities = _cost_projection(records, state)
     spent = _known_cost(records) + sum(liabilities.values()) + observed_unknown + live_cost
     if cap > 0 and spent >= cap:
@@ -392,8 +420,10 @@ def cost_admission_reason(
     timestamp = time.time() if now is None else float(now)
     root = _global_root(global_root)
     records = _global_records(root, _local_day_start(timestamp), state_timestamp=timestamp)
-    limit = resolve_budget_caps(global_root=root).global_daily_cap_usd if cap is None else cap
-    return _budget_reason(records, _read_state(root, timestamp), limit)
+    caps = resolve_budget_caps(global_root=root)
+    limit = caps.global_daily_cap_usd if cap is None else cap
+    return _budget_reason(records, _read_state(root, timestamp), limit,
+                          token_cap=caps.global_daily_token_cap)
 
 
 def acknowledge_unpriced_call(
@@ -573,7 +603,8 @@ class CallBudgetReservation:
         self._closed = True
         return changed
 
-    def observe_cost(self, cost_usd: float = 0.0, *, now: float | None = None) -> str:
+    def observe_cost(self, cost_usd: float = 0.0, *, now: float | None = None,
+                     tokens: int = 0) -> str:
         """Publish observed in-flight spend and check the shared daily cap.
 
         This is real provider telemetry, not a speculative fixed call hold.
@@ -583,12 +614,14 @@ class CallBudgetReservation:
             return ""
         if not math.isfinite(cost_usd) or cost_usd < 0:
             raise ValueError("observed cost must be finite and non-negative")
+        if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
+            raise ValueError("observed tokens must be a non-negative integer")
         timestamp = time.time() if now is None else now
         records = _global_records(self.root, _local_day_start(timestamp), state_timestamp=timestamp)
         if self.project_root is not None:
             if self.project_root.resolve().parent != session_states_root(self.root).resolve():
                 records.extend(_project_records(self.project_root, _local_day_start(timestamp)))
-        cap = resolve_budget_caps(global_root=self.root).global_daily_cap_usd
+        caps = resolve_budget_caps(global_root=self.root)
         # Always read ledgers before the cost-state lock (usage -> cost order).
         with _locked(self.root, timeout_seconds=_CALL_STATE_LOCK_TIMEOUT_SECONDS):
             state = _read_state(self.root, timestamp)
@@ -607,10 +640,12 @@ class CallBudgetReservation:
                        "created_at": timestamp}
                 state["reservations"].append(row)
             row["observed_cost_usd"] = max(float(row.get("observed_cost_usd") or 0), cost_usd)
+            row["observed_tokens"] = max(int(row.get("observed_tokens") or 0), tokens)
             # An unrelated failed call must not kill a provider turn already
             # admitted: doing so loses more final usage and cascades the outage.
             # Monetary limits (including approved risk holds) still interrupt.
-            reason = _budget_reason(records, state, cap, check_unresolved=False)
+            reason = _budget_reason(records, state, caps.global_daily_cap_usd, check_unresolved=False,
+                                    token_cap=caps.global_daily_token_cap)
             _write_state(self.root, state, timestamp)
             self.state_tracked = True
         return reason
@@ -708,7 +743,7 @@ def reserve_call_budget(
             )
             state["reservations"] = reservations
             state["unresolved"] = _unresolved_costs(global_records, list(state["unresolved"]))
-            reason = _budget_reason(global_records, state, global_cap)
+            reason = _budget_reason(global_records, state, global_cap, token_cap=caps.global_daily_token_cap)
             if reason:
                 _write_state(root, state, timestamp)
                 _append_audit(root, EventType.BUDGET_RESERVATION_DENIED,
@@ -720,7 +755,8 @@ def reserve_call_budget(
     except CostControlLockBusyError:
         # Atomic state reads still include observed in-flight costs and unknown
         # settlements. Contention must not silently bypass either budget gate.
-        reason = _budget_reason(global_records, _read_state(root, timestamp), global_cap)
+        reason = _budget_reason(global_records, _read_state(root, timestamp), global_cap,
+                                token_cap=caps.global_daily_token_cap)
         if reason:
             return None, reason
         state_tracked = False
@@ -843,6 +879,8 @@ def _close_reservation(
                                     for row in rows if row.get("id") == reservation.reservation_id), default=0.0)
                     if observed:
                         unresolved_row["observed_cost_usd"] = observed
+                    unresolved_row["observed_tokens"] = max((int(row.get("observed_tokens") or 0)
+                        for row in rows if row.get("id") == reservation.reservation_id), default=0)
                 state["reservations"] = [
                     row
                     for row in rows
@@ -921,8 +959,12 @@ def cost_control_snapshot(
         records, {**state, "unresolved": unresolved, "reservations": reservations},
     )
     blocking = [row for row in unresolved if row.get("call_id") not in liabilities]
+    tokens, unsettled_tokens = _observed_tokens(records, state)
     payload = {
         "day": state["day"],
+        "daily_tokens": tokens,
+        "daily_token_cap": resolve_budget_caps(global_root=root).global_daily_token_cap,
+        "unsettled_tokens": unsettled_tokens,
         "active_reservations": len(reservations),
         "unresolved_calls": len(unresolved),
         "blocking_unresolved_calls": len(blocking) if _unpriced_policy() == "block" else 0,

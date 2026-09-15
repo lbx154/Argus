@@ -9,6 +9,7 @@ import {
   addComposerFiles,
   extractFilesFromDataTransfer,
   MESSAGE_ATTACHMENT_ACCEPT,
+  MESSAGE_TEXT_MAX_CHARS,
 } from "../lib/attachments";
 import { formatBytes } from "../lib/format";
 import { ComposerAttachmentChip } from "../components/ComposerAttachmentChip";
@@ -72,10 +73,16 @@ export function MapComposer({
   currentValue.current = value;
   const compact = !expanded;
   const { refs, text } = splitDraft(value);
+  const tooLong = value.length > MESSAGE_TEXT_MAX_CHARS;
   // Typed text, reference chips, or files: content a collapse must never lose.
   const hasDraft = Boolean(value.trim() || attachments.length);
   const currentDraft = useRef(hasDraft);
   currentDraft.current = hasDraft;
+  useEffect(() => {
+    // Dispatch is acknowledged before its HTTP request finishes. A later
+    // network rejection restores the draft; make it visible for correction.
+    if (dispatchStatus === 'error') setExpanded(true);
+  }, [dispatchStatus]);
   useEffect(() => {
     mounted.current = true;
     // Removing a focused chip can skip its blur event; the next document focus
@@ -193,7 +200,7 @@ export function MapComposer({
     }, 320);
   };
   const submit = async () => {
-    if (!text.trim() || pending || submitting.current) return;
+    if (!text.trim() || pending || submitting.current || tooLong) return;
     submitting.current = true;
     try {
       if ((await onSend(value, attachments)) && mounted.current) {
@@ -433,7 +440,7 @@ export function MapComposer({
               <button
                 type="submit"
                 tabIndex={compact ? -1 : 0}
-                disabled={!text.trim()}
+                disabled={!text.trim() || tooLong}
                 aria-label={zh ? "发送消息" : "Send message"}
                 className="map-send"
               >
@@ -443,6 +450,7 @@ export function MapComposer({
           </div>
         </form>
       </div>
+      {tooLong && <p role="alert" className="mt-1 px-3 text-xs text-err">{t('chat.messageTooLong')}</p>}
       {footer}
       <span className="map-composer-caption" role="status">
         {feedback

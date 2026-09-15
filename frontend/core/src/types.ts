@@ -146,6 +146,9 @@ export interface RequestUsage {
 
 export interface CostControlSnapshot {
   day: string;
+  daily_tokens?: number;
+  daily_token_cap?: number;
+  unsettled_tokens?: number;
   active_reservations: number;
   unresolved_calls: number;
   blocking_unresolved_calls?: number;

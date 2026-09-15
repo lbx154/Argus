@@ -83,16 +83,18 @@ class MessageRequestRegistry:
     def __init__(
         self,
         *,
-        max_active: int = 256,
+        max_active: int = 8,
+        max_active_per_project: int = 1,
         max_entries: int = 4096,
         tombstone_ttl: float = 120.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        if max_active < 1 or max_entries < 1:
+        if max_active < 1 or max_entries < 1 or max_active_per_project < 1:
             raise ValueError("request capacity must be positive")
         if not math.isfinite(tombstone_ttl) or tombstone_ttl <= 0:
             raise ValueError("tombstone retention must be finite and positive")
         self._max_active = max_active
+        self._max_active_per_project = max_active_per_project
         self._max_entries = max_entries
         self._tombstone_ttl = tombstone_ttl
         self._clock = clock
@@ -136,7 +138,9 @@ class MessageRequestRegistry:
                     raise MessageRequestCancelled("This Manager request was already cancelled")
                 raise MessageRequestConflict("This Manager request has already finished")
             if len(self._active) >= self._max_active:
-                raise MessageRequestCapacityError("Too many active Manager requests")
+                raise MessageRequestCapacityError("服务器正忙，请稍后重试；本次消息尚未提交。 / Server busy; this message was not submitted. Retry shortly.")
+            if sum(project == key[0] for project, _ in self._active) >= self._max_active_per_project:
+                raise MessageRequestConflict("这个项目正在处理一条消息，请等待完成或先停止。 / This project is handling a message. Wait for it to finish or stop it first.")
             self._require_capacity()
             entry = _ActiveRequest()
             self._active[key] = entry

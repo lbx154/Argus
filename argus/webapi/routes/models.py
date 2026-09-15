@@ -6,9 +6,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from ..request_limits import MESSAGE_MAX_CHARS
+
 
 class TaskIn(BaseModel):
-    text: str
+    text: str = Field(max_length=MESSAGE_MAX_CHARS)
     # Lazy daemon spawn (default on): queueing a task starts this project's
     # executor if none is alive — the same behaviour as the Python cockpit's
     # _autospawn_daemon_for_task, so `argus` + submit a task actually runs it.
@@ -16,11 +18,11 @@ class TaskIn(BaseModel):
 
 
 class NudgeIn(BaseModel):
-    text: str
+    text: str = Field(max_length=MESSAGE_MAX_CHARS)
 
 
 class AttachmentRefIn(BaseModel):
-    attachment_id: str
+    attachment_id: str = Field(max_length=128)
 
 
 class DomainAnswerIn(BaseModel):
@@ -30,9 +32,9 @@ class DomainAnswerIn(BaseModel):
 
 
 class MessageIn(BaseModel):
-    text: str
+    text: str = Field(max_length=MESSAGE_MAX_CHARS)
     request_id: str = Field(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")
-    attachments: list[AttachmentRefIn] = Field(default_factory=list)
+    attachments: list[AttachmentRefIn] = Field(default_factory=list, max_length=5)
     # Explicit Task/Chat is operator authority and skips only the category
     # classifier. Task still follows Manager -> Planner -> Engineer -> Reviewer.
     route_override: Literal["auto", "chat", "task"] = "auto"
@@ -44,12 +46,12 @@ class CancelMessageIn(BaseModel):
 
 
 class AnswerIn(BaseModel):
-    text: str
+    text: str = Field(max_length=MESSAGE_MAX_CHARS)
 
 
 class DecisionIn(BaseModel):
-    option_id: str
-    note: str = ""
+    option_id: str = Field(max_length=128)
+    note: str = Field(default="", max_length=MESSAGE_MAX_CHARS)
 
 
 class AbortMissionIn(BaseModel):
@@ -100,7 +102,7 @@ class PlanIn(BaseModel):
 
 
 class RewriteIn(BaseModel):
-    text: str
+    text: str = Field(max_length=MESSAGE_MAX_CHARS)
 
 
 class ConfigSetIn(BaseModel):

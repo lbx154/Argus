@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from ...core.cost_control import CostControlLockBusyError, _local_day_start
+from ...core.token_usage import extract_token_usage
 from ...provider_integrations.copilot_usage import read_copilot_usage_since
 
 if TYPE_CHECKING:
@@ -23,6 +24,16 @@ class LiveBudgetMonitor:
         self.interval_seconds = interval_seconds
         self.next_check = 0.0
         self.reason = ""
+        self.usage_day = _local_day_start(time.time())
+        self.pi_cost = 0.0
+        self.pi_tokens = 0
+
+    def _roll_day(self) -> None:
+        day = _local_day_start(time.time())
+        if day != self.usage_day:
+            self.usage_day = day
+            self.pi_cost = 0.0
+            self.pi_tokens = 0
 
     def observe(self, stream: str, line: str) -> None:
         if stream != "stdout" and not stream.endswith(".stdout"):
@@ -33,6 +44,30 @@ class LiveBudgetMonitor:
             return
         if not isinstance(event, dict):
             return
+        if (getattr(getattr(self.ctx, "backend", None), "_backend_name", "") == "pi"
+                and event.get("type") == "message_end"):
+            # Pi emits usage once on message_end; turn_end/agent_end repeat
+            # the same message. Do not retain text, tool arguments or thinking.
+            usage = extract_token_usage([event])
+            if usage.source == "pi_message":
+                self._roll_day()
+                self.pi_tokens += usage.input_tokens + usage.output_tokens + usage.reasoning_output_tokens
+                cost = usage.provider_cost_usd
+                if cost is None:
+                    from ...core.pricing import quote_token_usage
+
+                    message = event.get("message") or {}
+                    model = str(message.get("model") or self.ctx.options.model or "")
+                    cost = quote_token_usage(model,
+                        input_tokens=usage.input_tokens if usage.input_tokens_present else None,
+                        cached_input_tokens=usage.cached_input_tokens,
+                        cache_write_tokens=usage.cache_write_tokens,
+                        output_tokens=usage.output_tokens if usage.output_tokens_present else None,
+                        reasoning_output_tokens=usage.reasoning_output_tokens).cost_usd
+                self.pi_cost += cost or 0.0
+                # New spend is checked on the next interrupt poll, without
+                # waiting for the periodic poll or the entire agent run to end.
+                self.next_check = 0.0
         # Never interpret a nested tool argument or a child-agent id as the
         # parent session. The CLI emits its identity before model execution.
         if event.get("type") == "session.start":
@@ -57,19 +92,22 @@ class LiveBudgetMonitor:
         if reservation is None:
             return None
         try:
-            observed = 0.0
+            self._roll_day()
+            observed, tokens = self.pi_cost, self.pi_tokens
             cursor = getattr(self.ctx, "copilot_usage_cursor", None)
             if self.ctx.backend._is_copilot and cursor is not None and self.session_id:
                 usage = read_copilot_usage_since(cursor, session_id=self.session_id, timeout=0)
                 if usage is not None:
                     today = datetime.fromtimestamp(_local_day_start(time.time()), UTC)
                     for row in usage.rows:
-                        if not row.created_at or row.total_nano_aiu is None:
+                        if not row.created_at:
                             continue
                         created = datetime.fromisoformat(row.created_at.replace("Z", "+00:00"))
                         if created >= today:
-                            observed += row.total_nano_aiu / 100_000_000_000
-            self.reason = reservation.observe_cost(observed)
+                            if row.total_nano_aiu is not None:
+                                observed += row.total_nano_aiu / 100_000_000_000
+                            tokens += (row.input_tokens or 0) + (row.output_tokens or 0) + (row.reasoning_tokens or 0)
+            self.reason = reservation.observe_cost(observed, tokens=tokens)
         except CostControlLockBusyError:
             # A short bounded retry preserves responsive cancellation without
             # aborting useful work because another caller is settling usage.

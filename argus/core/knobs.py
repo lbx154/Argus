@@ -44,13 +44,15 @@ class ResolvedKnob:
 
 @dataclass(frozen=True)
 class BudgetCaps:
-    """The sole host-global runtime budget cap."""
+    """Host-global runtime limits, shared by every project and backend."""
 
     global_daily_cap_usd: float
+    global_daily_token_cap: int = 0
 
 
 BUDGET_KNOB_DEFAULTS: dict[str, str] = {
     "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "1000.0",
+    "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP": "0",
 }
 
 # Daemon count is not provider concurrency: every backend still obeys its own
@@ -142,6 +144,8 @@ KNOBS: tuple[Knob, ...] = (
     # Provider/cost caps are explicit resource-admission budgets, not work clocks.
     # --- budget ---
     Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-global daily USD cap across all projects", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP", "0", "daily input (including cache) plus output/reasoning token limit across all projects; 0 disables", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0", "concurrent provider processes across all backends and projects; 0 disables", "budget"),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "host-global settled-cost admission and reconciliation", "budget"),
     Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
@@ -461,6 +465,10 @@ def resolve_budget_caps(
 
     return BudgetCaps(
         global_daily_cap_usd=_value("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"),
+        global_daily_token_cap=int(normalize_cockpit_knob_value(
+            "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP",
+            resolve_knob("ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP", "0", env=env, persisted=persisted).value,
+        )),
     )
 
 
@@ -497,6 +505,14 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
                 f"{name} must be cautious, pragmatic, or autonomous"
             )
         return mode
+    if name == "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP":
+        try:
+            count = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be a non-negative integer") from exc
+        if count < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+        return str(count)
     if name in BUDGET_KNOB_DEFAULTS:
         number = _parse_budget_value(name, raw.removeprefix("$"))
         return f"{number:g}"

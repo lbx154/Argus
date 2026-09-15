@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { MapModelSettings } from '../map/MapModelSettings';
 import { AdvisorSettings } from './AdvisorSettings';
-import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
+import { useDoctor, useConfig, useIdentity, useTranscript, useSnapshot } from '../hooks';
+import { ApiError } from '../../../core/src/http';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner, EmptyHint, RawDisclosure } from './primitives';
 import { lastMeaningfulLine } from '../lib/rawSummary';
@@ -31,6 +32,7 @@ import {
 
 const BUDGET_FIELDS = [
   { alias: 'global_daily_cap', env: 'ARGUS_SKILL_GLOBAL_DAILY_CAP_USD', label: 'settings.budget.global', unit: 'settings.unit.usd', step: '0.1' },
+  { alias: 'global_daily_tokens', env: 'ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP', label: 'settings.budget.tokens', unit: 'settings.unit.tokens', step: '1000' },
   { alias: 'codex_daily_requests', env: 'ARGUS_SKILL_CODEX_DAILY_CALL_CAP', label: 'settings.budget.codex', unit: 'settings.unit.calls', step: '1' },
   { alias: 'copilot_daily_requests', env: 'ARGUS_SKILL_COPILOT_DAILY_CALL_CAP', label: 'settings.budget.copilot', unit: 'settings.unit.calls', step: '1' },
   { alias: 'copilot_daily_premium', env: 'ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP', label: 'settings.budget.premium', unit: 'settings.unit.requests', step: '1' },
@@ -157,6 +159,7 @@ export function ConfigModal({
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
+  const { data: snapshot } = useSnapshot(open ? sid : null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [quickModelValue, setQuickModelValue] = useState('');
   const [quickConfigBusy, setQuickConfigBusy] = useState(false);
@@ -225,13 +228,20 @@ export function ConfigModal({
       const values = Object.fromEntries(BUDGET_FIELDS.map((field) => {
         const value = String(budgets[field.alias] ?? '').trim();
         if (!value) throw new Error(t('settings.required', { field: t(field.label) }));
+        const number = Number(value);
+        const integer = field.alias === 'global_daily_tokens' || field.alias.endsWith('_requests');
+        if (!Number.isFinite(number) || number < 0 || (integer && !Number.isInteger(number))) {
+          throw new Error(t('settings.budgetInvalid', { field: t(field.label) }));
+        }
         return [field.alias, value];
       }));
       await api.setBudgets(sid, values);
       await refreshSettings();
       setBudgetResult(t('settings.budgetSaved'));
     } catch (error) {
-      setBudgetResult(requestFailureText(error, t).text);
+      setBudgetResult(error instanceof ApiError
+        ? requestFailureText(error, t).text
+        : error instanceof Error ? error.message : requestFailureText(error, t).text);
     } finally {
       setBudgetBusy(false);
     }
@@ -332,11 +342,15 @@ export function ConfigModal({
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-gold">{t('settings.budgetTitle')}</div>
                   <p className="mt-0.5 text-[10px] text-ink-faint">{t('settings.budgetHint')}</p>
+                  {snapshot?.cost_control?.daily_tokens != null && <p className="mt-1 text-xs tabular-nums text-ink-dim">
+                    {t('settings.tokensUsed', { count: snapshot.cost_control.daily_tokens.toLocaleString() })}
+                  </p>}
                 </div>
                 <button type="button" onClick={() => void saveBudgets()} disabled={budgetBusy} title={t('settings.saveBudgets')} aria-label={t('settings.saveBudgets')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-semibold text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-40">{budgetBusy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {BUDGET_FIELDS.map((field) => (
+                {BUDGET_FIELDS.filter((field) => field.alias.startsWith('global_') ||
+                  field.alias.startsWith(`${currentBackend}_`)).map((field) => (
                   <label key={field.alias} className="rounded border border-line/70 bg-bg/60 p-2">
                     <span className="block text-[10px] text-ink-faint">{t(field.label)}</span>
                     <div className="mt-1 flex items-center gap-2">

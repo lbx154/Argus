@@ -2039,6 +2039,7 @@ def test_budget_config_does_not_report_success_when_persistence_fails(
 ) -> None:
     from argus.core import knob_store
 
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "7")
     monkeypatch.setattr(knob_store, "write_persisted_knobs", lambda values: False)
     with pytest.raises(RuntimeError, match="could not be persisted"):
         server.set_budget_config(
@@ -2053,6 +2054,7 @@ def test_budget_config_does_not_report_success_when_persistence_fails(
         )
     assert not (tmp_path / "project" / "budget.json").exists()
     assert not (tmp_path / "global_budget.json").exists()
+    assert os.environ["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] == "7"
 
 
 def test_identity_set_and_skills_and_reset(ctx, monkeypatch) -> None:

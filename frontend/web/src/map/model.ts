@@ -195,6 +195,7 @@ export function taskDependencies(graph: MapGraph, taskId: string) {
 }
 
 export function statusKey(task: MapTask): string {
+  if (task.status === "cancelled") return "aborted";
   if (task.pending_question) return "question";
   if (ACTIVE.has(task.status)) return "running";
   if (task.status.startsWith("paused") || task.status === "blocked")

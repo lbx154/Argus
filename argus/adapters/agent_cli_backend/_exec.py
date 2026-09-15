@@ -157,11 +157,27 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
             model=ctx.options.model, prompt=ctx.prompt,
         )
         ctx.io_mode = io_context["mode"]
-        cli_options, denied = admit(ctx)
-        if denied is not None:
-            return denied
+        from ...core.paths import global_root
+        from ...core.provider_slots import acquire_provider_slot, release_provider_slot
+        from ._exec_finalize import finalize_result
 
-        from ...trial.training_runtime import capture_runtime_call
+        try:
+            slot, reason = acquire_provider_slot(ctx.usage_global_root or global_root())
+        except Exception as exc:  # noqa: BLE001 - fail closed before provider spawn
+            reason = f"provider admission unavailable: {type(exc).__name__}: {exc}"
+            return finalize_result(ctx, RunnerResult(exit_code=-1, fatal_error=reason,
+                stop_kind="backend_unavailable"), status="denied", error=reason)
+        if reason:
+            return finalize_result(ctx, RunnerResult(exit_code=-1, fatal_error=reason,
+                stop_kind="provider_cooldown"), status="denied", error=reason)
+        try:
+            cli_options, denied = admit(ctx)
+            if denied is not None:
+                return denied
 
-        with monitor_budget(ctx, cli_options), capture_runtime_call(ctx, cli_options):
-            return spawn_and_finish(ctx, cli_options)
+            from ...trial.training_runtime import capture_runtime_call
+
+            with monitor_budget(ctx, cli_options), capture_runtime_call(ctx, cli_options):
+                return spawn_and_finish(ctx, cli_options)
+        finally:
+            release_provider_slot(slot)

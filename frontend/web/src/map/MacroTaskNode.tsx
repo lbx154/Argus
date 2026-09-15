@@ -111,6 +111,7 @@ const STATES: Record<string, [string, string]> = {
   pending: ["待开始", "Planned"],
   failed: ["未通过", "Did not pass"],
   aborted: ["已取消", "Cancelled"],
+  cancelled: ["已取消", "Cancelled"],
   skipped: ["已跳过", "Skipped"],
   superseded: ["已被新计划替代", "Replaced by a new plan"],
   question: ["等待答复", "Waiting for an answer"],
@@ -239,7 +240,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     ? `环节 ${data.start}–${data.end} / ${data.totalSteps}`
     : `Steps ${data.start}–${data.end} / ${data.totalSteps}`;
   const partSummary =
-    data.partCount > 1
+    data.partCount > 1 && !isLastPart
       ? layout.steps
           .map((step) => stepCopy(step)?.summary || currentStep(step).summary || currentStep(step).detail)
           .filter(
@@ -247,6 +248,11 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           )
           .at(-1)
       : undefined;
+  const objectiveVisible = isLastPart && task.objective && task.objective.trim() !== task.title.trim();
+  const cardSummary = data.completionScope || (isLastPart ? task.pending_question : "") || partSummary ||
+    copy[task.id]?.summary || task.pending_question ||
+    humanizeHarnessNote(task.summary || "", zh).summary || task.summary ||
+    (!objectiveVisible ? task.objective : "");
   const scale = Math.min(
     data.frame.width / layout.width,
     data.frame.height / layout.height,
@@ -438,18 +444,11 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               </span>
             )}
           </h3>
-          {isLastPart && task.objective && task.objective.trim() !== task.title.trim() && (
+          {objectiveVisible && (
             <p className="map-card-objective" title={task.objective}>{task.objective}</p>
           )}
-          <div className="map-card-copy"><MarkdownExcerpt>
-            {data.completionScope || (isLastPart ? task.pending_question : "") || partSummary ||
-              copy[task.id]?.summary ||
-              task.pending_question ||
-              humanizeHarnessNote(task.summary || "", zh).summary ||
-              task.summary ||
-              task.objective ||
-              (zh ? "放大查看任务内部" : "Zoom to explore")}
-          </MarkdownExcerpt></div>
+          {cardSummary && cardSummary.trim() !== (objectiveVisible ? task.objective.trim() : "") &&
+            <div className="map-card-copy"><MarkdownExcerpt>{cardSummary}</MarkdownExcerpt></div>}
           <div className="map-card-stages">
             {isLastPart && data.live && !data.paused && ACTIVE.has(task.status)
               ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />

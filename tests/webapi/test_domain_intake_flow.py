@@ -131,6 +131,8 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
     assert "provided project Skill libraries" not in card["objective"]
     assert "provided project Skill libraries" in items[0].objective
     assert "different-input example" in items[0].objective
+    assert "held-out inputs" in items[0].objective
+    assert "rerun the counterexample and an unaffected case" in items[0].objective
     from argus.verticals import _data_domain as domains
 
     candidate = domains.load_data_domain("calendar_conventions", life)

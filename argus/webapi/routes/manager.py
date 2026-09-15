@@ -152,7 +152,8 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         try:
             return requests.begin(sid, request_id)
         except (MessageRequestCancelled, MessageRequestConflict, MessageRequestCapacityError) as exc:
-            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+            raise HTTPException(status_code=exc.status_code, detail=str(exc),
+                                headers={"Retry-After": "1"} if isinstance(exc, MessageRequestCapacityError) else None) from exc
 
     @app.post("/api/projects/{sid}/message/cancel", dependencies=[Depends(ctx.require_auth)])
     async def _cancel_message(sid: str, body: CancelMessageIn) -> dict[str, Any]:
