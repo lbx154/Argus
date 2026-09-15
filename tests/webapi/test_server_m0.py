@@ -620,6 +620,7 @@ def test_build_snapshot_shape_and_failsoft(
         "daemon",
         "roles",
         "backlog",
+        "pending_questions",
         "recent_events",
         "spend_usd",
         "spend_status",

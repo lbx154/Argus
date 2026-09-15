@@ -20,7 +20,17 @@ def test_legacy_pending_question_has_stable_actionable_card(tmp_path):
     assert not (tmp_path / "backlog.jsonl").exists()
 
 
+CAPABILITY_PURPOSE = "Explain traditional calendar conventions with source-backed cultural context"
+CAPABILITY_BRIEF = """Scope: cultural education and calendar conventions; exclude personal predictions.
+Inputs: date and calendar convention; request the convention if missing.
+Outputs: cited explanation with uncertainty. Method: consult primary calendar references.
+Checks: verify a second date and a missing-convention case against documented examples."""
+
+
 def turn(root, message, action, **fields):
+    if action == "prepare":
+        fields.setdefault("purpose", CAPABILITY_PURPOSE)
+        fields.setdefault("brief", CAPABILITY_BRIEF)
     if action == "ask" and "options" not in fields:
         fields["options"] = [{"label": "Cultural education", "description": "Cite conventions and uncertainty"},
                              {"label": "Date conversion", "description": "Calendar table with sources"}]
@@ -144,3 +154,26 @@ def test_manager_can_prepare_after_explicit_consent_when_requirements_are_alread
     assert ready["route"] == "complex"
     assert read_intake(tmp_path)["consented"] is True
     assert not (tmp_path / "research").exists()
+
+
+def test_preparing_only_a_name_cannot_claim_to_create_a_reusable_vertical(tmp_path):
+    from argus.manager.domain_intake import IntakeDialogueError
+    turn(tmp_path, "Explain this calendar date", "offer")
+    before = read_intake(tmp_path)
+    with pytest.raises(IntakeDialogueError):
+        handle_intake(tmp_path, "Build it", {"action": "prepare", "name": "calendar"},
+                      route="simple", self_mode="reply", known_verticals=())
+    assert read_intake(tmp_path) == before
+
+
+def test_reusable_contract_does_not_embed_the_validation_example(tmp_path):
+    turn(tmp_path, "Interpret my date 2005-07-31", "offer")
+    ready = turn(tmp_path, "Build a reusable calendar explanation vertical", "prepare", name="calendar")
+    proposal = ready["decision"].proposal
+    assert proposal.rationale == CAPABILITY_PURPOSE
+    assert proposal.capability_brief == CAPABILITY_BRIEF
+    assert "2005-07-31" not in proposal.capability_brief
+    assert "different-input example" in ready["task"]
+    assert "A good answer to the first request alone is insufficient" in ready["task"]
+    assert ready["objective"].startswith("Build a reusable vertical:")
+    assert read_intake(tmp_path)["brief"] == CAPABILITY_BRIEF

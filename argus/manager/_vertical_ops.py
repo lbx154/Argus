@@ -1316,6 +1316,7 @@ class _VerticalDecisionMixin:
                     or task.strip()
                 ),
                 require_independent_review=True,
+                **({"role_banner": proposal.capability_brief} if getattr(proposal, "capability_brief", "") else {}),
             )
             persist_vertical(
                 self.project_root,

@@ -143,6 +143,7 @@ class DomainProposal:
     rationale: str = ""
     confidence: float = 0.0
     execution_task: str = ""
+    capability_brief: str = ""
 
 
 _DECISION_KEYS = (
@@ -451,6 +452,7 @@ def parse_domain_proposal(
         rationale=rationale,
         confidence=confidence,
         execution_task=execution_task,
+        capability_brief=str(obj.get("capability_brief") or "").strip()[:6000],
     )
 
 

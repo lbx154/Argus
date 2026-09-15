@@ -32,7 +32,12 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
                 ])
             else:
                 assert 'Cultural education' in prompt
-                reply = 'Decision:\nDOMAIN_ACTION=PREPARE\nDOMAIN_NAME=calendar_conventions'
+                reply = ('Decision:\nDOMAIN_ACTION=PREPARE\nDOMAIN_NAME=calendar_conventions\n'
+                         'DOMAIN_PURPOSE=Explain traditional calendar conventions for cultural education\n'
+                         'VERTICAL_BRIEF=Scope: explain calendar conventions with cited cultural context.\n'
+                         'Inputs: date and calendar convention; ask for the convention when absent.\n'
+                         'Output: a cited explanation and uncertainty. Method: use primary calendar references.\n'
+                         'Checks: a second date and missing-calendar input; exclude predictions.')
             return SimpleNamespace(exit_code=0, thread_id='manager-conversation', last_agent_message=reply)
     manager = Manager(life, runner=Backend(), memory_maintenance_enabled=False)
     choices = iter([
@@ -115,10 +120,26 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
     from argus.webapi.map_view import read_map
 
     card = read_map(sid, tmp_path, life)["tasks"][0]
-    assert card["title"].startswith("Explain a traditional calendar date")
-    assert "Cultural education" in card["objective"]
+    assert card["title"].startswith("Build a reusable vertical:")
+    assert "Explain a traditional calendar date" in card["objective"]
+    assert "Inputs: date and calendar convention" in card["objective"]
     assert "provided project Skill libraries" not in card["objective"]
     assert "provided project Skill libraries" in items[0].objective
+    assert "different-input example" in items[0].objective
+    from argus.verticals import _data_domain as domains
+
+    candidate = domains.load_data_domain("calendar_conventions", life)
+    assert candidate.purpose == "Explain traditional calendar conventions for cultural education"
+    assert "missing-calendar input" in candidate.role_banner("reviewer")
+    # The existing verified promotion path retains the reusable contract and
+    # makes the same capability available in another project.
+    assert domains.promote_data_domain(life, tmp_path, "calendar_conventions", review_reason="independent verification fixture")
+    next_project = tmp_path / "projects" / "s-next-use"
+    assert domains.materialize_learned_data_domain(tmp_path, next_project, "calendar_conventions")
+    reused = domains.load_data_domain("calendar_conventions", next_project)
+    assert reused.role_banner("engineer") == candidate.role_banner("engineer")
+    assert reused.role_banner("reviewer") == candidate.role_banner("reviewer")
+    assert "Explain a traditional calendar date" not in reused.role_banner("engineer")
 
 
 def test_direct_card_retries_failure_without_losing_question_or_repeating_success(tmp_path, monkeypatch):

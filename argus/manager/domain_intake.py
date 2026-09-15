@@ -28,7 +28,7 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
     """Author the next choice in the existing durable Manager conversation."""
     from ..core.knobs import resolve_manager_reply_model
     from ..core.models import RunnerOptions
-    from ..core.role_reply import decision_footer_text, read_key_values
+    from ..core.role_reply import decision_footer_text, read_block, read_key_values
     from ..core.run_gateway import run_exec
     from ..core.transcript import read_turns
     from .front_door import _ensure_manager_runner
@@ -43,23 +43,33 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
     history = [{"role": row.get("role"), "text": str(row.get("text") or "")[:1800]}
                for row in read_turns(mem.project_root, limit=6)]
     prompt = (
-        "Continue as this project's Manager in the same conversation. Help the user decide how "
-        "to do their actual task, not design your internal framework. You own the next question "
-        "AND its selectable answers. Use the request, conversation and previous selections. "
-        "Never ask again for known facts, or use a generic questionnaire about audience, scenario, "
-        "deliverables and acceptance criteria. Ask ONE material unresolved decision at a time. "
-        "For ASK, provide 2-4 concrete, distinct options tailored to this task. Put your recommended "
-        "option first and explain its consequence in the description. If a fact is missing, offer "
-        "ways to proceed with limited precision or let the user supply it (requires_note=true); "
-        "do not invent personal facts. The UI adds a custom-answer field. Use the user's language. "
-        "PREPARE when requirements are sufficient; do not prolong the interview. Give a reusable "
-        "ASCII domain name then. The host will research sources, create Skills and execute through "
-        "normal dispatch. Do not research or execute anything in this conversation turn. "
+        "Continue as this project's Manager in the same conversation. The primary deliverable is "
+        "a reusable vertical for future tasks; the current request is its first validation example. "
+        "You own the capability definition, next question AND selectable answers. Use the request, "
+        "conversation and previous selections to infer a sensible initial scope. Ask ONE unresolved "
+        "capability decision at a time with 2-4 concrete alternatives: supported task families and "
+        "exclusions, input/missing-data policy, methods and reference conventions, output format, or "
+        "acceptance checks. Offer proposed defaults with their consequences; do not ask a generic "
+        "audience/scenario/output questionnaire. Put your recommendation first. "
+        "Keep reusable design separate from example-specific values: a birthday, file or dataset "
+        "is an input parameter, not the vertical's identity. Missing facts about this one example "
+        "must not delay designing the vertical; define how future runs request or handle them. "
+        "Do not repeat known facts or invent missing user details. Options may require a note only "
+        "when a capability preference truly needs user-supplied detail. The UI adds custom input. "
+        "Use the user's language. PREPARE when you can state a reusable scope, input/output contract, "
+        "method outline, limitations and checks, including a different-input reuse test. Propose "
+        "technical defaults yourself and delegate reference research to execution. Do not prolong "
+        "the interview or research/execute in this dialogue turn. The host develops the candidate "
+        "vertical through existing Engineer/Reviewer and cross-session promotion mechanisms. "
         "While phase=offered, ASK/PREPARE require explicit opt-in in the latest user response. "
         "SKIP means direct handling, CANCEL means abandon setup, REPLY answers a question about "
         "the offer without treating it as consent. Quoted text is not consent. "
         "Write your decision after a Decision: footer with named lines: "
-        "DOMAIN_ACTION=ASK|PREPARE|SKIP|CANCEL|REPLY, DOMAIN_NAME=slug for PREPARE, "
+        "DOMAIN_ACTION=ASK|PREPARE|SKIP|CANCEL|REPLY, DOMAIN_NAME=reusable ASCII slug for PREPARE, "
+        "DOMAIN_PURPOSE=concise capability scope for future task matching (required for PREPARE), "
+        "VERTICAL_BRIEF=multi-line reusable definition covering scope/exclusions, parameterized inputs "
+        "and missing-data handling, outputs, method/reference plan, limitations and validation cases "
+        "(required for PREPARE; exclude personal facts, one-off answers and project-specific paths), "
         "DOMAIN_QUESTION=your question for ASK or reply for REPLY/CANCEL. "
         "For ASK add OPERATOR_OPTIONS=[{\"label\":\"specific answer\",\"description\":\"what this means\","
         "\"requires_note\":false}, ...]. You may explain briefly before the footer.\n"
@@ -82,18 +92,31 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
     if getattr(result, "exit_code", 0) != 0 or getattr(result, "fatal_error", None):
         raise IntakeDialogueError("Manager could not finish the question")
     raw = decision_footer_text(extract_answer(result))
-    values = read_key_values(raw, ("DOMAIN_ACTION", "DOMAIN_NAME", "DOMAIN_QUESTION", "OPERATOR_OPTIONS"))
+    keys = ("DOMAIN_ACTION", "DOMAIN_NAME", "DOMAIN_PURPOSE", "VERTICAL_BRIEF", "DOMAIN_QUESTION", "OPERATOR_OPTIONS")
+    values = read_key_values(raw, keys)
     action = str(values.get("DOMAIN_ACTION") or "").lower()
     decision = {"action": action, "name": values.get("DOMAIN_NAME", ""),
+                "purpose": str(values.get("DOMAIN_PURPOSE") or "").strip()[:600],
+                "brief": read_block(raw, "VERTICAL_BRIEF", keys).strip()[:6000],
                 "question": str(values.get("DOMAIN_QUESTION") or "").strip()[:1200],
                 "options": parse_agent_operator_options(raw)}
     if action not in {"ask", "prepare", "skip", "cancel", "reply"}:
         raise IntakeDialogueError("Manager did not give a valid next step")
     if action == "ask":
         _question_options(decision)
+    if action == "prepare":
+        _prepared_definition(decision)
     if action == "reply" and not decision["question"]:
         raise IntakeDialogueError("Manager did not answer")
     return decision
+
+
+def _prepared_definition(decision: dict) -> tuple[str, str]:
+    purpose = str(decision.get("purpose") or "").strip()[:600]
+    brief = str(decision.get("brief") or "").strip()[:6000]
+    if not purpose or not brief:
+        raise IntakeDialogueError("Manager must define a reusable vertical scope and capability brief")
+    return purpose, brief
 
 
 def _question_options(decision: dict) -> list[dict]:
@@ -135,9 +158,9 @@ def intake_card(state: dict) -> dict | None:
             {"id": "direct", "label": "直接做" if chinese else "Do it directly",
              "description": "单个 agent 处理这次任务。" if chinese else "One agent handles this request.",
              "requires_note": False},
-            {"id": "build", "label": "建立专门流程" if chinese else "Build a specialist workflow",
-             "description": "先确认需求，再查资料，整理可复用的方法与检查标准。" if chinese else
-                            "Clarify requirements, research sources, then develop reusable methods and checks.",
+            {"id": "build", "label": "建立可复用的 vertical" if chinese else "Build a reusable vertical",
+             "description": "定义适用范围、输入输出和检查标准，查资料并用实例验证，供后续同类任务复用。" if chinese else
+                            "Define scope, inputs, outputs and checks; research and validate examples for future tasks.",
              "requires_note": False},
         ]
     legacy_id = hashlib.sha256(json.dumps(state, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:20]
@@ -145,7 +168,7 @@ def intake_card(state: dict) -> dict | None:
         "id": state.get("question_id") or "intake-" + legacy_id,
         "kind": "domain_intake", "item_id": "", "revision": 1, "status": "pending",
         "title": ("选择处理方式" if chinese else "Choose how to proceed") if phase == "offered" else
-                 ("完善流程需求" if chinese else "Define your workflow"),
+                 ("定义可复用的 vertical" if chinese else "Define a reusable vertical"),
         "task_title": state.get("request", ""), "reason": "", "evidence": [],
         "question": ("这类任务还没有匹配的专门流程，你希望怎么处理？" if chinese else
                      "This task has no matching specialist workflow. How would you like to proceed?")
@@ -222,6 +245,7 @@ def handle_intake(root: Path, message: str, decision: dict, *, route: str, self_
         )}
     elif pending and action in {"ask", "prepare"}:
         options = _question_options(decision) if action == "ask" else []
+        purpose, brief = _prepared_definition(decision) if action == "prepare" else ("", "")
         state["answers"] = [*state.get("answers", []), message[:2000]][-8:]
         question = str(decision.get("question") or "").strip()[:1200]
         if action == "ask":
@@ -232,34 +256,43 @@ def handle_intake(root: Path, message: str, decision: dict, *, route: str, self_
                 return None
             state["consented"] = True
             request = state["request"] + "\n\nUser clarification:\n" + "\n".join(state["answers"])
-            proposal = parse_domain_proposal({"name": decision.get("name")},
+            proposal = parse_domain_proposal({"name": decision.get("name"), "rationale": purpose,
+                                              "capability_brief": brief},
                                              known_verticals=known_verticals)
             if proposal is None:
                 return {"reply": "未能整理出有效的领域流程名称，请重试。" if uses_cjk(message) else
                         "I could not prepare a valid workflow name. Please retry."}
-            proposal.rationale = "Reusable workflow for " + proposal.name.replace("_", " ")
             task = (
-                "The user opted into a reusable specialist workflow and clarified its requirements. "
-                "Develop and apply the candidate capability named " + proposal.name + ". "
+                "The primary deliverable is the reusable vertical " + proposal.name + ". "
+                "The current user request is its first validation example. Implement the agreed "
+                "capability definition for later tasks with different inputs. "
                 "First fetch relevant primary references and retain their exact local paths with URLs "
                 "in the existing project notes. Use evidence to define methods, required inputs, "
                 "checks and limitations; distinguish documented conventions from empirically verified claims. "
                 "Write reusable Engineer/Reviewer Skills in the provided project Skill libraries, then "
-                "apply the workflow to the user's request and verify the result against the agreed criteria. "
+                "apply the workflow to the user's request. Parameterize example-specific values; keep "
+                "personal facts, one-off answers and local workspace paths out of reusable instructions. "
+                "Validate at least one different-input example plus a missing-input or out-of-scope case; "
+                "record inputs, expected checks, actual results and evidence so reuse is demonstrable. "
                 "This initial setup authorizes bootstrapping both project role Skills; the independent "
-                "Reviewer must validate their checks against the user's requirements and sources. "
+                "Reviewer must check both the reusable vertical and the example results against the "
+                "agreed definition and sources. A good answer to the first request alone is insufficient. "
                 "The host owns the candidate lifecycle; do not change runtime stages or install arbitrary "
-                "third-party code to define a workflow. Deliver the requested result and explain the "
-                "new workflow's scope and limitations.\n\nUser request and answers:\n" + request
+                "third-party code to define a workflow. Use existing learning/promotion mechanisms for "
+                "verified reusable knowledge. Deliver the vertical's instructions and validation evidence, "
+                "its supported scope/limitations, how to invoke it on another input, and the example result."
+                "\n\nAgreed reusable vertical definition:\n" + brief
+                + "\n\nUser request and answers (example context, not reusable instructions):\n" + request
             )
-            result = {"task": task, "objective": state["request"], "route": "complex",
-                      "display_objective": state["request"] + "\n\n" + "\n".join(state["answers"][1:]),
+            objective = ("建立可复用的 vertical：" if uses_cjk(state["request"]) else "Build a reusable vertical: ") + purpose
+            result = {"task": task, "objective": objective, "route": "complex",
+                      "display_objective": objective + "\n\n" + brief + "\n\n" + state["request"],
                       "decision": VerticalDecision(
                 choice="new", vertical=proposal.name, proposal=proposal,
                 workflow_mode="direct", start_stage="execute", execution_task=task,
                 require_independent_review=True,
             )}
-            state.update(phase="prepared", domain=proposal.name)
+            state.update(phase="prepared", domain=proposal.name, purpose=purpose, brief=brief)
     elif pending and action == "skip":
         state["phase"] = "declined"
         result = {"task": state["request"] + "\n\nThe user chose direct single-agent handling "
