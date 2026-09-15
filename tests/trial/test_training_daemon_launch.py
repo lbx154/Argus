@@ -86,14 +86,20 @@ class IsolatedNoModelWorker:
             record['wrong_project_denied']=False
         except ValueError: record['wrong_project_denied']=True
         receipt=Path(os.environ['ARGUS_ISOLATED_TEST_RECEIPT'])
-        receipt.write_text(json.dumps(record))
+        # Readers poll this cross-process receipt while the helper updates it.
+        # Publish complete JSON atomically, including the restart observation.
+        def publish_receipt():
+            temporary = receipt.with_suffix('.tmp')
+            temporary.write_text(json.dumps(record))
+            temporary.replace(receipt)
+        publish_receipt()
         deadline=time.monotonic()+15
         repeated=False
         while time.monotonic()<deadline and not Path(os.environ['ARGUS_ISOLATED_TEST_STOP']).exists():
             if not repeated and Path(os.environ['ARGUS_ISOLATED_TEST_REPEAT']).exists():
                 later=runtime._request(path,'register',{**value,'call_id':'after-portal-restart'})
                 record['registered_after_restart']=later.get('enabled') is True
-                receipt.write_text(json.dumps(record))
+                publish_receipt()
                 repeated=True
             time.sleep(0.05)
         return 0
@@ -181,7 +187,10 @@ try:
     runtime._request(os.environ[runtime.SOCKET_ENV],'register',value)
     denied=False
 except ValueError: denied=True
-Path(sys.argv[1]).write_text(json.dumps({'denied':denied}))
+receipt = Path(sys.argv[1])
+temporary = receipt.with_suffix('.tmp')
+temporary.write_text(json.dumps({'denied':denied}))
+temporary.replace(receipt)
 '''
         source_root = str(Path(admission.__file__).resolve().parents[2])
         rejected_process = subprocess.run(
