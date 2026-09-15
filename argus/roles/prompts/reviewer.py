@@ -259,6 +259,7 @@ def render_reviewer_prompt(
         _persisted_vertical,
         resolve_workflow_mode,
     )
+    from ...tools.web_source import REVIEWER_SOURCE_HANDOFF
     from .registry import resolve_role_prompt
 
     error_text = sanitize_model_visible_text(main_error or "none")
@@ -731,6 +732,7 @@ def render_reviewer_prompt(
         "Negative results, hedging, limitations, and reruns need grounded "
         "consequences; positive and negative claims share one evidence standard.\n\n"
         + RESEARCHER_VOICE + "\n\n"
+        + REVIEWER_SOURCE_HANDOFF + "\n\n"
         + decision_policy
         + ("" if _requires_engineering_audit else _verification_directive())
         + verification_instruction

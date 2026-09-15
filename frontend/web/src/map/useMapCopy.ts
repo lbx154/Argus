@@ -228,7 +228,9 @@ export function useMapCopy(
       inflight.current
     )
       return;
-    const persistedDelay = typeof copy.data.retry_after === 'number' && copy.data.retry_after > 0
+    // Failures cool down the source; successful coalescing belongs only to
+    // generationKey's input. A finished task must bypass an active-task wait.
+    const persistedDelay = copy.data.generation_error && typeof copy.data.retry_after === 'number' && copy.data.retry_after > 0
       ? copy.data.retry_after : 0;
     const notBefore = Math.max(
       retryAfter ? generation.dataUpdatedAt + retryAfter * 1000 : 0,

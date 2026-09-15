@@ -18,6 +18,12 @@ supporting excerpts from the source rather than model memory. Record the source
 URL and access date next to the claim in the working paper, the configuration,
 or the research notes, `RESEARCH_NOTES.md`, whichever directly consumes it.
 
+Retain the fetched source text in the project's `.argus/sources/`, not shared
+`/tmp`. The supplied Argus Python can run `-m argus.tools.web_source URL` to
+fetch and cache HTML, text, or PDF. Cite its exact local path beside the URL in
+the existing notes so Reviewer can open the same source directly. For another
+fetch method, retain its actual source text with URL and access date there.
+
 Do not infer an algorithm from a launch page, turn an inference into a public
 fact, or treat repository absence as proof of a hidden implementation. When a
 material source cannot be resolved, keep the uncertainty explicit and raise it

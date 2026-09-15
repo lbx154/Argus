@@ -458,6 +458,23 @@ it('honors a successful server coalescing delay and eventually refreshes the new
   expect(generate).toHaveBeenCalledTimes(2);
 });
 
+it('refreshes completion immediately after an active-task coalescing response', async () => {
+  const running = { ...data, tasks: [{ ...data.tasks[0], status: 'running' }] };
+  const finished: MapCopy = { ...empty, retry_after: 0, cards: { task: {
+    title: 'Done', summary: 'Reviewed result', detail: 'Conditions', generated_at: 10, task_revision: '1', task_status: 'done',
+  } } };
+  const generate = vi.spyOn(api, 'generateMapCopy')
+    .mockResolvedValueOnce({ ...empty, retry_after: 600 }).mockResolvedValue(finished);
+  act(() => { renderer = create(<QueryClientProvider client={client}><Probe source={running} /></QueryClientProvider>); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  act(() => { renderer!.update(tree(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(latest.copy?.cards.task.title).toBe('Done');
+  expect(latest.readingNeedsUpdate).toBe(false);
+});
+
 it('does not loop when a response has no complete result or server-directed retry', async () => {
   const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(empty);
   act(() => { renderer = create(tree(false)); });

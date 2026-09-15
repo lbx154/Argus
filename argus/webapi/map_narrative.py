@@ -39,6 +39,7 @@ from .map_view import digest, task_content_revision, text
 
 PROMPT_VERSION = 26
 SOURCE_SNAPSHOT_VERSION = 2
+ACTIVE_REFRESH_SECONDS = 600
 Preview = bool | Literal["learning-path", "question-foundation"]
 _LOCK = threading.Lock()
 _SOURCES: WeakValueDictionary = WeakValueDictionary()
@@ -491,6 +492,35 @@ def enrich(
             and time.time() - cache.get("attempt_at", 0) < 25
         ):
             return {"cards": existing, "relations": cache.get("relations", []), "retry_after": 25, **metadata}
+        # Tool progress is already visible in the live feed. Rewriting and
+        # reviewing the same active explanation on every event compounds cost.
+        # Keep its original evidence binding; status/contract/attempt changes
+        # and settled outcomes bypass this per-card cooldown.
+        deferred = []
+        ready = []
+        for document in todo:
+            saved = existing.get(document["key"], {})
+            remaining = ACTIVE_REFRESH_SECONDS - (time.time() - saved.get("generated_at", 0))
+            if (
+                not preview and document["dynamic"]
+                and document["task"].get("status") == "running"
+                and saved.get("task_status") == "running"
+                and saved.get("task_content_revision") == document["task_content_revision"]
+                and saved.get("attempt") == document["task"].get("attempt")
+                and saved.get("started_ts") == document["task"].get("started_ts")
+                and saved.get("version") == version
+                and saved.get("model_revision") == config.revision
+                and saved.get(process_field, {}).get(process_version_field) == review_version
+                and not _related_sources_changed(saved, current_tasks)
+                and remaining > 0
+            ):
+                deferred.append(math.ceil(remaining))
+            else:
+                ready.append(document)
+        if not ready:
+            return {"cards": existing, "relations": cache.get("relations", []),
+                    "retry_after": min(deferred), **metadata}
+        todo = ready
         path = cache_path(root, source)
         path.parent.mkdir(parents=True, exist_ok=True)
         cache["attempt_at"] = time.time()
@@ -595,6 +625,8 @@ def enrich(
                 task_revision=document["task_revision"],
                 task_content_revision=document["task_content_revision"],
                 task_status=document["task"].get("status"),
+                attempt=document["task"].get("attempt"),
+                started_ts=document["task"].get("started_ts"),
                 event_ids=[e["id"] for e in document["events"]],
                 event_revisions=[e.get("revision", e["id"]) for e in document["events"]],
             )
@@ -669,4 +701,5 @@ def enrich(
             "version": version,
             **metadata,
             **_failure_metadata(cache),
+            **({"retry_after": min(deferred)} if deferred else {}),
         }

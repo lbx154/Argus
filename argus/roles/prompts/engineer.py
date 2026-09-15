@@ -214,6 +214,7 @@ def build_mission_prompt(
     """Build the complete per-round Engineer mission prompt."""
     shell_contract = native_shell_contract()
     shell_summary = native_shell_summary()
+    from ...tools.web_source import ENGINEER_SOURCE_HANDOFF
     learning_block = _post_task_learning_section(
         require_post_task_learning=require_post_task_learning,
         project_skill_dir=project_skill_dir,
@@ -249,6 +250,7 @@ def build_mission_prompt(
                 + sanitize_model_visible_text(role_banner.strip())
             )
         sections.append(_PERFORMANCE_DIAGNOSTIC_RULE)
+        sections.append(ENGINEER_SOURCE_HANDOFF)
         sections.append(_long_experiment_rule())
         sections.append(
             "## Engineer service\n"
@@ -303,6 +305,7 @@ def build_mission_prompt(
         "Web UI: test real Chromium and mobile.\n"
         "Use primary sources when external behavior matters. If repeated attempts fail, "
         "recheck the underlying assumption instead of making another cosmetic tweak.\n"
+        + ENGINEER_SOURCE_HANDOFF + "\n"
         + _PERFORMANCE_DIAGNOSTIC_RULE
         + "\n"
         + _long_experiment_rule()
