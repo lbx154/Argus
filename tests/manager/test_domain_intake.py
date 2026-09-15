@@ -6,7 +6,8 @@ from argus.manager.domain_intake import handle_intake, intake_prompt, read_intak
 
 def test_legacy_pending_question_has_stable_actionable_card(tmp_path):
     import json
-    from argus.manager.domain_intake import intake_card, intake_answer
+
+    from argus.manager.domain_intake import intake_answer, intake_card
 
     legacy = {"phase": "offered", "request": "给我分析一下这个日历", "answers": [], "last_question": "旧文本问题"}
     (tmp_path / "domain-intake.json").write_text(json.dumps(legacy))
