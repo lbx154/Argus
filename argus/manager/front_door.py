@@ -883,7 +883,9 @@ def prepare_manager_execution_task(
             decision_kwargs["allow_route_contract_change"] = (
                 _allow_manager_route_contract_change(mem, chat_state)
             )
-        decision = manager.decide_vertical(body, **decision_kwargs)
+        approved = chat_state.pop("_approved_domain_decision", None)
+        decision = (approved if approved is not None and approved.execution_task == body
+                    else manager.decide_vertical(body, **decision_kwargs))
         require_manager_execution_task(decision)
         return PreparedManagerHandoff(
             mem=mem,

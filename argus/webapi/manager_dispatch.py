@@ -409,6 +409,28 @@ class _TurnEmitter:
     # Tool steps streamed during this turn, journaled with the reply so the
     # conversation and the map can show the work behind a single-agent answer.
     steps: list[dict[str, Any]] = field(default_factory=list)
+    task_objective: str = ""
+    solo: bool = False
+    task_started: bool = False
+
+    def start_task(self) -> None:
+        if not self.solo or self.task_started:
+            return
+        from ..life.event_log import JsonlEventSink
+
+        JsonlEventSink(None, life_dir=self.life_dir).append({
+            "type": "manager.turn.started", "message_id": self.turn_id,
+            "text": self.task_objective, "ts": time.time(),
+        })
+        self.task_started = True
+
+    def cancel_task(self) -> None:
+        if self.task_started:
+            from ..life.event_log import JsonlEventSink
+
+            JsonlEventSink(None, life_dir=self.life_dir).append({
+                "type": "manager.turn.cancelled", "message_id": self.turn_id, "ts": time.time(),
+            })
 
     def phase(self, label: str, *, role: str = "manager") -> None:
         self.fragment("phase", {"role": role, "label": label})
@@ -432,6 +454,8 @@ class _TurnEmitter:
             )
             if key in result
         }
+        if self.task_started:
+            metadata.update(task_turn=True, success=result.get("success", result.get("kind") != "error"))
         if self.steps:
             metadata["steps"] = finish_turn_steps(
                 self.steps, failed=result.get("success") is False,
@@ -687,6 +711,8 @@ def _classify_operator_turn(
             "_frontdoor_operator_question_policy",
             "_frontdoor_authorization",
             "_frontdoor_intake",
+            "_frontdoor_domain",
+            "_frontdoor_is_task",
         ):
             chat_state.pop(stale, None)
         if forced_route == "simple":
@@ -1226,6 +1252,10 @@ def _run_triage_and_fallbacks(
     # 1) Manager triage — chat/SELF returns a reply; TEAM returns None. The
     # route was already decided in the merged call above, so triage skips its
     # own route classify (``route=route``).
+    emitter.solo = route == "simple"
+    task_intent = chat_state.pop("_frontdoor_is_task", False)
+    if task_intent or self_mode in {"micro", "implement", "debug", "review", "synthesize"}:
+        emitter.start_task()
     try:
         reply = manager_triage(
             mem,
@@ -1238,6 +1268,7 @@ def _run_triage_and_fallbacks(
         )
     except Exception as exc:  # noqa: BLE001 — never turn a failed call into TEAM work
         if cancelled is not None and cancelled():
+            emitter.cancel_task()
             return _cancelled_result()
         reply = (
             "[not dispatched] Manager could not complete the inline request "
@@ -1250,6 +1281,7 @@ def _run_triage_and_fallbacks(
     # A provider may return a buffered reply or failure after interruption.
     # Reject it before durable UI/transcript writes and self-learning hooks.
     if cancelled is not None and cancelled():
+        emitter.cancel_task()
         return _cancelled_result()
 
     failure = chat_state.pop("_self_failure", None)
@@ -1338,6 +1370,7 @@ def _dispatch_team_mission(
         if chinese
         else "Choosing the right workflow…"
     )
+    approved_domain = chat_state.get("_approved_domain_decision")
     prepared = prepare_manager_execution_task(
         mem,
         body,
@@ -1345,6 +1378,18 @@ def _dispatch_team_mission(
         root_task_id=root_task_id,
         public_objective=public_objective,
     )
+    if (chat_state.get("_domain_setup_enabled")
+            and getattr(prepared.decision, "choice", "") == "new"
+            and prepared.decision is not approved_domain):
+        from ..manager.domain_intake import DomainOfferRequired, handle_intake, read_intake
+
+        root = prepared.manager.project_root
+        request = public_objective or body
+        current = read_intake(root)
+        if current.get("request") != request:
+            handle_intake(root, request, {"action": "cancel"}, route="complex", self_mode="inspect", known_verticals=())
+        offer = handle_intake(root, request, {"action": "offer"}, route="complex", self_mode="inspect", known_verticals=())
+        raise DomainOfferRequired(offer["reply"] if offer else current["last_question"])
     prepared.cancelled = cancelled
     prepared.on_wait = lambda: emitter.phase(
         "正在等待当前研究任务安全交接，尚未提交修改…"

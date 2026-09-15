@@ -264,6 +264,8 @@ def _manager_message(
             return
         if kind == "phase":
             record_turn_step(turn_steps, payload)
+            if turn_steps:
+                emitter.start_task()
         if not callable(on_fragment):
             return
         if kind == "delta":
@@ -305,6 +307,7 @@ def _manager_message(
         fragment=_fragment,
         after_reply=_after_reply,
         steps=turn_steps,
+        task_objective=operator_text,
     )
     if not life_dir.is_dir():
         return {
@@ -357,6 +360,7 @@ def _manager_message(
     if safe_body != body:
         body = safe_body
         operator_text, _separator, _attachments = safe_body.partition("\n\nAttachments:\n")
+    emitter.task_objective = operator_text
 
     from ..manager.ask_intent import strip_ask_prefix
 
@@ -512,6 +516,9 @@ def _manager_message(
                 ) + 1
 
         chat_state["_frontdoor_credential_imported"] = credential_record is not None
+        from ..manager.domain_intake import read_intake
+
+        pending_domain = read_intake(life_dir).get("phase") in {"offered", "clarifying"}
         classify = _classify_operator_turn(
             mem,
             body,
@@ -521,7 +528,7 @@ def _manager_message(
             startup_handoff,
             emitter,
             _cancelled,
-            route_override=route_override,
+            route_override="" if pending_domain and not explicit_chat else route_override,
         )
         if isinstance(classify, dict):
             return classify
@@ -584,6 +591,33 @@ def _manager_message(
                 return _cancelled_result()
             return config_result
 
+        public_task = operator_text
+        chat_state["_domain_setup_enabled"] = not active_mission and not explicit_chat
+        domain_decision = chat_state.pop("_frontdoor_domain", None)
+        if domain_decision and not frontdoor_failure and not active_mission and not explicit_chat and control is None:
+            from ..manager.domain_intake import handle_intake
+            from ..skills.vertical_select import available_verticals
+            from ..verticals._data_domain import list_all_data_domain_names
+
+            intake = handle_intake(life_dir, operator_text, domain_decision, route=route,
+                                   self_mode=chat_state.get("_frontdoor_self_mode", "inspect"),
+                                   known_verticals=tuple(available_verticals()) + tuple(list_all_data_domain_names(life_dir)))
+            if intake is not None:
+                if "reply" in intake:
+                    return emitter.respond(intake["reply"], {"kind": "chat"})
+                send_body = routing_body = intake["task"]
+                public_task = emitter.task_objective = intake["objective"]
+                route = intake["route"]
+                chat_state["_frontdoor_is_task"] = True
+                if route == "complex":
+                    chat_state["_frontdoor_lifetime"] = "bounded"
+                    chat_state["_approved_domain_decision"] = intake["decision"]
+                    chat_state["_domain_display_objective"] = {
+                        "execution_task": routing_body, "objective": intake["display_objective"],
+                    }
+                else:
+                    chat_state["_frontdoor_self_mode"] = intake["self_mode"]
+
         triage_result = _run_triage_and_fallbacks(
             mem,
             send_body,
@@ -620,11 +654,15 @@ def _manager_message(
                 emitter,
                 attachment_context_refs=message_attachment_refs,
                 reference_deps=reference_deps,
-                public_objective=operator_text,
+                public_objective=public_task,
             )
         except Exception as exc:  # noqa: BLE001
             if _cancelled():
                 return _cancelled_result()
+            from ..manager.domain_intake import DomainOfferRequired
+
+            if isinstance(exc, DomainOfferRequired):
+                return emitter.respond(str(exc), {"kind": "chat"})
             log.warning("Manager could not safely prepare operator work: %s", exc)
             from ..manager.dispatch import MissionPersistenceError
             from ..manager.front_door import ManagerModelCapabilityMismatchError
@@ -649,7 +687,7 @@ def _manager_message(
     if _cancelled():
         return _cancelled_result()
 
-    item_payload = _item_to_dict(item, operator_text or body)
+    item_payload = _item_to_dict(item, public_task or body)
     result = {
         "kind": "task",
         "reply": None,

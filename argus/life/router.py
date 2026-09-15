@@ -75,6 +75,9 @@ _FRONT_DOOR_FIELDS = (
     "lifetime",
     "greeting",
     "name",
+    "domain_action",
+    "domain_name",
+    "domain_question",
 )
 
 
@@ -382,6 +385,8 @@ def classify_front_door(
     intake_sink: Callable[[dict[str, Any]], None] | None = None,
     failure_sink: Callable[[str], None] | None = None,
     active_mission: bool = False,
+    domain_sink: Callable[[dict[str, str]], None] | None = None,
+    domain_prompt: str = "",
 ) -> "tuple[ConfigDecision, ControlIntent | None, str]":
     """One model call for every cheap front-door decision.
 
@@ -393,7 +398,7 @@ def classify_front_door(
         return None, None, "complex"
     try:
         result = run_exec(
-            build_front_door_prompt(cleaned, active_mission=active_mission)
+            build_front_door_prompt(cleaned, active_mission=active_mission) + domain_prompt
         )
     except Exception as exc:  # noqa: BLE001
         if callable(failure_sink):
@@ -405,6 +410,9 @@ def classify_front_door(
         return None, None, "complex"
     fields = _front_door_fields(result)
     intent = _parse_config_decision(fields["config"])
+    if callable(domain_sink) and fields["domain_action"].lower() in {"none", "offer", "ask", "prepare", "skip", "cancel"}:
+        domain_sink({"action": fields["domain_action"].lower(), "name": fields["domain_name"],
+                     "question": fields["domain_question"]})
     control_token = fields["control"].upper().replace("-", "_")
     control: ControlIntent | None
     if control_token.startswith("ABORT"):

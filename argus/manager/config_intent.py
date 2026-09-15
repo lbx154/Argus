@@ -92,6 +92,7 @@ def _front_door_classify(
     authorization_decisions: list[tuple[str, ...]] = []
     classifier_failures: list[str] = []
     intake_decisions: list[dict[str, Any]] = []
+    domain_decisions: list[dict[str, str]] = []
     intake_commit_started = False
     credential_imported = bool(chat_state.pop("_frontdoor_credential_imported", False))
     chat_state.pop("_frontdoor_lifetime", None)
@@ -103,6 +104,8 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_operator_question_policy", None)
     chat_state.pop("_frontdoor_authorization", None)
     chat_state.pop("_frontdoor_intake", None)
+    chat_state.pop("_frontdoor_domain", None)
+    chat_state.pop("_frontdoor_is_task", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
@@ -138,6 +141,8 @@ def _front_door_classify(
             kwargs["authorization_sink"] = authorization_decisions.append
         if accepts(mgr.classify_front_door, "intake_sink"):
             kwargs["intake_sink"] = intake_decisions.append
+        if accepts(mgr.classify_front_door, "domain_sink"):
+            kwargs["domain_sink"] = domain_decisions.append
         if accepts(mgr.classify_front_door, "active_mission"):
             kwargs["active_mission"] = bool(active_mission)
         if accepts(mgr.classify_front_door, "failure_sink"):
@@ -156,6 +161,11 @@ def _front_door_classify(
             intent, route = decision
             control = None
         normalized_route = route if route in ("simple", "complex") else "complex"
+        if domain_decisions:
+            chat_state["_frontdoor_domain"] = domain_decisions[-1]
+        if intake_decisions:
+            chat_state["_frontdoor_intake"] = intake_decisions[-1]
+            chat_state["_frontdoor_is_task"] = intake_decisions[-1].get("kind") == "objective_amendment"
         if classifier_failures:
             chat_state["_frontdoor_failure"] = classifier_failures[-1]
         if normalized_route == "simple":

@@ -292,6 +292,31 @@ def turn_records(
         if not isinstance(row, dict):
             continue
         message_id = str(row.get("message_id") or "")
+        if row.get("type") == "manager.turn.started":
+            ask = asks.setdefault(message_id, {"ts": row.get("ts"), "text": text(row.get("text"), 4000)})
+            ask["task"] = True
+            ask["started_ts"] = _timestamp(row.get("ts"))
+            card_id = f"turn:{message_id}"
+            asked = text(ask.get("text"), 4000)
+            turns[card_id] = {
+                "card": {"id": card_id, "kind": "turn", "ts": _timestamp(ask.get("ts")),
+                         "title": text(asked.splitlines()[0] if asked else "", 120),
+                         "objective": asked, "status": "running", "deps": [], "role": "manager",
+                         "summary": "", "started_ts": _timestamp(row.get("ts")), "finished_ts": None},
+                "events": [{"id": f"{card_id}:work", "item_id": card_id, "type": "work.segment",
+                            "ts": _timestamp(row.get("ts")), "association": "explicit", "role": "manager",
+                            "status": "running", "text": "", "steps": [], "tool_details_recorded": False}],
+            }
+            ask["active_turn"] = turns[card_id]
+            continue
+        if row.get("type") == "manager.turn.cancelled":
+            ask = asks.pop(message_id, {})
+            if turn := turns.get(f"turn:{message_id}") or ask.get("active_turn"):
+                turn["card"].update(status="cancelled", finished_ts=_timestamp(row.get("ts")))
+                for event in turn["events"]:
+                    event.update(status="cancelled", ts_end=_timestamp(row.get("ts")))
+                turns[f"turn:{message_id}"] = turn
+            continue
         if row.get("type") == "ui.operator" and message_id.endswith("-operator"):
             asks[message_id[: -len("-operator")]] = {
                 "ts": row.get("ts"), "text": text(row.get("text"), 4000),
@@ -338,7 +363,7 @@ def turn_records(
         # SELF delivery is itself durable execution evidence.  Argus-Pi can
         # legitimately report no per-tool steps, unlike an ordinary chat; an
         # item-bound receipt belongs to its queued task instead of a turn card.
-        direct_result = row.get("mission_result") is True and not row.get("item_id")
+        direct_result = (row.get("mission_result") is True or row.get("task_turn") is True) and not row.get("item_id")
         if not steps and not observed and not direct_result:
             continue
         recovered = not steps
@@ -351,7 +376,7 @@ def turn_records(
         asked = text(ask.get("text"), 4000).strip()
         reply = text(row.get("text"), 4000).strip()
         timing = steps or observed
-        started = min((_timestamp(step.get("started_ts")) for step in timing), default=0.0)
+        started = min((_timestamp(step.get("started_ts")) for step in timing), default=0.0) or _timestamp(ask.get("started_ts"))
         finished = max((_timestamp(step.get("ended_ts")) for step in timing), default=0.0)
         error = latest.get("error") if failed else ""
         replied_at = _timestamp(row.get("ts"))
@@ -423,6 +448,9 @@ def read_map(
     for item in memory.backlog.history():
         raw = item.to_jsonable()
         task = {k: raw[k] for k in TASK_FIELDS if k in raw}
+        display_objective = (raw.get("manager_decision") or {}).get("display_objective")
+        if isinstance(display_objective, str) and display_objective.strip():
+            task["objective"] = display_objective
         for k, v in list(task.items()):
             if k == "outcome":
                 task[k] = public_outcome(v)

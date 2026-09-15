@@ -10,6 +10,7 @@ calls) or wire a thin run_exec shim over ``self.runner`` / ``self._session``.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ..skills import vertical_select
@@ -21,6 +22,9 @@ from ._helpers import (
 
 class _FrontDoorMixin:
     """Mixin: is_conversational, classify_*, route, and skill placement."""
+
+    project_root: Path
+    learned_vertical_root: Path
 
     def classify_front_door(
         self,
@@ -38,6 +42,7 @@ class _FrontDoorMixin:
         authorization_sink: Any = None,
         failure_sink: Any = None,
         intake_sink: Any = None,
+        domain_sink: Any = None,
         active_mission: bool = False,
     ) -> Any:
         """One fresh call classifying all cheap front-door decisions.
@@ -48,6 +53,15 @@ class _FrontDoorMixin:
         ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``). Biases
         each axis to its own safe default on any error."""
         from ..life.router import classify_front_door
+
+        domain_prompt = ""
+        if domain_sink is not None and not active_mission:
+            from ..verticals._data_domain import list_selectable_data_domain_summaries
+            from .domain_intake import intake_prompt, read_intake
+
+            catalog = {**vertical_select.available_vertical_purposes(),
+                       **list_selectable_data_domain_summaries(self.project_root, learned_root=self.learned_vertical_root)}
+            domain_prompt = intake_prompt(catalog, read_intake(self.project_root))
 
         if run_exec is None:
             if self.runner is None:
@@ -114,6 +128,8 @@ class _FrontDoorMixin:
                 failure_sink=failure_sink,
                 intake_sink=intake_sink,
                 active_mission=active_mission,
+                domain_sink=domain_sink,
+                domain_prompt=domain_prompt,
             )
 
     def route(

@@ -220,7 +220,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     """Merged cockpit front door: classify once and reuse every cheap decision."""
     cleaned = (text or "").strip()
     return (
-        "Classify the message; no vertical or plan.\n"
+        "Classify only; create no vertical or plan.\n"
         "INTAKE_TYPE: EPHEMERAL=chat/status; OBJECTIVE_AMENDMENT=finite/task-local; "
         "else STANDING_DIRECTIVE|PREFERENCE|CREDENTIAL_GRANT|REVOCATION.\n\n"
         "CONFIG: SET only an explicit standing setting: role backend|model|effort "

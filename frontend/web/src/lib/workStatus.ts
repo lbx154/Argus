@@ -163,7 +163,7 @@ export function workStatusLabel(status: WorkStatus, locale: Locale, connected = 
   const labels: Record<WorkStatus['state'], [string, string]> = {
     running: ['正在处理当前任务', 'Working on the current task'], waiting: ['等待下一步工作', 'Waiting for the next step'],
     paused: ['当前任务未在运行', 'The current task is not running'], step_finished: ['这一步已结束', 'This step has ended'],
-    idle: ['尚未开始执行', 'Work has not started'], unknown: ['当前运行状态暂不可读', 'Current runtime status is unavailable'],
+    idle: ['等待新任务', 'Ready for a new task'], unknown: ['当前运行状态暂不可读', 'Current runtime status is unavailable'],
   };
   return labels[status.state][zh ? 0 : 1];
 }
