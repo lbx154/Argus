@@ -59,3 +59,17 @@ def test_width_and_state_are_safety_bounded(
         pool.update(tmp_path, width=-1)
     with pytest.raises(ValueError, match="unsupported team pool state"):
         pool.update(tmp_path, state="exploding")
+
+
+
+def test_default_width_leaves_one_provider_slot_for_the_lead(monkeypatch) -> None:
+    """Two workers on a two-slot host starved the dispatching mission (2026-09-16)."""
+    monkeypatch.setenv("ARGUS_TEAM_DEFAULT_WIDTH", "2")
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "2")
+    assert pool.default_width() == 1
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "1")
+    assert pool.default_width() == 1  # never below one worker
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "8")
+    assert pool.default_width() == 2  # the operator's width still wins when slots allow
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0")
+    assert pool.default_width() == 2  # no provider limit: unchanged behaviour
