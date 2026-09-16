@@ -31,10 +31,12 @@ import re
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from . import pool, task_board
 
@@ -477,6 +479,24 @@ def _vertical_prelude(task: dict, *, cwd: str, state_root: Path) -> str:
         return ""
 
 
+def _with_reopen_reason(objective: str, task: Mapping[str, Any]) -> str:
+    """Tell a teammate why finished work on this task is being redone.
+
+    ``task_board.retry_terminal`` keeps the reason on the task until the next
+    claim; without surfacing it the fresh worker repeats the rejected artifact.
+    """
+    reason = str(task.get("reason") or "").strip()
+    if not reason:
+        return objective
+    return (
+        objective
+        + "\n\n## Why this task was reopened\n"
+        + reason
+        + "\nRevise the existing artifact so it survives this feedback; the same "
+        "independent standard applies again."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="argus.team.teammate_entry")
     p.add_argument("--root", required=True)
@@ -500,6 +520,7 @@ def main(argv: list[str] | None = None) -> int:
     lb_block = _lb.objective_block(root, task.get("target") or task_id)
     if lb_block:
         objective = lb_block + objective
+    objective = _with_reopen_reason(objective, task)
     operator_answer = str(task.get("operator_answer") or "").strip()
     if operator_answer:
         objective = (

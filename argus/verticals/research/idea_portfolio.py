@@ -54,6 +54,13 @@ _REVIEW_VERDICTS = frozenset({"qualified", "rejected"})
 # and interpolated wherever a prompt has to spell out the schema.
 _REVIEW_VERDICT_FIELD = "verdict"
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
+# How many times a portfolio whose every route was rejected by its independent
+# reviewer regenerates the routes with that feedback before selection proceeds
+# anyway. Selecting from an all-rejected field is how a refuted premise
+# reaches Experiment.
+REGENERATIONS_ENV = "ARGUS_RESEARCH_PORTFOLIO_MAX_REGENERATIONS"
+DEFAULT_MAX_REGENERATIONS = 1
+MAX_REGENERATIONS_CEILING = 3
 _NO_NESTED_TEAM = (
     "This task is already one worker in the parent idea portfolio. Do not create, "
     "ensure, launch, or delegate another Team or idea portfolio."
@@ -68,6 +75,16 @@ def portfolio_size() -> int:
     except ValueError:
         size = DEFAULT_PORTFOLIO_SIZE
     return max(2, min(size, MAX_PORTFOLIO_SIZE))
+
+
+def max_regenerations() -> int:
+    """How often an all-rejected portfolio may regenerate its routes."""
+    raw = os.environ.get(REGENERATIONS_ENV, "").strip()
+    try:
+        count = int(raw) if raw else DEFAULT_MAX_REGENERATIONS
+    except ValueError:
+        count = DEFAULT_MAX_REGENERATIONS
+    return max(0, min(count, MAX_REGENERATIONS_CEILING))
 
 
 def portfolio_route_count(root: Path) -> int:
@@ -202,24 +219,49 @@ def _selection_tasks(
     artifact_root: str,
     available_review_ids: tuple[str, ...],
     size: int | None = None,
+    verdicts: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     count = int(size) if size else max(len(available_review_ids), 2)
     specs = {
         task["task_id"]: task
         for task in portfolio_tasks(team_id, artifact_root, count)
     }
+    verdicts = dict(verdicts or {})
     candidates: list[dict[str, str]] = []
     for review_id in available_review_ids:
         review = specs[review_id]
         route_task_id = str(review_id.removesuffix("-review"))
         route = specs[route_task_id]
-        candidates.append({
+        candidate = {
             "route_id": str(route["target"]),
             "route_task_id": route_task_id,
             "route_artifact": str(route["owns_paths"][0]),
             "review_task_id": review_id,
             "review_artifact": str(review["owns_paths"][0]),
-        })
+        }
+        if review_id in verdicts:
+            candidate["review_verdict"] = verdicts[review_id]
+        candidates.append(candidate)
+    qualified = sorted(
+        specs[review_id]["target"]
+        for review_id, verdict in verdicts.items()
+        if verdict == "qualified" and review_id in specs
+    )
+    if not verdicts:
+        eligibility = ""
+    elif qualified:
+        eligibility = (
+            " Only routes whose independent review verdict is `qualified` are "
+            f"eligible ({', '.join(qualified)}); a rejected route can only receive "
+            "a rejection line."
+        )
+    else:
+        eligibility = (
+            " Every route was rejected by its independent reviewer and the portfolio "
+            "has already been regenerated. Choose the route whose fatal concerns are "
+            "most repairable by experiment, and copy those concerns verbatim into "
+            "unresolved_risks so the Experiment stage must resolve them."
+        )
     selector_id = f"{team_id}-evidence-selector"
     output = f"{_selection_artifact_root(team_id)}/selection.json"
     return [{
@@ -230,7 +272,7 @@ def _selection_tasks(
             "The choice is source-only and happens once; do not run candidate code or "
             "experiments. Record why the winner survives the alternatives, resource "
             "needs, unresolved risks, and one single-line rejection reason for each "
-            f"of the other {count - 1} routes.\n"
+            f"of the other {count - 1} routes.{eligibility}\n"
             + json.dumps(candidates, ensure_ascii=True, indent=2)
             + f"\nWrite `{output}` as one JSON object with schema_version="
             f"{_SELECTION_SCHEMA_VERSION}, policy=`{SELECTION_POLICY}`, route_id, "
@@ -658,6 +700,76 @@ def _dissolve_team(root: Path, reason: str) -> None:
     pool.update(root, width=0, state="dissolved")
 
 
+def _review_verdicts(
+    project_root: Path,
+    actual: dict[str, dict[str, Any]],
+    review_ids: tuple[str, ...],
+) -> dict[str, str]:
+    verdicts: dict[str, str] = {}
+    for review_id in review_ids:
+        payload = _review_payload(project_root, actual.get(review_id, {}))
+        if payload is not None:
+            verdicts[review_id] = str(payload.get(_REVIEW_VERDICT_FIELD) or "")
+    return verdicts
+
+
+def _qualified_review_ids(verdicts: dict[str, str]) -> tuple[str, ...]:
+    return tuple(sorted(rid for rid, verdict in verdicts.items() if verdict == "qualified"))
+
+
+def _regenerate_rejected_routes(
+    project_root: Path,
+    root: Path,
+    actual: dict[str, dict[str, Any]],
+    review_ids: tuple[str, ...],
+    *,
+    team_id: str,
+    artifact_root: str,
+    state_root: Path,
+) -> bool:
+    """Reopen every route with its reviewer's fatal concerns when all were rejected.
+
+    Returns whether a regeneration was started. Bounded by
+    :func:`max_regenerations`; once exhausted the selector is formed anyway and
+    told to choose the most repairable route.
+    """
+    limit = max_regenerations()
+    with _state_lock(state_root):
+        payload = _pipeline_payload(state_root)
+        meta = _portfolio_meta(payload)
+        if not _meta_matches(meta, team_id=team_id, artifact_root=artifact_root):
+            return False
+        used = int(meta.get("regenerations") or 0)
+        if used >= limit:
+            return False
+        meta["regenerations"] = used + 1
+        payload["idea_portfolio"] = meta
+        _write_pipeline_unlocked(state_root, payload)
+    round_label = f"regeneration {used + 1} of {limit}"
+    for review_id in review_ids:
+        route_id = str(review_id.removesuffix("-review"))
+        payload = _review_payload(project_root, actual.get(review_id, {})) or {}
+        concerns = [
+            _one_line(item)[:400]
+            for item in (payload.get("fatal_concerns") or [])
+            if _one_line(item)
+        ] or [_one_line(payload.get("summary"))[:400] or "no concern recorded"]
+        reason = (
+            "reopened: every route in this portfolio was rejected by its independent "
+            f"reviewer ({round_label}). Revise this route so it survives these fatal "
+            "concerns instead of restating it: " + " | ".join(concerns)
+        )
+        if task_board.retry_terminal(root, route_id, reason=reason):
+            log.warning("idea portfolio %s: %s", route_id, reason[:200])
+        task_board.retry_terminal(
+            root,
+            review_id,
+            reason=f"reopened: its route {route_id} was revised after every route was rejected",
+        )
+    pool.update(root, width=pool.default_width(), state="running")
+    return True
+
+
 def _ensure_selection_team(
     project_root: Path,
     *,
@@ -712,10 +824,23 @@ def _ensure_selection_team(
     )
     if not reviews:
         return None
+    verdicts = _review_verdicts(project_root, actual, reviews)
+    if not _qualified_review_ids(verdicts) and _regenerate_rejected_routes(
+        project_root,
+        root,
+        actual,
+        reviews,
+        team_id=team_id,
+        artifact_root=artifact_root,
+        state_root=state_root,
+    ):
+        return None
 
     selection_root = _selection_team_root(project_root, team_id)
     selection_team_id = _selection_team_id(team_id)
-    tasks = _selection_tasks(team_id, artifact_root, reviews, _portfolio_size_for(root))
+    tasks = _selection_tasks(
+        team_id, artifact_root, reviews, _portfolio_size_for(root), verdicts
+    )
     existing = task_board.snapshot(selection_root)
     receipt = formation.load_receipt(selection_root)
     canonical = (
@@ -844,6 +969,13 @@ def ensure_idea_portfolio(
         team_id = _team_id(generation)
         artifact_root = _artifact_root(team_id)
         payload["research_intent_generation"] = generation
+        # The regeneration budget belongs to this team's board; a fresh
+        # generation starts it over.
+        regenerations = (
+            int(meta.get("regenerations") or 0)
+            if str(meta.get("team_id") or "") == team_id
+            else 0
+        )
         payload["idea_portfolio"] = {
             "schema_version": 1,
             "generation": generation,
@@ -851,6 +983,7 @@ def ensure_idea_portfolio(
             "artifact_root": artifact_root,
             "direction": normalized_direction,
             "selection_policy": SELECTION_POLICY,
+            **({"regenerations": regenerations} if regenerations else {}),
         }
         payload["current_verdict"] = "idea_selection_pending"
         payload["next_action"] = (
@@ -934,8 +1067,10 @@ def _selection_from_tasks(
     )
     if tuple(sorted(available_review_ids)) != canonical_review_ids:
         return None
+    verdicts = _review_verdicts(project_root, base_actual, canonical_review_ids)
+    qualified_review_ids = _qualified_review_ids(verdicts)
     selection_specs = _selection_tasks(
-        team_id, artifact_root, available_review_ids, _portfolio_size_for(root)
+        team_id, artifact_root, available_review_ids, _portfolio_size_for(root), verdicts
     )
     if not task_board.material_specs_match(selection_root, selection_specs):
         return None
@@ -974,6 +1109,7 @@ def _selection_from_tasks(
         or not _route_output_present(project_root, route)
         or review_payload is None
         or review_task_id not in canonical_review_ids
+        or (qualified_review_ids and review_task_id not in qualified_review_ids)
         or str(selection.get("route_id") or "") != str(route.get("target") or "")
         or str(selection.get("route_artifact") or "")
         != str((route.get("owns_paths") or [""])[0])

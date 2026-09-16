@@ -13,7 +13,9 @@ assumes the project is producing a research paper:
   and the idea portfolio.
 
 Quality judgment belongs to the Reviewer reading the actual paper, code and
-raw results — not to deterministic validators. Submodules are imported
+raw results. Deterministic validators only check the bookkeeping that judgment
+rests on: the claims ledger (``experiment_claims``), the figure lint
+(``figure_lint``) and the stage gates in ``stages.py``. Submodules are imported
 directly (e.g. ``from argus.verticals.research import
 academic_language_review``), and the most-used public symbols are re-exported
 here for callers that want one import site.
@@ -55,6 +57,12 @@ from .academic_language_review import (
     AcademicLanguageReviewError,
     generate_academic_language_review,
 )
+
+# ---------------------------------------------------------------------------
+# Deterministic evidence bookkeeping (claims ledger, figure lint)
+# ---------------------------------------------------------------------------
+from .experiment_claims import experiment_claims_issues
+from .figure_lint import figure_lint_issues
 from .method_differentiation import (
     ConditionRun,
     MethodDifferentiationReport,
@@ -138,4 +146,7 @@ __all__ = [
     "STAGE_ORDER",
     "WORKFLOW_MODE",
     "stage_completion_issues",
+    # deterministic evidence bookkeeping
+    "experiment_claims_issues",
+    "figure_lint_issues",
 ]

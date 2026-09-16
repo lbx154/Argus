@@ -319,6 +319,50 @@ losses, or present unfinished development as a negative result; a negative or
 boundary thesis is a paper only when its evidence is as complete as a positive
 one would need.
 
+## Claims ledger
+
+`experiments/claims.json` is the machine-checked record of what the experiments
+established. Manager holds Experiment until
+`python -m argus.verticals.research.experiment_claims validate` passes; print a
+skeleton with the `template` subcommand. One entry per claim-bearing
+comparison:
+
+- `claim_id`, `statement` (the exact scoped claim), `role` (`headline`,
+  `mechanism`, `control`, `scope`, `completeness`), `metric`, `direction`
+  (`lower`, `higher`, or `parity` with a `tolerance`), `dataset`, `synthetic`.
+- `ours` and `strongest_baseline`: `{name, mean, std, n}` computed from the raw
+  rows in `evidence`; `other_baselines` lists every other baseline measured on
+  the same metric. The strongest baseline is the one that actually scored best;
+  the validator rejects a weaker choice.
+- `variation` (`seeds`, `splits`, `folds`, `bootstrap`, `repeats`) with the
+  `seeds` or splits used, at least three independent repeats per arm; or `none`
+  with a `deterministic_reason` when one run genuinely settles the comparison.
+- `evidence`: project-relative raw result files; `command`: how they were made.
+- Top-level `mechanism`: one entry per load-bearing component of the selected
+  idea with `component`, `idea_says`, `implemented_in` (`path:Symbol` that
+  executes it), `status` (`faithful`, `simplified`, `missing`) and, for a
+  simplification, a `note` stating the exact departure plus a top-level
+  `variant` naming what was actually built. Write this map before the
+  claim-bearing runs and keep it current: the code must run the idea, not the
+  easiest reduction of it, and a supported headline cannot rest on a missing
+  component.
+- Top-level `reference_implementations`: the official or strongest public
+  codebases cloned and run as references (`name`, `url`, pinned `revision`,
+  `local_path`, `used_for`), or `no_reference_implementation_reason`. Reuse
+  maintained infrastructure (RL, training, serving frameworks; official
+  baseline code) rather than reimplementing it from a paper summary.
+- `status`: `supported` only when ours is on the claimed side of the strongest
+  baseline by more than run-to-run uncertainty (about two standard errors);
+  otherwise `inconclusive` or `refuted`. The ledger needs one supported
+  `headline` claim on real data, or an explicit
+  `headline_synthetic_justification` for a mechanism settled on synthetic
+  evidence.
+
+Fill the arms from the raw result files, never from a remembered summary. An
+inconclusive headline is a signal to add repeats, fix the setup, improve the
+method, or re-derive the thesis; it is not a reason to move the claim to a
+metric where the difference looks larger.
+
 ## When the evidence is ready for Paper
 
 Enter Paper after Reviewer accepts the experiment and Planner's post-result
@@ -327,7 +371,8 @@ The evidence must improve at least one scientifically meaningful dimension.
 Do not require a hard numeric margin,
 wins on every headline metric, or dominance over every strong baseline. Keep
 uncertainty, relevant losses, and tradeoffs visible, and scope the thesis to
-what improved. Manager alone advances the stage.
+what improved. Manager alone advances the stage, and only when the claims
+ledger validates and the research notes carry the Experiment-stage heading.
 
 ## Research notes
 
@@ -358,6 +403,7 @@ decision, then return here. Do not read all the sources in advance.
 | The next experiment or Paper decision is unclear | `reviewer/experiment-results-review.md` | Independently judge what the evidence supports and what remains to learn |
 | Results must become a precise claim | `engineer/result-to-claim.md` | Relate direct evidence to the strongest supported thesis |
 | Confirmed results need tables or figures | `engineer/research-results-analysis-and-figures.md` | Produce claim-bearing paper visuals |
+| Data figures need publication styling | `engineer/paper-chart-styling.md` | Shared style helper: vector PDF, TrueType fonts, colorblind palette, error bars |
 
 Specialist Skills answer one implementation or experiment question. They do not
 define a global plan, stage transition, or parallel report.

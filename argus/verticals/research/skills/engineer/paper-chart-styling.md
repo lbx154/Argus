@@ -119,6 +119,20 @@ figures (teaser/pipeline/architecture) are not covered here — route those thro
     grayscale discrimination, and whether labels remain readable at the actual
     single- or double-column width.
 
+12. **Show the ledger's uncertainty and keep the axes honest.** Wherever an arm
+    in `experiments/claims.json` has repeats, the figure shows them: error bars
+    or shaded bands from the same rows, with the caption naming the spread
+    (std or CI) and repeat count. Place legends where they cover no data or
+    title (`constrained_layout=True`, `loc="best"` checked at final size, or a
+    single shared legend outside the panels). Never plot a substituted
+    sentinel (for example `1e-8` standing in for an exact zero on a log axis):
+    annotate the zero, use `symlog`, or change the panel. Panels that compare
+    methods share the same y-scale and method colours. Run
+    `python -m argus.verticals.research.figure_lint --project-root .` before
+    handing figures to the manuscript; it rejects missing files, raster
+    matplotlib exports, Type 3 fonts, and plotting scripts that bypass this
+    helper.
+
 ## Readable heatmap annotations
 
 Choose annotation text from the actual displayed cell color, including its

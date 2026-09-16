@@ -169,20 +169,42 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="repaired work products and the next decisive comparison",
         ),
         ChecklistItem(
+            id="experiment.claims_ledger",
+            statement=(
+                "Record every claim-bearing comparison in `experiments/claims.json`: "
+                "the scoped statement, metric and direction, the proposed method's arm "
+                "and the strongest same-information baseline's arm with mean, spread "
+                "and repeat count, the other measured baselines, whether the data is "
+                "synthetic, the seeds or splits, the raw evidence files, and the "
+                "command, plus the `mechanism` map from each load-bearing component of "
+                "the idea to the `path:Symbol` that executes it (faithful, simplified "
+                "with a named variant, or missing) and the reference implementations "
+                "cloned and run. A stochastic comparison carries at least three independent "
+                "repeats per arm; a deterministic one says why one run settles it. Call "
+                "a claim `supported` only when ours is on the claimed side of the "
+                "strongest baseline by more than run-to-run uncertainty, and name as "
+                "strongest the baseline that actually scored best. Validate with "
+                "`python -m argus.verticals.research.experiment_claims validate` "
+                "before reporting; Manager holds Experiment until the ledger validates "
+                "with a supported headline claim on real data."
+            ),
+            evidence_hint="experiments/claims.json validating against its raw evidence",
+        ),
+        ChecklistItem(
             id="experiment.notes",
             statement=(
                 "When the bar for entering Paper is met, overwrite the project-root "
-                "research notes, `RESEARCH_NOTES.md`, with the thesis, the comparisons "
-                "that establish it, the strongest baseline, the essential losses or "
-                "limits, the figures and data to use, and the minimum pointers a writer "
-                "needs to reproduce the results. Sort the complete evidence into "
-                "headline, mechanism, disambiguating-control, scope-changing, and "
-                "completeness evidence, and say where each lives, including repeats. "
-                "The evidence decides whether Experiment is done; missing or stale notes "
-                "are written by the round that advances and are never a reason to hold "
-                "a stage whose science is complete."
+                "research notes, `RESEARCH_NOTES.md`, beginning with "
+                "`# Research notes — Experiment stage`, with the thesis, the comparisons "
+                "that establish it (by ledger claim id), the strongest baseline, the "
+                "essential losses or limits, the figures and data to use, and the "
+                "minimum pointers a writer needs to reproduce the results. Sort the "
+                "complete evidence into headline, mechanism, disambiguating-control, "
+                "scope-changing, and completeness evidence, and say where each lives, "
+                "including repeats. Notes still carrying the Idea-stage heading hold "
+                "the stage: the round that finishes the science writes them."
             ),
-            evidence_hint="RESEARCH_NOTES.md, written when advancing",
+            evidence_hint="RESEARCH_NOTES.md rewritten for the Experiment stage",
         ),
     ),
     "paper": _checklist(
@@ -231,6 +253,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "manuscript and executed code, with clear grouping, visual hierarchy, "
                 "balanced spacing, and publication-size typography. Use proper "
                 "mathematical typesetting and restrained strokes and emphasis. "
+                "Data figures go through the shared paper_chart_style helper as vector "
+                "PDFs with TrueType fonts, show the ledger's uncertainty (error bars or "
+                "bands) wherever an arm has repeats, keep legends clear of titles and "
+                "data, and never plot a substituted sentinel for zero or a missing "
+                "value; `python -m argus.verticals.research.figure_lint` must pass. "
                 "Keep most effort on scientific methods, experiments, and interpretation. "
                 "Delegate substantial drawing to isolated candidate tasks while the lead "
                 "advances that work. The lead Engineer alone selects and merges the final "
@@ -390,8 +417,15 @@ def get_stage_checklist(stage: str) -> tuple[ChecklistItem, ...]:
 
 
 def _paper_issue(project_root: Path) -> tuple[str, ...]:
+    from .experiment_claims import experiment_claims_issues
+    from .figure_lint import figure_lint_issues
+
     paper = project_root / "paper"
     issues: list[str] = []
+    # A ledger the Experiment stage validated must still validate: a method
+    # or evaluator change in a later stage falsifies its numbers, and the
+    # manuscript's claims are checked against it.
+    issues.extend(experiment_claims_issues(project_root, require=False))
     if not (paper / "main.tex").is_file():
         issues.append("paper/main.tex is missing")
     rendered = next(
@@ -426,6 +460,7 @@ def _paper_issue(project_root: Path) -> tuple[str, ...]:
                 re.IGNORECASE,
             ):
                 issues.append("paper/main.html does not contain a rendered paper")
+    issues.extend(figure_lint_issues(project_root))
     return tuple(issues)
 
 
@@ -492,9 +527,17 @@ def stage_completion_issues(
         )
         return tuple(portfolio_issues)
     if normalized == "experiment":
-        # Experiment is judged on its evidence by the Reviewer and Manager; the
-        # research notes are context for Paper, not a completion condition.
-        return ()
+        # The Reviewer judges the science; the ledger and the notes make its
+        # object explicit. A stage whose claims are not recorded with their
+        # repeats, strongest baseline and raw evidence has not finished.
+        from .experiment_claims import experiment_claims_issues
+
+        return tuple(
+            (
+                *experiment_claims_issues(root),
+                *_notes_stage_issue(root, "experiment"),
+            )
+        )
     if normalized == "paper":
         return _paper_issue(root)
     if normalized == "review":
@@ -507,6 +550,22 @@ def stage_completion_issues(
             )
         )
     return ()
+
+
+def _notes_stage_issue(project_root: Path, stage: str) -> tuple[str, ...]:
+    """The research notes must have been rewritten for ``stage`` before it closes."""
+    from .notes import RESEARCH_NOTES_FILENAME, notes_heading, read_research_notes
+
+    heading = notes_heading(stage)
+    text = read_research_notes(project_root)
+    if text.lstrip().startswith(heading):
+        return ()
+    return (
+        f"{RESEARCH_NOTES_FILENAME} does not begin with `{heading}`: overwrite the "
+        f"notes for the {stage} stage with the thesis, the comparisons that establish "
+        "it, the strongest baseline, the losses and limits, the figures and data to "
+        "use, and the reproduction pointers the next stage needs",
+    )
 
 
 def automatic_stage_completion_ready(

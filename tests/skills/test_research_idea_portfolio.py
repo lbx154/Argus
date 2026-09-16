@@ -577,3 +577,117 @@ def test_ensure_claims_runtime_ownership_of_a_marker_written_without_one(tmp_pat
     fresh = json.loads(marker.read_text(encoding="utf-8"))
     assert fresh["owner"] == "runtime"
     assert fresh["created_ts"] == stale["created_ts"] and fresh["team_root"] == stale["team_root"]
+
+
+def _complete_routes_with_verdicts(
+    project: Path,
+    root: Path,
+    verdict_for: "dict[str, str]",
+) -> list[dict]:
+    """Finish every route/review pair, rejecting routes named in ``verdict_for``."""
+    routes: list[dict] = []
+    index = 0
+    while task := task_board.claim_top(root, f"worker-{index:02d}", now=time.time()):
+        owner = f"worker-{index:02d}"
+        index += 1
+        output = project / task["owns_paths"][0]
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if task["role"] == "idea-route":
+            output.write_text(
+                f"# {task['target']}\nhttps://example.org/primary\n", encoding="utf-8"
+            )
+            routes.append(task)
+        else:
+            verdict = verdict_for.get(task["target"], "qualified")
+            output.write_text(
+                json.dumps({
+                    "schema_version": 2,
+                    "route_id": task["target"],
+                    "verdict": verdict,
+                    "summary": f"{task['target']} {verdict}",
+                    "fatal_concerns": (
+                        [f"{task['target']} rests on a benchmark that cannot separate the mechanism"]
+                        if verdict == "rejected"
+                        else []
+                    ),
+                }),
+                encoding="utf-8",
+            )
+        task_board.complete(root, task["task_id"], shard=_shard(root, owner, task))
+    return routes
+
+
+def test_all_rejected_routes_regenerate_once_with_reviewer_feedback(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_RESEARCH_PORTFOLIO_MAX_REGENERATIONS", raising=False)
+    _state(tmp_path)
+    root = ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    routes = _complete_routes_with_verdicts(
+        tmp_path, root, {f"route-{i:02d}": "rejected" for i in range(1, portfolio_size() + 1)}
+    )
+    ensure_idea_portfolio(tmp_path, direction="reliable agents")
+
+    payload = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    assert payload["idea_portfolio"]["regenerations"] == 1
+    assert "selection_team_id" not in payload["idea_portfolio"]
+    board = {t["task_id"]: t for t in task_board.snapshot(root)}
+    for route in routes:
+        reopened = board[route["task_id"]]
+        assert reopened["state"] == "pending"
+        assert "every route in this portfolio was rejected" in reopened["reason"]
+        assert "cannot separate the mechanism" in reopened["reason"]
+        assert board[f"{route['task_id']}-review"]["state"] == "pending"
+
+    # The regenerated routes are rejected again: the bounded budget is spent,
+    # so selection proceeds and the selector is told to pick the most
+    # repairable route.
+    _complete_routes_with_verdicts(
+        tmp_path, root, {f"route-{i:02d}": "rejected" for i in range(1, portfolio_size() + 1)}
+    )
+    ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    payload = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    assert payload["idea_portfolio"]["regenerations"] == 1
+    selection_root = tmp_path / ".argus" / "teams" / payload["idea_portfolio"]["selection_team_id"]
+    selector = next(t for t in task_board.snapshot(selection_root) if t["role"] == "idea-selector")
+    assert "most repairable" in selector["objective"]
+    assert '"review_verdict": "rejected"' in selector["objective"]
+
+
+def test_selection_is_restricted_to_qualified_routes(tmp_path: Path) -> None:
+    _state(tmp_path)
+    root = ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    routes = _complete_routes_with_verdicts(tmp_path, root, {"route-01": "rejected"})
+    ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    payload = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    assert "regenerations" not in payload["idea_portfolio"]
+    selection_root = tmp_path / ".argus" / "teams" / payload["idea_portfolio"]["selection_team_id"]
+    selector = next(t for t in task_board.snapshot(selection_root) if t["role"] == "idea-selector")
+    assert "Only routes whose independent review verdict is `qualified` are eligible" in selector["objective"]
+    assert "route-01" not in selector["objective"].split("eligible (")[1].split(")")[0]
+
+    rejected = next(r for r in routes if r["target"] == "route-01")
+    _complete_selector(tmp_path, rejected)
+    ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    assert idea_portfolio_selection(tmp_path) is None
+    selector = next(t for t in task_board.snapshot(selection_root) if t["role"] == "idea-selector")
+    assert selector["state"] == "pending"
+
+    qualified = next(r for r in routes if r["target"] != "route-01")
+    _complete_selector(tmp_path, qualified)
+    ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    selected = idea_portfolio_selection(tmp_path)
+    assert selected is not None and selected["route_id"] == qualified["target"]
+
+
+def test_regeneration_budget_is_an_operator_setting(monkeypatch) -> None:
+    from argus.verticals.research.idea_portfolio import max_regenerations
+
+    monkeypatch.delenv("ARGUS_RESEARCH_PORTFOLIO_MAX_REGENERATIONS", raising=False)
+    assert max_regenerations() == 1
+    monkeypatch.setenv("ARGUS_RESEARCH_PORTFOLIO_MAX_REGENERATIONS", "9")
+    assert max_regenerations() == 3
+    monkeypatch.setenv("ARGUS_RESEARCH_PORTFOLIO_MAX_REGENERATIONS", "0")
+    assert max_regenerations() == 0
+    monkeypatch.setenv("ARGUS_RESEARCH_PORTFOLIO_MAX_REGENERATIONS", "many")
+    assert max_regenerations() == 1

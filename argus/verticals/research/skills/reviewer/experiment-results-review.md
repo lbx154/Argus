@@ -34,6 +34,14 @@ separate result-review file.
   re-deriving the thesis from what the evidence establishes, rather than
   another variant of the same objective?
 - Which concrete method or experiment change has the highest information value?
+- Does `experiments/claims.json` validate
+  (`python -m argus.verticals.research.experiment_claims validate`), and do its
+  arms reproduce from the raw evidence files it names: the same means and
+  spreads, at least three independent repeats per stochastic arm, the
+  strongest baseline being the best one actually measured, and a supported
+  headline on real data? A ledger that fails, or whose numbers cannot be
+  recomputed from the rows, is a required repair before any Paper
+  recommendation.
 
 When a result is weak, first diagnose the implementation, evaluator, benchmark,
 scale, or method. Keep the selected Idea and current stage. The experiment
