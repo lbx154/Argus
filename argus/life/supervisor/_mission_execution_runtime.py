@@ -34,6 +34,15 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# Pause statuses the round loop returns directly; each is resumable on its own.
+_TYPED_PAUSE_STATUSES = frozenset({
+    "paused_budget",
+    "paused_cost",
+    "paused_provider_cooldown",
+    "paused_provider_fence",
+    "paused_daemon_shutdown",
+})
+
 def _run_hidden(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
     """Run a non-interactive maintenance command without a Windows console."""
     for key, value in windows_hidden_subprocess_kwargs().items():
@@ -1124,6 +1133,14 @@ class MissionExecutionRuntimeMixin:
                 "pricing_status": usage_summary.pricing_status,
             }
         pause_status = pause_status_for_stop_kind(state.stop_kind)
+        if not pause_status and state.status in _TYPED_PAUSE_STATUSES:
+            # The round loop already named a typed, resumable pause. Its stop
+            # kind may describe the failure it was waiting out (the Reviewer
+            # backend on s-009c3ec3, 2026-09-16 03:33) rather than the
+            # interrupt that ended the wait; the daemon stopping is not that
+            # failure's fault, and the mission was archived as failed and never
+            # resumed because the kind, not the status, decided.
+            pause_status = state.status
         manager_wait = state.status == "paused_operator" and state.stop_kind is None
         if manager_wait:
             # A task-scoped Manager WAIT is observed at a safe role boundary;
