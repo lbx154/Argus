@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -97,6 +98,19 @@ def build_route_prompt(text: str) -> str:
     )
 
 
+def current_date_line(now: datetime | None = None) -> str:
+    """One line that anchors the Manager in calendar time.
+
+    Reply prompts are otherwise date-free, so the model dates "the latest"
+    work by its training cutoff and presents last year's papers as new.
+    """
+    moment = (now or datetime.now()).astimezone()
+    return (
+        f"Current date: {moment:%Y-%m-%d} ({moment:%a}), timezone {moment:%Z}. "
+        "Your training knowledge may predate this; do not call anything the "
+        "latest or current unless a source checked now says so.\n\n"
+    )
+
 def build_quick_reply_prompt(
     *,
     objective: str,
@@ -112,6 +126,7 @@ def build_quick_reply_prompt(
         f"You are Argus Manager, using one {runner_backend_label()} worker. "
         "Reply directly. No tools were used, so do not claim inspection "
         "or create persistent work.\n\n"
+        f"{current_date_line()}"
         f"{_IDENTITY_GUARD}"
         f"{_USER_FACING_STYLE}"
         f"{identity}"
@@ -170,6 +185,7 @@ def build_simple_prompt(
         "literary writing, reread the complete draft once before delivery, checking "
         "specifically for continuity breaks and setting exposition that replaces "
         "dramatized action.\n\n"
+        f"{current_date_line()}"
         f"{_IDENTITY_GUARD}"
         f"{_USER_FACING_STYLE}"
         f"{skills}"

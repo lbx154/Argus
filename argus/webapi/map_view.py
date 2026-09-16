@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
@@ -274,6 +275,34 @@ def normalize_events(
     return list({e["id"]: e for e in result}.values())
 
 
+# Inline lines ``map_references._inline_line`` writes in place of a quoted-card
+# marker, in both locales: ``（引用：《title》· step）`` and ``(Referenced: "title" · step)``.
+_REFERENCE_LINE = re.compile(
+    r'^(?:（引用：《[^》]*》(?:\s*·[^）]*)?）|\(Referenced:\s*"[^"]*"(?:\s*·[^)]*)?\))\s*'
+)
+
+
+def ask_title(asked: str) -> str:
+    """Name a turn card after the operator's own words.
+
+    Quoted cards are expanded server-side into inline reference lines *before*
+    the ask is persisted, so the first line is often a quote rather than the
+    question. Skip leading reference lines (and reference prefixes on the same
+    line); when the message is nothing but quotes, keep the first line.
+    """
+    lines = [line.strip() for line in str(asked or "").splitlines() if line.strip()]
+    for line in lines:
+        rest = line
+        while True:
+            stripped = _REFERENCE_LINE.sub("", rest, count=1)
+            if stripped == rest:
+                break
+            rest = stripped.strip()
+        if rest:
+            return rest
+    return lines[0] if lines else ""
+
+
 def turn_records(
     rows: list[dict], turns: dict | None = None, asks: dict | None = None,
 ) -> dict:
@@ -304,7 +333,7 @@ def turn_records(
             turns[card_id] = {
                 "card": {"id": card_id, "kind": "turn", "ts": _timestamp(ask.get("ts")),
                          **({"turn_kind": "qa"} if qa else {}),
-                         "title": text(asked.splitlines()[0] if asked else "", 120),
+                         "title": text(ask_title(asked), 120),
                          "objective": asked, "status": "running", "deps": [], "role": "manager",
                          "summary": "", "started_ts": _timestamp(row.get("ts")), "finished_ts": None},
                 "events": [] if qa else [{"id": f"{card_id}:work", "item_id": card_id, "type": "work.segment",

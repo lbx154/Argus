@@ -9,8 +9,11 @@
 .macro-summary .map-card { background: transparent; border-radius: 9px; }
 .map-card-number { color: rgb(var(--ink-faint)); font-size: 10px; letter-spacing: .08em; }
 .map-card h3 { font-size: 16px; line-height: 1.45; font-weight: 600; letter-spacing: -.015em; margin-bottom: 10px; }
+/* The overview card is centred in a fixed frame: clamp by line count so long asks never clip mid-glyph or run into the footer. */
+.macro-summary .map-card h3 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .map-card-objective { margin: 0 16px 9px; font-size: 11px; line-height: 1.5; color: rgb(var(--ink-faint)); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .map-card-copy { color: rgb(var(--ink-dim)); font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
+.macro-summary .map-card-copy { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
 .map-card-stages { display: flex; flex-direction: column; gap: 4px; margin: 0 16px 12px; align-items: flex-start; }
 .map-card-stages>span { color: rgb(var(--ink-faint)); font-size: 10px; }
 .map-card-stages .map-live-line { margin: 0; }
@@ -48,7 +51,7 @@
 
 /* At overview scale show fewer details instead of shrinking everything to illegible text. */
 .macro-summary { --overview-type: calc(1 / var(--map-zoom, .24) / var(--summary-scale, 1)); }
-.map-macro:not([data-overview-density=full]) .map-card { display: flex; flex-direction: column; min-height: 0; height: var(--summary-height); justify-content: center; }
+.map-macro:not([data-overview-density=full]) .map-card { display: flex; flex-direction: column; min-height: 0; height: var(--summary-height); justify-content: center; overflow: hidden; }
 .map-macro[data-overview-density=micro] .map-card-copy { display: none; }
 .map-macro[data-overview-density=compact] .map-card-copy { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: max(11px, calc(9px * var(--overview-type))); line-height: 1.55; margin-bottom: 8px; }
 .map-macro:not([data-overview-density=full]) .map-card h3 { font-size: max(15px, calc(12px * var(--overview-type))); line-height: 1.4; min-height: 0; margin-bottom: 10px; }
