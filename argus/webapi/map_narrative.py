@@ -190,7 +190,7 @@ def _normalize_reader_brief_shape(value) -> object:
     """Accept the one wrong shape the model keeps producing: ``next`` (and the
     scope text) nested inside ``scope`` instead of beside it.
 
-    The instructions read "why → concept → scope → next" and gemini-3.8-flash
+    The instructions read "why → concept → scope → next" and the map model
     returned ``{"why", "concept", "scope": {"scope": ..., "next": ...}}`` on
     the stable web trial at 04:07 and 05:03 (2026-09-16), each time failing
     the brief as invalid and leaving the page without an explanation for the

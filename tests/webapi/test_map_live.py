@@ -881,7 +881,7 @@ def test_failure_metadata_forgets_a_failure_once_its_cooldown_has_passed() -> No
 
 
 def test_reader_brief_accepts_next_nested_inside_scope_without_inventing_text() -> None:
-    """gemini-3.8-flash nests ``next`` under ``scope``; the page went without an
+    """The map model nested ``next`` under ``scope``; the page went without an
     explanation for the card twice on the trial (2026-09-16 04:07, 05:03)."""
     import pytest
 
