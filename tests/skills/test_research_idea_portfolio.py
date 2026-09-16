@@ -515,3 +515,45 @@ def test_direct_nonpaper_research_still_requires_idea_playbook(
     )
 
     assert required == ["research-idea-playbook.md"]
+
+
+def test_routes_grounded_by_arxiv_doi_or_fetched_sources_are_valid(tmp_path: Path) -> None:
+    """Three finished routes cited arXiv ids and `.argus/sources/` texts and no
+    URL; the URL-only check reopened all six tasks (2026-09-16 04:02)."""
+    from argus.verticals.research.idea_portfolio import _route_output_present
+
+    task = {"owns_paths": ["routes/r.md"]}
+    route = tmp_path / "routes" / "r.md"
+    route.parent.mkdir(parents=True)
+    for text in (
+        "Avron et al. (ICML 2014 / arXiv:1412.8293): QMC feature maps.",
+        "See doi 10.1137/22M1466244 for the SISC version.",
+        "Primary source: https://arxiv.org/abs/1506.02785",
+    ):
+        route.write_text(text, encoding="utf-8")
+        assert _route_output_present(tmp_path, task), text
+    (tmp_path / ".argus" / "sources").mkdir(parents=True)
+    (tmp_path / ".argus" / "sources" / "abc123.txt").write_text("fetched", encoding="utf-8")
+    route.write_text("Source: `.argus/sources/abc123.txt` (fetched 2026-09-16).", encoding="utf-8")
+    assert _route_output_present(tmp_path, task)
+    route.write_text("Source: `.argus/sources/missing.txt`.", encoding="utf-8")
+    assert not _route_output_present(tmp_path, task)
+    route.write_text("A mechanism with no sources at all.", encoding="utf-8")
+    assert not _route_output_present(tmp_path, task)
+
+
+def test_reopened_portfolio_tasks_say_why(tmp_path: Path) -> None:
+    _state(tmp_path)
+    root = ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    task = task_board.claim_top(root, "w1", now=time.time())
+    assert task is not None and task["role"] == "idea-route"
+    output = tmp_path / task["owns_paths"][0]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("A mechanism with no sources at all.", encoding="utf-8")
+    task_board.complete(root, task["task_id"], shard=_shard(root, "w1", task))
+
+    ensure_idea_portfolio(tmp_path, direction="reliable agents")
+
+    reopened = next(t for t in task_board.snapshot(root) if t["task_id"] == task["task_id"])
+    assert reopened["state"] == "pending" and reopened["attempts"] == 1
+    assert reopened["reason"].startswith("reopened: route file names no source")

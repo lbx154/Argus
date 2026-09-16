@@ -508,8 +508,12 @@ def release_paused(
         _write_task(root, task_id, task)
 
 
-def retry_terminal(root: Path, task_id: str) -> bool:
-    """Return one completed or failed task to the claimable queue."""
+def retry_terminal(root: Path, task_id: str, *, reason: str = "") -> bool:
+    """Return one completed or failed task to the claimable queue.
+
+    ``reason`` says why finished work is being redone; it stays on the task
+    (and so in ``team status`` and the lead's digest) until the next claim.
+    """
     with _store.locked(_lock(root)):
         task = _read_task(root, task_id)
         if not isinstance(task, dict) or task.get("state") not in {"done", "failed"}:
@@ -518,7 +522,7 @@ def retry_terminal(root: Path, task_id: str) -> bool:
             state="pending",
             owner="",
             result_shard="",
-            reason="",
+            reason=str(reason or ""),
             pending_question="",
             operator_options=[],
             operator_answer="",

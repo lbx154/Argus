@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -15,6 +17,20 @@ from ...core.research_contract import (
     resolve_research_target_level,
 )
 from ...team import formation, pool, roster, task_board
+
+log = logging.getLogger(__name__)
+
+# A route is source-grounded when it points at something a reader can open:
+# a URL, an arXiv identifier, a DOI, or the text of a source the worker
+# fetched into the project's `.argus/sources/` store. On the stable web
+# trial (2026-09-16 04:02) three finished routes cited arXiv ids and local
+# source files and no URL; the URL-only check called all three invalid and
+# reopened six done tasks, discarding eighty minutes of work without a word.
+_SOURCE_LOCATOR_RE = re.compile(
+    r"https?://|\barxiv[:\s]*\d{4}\.\d{4,5}\b|\b10\.\d{4,9}/\S+",
+    re.IGNORECASE,
+)
+_SOURCE_STORE_RE = re.compile(r"\.argus/sources/[A-Za-z0-9._-]+")
 
 TEAM_ID = "research-idea-pipeline-v8"
 # Route count of a *new* portfolio. Twelve was the original fixed size; on a
@@ -344,7 +360,21 @@ def _route_output_present(project_root: Path, task: dict[str, Any]) -> bool:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return False
-    return bool(text.strip()) and ("https://" in text or "http://" in text)
+    if not text.strip():
+        return False
+    if _SOURCE_LOCATOR_RE.search(text):
+        return True
+    return any(
+        (project_root / match).is_file()
+        for match in _SOURCE_STORE_RE.findall(text)
+    )
+
+
+def _route_output_reason(project_root: Path, task: dict[str, Any]) -> str:
+    path = _task_output_path(project_root, task)
+    if path is None or not path.is_file():
+        return "route file is missing"
+    return "route file names no source a reader can open (URL, arXiv id, DOI or a fetched `.argus/sources/` text)"
 
 
 def _review_payload(
@@ -565,18 +595,29 @@ def _retry_invalid_terminal_tasks(
             and _valid_shard(root, review)
             and _review_payload(project_root, review) is not None
         )
-        if (
-            route.get("state") in {"done", "failed"}
-            and not route_valid
-            and task_board.retry_terminal(root, route_id)
-        ):
-            retried.append(route_id)
-        if (
-            review.get("state") in {"done", "failed"}
-            and (not route_valid or not review_valid)
-            and task_board.retry_terminal(root, review_id)
-        ):
-            retried.append(review_id)
+        if route.get("state") in {"done", "failed"} and not route_valid:
+            reason = (
+                "reopened: " + (
+                    "result shard missing or not a success"
+                    if not _valid_shard(root, route)
+                    else _route_output_reason(project_root, route)
+                )
+                if route.get("state") == "done"
+                else "reopened after failure"
+            )
+            if task_board.retry_terminal(root, route_id, reason=reason):
+                retried.append(route_id)
+                log.warning("idea portfolio %s: %s", route_id, reason)
+        if review.get("state") in {"done", "failed"} and (not route_valid or not review_valid):
+            if not route_valid:
+                reason = f"reopened: its route {route_id} was reopened"
+            elif not _valid_shard(root, review):
+                reason = "reopened: result shard missing or not a success"
+            else:
+                reason = "reopened: review file is not a schema 2 verdict"
+            if task_board.retry_terminal(root, review_id, reason=reason):
+                retried.append(review_id)
+                log.warning("idea portfolio %s: %s", review_id, reason)
     return tuple(retried)
 
 
