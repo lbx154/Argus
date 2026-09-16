@@ -557,3 +557,23 @@ def test_reopened_portfolio_tasks_say_why(tmp_path: Path) -> None:
     reopened = next(t for t in task_board.snapshot(root) if t["task_id"] == task["task_id"])
     assert reopened["state"] == "pending" and reopened["attempts"] == 1
     assert reopened["reason"].startswith("reopened: route file names no source")
+
+
+def test_ensure_claims_runtime_ownership_of_a_marker_written_without_one(tmp_path: Path) -> None:
+    """The trial's portfolio marker predated ownership; without it the lead
+    polled the team instead of waiting (2026-09-16 04:08)."""
+    from argus.team import registry
+
+    _state(tmp_path)
+    root = ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    team_id = root.name
+    marker = registry.marker_path(tmp_path, team_id)
+    stale = json.loads(marker.read_text(encoding="utf-8"))
+    stale.pop("owner", None)
+    marker.write_text(json.dumps(stale), encoding="utf-8")
+
+    ensure_idea_portfolio(tmp_path, direction="reliable agents")
+
+    fresh = json.loads(marker.read_text(encoding="utf-8"))
+    assert fresh["owner"] == "runtime"
+    assert fresh["created_ts"] == stale["created_ts"] and fresh["team_root"] == stale["team_root"]

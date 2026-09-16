@@ -16,7 +16,7 @@ from ...core.research_contract import (
     resolve_research_direction_mode,
     resolve_research_target_level,
 )
-from ...team import formation, pool, roster, task_board
+from ...team import formation, pool, registry, roster, task_board
 
 log = logging.getLogger(__name__)
 
@@ -621,6 +621,33 @@ def _retry_invalid_terminal_tasks(
     return tuple(retried)
 
 
+def _claim_runtime_ownership(project_root: Path, team_id: str) -> None:
+    """Mark the portfolio's campaign marker as runtime-owned.
+
+    Markers written before ownership was recorded (or by an older runtime)
+    carry no owner, and a team without one is treated as lead-formed: the
+    round loop would then let the Engineer poll it instead of waiting. The
+    runtime re-asserts ownership of its own team every time it ensures it.
+    """
+    current = next(
+        (m for m in registry.list_markers(project_root) if str(m.get("team_id") or "") == team_id),
+        None,
+    )
+    if current is None or str(current.get("owner") or "") == formation.RUNTIME_OWNER:
+        return
+    try:
+        registry.write_marker(
+            project_root,
+            team_id=team_id,
+            team_root=str(current.get("team_root") or (project_root / TEAM_ROOT / team_id)),
+            cwd=str(current.get("cwd") or project_root),
+            now=float(current.get("created_ts") or 0.0),
+            owner=formation.RUNTIME_OWNER,
+        )
+    except OSError:
+        log.warning("could not record runtime ownership of team %s", team_id, exc_info=True)
+
+
 def _dissolve_team(root: Path, reason: str) -> None:
     if not root.is_dir():
         return
@@ -716,6 +743,7 @@ def _ensure_selection_team(
         and int(pool.read(selection_root).get("width", 0) or 0) != 1
     ):
         pool.update(selection_root, width=1, state="running")
+    _claim_runtime_ownership(project_root, selection_team_id)
 
     selector = next(
         (
@@ -864,6 +892,7 @@ def ensure_idea_portfolio(
         and int(pool.read(root).get("width", 0) or 0) != pool.default_width()
     ):
         pool.update(root, width=pool.default_width(), state="running")
+    _claim_runtime_ownership(project_root, team_id)
 
     selection_root = _ensure_selection_team(
         project_root,
