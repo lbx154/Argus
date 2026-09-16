@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -35,7 +36,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import task_board
+from . import pool, task_board
+
+# Stops imposed from outside the work: the provider turned the call away, the
+# budget closed, the daemon is shutting down. None of them judge the task.
+_EXTERNAL_PAUSE_KINDS = frozenset({
+    "provider_cooldown",
+    "budget_exhausted",
+    "backend_unavailable",
+    "daemon_shutdown",
+    "operator_pause",
+    "cost_unreconciled",
+})
+_STOP_KIND_IN_REASON = re.compile(r"stop_kind=([a-z_]+)")
+_PAUSE_RETRY_ENV = "ARGUS_TEAM_PAUSE_RETRY_SECONDS"
+_BUDGET_RETRY_ENV = "ARGUS_TEAM_BUDGET_RETRY_SECONDS"
 
 
 @dataclass(frozen=True)
@@ -46,6 +61,26 @@ class TeammateMissionResult:
     operator_question: str = ""
     operator_options: tuple[dict, ...] = ()
     last_thread_id: str = ""
+    stop_kind: str = ""
+
+    @property
+    def external_pause_kind(self) -> str:
+        """The outside condition that stopped the mission, or ``""``."""
+        if self.success or self.waits_for_operator:
+            return ""
+        kind = self.stop_kind.strip().lower()
+        if not kind:
+            match = _STOP_KIND_IN_REASON.search(self.reason)
+            kind = match.group(1) if match else ""
+        if kind in _EXTERNAL_PAUSE_KINDS:
+            return kind
+        if self.status == "infra_blocked":
+            return kind or "backend_unavailable"
+        return ""
+
+    @property
+    def paused_externally(self) -> bool:
+        return bool(self.external_pause_kind)
 
     @property
     def waits_for_operator(self) -> bool:
@@ -71,7 +106,23 @@ def _mission_result(outcome) -> TeammateMissionResult:
             if isinstance(option, dict)
         ),
         last_thread_id=str(getattr(outcome, "last_thread_id", "") or ""),
+        stop_kind=str(getattr(outcome, "stop_kind", "") or ""),
     )
+
+
+def _pause_retry_seconds(kind: str) -> float:
+    """How long a paused task waits before the Curator may re-dispatch it."""
+    env, default = (
+        (_BUDGET_RETRY_ENV, 900.0)
+        if kind in {"budget_exhausted", "cost_unreconciled"}
+        else (_PAUSE_RETRY_ENV, 120.0)
+    )
+    raw = os.environ.get(env, "").strip()
+    try:
+        value = float(raw) if raw else default
+    except ValueError:
+        value = default
+    return max(5.0, value)
 
 
 def _coerce_mission_result(result) -> TeammateMissionResult:
@@ -508,13 +559,32 @@ def main(argv: list[str] | None = None) -> int:
             reason=mission.reason or "teammate mission is waiting for an operator decision",
             last_thread_id=mission.last_thread_id,
         )
+    elif mission.paused_externally:
+        # The provider or the budget turned this worker away before it could
+        # judge anything. The task goes back to the queue with a backoff, and
+        # the whole pool cools down so siblings are not spawned into the same
+        # refusal (stable web trial, 2026-09-16: twelve workers in one minute,
+        # eleven "failed" on a two-slot provider).
+        kind = mission.external_pause_kind
+        retry_after = time.time() + _pause_retry_seconds(kind)
+        task_board.release_paused(
+            root,
+            task_id,
+            reason=mission.reason or f"paused by {kind}; will retry",
+            retry_after=retry_after,
+        )
+        pool.update(root, cooldown_until=retry_after)
+        sys.stderr.write(
+            f"teammate_entry: task {task_id} paused ({kind}); "
+            f"re-queued for retry after {retry_after:.0f}\n"
+        )
     else:
         task_board.fail(
             root,
             task_id,
             reason=mission.reason or "teammate mission did not succeed",
         )
-    return 0 if mission.success or mission.waits_for_operator else 1
+    return 0 if mission.success or mission.waits_for_operator or mission.paused_externally else 1
 
 
 if __name__ == "__main__":

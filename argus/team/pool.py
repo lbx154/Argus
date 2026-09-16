@@ -54,14 +54,20 @@ def update(
     *,
     width: int | None = None,
     state: str | None = None,
+    cooldown_until: float | None = None,
 ) -> dict[str, Any]:
     """Merge-write the lead's width/state intent.
 
     ``width=0`` is a real value (pause), so it is written like any other; only
-    ``None`` (the default) leaves width untouched.
+    ``None`` (the default) leaves width untouched. ``cooldown_until`` is a
+    wall-clock instant before which the Curator must not spawn into this pool:
+    a teammate that was turned away by the provider sets it so its siblings
+    are not spawned into the same wall one after another.
     """
     with _store.locked(_lock(root)):
         doc = read(root)
+        if cooldown_until is not None:
+            doc["cooldown_until"] = max(0.0, float(cooldown_until))
         if width is not None:
             normalized_width = int(width)
             maximum_width = int(os.environ.get(_MAX_WIDTH_ENV, "64"))

@@ -316,3 +316,17 @@ def test_history_team_projection_does_not_duplicate_journal_pages_or_replay_unch
         assert restarted["incremental"] is False
         assert restarted["team_events_complete"] is True
         assert len(team_events(restarted)) == 3
+
+
+def test_a_task_paused_by_the_provider_projects_as_paused_not_failed(tmp_path: Path) -> None:
+    sid, life, board = sample(tmp_path)
+    task_board.claim_top(board, "worker-1", now=20)
+    task_board.release_paused(
+        board, "route-01",
+        reason="stop_kind=provider_cooldown; error=provider concurrency limit reached (2 active calls)",
+        retry_after=10_000.0,
+    )
+    events = team_events(read_map(sid, tmp_path, life))
+    assert events["route-01"]["status"] == "paused"
+    assert "provider concurrency limit" in events["route-01"]["reason"]
+    assert events["route-02"]["status"] == "pending"

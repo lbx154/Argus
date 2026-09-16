@@ -46,6 +46,9 @@ _BOUNDED_DAG_FOOTER = decision_footer_instruction(
 _PLANNER_CORE_CONTRACT = """
 ## Assigning work
 Read state; do not edit. Engineer implements, runs commands and tests, and iterates.
+Ground the plan in the mission workspace only: one bounded look at its files is
+enough. Do not list, read, or search sibling projects, other checkouts, runtime
+trees, or unrelated directories; that is exploration cost with no planning value.
 
 - Reuse settled and Manager decisions. Assign one task with its decision, inputs,
   and check; split only for dependencies or parallel work.

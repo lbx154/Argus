@@ -632,6 +632,13 @@ class Curator:
                 registry.remove_marker(self.project_root, marker["team_id"])
             return
         self._maybe_distill(root, now)
+        cooldown_until = float(doc.get("cooldown_until") or 0.0)
+        if now < cooldown_until:
+            # A teammate was just turned away (provider concurrency, budget).
+            # Spawning its siblings now would only queue more instant refusals.
+            log.info("curator: campaign %s cooling down for %.0fs; not refilling",
+                     marker.get("team_id", "?"), cooldown_until - now)
+            return
         width = int(doc["width"]) if "width" in doc else self.default_width
         self._refill(
             root,

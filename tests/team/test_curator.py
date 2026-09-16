@@ -988,3 +988,17 @@ def test_twelve_candidate_tasks_do_not_spawn_twelve_workers_by_default(tmp_path,
     curator._tick(now=101.0)
     assert len(curator._children) == 2
     assert task_board.count_in_flight(root) == 2
+
+
+def test_tick_skips_refill_while_pool_cools_down(tmp_path: Path) -> None:
+    """A refused teammate cools the pool; siblings are not spawned into the same wall."""
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=2, state="running", cooldown_until=200.0)
+    task_board.form(root, [{"task_id": f"t::{i}", "objective": "x"} for i in range(3)])
+    c = _fake_curator(tmp_path)
+    c._tick(now=100.0)
+    assert task_board.count_in_flight(root) == 0
+    assert c.live_owner_ids(root) == set()
+    c._tick(now=200.0)
+    assert task_board.count_in_flight(root) == 2

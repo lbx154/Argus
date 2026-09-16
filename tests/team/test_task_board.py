@@ -380,3 +380,19 @@ def test_form_never_takes_lifecycle_fields_from_a_spec(tmp_path: Path) -> None:
     assert task["heartbeat_ts"] == 0.0 and task["reason"] == ""
     assert task["acceptance_check"] == "carried"
     assert tb.claim_top(tmp_path, "w1", now=1.0)["task_id"] == "a"
+
+
+def test_release_paused_waits_out_backoff_before_reclaim(tmp_path: Path) -> None:
+    """A provider-refused task returns to the queue but not before its backoff."""
+    tb.form(tmp_path, [{"task_id": "t::a", "objective": "x"}])
+    tb.claim_top(tmp_path, "tm-1", now=1.0)
+    tb.release_paused(tmp_path, "t::a", reason="stop_kind=provider_cooldown", retry_after=100.0)
+    task = {t["task_id"]: t for t in tb.snapshot(tmp_path)}["t::a"]
+    assert task["state"] == "pending" and task["owner"] == ""
+    assert task["pause_reason"] == "stop_kind=provider_cooldown"
+    assert task["attempts"] == 1
+    assert tb.count_in_flight(tmp_path) == 0
+    assert tb.claim_top(tmp_path, "tm-2", now=50.0) is None
+    got = tb.claim_top(tmp_path, "tm-2", now=100.0)
+    assert got is not None and got["task_id"] == "t::a"
+    assert got["pause_reason"] == "" and got["retry_after_ts"] == 0.0

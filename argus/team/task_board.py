@@ -391,7 +391,11 @@ def claim_top(root: Path, member_id: str, *, now: float) -> dict[str, Any] | Non
         done = _done_ids(tasks)
         eligible = [
             t for t in tasks
-            if t["state"] == "pending" and all(dep in done for dep in t["deps"])
+            if t["state"] == "pending"
+            and all(dep in done for dep in t["deps"])
+            # A task released after an external pause (provider cooldown,
+            # exhausted budget) waits out its backoff before anyone re-claims it.
+            and float(t.get("retry_after_ts") or 0.0) <= now
         ]
         if not eligible:
             return None
@@ -399,6 +403,8 @@ def claim_top(root: Path, member_id: str, *, now: float) -> dict[str, Any] | Non
         task = eligible[0]
         task["state"] = "claimed"
         task["owner"] = member_id
+        task["pause_reason"] = ""
+        task["retry_after_ts"] = 0.0
         task["claim_ts"] = now
         task["heartbeat_ts"] = now
         task["claim_seq"] = 1 + max(
@@ -468,6 +474,38 @@ def complete(root: Path, task_id: str, *, shard: str = "") -> None:
 
 def fail(root: Path, task_id: str, *, reason: str = "") -> None:
     _mutate(root, task_id, state="failed", reason=reason, finished_ts=time.time())
+
+
+def release_paused(
+    root: Path,
+    task_id: str,
+    *,
+    reason: str,
+    retry_after: float,
+) -> None:
+    """Hand a task back to the queue after an external pause, with a backoff.
+
+    Provider cooldowns and exhausted budgets are not verdicts on the work: the
+    task is unfinished, not failed. It returns to ``pending`` so the Curator
+    re-dispatches it, but ``claim_top`` skips it until ``retry_after`` so a
+    saturated provider is not hammered by a herd of instant re-spawns.
+    """
+    with _store.locked(_lock(root)):
+        task = _read_task(root, task_id)
+        if not isinstance(task, dict):
+            return
+        task.update(
+            state="pending",
+            owner="",
+            reason="",
+            pause_reason=str(reason or "")[:2000],
+            retry_after_ts=float(retry_after),
+            claim_ts=0.0,
+            heartbeat_ts=0.0,
+            finished_ts=0.0,
+            attempts=int(task.get("attempts", 0) or 0) + 1,
+        )
+        _write_task(root, task_id, task)
 
 
 def retry_terminal(root: Path, task_id: str) -> bool:

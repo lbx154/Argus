@@ -210,6 +210,13 @@ def project_team_events(sid: str, root: Path, life_dir: Path, bindings: dict, so
         if key in records and records[key][0] > stamp[3]:
             continue
         reason = text(task.get("reason"))
+        pause_reason = text(task.get("pause_reason"))
+        state = text(task.get("state"), 40)
+        if state == "pending" and pause_reason:
+            # Turned away by the provider or the budget and waiting to retry:
+            # unfinished, not failed, and not merely "not started yet".
+            state = "paused"
+            reason = reason or pause_reason
         objective = text(task.get("objective"), 4000)
         team_role = text(task.get("role"), 80)
         started = _number(task.get("claim_ts"))
@@ -223,7 +230,7 @@ def project_team_events(sid: str, root: Path, life_dir: Path, bindings: dict, so
             "association": "explicit",
             "title": text(task.get("title"), 240),
             "text": "\n\n".join(value for value in (objective, reason) if value),
-            "status": text(task.get("state"), 40),
+            "status": state,
             "role": "reviewer" if team_role in {"idea-review", "reviewer"} else "engineer",
             "team_id": team_id,
             "team_task_id": task_id,

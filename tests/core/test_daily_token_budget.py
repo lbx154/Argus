@@ -132,3 +132,24 @@ def test_denied_receipt_cannot_spend_tokens(budget):
         started_at=time.time(), completed_at=time.time(), status="denied")
     UsageLedger(budget / "projects" / "denied", migrate_legacy=False).append(replace(record, input_tokens=10000))
     assert cost_admission_reason(global_root=budget) == ""
+
+
+def test_cached_input_weight_discounts_daily_tokens(budget, monkeypatch):
+    """A long tool conversation re-sends its cached prefix every turn; the cap
+    may count those reads at a fraction. Default weight 1 keeps the old sum."""
+    monkeypatch.setenv("ARGUS_SKILL_DAILY_TOKEN_CAP_CACHED_WEIGHT", "0.25")
+    call, _ = reserve(budget, "cached")
+    assert call is not None
+    record = build_usage_record(call_id="cached", project_root=call.project_root,
+        mission_id="mission", provider="pi", model="gpt-5.6-sol", run_label="planner-bounded-plan",
+        started_at=time.time() - 1, completed_at=time.time(), status="completed",
+        provider_cost_usd=0, token_usage=TokenUsage(input_tokens=600, cached_input_tokens=500,
+            output_tokens=40, reasoning_output_tokens=10, input_tokens_present=True,
+            cached_input_tokens_present=True, output_tokens_present=True,
+            reasoning_output_tokens_present=True))
+    UsageLedger(call.project_root, migrate_legacy=False).append(record)
+    call.settle(record)
+    # 600 input of which 500 cached at 0.25 -> 100 + 125 = 225, plus 40 + 10.
+    assert cost_control_snapshot(global_root=budget)["daily_tokens"] == 275
+    monkeypatch.setenv("ARGUS_SKILL_DAILY_TOKEN_CAP_CACHED_WEIGHT", "1")
+    assert cost_control_snapshot(global_root=budget)["daily_tokens"] == 650

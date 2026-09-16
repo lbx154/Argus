@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -874,3 +875,56 @@ def test_a_per_task_cwd_below_the_project_tree_gets_no_vertical_at_all(
                      acceptance_check="udist-main is a conditional kernel.")
 
     assert seen["prelude"] == ""
+
+
+def test_external_pause_requeues_with_backoff_and_cools_the_pool(tmp_path: Path, monkeypatch) -> None:
+    """Twelve workers, two provider slots (stable web trial, 2026-09-16): a refused
+    worker must not fail its task; it re-queues it and pauses the whole pool."""
+    from argus.team import pool
+
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    monkeypatch.setenv("ARGUS_TEAM_PAUSE_RETRY_SECONDS", "300")
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: te.TeammateMissionResult(
+        False, "infra_blocked",
+        reason=("The work was paused before the Engineer finished this round because the "
+                "model service asked Argus to wait before calling again. Technical record: "
+                "stop_kind=provider_cooldown; error=provider concurrency limit reached (2 active calls)"),
+    ))
+    before = time.time()
+    rc = te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a",
+                  "--cwd", str(tmp_path)])
+    assert rc == 0
+    task = {t["task_id"]: t for t in tb.snapshot(root)}["t1::a"]
+    assert task["state"] == "pending"
+    assert "provider_cooldown" in task["pause_reason"]
+    assert task["retry_after_ts"] >= before + 299
+    assert pool.read(root)["cooldown_until"] >= before + 299
+    assert tb.claim_top(root, "t1::w2", now=time.time()) is None
+    assert tb.claim_top(root, "t1::w2", now=time.time() + 301) is not None
+
+
+def test_budget_pause_uses_the_longer_backoff(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: te.TeammateMissionResult(
+        False, "paused_budget", reason="global daily token budget exhausted", stop_kind="budget_exhausted",
+    ))
+    before = time.time()
+    assert te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a",
+                    "--cwd", str(tmp_path)]) == 0
+    task = {t["task_id"]: t for t in tb.snapshot(root)}["t1::a"]
+    assert task["state"] == "pending" and task["retry_after_ts"] >= before + 899
+
+
+def test_pause_kind_detection_never_masks_a_real_failure() -> None:
+    plain = te.TeammateMissionResult(False, "error", reason="teammate mission did not succeed")
+    assert plain.external_pause_kind == ""
+    stalled = te.TeammateMissionResult(False, "no_progress", reason="Engineer produced no effective output")
+    assert stalled.external_pause_kind == ""
+    infra = te.TeammateMissionResult(False, "infra_blocked", reason="Research infrastructure blocked progress.")
+    assert infra.external_pause_kind == "backend_unavailable"
+    shutdown = te.TeammateMissionResult(False, "blocked", reason="Technical record: stop_kind=daemon_shutdown; error=x")
+    assert shutdown.external_pause_kind == "daemon_shutdown"
+    asked = te.TeammateMissionResult(False, "blocked", reason="stop_kind=provider_cooldown", operator_question="Which dataset?")
+    assert asked.waits_for_operator and asked.external_pause_kind == ""

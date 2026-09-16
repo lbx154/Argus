@@ -350,11 +350,35 @@ def _cost_projection(
     return live, live_extra, sum(unacknowledged.values()), liabilities
 
 
+def cached_token_weight() -> float:
+    """How much of a cached input token counts against the daily token cap.
+
+    Providers bill cache reads at a fraction of fresh input; a long tool
+    conversation re-sends its whole prefix every turn, so at weight 1.0 one
+    planner call can look like millions of tokens while 90% of them were
+    cache hits. 1.0 keeps the historical meaning of the cap.
+    """
+    from .knobs import resolve_knob
+
+    raw = resolve_knob("ARGUS_SKILL_DAILY_TOKEN_CAP_CACHED_WEIGHT", "1").value
+    try:
+        weight = float(str(raw).strip() or "1")
+    except ValueError:
+        weight = 1.0
+    return min(1.0, max(0.0, weight))
+
+
 def _observed_tokens(records: list[UsageRecord], state: dict[str, Any]) -> tuple[int, int]:
     # Input already includes cache reads/writes. Reasoning is a separate count
-    # in the normalized ledger; do not add cache a second time.
+    # in the normalized ledger; do not add cache a second time. Cached input
+    # may count at a configured fraction of a fresh token.
+    weight = cached_token_weight()
+
     def count(summary: UsageSummary) -> int:
-        return summary.input_tokens + summary.output_tokens + summary.reasoning_output_tokens
+        cached = int(summary.cached_input_tokens or 0)
+        cached = min(cached, summary.input_tokens)
+        discounted = summary.input_tokens - int(round(cached * (1.0 - weight)))
+        return discounted + summary.output_tokens + summary.reasoning_output_tokens
 
     records = list({r.call_id: r for r in records}.values())
     settled = [r for r in records if r.status != "denied"]

@@ -145,6 +145,7 @@ KNOBS: tuple[Knob, ...] = (
     # --- budget ---
     Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-global daily USD cap across all projects", "budget", cockpit=True),
     Knob("ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP", "0", "daily input (including cache) plus output/reasoning token limit across all projects; 0 disables", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_DAILY_TOKEN_CAP_CACHED_WEIGHT", "1", "fraction (0..1) of each cached input token counted against the daily token cap; 1 counts cache reads in full", "budget", cockpit=True),
     Knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0", "concurrent provider processes across all backends and projects; 0 disables", "budget"),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "host-global settled-cost admission and reconciliation", "budget"),
     Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
