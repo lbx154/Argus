@@ -333,7 +333,7 @@ const API_LOCAL_READ_TIMEOUT_MS = 12_000;
 
 export class PairingRequiredError extends Error {
   constructor() {
-    super('This browser is not paired with Argus. Reopen it from Argus Desktop or use a fresh pairing link.');
+    super('This browser is not paired with Argus. Open a valid pairing link or enter a pairing token.');
     this.name = 'PairingRequiredError';
   }
 }

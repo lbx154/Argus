@@ -14,6 +14,17 @@ export function pairingTokenFromInput(input: string): string {
   }
 }
 
+export function temporaryPairingLinkFromInput(input: string): string {
+  try {
+    const current = new URL(window.location.href);
+    const target = new URL(input.trim(), current);
+    return target.origin === current.origin && /^\/pair\/[\w-]{32}$/.test(target.pathname)
+      ? target.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
 export function ConnectionProblemBanner({
   error,
   onRetry,
@@ -31,6 +42,11 @@ export function ConnectionProblemBanner({
 
   const repairPairing = (event: FormEvent) => {
     event.preventDefault();
+    const link = temporaryPairingLinkFromInput(pairingInput);
+    if (link) {
+      window.location.replace(link);
+      return;
+    }
     const token = pairingTokenFromInput(pairingInput);
     if (!token) {
       setPairingError(t('connection.pairingInvalid'));

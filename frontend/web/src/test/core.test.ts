@@ -47,7 +47,7 @@ import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
 import { Button } from '../components/primitives';
 import { ArgusMark, Wordmark } from '../components/Wordmark';
-import { ConnectionProblemBanner, pairingTokenFromInput } from '../components/ConnectionProblemBanner';
+import { ConnectionProblemBanner, pairingTokenFromInput, temporaryPairingLinkFromInput } from '../components/ConnectionProblemBanner';
 import { LocalArgusUnavailableError, PairingRequiredError } from '../api';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
 
@@ -79,7 +79,7 @@ describe('shared frontend core', () => {
 
     expect(html).toContain('role="alert"');
     expect(html).toContain('not paired with Argus');
-    expect(html).toContain('reopen the workbench from Argus Desktop');
+    expect(html).toContain('valid pairing link for this Argus site');
     expect(html).toContain('Pair again');
   });
 
@@ -90,6 +90,10 @@ describe('shared frontend core', () => {
     expect(pairingTokenFromInput('http://127.0.0.1:8765/?token=fresh-link-token')).toBe('fresh-link-token');
     expect(pairingTokenFromInput('http://127.0.0.1:8765/')).toBe('');
     expect(pairingTokenFromInput('not a token')).toBe('');
+    const code = 'a'.repeat(32);
+    expect(temporaryPairingLinkFromInput(`http://127.0.0.1:8765/pair/${code}`)).toBe(`http://127.0.0.1:8765/pair/${code}`);
+    expect(temporaryPairingLinkFromInput(`https://other.example/pair/${code}`)).toBe('');
+    expect(temporaryPairingLinkFromInput('http://127.0.0.1:8765/')).toBe('');
 
     vi.unstubAllGlobals();
   });

@@ -698,6 +698,9 @@ def create_app(
     from .routes.skill_library import register_skill_library_routes
 
     register_skill_library_routes(app, ctx)
+    from .routes.pairing import register_pairing_routes
+
+    register_pairing_routes(app, ctx)
 
     # ── static web UI (optional) ──────────────────────────────────────────
     # When the React frontend has been built (`npm run build` in frontend/web),
