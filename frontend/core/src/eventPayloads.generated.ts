@@ -1929,6 +1929,7 @@ export interface DomainPromotionEvent extends EventMsg {
 export interface ManagerTurnStartedEvent extends EventMsg {
   type: "manager.turn.started";
   payload_schema_version?: 1;
+  "turn_kind"?: "qa";
   "message_id": string;
   "text": string;
 }
@@ -1979,6 +1980,7 @@ export interface UiOperatorEvent extends EventMsg {
 export interface UiArgusEvent extends EventMsg {
   type: "ui.argus";
   payload_schema_version?: 1;
+  "turn_kind"?: "qa";
   "agent_layer"?: string;
   "message_id": string;
   "text": string;

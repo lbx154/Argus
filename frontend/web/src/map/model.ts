@@ -22,8 +22,9 @@ export interface MapTask
   plan_hypothesis?: string;
   non_goals?: string[];
   outcome?: Partial<NonNullable<BacklogItem['outcome']>>;
-  /** 'turn': a single-agent conversation turn that used tools, shown as a card. */
+  /** 'turn': a single-agent answer or action, shown as a card. */
   kind?: string;
+  turn_kind?: 'qa';
   /** Synthesized team branch node (display/navigation only, never a card). */
   branch?: true;
   parent_id?: string;

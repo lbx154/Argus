@@ -215,8 +215,14 @@ def build_pending_question_prompt(item: Any, answer: str) -> str:
     )
 
 
-def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
+def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_reply: bool = True) -> str:
     """Merged cockpit front door: classify once and reuse every cheap decision."""
+    reply_rule = ("REPLY is the complete human-facing answer; "
+           "never expose route, control, lifetime, or role-protocol labels.\n\n"
+           if allow_reply else
+           "REPLY must be NONE. The persistent Manager will answer using conversation "
+           "and Skill context. Return routing fields only; do not draft, outline, "
+           "or answer the user's question here. SELF_MODE may still be REPLY.\n\n")
     cleaned = (text or "").strip()
     return (
         "Classify only; create no vertical or plan.\n"
@@ -249,8 +255,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "MICRO=checked mutation; IMPLEMENT=code+tests; DEBUG=diagnosis/fix+tests; "
         "REVIEW=local review; SYNTHESIZE=supplied sources; TEAM=NONE. "
         "Prefer DEBUG for fixes. Calculations, mutations and tests require execution. "
-        "REPLY is the complete human-facing answer; "
-        "never expose route, control, lifetime, or role-protocol labels.\n\n"
+        f"{reply_rule}"
         f"{RESEARCHER_VOICE_BRIEF}\n\n"
         "LIFETIME: TEAM: default BOUNDED for finite or casual unscoped work absent "
         "ongoing intent; BOUNDED_INCREMENT for a limited stage; STANDING only with "
@@ -271,7 +276,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
             "OPERATOR_QUESTION_POLICY: unchanged\n"
             "ROUTE: SELF\n"
             "SELF_MODE: REPLY\n"
-            "REPLY: the full answer\n"
+            f"REPLY: {'the full answer' if allow_reply else 'NONE'}\n"
             "LIFETIME: NONE\n"
             "GREETING: NONE\n"
             "NAME: short title"

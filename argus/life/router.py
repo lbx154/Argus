@@ -397,7 +397,8 @@ def classify_front_door(
         return None, None, "complex"
     try:
         result = run_exec(
-            build_front_door_prompt(cleaned, active_mission=active_mission) + domain_prompt
+            build_front_door_prompt(cleaned, active_mission=active_mission,
+                                    allow_reply=callable(reply_sink)) + domain_prompt
         )
     except Exception as exc:  # noqa: BLE001
         if callable(failure_sink):

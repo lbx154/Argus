@@ -464,3 +464,13 @@ it("heads each step column with the round of work it holds", () => {
   for (const title of early.columns.map((c) => c.title))
     expect(["Setting out", "Setting out · Round 1", "Round 1", "Round 1 · cont.", "Round 1 · Outcome", "Round 1 · cont. · Outcome", "Outcome"]).toContain(title);
 });
+
+it('shows question and answer without inventing work or review stages', () => {
+  const task: MapTask = { id: 'qa', title: 'How is SFT trained?', objective: 'How is SFT trained?', status: 'done', deps: [], kind: 'turn', turn_kind: 'qa' };
+  const rows = buildSubmap(task, [{ id: 'answer', item_id: 'qa', type: 'turn.replied', ts: 5, text: 'Train on verified trajectories.' }], true);
+  expect(rows.map(row => row.kind)).toEqual(['plan', 'result']);
+  expect(rows[1].detail).toBe('Train on verified trajectories.');
+  const running = buildSubmap({ ...task, status: 'running' }, [], true);
+  expect(running.map(row => row.kind)).toEqual(['plan', 'result']);
+  expect(running[1].title).toBe('正在回答');
+});

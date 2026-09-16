@@ -124,6 +124,10 @@ def card_evidence(dataset: dict, cards: list[dict]) -> list[dict]:
             selected.append(event)
         if len(selected) > 16:
             raise ValueError("too many observations")
+        if task.get("turn_kind") == "qa":
+            # The recorded answer is already readable. Viewing a Q&A must
+            # never start a second model to rewrite or review that answer.
+            continue
         dynamic = card["key"] in (task["id"], task["id"] + ":active", task["id"] + ":outcome")
         source_task = project_task_outcome(task, owned) if dynamic else task
         result.append(

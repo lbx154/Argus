@@ -755,7 +755,7 @@ def test_legacy_solo_receipts_recover_truthful_execution_without_inventing_tools
 
 
 @pytest.mark.parametrize(
-    "run_label", ["manager-quick-reply", "map-summary", "curator.distill", "self-learning-review"],
+    "run_label", ["map-summary", "curator.distill", "self-learning-review"],
 )
 def test_background_or_context_only_calls_do_not_recover_solo_cards(run_label):
     assert turn_records(_legacy_solo_rows(run_label=run_label)) == {}
@@ -767,6 +767,41 @@ def test_legacy_recovery_requires_observed_tools_and_an_unambiguous_start():
     assert turn_records([rows[0], *rows[2:]]) == {}
     other = {**rows[0], "message_id": "web-other-operator"}
     assert turn_records([rows[0], other, *rows[1:]]) == {}
+
+
+@pytest.mark.parametrize("run_label", ["simple-1", "chat-1", "manager-quick-reply"])
+def test_legacy_questions_recover_the_recorded_answer_without_execution_steps(run_label):
+    rows = _legacy_solo_rows(run_label=run_label, observed=False)
+    rows[-1]["text"] = "A detailed answer. " * 500
+    turns, asks = {}, {}
+    assert turn_records(rows[:2], turns, asks) == {}
+    turn = turn_records(rows[2:], turns, asks)["turn:web-legacy"]
+    assert turn["card"]["turn_kind"] == "qa"
+    assert turn["card"]["status"] == "done"
+    assert [e["type"] for e in turn["events"]] == ["turn.replied"]
+    assert turn["events"][0]["text"] == rows[-1]["text"].strip()
+
+
+def test_question_card_lifecycle_is_incremental_and_cancellable():
+    asks, turns = {}, {}
+    rows = [{"type": "ui.operator", "message_id": "web-q-operator", "ts": 10, "text": "Explain SFT."},
+            {"type": "manager.turn.started", "message_id": "web-q", "ts": 11, "text": "Explain SFT.", "turn_kind": "qa"}]
+    card = turn_records(rows, turns, asks)["turn:web-q"]
+    assert card["card"]["status"] == "running" and card["card"]["turn_kind"] == "qa"
+    assert card["events"] == []
+    turn_records([{"type": "manager.turn.cancelled", "message_id": "web-q", "ts": 12}], turns, asks)
+    assert card["card"]["status"] == "cancelled"
+    assert list(turns) == ["turn:web-q"]
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_explicit_question_completion_needs_no_tool_or_provider_receipt(success):
+    rows = [{"type": "ui.operator", "message_id": "web-q-operator", "ts": 10, "text": "Explain SFT."},
+            {"type": "ui.argus", "message_id": "web-q-argus", "ts": 12,
+             "text": "The answer." if success else "The provider failed.", "turn_kind": "qa", "success": success}]
+    turn = turn_records(rows)["turn:web-q"]
+    assert turn["card"]["status"] == ("done" if success else "failed")
+    assert [e["type"] for e in turn["events"]] == ["turn.replied"]
 
 
 def test_durable_tool_steps_take_priority_over_legacy_execution_receipts():
@@ -816,3 +851,13 @@ def test_history_pages_carry_work_segments_and_turns_and_regrow_open_segments(tm
     regrown = [e for e in again["events"] if e["id"] == "seg:task-a:1"]
     assert len(regrown) == 1 and len(regrown[0]["steps"]) == 2
     assert not [e for e in again["events"] if e["item_id"] == "turn:web-1"]
+
+
+def test_question_cards_never_pay_for_generated_map_copy(tmp_path, monkeypatch):
+    rows = _legacy_solo_rows(observed=False, run_label='simple-1')
+    turn = turn_records(rows)['turn:web-legacy']
+    dataset = {'id': 'qa-fixture', 'tasks': [turn['card']], 'events': turn['events']}
+    monkeypatch.setattr(copy, 'run_map_model', lambda *a, **kw: pytest.fail('Q&A must use its saved answer'))
+    result = copy.enrich(tmp_path, dataset, [{'key': turn['card']['id'], 'task_id': turn['card']['id'],
+                                            'event_ids': []}], 'zh-CN', project_root=tmp_path)
+    assert result['cards'] == {}

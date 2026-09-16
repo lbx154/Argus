@@ -14,6 +14,26 @@ from ..skills.vertical_select import (
 )
 
 
+def self_skill_context_available(chat_state: dict[str, Any]) -> bool:
+    runner = chat_state.get("manager_runner")
+    manager = getattr(runner, "manager", None)
+    mission = getattr(manager, "self_mission", None)
+    libraries = getattr(mission, "libraries", None)
+    if not callable(libraries):
+        return False
+    try:
+        paths = list(getattr(libraries(), "native_paths", []) or [])
+    except Exception:  # noqa: BLE001 - a discovery failure keeps the cheap path
+        return False
+    for raw_path in paths:
+        try:
+            if any(Path(raw_path).glob("*.md")):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def self_skill_context(
     manager: Any,
     *,

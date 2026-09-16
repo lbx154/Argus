@@ -30,3 +30,9 @@ describe("map status sentence", () => {
     expect(completionScope({ ...event, campaign_continues: true }, true)).toContain("仍需后续工作");
   });
 });
+
+it('counts questions separately from execution tasks', () => {
+  const input = { total: 2, qa: 2, complete: 2, running: 0, pending: false, paused: true, hasOpenWork: false, zh: true };
+  expect(mapStatusSentence(input)).toBe('2 条问答 · 已全部回答');
+  expect(mapStatusSentence({ ...input, total: 3, complete: 3 })).toBe('1 个任务 · 2 条问答 · 已全部完成');
+});

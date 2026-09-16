@@ -198,6 +198,8 @@ export function MapCanvas({
       || data.tasks.some(task => task.id === previous.key)) ? previous : null);
   }, [camera.focusId, data.tasks]);
   const readingTask = readingCopy ? data.tasks.find(task => task.id === readingCopy.key) : undefined;
+  const readingAnswer = readingTask?.turn_kind === 'qa'
+    ? data.events.find(event => event.item_id === readingTask.id && event.type === 'turn.replied') : undefined;
   const readingNode = readingCopy ? nodes.find(node => node.id === readingCopy.nodeId) : undefined;
   const readingKey = readingTask?.id ?? (readingCopy?.nodeId === camera.focusId ? readingCopy.key : null);
   const attention = useMemo(() => attentionTasks(data.tasks), [data.tasks]);
@@ -1099,6 +1101,7 @@ export function MapCanvas({
           <span className="map-status-text">
             {mapStatusSentence({
               total: data.tasks.length,
+              qa: data.tasks.filter(task => task.turn_kind === 'qa').length,
               complete,
               ended: tally.ended,
               running: tally.running,
@@ -1549,19 +1552,21 @@ export function MapCanvas({
         </div>
       </div>
       {data.kind !== "live" && playbackStrip}
-      <Modal open={!!readingTask} onClose={() => setReadingCopy(null)} label={zh ? "任务说明" : "Task explanation"}>
-        {readingTask && readingRequest ? <>
-          <ModalHeader title={zh ? "任务说明" : "Task explanation"} sub={copy?.cards[readingTask.id]?.title || readingTask.title} />
+      <Modal open={!!readingTask} onClose={() => setReadingCopy(null)} label={readingTask?.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"}>
+        {readingTask && (readingRequest || readingTask.turn_kind === 'qa') ? <>
+          <ModalHeader title={readingTask.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"} sub={readingTask.turn_kind === 'qa' ? readingTask.objective || readingTask.title : copy?.cards[readingTask.id]?.title || readingTask.title} />
           <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
               readOnly={readOnly}
-              originalDetail={readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
+              originalDetail={readingTask.turn_kind === 'qa'
+                ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : readingTask.summary || (zh ? '尚无回答。' : 'No answer recorded.'))
+                : readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
               selection={readerSelection}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />
             {!readOnly ? <Button className="mt-3 text-xs" onClick={() => quote({ source: data.id, task_id: readingTask.id,
               task_title: copy?.cards[readingTask.id]?.title || readingTask.title,
-              event_ids: copy?.cards[readingTask.id]?.event_ids || readingRequest.event_ids, lang: zh ? 'zh' : 'en' })}>{zh ? "引用此任务" : "Reference this task"}</Button> : null}
+              event_ids: readingAnswer ? [readingAnswer.id] : copy?.cards[readingTask.id]?.event_ids || readingRequest?.event_ids || [], lang: zh ? 'zh' : 'en' })}>{readingTask.turn_kind === 'qa' ? (zh ? '引用这条问答' : 'Reference this Q&A') : zh ? "引用此任务" : "Reference this task"}</Button> : null}
           </div>
         </> : null}
       </Modal>

@@ -72,6 +72,7 @@ def _front_door_classify(
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
     accepts_parameter: Callable[[Any, str], bool] | None = None,
     active_mission: bool = False,
+    allow_reply: bool = True,
 ) -> "tuple[Any, str | None, str]":
     """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
@@ -131,7 +132,14 @@ def _front_door_classify(
             kwargs["lifetime_sink"] = lifetime_decisions.append
         if accepts(mgr.classify_front_door, "self_mode_sink"):
             kwargs["self_mode_sink"] = self_mode_decisions.append
-        if accepts(mgr.classify_front_door, "reply_sink"):
+        from .self_context import self_skill_context_available
+
+        reply_eligible = (
+            allow_reply and not chat_state.get("last_thread_id")
+            and int(chat_state.get("turns", 0)) <= 1
+            and not self_skill_context_available(chat_state)
+        )
+        if reply_eligible and accepts(mgr.classify_front_door, "reply_sink"):
             kwargs["reply_sink"] = fast_replies.append
         if accepts(mgr.classify_front_door, "greeting_sink"):
             kwargs["greeting_sink"] = greeting_replies.append

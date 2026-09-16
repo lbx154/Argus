@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..manager.self_context import self_skill_context_available as _self_skill_context_available
 from .manager_pending_question import (
     _emit_ui_turn,
     _resolve_pending_question_with_manager,
@@ -412,6 +413,7 @@ class _TurnEmitter:
     task_objective: str = ""
     solo: bool = False
     task_started: bool = False
+    turn_kind: str = ""
 
     def start_task(self) -> None:
         if not self.solo or self.task_started:
@@ -421,6 +423,7 @@ class _TurnEmitter:
         JsonlEventSink(None, life_dir=self.life_dir).append({
             "type": "manager.turn.started", "message_id": self.turn_id,
             "text": self.task_objective, "ts": time.time(),
+            **({"turn_kind": self.turn_kind} if self.turn_kind else {}),
         })
         self.task_started = True
 
@@ -457,6 +460,8 @@ class _TurnEmitter:
         }
         if self.task_started:
             metadata.update(task_turn=True, success=result.get("success", result.get("kind") != "error"))
+        if self.turn_kind:
+            metadata["turn_kind"] = self.turn_kind
         if self.steps:
             metadata["steps"] = finish_turn_steps(
                 self.steps, failed=result.get("success") is False,
@@ -578,25 +583,6 @@ class _ClassifyResult:
 _FORCED_ROUTES = {"chat": "simple"}
 
 
-def _self_skill_context_available(chat_state: dict[str, Any]) -> bool:
-    runner = chat_state.get("manager_runner")
-    manager = getattr(runner, "manager", None)
-    mission = getattr(manager, "self_mission", None)
-    libraries = getattr(mission, "libraries", None)
-    if not callable(libraries):
-        return False
-    try:
-        paths = list(getattr(libraries(), "native_paths", []) or [])
-    except Exception:  # noqa: BLE001 - a discovery failure keeps the cheap path
-        return False
-    for raw_path in paths:
-        try:
-            if any(Path(raw_path).glob("*.md")):
-                return True
-        except OSError:
-            continue
-    return False
-
 
 def _classify_operator_turn(
     mem: Any,
@@ -684,13 +670,15 @@ def _classify_operator_turn(
     # message, but may attach a small, explicitly bounded transcript block when
     # the turn is clearly referential. Never feed the full startup/rotation
     # handoff here: that can make a greeting look like a systems task.
-    classify_kwargs = (
+    classify_kwargs: dict[str, Any] = (
         {"root_task_id": root_task_id}
         if _accepts_parameter(_front_door_classify, "root_task_id")
         else {}
     )
     if _accepts_parameter(_front_door_classify, "active_mission"):
         classify_kwargs["active_mission"] = active_mission
+    if _accepts_parameter(_front_door_classify, "allow_reply"):
+        classify_kwargs["allow_reply"] = chat_state["turns"] == 1 and not handoff
     if forced_route:
         # No classifier ran, so clear every classifier-owned transient before
         # constructing the authoritative route. A prior turn must never leak a
@@ -810,6 +798,9 @@ def _maybe_greeting_reply(
         and classify.self_mode == "reply"
         and classify.send_body == body
     ):
+        emitter.solo = True
+        emitter.turn_kind = "qa"
+        emitter.start_task()
         return emitter.respond(classify.fast_reply, {"kind": "chat"})
     return None
 
@@ -1249,6 +1240,9 @@ def _run_triage_and_fallbacks(
     # own route classify (``route=route``).
     emitter.solo = route == "simple"
     task_intent = chat_state.pop("_frontdoor_is_task", False)
+    if emitter.solo and not task_intent and self_mode in {"reply", "inspect", "project_status", "argus_status", "host_status"}:
+        emitter.turn_kind = "qa"
+        emitter.start_task()
     if task_intent or chat_state.get("_frontdoor_skill_vertical") or self_mode in {"micro", "implement", "debug", "review", "synthesize"}:
         emitter.start_task()
     try:

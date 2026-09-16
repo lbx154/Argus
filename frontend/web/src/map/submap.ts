@@ -308,7 +308,7 @@ export function buildSubmap(
       id: `${task.id}:brief`,
       kind: "plan",
       title: turn
-        ? zh ? "你提出的要求" : "What you asked"
+        ? zh ? (task.turn_kind === 'qa' ? '你提出的问题' : "你提出的要求") : "What you asked"
         : zh ? "这项任务要做什么" : "What this task set out to do",
       detail: task.objective || task.title,
       status: "recorded",
@@ -506,7 +506,13 @@ export function buildSubmap(
       });
     }
   }
-  if (!rows.some((r) => r.kind === "execution") && ACTIVE.has(task.status))
+  if (task.turn_kind === 'qa' && !rows.some(r => r.kind === 'result')) {
+    rows.push({ id: `${task.id}:answer`, kind: 'result',
+      title: ACTIVE.has(task.status) ? (zh ? '正在回答' : 'Answering') : (zh ? '回答状态' : 'Answer status'),
+      detail: task.summary || (task.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : ''),
+      status: task.status, source: 'task', eventIds: [] });
+  }
+  if (task.turn_kind !== 'qa' && !rows.some((r) => r.kind === "execution") && ACTIVE.has(task.status))
     rows.push({
       id: `${task.id}:active`,
       kind: "execution",

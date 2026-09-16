@@ -17,7 +17,7 @@ PAGE_BYTES = 1024 * 1024
 PAGE_EVENTS = 500
 # Bump when the projection learns to derive new records from old rows, so an
 # index built by an earlier version is rebuilt instead of trusted.
-HISTORY_VERSION = 6
+HISTORY_VERSION = 7
 
 
 def _finite_record(value: str | bytes) -> dict | None:

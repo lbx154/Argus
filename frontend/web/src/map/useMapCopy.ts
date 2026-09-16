@@ -23,7 +23,7 @@ export const PREWARM_LIMIT = 600;
 export function focusedCopyRequests(data: Dataset, steps: SubmapStep[], focused: string | null, readingKey: string | null = focused): CardRequest[] {
   if (!focused || !readingKey) return [];
   const task = data.tasks.find(task => task.id === focused);
-  if (!task) return [];
+  if (!task || task.turn_kind === 'qa') return [];
   if (readingKey === focused) return [briefRequest(task, briefEvidence(data, task, task.started_ts ?? 0))];
   const owners = new Map(data.events.map(event => [event.id, event.item_id]));
   return requestsFor(data, steps, focused).filter(card => card.task_id === focused && card.key === readingKey
@@ -63,7 +63,7 @@ export function prewarmRequests(
 ): CardRequest[] {
   const settled = (status?: string) =>
     ["done", "failed", "cancelled", "recorded", "skipped"].includes(status || "");
-  const tasks = data.tasks.filter((t) => t.id !== focused);
+  const tasks = data.tasks.filter((t) => t.id !== focused && t.turn_kind !== 'qa');
   const ordered = [...tasks.filter((t) => settled(t.status)), ...tasks.filter((t) => !settled(t.status))];
   const out: CardRequest[] = [];
   for (const task of ordered) {
@@ -148,6 +148,7 @@ export function useMapCopy(
       relatedChecks.current.cards.get(card.key) !== relatedCheckKey(card));
   };
   const cards = [...foreground, ...background]
+    .filter(c => data.tasks.find(task => task.id === c.task_id)?.turn_kind !== 'qa')
     .filter((c) => needsCardCopy(c, data, copy.data, eventIndex) || needsRelatedCheck(c))
     .slice(0, 8);
   const inputSignature = mapCopyInputSignature(data, cards);

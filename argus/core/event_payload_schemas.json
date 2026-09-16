@@ -2419,6 +2419,7 @@
       "version": 1,
       "required": ["message_id", "text"],
       "properties": {
+        "turn_kind": {"type": "string", "enum": ["qa"]},
         "message_id": {"type": "string", "minLength": 1},
         "text": {"type": "string"}
       }
@@ -2480,6 +2481,7 @@
       "version": 1,
       "required": ["message_id", "text"],
       "properties": {
+        "turn_kind": {"type": "string", "enum": ["qa"]},
         "agent_layer": {"type": "string"},
         "message_id": {"type": "string", "minLength": 1},
         "text": {"type": "string"},

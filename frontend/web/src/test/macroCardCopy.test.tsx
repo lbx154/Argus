@@ -160,3 +160,19 @@ describe("compact density summary", () => {
     );
   });
 });
+
+it('opens a saved question answer directly from its Atlas card', () => {
+  const readCopy = vi.fn();
+  const open = vi.fn();
+  let qaRenderer: ReactTestRenderer;
+  act(() => {
+    qaRenderer = create(<MacroTaskNode {...propsFor([], {
+      task: { ...task, kind: 'turn', turn_kind: 'qa', status: 'done', title: 'Explain SFT.', summary: 'A saved answer.' },
+      readCopy, open,
+    })} />);
+  });
+  act(() => qaRenderer!.root.findByProps({ 'data-testid': 'map-card' }).props.onClick());
+  expect(readCopy).toHaveBeenCalledWith('parent-card', 'parent');
+  expect(open).not.toHaveBeenCalled();
+  act(() => qaRenderer!.unmount());
+});

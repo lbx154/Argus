@@ -340,6 +340,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     ] ?? STATES.unknown)[zh ? 0 : 1];
   const taskStateLabel = data.completionScope
     ? zh ? "执行结束 · 目标未完成" : "Execution ended · goal incomplete"
+    : task.turn_kind === 'qa' && ['done', 'running', 'cancelled', 'failed'].includes(state)
+    ? ({ done: ['已回答', 'Answered'], running: ['正在回答', 'Answering'], cancelled: ['已中断', 'Interrupted'], failed: ['回答失败', 'Answer failed'] } as Record<string, string[]>)[state][zh ? 0 : 1]
     : stateLabel(displayedState);
   return (
     <article
@@ -403,12 +405,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           data-card-id={id}
           data-part={data.part}
           tabIndex={detailed ? -1 : 0}
-          onClick={() => data.open(id)}
-          aria-label={`${title} · ${zh ? "放大任务" : "Explore task"}`}
+          onClick={() => task.turn_kind === 'qa' && data.readCopy ? data.readCopy(id, task.id) : data.open(id)}
+          aria-label={`${title} · ${task.turn_kind === 'qa' ? (zh ? '查看回答' : 'Read answer') : zh ? "放大任务" : "Explore task"}`}
         >
           <div className="map-card-top">
             <span className="map-card-number">
-              {isLastPart ? (zh ? "任务" : "MISSION") : (zh ? "历史" : "HISTORY")}
+              {task.turn_kind === 'qa' ? (zh ? "问答" : "Q&A") : isLastPart ? (zh ? "任务" : "MISSION") : (zh ? "历史" : "HISTORY")}
               {" "}{String(ordinal).padStart(2, "0")}
               {!isLastPart && ` · ${data.part}/${data.partCount}`}
             </span>
@@ -466,7 +468,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           )}
           <div className="map-card-bottom">
             <span className={teamSteps.length ? 'map-card-team-summary' : undefined} title={range}>
-              {data.historyCount ? "" : teamSteps.length
+              {task.turn_kind === 'qa' ? (zh ? '问题与回答' : 'Question and answer') : data.historyCount ? "" : teamSteps.length
                 ? teamSummary
                 : data.plannedWidth && ACTIVE.has(task.status)
                 ? zh ? `并行编队 ×${data.plannedWidth} 展开中` : `Fanning out ×${data.plannedWidth}`
@@ -477,7 +479,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <span className="map-card-submap-hint">
               {staleSummary
                 ? zh ? "描述更新中" : "Summary updating"
-                : zh ? "查看进展" : "View progress"}
+                : task.turn_kind === 'qa' ? (zh ? "查看回答" : "Read answer") : zh ? "查看进展" : "View progress"}
               <ChevronRight size={12} />
             </span>
           </div>
@@ -513,7 +515,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 ? zh
                   ? `第 ${data.part} / ${data.partCount} 部分`
                   : `Part ${data.part} / ${data.partCount}`
-                : zh
+                : task.turn_kind === 'qa' ? (zh ? '问答内容' : 'Q&A') : zh
                   ? "任务内部"
                   : "INSIDE THIS TASK"}
             </small>
@@ -524,10 +526,14 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           )}
           {detailed && isLastPart ? <Button data-testid="map-task-read" className="nodrag nopan text-xs"
             onClick={() => {
+              if (task.turn_kind === 'qa') {
+                data.readCopy?.(id, task.id);
+                return;
+              }
               setDetailId(null);
               setReadingLayout(null);
               data.readCopy?.(id, task.id);
-            }}>{zh ? "阅读任务说明" : "Read task explanation"}</Button> : null}
+            }}>{task.turn_kind === 'qa' ? (zh ? "查看回答" : "Read answer") : zh ? "阅读任务说明" : "Read task explanation"}</Button> : null}
         </header>
         <div className="macro-stage-key">
           {STEP_KINDS
@@ -668,7 +674,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <header>
               <span>
                 {(task.kind === 'turn' ? TURN_KINDS : KINDS)[detail.kind][zh ? 0 : 1]}
-                <small className="macro-reader-note">{KIND_NOTES[detail.kind][zh ? 0 : 1]}</small>
+                {task.turn_kind !== 'qa' && <small className="macro-reader-note">{KIND_NOTES[detail.kind][zh ? 0 : 1]}</small>}
               </span>
               <button
                 aria-label="Close step details"

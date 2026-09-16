@@ -163,6 +163,16 @@ def test_front_door_uses_process_decision_without_final_message() -> None:
     assert replies == ["hello"]
 
 
+def test_classifier_without_reply_consumer_requests_only_routing():
+    def run(prompt):
+        assert "REPLY must be NONE" in prompt
+        assert "REPLY: NONE" in prompt
+        assert "REPLY: the full answer" not in prompt
+        return _FakeResult("ROUTE=SELF\nSELF_MODE=REPLY\nREPLY=NONE\nGREETING=NONE")
+
+    assert classify_front_door("Explain how SFT data is constructed.", run_exec=run) == (None, None, "simple")
+
+
 def test_name_axis_reports_concise_title_without_changing_route_contract() -> None:
     names: list[str] = []
     decision = classify_front_door(

@@ -32,6 +32,11 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
+  if (task?.turn_kind === 'qa') {
+    return <div className="macro-reader-markdown" data-reader-card={cardKey} data-reader-task-id={taskId}>
+      <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{originalDetail}</MarkdownContent>
+    </div>;
+  }
   const selected = selection?.request.key === cardKey && selection.request.task_id === taskId ? selection : undefined;
   const brief = (card?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(card?.reader_brief) ? card!.reader_brief : undefined;
   const sources = selectReaderEvidence({ cardKey, taskId, card, task, loadedEvents: selected?.evidence,

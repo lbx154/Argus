@@ -165,3 +165,11 @@ it('uses the current attempt’s milestones and preserves real question/answer e
     { key: 'turn', task_id: 'turn', kind: 'task', event_ids: ['question', 'answer'] },
   ]);
 });
+
+it('never generates copy for question cards, either on opening or during prewarm', () => {
+  const value: Dataset = { ...data, tasks: [{ ...task('qa', 'done'), kind: 'turn', turn_kind: 'qa' }],
+    events: [{ id: 'answer', item_id: 'qa', type: 'turn.replied', ts: 1, text: 'Already answered.' }] };
+  expect(focusedCopyRequests(value, [], 'qa', 'qa')).toEqual([]);
+  expect(focusedCopyRequests(value, [], 'qa', 'answer')).toEqual([]);
+  expect(prewarmRequests(value, false, null)).toEqual([]);
+});

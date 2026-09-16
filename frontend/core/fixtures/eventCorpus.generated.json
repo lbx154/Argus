@@ -2658,6 +2658,7 @@
         "payload_schema_version": 1,
         "text": "Renderer event detail",
         "ts": 1700000178,
+        "turn_kind": "qa",
         "type": "manager.turn.started"
       },
       "id": "manager.turn.started"
@@ -2709,6 +2710,7 @@
         ],
         "text": "Renderer event detail",
         "ts": 1700000182,
+        "turn_kind": "qa",
         "type": "ui.argus"
       },
       "id": "ui.argus"

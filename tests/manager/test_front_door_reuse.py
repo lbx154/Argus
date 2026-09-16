@@ -332,3 +332,23 @@ def test_the_real_builder_records_the_exception_it_declines_to_raise(
     # Not cached as unavailable — a transient failure must leave the next turn
     # free to build a working runner.
     assert "manager_runner" not in state
+
+
+@pytest.mark.parametrize('context', ['first', 'followup', 'resumed', 'handoff', 'skills'])
+def test_reply_generation_is_disabled_before_classification_when_context_is_needed(tmp_path, context):
+    seen = []
+    class Manager:
+        def classify_front_door(self, text, *, reply_sink=None):
+            seen.append(reply_sink is not None)
+            return None, None, 'simple'
+    manager = Manager()
+    if context == 'skills':
+        (tmp_path / 'instructions.md').write_text('Use project terminology.')
+        manager.self_mission = SimpleNamespace(libraries=lambda: SimpleNamespace(native_paths=[tmp_path]))
+    runner = SimpleNamespace(manager=manager)
+    state = {'manager_runner': runner, 'turns': 2 if context == 'followup' else 1}
+    if context == 'resumed':
+        state['last_thread_id'] = 'prior-thread'
+    _front_door_classify(object(), 'Explain SFT.', state, ensure_runner=lambda *a: runner,
+                         allow_reply=context != 'handoff')
+    assert seen == [context == 'first']

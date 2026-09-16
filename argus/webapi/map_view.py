@@ -69,6 +69,7 @@ SEGMENT_LIMIT_PER_ITEM = 80
 SEGMENT_TEXT_LIMIT = 1200
 STEP_LABEL_LIMIT = 160
 TURN_LIMIT = 200
+_ANSWER_CALL_LABELS = frozenset({"simple-1", "chat-1", "manager-quick-reply"})
 
 
 def digest(value) -> str:
@@ -298,12 +299,15 @@ def turn_records(
             ask["started_ts"] = _timestamp(row.get("ts"))
             card_id = f"turn:{message_id}"
             asked = text(ask.get("text"), 4000)
+            qa = row.get("turn_kind") == "qa"
+            ask["turn_kind"] = row.get("turn_kind", "")
             turns[card_id] = {
                 "card": {"id": card_id, "kind": "turn", "ts": _timestamp(ask.get("ts")),
+                         **({"turn_kind": "qa"} if qa else {}),
                          "title": text(asked.splitlines()[0] if asked else "", 120),
                          "objective": asked, "status": "running", "deps": [], "role": "manager",
                          "summary": "", "started_ts": _timestamp(row.get("ts")), "finished_ts": None},
-                "events": [{"id": f"{card_id}:work", "item_id": card_id, "type": "work.segment",
+                "events": [] if qa else [{"id": f"{card_id}:work", "item_id": card_id, "type": "work.segment",
                             "ts": _timestamp(row.get("ts")), "association": "explicit", "role": "manager",
                             "status": "running", "text": "", "steps": [], "tool_details_recorded": False}],
             }
@@ -325,12 +329,13 @@ def turn_records(
                 asks.pop(next(iter(asks)))
             continue
         run_label = str(row.get("run_label") or "")
-        if run_label in _SYNCHRONOUS_MANAGER_TURN_LABELS:
+        if run_label in _SYNCHRONOUS_MANAGER_TURN_LABELS | _ANSWER_CALL_LABELS:
             call_id = str(row.get("call_id") or "")
             if row.get("type") == "agent.io.start" and call_id and len(asks) == 1:
                 ask = next(iter(asks.values()))
                 ask.setdefault("calls", {})[call_id] = {
                     "started_ts": _timestamp(row.get("ts")),
+                    "answer": run_label in _ANSWER_CALL_LABELS,
                 }
             elif row.get("type") == "agent.io.complete" and call_id:
                 for ask in asks.values():
@@ -364,18 +369,22 @@ def turn_records(
         # legitimately report no per-tool steps, unlike an ordinary chat; an
         # item-bound receipt belongs to its queued task instead of a turn card.
         direct_result = (row.get("mission_result") is True or row.get("task_turn") is True) and not row.get("item_id")
-        if not steps and not observed and not direct_result:
+        qa = row.get("turn_kind") == "qa" or ask.get("turn_kind") == "qa" or (
+            not direct_result and not row.get("item_id") and not row.get("decision_card")
+            and any(call.get("answer") for call in calls)
+        )
+        if not steps and not observed and not direct_result and not qa:
             continue
         recovered = not steps
         latest = calls[-1] if calls else {}
         failed = row.get("success") is False or latest.get("status") == "failed"
         status = "failed" if failed else (
-            "unknown" if recovered and latest.get("status") != "completed"
+            "unknown" if recovered and not qa and latest.get("status") != "completed"
             and row.get("success") is not True else "done"
         )
         asked = text(ask.get("text"), 4000).strip()
-        reply = text(row.get("text"), 4000).strip()
-        timing = steps or observed
+        reply = text(row.get("text"), 64_000 if qa else 4000).strip()
+        timing = steps or (calls if qa else observed)
         started = min((_timestamp(step.get("started_ts")) for step in timing), default=0.0) or _timestamp(ask.get("started_ts"))
         finished = max((_timestamp(step.get("ended_ts")) for step in timing), default=0.0)
         error = latest.get("error") if failed else ""
@@ -386,6 +395,7 @@ def turn_records(
             "card": {
                 "id": card_id,
                 "kind": "turn",
+                **({"turn_kind": "qa"} if qa else {}),
                 "ts": _timestamp(ask.get("ts")) or started or replied_at,
                 "title": text(title, 120),
                 "objective": asked,
@@ -432,6 +442,10 @@ def turn_records(
                 },
             ],
         }
+        if qa and not steps and not observed:
+            # Answering is not an invented execution/review stage. Keep the
+            # original answer, which is already the user-facing deliverable.
+            turns[card_id]["events"] = turns[card_id]["events"][1:]
     while len(turns) > TURN_LIMIT:
         turns.pop(next(iter(turns)))
     return turns
