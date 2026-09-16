@@ -41,8 +41,10 @@ from argus.skills.vertical_select import persist_vertical
 # Raised by 1,100 for the fixed living-research-plan contract. The plan itself
 # has a separate 8,000-character projection cap tested below, so future policy
 # prose cannot silently consume that dynamic-state allowance.
-MATH_SCOPE_BUDGET = 12_650
-MATURE_MATH_SCOPE_BUDGET = 18_450
+# +100 on 2026-09-16 for one fixed policy line ("plan from the mission workspace
+# only") after the bounded Planner was seen listing sibling projects.
+MATH_SCOPE_BUDGET = 12_750
+MATURE_MATH_SCOPE_BUDGET = 18_550
 RESEARCH_PLAN_DYNAMIC_BUDGET = 8_000
 
 

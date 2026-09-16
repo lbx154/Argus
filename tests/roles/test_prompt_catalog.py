@@ -517,3 +517,20 @@ def test_planner_preview_uses_same_vertical_banner(tmp_path) -> None:
     continuous = resolve_role_prompt(continuous_request(tmp_path))
 
     assert preview.role_banner == continuous.role_banner
+
+
+def test_every_planner_prompt_keeps_grounding_inside_the_mission_workspace(tmp_path) -> None:
+    """Stable web trial 2026-09-16: the bounded Planner listed sibling projects
+    and a runtime tree for a five-character objective. The scope rule must reach
+    the bounded prompts too, not only the continuous contract."""
+    from argus.roles.prompts.planner import (
+        build_bounded_dag_prompt,
+        build_bounded_single_task_prompt,
+    )
+
+    dag = build_bounded_dag_prompt("Write an ICLR paper.", project_root=tmp_path)
+    single = build_bounded_single_task_prompt("Write an ICLR paper.", project_root=tmp_path)
+    for prompt in (dag, single):
+        assert "Ground the plan in the mission workspace only" in prompt
+        assert "Do not list, read, or search sibling projects" in prompt
+        assert prompt.count("mission workspace only") == 1

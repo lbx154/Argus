@@ -43,12 +43,22 @@ _BOUNDED_DAG_FOOTER = decision_footer_instruction(
     "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance"
 )
 
+# The Planner on the stable web trial (2026-09-16) spent 45 tool turns listing
+# sibling projects and a runtime tree for a five-character objective; in a shared
+# state root that is also another operator's data.
+_PLANNER_WORKSPACE_SCOPE = (
+    "Ground the plan in the mission workspace only: one bounded look at its files "
+    "is enough. Do not list, read, or search sibling projects, other checkouts, "
+    "runtime trees, parent directories, or unrelated paths; that is exploration "
+    "cost with no planning value, and other projects' files are not yours to read."
+)
+
+# The continuous prompt is budgeted (tests/test_planner_prompt_budget.py); it
+# carries the rule in one line, the bounded prompts carry the full statement.
 _PLANNER_CORE_CONTRACT = """
 ## Assigning work
 Read state; do not edit. Engineer implements, runs commands and tests, and iterates.
-Ground the plan in the mission workspace only: one bounded look at its files is
-enough. Do not list, read, or search sibling projects, other checkouts, runtime
-trees, or unrelated directories; that is exploration cost with no planning value.
+Plan from the mission workspace only; never read sibling projects or parent directories.
 
 - Reuse settled and Manager decisions. Assign one task with its decision, inputs,
   and check; split only for dependencies or parallel work.
@@ -205,6 +215,7 @@ def build_bounded_single_task_prompt(
         + review_policy
         + shell_block
         + "\n\nRules:\n"
+        f"- {_PLANNER_WORKSPACE_SCOPE}\n"
         "- Preserve the Manager's brief exactly: paths, requested outputs, order, "
         "constraints, exclusions, and stopping conditions.\n"
         "- Name the concrete work and one decisive check that fails when "
@@ -288,6 +299,7 @@ def build_bounded_dag_prompt(
         + review_policy
         + "\n\n"
         "Rules:\n"
+        f"- {_PLANNER_WORKSPACE_SCOPE}\n"
         "- Default to one node. Split only for a hard dependency or genuinely "
         "independent pieces of work.\n"
         "- Keep related outputs, reading, implementation, and checks in one node "
