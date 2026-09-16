@@ -53,8 +53,8 @@ def test_width_and_state_are_safety_bounded(
 ) -> None:
     monkeypatch.setenv("ARGUS_TEAM_MAX_WIDTH", "12")
 
-    with pytest.raises(ValueError, match="exceeds ARGUS_TEAM_MAX_WIDTH"):
-        pool.update(tmp_path, width=13)
+    # A wider wish is granted up to what the host allows, never refused.
+    assert pool.update(tmp_path, width=13)["width"] == 12
     with pytest.raises(ValueError, match="non-negative"):
         pool.update(tmp_path, width=-1)
     with pytest.raises(ValueError, match="unsupported team pool state"):
@@ -73,3 +73,14 @@ def test_default_width_leaves_one_provider_slot_for_the_lead(monkeypatch) -> Non
     assert pool.default_width() == 2  # the operator's width still wins when slots allow
     monkeypatch.setenv("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0")
     assert pool.default_width() == 2  # no provider limit: unchanged behaviour
+
+
+def test_every_width_write_is_clamped_to_the_host_ceiling(tmp_path, monkeypatch) -> None:
+    """The lead raised a portfolio pool to three on a two-slot host (2026-09-16)."""
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "2")
+    assert pool.width_ceiling() == 1
+    assert pool.update(tmp_path, width=3)["width"] == 1
+    assert pool.update(tmp_path, width=0)["width"] == 0  # pause is still a real value
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0")
+    monkeypatch.setenv("ARGUS_TEAM_MAX_WIDTH", "64")
+    assert pool.update(tmp_path, width=3)["width"] == 3

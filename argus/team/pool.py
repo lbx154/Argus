@@ -33,24 +33,33 @@ def _provider_concurrency() -> int:
         return 0
 
 
-def default_width() -> int:
-    """Execution concurrency is independent of the number of research candidates.
+def width_ceiling() -> int:
+    """The most teammates this host can serve at once, whoever asks.
 
     Teammates share the host's provider slots with the lead that dispatched
     them (its Manager supervision, Engineer rounds and Reviewer). On the stable
     web trial (2026-09-16) two workers held both of a two-slot host's calls and
-    the mission itself sat in provider cooldown for as long as they ran, so the
-    width also leaves one slot for the lead whenever a provider limit is set.
+    the mission itself sat in provider cooldown for as long as they ran; later
+    the lead Engineer raised the pool back to three with ``pool-set`` while
+    trying to work out why only one worker ran. The ceiling therefore leaves
+    one slot for the lead whenever a provider limit is set, and every width
+    write — the default, the operator's, the lead's — is clamped to it.
     """
-    width = int(os.environ.get("ARGUS_TEAM_DEFAULT_WIDTH", "2"))
     maximum = int(os.environ.get(_MAX_WIDTH_ENV, "64"))
-    if width <= 0 or maximum <= 0:
+    if maximum <= 0:
         raise ValueError("team concurrency limits must be positive")
-    width = min(width, maximum)
     slots = _provider_concurrency()
     if slots > 0:
-        width = min(width, max(1, slots - 1))
-    return width
+        maximum = min(maximum, max(1, slots - 1))
+    return maximum
+
+
+def default_width() -> int:
+    """Execution concurrency is independent of the number of research candidates."""
+    width = int(os.environ.get("ARGUS_TEAM_DEFAULT_WIDTH", "2"))
+    if width <= 0:
+        raise ValueError("team concurrency limits must be positive")
+    return min(width, width_ceiling())
 
 
 def _path(root: Path) -> Path:
@@ -91,15 +100,11 @@ def update(
             doc["cooldown_until"] = max(0.0, float(cooldown_until))
         if width is not None:
             normalized_width = int(width)
-            maximum_width = int(os.environ.get(_MAX_WIDTH_ENV, "64"))
-            if normalized_width < 0 or maximum_width <= 0:
+            if normalized_width < 0:
                 raise ValueError("team pool width bounds must be non-negative")
-            if normalized_width > maximum_width:
-                raise ValueError(
-                    f"team pool width {normalized_width} exceeds "
-                    f"{_MAX_WIDTH_ENV}={maximum_width}"
-                )
-            doc["width"] = normalized_width
+            # A wider request is a wish the host cannot grant, not an error:
+            # the caller wanted more parallelism and gets as much as exists.
+            doc["width"] = min(normalized_width, width_ceiling())
         if state is not None:
             if state not in _STATES:
                 raise ValueError(f"unsupported team pool state: {state!r}")

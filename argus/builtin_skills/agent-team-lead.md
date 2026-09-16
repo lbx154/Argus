@@ -52,6 +52,9 @@ Use `python -m argus.tools.team`.
    `form --root <team_root> --team-id <tid> --cwd <workspace> --mission "<objective>" --tasks tasks.jsonl`.
 3. Set deliberate capacity with:
    `pool-set --root <team_root> --width <N> --state running`.
+   The width is clamped to what the host can serve: with a provider concurrency
+   limit, one slot always stays with the lead, so asking for more than the
+   ceiling grants the ceiling.
 4. Inspect progress with `status --root <team_root>` and read landed `shards/*.jsonl` plus `leaderboard.json`.
 5. A task waiting on a real operator-owned decision is `blocked`, retains its owner and question, and is not retried. After the operator answers, run `resume --root <team_root> --task-id <task_id> --answer "<answer>"` to requeue it with that answer.
 6. Refresh or extend the backlog with `form`. Re-forming claimed, running, or blocked work preserves its lifecycle state; re-forming a done or failed task deliberately reopens it.
