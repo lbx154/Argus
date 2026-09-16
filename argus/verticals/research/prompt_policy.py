@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -24,13 +23,8 @@ _HARDWARE_CACHE_SECONDS = 60.0
 _hardware_cache: tuple[float, list[tuple[str, str, float, float]]] | None = None
 # Local checkpoint inventory: scanning a few cache directories is cheap, but
 # not so cheap that every prompt render should redo it.
-_model_inventory_cache: dict[str, tuple[float, str]] = {}
 # Prompt budget: the largest checkpoints are the ones a claim about scale
 # needs; beyond this many the list stops informing and starts crowding.
-_MODEL_INVENTORY_LIMIT = 40
-_MODEL_CACHE_DIRS_KNOB = "ARGUS_SKILL_MODEL_CACHE_DIRS"
-_PROJECT_SCAN_DEPTH = 3
-_SKIPPED_DIR_NAMES = frozenset({"node_modules", "site-packages", "__pycache__"})
 
 
 def _query_local_gpus() -> list[tuple[str, str, float, float]]:
@@ -71,204 +65,6 @@ def _query_local_gpus() -> list[tuple[str, str, float, float]]:
             rows.append((index, name, total_gb, used_gb))
     _hardware_cache = (now, rows)
     return rows
-
-
-def _hub_cache_dirs(project_root: Path | None) -> list[Path]:
-    """Every place Hugging Face weights may already sit on this machine."""
-    env = os.environ
-    candidates: list[Path] = []
-    if env.get("HF_HUB_CACHE"):
-        candidates.append(Path(env["HF_HUB_CACHE"]))
-    if env.get("HF_HOME"):
-        candidates.append(Path(env["HF_HOME"]) / "hub")
-    if env.get("TRANSFORMERS_CACHE"):
-        candidates.append(Path(env["TRANSFORMERS_CACHE"]))
-    candidates.append(Path.home() / ".cache" / "huggingface" / "hub")
-    from ...core.knobs import resolve_knob
-
-    configured = resolve_knob(_MODEL_CACHE_DIRS_KNOB, "").value
-    for raw in configured.split(os.pathsep):
-        if raw.strip():
-            candidates.append(Path(raw.strip()).expanduser())
-    if project_root is not None:
-        candidates.extend(_project_local_hub_dirs(Path(project_root)))
-    seen: set[Path] = set()
-    unique: list[Path] = []
-    for candidate in candidates:
-        try:
-            resolved = candidate.expanduser().resolve()
-        except OSError:
-            continue
-        if resolved in seen or not resolved.is_dir():
-            continue
-        seen.add(resolved)
-        unique.append(resolved)
-    return unique
-
-
-def _project_local_hub_dirs(root: Path) -> list[Path]:
-    """Directories a few levels under the project that hold ``models--*``."""
-    found: list[Path] = []
-    stack: list[tuple[Path, int]] = [(root, 0)]
-    while stack:
-        directory, depth = stack.pop()
-        try:
-            entries = list(os.scandir(directory))
-        except OSError:
-            continue
-        holds_models = False
-        for entry in entries:
-            if not entry.is_dir(follow_symlinks=False):
-                continue
-            name = entry.name
-            if name.startswith("models--") or name.startswith("datasets--"):
-                holds_models = True
-                continue
-            if name.startswith(".") or name in _SKIPPED_DIR_NAMES:
-                continue
-            if depth + 1 <= _PROJECT_SCAN_DEPTH:
-                stack.append((Path(entry.path), depth + 1))
-        if holds_models:
-            found.append(directory)
-    return found
-
-
-def _snapshot_weight_bytes(snapshot: Path) -> int:
-    """Check standard HF weight-file completeness without reading tensors."""
-    try:
-        config = json.loads((snapshot / "config.json").read_text(encoding="utf-8"))
-        if not isinstance(config, dict):
-            return 0
-    except (OSError, ValueError):
-        return 0
-
-    def complete_size(names: set[str]) -> int:
-        files: dict[Path, int] = {}
-        try:
-            for name in names:
-                relative = Path(name)
-                if relative.is_absolute() or ".." in relative.parts:
-                    return 0
-                path = (snapshot / relative).resolve(strict=True)
-                if not path.is_file() or path.name.endswith(".incomplete"):
-                    return 0
-                size = path.stat().st_size
-                if size <= 0:
-                    return 0
-                files[path] = size
-        except (OSError, RuntimeError):
-            return 0
-        return sum(files.values())
-
-    for filename in ("model.safetensors", "pytorch_model.bin"):
-        size = complete_size({filename})
-        if size:
-            return size
-        try:
-            index = json.loads(
-                (snapshot / f"{filename}.index.json").read_text(encoding="utf-8")
-            )
-            mapping = index.get("weight_map") if isinstance(index, dict) else None
-            if not isinstance(mapping, dict) or not mapping:
-                continue
-            names = list(mapping.values())
-            if any(
-                not isinstance(name, str) or not name
-                or Path(name).suffix != Path(filename).suffix
-                for name in names
-            ):
-                continue
-            size = complete_size(set(names))
-            if size:
-                return size
-        except (OSError, ValueError):
-            continue
-    return 0
-
-
-def _query_local_models(project_root: Path | None) -> tuple[list[tuple[str, int, Path]], list[str]]:
-    """Return ``(models, datasets)`` found in local Hugging Face caches.
-
-    Models are ``(repo_id, weight_bytes, snapshot_dir)``. Only snapshots with
-    configuration and a complete standard weight-file set are included;
-    orphan blobs, metadata-only downloads, and partial shards are not models.
-    """
-    models: dict[str, tuple[int, Path]] = {}
-    datasets: set[str] = set()
-    for hub in _hub_cache_dirs(project_root):
-        try:
-            entries = list(os.scandir(hub))
-        except OSError:
-            continue
-        for entry in entries:
-            if not entry.is_dir(follow_symlinks=False):
-                continue
-            if entry.name.startswith("datasets--"):
-                datasets.add(entry.name[len("datasets--"):].replace("--", "/", 1))
-                continue
-            if not entry.name.startswith("models--"):
-                continue
-            repo_id = entry.name[len("models--"):].replace("--", "/", 1)
-            try:
-                snapshots = sorted((Path(entry.path) / "snapshots").iterdir())
-            except OSError:
-                continue
-            for snapshot in snapshots:
-                size = _snapshot_weight_bytes(snapshot)
-                if size <= 0:
-                    continue
-                known = models.get(repo_id)
-                if known is None or size > known[0]:
-                    models[repo_id] = (size, snapshot)
-    ordered = sorted(
-        ((repo_id, size, hub) for repo_id, (size, hub) in models.items()),
-        key=lambda item: (-item[1], item[0]),
-    )
-    return ordered, sorted(datasets)
-
-
-def local_model_inventory_block(project_root: Path | None = None) -> str:
-    """List the checkpoints already on disk so experiments are sized to what
-    is here instead of to the one model that happened to be handy.
-
-    Informational only. Cached briefly per project root; fail-soft to an
-    empty string when no cache holds any weights.
-    """
-    key = str(Path(project_root).resolve()) if project_root is not None else ""
-    now = time.monotonic()
-    cached = _model_inventory_cache.get(key)
-    if cached is not None and now - cached[0] < _HARDWARE_CACHE_SECONDS:
-        return cached[1]
-    models, datasets = _query_local_models(project_root)
-    if not models and not datasets:
-        _model_inventory_cache[key] = (now, "")
-        return ""
-    lines: list[str] = []
-    for repo_id, size, hub in models[:_MODEL_INVENTORY_LIMIT]:
-        shown = f"{size / 1024**3:.1f} GB" if size >= 1024**3 else f"{size / 1024**2:.0f} MB"
-        lines.append(f"- `{repo_id}` ({shown}) in `{hub}`")
-    if len(models) > _MODEL_INVENTORY_LIMIT:
-        lines.append(f"- ... and {len(models) - _MODEL_INVENTORY_LIMIT} smaller checkpoints")
-    dataset_line = (
-        "Dataset cache directories: " + ", ".join(f"`{name}`" for name in datasets[:_MODEL_INVENTORY_LIMIT])
-        if datasets
-        else ""
-    )
-    block = (
-        "## Model weights already on this machine\n"
-        "These local snapshots contain configuration and complete standard weight "
-        "files. Use the snapshot path to reuse those files; tokenizer, dependencies, "
-        "and runtime compatibility have not been tested.\n"
-        + "\n".join(lines)
-        + (f"\n{dataset_line}" if dataset_line else "")
-        + "\n\n"
-        "A claim about language models in general is tested across families "
-        "and sizes, not on the one model that happened to be handy. The weights "
-        "above are the cheapest way to widen a comparison, and several of them "
-        "can be evaluated at once on separate GPUs."
-    )
-    _model_inventory_cache[key] = (now, block)
-    return block
 
 
 def local_hardware_block() -> str:
@@ -327,14 +123,19 @@ def local_hardware_usage_block() -> str:
 
 
 def _hardware_block_for_stage(stage: str, project_root: Path | None = None) -> str:
-    """The static compute and checkpoint inventory for a compute stage."""
+    """The static compute inventory for a compute stage.
+
+    The list of every model checkpoint cached on the host used to follow the
+    GPU lines. It grew with the cache (five thousand characters of Qwen
+    snapshots and dataset names on the trial host), was repeated in every
+    Planner and Engineer call of the idea and experiment stages, and nothing
+    in the pipeline read it back; the roles inspect the cache themselves when
+    an experiment actually needs a checkpoint.
+    """
+    del project_root
     if stage not in _COMPUTE_STAGES:
         return ""
-    return "\n\n".join(
-        block
-        for block in (local_hardware_block(), local_model_inventory_block(project_root))
-        if block
-    )
+    return local_hardware_block()
 
 
 def _hardware_usage_for_stage(stage: str) -> str:
@@ -895,7 +696,6 @@ __all__ = [
     "active_context_paths",
     "local_hardware_block",
     "local_hardware_usage_block",
-    "local_model_inventory_block",
     "research_runtime_context",
     "render_role_prompt_fragment",
     "render_role_prompt_context",

@@ -277,7 +277,6 @@ def test_gpu_inventory_is_static_while_memory_in_use_is_live(monkeypatch) -> Non
 
 def test_research_fragment_is_static_and_the_context_carries_notes_and_usage(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: [("0", "NVIDIA RTX A6000", 45.0, 1.0)])
-    monkeypatch.setattr(prompt_policy, "local_model_inventory_block", lambda _root=None: "")
     notes = tmp_path / "RESEARCH_NOTES.md"
     notes.write_text("# Research notes\nround one findings\n", encoding="utf-8")
     roles = (("planner", "continuous"), ("engineer", "mission"), ("manager", "stage_decision"))
