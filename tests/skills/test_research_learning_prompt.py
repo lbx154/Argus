@@ -24,16 +24,3 @@ def test_manager_keeps_chat_surveys_as_skills() -> None:
     text = _fragment("manager", "experiment", operation="chat")
     assert "## Durable research learning" in text
     assert "not only as a chat answer" in text
-
-
-def test_experiment_engineer_is_told_about_the_ledger_and_mechanism_map() -> None:
-    text = _fragment("engineer", "experiment", operation="execute")
-    assert "## Claims ledger" in text
-    assert "experiments/claims.json" in text
-    assert "`mechanism` map" in text
-    assert "reference_implementations" in text
-    reviewer = _fragment("reviewer", "experiment")
-    assert "## Claims ledger check" in reviewer
-    assert "Trace every `mechanism` entry" in reviewer
-    paper_reviewer = _fragment("reviewer", "paper")
-    assert "## Manuscript against the ledger" in paper_reviewer

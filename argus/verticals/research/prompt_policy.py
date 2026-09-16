@@ -356,10 +356,6 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
                 "Respect stricter project-specific restrictions. "
                 "If sufficient, explain why in the existing plan and REASON, "
                 "then return ADVANCE_TO_STAGE=paper with the paper task. "
-                "Manager also holds Experiment until `experiments/claims.json` "
-                "validates (`" + _LEDGER_CLI + "`) with a supported headline claim "
-                "on real data and the notes begin with the Experiment-stage heading; "
-                "when a hold names that check, assign the ledger or notes repair. "
                 "Do not schedule a separate inspection mission or repeat an "
                 "unchanged assessment; perform this judgment in your normal "
                 "planning turn."
@@ -422,53 +418,21 @@ def _engineer_compute_stage(stage: str, operation: str) -> str:
     return "experiment" if scientific_revision else stage
 
 
-_LEDGER_CLI = "python -m argus.verticals.research.experiment_claims validate"
 _FIGURE_LINT_CLI = "python -m argus.verticals.research.figure_lint"
 
 
-def _engineer_ledger_block(stage: str, operation: str) -> str:
-    narrative_edit = operation == "narrative_edit"
-    if stage == "experiment" or (stage == "review" and not narrative_edit):
-        return (
-            "## Claims ledger\n"
-            "Record every claim-bearing comparison in `experiments/claims.json` "
-            "(schema: `python -m argus.verticals.research.experiment_claims template`): "
-            "metric and direction, ours and the strongest same-information baseline "
-            "with mean/std/n, the other measured baselines, synthetic or real data, "
-            "seeds or splits, raw evidence files, and the command. Its `mechanism` map "
-            "names every load-bearing component of the selected idea and the "
-            "`path:Symbol` that executes it, marked faithful, simplified (with the exact "
-            "departure and a named `variant`) or missing; the code must run the idea, "
-            "not a convenient reduction of it, and a simplified variant is what the "
-            "claims and paper describe. `reference_implementations` records the "
-            "official or strongest public codebases you cloned and ran (name, url, "
-            "pinned revision, local_path, used_for): reuse maintained infrastructure "
-            "such as established RL, training and serving frameworks instead of "
-            "hand-rolling it, or state why none exists. Run at least three "
-            "independent seeds or splits per arm for any stochastic comparison and "
-            "report spread; a difference inside run-to-run uncertainty is "
-            "`inconclusive`, not a result. When the strongest baseline wins, say so and "
-            "improve the method or re-derive the thesis; do not narrow the claim to a "
-            "metric where the loss hides. Read the raw result files, not a summary, "
-            "when filling the arms. Run `" + _LEDGER_CLI + "` before reporting: the "
-            "stage cannot advance until it passes with a supported headline claim on "
-            "real data, and the notes begin with `# Research notes — Experiment stage`."
-        )
-    if stage == "paper" and not narrative_edit:
-        return (
-            "## Numbers against the ledger\n"
-            "Every quantitative statement in the abstract, introduction, results, and "
-            "conclusion comes from a claim in `experiments/claims.json` with its "
-            "direction, uncertainty, and scope; cite the claim id in the research "
-            "notes. Tables and data figures show the ledger's uncertainty wherever an "
-            "arm has repeats. Do not state a comparison the ledger records as refuted "
-            "or inconclusive as a win. Data figures use the shared paper_chart_style "
-            "helper (vector PDF, TrueType fonts, colorblind palette, ours highlighted), "
-            "keep legends clear of titles and data at final size, and never substitute "
-            "a sentinel value for zero or a missing point on a log axis; run `"
-            + _FIGURE_LINT_CLI + "` before reporting."
-        )
-    return ""
+def _engineer_figure_block(stage: str, operation: str) -> str:
+    if stage != "paper" or operation == "narrative_edit":
+        return ""
+    return (
+        "## Data figures\n"
+        "Draw data figures through the shared paper_chart_style helper (vector PDF, "
+        "TrueType fonts, colorblind palette, ours highlighted, sized for the float). "
+        "Show uncertainty wherever runs were repeated, keep legends clear of titles "
+        "and data at final size, and never substitute a sentinel value for zero or a "
+        "missing point on a log axis. `" + _FIGURE_LINT_CLI + "` reports font, raster "
+        "and missing-file defects; fix them before inspecting the export at final size."
+    )
 
 
 def _research_learning_block(role: str, stage: str, operation: str) -> str:
@@ -512,36 +476,15 @@ def _research_learning_block(role: str, stage: str, operation: str) -> str:
     return ""
 
 
-def _reviewer_ledger_block(stage: str, scope: str) -> str:
-    if stage == "experiment":
-        return (
-            "## Claims ledger check\n"
-            "Run `" + _LEDGER_CLI + "` and open `experiments/claims.json`. For each "
-            "supported claim, recompute ours and the strongest baseline from the listed "
-            "raw evidence files; a number that cannot be reproduced from the rows, a "
-            "baseline that is not the best one actually measured, fewer than three "
-            "independent repeats for a stochastic comparison, or a difference within "
-            "run-to-run spread is a required repair, not an acceptance with caveats. "
-            "Confirm the headline claim rests on a real benchmark or dataset at the "
-            "scale the thesis needs. Trace every `mechanism` entry to the named code "
-            "path and confirm the executed quantities match what the idea prescribes; "
-            "an unmarked simplification or a component the code never runs is a "
-            "fidelity defect, not a scoping note. Check that the recorded reference "
-            "implementations were actually run and compared. Do not certify the stage "
-            "while the validator fails."
-        )
+def _reviewer_figure_block(stage: str, scope: str) -> str:
     if stage in {"paper", "review"} or scope == "final_submission":
         return (
-            "## Manuscript against the ledger\n"
-            "Check every quantitative claim in the abstract, introduction, results, "
-            "tables, and conclusion against `experiments/claims.json` and its raw "
-            "evidence: same value, direction, uncertainty, and scope. A stated win that "
-            "the ledger records as refuted or inconclusive, a number absent from the "
-            "evidence, or a missing uncertainty where an arm has repeats is a required "
-            "repair. Inspect each data figure at final size for the ledger's "
-            "uncertainty, legends clear of titles and data, honest axes without "
-            "sentinel substitutions, and a method figure that shows the mechanism "
-            "rather than formula boxes; `" + _FIGURE_LINT_CLI + "` must pass."
+            "## Figures at final size\n"
+            "Inspect each data figure for uncertainty wherever runs were repeated, "
+            "legends clear of titles and data, honest axes without sentinel "
+            "substitutions, and a method figure that shows the mechanism rather than "
+            "formula boxes; `" + _FIGURE_LINT_CLI + "` lists font, raster and "
+            "missing-file defects to require as repairs."
         )
     return ""
 
@@ -589,7 +532,7 @@ def _engineer_fragment(
             _hardware_block_for_stage(
                 _engineer_compute_stage(stage, operation), project_root
             ),
-            _engineer_ledger_block(stage, operation),
+            _engineer_figure_block(stage, operation),
             _research_learning_block("engineer", stage, operation),
             narrative_packaging,
             (
@@ -728,7 +671,7 @@ def _reviewer_fragment(
         for block in (
             _stage_playbook_block(stage),
             policy,
-            _reviewer_ledger_block(stage, scope),
+            _reviewer_figure_block(stage, scope),
         )
         if block
     )

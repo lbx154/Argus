@@ -18,14 +18,9 @@ from argus.verticals.research.stages import STAGE_CHECKLISTS
 
 
 def _experiment_manager(tmp_path, *, workflow_mode="staged"):
-    from tests.research_evidence import write_experiment_evidence
-
     state_root = tmp_path / "state"
     workdir = tmp_path / "workdir"
     workdir.mkdir()
-    # The Experiment gate needs the claims ledger and Experiment-stage notes;
-    # these tests are about the Planner scale assessment on top of that.
-    write_experiment_evidence(workdir)
     persist_vertical(state_root, "research", workflow_mode=workflow_mode)
     state_path = state_root / ".argus" / "PIPELINE_STATE.json"
     state = json.loads(state_path.read_text())

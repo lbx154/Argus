@@ -93,20 +93,14 @@ def test_pipeline_reads_are_pure_and_explicit_migration_maps_old_stages(
     assert migrated["stages"][mapped]["status"] == "in_progress"
 
 
-def test_experiment_completion_depends_on_the_ledger_not_a_handoff_file(
+def test_experiment_completion_does_not_depend_on_a_handoff_file(
     tmp_path: Path,
 ) -> None:
-    # The legacy HANDOFF.md is not a completion condition. The claims ledger
-    # and the Experiment-stage research notes are: a stage whose claims are
-    # not recorded with repeats, strongest baseline and raw evidence has not
-    # finished, however confident its prose is.
-    from tests.research_evidence import valid_ledger, write_ledger
+    # The handoff note is context for the next stage, not a completion
+    # condition: a stage whose science is reviewed must not be held because a
+    # file is missing.
+    assert stage_completion_issues("experiment", tmp_path) == ()
 
-    issues = stage_completion_issues("experiment", tmp_path)
-    assert any("experiments/claims.json is missing" in issue for issue in issues)
-    assert not any("HANDOFF" in issue for issue in issues)
-
-    write_ledger(tmp_path, valid_ledger(tmp_path))
     (tmp_path / "RESEARCH_NOTES.md").write_text(
         "# Research notes — Experiment stage\n\nImplementation, evaluator, and results are ready.",
         encoding="utf-8",

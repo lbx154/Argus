@@ -89,10 +89,7 @@ do not create a new report or validation-only task.
    allowed when it serves a different section role; repeated matrix recitation
    is not.
 7. Resolve citations against primary sources and keep claims consistent with
-   the executed code and raw results. Every quantitative statement maps to a
-   claim in `experiments/claims.json` with the same value, direction,
-   uncertainty, and scope; a comparison the ledger records as refuted or
-   inconclusive is not written as a win.
+   the executed code and raw results.
 8. Plan three informative scientific figures for a full paper, with at least
    two distinct figures. Usually show the mechanism, main comparison, and an
    ablation, diagnostic, or generalization finding; each answers a different
@@ -102,10 +99,10 @@ do not create a new report or validation-only task.
    `paper_chart_style` helper (`engineer/paper-chart-styling.md`): vector PDF
    with TrueType fonts, colorblind palette, ours highlighted, sized for the
    float, legends clear of titles and data at final size, error bars or bands
-   wherever the ledger arm has repeats, and honest axes: annotate an exact
-   zero or use a symlog scale instead of plotting a substituted sentinel.
-   `python -m argus.verticals.research.figure_lint` must pass before the stage
-   closes. For the method pipeline, use
+   wherever runs were repeated, and honest axes: annotate an exact zero or use
+   a symlog scale instead of plotting a substituted sentinel.
+   `python -m argus.verticals.research.figure_lint` lists font, raster and
+   missing-file defects to fix before inspecting at final size. For the method pipeline, use
    `engineer/paper-framework-figure-studio.md`: design the composition from the
    current manuscript and executed code, with meaningful groups, visual hierarchy,
    balanced spacing, restrained scientific colors, and publication-size type.

@@ -925,11 +925,8 @@ def test_reviewed_experiment_reaches_planner_before_paper(
         tmp_path, monkeypatch, terminal_stage_done=False,
         backend=ScalePlannerRunner(),
     )
-    from tests.research_evidence import write_experiment_evidence
-
     project = Path(supervisor.config.project_worktree)
     persist_vertical(project, "research", workflow_mode="staged")
-    write_experiment_evidence(project)
     state_path = project / ".argus" / "PIPELINE_STATE.json"
     state = json.loads(state_path.read_text())
     state["current_stage"] = "experiment"

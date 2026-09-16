@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from argus.verticals.research import figure_lint as mod
-from argus.verticals.research.stages import stage_completion_issues
 
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
@@ -88,15 +87,8 @@ def test_plot_scripts_without_the_shared_style_helper_are_reported(tmp_path: Pat
     assert "`scripts/plain.py` saves matplotlib figures without the shared paper_chart_style" in issues[0]
 
 
-def test_lint_is_silent_without_a_manuscript_and_feeds_the_paper_gate(tmp_path: Path) -> None:
+def test_lint_is_silent_without_a_manuscript(tmp_path: Path) -> None:
     assert mod.figure_lint_issues(tmp_path) == ()
-    _draw(tmp_path / "paper" / "figures" / "plain.pdf", fonttype=3)
-    _paper(tmp_path, "\\includegraphics{plain}")
-    (tmp_path / "paper" / "main.html").write_text(
-        "<html><body>" + "x" * 300 + "</body></html>", encoding="utf-8"
-    )
-    issues = stage_completion_issues("paper", tmp_path)
-    assert any("Type 3 fonts" in issue for issue in issues)
 
 
 def test_cli_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
