@@ -471,6 +471,47 @@ def _engineer_ledger_block(stage: str, operation: str) -> str:
     return ""
 
 
+def _research_learning_block(role: str, stage: str, operation: str) -> str:
+    """Surveys and setups are vertical knowledge, not chat answers.
+
+    The generic durable-learning contract keeps recommendations out of Skills
+    unless a controlled comparison verified them, which is exactly what drops
+    an infrastructure survey on the floor. In research the survey with its
+    sources, versions and working commands is the reusable asset.
+    """
+    if role == "engineer":
+        if operation == "narrative_edit" or stage not in {"idea", "experiment", "paper"}:
+            return ""
+        return (
+            "## Durable research learning\n"
+            "Surveys are learning too. When this round compares infrastructure, "
+            "frameworks, benchmarks, datasets, evaluators, or reference codebases, or "
+            "makes an environment or official codebase run after real effort, write "
+            "the outcome as a project Engineer Skill in the Durable learning "
+            "directory, named by topic (for example `rl-infrastructure-survey.md`): "
+            "the question, the candidates with their repositories and versions, the "
+            "decision and its evidence, the commands that worked, and pitfalls "
+            "verified by a run. Read and update the existing Skill on that topic "
+            "first (for example `training-infrastructure-guide.md`) instead of "
+            "duplicating it. Such a comparison is durable once its sources and "
+            "commands are recorded, even though it is a recommendation. Argus "
+            "promotes reviewed project Skills into the shared research layer after "
+            "the mission, so later projects start from this survey instead of "
+            "repeating it. Project-specific facts go to the Wiki when one is listed."
+        )
+    if role == "manager":
+        return (
+            "## Durable research learning\n"
+            "When answering the operator needed a survey of infrastructure, "
+            "frameworks, benchmarks, datasets or tools, retain that survey as a "
+            "Manager Skill in the project skill directory named in the "
+            "self-evolution section (question, candidates with sources and versions, "
+            "decision and evidence), not only as a chat answer; later research "
+            "missions read the shared layer it is promoted to."
+        )
+    return ""
+
+
 def _reviewer_ledger_block(stage: str, scope: str) -> str:
     if stage == "experiment":
         return (
@@ -549,6 +590,7 @@ def _engineer_fragment(
                 _engineer_compute_stage(stage, operation), project_root
             ),
             _engineer_ledger_block(stage, operation),
+            _research_learning_block("engineer", stage, operation),
             narrative_packaging,
             (
                 "## On-demand method figure\n"
@@ -772,7 +814,8 @@ def render_role_prompt_fragment(
             _stage_playbook_block(normalized_stage)
             + "\n\n## Forward-only stage authority\n"
             "Research stages never roll back. Hold the current stage and schedule "
-            "repairs there, or advance when the stage's work is complete."
+            "repairs there, or advance when the stage's work is complete.\n\n"
+            + _research_learning_block("manager", normalized_stage, normalized_operation)
         ).strip()
     return ""
 
