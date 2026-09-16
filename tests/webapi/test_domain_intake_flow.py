@@ -43,7 +43,7 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
             return SimpleNamespace(exit_code=0, thread_id='manager-conversation', last_agent_message=reply)
     manager = Manager(life, runner=Backend(), memory_maintenance_enabled=False)
     choices = iter([
-        *([] if forced else [{"action": "offer"}]),
+        {"action": "offer"},
         *([] if cards else [{"action": "ask", "question": "What output and verification do you want?"}]),
         *([] if cards else [{"action": "ask"}]),
     ])

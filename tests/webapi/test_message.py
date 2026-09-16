@@ -183,14 +183,18 @@ def test_queued_manager_message_cannot_resurrect_deleted_project(
     assert not life.exists()
 
 
+@pytest.mark.parametrize("route_override", ["auto", "task"])
+@pytest.mark.parametrize("active_mission", [False, True])
 def test_pure_greeting_uses_one_frontdoor_model_call(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch, route_override, active_mission,
 ) -> None:
     sid = "s-one-call-greeting"
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
+    monkeypatch.setattr(front_door, "mission_is_running", lambda mem: active_mission)
 
     def classify(mem, text, chat_state, **kwargs):
+        assert kwargs["active_mission"] is active_mission
         chat_state["_frontdoor_greeting_reply"] = "你好，我是 Argus Manager。"
         return None, None, "simple"
 
@@ -203,10 +207,14 @@ def test_pure_greeting_uses_one_frontdoor_model_call(
         ),
     )
 
-    result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
+    result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path,
+                                            route_override=route_override)
 
     assert result == {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
     assert LifeMemory.open(life).backlog.all() == []
+    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
+    assert not any(event["type"] in {"life.manager.task.started", "life.planner.task_added",
+                                     "life.manager.intent.started", "wiki.initialized"} for event in events)
 
 
 def test_message_only_fast_reply_uses_only_frontdoor_call(
@@ -642,19 +650,53 @@ def test_repeated_greeting_calls_frontdoor_every_time_without_cache(
     first = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
     second = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
 
-    # Turn 1 has no prior context: the classifier's greeting reply is returned
-    # inline without a second model call.
     assert first == {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
-    # Turn 2 carries prior-turn context, so the greeting is answered by the
-    # persistent Manager rather than a replayed classifier reply.
-    assert second == {"kind": "chat", "reply": "一切正常，任务仍在推进。"}
-    assert len(triage_bodies) == 1
+    # A pure greeting stays lightweight even when a handoff exists.
+    assert second == first
+    assert triage_bodies == []
     # The classifier ran on both turns — greeting replies are never cached.
     assert classify_calls == 2
 
 
+@pytest.mark.parametrize("rotation", [False, True])
+def test_greeting_defers_handoff_until_a_substantive_turn(tmp_path, monkeypatch, rotation):
+    sid = "s-greeting-handoff"
+    life = _make_project(tmp_path, sid)
+    manager_state._STATES.clear()
+    append_turn(life, "operator", "Explain the binary search invariant.")
+    append_turn(life, "argus", "The target remains in the search interval.")
+    state = manager_state._chat_state_for(sid)
+    if rotation:
+        state["turns"] = 100
+        monkeypatch.setattr(manager_dispatch, "_rotate_after", lambda: 100)
+        state.pop("needs_startup_handoff", None)
+    else:
+        state["needs_startup_handoff"] = True
+
+    def classify(mem, text, chat_state, **kwargs):
+        if text == "你好":
+            chat_state["_frontdoor_greeting_reply"] = "你好！"
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    triage_bodies = []
+    monkeypatch.setattr(front_door, "manager_triage",
+                        lambda mem, body, *a, **kw: triage_bodies.append(body) or "Continuing the explanation.")
+    for _ in range(2):
+        result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path, route_override="task")
+        assert result == {"kind": "chat", "reply": "你好！"}
+        assert state["needs_startup_handoff"] is True
+        assert triage_bodies == []
+    manager_bridge.manager_message(sid, "Continue the explanation.", global_root=tmp_path)
+    assert len(triage_bodies) == 1
+    assert "binary search invariant" in triage_bodies[0]
+    assert not state.get("needs_startup_handoff")
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+@pytest.mark.parametrize("route_override", ["auto", "task", "chat"])
 def test_contextual_greeting_calls_real_manager(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch, route_override,
 ) -> None:
     sid = "s-context-greeting"
     _make_project(tmp_path, sid)
@@ -677,6 +719,7 @@ def test_contextual_greeting_calls_real_manager(
         sid,
         "你好，项目现在进展怎么样？",
         global_root=tmp_path,
+        route_override=route_override,
     )
 
     assert triage_calls == ["你好，项目现在进展怎么样？"]
@@ -905,8 +948,9 @@ def test_classifier_explanation_cannot_escape_as_manager_reply(
     }
 
 
+@pytest.mark.parametrize("route_override", ["auto", "task"])
 def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch, route_override,
 ) -> None:
     sid = "s-classify-fail"
     life = _make_project(tmp_path, sid)
@@ -931,6 +975,7 @@ def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
         sid,
         "请介绍当前状态",
         global_root=tmp_path,
+        route_override=route_override,
     )
 
     assert result["kind"] == "error"

@@ -4,7 +4,6 @@ import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProje
 import { useConversationHistory } from './useConversationHistory';
 import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope } from './api';
 import { SkillLibrary } from './components/SkillLibrary';
-import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import ResearchBrief from './research-brief';
@@ -202,7 +201,7 @@ export default function App() {
   composerDraftRef.current = composerDraft;
   const [rewriting, setRewriting] = useState(false);
   const [slashSelection, setSlashSelection] = useState(0);
-  const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>(initialMessageRoute);
+  const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>('auto');
   const [chatPending, setChatPending] = useState(false);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
   const localConversationSid = useRef<string | null>(null);
@@ -229,13 +228,6 @@ export default function App() {
   const [eventFilter, setEventFilter] = useState<EventViewFilter>('all');
   const [eventQuery, setEventQuery] = useState('');
   const dismissNotice = useCallback(() => setNotice(null), []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(MESSAGE_ROUTE_KEY, routeOverride);
-    } catch {
-      // A blocked storage area does not affect the current in-memory choice.
-    }
-  }, [routeOverride]);
   const notify = useCallback((tone: NoticeTone, message: string) => {
     setNotice({ id: ++noticeSequence, tone, message });
   }, []);
@@ -281,6 +273,9 @@ export default function App() {
     setSidebarOpen,
     setTaskItemId,
   });
+  // A message category belongs to this conversation, never another project
+  // or a preference left in storage by an older browser tab.
+  useEffect(() => setRouteOverride('auto'), [activeSid]);
 
   useEffect(() => () => {
     messageEpochRef.current += 1;
@@ -816,6 +811,7 @@ export default function App() {
             },
             onDone: (result) => {
               if (!isCurrent()) return;
+              if (result.kind !== 'error') setRouteOverride('auto');
               trail = closePhaseTrail(trail);
               setManagerSteps(trail);
               // Prefer the journaled steps: they carry real end times and

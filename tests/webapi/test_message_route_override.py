@@ -1,9 +1,7 @@
 """Operator-stated message category (auto / chat / task).
 
-``auto`` keeps the front-door classifier in charge. ``chat``/``task`` are the
-operator overruling it, which must skip that model call outright rather than
-run it and discard the answer — the whole point of the override is to not pay
-for, or be misrouted by, a classification the operator already made.
+``auto`` and ``task`` keep the front-door classifier in charge of scope and
+topology. ``chat`` explicitly stays inline and skips classification.
 """
 from __future__ import annotations
 
@@ -243,17 +241,18 @@ def test_forced_chat_does_not_replay_a_matching_recent_research_task(tmp_path, m
     assert len(memory.backlog.history()) == 1
 
 
-def test_forced_task_skips_the_classifier(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("route", ["simple", "complex"])
+def test_task_mode_keeps_manager_in_charge_of_topology(tmp_path, monkeypatch, route) -> None:
     result, phases, calls = _classify(
         tmp_path,
         route_override="task",
         monkeypatch=monkeypatch,
-        classifier_answer=(None, None, "simple"),
+        classifier_answer=(None, None, route),
     )
 
-    assert calls == [], "the front-door model must not be called at all"
-    assert result.route == "complex"
-    assert phases == ["任务模式：正在准备 Manager 路由…"]
+    assert calls == ["优化推理吞吐"]
+    assert result.route == route
+    assert phases == ["正在理解你的请求…"]
 
 
 def test_forced_turn_still_carries_the_message_and_a_task_id(
@@ -295,7 +294,7 @@ def test_forced_turn_drops_a_previous_turns_frontdoor_leftovers(
         "",
         emitter,
         lambda: False,
-        route_override="task",
+        route_override="chat",
     )
 
     assert isinstance(result, _ClassifyResult)
@@ -307,8 +306,8 @@ def test_forced_turn_drops_a_previous_turns_frontdoor_leftovers(
     assert "_frontdoor_failure" not in chat_state
 
 
-def test_forced_route_mapping_covers_exactly_the_two_overrides() -> None:
-    assert manager_dispatch._FORCED_ROUTES == {"chat": "simple", "task": "complex"}
+def test_only_chat_forces_a_route() -> None:
+    assert manager_dispatch._FORCED_ROUTES == {"chat": "simple"}
 
 
 # --------------------------------------------------------------------------

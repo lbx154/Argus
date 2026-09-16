@@ -217,9 +217,9 @@ def _manager_message(
     per phase transition. ``None`` (the default, used by the blocking POST
     ``/message``) keeps the whole exchange synchronous.
 
-    ``route_override`` lets the operator explicitly mark Chat or Task. Both skip
-    the front-door category call; formal Task work still requires Manager
-    routing and a Planner-authored DAG before Engineer execution.
+    ``route_override`` lets the operator explicitly mark Chat or Task. Task
+    still passes through classification so conversation stays inline and
+    finite work can use one worker with a vertical. Chat skips classification.
     Explicit Chat also bypasses automatic pending-answer interpretation and
     task replay; the dedicated answer/decision endpoints remain authoritative.
 

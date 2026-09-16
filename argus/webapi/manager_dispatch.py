@@ -574,9 +574,8 @@ class _ClassifyResult:
     frontdoor_failure: str
 
 
-# Explicit message categories are operator authority. ``task`` skips only the
-# category model; the normal Manager + Planner ownership chain remains intact.
-_FORCED_ROUTES = {"chat": "simple", "task": "complex"}
+# Only Chat fixes the topology. Task requests still need a scope decision.
+_FORCED_ROUTES = {"chat": "simple"}
 
 
 def _self_skill_context_available(chat_state: dict[str, Any]) -> bool:
@@ -616,9 +615,9 @@ def _classify_operator_turn(
     "cancelled", ...}`` dict if the request was cancelled mid-classify — the
     caller must check ``isinstance(result, dict)`` before reading fields.
 
-    An explicit ``chat``/``task`` category skips this classifier call. This is
-    the same operator-authority pattern as Codex execution mode selection and
-    avoids paying for a model to second-guess a category the operator supplied.
+    Explicit ``chat`` stays inline. ``task`` still runs classification: a
+    submission category is not a request for a team, independent review, or
+    persistent work when the message only contains conversation.
     """
     from ..core.operator_messages import uses_cjk
     from ..life.memory import BacklogItem
@@ -631,13 +630,7 @@ def _classify_operator_turn(
     # protocol events while the model is reasoning, so without this real
     # transition the TUI can only show its generic rotating slogan.
 
-    if forced_route == "complex":
-        emitter.phase(
-            "任务模式：正在准备 Manager 路由…"
-            if uses_cjk(body)
-            else "Task mode: preparing Manager routing…"
-        )
-    elif forced_route == "simple":
+    if forced_route == "simple":
         emitter.phase(
             "对话模式：Manager 正在准备回复…"
             if uses_cjk(body)
@@ -717,15 +710,13 @@ def _classify_operator_turn(
             "_frontdoor_is_task",
         ):
             chat_state.pop(stale, None)
-        if forced_route == "simple":
-            chat_state["_frontdoor_self_mode"] = "inspect"
-        selected_body = dispatch_body if forced_route == "complex" else body
+        chat_state["_frontdoor_self_mode"] = "inspect"
         return _ClassifyResult(
             intent=None,
             control=None,
             route=forced_route,
             send_body=(
-                f"{handoff}\n\n{selected_body}" if handoff else selected_body
+                f"{handoff}\n\n{body}" if handoff else body
             ),
             root_task_id=root_task_id,
             self_mode="inspect",
@@ -773,6 +764,10 @@ def _classify_operator_turn(
     greeting_reply = str(
         chat_state.pop("_frontdoor_greeting_reply", "") or ""
     ).strip()
+    if greeting_reply and handoff:
+        # A pure greeting does not need the persistent worker. Defer its
+        # restart/rotation handoff until a substantive turn actually uses it.
+        chat_state["needs_startup_handoff"] = True
     frontdoor_failure = str(
         chat_state.pop("_frontdoor_failure", "") or ""
     ).strip()
@@ -796,17 +791,15 @@ def _maybe_greeting_reply(
 ) -> dict[str, Any] | None:
     """Short-circuit a safe message-only reply from the merged classifier.
 
-    Only fires when no stateful action was decided and the classifier did not
-    need the startup/rotation handoff to answer it (``send_body == body``).
-    Otherwise the greeting would consume the handoff without seeding the next
-    substantive Manager turn.
+    Pure greetings are message-only even in an existing conversation. Their
+    handoff is deferred by the classifier wrapper. Other fast replies must
+    still be independent of prior context.
     """
     if (
         classify.greeting_reply
         and classify.intent is None
         and classify.control is None
         and classify.route == "simple"
-        and classify.send_body == body
     ):
         return emitter.respond(classify.greeting_reply, {"kind": "chat"})
     if (
