@@ -713,6 +713,7 @@ def _classify_operator_turn(
             "_frontdoor_authorization",
             "_frontdoor_intake",
             "_frontdoor_domain",
+            "_frontdoor_skill_vertical",
             "_frontdoor_is_task",
         ):
             chat_state.pop(stale, None)
@@ -1255,7 +1256,7 @@ def _run_triage_and_fallbacks(
     # own route classify (``route=route``).
     emitter.solo = route == "simple"
     task_intent = chat_state.pop("_frontdoor_is_task", False)
-    if task_intent or self_mode in {"micro", "implement", "debug", "review", "synthesize"}:
+    if task_intent or chat_state.get("_frontdoor_skill_vertical") or self_mode in {"micro", "implement", "debug", "review", "synthesize"}:
         emitter.start_task()
     try:
         reply = manager_triage(

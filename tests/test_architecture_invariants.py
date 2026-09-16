@@ -1926,7 +1926,9 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     "life_root": 13,
     "memory_root": 42,
     "session_root": 40,
-    "project_dir": 33,
+    # manager/self_context adds one required LayeredSkillStore(project_dir=...)
+    # keyword naming the Skill directory, not another project-state alias.
+    "project_dir": 34,
     "manager_session_root": 24,
     # 23 = 22 + verticals/store.py: the Vertical Store's ``used_by`` scan walks the
     # session-state collection through the one canonical accessor rather than a

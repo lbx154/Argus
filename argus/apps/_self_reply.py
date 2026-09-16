@@ -344,6 +344,7 @@ class SelfReplyMixin:
         phase_cb: Any = None,
         route: str | None = None,
         self_mode: str = "inspect",
+        skill_vertical: str | None = None,
         root_task_id: str | None = None,
     ) -> _Outcome | None:
         workdir = (
@@ -410,6 +411,8 @@ class SelfReplyMixin:
                         "Argus 正在处理你的消息…",
                         kind="loop.start",
                     )
+                elif event_type == "skill.library.available" and safe_event.get("vertical"):
+                    _phase(f"正在使用 {safe_event['vertical']} 领域流程…", kind=event_type)
                 elif event_type == "engineer.progress" and not is_reply:
                     label, detail = describe_progress_step(safe_event)
                     meta = {
@@ -470,6 +473,7 @@ class SelfReplyMixin:
                 lean=mode == "reply",
                 execute_mode=mode if mode in _SELF_EXECUTION_CONTRACTS else "",
                 root_task_id=root_task_id,
+                skill_vertical=skill_vertical,
             )
         _phase("交给团队按流程执行…")
         return None
@@ -484,6 +488,7 @@ class SelfReplyMixin:
         phase_cb: Any = None,
         route: str | None = None,
         self_mode: str = "inspect",
+        skill_vertical: str | None = None,
         root_task_id: str | None = None,
     ) -> bool:
         with self.task_usage_context(root_task_id):
@@ -494,6 +499,7 @@ class SelfReplyMixin:
                 phase_cb=phase_cb,
                 route=route,
                 self_mode=self_mode,
+                skill_vertical=skill_vertical,
                 root_task_id=root_task_id,
             )
         self.last_chat_outcome = outcome
@@ -705,6 +711,7 @@ class SelfReplyMixin:
         seed_thread_id: str | None = None,
         lean: bool = False,
         execute_mode: str = "",
+        skill_vertical: str | None = None,
         root_task_id: str | None = None,
     ) -> _Outcome:
         from ..core.role_config import runner_backend_label
@@ -714,6 +721,9 @@ class SelfReplyMixin:
         )
 
         args = self._args
+        # A matched task needs tools to read its Skills even if the classifier
+        # chose a prose-only answer. Greetings without a match stay lean.
+        lean = lean and not skill_vertical
         execution_contract = _SELF_EXECUTION_CONTRACTS.get(execute_mode)
         executing = execution_contract is not None
         seed = (
@@ -740,6 +750,17 @@ class SelfReplyMixin:
             if configured_workspace
             else Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
+        from ..skills.role_library import RoleSkillLibraries
+
+        libraries = RoleSkillLibraries(role="self")
+        if not lean:
+            from ..manager.self_context import self_skill_context
+
+            libraries = self_skill_context(
+                self.manager, vertical=skill_vertical, task=objective,
+                role="reviewer" if execute_mode == "review" else "engineer",
+                on_event=sink.handle_event,
+            )
         if lean:
             prompt = build_quick_reply_prompt(objective=objective)
             from ..manager.observation import observe_project
@@ -754,10 +775,11 @@ class SelfReplyMixin:
                 if str(getattr(self._backend, "backend", "")) == "pi"
                 else f"{execution_contract[1]}\n\nTask:\n{objective.strip()}"
             )
-            read_dirs = None
-            native_skill_paths = []
+            if libraries.block:
+                prompt = libraries.block + "\n\n" + prompt
+            read_dirs = [str(path) for path in libraries.library_roots]
+            native_skill_paths = [str(path) for path in libraries.native_paths]
         else:
-            libraries = self.manager.self_mission.libraries()
             memory = getattr(args, "manager_memory", None)
             memory_prelude = (
                 memory.render_prelude(objective=objective)
@@ -779,6 +801,9 @@ class SelfReplyMixin:
                 if session_root and Path(session_root).expanduser() != workdir
                 else None
             )
+            read_dirs = list(dict.fromkeys([
+                *(read_dirs or []), *(str(path) for path in libraries.library_roots),
+            ]))
 
         from ..core.operator_context import (
             append_operator_context,

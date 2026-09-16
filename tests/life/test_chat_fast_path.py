@@ -378,6 +378,79 @@ def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
     assert runner.last_thread_id is None
 
 
+@pytest.mark.parametrize("mode", ["micro", "implement", "debug", "review", "synthesize", "inspect", "reply"])
+def test_every_single_worker_mode_receives_selected_vertical(tmp_path, mode):
+    from argus.manager import Manager
+    from argus.skills.layered import LayeredSkillStore
+
+    backend = _FakeBackend(response_message="Verified the requested result.")
+    runner = _make_runner(backend)
+    root = tmp_path / "state"
+    runner._args.workdir = str(tmp_path / "workspace")
+    runner.manager = Manager(root, runner=backend, execution_workdir=runner._args.workdir,
+                            skill_store=LayeredSkillStore(project_dir=root / "skills", global_dir=tmp_path / "skills"),
+                            memory_maintenance_enabled=False)
+    outcome = runner._maybe_chat_outcome(objective="Check this function", sink=_RecordingSink(),
+                                        route="simple", self_mode=mode, skill_vertical="software")
+    assert outcome.success
+    assert len(backend.calls) == 1 and not backend.classify_calls
+    call = backend.calls[0]
+    assert "SOFTWARE VERTICAL" in call["prompt"]
+    assert "Check this function" in call["prompt"]
+    assert str(tmp_path / "skills/_shared_verticals/software/engineer") in call["options"].skill_paths
+    assert call["options"].disable_tools is False
+    assert not (root / "backlog.jsonl").exists()
+
+
+def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from argus.core.session import SessionMeta, write_session_meta
+    from argus.manager import Manager, config_intent, front_door
+    from argus.skills.layered import LayeredSkillStore
+    from argus.webapi import manager_state, server
+
+    class Backend(_FakeBackend):
+        def run_exec(self, **kwargs):
+            if kwargs["run_label"] == "manager-frontdoor-classify":
+                self.classify_calls.append(kwargs)
+                return RunnerResult(exit_code=0, agent_messages=[
+                    "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nSELF_MODE: IMPLEMENT\n"
+                    "INTAKE_TYPE: OBJECTIVE_AMENDMENT\nDOMAIN_ACTION: NONE\nSKILL_VERTICAL: software\n"
+                    "NAME: Correct a function\n",
+                ])
+            return super().run_exec(**kwargs)
+
+    sid = "s-self-vertical"
+    state = tmp_path / "projects" / sid
+    state.mkdir(parents=True)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(workspace), workdir=str(workspace)))
+    backend = Backend(response_message="Fixed and checked the function.")
+    runner = _make_runner(backend)
+    runner._args.workdir = str(workspace)
+    runner._manager_session_root = state
+    runner.manager = Manager(state, runner=backend, execution_workdir=workspace,
+                            learned_vertical_root=tmp_path, memory_maintenance_enabled=False,
+                            skill_store=LayeredSkillStore(project_dir=state / "skills", global_dir=tmp_path / "skills"))
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
+    monkeypatch.setattr(config_intent, "_ensure_manager_runner", lambda *_a: runner)
+    monkeypatch.setattr(manager_state, "schedule_manager_prewarm", lambda *_a, **_kw: None)
+    manager_state._STATES.pop(sid, None)
+    with TestClient(server.create_app(global_root=tmp_path)) as client:
+        result = client.post(f"/api/projects/{sid}/message", json={"text": "Fix this one function"}).json()
+        assert result["kind"] == "chat" and result["success"] is True, result
+        assert "decision_card" not in result
+        atlas = client.get(f"/api/projects/{sid}/map").json()
+        assert any(task["kind"] == "turn" and task["status"] == "done" for task in atlas["tasks"])
+    assert len(backend.classify_calls) == 1 and len(backend.calls) == 1
+    assert "single-agent task: software" in backend.calls[0]["prompt"]
+    assert str(tmp_path / "skills/_shared_verticals/software/engineer") in backend.calls[0]["options"].skill_paths
+    assert not (state / "backlog.jsonl").exists() or not (state / "backlog.jsonl").read_text().strip()
+    manager_state._STATES.pop(sid, None)
+
+
 def test_local_microtask_returns_delivery_for_named_workspace_file(
     tmp_path: Path,
 ) -> None:

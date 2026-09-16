@@ -527,7 +527,9 @@ class _ManagerSession:
 
                 return append_operator_context(original_prompt, operator_context)
             return original_prompt
-        if self.skill_paths:
+        # Per-turn discovery (including an explicit empty set for lean chat)
+        # must survive the persistent session's cached defaults.
+        if self.skill_paths and options.skill_paths is None:
             options = replace(options, skill_paths=list(self.skill_paths))
 
         def _no_session() -> Any:

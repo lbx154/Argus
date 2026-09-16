@@ -7,6 +7,8 @@ what made every cockpit message slow), at ``medium`` effort by default.
 """
 from __future__ import annotations
 
+import pytest
+
 from argus.manager import Manager
 
 
@@ -69,6 +71,21 @@ def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
         "--system-prompt",
         "Return only the requested Argus Manager classification decision.",
     ]
+
+
+@pytest.mark.parametrize("selected,expected", [("software", "software"), ("NONE", ""), ("../escape", "")])
+@pytest.mark.parametrize("active", [False, True])
+def test_single_agent_vertical_selection_is_validated_in_existing_classifier(tmp_path, selected, expected, active):
+    mgr, backend = _manager(
+        "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nSELF_MODE: IMPLEMENT\n"
+        f"DOMAIN_ACTION: NONE\nSKILL_VERTICAL: {selected}", tmp_path,
+    )
+    decisions = []
+    result = mgr.classify_front_door("Fix one function", domain_sink=decisions.append, active_mission=active)
+    assert result == (None, None, "simple")
+    assert decisions == [{"action": "none", "vertical": expected}]
+    assert len(backend.calls) == 1
+    assert "SKILL_VERTICAL" in backend.calls[0]["prompt"]
 
 
 def test_front_door_effort_env_override(tmp_path, monkeypatch) -> None:

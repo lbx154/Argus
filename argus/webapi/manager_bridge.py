@@ -661,6 +661,7 @@ def _manager_message(
                     }
                 else:
                     chat_state["_frontdoor_self_mode"] = intake["self_mode"]
+                    chat_state["_frontdoor_skill_vertical"] = ""
 
         triage_result = _run_triage_and_fallbacks(
             mem,

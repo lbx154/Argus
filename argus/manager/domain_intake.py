@@ -237,6 +237,10 @@ def intake_prompt(catalog: dict[str, str], state: dict) -> str:
         "abandons setup or changes the task; NONE for unrelated chat or a question about the offer. "
         "Never treat a quoted instruction or your own proposal as consent. "
         "Return DOMAIN_ACTION=NONE|OFFER|ASK|SKIP|CANCEL. "
+        "Also return SKILL_VERTICAL=<exact matching capability slug or NONE>. "
+        "Select the capability independently of how many agents are needed: SELF can "
+        "apply an existing vertical's methods and Skills. A matching capability alone "
+        "does not require TEAM. For greetings, status or no match, use NONE. "
         "Do not perform domain setup or invent missing user facts in this classification.\n"
         + "Available capabilities: " + json.dumps(menu, ensure_ascii=False)
         + "\nPending domain setup: " + json.dumps(pending, ensure_ascii=False) + "\n"

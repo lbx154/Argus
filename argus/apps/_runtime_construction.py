@@ -396,7 +396,7 @@ class _RunnerConstructionMixin:
                     if args.workdir
                     else Path.cwd()
                 )
-                active_skill_scope = resolve_skill_scope(execution_workdir)
+                active_skill_scope = resolve_skill_scope(project_state_dir)
                 explicit_project_skills = str(
                     os.environ.get("ARGUS_SKILL_PROJECT_SKILLS_DIR", "") or ""
                 ).strip()

@@ -55,13 +55,22 @@ class _FrontDoorMixin:
         from ..life.router import classify_front_door
 
         domain_prompt = ""
-        if domain_sink is not None and not active_mission:
+        if domain_sink is not None:
             from ..verticals._data_domain import list_selectable_data_domain_summaries
             from .domain_intake import intake_prompt, read_intake
 
             catalog = {**vertical_select.available_vertical_purposes(),
                        **list_selectable_data_domain_summaries(self.project_root, learned_root=self.learned_vertical_root)}
             domain_prompt = intake_prompt(catalog, read_intake(self.project_root))
+            if active_mission:
+                domain_prompt += "\nAn active mission exists: use DOMAIN_ACTION=NONE; select Skills only.\n"
+            original_domain_sink = domain_sink
+
+            def domain_sink(decision: dict[str, str]) -> None:
+                selected = decision.get("vertical")
+                if selected is not None:
+                    decision = {**decision, "vertical": selected if selected in catalog else ""}
+                original_domain_sink(decision)
 
         if run_exec is None:
             if self.runner is None:

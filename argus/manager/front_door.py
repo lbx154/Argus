@@ -1281,6 +1281,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
 
     chat_state.pop("_self_delivery", None)
     chat_state.pop("_self_failure", None)
+    skill_vertical = chat_state.pop("_frontdoor_skill_vertical", None)
     runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
@@ -1438,6 +1439,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             nonlocal round_failure
             try:
                 etype = str(event.get("type") or "")
+                if etype == "skill.library.available":
+                    _emit_manager_event(mem, event)
                 # Tool-capable SELF turns narrate before/between tool calls and
                 # then give one authoritative final answer. Each assistant
                 # message is streamed live as a snapshot of *that* message, so
@@ -1531,6 +1534,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         }
         if _accepts_parameter(runner.chat_reply_if_conversational, "self_mode"):
             triage_kwargs["self_mode"] = mode
+        if _accepts_parameter(runner.chat_reply_if_conversational, "skill_vertical"):
+            triage_kwargs["skill_vertical"] = skill_vertical
         if root_task_id is not None and _accepts_parameter(
             runner.chat_reply_if_conversational,
             "root_task_id",
