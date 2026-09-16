@@ -333,6 +333,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
         : localized(context, 'skipped a task already planned', '跳过了已在计划中的任务');
       return model('planner', 'role.planner', '⏭', `${prefix} ${clean(stringField(event, 'title'), context.density === 'full' ? 140 : 120)}`, 'dim');
     }
+    case 'life.planner.preview_skipped':
+      return model('planner', 'role.planner', '⏭', localized(context, 'skipped the plan preview: the research Planner owns the campaign plan', '跳过了计划预览:研究规划师负责整个计划'), 'dim');
     case 'life.planner.normalized':
       return model('planner', 'role.planner', '≋', `${localized(context, 'tidied the plan', '整理了计划')} · ${clean(stringField(event, 'diagnostic'), 180)}`, 'dim');
     case 'life.planner.waiting':

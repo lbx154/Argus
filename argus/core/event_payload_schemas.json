@@ -1144,6 +1144,15 @@
         "cycle": {"type": "integer", "minimum": 0}
       }
     },
+    "life.planner.preview_skipped": {
+      "version": 1,
+      "required": ["text"],
+      "properties": {
+        "agent_layer": {"type": "string"},
+        "vertical": {"type": "string"},
+        "text": {"type": "string", "minLength": 1}
+      }
+    },
     "life.planner.verdict": {
       "version": 1,
       "required": [

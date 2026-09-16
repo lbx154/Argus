@@ -90,6 +90,7 @@
     "life.planner.final_submission_skipped",
     "life.planner.normalized",
     "life.planner.parallel_dropped",
+    "life.planner.preview_skipped",
     "life.planner.stall_escalation",
     "life.planner.start",
     "life.planner.superseded",
@@ -189,7 +190,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 161
+        "missing": 162
       },
       "fallback": "greppable",
       "handled": [
@@ -297,6 +298,7 @@
         "life.planner.final_submission_skipped",
         "life.planner.normalized",
         "life.planner.parallel_dropped",
+        "life.planner.preview_skipped",
         "life.planner.stall_escalation",
         "life.planner.superseded",
         "life.planner.terminal_idle",
@@ -383,7 +385,7 @@
     },
     "tui": {
       "counts": {
-        "handled": 97,
+        "handled": 98,
         "hidden": 86,
         "missing": 0
       },
@@ -438,6 +440,7 @@
         "life.planner.error",
         "life.planner.final_submission_skipped",
         "life.planner.normalized",
+        "life.planner.preview_skipped",
         "life.planner.stall_escalation",
         "life.planner.start",
         "life.planner.superseded",
@@ -579,7 +582,7 @@
     },
     "web": {
       "counts": {
-        "handled": 97,
+        "handled": 98,
         "hidden": 86,
         "missing": 0
       },
@@ -634,6 +637,7 @@
         "life.planner.error",
         "life.planner.final_submission_skipped",
         "life.planner.normalized",
+        "life.planner.preview_skipped",
         "life.planner.stall_escalation",
         "life.planner.start",
         "life.planner.superseded",

@@ -491,6 +491,14 @@ export interface LifePlannerStartEvent extends EventMsg {
   "cycle"?: number;
 }
 
+export interface LifePlannerPreviewSkippedEvent extends EventMsg {
+  type: "life.planner.preview_skipped";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "vertical"?: string;
+  "text": string;
+}
+
 export interface LifePlannerVerdictEvent extends EventMsg {
   type: "life.planner.verdict";
   payload_schema_version?: 1;
@@ -2025,6 +2033,7 @@ export interface EventPayloadByType {
   "round.review.completed": RoundReviewCompletedEvent;
   "round.secret_redacted": RoundSecretRedactedEvent;
   "life.planner.start": LifePlannerStartEvent;
+  "life.planner.preview_skipped": LifePlannerPreviewSkippedEvent;
   "life.planner.verdict": LifePlannerVerdictEvent;
   "life.planner.error": LifePlannerErrorEvent;
   "life.runtime_failure.circuit_opened": LifeRuntimeFailureCircuitOpenedEvent;

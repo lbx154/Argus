@@ -137,6 +137,7 @@ class EventType(StrEnum):
     LIFE_REVIEWER_BACKEND_RESOLVED = "life.reviewer.backend_resolved"
     LIFE_CURATOR_BACKEND_RESOLVED = "life.curator.backend_resolved"
     LIFE_PLANNER_START = "life.planner.start"
+    LIFE_PLANNER_PREVIEW_SKIPPED = "life.planner.preview_skipped"
     LIFE_PLANNER_NORMALIZED = "life.planner.normalized"
     LIFE_PLANNER_TASK_ADDED = "life.planner.task_added"
     LIFE_PLANNER_TASK_SKIPPED = "life.planner.task_skipped"
@@ -298,6 +299,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
     EventType.LIFE_VERTICAL_RESOLVED,
     EventType.LIFE_PLANNER_START,
+    EventType.LIFE_PLANNER_PREVIEW_SKIPPED,
     EventType.LIFE_PLANNER_TASK_ADDED,
     EventType.LIFE_PLANNER_TASK_SKIPPED,
     EventType.LIFE_PLANNER_DEPENDENCY_DROPPED,

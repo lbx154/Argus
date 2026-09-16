@@ -36,6 +36,29 @@ from ._runtime_helpers import (
 
 log = logging.getLogger(__name__)
 
+# The advisory Planner preview outlines; a preview that is still running after
+# this long is exploring, which is the Engineer's job.
+_PLANNER_PREVIEW_MAX_SECONDS = 180
+
+
+def _decided_vertical(config: object, workdir: Path) -> str:
+    """The Manager-classified vertical of this mission, or "" when undecided.
+
+    Role-prompt resolution falls back to research for an unclassified
+    workspace, so it cannot tell a research campaign from a task nobody has
+    classified yet; the mission's own classification can.
+    """
+    active = str(getattr(config, "active_vertical", "") or "").strip().lower()
+    if active:
+        return active
+    from ..skills.vertical_select import resolve_vertical_if_decided
+
+    state_root = getattr(config, "vertical_state_root", None) or workdir
+    try:
+        return str(resolve_vertical_if_decided(Path(state_root)) or "").strip().lower()
+    except Exception:  # noqa: BLE001 — undecided is the safe reading
+        return ""
+
 
 def _execution_host_blocked_outcome(outcome: object) -> bool:
     return (
@@ -922,9 +945,28 @@ class SkillLoopExecuteMixin:
             from ..roles.prompts.planner import preview_request
             from ._runtime_planning_context import bounded_planner_request
 
-            planner_role_banner = resolve_role_prompt(
-                preview_request(workdir)
-            ).role_banner
+            preview_prompt = resolve_role_prompt(preview_request(workdir))
+            if _decided_vertical(config, workdir) == "research":
+                # The research Planner's own cycle plans the campaign minutes
+                # later with the stage playbook, and the idea stage forms its
+                # portfolio without reading this outline. On the stable web
+                # trial (2026-09-16) this preview ran at every attempt with
+                # repository tools and no turn cap; on an empty workspace it
+                # wandered the host for nineteen turns (361k input tokens)
+                # before the provider cut it off, and its output was unused.
+                sink.handle_event(
+                    {
+                        "type": "life.planner.preview_skipped",
+                        "agent_layer": "planner",
+                        "vertical": "research",
+                        "text": (
+                            "Planner preview skipped: the research Planner cycle "
+                            "owns the campaign plan"
+                        ),
+                    }
+                )
+                return
+            planner_role_banner = preview_prompt.role_banner
             sink.handle_event(
                 {
                     "type": "life.planner.start",
@@ -969,7 +1011,10 @@ class SkillLoopExecuteMixin:
                 role_banner=planner_role_banner,
                 working_dir=str(workdir),
                 dangerous_yolo=True,
-                allow_repository_inspection=True,
+                # An outline for the operator, not an investigation: the
+                # Engineer inspects the repository itself a moment later.
+                allow_repository_inspection=False,
+                max_seconds=_PLANNER_PREVIEW_MAX_SECONDS,
             )
             if plan.steps:
                 lines = ["## Planner execution plan (advisory)"]
