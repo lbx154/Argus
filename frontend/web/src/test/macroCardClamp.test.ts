@@ -30,6 +30,11 @@ describe("atlas overview card text is line-clamped", () => {
     expect(rule(".map-macro:not([data-overview-density=full]) .map-card h3")).toMatch(/flex-shrink:\s*0/);
     expect(rule(".map-macro[data-overview-density=compact] .map-card-copy")).toMatch(/mask-image/);
   });
+  it("keeps the quoted-ask line at two lines despite the generic paragraph rule", () => {
+    const objective = rule(".macro-summary .map-card > p.map-card-objective");
+    expect(objective).toMatch(/-webkit-line-clamp:\s*2/);
+    expect(objective).toMatch(/min-height:\s*0/);
+  });
   it("keeps the fixed-height overview card from bleeding", () => {
     expect(rule(".map-macro:not([data-overview-density=full]) .map-card")).toMatch(/overflow:\s*hidden/);
   });

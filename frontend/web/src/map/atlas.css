@@ -12,6 +12,9 @@
 /* The overview card is centred in a fixed frame: clamp by line count so long asks never clip mid-glyph or run into the footer. */
 .macro-summary .map-card h3 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .map-card-objective { margin: 0 16px 9px; font-size: 11px; line-height: 1.5; color: rgb(var(--ink-faint)); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+/* Outranks submap.css `.macro-summary .map-card > p` (three lines, 54px floor), which otherwise
+ * lets the quoted-ask line show a third, half-clipped row. */
+.macro-summary .map-card > p.map-card-objective { -webkit-line-clamp: 2; min-height: 0; overflow: hidden; }
 .map-card-copy { color: rgb(var(--ink-dim)); font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
 .macro-summary .map-card-copy { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
 .map-card-stages { display: flex; flex-direction: column; gap: 4px; margin: 0 16px 12px; align-items: flex-start; }
