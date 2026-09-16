@@ -19,6 +19,19 @@ vertical for that turn. Invalid selections cannot resolve arbitrary directories;
 other projects' unpromoted candidates remain unavailable. Tool-free greetings stay
 lean; matched prose tasks get tools so the worker can actually read the Skills.
 
+Both the ordinary front door and the legacy route-only classifier now share the
+same execution policy: one worker is the default for a simple verifiable task,
+including tasks with a matching vertical. The former blanket rule assigning every
+code change or command to TEAM is removed. A vertical's staged template or default
+Reviewer does not by itself justify multiple agents. Required independent review,
+coordinated parallel work, substantial multi-stage research and high-impact
+operations still route to TEAM. The front-door prompt remains under its existing
+3,000-character test budget (2,985 characters for the test request).
+SELF execution also uses only the necessary part of a vertical: when an explicit
+rule in a loaded Skill conclusively answers a requested check or invalidates its
+input, it should report that result and stop before gathering more sources or
+creating additional artifacts.
+
 ## Verification
 
 - Ruff and both frontend builds passed; release artifacts match the source.
@@ -49,3 +62,21 @@ lean; matched prose tasks get tools so the worker can actually read the Skills.
 Detailed receipts, screenshots and test logs are kept in the private local
 verification directory, outside the repository. Production uses the original
 public tunnel and retains existing projects and resource limits.
+
+The default-routing follow-up used six real Pi classifications without asking for
+a single agent: a code fix, calendar validation, a small proof and a documentation
+lookup all chose SELF; paper production and explicitly independent security review
+chose TEAM. The first three selected their corresponding verticals. The lookup
+selected no vertical, rather than the evaluator's expected software label; this
+capability-label discrepancy is retained in the evaluation record. All six
+execution-topology decisions matched expectations; these are examples rather than
+a guarantee of correct routing for every request.
+
+The real default-route Web repair completed in 29 seconds. The initial calendar
+check selected the correct SELF/vertical route but unnecessarily fetched/read a
+calendar PDF, exhausting the isolated test's 100,000-token site cap. After adding
+the selective-execution instruction, the same request in a fresh project completed
+in 19 seconds with one Skill read and no subsequent tool calls or new artifacts.
+The failed run is preserved; it is not counted as a successful task. Its retry used
+30,000 additional allowed test tokens, without changing production limits. Both
+final tasks completed with no Team; 153 related regressions passed again.

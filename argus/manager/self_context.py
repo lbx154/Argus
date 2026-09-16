@@ -71,6 +71,10 @@ def self_skill_context(
             f"## Vertical for this single-agent task: {selected}\n"
             "Apply the relevant domain methods, input requirements and checks within "
             "the requested scope. Read the matching Skills before doing the task. "
+            "For a small request, use only the necessary part of the workflow. "
+            "If a loaded Skill's explicit rule already invalidates the input or "
+            "conclusively answers the requested check, report that result and stop; "
+            "do not gather more sources, create extra artifacts or run later stages. "
             "This is one worker: do not create a Team, advance campaign stages, or "
             "claim independent review. Flag checks that need additional evidence.\n"
             + (f"\n{banner}\n" if banner else "")

@@ -73,12 +73,11 @@ def test_route_prompt_has_two_labels_and_safe_default() -> None:
     p = build_route_prompt("do a thing")
     assert "SELF" in p and "TEAM" in p
     assert "do a thing" in p
-    assert "Argus itself" in p
-    assert "Use SELF unless the requested outcome genuinely needs the team" in p
-    assert "code/project modification" in p
-    assert 'several related outputs' in p
-    assert "guided reading/tutoring" in p
-    assert 'one low-risk summary, note, or report' in p
+    assert "Default SELF" in p
+    assert "one agent can verify" in p
+    assert "Simple work uses SELF+vertical" in p
+    assert "stages/reviewer defaults never force TEAM" in p
+    assert "required independent review or high-impact operations" in p
 
 
 def test_backend_exception_is_safe_default() -> None:

@@ -80,19 +80,18 @@ OPERATIONS = frozenset(
 )
 
 
+_ROUTE_POLICY = (
+    "ROUTE: Default SELF for conversation, status, a quick inspection or a finite local "
+    "task one agent can verify. Simple work uses SELF+vertical; its stages/reviewer "
+    "defaults never force TEAM. TEAM for multi-stage live research, parallel work, "
+    "required independent review or high-impact operations.\n\n"
+)
+
+
 def build_route_prompt(text: str) -> str:
     return (
         "Reply with exactly one word: SELF or TEAM.\n"
-        "SELF = conversational or read-only Manager work: greetings, acks, "
-        "capability/status questions, explanations with no durable side effect, "
-        "guided reading/tutoring, a quick read-only look-up, one low-risk "
-        "summary, note, or report, or operator control of the mission already "
-        "running.\n"
-        "TEAM = any code/project modification, command execution, substantive "
-        "research/engineering, several related outputs, or change to Argus "
-        "itself.\n"
-        "Use SELF unless the requested outcome genuinely needs the team. Never "
-        "route work that needs independent review to a lone worker.\n\n"
+        f"{_ROUTE_POLICY}"
         f"Message:\n{(text or '').strip()}\n\n"
         "Answer:\n"
     )
@@ -242,10 +241,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "OPERATOR_QUESTION_POLICY: FORBID only for an explicit command "
         "against questions; ALLOW only when explicitly re-enabled; else "
         "UNCHANGED.\n\n"
-        "ROUTE: SELF for conversation, status, a quick inspection, or one finite local "
-        "task verifiable without network, install, git, publish, background work, "
-        "irreversible effects, or independent review. Supplied-source synthesis may be "
-        "SELF; live research, ambiguity, parallel, or review-sensitive work is TEAM.\n\n"
+        f"{_ROUTE_POLICY}"
         "SELF_MODE: Simple status: PROJECTSTATUS=this project; ARGUSSTATUS=this Argus's "
         "projects; HOSTSTATUS=server activity. Host reads facts; REPLY=NONE. "
         "INSPECT=diagnosis, history, specific files/processes; "
