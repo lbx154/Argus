@@ -117,7 +117,7 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4" aria-label={zh ? '技能列表' : 'Skills'}>
           {catalog.isPending && <p className="p-3 text-sm text-ink-faint">{zh ? '正在加载技能…' : 'Loading skills…'}</p>}
           {catalog.isError && <div role="alert" className="p-3 text-sm text-err">{zh ? '无法加载技能库。' : 'Could not load the skill library.'} <button type="button" className="underline" onClick={() => void catalog.refetch()}>{zh ? '重试' : 'Retry'}</button></div>}
-          {!catalog.isPending && !catalog.isError && items.length === 0 && <p className="p-3 text-sm leading-relaxed text-ink-faint">{query || (scope === 'vertical' && vertical) ? (zh ? '没有匹配的技能。' : 'No matching skills.')
+          {!catalog.isPending && !catalog.isError && items.length === 0 && <p className="p-3 text-sm leading-relaxed text-ink-faint">{query || (scope === 'vertical' && vertical) ? <>{zh ? '当前筛选条件下没有技能。' : 'No skills match the current filters.'} <button type="button" className="underline" onClick={() => { setSearch(''); setVertical(''); setSelection(null); }}>{zh ? '清除筛选' : 'Clear filters'}</button></>
             : scope === 'project' && !sid ? (zh ? '选择一个项目以查看它的技能。' : 'Select a project to see its skills.')
               : scope === 'recent' ? (zh ? '尚无技能更新。工作中保存的新技能和修改会自动出现在这里。' : 'No skill updates yet. Skills saved or changed during work will appear here automatically.')
                 : scope === 'project' ? (zh ? '该项目尚未保存技能。工作中沉淀的技能会出现在这里。' : 'This project has no saved skills yet. Skills learned during work will appear here.')

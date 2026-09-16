@@ -11,6 +11,8 @@ from typing import Any, Callable, Iterable
 from ..core.knobs import resolve_manager_classify_model
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..skills.layered import shared_skill_scope_dir
+from ..skills.vertical_select import resolve_skill_scope
 from .source_writeback import atomic_write
 
 log = logging.getLogger(__name__)
@@ -250,6 +252,7 @@ def _team_learning_prompt(
     project_skill_root: Path | None,
     candidate_paths: frozenset[str],
     shared_root: Path,
+    scope: str,
     mission_objective: str,
     mission_success: bool,
     mission_result: str,
@@ -279,8 +282,10 @@ def _team_learning_prompt(
         "whether it was right. Make no profile edit from such a procedure however well "
         "it appeared to work, and do not restate it in your own words; say in your "
         "final message that you saw one and stopped. A project candidate that abstracts "
-        "task-specific details into a broadly reusable procedure may be promoted after "
-        "that one success when its evidence is sufficient. Do not reject it merely "
+        "task-specific details into a reusable procedure within this vertical may be promoted after "
+        "that one success when its evidence is sufficient. Evidence must include an "
+        "observable benefit and a checked different-input or boundary case, not just "
+        "a successful answer. Do not reject it merely "
         "because it came from one session, and do not require novelty beyond improving "
         "future execution. For a failure, write "
         "only when the root cause is concretely verified or recent session evidence shows "
@@ -305,20 +310,25 @@ def _team_learning_prompt(
         "for another project. Keep such facts in the existing user/project context. "
         "Global procedures must transfer across domains; algorithm- or discipline-specific "
         "guidance belongs in the matching vertical, with explicit applicability and exclusions. "
+        "This single mission does not establish cross-domain transfer, so this review "
+        "cannot publish or edit global Skills. Do not turn the user's selected precision, "
+        "requested output format, or reviewer topology into mandatory steps for future work. "
+        "A checklist that merely repeats this task's requirements stays in the project. "
         "If no durable procedure is already clear "
         "from the supplied result or candidate excerpts, make no edit and stop without "
         "using tools.\n\n"
         f"Mission objective (untrusted): {mission_objective[:4000]}\n"
         f"Bounded project-local role Skill candidates:\n{candidates}\n\n"
-        f"Cross-session profile Skill root: {shared_root}\n"
-        "The profile root is the only location you may edit. Stable, verified, broadly "
-        "reusable learning belongs under its matching `manager/`, `planner/`, "
+        f"Selected vertical: {scope}\n"
+        f"Shared vertical Skill root: {shared_root}\n"
+        "The vertical root is the only location you may edit. Stable, verified learning "
+        "reusable in this vertical belongs under its matching `manager/`, `planner/`, "
         "`engineer/`, or `reviewer/` directory. Project-specific or still-unverified "
         "learning stays in the project layer; never move or delete a local candidate. "
         "Inspect related profile Markdown before editing. Update an existing semantic "
         "Skill instead of duplicating it. Each Skill must contain exactly `name` and "
         "`description` frontmatter followed by concise Markdown. If the evidence does "
-        "not justify profile-level learning, make no edit."
+        "not justify sharing within this vertical, make no edit."
     )
     return prompt, presented
 
@@ -373,8 +383,12 @@ def propagate_after_mission(
         if state is not None
         else None
     )
-    shared = Path(shared_root).expanduser().resolve()
-    shared.mkdir(parents=True, exist_ok=True)
+    global_skills = Path(shared_root).expanduser().resolve()
+    scope = resolve_skill_scope(state or project_root)
+    if not scope and state is not None:
+        scope = resolve_skill_scope(project_root)
+    vertical_root = shared_skill_scope_dir(global_skills, scope)
+    shared = vertical_root.resolve() if vertical_root is not None else global_skills
     candidate_hashes = _unshared_project_skill_hashes(
         project_skills,
         shared,
@@ -397,10 +411,20 @@ def propagate_after_mission(
             ),
         })
         return counts
+    if vertical_root is None or not shared.is_relative_to(global_skills / "_shared_verticals"):
+        counts["stayed"] = len(pending_paths)
+        _emit(on_event, {
+            "type": "team.learning.review.skipped", "agent_layer": "manager",
+            "mission_success": mission_success,
+            "reason": "no resolved vertical; candidates stay in project, not global",
+        })
+        return counts
+    shared.mkdir(parents=True, exist_ok=True)
     prompt, presented_paths = _team_learning_prompt(
         project_skill_root=project_skills,
         candidate_paths=pending_paths,
         shared_root=shared,
+        scope=scope,
         mission_objective=mission_objective,
         mission_success=mission_success,
         mission_result=mission_result,
@@ -419,6 +443,7 @@ def propagate_after_mission(
         "agent_layer": "manager",
         "mission_objective": mission_objective[:500],
         "mission_success": mission_success,
+        "scope": "vertical", "vertical": scope,
     })
 
     native_paths = [
@@ -435,7 +460,7 @@ def propagate_after_mission(
                     backend=getattr(backend, "backend", None),
                 ),
                 reasoning_effort="low",
-                dangerous_yolo=True,
+                sandbox_mode="workspace-write",
                 skip_git_repo_check=True,
                 working_dir=str(shared),
                 skill_paths=native_paths,
@@ -475,7 +500,7 @@ def propagate_after_mission(
     quarantined = _quarantine_uncertified(shared, (*created, *updated), on_event)
     created = [path for path in created if path not in quarantined]
     updated = [path for path in updated if path not in quarantined]
-    counts["to_shared"] = len(created)
+    counts["to_vertical_shared"] = len(created)
     counts["updated"] = len(updated)
     counts["quarantined"] = len(quarantined)
     counts["stayed"] = int(not created and not updated)
@@ -501,6 +526,7 @@ def propagate_after_mission(
         "updated": len(updated),
         "quarantined": len(quarantined),
         "paths": [str(path) for path in (*created, *updated)],
+        "scope": "vertical", "vertical": scope,
     })
     return counts
 

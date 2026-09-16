@@ -1851,6 +1851,8 @@ export interface IdeaPortfolioNestedSkippedEvent extends EventMsg {
 export interface TeamLearningReviewStartedEvent extends EventMsg {
   type: "team.learning.review.started";
   payload_schema_version?: 1;
+  "scope"?: "vertical";
+  "vertical"?: string;
   "agent_layer"?: string;
   "mission_objective"?: string;
   "mission_success": boolean;
@@ -1867,6 +1869,8 @@ export interface TeamLearningReviewSkippedEvent extends EventMsg {
 export interface TeamLearningReviewCompletedEvent extends EventMsg {
   type: "team.learning.review.completed";
   payload_schema_version?: 1;
+  "scope"?: "vertical";
+  "vertical"?: string;
   "agent_layer"?: string;
   "mission_success"?: boolean;
   "created": number;

@@ -4,10 +4,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from argus.core.models import RunnerOptions, RunnerResult
 from argus.manager.skill_tidy import names_the_verifier, propagate_after_mission
 from argus.skills.layered import LayeredSkillStore
 from argus.skills.missions import EngineerMission
+
+
+@pytest.fixture(autouse=True)
+def selected_software_vertical(monkeypatch):
+    monkeypatch.setattr('argus.manager.skill_tidy.resolve_skill_scope', lambda _: 'software')
 
 
 @dataclass
@@ -42,12 +49,13 @@ class _PromotingBackend:
         return RunnerResult(exit_code=0, agent_messages=["review complete"])
 
 
-def test_team_learning_promotes_to_profile_and_new_session_discovers_it(
+def test_team_learning_promotes_to_vertical_and_matching_session_discovers_it(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "workspace"
     state = tmp_path / "session-state"
-    shared = tmp_path / "profile-skills"
+    global_root = tmp_path / "profile-skills"
+    shared = global_root / "_shared_verticals" / "software"
     project.mkdir()
     candidate = state / "skills" / "engineer" / "debugging-candidate.md"
     candidate.parent.mkdir(parents=True)
@@ -65,7 +73,7 @@ def test_team_learning_promotes_to_profile_and_new_session_discovers_it(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
         mission_objective="Repair the parser and verify the reduced reproducer",
         on_event=events.append,
     )
@@ -73,9 +81,16 @@ def test_team_learning_promotes_to_profile_and_new_session_discovers_it(
     promoted_dir = (shared / "engineer").resolve()
     next_session = LayeredSkillStore(
         project_dir=tmp_path / "next-session-skills",
-        global_dir=shared,
+        global_dir=global_root,
+        vertical_dir=shared,
     )
-    assert counts["to_shared"] == 1
+    assert backend.calls[0]["options"].sandbox_mode == "workspace-write"
+    assert backend.calls[0]["options"].dangerous_yolo is False
+    assert "cannot publish or edit global Skills" in backend.calls[0]["prompt"]
+    assert "checked different-input or boundary case" in backend.calls[0]["prompt"]
+    assert counts["to_vertical_shared"] == 1
+    assert counts["to_shared"] == 0
+    assert not (global_root / "engineer").exists()
     assert counts["quarantined"] == 0
     assert candidate.exists()
     assert promoted_dir in EngineerMission(next_session).libraries().native_paths
@@ -107,7 +122,7 @@ def test_team_learning_promotes_to_profile_and_new_session_discovers_it(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
         mission_objective="Repair another parser edge case",
         on_event=second_events.append,
     )
@@ -128,7 +143,7 @@ def test_team_learning_promotes_to_profile_and_new_session_discovers_it(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
         mission_objective="Repair a changed parser procedure",
     )
     assert len(backend.calls) == 2
@@ -139,7 +154,8 @@ def test_failed_mission_does_not_launch_team_learning(
 ) -> None:
     project = tmp_path / "workspace"
     state = tmp_path / "session-state"
-    shared = tmp_path / "profile-skills"
+    global_root = tmp_path / "profile-skills"
+    shared = global_root / "_shared_verticals" / "software"
     project.mkdir()
     state.mkdir()
     backend = _PromotingBackend(shared)
@@ -149,7 +165,7 @@ def test_failed_mission_does_not_launch_team_learning(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
         mission_objective="Retry a fixed memory threshold",
         mission_success=False,
         mission_result=(
@@ -245,7 +261,8 @@ def test_no_project_skill_delta_cannot_invent_a_shared_skill(
     """
     project = tmp_path / "workspace"
     state = tmp_path / "session-state"
-    shared = tmp_path / "profile-skills"
+    global_root = tmp_path / "profile-skills"
+    shared = global_root / "_shared_verticals" / "software"
     project.mkdir()
     state.mkdir()
     backend = _GateRepairBackend(shared)
@@ -255,7 +272,7 @@ def test_no_project_skill_delta_cannot_invent_a_shared_skill(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
         mission_objective="Prove the conjecture",
         mission_result="status=done; unblocked the scope gate and completed the stage",
         on_event=events.append,
@@ -279,7 +296,8 @@ def test_the_quarantine_is_outside_every_role_directory(tmp_path: Path) -> None:
     """
     project = tmp_path / "workspace"
     state = tmp_path / "session-state"
-    shared = tmp_path / "profile-skills"
+    global_root = tmp_path / "profile-skills"
+    shared = global_root / "_shared_verticals" / "software"
     project.mkdir()
     state.mkdir()
 
@@ -287,14 +305,15 @@ def test_the_quarantine_is_outside_every_role_directory(tmp_path: Path) -> None:
         project,
         _GateRepairBackend(shared),
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
         mission_objective="Prove the conjecture",
         mission_result="status=done",
     )
 
     next_session = LayeredSkillStore(
         project_dir=tmp_path / "next-session-skills",
-        global_dir=shared,
+        global_dir=global_root,
+        vertical_dir=shared,
     )
     loaded = EngineerMission(next_session).libraries().native_paths
     quarantine = (shared / "_uncertified").resolve()
@@ -319,7 +338,7 @@ def test_a_candidate_naming_the_verifier_is_withheld_from_the_evidence(
     """
     project = tmp_path / "workspace"
     state = tmp_path / "session-state"
-    shared = tmp_path / "profile-skills"
+    global_root = tmp_path / "profile-skills"
     project.mkdir()
     skills = state / "skills" / "engineer"
     skills.mkdir(parents=True)
@@ -345,7 +364,7 @@ def test_a_candidate_naming_the_verifier_is_withheld_from_the_evidence(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
         mission_objective="Prove the conjecture",
         mission_result="status=done",
     )
@@ -367,7 +386,7 @@ def test_no_project_skill_directory_skips_team_learning(
     reviewer can write the skill from that alone, having seen no candidate.
     """
     project = tmp_path / "workspace"
-    shared = tmp_path / "profile-skills"
+    global_root = tmp_path / "profile-skills"
     project.mkdir()
     backend = _SilentBackend()
 
@@ -375,7 +394,7 @@ def test_no_project_skill_directory_skips_team_learning(
         project,
         backend,
         project_state_dir=None,
-        shared_root=shared,
+        shared_root=global_root,
         mission_objective="Prove the conjecture",
         mission_result="status=done",
     )
@@ -390,7 +409,7 @@ def test_team_learning_honors_configured_project_skill_root(
     project = tmp_path / "workspace"
     state = tmp_path / "session-state"
     configured = tmp_path / "configured-skills"
-    shared = tmp_path / "profile-skills"
+    global_root = tmp_path / "profile-skills"
     project.mkdir()
     candidate = configured / "engineer" / "configured.md"
     candidate.parent.mkdir(parents=True)
@@ -408,7 +427,7 @@ def test_team_learning_honors_configured_project_skill_root(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
     )
 
     assert len(backend.calls) == 1
@@ -420,7 +439,7 @@ def test_unseen_candidate_batch_remains_pending_for_next_success(
 ) -> None:
     project = tmp_path / "workspace"
     state = tmp_path / "session-state"
-    shared = tmp_path / "profile-skills"
+    global_root = tmp_path / "profile-skills"
     project.mkdir()
     skill_root = state / "skills" / "engineer"
     skill_root.mkdir(parents=True)
@@ -438,21 +457,56 @@ def test_unseen_candidate_batch_remains_pending_for_next_success(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
     )
     propagate_after_mission(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
     )
     propagate_after_mission(
         project,
         backend,
         project_state_dir=state,
-        shared_root=shared,
+        shared_root=global_root,
     )
 
     assert len(backend.calls) == 2
     assert "candidate-8.md" not in backend.calls[0]["prompt"]
     assert "candidate-8.md" in backend.calls[1]["prompt"]
+
+
+def test_missing_scope_keeps_candidates_local_without_a_model_call(tmp_path, monkeypatch):
+    state = tmp_path / 'project'
+    candidate = state / 'skills/engineer/date-reading.md'
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text('A project-specific birthdate procedure.')
+    shared = tmp_path / 'shared'
+    monkeypatch.setattr('argus.manager.skill_tidy.resolve_skill_scope', lambda _: '')
+    backend = _PromotingBackend(shared)
+    events = []
+    counts = propagate_after_mission(state, backend, project_state_dir=state,
+                                     shared_root=shared, on_event=events.append)
+    assert backend.calls == []
+    assert counts['to_shared'] == counts['to_vertical_shared'] == 0
+    assert counts['stayed'] == 1
+    assert candidate.exists() and not shared.exists()
+    assert 'no resolved vertical' in events[-1]['reason']
+
+
+def test_vertical_root_cannot_escape_the_shared_namespace(tmp_path):
+    state = tmp_path / 'project'
+    candidate = state / 'skills/engineer/procedure.md'
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text('Project procedure.')
+    shared = tmp_path / 'shared'
+    target = shared / '_shared_verticals/software'
+    target.parent.mkdir(parents=True)
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    target.symlink_to(outside, target_is_directory=True)
+    backend = _PromotingBackend(outside)
+    counts = propagate_after_mission(state, backend, project_state_dir=state, shared_root=shared)
+    assert backend.calls == [] and counts['stayed'] == 1
+    assert not list(outside.iterdir())

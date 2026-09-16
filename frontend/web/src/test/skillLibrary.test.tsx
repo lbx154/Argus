@@ -52,7 +52,9 @@ it('reads the complete skill and searches its description and path', async () =>
   expect(renderer.root.findByProps({ 'aria-label': 'Skills' }).findAllByType('button').map(content)).toHaveLength(1);
   expect(button('Default')).toBeDefined();
   act(() => renderer.root.findByType('input').props.onChange({ target: { value: 'missing' } }));
-  expect(content(renderer.root)).toContain('No matching skills.');
+  expect(content(renderer.root)).toContain('No skills match the current filters.');
+  act(() => button('Clear filters').props.onClick());
+  expect(button('Default')).toBeDefined();
 });
 
 it('does not retain the previous project document when switching projects', async () => {

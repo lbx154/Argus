@@ -1094,7 +1094,7 @@ class SelfReplyMixin:
             return
 
         from ..core.transcript import read_turns
-        from ..skills.role_memory import profile_self_skill_dir
+        from ..skills.role_memory import project_role_skill_dir
 
         all_turns = read_turns(session_root)
         operator_turns = sum(
@@ -1106,7 +1106,9 @@ class SelfReplyMixin:
         active = getattr(self, "_self_learning_review_thread", None)
         if active is not None and active.is_alive():
             return
-        skill_dir = profile_self_skill_dir(self.manager.skill_store)
+        skill_dir = project_role_skill_dir(self.manager.skill_store, "self")
+        if getattr(self.manager.skill_store, "project", None) is None:
+            skill_dir = Path(session_root).resolve() / "skills" / "self"
         if skill_dir is None:
             return
         skill_dir.mkdir(parents=True, exist_ok=True)
@@ -1130,7 +1132,10 @@ class SelfReplyMixin:
             "demonstrated by successful nontrivial tool work. Exclude one-off history, "
             "transient process IDs and paths, unresolved failures, secrets, and generic "
             "advice.\n\n"
-            f"Cross-session SELF Skill directory: {skill_dir}\n"
+            "This conversation supplies project-scoped evidence only. Keep learning in "
+            "this project; never write global/shared libraries or turn a local preference "
+            "into authority for other projects.\n\n"
+            f"Project SELF Skill directory: {skill_dir}\n"
             "This is the only directory you may edit. Inspect existing Markdown first. "
             "If learning is warranted, create or update exactly one related Skill "
             "instead of duplicating it. Use exactly `name` and `description` "
@@ -1161,7 +1166,7 @@ class SelfReplyMixin:
                             backend=getattr(self._args, "backend", None),
                         ),
                         reasoning_effort="low",
-                        dangerous_yolo=True,
+                        sandbox_mode="workspace-write",
                         skip_git_repo_check=True,
                         working_dir=str(skill_dir),
                         add_dirs=[str(skill_dir)],

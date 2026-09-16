@@ -2320,6 +2320,8 @@
       "version": 1,
       "required": ["mission_success"],
       "properties": {
+        "scope": {"type": "string", "enum": ["vertical"]},
+        "vertical": {"type": "string"},
         "agent_layer": {"type": "string"},
         "mission_objective": {"type": "string"},
         "mission_success": {"type": "boolean"}
@@ -2338,6 +2340,8 @@
       "version": 1,
       "required": ["created", "updated", "quarantined"],
       "properties": {
+        "scope": {"type": "string", "enum": ["vertical"]},
+        "vertical": {"type": "string"},
         "agent_layer": {"type": "string"},
         "mission_success": {"type": "boolean"},
         "created": {"type": "integer", "minimum": 0},

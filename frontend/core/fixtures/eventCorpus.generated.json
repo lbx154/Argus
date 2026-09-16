@@ -2366,8 +2366,10 @@
         "mission_objective": "mission objective",
         "mission_success": true,
         "payload_schema_version": 1,
+        "scope": "vertical",
         "ts": 1700000157,
-        "type": "team.learning.review.started"
+        "type": "team.learning.review.started",
+        "vertical": "software"
       },
       "id": "team.learning.review.started"
     },
@@ -2392,9 +2394,11 @@
         ],
         "payload_schema_version": 1,
         "quarantined": 1,
+        "scope": "vertical",
         "ts": 1700000159,
         "type": "team.learning.review.completed",
-        "updated": 1
+        "updated": 1,
+        "vertical": "software"
       },
       "id": "team.learning.review.completed"
     },

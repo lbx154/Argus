@@ -644,9 +644,11 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert "Runtime maintenance must use an isolated worktree" not in backend.calls[0]["prompt"]
 
 
+@pytest.mark.parametrize("layered", [True, False])
 def test_self_learning_review_runs_after_five_operator_turns(
     tmp_path: Path,
     monkeypatch,
+    layered,
 ) -> None:
     from argus.core.transcript import append_turn
     from argus.skills.layered import LayeredSkillStore
@@ -669,6 +671,9 @@ def test_self_learning_review_runs_after_five_operator_turns(
         project_dir=tmp_path / "project-skills",
         global_dir=tmp_path / "profile-skills",
     )
+    if not layered:
+        from argus.skills.store import SkillStore
+        runner.manager.skill_store = SkillStore(tmp_path / "profile-skills")
     runner.manager.memory_maintenance_enabled = True
     for index in range(5):
         append_turn(
@@ -688,7 +693,8 @@ def test_self_learning_review_runs_after_five_operator_turns(
 
     assert [call["run_label"] for call in backend.calls] == ["self-learning-review"]
     review_call = backend.calls[0]
-    skill_dir = (tmp_path / "profile-skills" / "self").resolve()
+    skill_dir = ((tmp_path / "project-skills" / "self") if layered else (tmp_path / "life/skills/self")).resolve()
+    assert not (tmp_path / "profile-skills/self").exists()
     assert str(skill_dir) in review_call["prompt"]
     assert "canonical user answer is already complete" in review_call["prompt"]
     assert "only directory you may edit" in review_call["prompt"]
