@@ -150,11 +150,11 @@ class RoundPromptMixin:
             operation = str(
                 getattr(supervised_config, "engineer_operation", "") or MISSION
             )
-            stage: str | None = None
-            if operation != MISSION:
-                from ..skills.stage_machine import current_stage
+            # Same stage the static banner was resolved with (see loop.py):
+            # every operation, plain missions included.
+            from ..skills.stage_machine import current_stage
 
-                stage = current_stage(state_root)
+            stage: str | None = current_stage(state_root) or None
             from ..roles.prompts import resolve_role_prompt
             from ..roles.prompts.engineer import mission_request
 

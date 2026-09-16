@@ -1440,3 +1440,55 @@ def test_planner_turn_budget_outlives_a_long_campaign() -> None:
     # Six turns rotated the Planner hundreds of times across one 48-hour run,
     # each rotation re-paying the full static prompt with a cold cache.
     assert PlannerConfig().role_session_max_turns == 20
+
+
+def test_parse_planner_objective_keeps_the_brief_that_follows_it() -> None:
+    # An implementation brief is a document: claim, components, interfaces,
+    # tests, commands. Everything up to the next field belongs to the objective,
+    # including blank lines, fenced commands and a field the reader never heard of.
+    verdict = parse_planner_text(
+        "PROJECT_DONE=false\n"
+        "REASON=Open the experiment stage.\n"
+        "TASK_KEY=exp_spec\n"
+        "TASK_TITLE=Author METHOD.md and tests/spec\n"
+        "TASK_OBJECTIVE=## Claim\n"
+        "The method halves the error at equal budget.\n"
+        "\n"
+        "## Components to implement this task\n"
+        "1. `radial_quadrature`: `src/quadrature.py:RadialQuadrature`\n"
+        "\n"
+        "## Commands\n"
+        "```bash\n"
+        "CUDA_VISIBLE_DEVICES=1 python -m pytest tests/spec -v\n"
+        "```\n"
+        "TASK_STAGE_CLOSING=false\n"
+        "TASK_ACCEPTANCE_CHECK=pytest tests/spec exits zero\n"
+    )
+
+    assert verdict.error == ""
+    task = verdict.new_tasks[0]
+    assert task.title == "Author METHOD.md and tests/spec"
+    assert task.objective.startswith("## Claim\nThe method halves the error")
+    assert "## Components to implement this task" in task.objective
+    assert "CUDA_VISIBLE_DEVICES=1 python -m pytest tests/spec -v" in task.objective
+    assert "TASK_STAGE_CLOSING" not in task.objective
+    assert "pytest tests/spec exits zero" not in task.objective
+    assert task.acceptance_check == "pytest tests/spec exits zero"
+
+
+def test_parse_numbered_planner_objective_keeps_its_following_lines() -> None:
+    verdict = parse_planner_text(
+        "PROJECT_DONE=false\n"
+        "REASON=Delegate.\n"
+        "TASK_1_TITLE=Certify\n"
+        "TASK_1_OBJECTIVE=## Claim\n"
+        "Produce the theorem.\n"
+        "- one lemma per file\n"
+        "TASK_1_ACCEPTANCE_CHECK=Run the verifier.\n"
+    )
+
+    assert verdict.error == ""
+    assert verdict.new_tasks[0].objective == (
+        "## Claim\nProduce the theorem.\n- one lemma per file"
+    )
+    assert verdict.new_tasks[0].acceptance_check == "Run the verifier."

@@ -323,7 +323,14 @@ class SkillLoop(
                 vertical_state_root,
                 vertical=routed_vertical or None,
                 altitude_root=workdir,
-                stage=active_stage if engineer_operation != MISSION else None,
+                # The stage goes with every operation. Plain missions used to
+                # pass None, so a vertical's stage-specific Engineer guidance
+                # (the research Experiment stage's method card, reference and
+                # spec block, its compute facts) rendered for authoring and
+                # editing operations only and never for the missions that
+                # write the method. The banner stays identical within a stage,
+                # which is all the provider-cacheable prefix needs.
+                stage=active_stage or None,
                 operation=engineer_operation,
             )
         )

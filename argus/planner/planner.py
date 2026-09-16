@@ -653,6 +653,24 @@ _NUMBERED_TASK_KEY = re.compile(
     re.IGNORECASE,
 )
 
+# A TASK_OBJECTIVE is the one field a Planner legitimately writes as a
+# document: an implementation brief with the claim, the components and their
+# entry points, the interfaces, the tests that must pass, the commands and the
+# definition of done runs to forty lines. Project s-3d1dbf72 wrote exactly that
+# and the line-based reader kept its first line, ``## Claim``, so the Engineer
+# opened a mission whose whole task text was a Markdown heading. Lines after
+# the objective therefore belong to it until the next field starts; the stop
+# pattern names every field shape (known or not) so an unrecognised
+# ``TASK_STAGE_CLOSING=false`` never becomes the brief's last paragraph.
+_OBJECTIVE_CONTINUATION_STOP = re.compile(
+    r"^(?:[-*]\s*)?(?:ARGUS_)?(?:TASK(?:_\d+)?_[A-Z0-9_]+|PLAN_[A-Z0-9_]+|"
+    + "|".join(_GLOBAL_KEY_VALUE_KEYS)
+    + r")\s*[:=]",
+    re.IGNORECASE,
+)
+#: Longest objective the reader keeps assembling; past it the rest is dropped.
+OBJECTIVE_CONTINUATION_CHARS = 8000
+
 
 def _planner_key_values(
     text: str,
@@ -665,11 +683,18 @@ def _planner_key_values(
     retire_tasks: list[tuple[str, str]] = []
     numbered_tasks: dict[str, dict[str, str]] = {}
     current_task: dict[str, str] | None = None
+    # The objective a following non-field line extends, as (row, field).
+    open_objective: tuple[dict[str, str], str] | None = None
     for raw_line in decision_footer_text(text).splitlines():
         line = raw_line.strip().strip("`").strip()
         match = _KEY_VALUE_LINE.match(line)
         if match is None:
+            if open_objective is not None and not _OBJECTIVE_CONTINUATION_STOP.match(line):
+                row, field = open_objective
+                if len(row[field]) < OBJECTIVE_CONTINUATION_CHARS:
+                    row[field] = f"{row[field]}\n{raw_line.rstrip()}"
             continue
+        open_objective = None
         key = match.group("key").upper()
         value = match.group("value").strip()
         # PLAN_UPDATE owns the rest of the footer as free-form Markdown. It is
@@ -687,6 +712,8 @@ def _planner_key_values(
             index = numbered_match.group("index")
             normalized_key = f"TASK_{numbered_match.group('field').upper()}"
             numbered_tasks.setdefault(index, {})[normalized_key] = value
+            if normalized_key == "TASK_OBJECTIVE":
+                open_objective = (numbered_tasks[index], normalized_key)
             continue
         if key == "TASK_KEY":
             if current_task is not None:
@@ -696,11 +723,16 @@ def _planner_key_values(
             if current_task is None:
                 current_task = {}
             current_task[key] = value
+            if key == "TASK_OBJECTIVE":
+                open_objective = (current_task, key)
         else:
             values[key] = value
     if current_task is not None:
         tasks.append(current_task)
     tasks.extend(numbered_tasks.values())
+    for row in tasks:
+        if "TASK_OBJECTIVE" in row:
+            row["TASK_OBJECTIVE"] = row["TASK_OBJECTIVE"].strip()
     return values, tasks, tuple(retire_tasks)
 
 

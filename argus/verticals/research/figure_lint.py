@@ -36,6 +36,12 @@ _COMMENT_RE = re.compile(r"(?<!\\)%.*")
 _GRAPHIC_EXTENSIONS = ("", ".pdf", ".png", ".jpg", ".jpeg", ".eps", ".svg")
 _RASTER_SUFFIXES = {".png", ".jpg", ".jpeg"}
 _SKIPPED_DIRS = {
+    # A pinned reference clone is somebody else's plotting code; the lint
+    # speaks about this project's figures. One report listed three files
+    # under third_party/ as the project's only figure findings.
+    "third_party",
+    ".venv",
+    "venv",
     "node_modules",
     "site-packages",
     "__pycache__",

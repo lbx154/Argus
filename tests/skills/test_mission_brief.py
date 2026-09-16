@@ -231,7 +231,9 @@ def test_environment_reports_the_project_interpreter_when_present(project: Path,
     )
     lines = brief.splitlines()
 
-    assert "- Interpreter: .venv/bin/python (Python 3.99.1)" in lines
+    interpreter = next(line for line in lines if line.startswith("- Interpreter:"))
+    assert interpreter.startswith("- Interpreter: .venv/bin/python (Python 3.99.1)")
+    assert "run tests as `.venv/bin/python -m pytest tests/spec`" in interpreter
     packages = next(line for line in lines if line.startswith("- Packages:"))
     assert "2 distributions installed in .venv" in packages
     assert "imported packages present: numpy" in packages
@@ -362,3 +364,39 @@ def test_brief_is_capped_and_recomputed_each_call(project: Path, tmp_path: Path)
 def test_the_vertical_package_exports_the_hook_by_keyword() -> None:
     assert research.prepare_mission is prepare_mission
     assert "prepare_mission" in research.__all__
+
+
+def test_project_without_a_card_quotes_the_selected_route_itself(tmp_path: Path) -> None:
+    # Before METHOD.md exists the fixed text is the route the selector chose,
+    # not the selector's account of why it won.
+    root = tmp_path / "bare"
+    route = root / ".argus" / "teams" / "t1" / "artifacts" / "routes" / "route-01.md"
+    route.parent.mkdir(parents=True)
+    route.write_text(
+        "# Ideation Route 01: Gated residual attention\n\n"
+        "## Executive Summary\n\n"
+        "Random features approximate the kernel by Monte Carlo averaging.\n"
+        "Gating the residual branch keeps the accuracy at half the attention FLOPs.\n\n"
+        "## Prior work\n\nNobody gated it before.\n",
+        encoding="utf-8",
+    )
+    (root / ".argus" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "selected_idea": {
+                "route_id": "route-01",
+                "rationale": "Every other route was rejected by its reviewer.",
+                "route_artifact": ".argus/teams/t1/artifacts/routes/route-01.md",
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    brief = prepare_mission(stage="experiment", project_root=root, state_root=tmp_path, mission=_mission())
+    lines = brief.splitlines()
+
+    assert "### Claim (fixed) — Ideation Route 01: Gated residual attention" in lines
+    claim = lines[lines.index("### Claim (fixed) — Ideation Route 01: Gated residual attention") + 1]
+    assert claim.startswith("Random features approximate the kernel by Monte Carlo averaging. Gating")
+    assert "route-01.md; the selected route, verbatim" in claim
+    assert "Every other route was rejected" not in brief
+    assert FIXED_CLAIM_SENTENCE in lines

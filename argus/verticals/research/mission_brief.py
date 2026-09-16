@@ -154,6 +154,84 @@ def _claim_from_notes(project_root: Path) -> str:
     return ""
 
 
+_ROUTE_STATEMENT_HEADINGS = re.compile(
+    r"^#{1,4}\s*(?:\d+[.)]?\s*)?(?:(?:central |core |main )?(?:claim|hypothesis|thesis|"
+    r"mechanism)|executive summary|summary)\b",
+    re.IGNORECASE,
+)
+ROUTE_STATEMENT_CHARS = 700
+
+
+def _route_statement(
+    project_root: Path, state_root: Path | None, selected: dict[str, Any]
+) -> tuple[str, str, str]:
+    """(title, statement, path) quoted from the selected route's own text.
+
+    Before METHOD.md exists the only fixed text is the route the selector
+    chose. Its first heading names the method and the first paragraph under a
+    claim-like heading (or, failing that, the first paragraph at all) states
+    it. The selector's rationale is *why it won*, which is not a claim, and one
+    brief opened with it: "Every route in the regenerated portfolio was
+    rejected by its reviewer...", forty words about the other routes.
+    """
+    candidates: list[str] = []
+    for key in ("route_artifact",):
+        value = selected.get(key)
+        if isinstance(value, str) and value.strip():
+            candidates.append(value.strip())
+    evidence = selected.get("evidence_considered")
+    if isinstance(evidence, (list, tuple)):
+        candidates.extend(
+            str(item).strip()
+            for item in evidence
+            if str(item).strip().lower().endswith(".md")
+        )
+    for rel in candidates:
+        for root in (project_root, state_root):
+            if root is None:
+                continue
+            path = Path(root) / rel
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            title = ""
+            paragraphs: list[tuple[str, str]] = []  # (heading, paragraph)
+            heading = ""
+            buffer: list[str] = []
+            for raw in text.splitlines() + [""]:
+                line = raw.strip()
+                if line.startswith("#"):
+                    if buffer:
+                        paragraphs.append((heading, " ".join(buffer)))
+                        buffer = []
+                    if not title and line.lstrip("#").strip():
+                        title = line.lstrip("#").strip()
+                    else:
+                        heading = line
+                    continue
+                if not line or line.startswith(("|", "```", "---")):
+                    if buffer:
+                        paragraphs.append((heading, " ".join(buffer)))
+                        buffer = []
+                    continue
+                buffer.append(line)
+            statement = ""
+            for head, paragraph in paragraphs:
+                if head and _ROUTE_STATEMENT_HEADINGS.match(head):
+                    statement = paragraph
+                    break
+            if not statement and paragraphs:
+                statement = paragraphs[0][1]
+            if statement:
+                return (
+                    _one_line(title, 200),
+                    _one_line(statement, ROUTE_STATEMENT_CHARS),
+                    rel,
+                )
+    return "", "", ""
+
+
 def _claim_section(
     card: dict[str, Any], project_root: Path, state_root: Path | None
 ) -> list[str]:
@@ -167,7 +245,19 @@ def _claim_section(
         selected = _selected_idea(project_root, state_root)
         route_id = _one_line(selected.get("route_id"), 80)
         rationale = _one_line(selected.get("rationale"))
-        if route_id:
+        route_title, route_statement, route_path = _route_statement(
+            project_root, state_root, selected
+        )
+        if route_statement:
+            lines.append(
+                "### Claim (fixed)"
+                + (f" — {route_title}" if route_title else f" — {route_id}")
+            )
+            lines.append(
+                f"{route_statement} ({route_path}; the selected route, verbatim — "
+                "write METHOD.md from it before method code)"
+            )
+        elif route_id:
             lines.append("### Claim (fixed)")
             lines.append(
                 f"Selected idea {route_id}" + (f": {rationale}" if rationale else "")
@@ -217,7 +307,13 @@ def _interpreter_line(project_root: Path) -> str:
         version = (proc.stdout or proc.stderr or "").strip().splitlines()[0] if (proc.stdout or proc.stderr) else ""
     except (OSError, subprocess.SubprocessError):
         version = ""
-    return f"- Interpreter: .venv/bin/python ({version or 'version unknown'})"
+    # Name the invocation, not just the file: a review-stage Engineer ran a
+    # bare `python3 -m pytest`, got nothing, and spent a round on
+    # `find / -name pytest` over the whole disk.
+    return (
+        f"- Interpreter: .venv/bin/python ({version or 'version unknown'}); "
+        "run tests as `.venv/bin/python -m pytest tests/spec`"
+    )
 
 
 def _installed_distributions(project_root: Path) -> set[str]:

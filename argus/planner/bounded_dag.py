@@ -88,6 +88,17 @@ _PLAN_LINE = re.compile(
     re.IGNORECASE,
 )
 
+# Lines after TASK_OBJECTIVE extend it until the next field of any shape; see
+# ``planner._OBJECTIVE_CONTINUATION_STOP`` for why an implementation brief is
+# a document and why the stop pattern is wider than the fields read here.
+_OBJECTIVE_STOP = re.compile(
+    r"^(?:[-*]\s*)?(?:ARGUS_)?(?:TASK(?:_\d+)?_[A-Z0-9_]+|PLAN_[A-Z0-9_]+|"
+    r"PROJECT_DONE|STATUS|REASON|SUMMARY|RETIRE_TASK|ADVANCE_TO_STAGE|"
+    r"WAITING[A-Z_]*|NEXT_ACTION|FORWARD_PROGRESS|PLAN_SIGNAL)\s*[:=]",
+    re.IGNORECASE,
+)
+_OBJECTIVE_CHARS = 8000
+
 
 def _parse_key_value_plan(text: str) -> dict[str, Any]:
     from ..core.role_reply import decision_footer_text
@@ -107,11 +118,22 @@ def _parse_key_value_plan(text: str) -> dict[str, Any]:
         "TASK_VERTICAL": "vertical",
         "TASK_WORKDIR": "execution_workdir",
     }
+    objective_open = False
     for raw_line in decision_footer_text(text).splitlines():
         line = raw_line.strip().strip("`").strip()
         match = _PLAN_LINE.match(line)
         if match is None:
+            if (
+                objective_open
+                and current is not None
+                and not _OBJECTIVE_STOP.match(line)
+                and len(current.get("objective", "")) < _OBJECTIVE_CHARS
+            ):
+                current["objective"] = f"{current['objective']}\n{raw_line.rstrip()}"
+            elif _OBJECTIVE_STOP.match(line):
+                objective_open = False
             continue
+        objective_open = False
         key = match.group("key").upper()
         if key != "PLAN_REASON" and not key.startswith("TASK_"):
             key = "TASK_" + key
@@ -138,8 +160,12 @@ def _parse_key_value_plan(text: str) -> dict[str, Any]:
             current["require_independent_review"] = value
         else:
             current[field_map[key]] = value
+            objective_open = key == "TASK_OBJECTIVE"
     if current is not None:
         tasks.append(current)
+    for task in tasks:
+        if isinstance(task.get("objective"), str):
+            task["objective"] = task["objective"].strip()
     return {"reason": reason, "tasks": tasks}
 
 

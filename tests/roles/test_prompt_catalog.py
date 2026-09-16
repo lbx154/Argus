@@ -534,3 +534,26 @@ def test_every_planner_prompt_keeps_grounding_inside_the_mission_workspace(tmp_p
         assert "Ground the plan in the mission workspace only" in prompt
         assert "Do not list, read, or search sibling projects" in prompt
         assert prompt.count("mission workspace only") == 1
+
+
+def test_research_engineer_plain_mission_carries_the_stage_guidance(tmp_path) -> None:
+    # Experiment missions run as the plain ``mission`` operation. With the
+    # stage passed (as loop.py now does for every operation) the Engineer
+    # receives the stage's method-card, reference and spec guidance; without
+    # it only the role's standing responsibility renders.
+    from argus.roles.prompts.engineer import mission_request
+
+    persist_vertical(tmp_path, "research")
+    _set_stage(tmp_path, "experiment")
+
+    with_stage = resolve_role_prompt(
+        mission_request(tmp_path, vertical="research", altitude_root=tmp_path, stage="experiment", operation="mission")
+    )
+    without_stage = resolve_role_prompt(
+        mission_request(tmp_path, vertical="research", altitude_root=tmp_path, stage=None, operation="mission")
+    )
+
+    assert "## Method card and executable spec" in with_stage.role_banner
+    assert "## Authoritative stage playbook" in with_stage.role_banner
+    assert "## Engineer responsibility" in with_stage.role_banner
+    assert "## Method card and executable spec" not in without_stage.role_banner

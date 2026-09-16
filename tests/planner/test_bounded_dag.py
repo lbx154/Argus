@@ -556,3 +556,33 @@ def test_bounded_planner_reassembles_chunked_opencode_footer(tmp_path) -> None:
     assert task.title == "Write survey"
     assert "survey.md" in task.objective
     assert task.require_independent_review is True
+
+
+def test_bounded_planner_keeps_a_multiline_objective_brief(tmp_path) -> None:
+    # The Planner's implementation brief runs for many lines after
+    # TASK_OBJECTIVE=; one project's Engineer received only its first line,
+    # "## Claim". Lines up to the next field (known or not) belong to it.
+    runner = _RawRunner(
+        "PLAN_REASON=open the experiment stage\n"
+        "TASK_KEY=exp_spec\n"
+        "TASK_DEPS=\n"
+        "TASK_TITLE=Author METHOD.md and tests/spec\n"
+        "TASK_OBJECTIVE=## Claim\n"
+        "The method halves the error at equal budget.\n"
+        "\n"
+        "## Tests that must pass\n"
+        "- tests/spec/test_knockouts.py\n"
+        "TASK_SCOPE=bounded\n"
+        "TASK_ACCEPTANCE_CHECK=pytest tests/spec exits zero\n"
+        "TASK_REQUIRE_INDEPENDENT_REVIEW=true\n"
+    )
+
+    plan = plan_bounded_dag(runner, "write the method", workdir=tmp_path)
+
+    assert plan.error == ""
+    task = plan.tasks[0]
+    assert task.objective.startswith("## Claim\nThe method halves the error")
+    assert "- tests/spec/test_knockouts.py" in task.objective
+    assert "TASK_SCOPE" not in task.objective
+    assert task.acceptance_check == "pytest tests/spec exits zero"
+    assert task.require_independent_review is True

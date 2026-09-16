@@ -96,3 +96,21 @@ def test_cli_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     _paper(tmp_path, "\\includegraphics{absent}")
     assert mod.main(["--project-root", str(tmp_path)]) == 1
     assert "absent" in capsys.readouterr().err
+
+
+def test_reference_clones_and_virtualenvs_are_not_linted(tmp_path: Path) -> None:
+    # The lint is about this project's figures; a pinned clone under
+    # third_party/ and the interpreter's own packages are someone else's code.
+    for rel in ("third_party/ref/plot.py", ".venv/lib/python3.12/site-packages/x/plot.py"):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True)
+        path.write_text("import matplotlib.pyplot as plt\nplt.plot([1])\nplt.savefig('a.pdf')\n", encoding="utf-8")
+    own = tmp_path / "src" / "plot.py"
+    own.parent.mkdir()
+    own.write_text("import matplotlib.pyplot as plt\nplt.plot([1])\nplt.savefig('a.pdf')\n", encoding="utf-8")
+    _paper(tmp_path, "text without figures")
+
+    issues = mod.figure_lint_issues(tmp_path)
+
+    assert all("third_party" not in issue and ".venv" not in issue for issue in issues)
+    assert any("src/plot.py" in issue for issue in issues)
