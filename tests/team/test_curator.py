@@ -668,6 +668,30 @@ def test_tick_publishes_one_manager_summary_when_team_becomes_quiescent(tmp_path
     assert record["done"] == 1 and record["failed"] == 1
 
 
+def test_tick_runs_campaign_reconciliation_before_completion(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "team"
+    marker_path = registry.write_marker(
+        tmp_path,
+        team_id="t1",
+        team_root=root,
+        cwd=tmp_path,
+        now=1.0,
+    )
+    task_board.form(root, [{"task_id": "t::a", "objective": "x"}])
+    task_board.complete(root, "t::a", shard="shards/w1.jsonl")
+    seen: list[dict] = []
+    c = _fake_curator(
+        tmp_path,
+        campaign_reconcile_fn=lambda marker: seen.append(marker),
+    )
+
+    c._tick(now=100.0)
+
+    assert seen == [json.loads(marker_path.read_text(encoding="utf-8"))]
+
+
 def test_tick_does_not_publish_summary_while_teammate_is_live(tmp_path: Path) -> None:
     root = tmp_path / "team"
     conversation = tmp_path / "conversation"

@@ -227,6 +227,44 @@ def test_legacy_subagents_map_to_generic_states(tmp_path: Path) -> None:
     }
 
 
+def test_team_worker_only_sees_subagents_owned_by_its_task(
+    tmp_path: Path, monkeypatch
+) -> None:
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    base = {
+        "mode": "direct",
+        "state": "running",
+        "worker_pid": os.getpid(),
+    }
+    for task_id, owner in {
+        "mine": "team::route-1",
+        "sibling": "team::route-2",
+        "parent": "",
+        "legacy": None,
+    }.items():
+        record = {"task_id": task_id, **base}
+        if owner is not None:
+            record["owner_team_task_id"] = owner
+        (registry / f"{task_id}.json").write_text(
+            json.dumps(record),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", "team::route-1")
+    visible = {status.work_id for status in scan_external_work(tmp_path)}
+
+    assert visible == {"mine"}
+
+    monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID")
+    assert {status.work_id for status in scan_external_work(tmp_path)} == {
+        "mine",
+        "sibling",
+        "parent",
+        "legacy",
+    }
+
+
 def test_direct_subagent_is_waitable_while_its_owner_is_alive(tmp_path: Path) -> None:
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()

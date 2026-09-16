@@ -460,6 +460,60 @@ def test_operator_wait_blocks_without_failing_and_can_resume(
     assert tb.claim_top(root, "t1::w2", now=2.0)["task_id"] == "t1::a"
 
 
+def test_external_wait_parks_without_failing(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    waiting = te.TeammateMissionResult(
+        False,
+        "paused_external_work",
+        "healthy subagent is still running",
+        last_thread_id="thread-1",
+        final_message='{"wait_for":"subagent","wait_id":"worker-1"}',
+    )
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: waiting)
+
+    rc = te.main([
+        "--root", str(root),
+        "--member-id", "t1::w1",
+        "--task-id", "t1::a",
+        "--cwd", str(tmp_path),
+    ])
+
+    task = {row["task_id"]: row for row in tb.snapshot(root)}["t1::a"]
+    assert rc == 0
+    assert task["state"] == "waiting_external"
+    assert task["external_wait"]["kind"] == "subagent"
+    assert task["external_wait"]["work_id"] == "worker-1"
+    assert task["last_thread_id"] == "thread-1"
+    assert tb.count_in_flight(root) == 0
+
+
+def test_malformed_external_wait_fails_explicitly(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    waiting = te.TeammateMissionResult(
+        False,
+        "paused_external_work",
+        "missing structured wait request",
+        final_message="still running",
+    )
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: waiting)
+
+    rc = te.main([
+        "--root", str(root),
+        "--member-id", "t1::w1",
+        "--task-id", "t1::a",
+        "--cwd", str(tmp_path),
+    ])
+
+    task = {row["task_id"]: row for row in tb.snapshot(root)}["t1::a"]
+    assert rc == 1
+    assert task["state"] == "failed"
+    assert task["reason"] == "missing structured wait request"
+
+
 def test_reform_rejects_changed_blocked_spec_and_preserves_question(tmp_path: Path) -> None:
     root = tmp_path / ".argus_team" / "t1"
     _form_claim(root)

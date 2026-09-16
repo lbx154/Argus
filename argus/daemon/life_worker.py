@@ -344,7 +344,34 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
             ),
             completion_fn=self._team_completion_summary_fn(runner),
             conversation_root=self.config.life_dir,
+            campaign_reconcile_fn=self._curator_campaign_reconcile_fn(),
         )
+
+    def _curator_campaign_reconcile_fn(self) -> Any:
+        """Resolve optional vertical-owned deterministic campaign upkeep."""
+        workdir = self.config.project_workdir
+        if workdir is None:
+            return None
+        from ..skills.vertical_select import resolve_vertical
+        from ..verticals._base import load_vertical_contract
+
+        project_root = Path(workdir)
+        contract = load_vertical_contract(
+            resolve_vertical(project_root),
+            project_root=project_root,
+        )
+        hook = contract.background_reconciler
+        if hook is None:
+            return None
+
+        def reconcile(marker: dict[str, Any]) -> None:
+            hook(
+                project_root=project_root,
+                state_root=project_root,
+                marker=marker,
+            )
+
+        return reconcile
 
     def _curator_distill_fn(self, runner: Any) -> Any:
         """Adapt the Curator backend to the pool's prompt-to-text callback."""

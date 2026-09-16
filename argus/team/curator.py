@@ -284,7 +284,8 @@ class Curator:
                  distill_fn: Callable[[str], str] | None = None,
                  distill_interval_s: float = 1260.0,
                  completion_fn: Callable[[str], str] | None = None,
-                 conversation_root: Path | None = None) -> None:
+                 conversation_root: Path | None = None,
+                 campaign_reconcile_fn: Callable[[dict[str, Any]], None] | None = None) -> None:
         self.project_root = Path(project_root)
         self.default_width = int(default_width)
         self.tick_s = float(tick_s)
@@ -310,6 +311,7 @@ class Curator:
         self.distill_interval_s = float(distill_interval_s)
         self._completion_fn = completion_fn
         self.conversation_root = Path(conversation_root) if conversation_root is not None else None
+        self._campaign_reconcile_fn = campaign_reconcile_fn
         self._children: dict[tuple[str, str], TrackedTeammate] = {}
         self._adopted_roots: set[str] = set()  # roots whose roster orphans were adopted
         self._fold_mtime: dict[str, float] = {}  # per-root shards mtime at last fold
@@ -614,6 +616,9 @@ class Curator:
         root = Path(marker["team_root"])
         cwd = Path(marker.get("cwd") or root)
         self._adopt_orphans(root, now=now)  # reclaim prior-daemon teammates first
+        task_board.resume_finished_external_waits(root, default_workdir=cwd)
+        if self._campaign_reconcile_fn is not None:
+            self._campaign_reconcile_fn(marker)
         self._maybe_fold(root)
         if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):
             completion.publish_if_complete(

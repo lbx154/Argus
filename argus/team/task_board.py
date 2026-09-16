@@ -126,6 +126,7 @@ _LIVE_OWNERSHIP_FIELDS = (
     "operator_options",
     "operator_answer",
     "last_thread_id",
+    "external_wait",
 )
 
 _MATERIAL_SPEC_FIELDS = (
@@ -205,6 +206,7 @@ def _task_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "operator_options": [],
         "operator_answer": str(spec.get("operator_answer", "") or ""),
         "last_thread_id": "",
+        "external_wait": {},
         "claim_ts": 0.0,
         "heartbeat_ts": 0.0,
         "claim_seq": 0,
@@ -283,7 +285,12 @@ def _validated_form_tasks(
         prior = _read_task(root, tid)
         if (
             isinstance(prior, dict)
-            and prior.get("state") in {"claimed", "running", "blocked"}
+            and prior.get("state") in {
+                "claimed",
+                "running",
+                "blocked",
+                "waiting_external",
+            }
             and _has_comparable_material_spec(prior)
             and _material_task_spec(prior) != _material_task_spec(task)
         ):
@@ -361,6 +368,7 @@ def form(root: Path, tasks: list[dict[str, Any]]) -> None:
                 "claimed",
                 "running",
                 "blocked",
+                "waiting_external",
             ):
                 # A teammate is mid-flight on this task — keep its ownership and
                 # accept only the exact static spec rebuilt above.
@@ -457,6 +465,7 @@ def complete(root: Path, task_id: str, *, shard: str = "") -> None:
         task.update(
             state="done",
             result_shard=shard,
+            external_wait={},
             finished_ts=time.time(),
             finish_seq=1 + max(
                 (
@@ -473,7 +482,92 @@ def complete(root: Path, task_id: str, *, shard: str = "") -> None:
 
 
 def fail(root: Path, task_id: str, *, reason: str = "") -> None:
-    _mutate(root, task_id, state="failed", reason=reason, finished_ts=time.time())
+    _mutate(
+        root,
+        task_id,
+        state="failed",
+        reason=reason,
+        external_wait={},
+        finished_ts=time.time(),
+    )
+
+
+def wait_for_external_work(
+    root: Path,
+    task_id: str,
+    *,
+    kind: str,
+    work_id: str,
+    workdir: str,
+    reason: str = "",
+    last_thread_id: str = "",
+) -> None:
+    """Park a task until the Curator observes its external work leave RUNNING."""
+
+    if kind not in {"external_work", "subagent"}:
+        raise ValueError(f"unsupported external wait kind: {kind!r}")
+    normalized_work_id = work_id.strip()
+    if not normalized_work_id:
+        raise ValueError("external wait work_id must not be empty")
+    _mutate(
+        root,
+        task_id,
+        state="waiting_external",
+        reason=reason,
+        last_thread_id=last_thread_id,
+        external_wait={
+            "kind": kind,
+            "work_id": normalized_work_id,
+            "workdir": str(Path(workdir).resolve()),
+        },
+        finished_ts=time.time(),
+    )
+
+
+def resume_finished_external_waits(
+    root: Path,
+    *,
+    default_workdir: Path,
+) -> list[str]:
+    """Requeue waits exactly once after their referenced work stops waiting."""
+
+    from ..engineer.external_work import inspect_external_work
+
+    resumed: list[str] = []
+    with _store.locked(_lock(root)):
+        for task in _load_all(root):
+            if task.get("state") != "waiting_external":
+                continue
+            wait = task.get("external_wait")
+            if not isinstance(wait, dict):
+                wait = {}
+            work_id = str(wait.get("work_id") or "").strip()
+            workdir = Path(wait.get("workdir") or default_workdir)
+            status = (
+                inspect_external_work(workdir, work_id)
+                if work_id
+                else None
+            )
+            if status is not None and status.waitable:
+                continue
+            resume_state = status.state.value if status is not None else "missing"
+            task.update(
+                state="pending",
+                owner="",
+                reason=f"external wait ended with state={resume_state}",
+                external_wait={
+                    **wait,
+                    "resume_state": resume_state,
+                },
+                claim_ts=0.0,
+                heartbeat_ts=0.0,
+                claim_seq=0,
+                finish_seq=0,
+                finished_ts=0.0,
+            )
+            _write_task(root, task["task_id"], task)
+            resumed.append(task["task_id"])
+    return resumed
 
 
 def release_paused(
@@ -527,6 +621,7 @@ def retry_terminal(root: Path, task_id: str, *, reason: str = "") -> bool:
             operator_options=[],
             operator_answer="",
             last_thread_id="",
+            external_wait={},
             claim_ts=0.0,
             heartbeat_ts=0.0,
             claim_seq=0,

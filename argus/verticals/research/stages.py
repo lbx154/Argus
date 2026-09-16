@@ -15,7 +15,7 @@ from typing import Any
 
 from ...core.vertical_contract import IterationAssessment
 from ...skills.stage_machine import ChecklistItem
-from . import library_preparation
+from . import idea_portfolio, library_preparation
 from .mission_brief import prepare_mission
 from .prompt_policy import render_role_prompt_context, render_role_prompt_fragment
 from .review_purchase import review_purchase_policy
@@ -26,6 +26,7 @@ from .task_routes import (
 log = logging.getLogger(__name__)
 
 LIBRARY_PREPARER = library_preparation.prepare_skill_libraries
+BACKGROUND_RECONCILER = idea_portfolio.reconcile_idea_portfolio_campaign
 
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "idea",

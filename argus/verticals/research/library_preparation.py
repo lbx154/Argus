@@ -71,7 +71,10 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         "when the team has finished or needs attention (see External work "
         "status). Do not poll `team status`, tail worker logs, inspect Argus's "
         "own source, or resize the pool; its width is fixed by the host's "
-        "provider capacity."
+        "provider capacity.\n"
+        "- Do not launch a shell command or background subagent that polls for the "
+        "selector. The resident Curator owns portfolio progress. When it is still "
+        "running, report its exact durable state and yield the turn."
     )
     selection = idea_portfolio_selection(
         context.workdir,
