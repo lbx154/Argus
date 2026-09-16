@@ -702,6 +702,7 @@ class _VerticalDecisionMixin:
                 ):
                     return finalize(VerticalDecision(
                         choice="existing",
+                        session_title=fast_route.session_title,
                         vertical=fast_route.vertical,
                         domain=fast_route.domain,
                         workflow_mode=fast_route.workflow_mode,

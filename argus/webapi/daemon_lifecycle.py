@@ -581,6 +581,7 @@ def create_daemon(
         objective="",
         launch_cwd=effective_launch_cwd,
         origin="web",
+        name_source="user" if normalize_session_name(name) else "",
     )
     # Persist the deliberate Web session before the Manager round-trip so
     # concurrent empty-project GC cannot remove it while division is running.
@@ -598,14 +599,8 @@ def create_daemon(
             global_root=root,
             name_session=not bool(meta.display_name),
         )
-        from ..manager.front_door import _derive_session_name
-
-        fallback_name = _derive_session_name(requested_objective, limit=32)
-
         def _finish_session(current: SessionMeta) -> None:
             current.objective = obj
-            if not current.display_name:
-                current.display_name = fallback_name
 
         update_session_meta(root, sid, _finish_session, create=True)
         # Explicit objective → arm the self-directed campaign + start the daemon

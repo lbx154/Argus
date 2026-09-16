@@ -50,10 +50,10 @@ def test_an_ordinary_follow_up_task_does_not_rename_the_session(
 ) -> None:
     """Renaming on every task would make the picker churn."""
     state = _state(tmp_path)
-    _maybe_name_session(state, "evaluate 2 + 2")
+    _maybe_name_session(state, "evaluate 2 + 2", suggested_name="Arithmetic check")
     first = _name(tmp_path)
 
-    _maybe_name_session(state, "now write a JSONL log analyser with tests")
+    _maybe_name_session(state, "now write a JSONL log analyser with tests", suggested_name="Log analyser")
 
     assert first
     assert _name(tmp_path) == first
@@ -64,12 +64,13 @@ def test_replacing_the_standing_objective_renames_the_session(
 ) -> None:
     """The session is about something else now; the old label is simply wrong."""
     state = _state(tmp_path)
-    _maybe_name_session(state, "evaluate 2 + 2")
+    _maybe_name_session(state, "evaluate 2 + 2", suggested_name="Arithmetic check")
     first = _name(tmp_path)
 
     _maybe_name_session(
         state,
         "build a Roman numeral converter with subtractive-case tests",
+        suggested_name="Roman numeral conversion",
         replacing=True,
     )
 
@@ -80,13 +81,13 @@ def test_replacing_the_standing_objective_renames_the_session(
 def test_a_rename_survives_an_already_persisted_name(tmp_path: Path) -> None:
     """The persisted name used to short-circuit before the rename could run."""
     state = _state(tmp_path)
-    _maybe_name_session(state, "evaluate 2 + 2")
+    _maybe_name_session(state, "evaluate 2 + 2", suggested_name="Arithmetic check")
     # A fresh chat_state, as a reconnecting cockpit would have.
     reconnected = _state(tmp_path)
 
-    _maybe_name_session(reconnected, "something entirely different", replacing=True)
+    _maybe_name_session(reconnected, "something entirely different", suggested_name="A new topic", replacing=True)
 
-    assert _name(tmp_path) == "something entirely different"
+    assert _name(tmp_path) == "A new topic"
 
 
 # -- and it fires on the right event ----------------------------------------

@@ -1345,7 +1345,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "webapi -> argus.manager.config_intent._front_door_classify",
     "webapi -> argus.manager.dispatch._daemon_status",
     "webapi -> argus.manager.front_door._accepts_parameter",
-    "webapi -> argus.manager.front_door._derive_session_name",
     "webapi -> argus.manager.front_door._ensure_manager_runner",
     "webapi -> argus.manager.front_door._operator_workspace",
 })

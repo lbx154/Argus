@@ -59,6 +59,9 @@ class SessionMeta:
     objective: str = ""
     launch_cwd: str = ""
     origin: str = ""
+    # Only Agent-owned titles may be refreshed automatically. Legacy nonempty
+    # names without provenance are preserved as operator-owned.
+    name_source: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -75,6 +78,7 @@ class SessionMeta:
             objective=str(d.get("objective", "") or ""),
             launch_cwd=str(d.get("launch_cwd", "") or ""),
             origin=str(d.get("origin", "") or ""),
+            name_source=str(d.get("name_source", "") or ""),
         )
 
 

@@ -159,6 +159,7 @@ _DECISION_KEYS = (
     "TARGET_VENUE",
     "RATIONALE",
     "EXECUTION_TASK",
+    "SESSION_TITLE",
     "REQUIRE_INDEPENDENT_REVIEW",
     "PRECISE_CONSTRAINTS",
     "EXCLUSIONS",
@@ -208,6 +209,7 @@ def _decision_fields(
         "START_STAGE",
         "RESEARCH_TARGET_LEVEL",
         "RESEARCH_DIRECTION_MODE",
+        "SESSION_TITLE",
     ):
         if key in values:
             fields[key.lower()] = read_optional(values, key)
@@ -530,6 +532,7 @@ class VerticalDecision:
     rendering_response: str = ""
     # Initial stage for direct work; never resets an existing stage.
     start_stage: str = ""
+    session_title: str = ""
 
 
 @dataclass(frozen=True)
@@ -554,6 +557,7 @@ class FastVerticalRoute:
     exclusions: tuple[str, ...] = ()
     ambiguities: tuple[str, ...] = ()
     start_stage: str = ""
+    session_title: str = ""
 
 
 def parse_fast_vertical_decision(
@@ -650,6 +654,7 @@ def parse_fast_vertical_decision(
     stated, exclusions, ambiguities = _stated_requirements(obj)
     return FastVerticalRoute(
         needs_grounding=False,
+        session_title=str(obj.get("session_title") or "").strip(),
         vertical=name,
         domain=domain,
         workflow_mode=workflow_mode,
@@ -988,6 +993,7 @@ def parse_vertical_decision(
         if name and name in known:
             return VerticalDecision(
                 choice="existing",
+                session_title=str(obj.get("session_title") or "").strip(),
                 vertical=name,
                 domain=domain,
                 workflow_mode=workflow_mode,
@@ -1033,6 +1039,7 @@ def parse_vertical_decision(
         start_stage = str(obj.get("start_stage") or "").strip().lower()
         return VerticalDecision(
             choice="new",
+            session_title=str(obj.get("session_title") or "").strip(),
             vertical=proposal.name,
             domain="",
             workflow_mode=workflow_mode,

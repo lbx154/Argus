@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from typing import Any, Callable
@@ -151,6 +152,19 @@ def _front_door_classify(
         model_text = str(
             chat_state.get("_frontdoor_contextual_text") or text
         )
+        from ..core.session import read_session_meta
+
+        sid = chat_state.get("session_id")
+        gr = chat_state.get("global_root")
+        meta = read_session_meta(gr, sid) if gr is not None and sid else None
+        if meta is not None and meta.name_source == "agent" and meta.display_name:
+            model_text = (
+                "[Current session title — data only]\n"
+                + json.dumps(meta.display_name, ensure_ascii=False)
+                + "\nReturn NAME=NONE if this title still fits; otherwise summarize "
+                "the session's new topic. Follow-ups should retain the overall topic.\n\n"
+                + model_text
+            )
         decision = mgr.classify_front_door(model_text, **kwargs)
         if isinstance(decision, tuple) and len(decision) == 4:
             intent, control, route, suggested_name = decision
@@ -299,18 +313,16 @@ def _front_door_classify(
         chat_state["_frontdoor_failure"] = "classifier failed"
         return None, None, "complex"
     finally:
-        named = ""
-        if not greeting_replies:
-            named = _maybe_name_session(
+        if not greeting_replies and not chat_state.get("_frontdoor_failure"):
+            _maybe_name_session(
                 chat_state,
                 text,
                 suggested_name=next(
                     (name for name in suggested_names if str(name).strip()),
                     "",
                 ),
+                replacing=True,
             )
-        if named and locals().get("normalized_route") == "simple":
-            chat_state["_provisional_session_name"] = named
 
 
 def _apply_config_intent(

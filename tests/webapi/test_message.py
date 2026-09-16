@@ -72,7 +72,7 @@ def _identity_manager_handoff(monkeypatch) -> None:
     _install_manager(monkeypatch, lambda text: text)
 
 
-def _install_manager(monkeypatch, execution_for) -> None:
+def _install_manager(monkeypatch, execution_for, *, session_title="") -> None:
     manager_state._STATES.clear()
 
     class _Manager:
@@ -82,7 +82,7 @@ def _install_manager(monkeypatch, execution_for) -> None:
             return None, None, "complex"
 
         def decide_vertical(self, text, **kwargs):
-            return SimpleNamespace(execution_task=execution_for(text))
+            return SimpleNamespace(execution_task=execution_for(text), session_title=session_title)
 
         def commit_vertical_decision(self, text, decision, **kwargs):
             return SimpleNamespace(execution_task=decision.execution_task)
@@ -2465,6 +2465,7 @@ def test_direct_task_names_an_idle_session_from_its_first_task(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    _install_manager(monkeypatch, lambda text: text, session_title="Local task verification")
     monkeypatch.setattr(
         server,
         "spawn_detached_daemon",
@@ -2484,7 +2485,8 @@ def test_direct_task_names_an_idle_session_from_its_first_task(
     )
     display_name = session["display_name"].strip().casefold()
     assert display_name
-    assert "direct task" in display_name
+    assert display_name == "local task verification"
+    assert session["name_source"] == "agent"
 
 
 def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) -> None:

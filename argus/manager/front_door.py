@@ -376,12 +376,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
 
 
 def _derive_session_name(text: str, *, limit: int = 48) -> str:
-    """Create a safe deterministic fallback label from the first real task.
-
-    The normal front-door path asks Manager to distill a concise semantic title.
-    This fallback guarantees a usable label when that cosmetic model output is
-    unavailable: take the first non-empty line, normalize it, and truncate.
-    """
+    """Normalize one proposed label; this does not summarize a user request."""
     for raw in (text or "").splitlines():
         line = " ".join(raw.split()).strip().strip("`\"'“”‘’")
         line = line.rstrip("。.!！?？;；:：")
@@ -398,67 +393,40 @@ def _maybe_name_session(
     replacing: bool = False,
     promote_task_name: bool = False,
 ) -> str:
-    """Name the current session after its first real task (once, fail-soft).
+    """Persist an Agent's topic summary, preserving manual names atomically.
 
-    A resumed session keeps its original name (``session_named`` is already
-    True). Only the first task in a freshly-minted, still-unnamed session sets
-    the display_name shown in the resume picker. Prefer Manager's concise title;
-    use the deterministic first-line label only when no title was produced.
-
-    ``replacing`` renames an already-named session, and is passed only when the
-    Manager has recorded that a new operator objective *supersedes* the standing
-    one. An Argus session is a long-lived daemon rather than a short chat, so a
-    label taken from the very first task goes stale: an operator reported a
-    session still called after a toy arithmetic question long after it had moved
-    on to unrelated complex work. Renaming on every task would churn the picker;
-    renaming when the session's stated purpose is replaced is the same event the
-    Manager already resets the pipeline for.
+    Missing cosmetic output leaves naming open for the next Agent turn; raw
+    user instructions are never promoted to a permanent title. The classifier
+    decides when a topic changed; later execution handoffs only fill blanks.
     """
-    provisional = str(chat_state.get("_provisional_session_name") or "").strip()
-    if (
-        chat_state.get("session_named")
-        and not replacing
-        and not (promote_task_name and provisional)
-    ):
+    _ = task_text  # Retained for callers; never use a truncated task as a title.
+    name = _derive_session_name(suggested_name, limit=32)
+    if not name or name.casefold() in {"none", "keep", "null"} or name.isdecimal():
         return ""
     sid = chat_state.get("session_id")
     gr = chat_state.get("global_root")
     if not sid or gr is None:
         return ""
     try:
-        from ..core.session import read_session_meta, touch_session
+        from ..core.session import normalize_session_name, update_session_meta
 
-        persisted = read_session_meta(gr, sid)
-        if persisted is not None and persisted.display_name.strip() and not replacing:
-            if not (
-                promote_task_name
-                and provisional
-                and persisted.display_name.strip() == provisional
+        changed = False
+
+        def _rename(meta: Any) -> None:
+            nonlocal changed
+            if meta.display_name.strip() and (
+                meta.name_source != "agent" or not (replacing or promote_task_name)
             ):
-                chat_state["session_named"] = True
-                chat_state.pop("_provisional_session_name", None)
-                return ""
-            replacing = True
-        name = (
-            _derive_session_name(suggested_name, limit=32)
-            or _derive_session_name(task_text)
-        )
-        if not name:
-            return ""
-        if replacing:
-            # touch_session only fills an *empty* name, so it silently cannot
-            # rename. A replacement has to go through the update path.
-            from ..core.session import normalize_session_name, update_session_meta
+                return
+            normalized = normalize_session_name(name)
+            if meta.display_name == normalized and meta.name_source == "agent":
+                return
+            meta.display_name = normalized
+            meta.name_source = "agent"
+            changed = True
 
-            def _rename(meta: Any) -> None:
-                meta.display_name = normalize_session_name(name)
-
-            update_session_meta(gr, sid, _rename)
-        else:
-            touch_session(gr, sid, display_name=name)
-        chat_state["session_named"] = True
-        chat_state.pop("_provisional_session_name", None)
-        return name
+        update_session_meta(gr, sid, _rename, create=True)
+        return name if changed else ""
     except Exception:  # noqa: BLE001 — naming is cosmetic, never block the task
         return ""
 
@@ -677,6 +645,13 @@ class PreparedManagerHandoff:
         )
         execution_task = require_manager_execution_task(division)
         _record_goal_contract(self.mem, execution_task, self.decision)
+        _maybe_name_session(
+            {"session_id": _life_dir_for(self.mem).name,
+             "global_root": getattr(self.mem, "global_root", None)},
+            self.body,
+            suggested_name=str(getattr(self.decision, "session_title", "") or ""),
+            replacing=force_stage_reset,
+        )
         return division
 
     def completed(
@@ -1166,14 +1141,6 @@ def manager_continuous_handoff(
                     reason="operator replaced the standing Manager objective",
                     replacement_id=prepared.intent_id,
                 )
-            # The session's stated purpose has been replaced, so the label taken
-            # from its first task is now wrong in the resume picker. This is the
-            # only rename point: every other task keeps the existing name.
-            _maybe_name_session(
-                chat_state,
-                prepared.execution_task or body,
-                replacing=True,
-            )
         if persist is not None:
             committed["persisted"] = persist(
                 prepared.execution_task,

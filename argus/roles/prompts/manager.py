@@ -249,13 +249,14 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "MICRO=checked mutation; IMPLEMENT=code+tests; DEBUG=diagnosis/fix+tests; "
         "REVIEW=local review; SYNTHESIZE=supplied sources; TEAM=NONE. "
         "Prefer DEBUG for fixes. Calculations, mutations and tests require execution. "
-        "REPLY is the complete human-facing answer in the operator's language; "
+        "REPLY is the complete human-facing answer; "
         "never expose route, control, lifetime, or role-protocol labels.\n\n"
         f"{RESEARCHER_VOICE_BRIEF}\n\n"
         "LIFETIME: TEAM: default BOUNDED for finite or casual unscoped work absent "
         "ongoing intent; BOUNDED_INCREMENT for a limited stage; STANDING only with "
         "ongoing intent. SELF: NONE.\n\n"
-        "GREETING: GREETING only for a pure greeting. NAME: short title.\n\n"
+        "GREETING: GREETING for pure greetings. NAME: summarize topic in user's "
+        "language; omit IDs/filler.\n\n"
         + decision_footer_instruction(
             "INTAKE_TYPE: EPHEMERAL\n"
             "INTAKE_SCOPE: PROJECT\n"
@@ -356,6 +357,7 @@ def build_fast_vertical_decision_prompt(
         + RESEARCHER_VOICE + "\n\n"
         + decision_footer_instruction(
             "CHOICE=existing\n"
+            "SESSION_TITLE=concise topic summary in the user's language\n"
             "VERTICAL=software\n"
             "DOMAIN=\n"
             "WORKFLOW_MODE=direct\n"
@@ -442,7 +444,8 @@ def build_vertical_decision_prompt(
         + _RESEARCH_DELIVERABLE_ROUTING
         + RESEARCHER_VOICE + "\n\n"
         + "State `choice`, `vertical`, `domain`, `workflow_mode`, and `rationale` "
-        "at the end. Include `execution_task` only to make the instructions standalone "
+        "at the end. Add `session_title`: a concise topic summary in the user's "
+        "language, without input IDs or filler. Include `execution_task` only to make the instructions standalone "
         "or for a new vertical; omit it for a standalone existing route. Preserve "
         "paths, commands, order, and stopping conditions. "
         "For research-target verticals, add `research_target_level` and "
@@ -451,6 +454,7 @@ def build_vertical_decision_prompt(
         "and `ambiguities` from the operator's words.\n\n"
         + decision_footer_instruction(
             "CHOICE=existing\n"
+            "SESSION_TITLE=concise topic summary in the user's language\n"
             "VERTICAL=software\n"
             "DOMAIN=\n"
             "WORKFLOW_MODE=direct\n"

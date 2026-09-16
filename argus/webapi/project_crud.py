@@ -59,6 +59,7 @@ def update_project(
         if not meta.objective:
             meta.objective = objective
         meta.display_name = normalized_name
+        meta.name_source = "user" if normalized_name else ""
 
     meta = update_session_meta(root, sid, _rename, create=True)
     if meta is None:
