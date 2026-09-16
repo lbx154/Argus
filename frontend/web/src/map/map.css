@@ -721,7 +721,9 @@
 .map-macro[data-overview-density="compact"] .map-card h3 {
   font-size: 19px;
   line-height: 1.4;
-  -webkit-line-clamp: 3;
+  /* Two lines: the compact card has a fixed height (atlas.css --summary-height),
+   * so a third title line was squeezed by the flex column and cut mid-glyph. */
+  -webkit-line-clamp: 2;
   min-height: 0;
 }
 .map-macro[data-overview-density="compact"] .map-card-copy,

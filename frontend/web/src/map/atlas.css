@@ -53,10 +53,12 @@
 .macro-summary { --overview-type: calc(1 / var(--map-zoom, .24) / var(--summary-scale, 1)); }
 .map-macro:not([data-overview-density=full]) .map-card { display: flex; flex-direction: column; min-height: 0; height: var(--summary-height); justify-content: center; overflow: hidden; }
 .map-macro[data-overview-density=micro] .map-card-copy { display: none; }
-.map-macro[data-overview-density=compact] .map-card-copy { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: max(11px, calc(9px * var(--overview-type))); line-height: 1.55; margin-bottom: 8px; }
-.map-macro:not([data-overview-density=full]) .map-card h3 { font-size: max(15px, calc(12px * var(--overview-type))); line-height: 1.4; min-height: 0; margin-bottom: 10px; }
+.map-macro[data-overview-density=compact] .map-card-copy { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: max(11px, calc(9px * var(--overview-type))); line-height: 1.55; margin-bottom: 8px; flex: 0 1 auto; min-height: 0; mask-image: linear-gradient(to bottom, #000 calc(100% - 0.9em), transparent); }
+.map-macro:not([data-overview-density=full]) .map-card h3 { font-size: max(15px, calc(12px * var(--overview-type))); line-height: 1.4; min-height: 0; margin-bottom: 10px; flex-shrink: 0; }
 .map-macro:not([data-overview-density=full]) .map-card-number, .map-macro:not([data-overview-density=full]) .map-status { font-size: max(11px, calc(8px * var(--overview-type))); }
 .map-macro:not([data-overview-density=full]) .map-card-stages { margin-top: auto; margin-bottom: 8px; }
+/* In the fixed-height card the title never shrinks below its clamped lines; the excerpt is the
+ * flexible row and fades out instead of being cut through a glyph when space runs short. */
 .map-macro:not([data-overview-density=full]) .map-card-stages>span>span { display: none; }
 .map-macro:not([data-overview-density=full]) .map-card-stages svg { width: max(12px, calc(10px * var(--overview-type))); height: max(12px, calc(10px * var(--overview-type))); }
 .map-macro:not([data-overview-density=full]) .map-card-bottom { display: none; }

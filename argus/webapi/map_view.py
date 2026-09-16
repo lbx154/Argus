@@ -419,7 +419,7 @@ def turn_records(
         error = latest.get("error") if failed else ""
         replied_at = _timestamp(row.get("ts"))
         card_id = f"turn:{turn_id}"
-        title = asked.splitlines()[0] if asked else (reply.splitlines()[0] if reply else turn_id)
+        title = ask_title(asked) if asked else (reply.splitlines()[0] if reply else turn_id)
         turns[card_id] = {
             "card": {
                 "id": card_id,

@@ -23,6 +23,13 @@ describe("atlas overview card text is line-clamped", () => {
     expect(copy).toMatch(/-webkit-line-clamp:\s*3/);
     expect(copy).toMatch(/overflow:\s*hidden/);
   });
+  it("never squeezes the compact title below two full lines", () => {
+    const map = readFileSync(new URL("../map/map.css", import.meta.url), "utf8");
+    const compact = map.match(/\.map-macro\[data-overview-density="compact"\] \.map-card h3 \{([^}]*)\}/)?.[1] ?? "";
+    expect(compact).toMatch(/-webkit-line-clamp:\s*2/);
+    expect(rule(".map-macro:not([data-overview-density=full]) .map-card h3")).toMatch(/flex-shrink:\s*0/);
+    expect(rule(".map-macro[data-overview-density=compact] .map-card-copy")).toMatch(/mask-image/);
+  });
   it("keeps the fixed-height overview card from bleeding", () => {
     expect(rule(".map-macro:not([data-overview-density=full]) .map-card")).toMatch(/overflow:\s*hidden/);
   });

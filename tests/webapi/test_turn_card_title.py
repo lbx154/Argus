@@ -12,11 +12,15 @@ from __future__ import annotations
 from argus.webapi.map_view import ask_title, turn_records
 
 
-def _card(text: str) -> dict:
+def _card(text: str, *, answered: bool = True) -> dict:
     rows = [
         {"type": "ui.operator", "message_id": "web-q-operator", "ts": 10, "text": text},
         {"type": "manager.turn.started", "message_id": "web-q", "ts": 11, "text": text, "turn_kind": "qa"},
     ]
+    if answered:
+        # The reply row rebuilds the card (title included) from the ask.
+        rows.append({"type": "ui.argus", "message_id": "web-q-argus", "ts": 12, "text": "Answer.",
+                     "steps": [{"label": "answer", "started_ts": 11, "ended_ts": 12}]})
     return turn_records(rows, {}, {})["turn:web-q"]["card"]
 
 
@@ -26,8 +30,9 @@ def test_title_skips_leading_zh_reference_lines() -> None:
         "（引用：《你赶紧上网调研一下 agentic RL大家都在怎么做》）\n"
         "这两个回答有啥区别"
     )
-    card = _card(text)
-    assert card["title"] == "这两个回答有啥区别"
+    for answered in (False, True):
+        card = _card(text, answered=answered)
+        assert card["title"] == "这两个回答有啥区别", answered
     # The full ask, quotes included, stays available as the objective.
     assert card["objective"] == text
 
