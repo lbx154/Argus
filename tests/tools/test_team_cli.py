@@ -124,6 +124,7 @@ def test_form_writes_campaign_marker(tmp_path: Path, capsys, monkeypatch) -> Non
             "team_root": str(root),
             "cwd": str(tmp_path / "ws"),
             "created_ts": markers[0]["created_ts"],
+            "owner": "lead",
         }
     ]
 

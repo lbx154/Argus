@@ -59,23 +59,26 @@ from full-loop performance. Start with a meaningful pilot of that interface.
 
 1. Read the research notes in `RESEARCH_NOTES.md` and trace every load-bearing thesis element to concrete
    code, configuration, data, outputs, and information boundaries.
-2. Inspect the strongest relevant official implementations. Clone and run a
-   fixed public revision when compiling, adapting, or comparing its code; reuse
-   maintained components instead of reimplementing them from a paper summary.
-   Also survey the released code of recent papers in the same area — including
-   ones the experiments will not compare against — and read the high-quality
-   ones as reference implementations: how they structure the training and
-   evaluation code, which libraries they build on, and how they handle the
-   details a paper summary glosses over. Borrowing a proven pattern from a
-   strong recent codebase beats inventing one.
-   For training and inference infrastructure this is the rule, not a
-   preference: RL post-training, preference optimization such as DPO,
-   distributed training, and serving all go through an established framework
-   (veRL, OpenRLHF, TRL, LLaMA-Factory, vLLM, or the released baseline's own
-   stack). A hand-rolled training loop or serving path is slower, subtly
-   wrong in ways that contaminate every result built on it, and convinces no
-   reviewer — write custom infrastructure only when that infrastructure is
-   itself the contribution being studied.
+2. For every method the project compares against or extends, clone the
+   official implementation — or the strongest public one when no official
+   code exists — at a pinned revision into `third_party/` and run one of its
+   shipped examples end to end (`engineer/delta-on-reference.md`). Build the
+   new method as a delta on that code so the code diff is the idea diff;
+   reuse maintained components instead of reimplementing them from a paper
+   summary. Also survey the released code of recent papers in the same area
+   — including ones the experiments will not compare against — and read the
+   high-quality ones as reference implementations: how they structure the
+   training and evaluation code, which libraries they build on, and how they
+   handle the details a paper summary glosses over. Borrowing a proven
+   pattern from a strong recent codebase beats inventing one.
+   Training, post-training, distributed training and serving go through an
+   established framework chosen by a current survey, never a hand-rolled
+   loop or serving path: those are slower, subtly wrong in ways that
+   contaminate every result built on them, and convince no reviewer. Write
+   custom infrastructure only when that infrastructure is itself the
+   contribution being studied. Choose the framework with
+   `engineer/infrastructure-landscape-survey.md`, which replaces any
+   remembered list of framework names with a dated, verified survey.
 3. Set up a clean project-local environment before writing method code: the
    project gets its own virtual environment on the system interpreter, with
    dependencies installed and pinned there — never in the framework
@@ -99,13 +102,18 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    queue. Honor the assigned visibility mask inside the command. Inspect
    unmanaged device processes too: available memory and momentary zero GPU
    utilization do not establish an uncontended measurement window.
-4. Implement the method and baseline through real entry points under comparable
-   data, compute, information, and evaluator access. Build the strongest
-   faithful version of the idea, not the easiest version that can pass a local
-   check.
-5. Run only the smallest engineering checks needed to establish imports,
-   shapes, branches, numerical behavior, and end-to-end wiring, then run a
-   known detectable positive control through the same evaluator path.
+4. Implement against `tests/spec`. Write the method card and the executable
+   spec first (sections below), then implement the method and baseline
+   through real entry points under comparable data, compute, information,
+   and evaluator access until the differential, knockout and parity tests
+   pass without loosened tolerances or skips. Build the strongest faithful
+   version of the idea, not the easiest version that can pass a local check;
+   where the implementation must simplify the route, say so in the card's
+   Status column before running anything that bears a claim.
+5. Beyond `tests/spec`, run only the smallest engineering checks needed to
+   establish imports, shapes, branches, numerical behavior, and end-to-end
+   wiring, then run a known detectable positive control through the same
+   evaluator path.
    Exercise the actual selected method and configuration, including its full
    update sequence, before a large panel. For an iterative bound, cache, or
    refinement algorithm, check the terminal limit the method promises as well
@@ -319,6 +327,43 @@ losses, or present unfinished development as a negative result; a negative or
 boundary thesis is a paper only when its evidence is as complete as a positive
 one would need.
 
+## Method card
+
+`METHOD.md` at the project root is the authoritative statement of the
+method as the paper will claim it, written once by the Engineer who
+implements it, in the first Experiment round, from the selected route,
+before method code. It holds the one-paragraph statement, a `Components`
+table (`Component | The idea prescribes | Notes`: the route quoted, and a
+note only for a deliberate simplification), the `Protocol` copied from the
+route with every deviation named, and what would falsify the claim. It is
+touched again only when the method itself changes. Implementation status
+per component, the tests that prove it, reused code with pinned revisions,
+hyperparameters with their `# why:` reasons, and the change history are not
+written by hand: the host derives them from the code, the
+`@pytest.mark.component` markers on `tests/spec`, the config files and git,
+and shows them beside the card in Atlas and to the Reviewer. It is a work
+product shown to human readers, the one named exception to the rule against
+extra files; the Reviewer reads it before the code and before the Engineer's
+account. `engineer/method-card.md` and `engineer/method_card_template.md`
+give the procedure and the body.
+
+## Executable spec
+
+`tests/spec` is what the method must do, in code the host runs after every
+round without a model and shows to the Reviewer and the Engineer as Raw
+verification evidence. It is written before the first claim-bearing run:
+an oracle transcribed from the route's equations (slow, `float64`, one
+function per equation), differential tests of the implementation against
+the oracle and against the `third_party/` reference, one knockout per
+component in the card (disable it; on a case built to exercise it the
+output must change), and claim-shaped tests for complexity, memory and
+throughput claims, each tagged with the component it exercises.
+Outcome-shaped tests that assert the headline number prove nothing and do
+not belong here. Nothing blocks on the result; a
+failing test, an unexplained skip, or a test that was collected last round
+and is missing now is a repair the Reviewer names. Templates and the
+procedure are in `engineer/executable-spec.md`.
+
 ## When the evidence is ready for Paper
 
 Enter Paper after Reviewer accepts the experiment and Planner's post-result
@@ -345,9 +390,12 @@ decision, then return here. Do not read all the sources in advance.
 
 | When needed | Open | Use it for |
 |---|---|---|
+| The method must be stated before it is built, or has changed | `engineer/method-card.md` | Write and update the project-root `METHOD.md` from the selected route |
+| A baseline or extended method has public code | `engineer/delta-on-reference.md` | Clone it at a pinned revision under `third_party/`, run an example, build the delta and the parity test |
+| The spec suite must be written or extended | `engineer/executable-spec.md` | Oracle, differential, knockout and claim-shaped tests under `tests/spec` from the templates |
 | The thesis may have drifted from code | `engineer/hypothesis-implementation-contract.md` | Map the selected mechanism to the executed path |
 | A fresh Reviewer must verify execution fidelity | `reviewer/claim-to-code-trace.md` | Trace claim-critical calls and formulas |
-| Training or large inference infrastructure is required | `engineer/training-infrastructure-guide.md` | Select and reuse maintained frameworks |
+| Training or large inference infrastructure is required | `engineer/infrastructure-landscape-survey.md` | Choose the framework from a current, verified survey; `engineer/training-infrastructure-guide.md` covers standing it up |
 | A project environment needs setup or repair | `project-venv-package-management.md` in the global library | Reuse the configured environment and install only required dependencies |
 | A concrete dependency or resource may block execution | `engineer/environment-readiness.md` | Check only the resources this implementation uses |
 | An experiment changes a requested time estimate or misses a milestone | `engineer/research-timeline.md` | Recompute the forecast and explain the deviation with evidence |

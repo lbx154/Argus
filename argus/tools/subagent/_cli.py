@@ -13,7 +13,7 @@ from pathlib import Path
 from ..resource_ledger.cli import parse_duration
 from ..resource_ledger.ledger import normalize_demand
 from . import _cpu_admission
-from ._direct_run import _run_direct
+from ._direct_run import SUBAGENT_INTENT_ENV, _run_direct
 from ._discussion_log import (
     _append_discussion,
     _engineer_turn_count,
@@ -453,6 +453,13 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "task_id": task_id,
         }))
         return 1
+
+    # The worker (forked child or Windows subprocess copying os.environ) reads
+    # the declared intent so RL supervision fires even when the launch command
+    # of a survey-chosen framework carries no recognisable hint.
+    intent_text = str(getattr(args, "intent", None) or "").strip()
+    if intent_text:
+        os.environ[SUBAGENT_INTENT_ENV] = intent_text
 
     if os.name == "nt":
         try:

@@ -1,6 +1,6 @@
 ---
 name: "Training Infrastructure Guide"
-description: "为已确定的机器学习实验选择训练/推理框架。 Choose and validate infrastructure for an actual ML training or large-inference workload, with comparable baselines, allocated hardware and reproducible configuration."
+description: "为已确定的机器学习实验选择训练/推理框架的入口:按程序调查、试点、调参,不依赖记忆中的框架名。 Entry point for choosing and validating infrastructure for an actual ML training or large-inference workload: survey live sources, stand up pinned candidates, tune from the official recipe."
 ---
 
 # Training Infrastructure Guide
@@ -9,25 +9,34 @@ Use only when the selected method requires training or substantial inference.
 Follow the global Project Environment and Dependencies skill for interpreter,
 installation and cache policy; do not initialize an ML stack for unrelated work.
 
-1. Inspect the method, model family, data, precision and allocated hardware. Read
-   the maintained framework's official documentation for the required capability.
-   TRL, LLaMA-Factory, veRL, OpenRLHF and vLLM are examples, not required choices.
-2. Reuse supported infrastructure when it fits. A custom loop is justified when
-   needed by the method or unsupported operation; validate it against a trusted
-   reference on a small case. Its being custom does not itself invalidate results.
-3. Keep the user-selected/frozen model and baseline protocol. Substitute only
-   within existing authority and disclose consequential changes. Match candidate
-   and control data, initialization, compute and evaluator access as required.
-4. Size batch, sequence/generation limits and parallelism using actual examples,
-   truncation, memory and throughput from a bounded pilot. Do not require maximal
-   GPU occupancy if that would violate the experiment or overspend its budget.
-5. Use the framework's supported logging, checkpoints and launcher. Submit
-   independent experiments through the existing scheduler with disjoint allocations.
-6. Preserve executable configuration, command, actual device visibility, evaluator
-   output and necessary checkpoints in the normal run outputs. Honor configured
-   model/data caches and keep credentials out of artifacts.
+No framework, engine or model name in this skill or in memory is a
+recommendation. The current answer is produced at project time from live
+sources and local measurement, and stored as a dated project Skill
+(`engineer/<task-class>-infrastructure-decision.md`) that later projects
+re-verify. If such a record exists for this task class and hardware and today is
+inside its horizon, start from it; otherwise run the procedure:
 
-Before interpreting a result, confirm that the intended path ran. For policy-gradient
-health use `engineer/rl-training-collapse-diagnosis.md`; SFT and offline DPO need
-objective-specific checks. Stop infrastructure work once the experiment's decisive
-readiness check passes; no separate infrastructure report is required.
+1. `engineer/infrastructure-landscape-survey.md`: fetch live sources through the
+   source cache, run successor discovery on every remembered name, fill one
+   evidence card per candidate, shortlist 2-3 with exclusion reasons.
+2. `engineer/framework-stand-up-pilot.md`: isolated environment per candidate,
+   clone at a pinned SHA under `third_party/<name>/`, run the nearest official
+   example on the executed path, profile one real step, decide engine use from
+   the dominant phase and the engine on/off log-prob agreement.
+3. `engineer/recipe-anchored-tuning.md`: copy the official example config at the
+   pin with provenance, derive task-bound knobs from a dev pool, one factor per
+   supervised pilot, escalation note before any full run.
+
+Throughout: keep the user-selected/frozen model and baseline protocol; substitute
+only within existing authority and disclose consequential changes. Reuse
+supported infrastructure when it fits; a custom loop is justified only by the
+method or an unsupported operation and is validated against a trusted reference
+on a small case. Use the framework's own logging, checkpoints and launcher, submit
+through the durable runner with disjoint allocations, and preserve executable
+configuration, command, device visibility and evaluator output in the run outputs.
+
+Before interpreting a result, confirm that the intended path ran. For
+policy-gradient health use `engineer/rl-training-collapse-diagnosis.md`; SFT and
+offline DPO need objective-specific checks. Stop infrastructure work once the
+experiment's decisive readiness check passes; no separate infrastructure report is
+required.

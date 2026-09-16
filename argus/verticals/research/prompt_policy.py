@@ -329,7 +329,76 @@ def _paper_narrative_packaging_block() -> str:
         "does each location's job; do not copy a flat method-by-dataset-by-metric "
         "recital across sections. Translate any workflow or evidence-bookkeeping "
         "language into the scientific question, the result, the "
-        "alternative explanation resolved, and the resulting inference."
+        "alternative explanation resolved, and the resulting inference. The "
+        "manuscript's Method section and claims follow METHOD.md; every deviation "
+        "is named there first, and the experimental-setup section reproduces the "
+        "reused code and hyperparameters the host derives next to the card."
+    )
+
+
+def _method_card_engineer_block(stage: str, operation: str) -> str:
+    """The method card, the pinned reference and the spec suite come first.
+
+    One project shipped a simplified method that the Engineer had defined in
+    passing, tested with outcome-shaped tests, and had certified from its own
+    account. The card fixes the statement, the reference fixes the baseline,
+    and the host-run spec gives the Reviewer evidence nobody wrote for it.
+    """
+    scientific_revision = stage == "review" and operation != "narrative_edit"
+    if stage != "experiment" and not scientific_revision:
+        return ""
+    return (
+        "## Method card and executable spec\n"
+        "First round: write METHOD.md once from the selected route (path under "
+        "'Evidence considered' in RESEARCH_NOTES.md; quote it) per "
+        "engineer/method-card.md: statement, Components (Component | The idea "
+        "prescribes | Notes), Protocol, falsifier. Clone the "
+        "official or strongest public implementation at a pinned revision into "
+        "third_party/ and extend it so the code diff is the idea diff "
+        "(engineer/delta-on-reference.md). Before any claim-bearing run write "
+        "tests/spec (engineer/executable-spec.md): oracle (one function per "
+        "equation), differential tests, one knockout per component, claim-shaped "
+        "tests, each tagged @pytest.mark.component('<name as in the card>'). The "
+        "host runs tests/spec after every round and derives component status, reused "
+        "code, hyperparameters and history from code, markers, configs and git: "
+        "maintain no tables by hand. Explain a chosen value as '# why: ...' beside "
+        "it in the config; edit METHOD.md only when the method changes."
+    )
+
+
+def _method_card_reviewer_block(stage: str) -> str:
+    if stage not in {"experiment", "review"}:
+        return ""
+    return (
+        "## Method card first\n"
+        "Read in this order: METHOD.md, then the derived method-card status in your "
+        "context and in Raw verification evidence (host-run checks joined with the "
+        "component markers on tests/spec: proven, contradicted, partial, untested, "
+        "unchecked; reused code with revisions; hyperparameters changed since the "
+        "previous round), then tests/spec, then code, and the Engineer's account "
+        "last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
+        "INSUFFICIENT_EVIDENCE with file:line (reviewer/claim-to-code-trace.md). A "
+        "component without a knockout that fails in its absence, an untested or "
+        "contradicted component, a failing or unexplained-skip test, tests collected "
+        "last round but missing now, a hyperparameter change without a '# why' or a "
+        "card note, or code that contradicts the card is a required repair: return "
+        "continue and name the smallest fix. Do not ask for tools or re-run anything "
+        "yourself."
+    )
+
+
+def _method_card_planner_block(stage: str) -> str:
+    if stage != "experiment":
+        return ""
+    return (
+        "## Method card, reference and spec first\n"
+        "The first Experiment task is the method card (METHOD.md), the pinned "
+        "reference clone under third_party/ and the tests/spec suite, by the same "
+        "Engineer who implements; never a separate 'define the method' task. "
+        "Claim-bearing tasks copy the route's protocol (datasets, baselines, seeds, "
+        "scale) verbatim into acceptance. When a task is re-issued after an "
+        "infrastructure failure its acceptance stays verbatim: repair the "
+        "infrastructure, do not lower the bar."
     )
 
 
@@ -341,6 +410,7 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
         for block in (
             _stage_playbook_block(stage),
             _hardware_block_for_stage(stage, project_root),
+            _method_card_planner_block(stage),
             (
                 "## Post-result experiment scale assessment\n"
                 "After Reviewer accepts the current experiment, apply the "
@@ -448,20 +518,24 @@ def _research_learning_block(role: str, stage: str, operation: str) -> str:
             return ""
         return (
             "## Durable research learning\n"
-            "Surveys are learning too. When this round compares infrastructure, "
-            "frameworks, benchmarks, datasets, evaluators, or reference codebases, or "
-            "makes an environment or official codebase run after real effort, write "
-            "the outcome as a project Engineer Skill in the Durable learning "
-            "directory, named by topic (for example `rl-infrastructure-survey.md`): "
-            "the question, the candidates with their repositories and versions, the "
-            "decision and its evidence, the commands that worked, and pitfalls "
-            "verified by a run. Read and update the existing Skill on that topic "
-            "first (for example `training-infrastructure-guide.md`) instead of "
-            "duplicating it. Such a comparison is durable once its sources and "
-            "commands are recorded, even though it is a recommendation. Argus "
-            "promotes reviewed project Skills into the shared research layer after "
-            "the mission, so later projects start from this survey instead of "
-            "repeating it. Project-specific facts go to the Wiki when one is listed."
+            "Surveys are learning too. When this round chooses training or inference "
+            "infrastructure, write one project Engineer Skill per task class in the "
+            "Durable learning directory, named "
+            "`engineer/<task-class>-infrastructure-decision.md`, whose description "
+            "begins `Surveyed <date>: <task class> on <hardware>; re-verify after "
+            "<date> or when task class or hardware changes`. Body: `## Current` "
+            "holding, in order, question and task-class card; survey date and "
+            "hardware; sources (URL, access date, cached path); candidates including "
+            "rejected; stand-up and profile; recipe and tuning rows; decision; what "
+            "would change it; valid while; working commands; pitfalls verified by a "
+            "run; then `## History` (one line per refresh). On refresh replace "
+            "Current, append to History, keep the file under 32 KB. Read "
+            "`training-infrastructure-guide.md` and the existing record first instead "
+            "of duplicating. A dated record is durable once its sources and commands "
+            "are recorded. Argus promotes reviewed project Skills into the shared "
+            "research layer after the mission, so later projects start from this "
+            "record instead of repeating it. Project-specific facts go to the Wiki "
+            "when one is listed."
         )
     if role == "manager":
         return (
@@ -500,6 +574,18 @@ def _engineer_fragment(
     # the normal round context. Do not preload REVIEW.md or historical reports.
     # The notes change between rounds, so ``render_role_prompt_context``
     # carries them after this static policy.
+    handoff = (
+        "Finish the method card, the reference clone and the spec suite before "
+        "reporting the first round; afterwards, once this round's coherent "
+        "scientific changes and directly coupled repairs are validated, save the "
+        "current checkpoint and summarize the changes and their evidence. "
+        if stage == "experiment"
+        else "Once this "
+        "round's coherent scientific changes and directly coupled repairs are validated, "
+        "save the current checkpoint "
+        "and summarize the changes and their evidence; you need not finish the whole paper "
+        "before being reviewed. "
+    )
     stage_policy = (
         "## Engineer responsibility\n"
         "Execute the current playbook directly. Use code, explicit configuration, raw "
@@ -507,11 +593,9 @@ def _engineer_fragment(
         "products. Do not create substitute summaries or process reports, and do not "
         "change stage state. The host runs independent preliminary paper reviews after your "
         "turn; do not duplicate those full-paper scientific, visual, or cold-read passes. "
-        "The host also invokes the formal integrated Reviewer after you return. Once this "
-        "round's coherent scientific changes and directly coupled repairs are validated, "
-        "save the current checkpoint "
-        "and summarize the changes and their evidence; you need not finish the whole paper "
-        "before being reviewed. Complete the relevant experiment and its coupled code, "
+        "The host also invokes the formal integrated Reviewer after you return. "
+        + handoff
+        + "Complete the relevant experiment and its coupled code, "
         "entry-point, analysis and presentation repairs together; do not trigger a "
         "whole-paper review after each small edit or preliminary test. "
         "Do not invoke or delegate an integrated/full-paper Reviewer inside the Engineer "
@@ -533,6 +617,7 @@ def _engineer_fragment(
                 _engineer_compute_stage(stage, operation), project_root
             ),
             _engineer_figure_block(stage, operation),
+            _method_card_engineer_block(stage, operation),
             _research_learning_block("engineer", stage, operation),
             narrative_packaging,
             (
@@ -671,10 +756,27 @@ def _reviewer_fragment(
         for block in (
             _stage_playbook_block(stage),
             policy,
+            _method_card_reviewer_block(stage),
             _reviewer_figure_block(stage, scope),
         )
         if block
     )
+
+
+def _derived_method_card_for_reviewer(stage: str, project_root: Path | None) -> str:
+    """Host-derived component status, reused code and hyperparameter changes.
+
+    Evidence for the Reviewer's reading order, not a gate; '' when the project
+    has no METHOD.md or the derivation fails for any reason.
+    """
+    if project_root is None or stage not in {"experiment", "review"}:
+        return ""
+    try:
+        from .method_card import render_for_reviewer
+
+        return render_for_reviewer(Path(project_root))
+    except Exception:  # noqa: BLE001 - derived context must never break a prompt
+        return ""
 
 
 def render_role_prompt_context(
@@ -700,6 +802,7 @@ def render_role_prompt_context(
         blocks = (
             active_research_context(normalized_stage, project_root),
             research_runtime_context(normalized_stage, project_root),
+            _derived_method_card_for_reviewer(normalized_stage, project_root),
         )
     elif normalized_role == "planner":
         blocks = (
@@ -720,6 +823,19 @@ def render_role_prompt_context(
         blocks = (active_research_context(normalized_stage, project_root),)
     else:
         return ""
+    # The date belongs in the per-round delta, not the static fragment: it
+    # changes daily and remembered framework/engine/model names age with it.
+    if (
+        normalized_role in {"engineer", "reviewer", "planner"}
+        and normalized_stage in {"idea", "experiment", "paper"}
+    ):
+        from datetime import date
+
+        today_line = (
+            f"Today is {date.today().isoformat()}. Treat remembered framework, "
+            "engine and model names as dated hypotheses; verify against live sources."
+        )
+        blocks = (today_line,) + tuple(blocks)
     return "\n\n".join(block for block in blocks if block)
 
 

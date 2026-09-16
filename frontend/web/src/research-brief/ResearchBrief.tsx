@@ -15,6 +15,7 @@ import { ReaderEvidence, ReaderTaskFacts } from './ReaderEvidence';
 import { selectReaderEvidence } from './evidence';
 import { currentWorkStatus } from '../lib/workStatus';
 import { ProgressQuestionButton } from './ProgressQuestions';
+import { MethodCard } from './MethodCard';
 
 export interface ResearchBriefProps {
   sid: string;
@@ -110,7 +111,10 @@ export default function ResearchBrief(props: ResearchBriefProps) {
     {brief && hasProblem ? noticeRow : null}
   </>;
 
-  return <><section className={`mx-4 flex min-h-0 flex-col overflow-hidden rounded-lg border border-line/70 bg-panel ${compact ? 'my-2 px-3 py-2' : 'my-3 max-h-[50vh] px-4 py-3'}`} aria-label={text('读懂这一步', 'Understand this step')} data-testid="research-brief" data-project-id={props.sid} data-task-id={props.view.mission.id} data-compact={compact}>
+  // The agent-written METHOD.md sits above the task explanation so a reader
+  // sees what the method prescribes before reading how one step went.
+  return <><MethodCard sid={props.sid} active={props.active} compact={compact} onOpenArtifact={props.onOpenArtifact} />
+  <section className={`mx-4 flex min-h-0 flex-col overflow-hidden rounded-lg border border-line/70 bg-panel ${compact ? 'my-2 px-3 py-2' : 'my-3 max-h-[50vh] px-4 py-3'}`} aria-label={text('读懂这一步', 'Understand this step')} data-testid="research-brief" data-project-id={props.sid} data-task-id={props.view.mission.id} data-compact={compact}>
     {!compact ? <>
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2"><BookOpen size={16} className="shrink-0 text-blue-sky" /><h2 className="text-sm font-semibold text-ink">{text('读懂这一步', 'Understand this step')}</h2></div>

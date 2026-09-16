@@ -2027,6 +2027,28 @@ def test_rl_training_gate_matches_rl_launches_only() -> None:
     assert not _looks_like_rl_training("")
 
 
+def test_declared_intent_triggers_rl_supervision_without_a_command_hint(monkeypatch) -> None:
+    """A survey-chosen framework has no recognisable token in its launch line;
+    the submit-time ``--intent`` text is what tells the supervisor to watch."""
+    from argus.tools.subagent import _direct_run
+
+    monkeypatch.delenv(_direct_run.SUBAGENT_INTENT_ENV, raising=False)
+    command = "python -m third_party.candidate.launch --config recipe.yaml"
+    assert not _direct_run._looks_like_rl_training(command)
+    assert _direct_run._looks_like_rl_training(
+        command, intent="stand-up pilot: rl post-training")
+    assert _direct_run._looks_like_rl_training(
+        command, intent="policy-gradient pilot on the allocated device")
+    assert not _direct_run._looks_like_rl_training(
+        command, intent="stand-up pilot: supervised fine-tuning baseline")
+    # The worker receives the intent through the environment set at submit.
+    monkeypatch.setenv(_direct_run.SUBAGENT_INTENT_ENV, "stand-up pilot: rl post-training")
+    assert _direct_run._looks_like_rl_training(command)
+    assert _direct_run._rl_collapse_guidance_for(command)
+    monkeypatch.setenv(_direct_run.SUBAGENT_INTENT_ENV, "data preparation")
+    assert not _direct_run._looks_like_rl_training(command)
+
+
 def test_parse_launch_flags_normalizes_space_and_equals_forms() -> None:
     from argus.tools.subagent import _parse_launch_flags
 

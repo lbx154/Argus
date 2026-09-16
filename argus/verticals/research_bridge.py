@@ -14,6 +14,8 @@ lives with the research vertical.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .research.notes import clear_research_notes, read_research_notes
 from .research.prompt_policy import (
     _query_local_gpus,
@@ -34,10 +36,23 @@ def local_gpu_lines() -> list[str]:
     return list(_query_local_gpus())
 
 
+def derive_method_card(workdir: Path) -> dict:
+    """The research method card with its host-derived evidence, for the Atlas web UI.
+
+    Resolved lazily so the web layer pays for the derivation module only when a
+    project actually has a METHOD.md; any failure propagates for the caller to
+    turn into a soft error.
+    """
+    from .research.method_card import derive_method_card as derive
+
+    return derive(workdir)
+
+
 __all__ = [
     "active_research_context",
     "build_second_reading_prompt",
     "clear_research_notes",
+    "derive_method_card",
     "insert_second_reading_into_notes",
     "local_gpu_lines",
     "note_reconsider_signal",

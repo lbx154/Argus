@@ -14,7 +14,8 @@ def test_engineer_records_infrastructure_surveys_as_project_skills() -> None:
     for stage in ("idea", "experiment", "paper"):
         text = _fragment("engineer", stage, operation="execute")
         assert "## Durable research learning" in text
-        assert "rl-infrastructure-survey.md" in text
+        assert "engineer/<task-class>-infrastructure-decision.md" in text
+        assert "Surveyed <date>" in text
         assert "training-infrastructure-guide.md" in text
         assert "promotes reviewed project Skills into the shared research layer" in text
     assert "## Durable research learning" not in _fragment("engineer", "review", operation="narrative_edit")

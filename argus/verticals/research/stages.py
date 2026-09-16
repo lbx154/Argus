@@ -82,8 +82,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="experiment.implementation",
             statement=(
-                "Implement the selected mechanism and real strong published baselines "
-                "through real entry points. Do not rename a local heuristic after a paper. "
+                "Write the method card, project-root METHOD.md, from the selected route "
+                "before method code, and keep it current. Implement the selected "
+                "mechanism and real strong published baselines "
+                "through real entry points, extending the official or strongest public "
+                "implementation cloned at a pinned revision under third_party/. Do not "
+                "rename a local heuristic after a paper. "
                 "Choose models for task competence and claim scope. Prefer appropriate "
                 "existing public or official benchmarks with their released tasks, "
                 "splits, protocols, and real evaluators. Small custom benchmarks are "
@@ -91,9 +95,13 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "research-experiment-playbook.md: no API calls or only a small amount "
                 "within the authorized budget, respecting project-specific restrictions. Keep "
                 "explicit run configuration beside the code and verify the smallest "
-                "faithful path before claim-bearing execution."
+                "faithful path before claim-bearing execution, with tests/spec (oracle, "
+                "differential, knockout and claim-shaped tests) written first."
             ),
-            evidence_hint="code, explicit run configuration, and direct smoke output",
+            evidence_hint=(
+                "METHOD.md, code, explicit run configuration, host-run tests/spec "
+                "output, and direct smoke output"
+            ),
         ),
         ChecklistItem(
             id="experiment.fidelity",
@@ -102,9 +110,14 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "information boundary, and evaluator test the selected idea. Repair "
                 "implementation or setup defects in place; do not reopen selection or "
                 "move the work backward. A hypothesis-to-code mapping must name the "
-                "executed quantities and path rather than merely matching labels."
+                "executed quantities and path rather than merely matching labels: each "
+                "METHOD.md component row names path:Symbol and a tests/spec knockout "
+                "that fails when that component is disabled."
             ),
-            evidence_hint="implemented entry points and their direct test output",
+            evidence_hint=(
+                "METHOD.md component rows, implemented entry points, and host-run "
+                "tests/spec output"
+            ),
         ),
         ChecklistItem(
             id="experiment.positive_control",
@@ -616,8 +629,9 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     + " Plan only work for the current stage. Research stages are forward-only: "
     "schedule any upstream method, experiment, or paper repair in the current stage "
     "and never request rollback. The project-root research notes, RESEARCH_NOTES.md, "
-    "are the sole normal cross-stage context until Review; Review uses paper/main.tex, "
-    "its rendered output and direct dependencies, and paper/REVIEW.md."
+    "are the sole normal cross-stage context until Review, with one named exception: "
+    "the method card, METHOD.md, is a work product every role reads. Review uses "
+    "paper/main.tex, its rendered output and direct dependencies, and paper/REVIEW.md."
 )
 
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
@@ -626,7 +640,8 @@ _ENGINEER_RESEARCH_METHOD = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Verify current models, benchmark versions, and APIs from live sources instead "
     "of memory. Preserve reproducibility through code, explicit configuration, and raw output, "
-    "not extra reporting files. Repair defects in the current stage and never move the "
+    "not extra reporting files; the method card, METHOD.md, is a work product, not a "
+    "report. Repair defects in the current stage and never move the "
     "work backward. Keep experiments adaptive"
 )
 
@@ -644,7 +659,8 @@ _ENGINEER_TEAM_RESEARCH_EXECUTION = (
     + ". You are one of several workers sharing this project tree: write only the "
     "files your task names and your own continuation note. The project-root research "
     "notes, RESEARCH_NOTES.md, belong to the mission that dispatched this work; read "
-    "them for context and leave them unchanged."
+    "them for context and leave them unchanged. Read the method card, METHOD.md, the "
+    "same way: it tells you what the method is, and only the lead edits it."
 )
 
 _REVIEWER_RESEARCH_JUDGEMENT = (

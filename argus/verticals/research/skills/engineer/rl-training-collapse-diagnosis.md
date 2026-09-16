@@ -8,7 +8,8 @@ description: "诊断 PPO/GRPO/RLVR 训练的奖励、优势、梯度、KL、截�
 Use BEFORE launching a policy-gradient run, when live evidence suggests sustained
 failure, or before deciding an underperforming method was fairly tested. Separate
 observations, candidate causes and the action supported by the current evidence.
-No single metric or universal hyperparameter threshold decides health.
+No single metric or universal hyperparameter threshold decides health. Knob and
+telemetry names below are generic; map them to the chosen framework's equivalents.
 
 ## Before launch
 

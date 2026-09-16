@@ -89,7 +89,9 @@ do not create a new report or validation-only task.
    allowed when it serves a different section role; repeated matrix recitation
    is not.
 7. Resolve citations against primary sources and keep claims consistent with
-   the executed code and raw results.
+   the executed code and raw results. The Method section and the claims
+   follow the project-root `METHOD.md`; a deviation from the selected route
+   is named there before it appears in the manuscript.
 8. Plan three informative scientific figures for a full paper, with at least
    two distinct figures. Usually show the mechanism, main comparison, and an
    ablation, diagnostic, or generalization finding; each answers a different

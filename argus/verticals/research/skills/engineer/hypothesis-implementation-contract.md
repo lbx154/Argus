@@ -6,8 +6,10 @@ description: "Keep the selected thesis and the code that tests it aligned during
 # Keeping the hypothesis and implementation aligned
 
 Use this in Experiment after Idea selection and before claim-bearing execution. Read
-the selected thesis from the research notes in `RESEARCH_NOTES.md`; do not
-create a separate file stating the terms of the comparison.
+the selected thesis from the research notes in `RESEARCH_NOTES.md` and the
+method as stated in the project-root `METHOD.md` (`engineer/method-card.md`);
+the card's `Components` table is where the mapping below is recorded, one
+row per component with `path:Symbol` and the `tests/spec` test that proves it.
 
 Map every load-bearing part of the thesis to the actual implementation:
 
@@ -25,7 +27,10 @@ selected thesis and the reachable call chain and return exactly one conclusion:
 - `MISMATCH`: the code runs but tests a different mechanism or comparison;
 - `NOT_IMPLEMENTED`: the selected mechanism is absent or unreachable.
 
-Fix `MISMATCH` or `NOT_IMPLEMENTED` in place before claim-bearing runs. Do not
-reopen Idea selection, and do not write a separate note for the alignment
-result — the research notes in `RESEARCH_NOTES.md`, written at Paper entry,
-are the only such account.
+Fix `MISMATCH` or `NOT_IMPLEMENTED` in place before claim-bearing runs, and
+update the affected `METHOD.md` component rows in the same round when the
+method itself changed. Do not reopen Idea selection. The alignment result
+lives in the host-derived component status (from the `tests/spec` markers and
+the host's run) and in the Reviewer's returned judgment, not in a separate
+note; the research notes in `RESEARCH_NOTES.md`, written at Paper
+entry, may point to the card.

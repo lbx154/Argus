@@ -326,7 +326,12 @@ def _team_learning_prompt(
         "`engineer/`, or `reviewer/` directory. Project-specific or still-unverified "
         "learning stays in the project layer; never move or delete a local candidate. "
         "Inspect related profile Markdown before editing. Update an existing semantic "
-        "Skill instead of duplicating it. Each Skill must contain exactly `name` and "
+        "Skill instead of duplicating it. A dated decision record (a Skill whose "
+        "description begins `Surveyed <date>`) is certified by its provenance — cached "
+        "sources, pinned SHAs and durable-runner logs — not by a controlled comparison: "
+        "keep its dates, SHAs, URLs and horizons verbatim, append one History line "
+        "instead of duplicating the record, and never fold a dated record into a "
+        "procedure skill or a procedure into a dated record. Each Skill must contain exactly `name` and "
         "`description` frontmatter followed by concise Markdown. If the evidence does "
         "not justify sharing within this vertical, make no edit."
     )

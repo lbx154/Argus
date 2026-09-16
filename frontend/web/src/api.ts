@@ -89,6 +89,80 @@ export interface SkillDocument {
   role: string;
 }
 
+/** Status the host derived for one method component from the spec tests carrying its marker. */
+export type ResearchMethodComponentStatus = 'proven' | 'contradicted' | 'partial' | 'untested' | 'unchecked';
+/** One spec test joined to a component through its marker; outcome is null until the host has run it. */
+export interface ResearchMethodTest {
+  id: string;
+  kind: string;
+  outcome: string | null;
+}
+/** One component of the hand-written card; component/prescribes/notes are the agent's text, status/tests are derived. */
+export interface ResearchMethodComponent {
+  component: string;
+  prescribes: string;
+  notes: string;
+  status: ResearchMethodComponentStatus;
+  tests: ResearchMethodTest[];
+}
+/** A third_party/ clone or installed package the project's own code imports, found by the host's import scan. */
+export interface ResearchMethodReusedCode {
+  name: string;
+  kind: 'third_party' | 'package';
+  revision_or_version: string;
+  remote: string;
+  modules: string[];
+  imported_from: string[];
+}
+/** A value read from a run config file; `why` is the Engineer's `# why:` comment, `previous` the last snapshot when changed. */
+export interface ResearchMethodHyperparameter {
+  key: string;
+  value: string;
+  file: string;
+  why: string;
+  changed: boolean;
+  previous: string | null;
+}
+/** One git history entry touching the method. */
+export interface ResearchMethodChange {
+  when: string;
+  summary: string;
+  files: string[];
+}
+/** The latest host-run check round joined into the card. */
+export interface ResearchMethodChecks {
+  round_index: number;
+  ran_at: number;
+  exit_code: number | null;
+  counts: Record<string, number>;
+}
+/**
+ * A research project's method card: the hand-written METHOD.md plus what the
+ * host derived from code, tests, config files and git at zero model cost.
+ */
+export type ResearchMethod =
+  | { exists: false; error?: string }
+  | {
+    exists: true;
+    path: string;
+    /** METHOD.md mtime: epoch seconds or an ISO-8601 string; null when it could not be read. */
+    updated_at: number | string | null;
+    title: string;
+    /** First paragraph after the H1. */
+    statement: string;
+    markdown: string;
+    truncated: boolean;
+    components: ResearchMethodComponent[];
+    /** Components that carry test markers but are not named in the card. */
+    unlisted_components?: string[];
+    protocol: string;
+    falsifiers: string;
+    reused_code: ResearchMethodReusedCode[];
+    hyperparameters: ResearchMethodHyperparameter[];
+    change_log: ResearchMethodChange[];
+    checks: ResearchMethodChecks | null;
+  };
+
 export interface JournalEntry {
   id: string;
   ts: number;
@@ -1114,6 +1188,7 @@ export const api = {
     getJson<SkillCatalog>(`/api/skill-library${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
   skillDocument: (sid: string | null, library: string, path: string, signal?: AbortSignal) =>
     getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
+  researchMethod: (sid: string, signal?: AbortSignal) => getJson<ResearchMethod>(P(sid, '/research/method'), signal),
   setLaunchCwd: (sid: string, launchCwd: string) =>
     postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   setWorkdir: (sid: string, workdir: string) =>

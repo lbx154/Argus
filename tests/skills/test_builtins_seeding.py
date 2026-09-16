@@ -50,6 +50,10 @@ RESEARCH_BASE_SKILLS = {
     "engineer/claims-against-evidence.md",
     "engineer/figure_spec_scripts/figure_renderer.py",
     "engineer/hypothesis-implementation-contract.md",
+    "engineer/method-card.md",
+    "engineer/method_card_template.md",
+    "engineer/executable-spec.md",
+    "engineer/delta-on-reference.md",
     "engineer/research-grind.md",
     "engineer/research-timeline.md",
     "engineer/suspect-the-setup.md",
@@ -84,6 +88,10 @@ RESEARCH_SKILLS = RESEARCH_BASE_SKILLS | RESEARCH_MOVED_SKILLS | {
     "engineer/venue-format-preflight.md",
     "engineer/academic-vector-figures.md",
     "reviewer/venue-academic-language-review.md",
+    "engineer/infrastructure-landscape-survey.md",
+    "engineer/framework-stand-up-pilot.md",
+    "engineer/recipe-anchored-tuning.md",
+    "reviewer/infrastructure-choice-review.md",
 }
 
 

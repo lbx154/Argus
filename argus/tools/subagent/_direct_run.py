@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -108,14 +109,31 @@ _RL_TRAINING_HINTS = (
 )
 
 
-def _looks_like_rl_training(command: str) -> bool:
-    """True when the command looks like an RL/post-training launch worth a
-    pre-launch config preflight. Deliberately permissive — the preflight itself
-    is conservative and only refuses mechanically-degenerate configs."""
-    if not command:
+# Submit-time ``--intent`` text travels to the forked/spawned worker through
+# this environment variable. A framework chosen by a live survey has no
+# recognisable token in its launch command, so the declared intent is the only
+# hint the supervisor has that this is RL training worth watching.
+SUBAGENT_INTENT_ENV = "ARGUS_SUBAGENT_INTENT"
+_RL_INTENT_PATTERN = re.compile(
+    r"\b(rl|rlhf|policy[- ]gradient|reinforcement[- ]learning)\b"
+)
+
+
+def _looks_like_rl_training(command: str, intent: str | None = None) -> bool:
+    """True when the command or the declared intent looks like an RL/post-training
+    launch worth a pre-launch config preflight. Deliberately permissive — the
+    preflight itself is conservative and only refuses mechanically-degenerate
+    configs. ``intent`` defaults to the submit-time ``--intent`` text carried in
+    ``SUBAGENT_INTENT_ENV``."""
+    c = (command or "").lower()
+    if c and any(tok in c for tok in _RL_TRAINING_HINTS):
+        return True
+    if intent is None:
+        intent = os.environ.get(SUBAGENT_INTENT_ENV, "")
+    i = (intent or "").lower()
+    if not i:
         return False
-    c = command.lower()
-    return any(tok in c for tok in _RL_TRAINING_HINTS)
+    return any(tok in i for tok in _RL_TRAINING_HINTS) or bool(_RL_INTENT_PATTERN.search(i))
 
 
 # Aliases the same logical knob may appear under in a launch command.
