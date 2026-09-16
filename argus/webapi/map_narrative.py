@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import math
 import threading
 import time
@@ -44,6 +45,8 @@ Preview = bool | Literal["learning-path", "question-foundation"]
 _LOCK = threading.Lock()
 _SOURCES: WeakValueDictionary = WeakValueDictionary()
 
+
+log = logging.getLogger(__name__)
 
 def copy_source(dataset_id: str, locale: str, *, preview: Preview = False, foundation_id: str | None = None) -> str:
     """A preview never replaces the normal reader's retained explanation."""
@@ -183,8 +186,37 @@ def read_cache(root: Path, source: str) -> dict:
         return {}
 
 
+def _normalize_reader_brief_shape(value) -> object:
+    """Accept the one wrong shape the model keeps producing: ``next`` (and the
+    scope text) nested inside ``scope`` instead of beside it.
+
+    The instructions read "why → concept → scope → next" and gemini-3.8-flash
+    returned ``{"why", "concept", "scope": {"scope": ..., "next": ...}}`` on
+    the stable web trial at 04:07 and 05:03 (2026-09-16), each time failing
+    the brief as invalid and leaving the page without an explanation for the
+    card. Nothing is invented: the text is only moved to where the schema
+    says it goes, and a brief still missing a section still fails.
+    """
+    if not isinstance(value, dict):
+        return value
+    scope = value.get("scope")
+    if not isinstance(scope, dict):
+        return value
+    flat = dict(value)
+    inner_scope = scope.get("scope")
+    inner_next = scope.get("next")
+    if isinstance(inner_scope, str):
+        flat["scope"] = inner_scope
+    else:
+        flat.pop("scope", None)
+    if isinstance(inner_next, str) and not isinstance(flat.get("next"), str):
+        flat["next"] = inner_next
+    return flat
+
+
 def _reader_brief(value) -> dict:
     """Validate bounded presentation text; never manufacture missing sections."""
+    value = _normalize_reader_brief_shape(value)
     if not isinstance(value, dict) or set(value) != {*BRIEF_LIMITS, "concept"}:
         raise ValueError("invalid reader brief")
 
@@ -581,9 +613,12 @@ def enrich(
             code = exc.code if isinstance(exc, MapGenerationError) else (
                 "invalid_response" if isinstance(exc, ValueError) else "provider_error"
             )
+            log.warning("map copy generation failed (%s): %s", code, exc)
             cache.update(
                 retry_at=time.time() + map_limit("ARGUS_SKILL_MAP_RETRY_SECONDS", "300"),
-                generation_error={"code": code},
+                # ``detail`` is for the operator reading the cache; readers get
+                # the fixed message from ``_failure_metadata``.
+                generation_error={"code": code, "detail": str(exc)[:200]},
             )
             _write_cache(path, cache)
             return {"cards": existing, "relations": cache.get("relations", []),
