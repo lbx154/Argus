@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionTasks, buildMap, currentTask, replayTasks, statusKey, taskDependencies, type MapTask } from "../map/model";
+import { attentionTasks, buildMap, currentTask, replayTasks, statusKey, supersededByLaterWork, taskDependencies, type MapTask } from "../map/model";
 
 const task = (
   id: string,
@@ -22,6 +22,20 @@ describe("progress map data semantics", () => {
     expect(currentTask([rows[0], task("planned")])?.id).toBe("failed");
     expect(currentTask([task("finished", [], "done"), task("planned")])?.id).toBe("planned");
     expect(currentTask([])).toBeUndefined();
+  });
+  it("drops a failed card from attention once later work has moved past it", () => {
+    const stale = task("first", [], "failed", 100);
+    const rows = [stale, task("selector", [], "done", 200), task("implement", [], "running", 300)];
+    expect(supersededByLaterWork(stale, rows)).toBe(true);
+    expect(attentionTasks(rows)).toEqual([]);
+    expect(currentTask(rows)?.id).toBe("implement");
+    // The frontier failure still needs the reader, and so does any open question.
+    const frontier = task("latest", [], "failed", 400);
+    expect(attentionTasks([...rows, frontier]).map((row) => row.id)).toEqual(["latest"]);
+    const asked = { ...stale, pending_question: "Which venue?" };
+    expect(attentionTasks([asked, rows[1], rows[2]]).map((row) => row.id)).toEqual(["first"]);
+    // Without timestamps nothing is known to be later, so the failure stays visible.
+    expect(attentionTasks([task("f", [], "failed"), task("d", [], "done")]).map((row) => row.id)).toEqual(["f"]);
   });
   it("traces only direct recorded dependencies, retaining missing references", () => {
     const graph = buildMap([

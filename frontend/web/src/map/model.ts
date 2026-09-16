@@ -167,10 +167,27 @@ export function latestMissionCompletion(task: MapTask, events: MapEvent[]): MapE
   return latest;
 }
 
+/** The newest moment work demonstrably moved on: a later card finished or is running. */
+function latestProgressTs(tasks: MapTask[]): number {
+  return tasks.reduce((latest, task) => (
+    (task.status === "done" || ACTIVE.has(task.status)) && (task.ts ?? 0) > latest ? (task.ts ?? 0) : latest
+  ), 0);
+}
+
+/** A failed card the pipeline has since moved past: later work finished or is running. */
+export function supersededByLaterWork(task: MapTask, tasks: MapTask[]): boolean {
+  return task.status === "failed" && !task.pending_question && (task.ts ?? 0) < latestProgressTs(tasks);
+}
+
 export function attentionTasks(tasks: MapTask[]): MapTask[] {
+  // An open question always needs the reader. A failure does only while it is
+  // the frontier: once a later card has finished or is running, the Planner
+  // has already routed around it (the trial's first card was archived as
+  // failed after a restart and stayed "needs attention" for the whole run
+  // while three later tasks completed, 2026-09-16).
   return tasks
     .filter((task) => task.status !== "done" && !ACTIVE.has(task.status) &&
-      (task.pending_question || task.status === "failed"))
+      (task.pending_question || (task.status === "failed" && !supersededByLaterWork(task, tasks))))
     .sort((a, b) => Number(!!b.pending_question) - Number(!!a.pending_question));
 }
 

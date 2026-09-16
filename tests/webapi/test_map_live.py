@@ -861,3 +861,20 @@ def test_question_cards_never_pay_for_generated_map_copy(tmp_path, monkeypatch):
     result = copy.enrich(tmp_path, dataset, [{'key': turn['card']['id'], 'task_id': turn['card']['id'],
                                             'event_ids': []}], 'zh-CN', project_root=tmp_path)
     assert result['cards'] == {}
+
+
+def test_failure_metadata_forgets_a_failure_once_its_cooldown_has_passed() -> None:
+    """The trial page showed "explanation unavailable" for an hour over a cache
+    whose cooldown had ended at 04:12 (2026-09-16)."""
+    import time as _time
+
+    from argus.webapi import map_narrative
+
+    fresh = map_narrative._failure_metadata(
+        {"generation_error": {"code": "invalid_response"}, "retry_at": _time.time() + 120}
+    )
+    assert fresh["generation_error"]["code"] == "invalid_response" and fresh["retry_after"] > 0
+    stale = map_narrative._failure_metadata(
+        {"generation_error": {"code": "invalid_response"}, "retry_at": _time.time() - 1}
+    )
+    assert stale == {"generation_error": None, "retry_after": 0}

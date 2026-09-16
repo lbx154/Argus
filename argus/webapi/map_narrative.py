@@ -270,12 +270,16 @@ def _failure_metadata(cache: dict) -> dict:
     except (TypeError, ValueError, OverflowError):
         remaining = 0
     error = cache.get("generation_error")
-    if isinstance(error, dict):
+    if isinstance(error, dict) and remaining > 0:
         code = error.get("code")
         if code not in {"map_timeout", "cost_unreconciled", "budget_exhausted", "invalid_response", "provider_error", "map_input_too_large"}:
             code = "provider_error"
         error = {"code": code, "message": "Map summary unavailable; existing evidence and cached text are retained."}
     else:
+        # A failure is news for as long as its cooldown lasts. After that the
+        # next request simply tries again; showing "unavailable" for hours
+        # over a cache nobody has asked to regenerate (s-009c3ec3, 2026-09-16
+        # 04:07 onward) told the reader something was wrong when nothing was.
         error = None
     # Explicit zero clears a previous cooldown in clients that merge cache fields.
     return {"generation_error": error, "retry_after": remaining}
