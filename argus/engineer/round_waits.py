@@ -7,6 +7,10 @@ until its state changes.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -26,11 +30,95 @@ from .round_state import (
 )
 
 if TYPE_CHECKING:
+    from ..core.models import ReviewDecision
     from .runner import SupervisedConfig
 
 
 class RoundWaitsMixin:
     """Mixin providing ``SupervisedEngineer``'s agent-driven wait phase."""
+
+    @staticmethod
+    def _wait_review_receipt_path(config: "SupervisedConfig") -> Path | None:
+        packet = getattr(config, "context_packet_path", None)
+        return Path(packet).parent / "external-wait-reviews.json" if packet else None
+
+    def _external_wait_needs_review(
+        self,
+        *,
+        supervised_config: "SupervisedConfig",
+        raw_engineer_message: str,
+        workdir: Path,
+        state: RoundLoopState,
+        on_event: Callable[[dict], None] | None,
+    ) -> bool:
+        """Review durable mission run/result handoffs once, never their heartbeat."""
+        state.pending_external_wait_review = None
+        if process_stop.stop_requested() or not getattr(supervised_config, "require_independent_review", False):
+            return False
+        # This is a durable four-role mission handoff. Low-level loops without
+        # a mission packet retain their existing wait-then-review behavior.
+        receipt = self._wait_review_receipt_path(supervised_config)
+        if receipt is None:
+            return False
+        request = parse_external_wait_request(raw_engineer_message)
+        if not request:
+            return False
+        kind, work_id = request
+        status = inspect_external_work(workdir, work_id)
+        if status is None or (kind == "subagent") != (status.source == "subagent"):
+            return False
+        if kind == "subagent" and not supervised_config.background_subagent_advisory:
+            return False
+        if not status.waitable and self._external_work_resume_key(status) not in state.external_work_resumptions:
+            # Preserve the upstream result-consumption turn before independent review.
+            return False
+        identity = {
+            "work_id": work_id,
+            "run_id": status.run_id,
+            "started_at": status.started_at if not status.run_id else None,
+            "phase": "waiting" if status.waitable else status.state.value,
+            "outcome": "" if status.waitable else status.outcome,
+        }
+        key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        if receipt.exists():
+            try:
+                saved = json.loads(receipt.read_text())
+                reviewed = saved.get("reviewed", []) if isinstance(saved, dict) else []
+                if isinstance(reviewed, list):
+                    state.reviewed_external_waits.update(key for key in reviewed if isinstance(key, str))
+            except (OSError, ValueError, TypeError, AttributeError):
+                pass  # Missing/corrupt receipts never certify a review.
+        if key in state.reviewed_external_waits:
+            return False
+        state.pending_external_wait_review = key
+        if on_event:
+            on_event({"type": "round.external_work_review.required", **identity, "review_key": key})
+        return True
+
+    def _acknowledge_external_wait_review(
+        self,
+        *,
+        supervised_config: "SupervisedConfig",
+        state: RoundLoopState,
+        review: "ReviewDecision",
+        on_event: Callable[[dict], None] | None,
+    ) -> None:
+        key = state.pending_external_wait_review
+        if not key or (review.review_source or "reviewer") != "reviewer":
+            return
+        state.reviewed_external_waits.add(key)
+        receipt = self._wait_review_receipt_path(supervised_config)
+        if receipt:
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            fd, name = tempfile.mkstemp(prefix=".wait-review-", dir=receipt.parent)
+            try:
+                with os.fdopen(fd, "w") as stream:
+                    json.dump({"version": 1, "reviewed": sorted(state.reviewed_external_waits)}, stream)
+                os.replace(name, receipt)
+            finally:
+                Path(name).unlink(missing_ok=True)
+        if on_event:
+            on_event({"type": "round.external_work_review.completed", "review_key": key, "review_status": review.status})
 
     @staticmethod
     def _external_work_resume_key(work: ExternalWorkStatus) -> tuple[str, str, str]:

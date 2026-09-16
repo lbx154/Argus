@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "case_id": "local-rl-001",
+  "started_at": null,
+  "evaluation_subject": "Argus autonomous RL experimentation capability",
+  "original_task": "Train a Qwen model with an appropriate RL algorithm to improve agentic coding. Choose the experiment and parameters, diagnose failures, improve throughput, and demonstrate the outcome.",
+  "workspace": "/path/to/experiment/workspace",
+  "session_root": "/path/to/state/projects/s-YOUR_SESSION_ID",
+  "runtime_current": "/path/to/Argus",
+  "python": "/path/to/Argus/.venv/bin/python",
+  "runs_relative_root": "runs/rl-experiment",
+  "skills_roots": ["../state/skills"],
+  "decision_paths": ["CHECKPOINT.md", "../state/RESEARCH_PLAN.md"],
+  "model_under_training": {"id": "YOUR_QWEN_MODEL", "revision": "PINNED_MODEL_REVISION"},
+  "start_mode": "declared_local_start",
+  "environment_contract": {
+    "fixed_start": "Record hardware, dependencies, model/data revisions, prompt, workspace contents, available artifacts, and Argus revision.",
+    "agent_controlled": "Algorithm, parameters, training code, rollout implementation, task sampling, and project skills.",
+    "external_interventions": "Record human repairs/advice separately; assisted recovery is not uninterrupted autonomous success.",
+    "comparability": "Restore the same declared start when comparing versions. Record shared-GPU queue time separately."
+  },
+  "launch": {
+    "cwd": "{workspace}",
+    "command": ["{python}", "-m", "argus", "--daemon", "--bounded", "--resume-continuous", "--life-dir", "/path/to/state", "--resume", "s-YOUR_SESSION_ID", "--backend", "pi", "--auth-mode", "subscription_cli", "--mission-width", "2"],
+    "settings": {}
+  }
+}
