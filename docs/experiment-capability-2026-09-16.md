@@ -39,6 +39,8 @@
 7. **基础设施知识自进化。** 技能只写流程(活的调研含"继任者发现"、候选隔离环境钉版本站起并测阶段表与 rollout 引擎开关 A/B、锚定当时配方的一次一因调参),不写任何框架名;当前答案在项目当时产出,存成带 "Surveyed 日期 / re-verify after 日期" 的项目 Skill,沿既有传播机制进研究垂域共享层;研究角色的动态上下文加一行今天日期,声明记得的框架名只是待验证的过期假设。
 8. **wiki 实时可见。** 左侧栏底部新增知识库面板(页数、最近 5 页、15 秒刷新、点开阅读),对应只读接口。
 9. **自评工具。** `python -m argus.verticals.research.capability_report --state-dir … --workspace …` 输出每个项目的过程指标(阶段时长、评审时长与判定、token 与费用、方法卡与组件状态、规格测试、参考实现、种子与数据集、图检、skill/wiki),支持 `--baseline` 对照。
+10. **Planner 的多行实现简报完整送达(v2)。** 两处 `TASK_OBJECTIVE=` 行式解析器(`argus/planner/planner.py`、`argus/planner/bounded_dag.py`)此前只取第一行。v1 运行里 Planner 按模板写了 40 行简报(claim、组件的 file:Symbol、接口、必过测试、数据规模、命令、环境、完成定义、范围外),Engineer 收到的任务正文只剩标题 `## Claim`。现在目标后面直到下一个字段(任何形状,含未登记的 `TASK_*`)的行都属于目标;上限 8000 字符。
+11. **普通 mission 也带阶段(v2)。** `loop.py` 只在非 mission 操作时给 Engineer 传 stage,而研究垂域的 Experiment 阶段映射到 mission,于是 Engineer 横幅里的阶段块(权威手册指针、本机算力、"方法卡与可执行规格"、持久研究学习)从未渲染过——基线和 v1 的 Engineer 都是靠 Planner 的任务文本和技能目录自己摸到 METHOD.md 的。现在每种操作都带当前阶段,轮次上下文同样;阶段内横幅不变,不影响 provider 前缀缓存。同批小修:METHOD.md 尚不存在时任务简报引用路线原文而非选题理由;环境行写明 `.venv/bin/python -m pytest tests/spec`(v1 评审阶段的 Engineer 裸跑 `python3 -m pytest` 失败后对全盘 `find / -name pytest`);图检跳过 third_party/ 与虚拟环境。
 
 ## 3. 对照实验设计
 
@@ -46,4 +48,53 @@
 
 ## 4. 结果
 
-_待填写。_
+### 4.1 v1(ad1a50631…eb860a1f9)对基线
+
+同一实例、同一目标、同一模型配置;v1 项目 `s-3d1dbf72`,12:39 创建,15:29 由 Planner 宣告完成(REVIEW.md:accept)。数字来自 `capability_report`(state 目录 usage)与工作区 usage(团队工人);快照在 `/data/v-boxiuli/argus-eval-20260916/snapshots/`。
+
+| 指标 | 基线 s-009c3ec3 | v1 s-3d1dbf72 |
+|---|---|---|
+| 总时长 | 2.97 h | 2.85 h |
+| Idea / Experiment / Paper / Review 时长 | 2.16 / 0.47 / 0.19 / 0.10 h | 1.22 / 1.01 / 0.14 / 0.47 h |
+| 任务数(平均轮数) | 8(1.5) | 6(1.0) |
+| 评审次数与判定 | 10(done 6,continue 4) | 6(done 6) |
+| 评审中位时长 | 35 s | 32 s |
+| 模型调用(state + 团队) | 140 + 47 = 187 | 50 + 39 = 89 |
+| 费用(state + 团队) | $12.02 + $9.43 = $21.45 | $5.94 + $7.38 = $13.32 |
+| METHOD.md / 组件 / 被测试证明 | 无 / 0 / 0 | 有 / 4 / 4 |
+| tests/spec 文件 / 绑定组件的测试 / 最近主机检查 | 0 / 0 / 无 | 5 / 14 / 17 passed, 0 failed |
+| 参考实现克隆 | 无 | third_party/SRFF @ 692e958 |
+| 种子 | 1(42) | 5(42–46) |
+| 数据集 | synthetic, california_housing | synthetic, covtype, mnist(论文另报 ijcnn1, w8a) |
+| 图检缺陷 | 6 | 0 |
+| 配置超参数(带 `# why`) | 0(0) | 14(0) |
+| wiki 页 / 项目 skill / 决策记录 | 1 / 0 / 0 | 1 / 0 / 0 |
+| 论文 | 13 页 | 13 页 |
+
+过程上看到的变化:
+
+- **方法先于代码。** Experiment 第一个任务(6 分钟)产出 METHOD.md(4 个组件、协议、可证伪点)、钉住版本的参考克隆、5 个规格测试文件(oracle、differential、knockout、claim-shape、parity,全部带 component 标记),主机在轮末跑通 14 条并写入 `.argus/round-checks/`。第二轮 Engineer 的任务简报里"Components now"四个组件全部 `proven` 并指向 `src/sr_sh_rff.py` 的锚点行。
+- **Reviewer 读的是主机证据。** 每次评审的提示里都有"评审包"(组件状态 + 锚点代码片段 + 主机测试计数 + 本轮改动文件)与"Host-run project checks";评审文本逐组件引用了这些结果。评审仍在 30 s 左右、零工具调用——这是设计(不给 Reviewer 加工具),但速度没有变化说明它仍是"读证据下判断"而不是"复现"。
+- **claim 被固定并带着走。** 合成阳性对照 5 种子,SR-SH-RFF 的相对 Frobenius 误差比 ORF 低约一个量级(d=8, M=128:0.00088 对 0.0081);真实数据上准确率与 ORF/RFF 持平(covtype M=128:0.7813 对 0.7807/0.7804,均在标准差内)。论文摘要写的是"reduces error by more than an order of magnitude … matches or exceeds ORF test accuracy",以最强结果开篇,没有防御性写作;"至少 2× 更少特征即达到同等下游精度"这半句 claim 在真实数据上只做到"持平",论文没有缩写它,也没有把它写成负结果。
+- **全否即重生成第一次在生产触发。** 三条路线各被一篇 2023–2025 年论文抢先;重生成后三条都换了方法但又各被新的抢先论文或数学缺陷否决;选题器按"最可修复"选了 route-01 并把三条致命意见原文写进 RESEARCH_NOTES.md 的"未解决实现义务"。这是设计行为,但也说明选题空间本身(随机特征/KRR 求解器)已经很拥挤,重生成一次不足以跳出;论文的新颖性风险由此而来。
+- **时间与钱花在哪。** Idea 阶段少了 0.94 h(基线的 12 路组合改为 3 路);Experiment 多了 0.54 h,因为真的跑了 5 种子 × 3 数据集 × 4 方法 × 4 预算并写了规格测试;Review 多了 0.37 h(其中约 25 分钟是评审阶段 Engineer 裸跑 `python3 -m pytest` 失败后对全盘 `find / -name pytest`,操作者手工结束了该进程)。全口径调用数减少 52%,费用减少 38%。
+
+### 4.2 v1 暴露的交接缺陷(已在 v2 修)
+
+读 v1 的 Engineer 提示原文时发现两处与"交接"直接相关的缺陷,均不在提示措辞而在管道:
+
+1. Planner 确实按 `implementation-brief.md` 写出了 40 行实现简报(claim、四个组件的 `src/...py:Class` 入口、接口签名、必过的 tests/spec 文件、数据规模、命令、环境前提、完成定义、范围外),但 `TASK_OBJECTIVE=` 的两处行式解析器只保留了第一行,任务记录里的 objective 字面上是 `## Claim`。Engineer 是靠验收句、任务简报和技能目录把方法卡、参考克隆和规格测试做出来的。
+2. Experiment 阶段的 Engineer 以普通 `mission` 操作运行,`loop.py` 对这种操作不传 stage,研究垂域为 Engineer 准备的阶段块(权威手册、本机算力、"方法卡与可执行规格"、"持久研究学习")从未进入 Engineer 提示——基线亦然。这解释了 `# why:` 注释为零、没有沉淀 skill/决策记录:Engineer 从未看到要求它这样做的那段话。
+
+两处都在 v2(`f62c654b9`,产物 `19629fb29`)修复并部署;v2 对照项目 `s-e2a29d20` 16:03 启动。
+
+### 4.3 v2 结果
+
+_待填写(运行中)。_
+
+### 4.4 仍然存在的问题
+
+- 评审仍是单轮、无工具的"读证据下判断";主机证据让它有据可依,但它无法自己复现一个数字。这是有意的取舍(token),但应写明。
+- 自进化产出(项目 skill、决策记录)在 v1 里为零。本题不涉及训练基础设施选型,`# why` 与决策记录的触发条件也从未到达 Engineer(见 4.2);v2 之后再看。
+- 选题空间拥挤时"重生成一次"不够;重生成的路线应被要求换问题而不是换方法,或允许 Manager 在全否两次后向操作者提问。
+- 真实数据上"持平"的结果被论文写成 "matches or exceeds";这与 claim 的"2× 更少特征"并不等价,Reviewer 给了 accept(8/10)。固定 claim 的梯子在这里没有被走完——Planner 在合成对照成功后直接进入论文,没有按 4–5 级(规模与数据、基线公平性)继续迭代。
