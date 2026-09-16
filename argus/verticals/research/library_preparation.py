@@ -66,7 +66,12 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         "second portfolio, or use a different `.argus/teams/...` path.\n"
         "- If the mission contract names another team path, that path is stale and "
         "does not authorize a replacement; the canonical runtime-owned path above "
-        "takes precedence."
+        "takes precedence.\n"
+        "- While its workers run, Argus waits for them itself and calls you only "
+        "when the team has finished or needs attention (see External work "
+        "status). Do not poll `team status`, tail worker logs, inspect Argus's "
+        "own source, or resize the pool; its width is fixed by the host's "
+        "provider capacity."
     )
     selection = idea_portfolio_selection(
         context.workdir,

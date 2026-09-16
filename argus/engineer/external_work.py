@@ -59,10 +59,31 @@ class ExternalWorkStatus:
     run_id: str = ""
     started_at: float = 0.0
     facts: tuple[str, ...] = ()
+    # Who started the work: "runtime" for work Argus itself set up on the
+    # lead's behalf (an idea portfolio), "lead" for work the Engineer asked
+    # for, "" when the record does not say.
+    owner: str = ""
 
     @property
     def waitable(self) -> bool:
         return self.state is ExternalWorkState.RUNNING_HEALTHY
+
+
+ExternalWorkSource = Callable[[Path, float], list[ExternalWorkStatus]]
+_EXTERNAL_WORK_SOURCES: list[ExternalWorkSource] = []
+
+
+def register_external_work_source(source: ExternalWorkSource) -> ExternalWorkSource:
+    """Let a higher layer project its own long-running work onto this protocol.
+
+    The round loop lives below the packages that own teams and other
+    supervised work, so they register a reader here instead of being imported.
+    A source receives ``(workdir, now)`` and returns validated statuses; a
+    source that raises is skipped for that scan.
+    """
+    if source not in _EXTERNAL_WORK_SOURCES:
+        _EXTERNAL_WORK_SOURCES.append(source)
+    return source
 
 
 def _coerce_float(value: object, default: float) -> float:
@@ -435,6 +456,14 @@ def scan_external_work(
             )
             if status is not None and status.work_id not in statuses:
                 statuses[status.work_id] = status
+    for source in list(_EXTERNAL_WORK_SOURCES):
+        try:
+            projected = source(Path(workdir), observed_at)
+        except Exception:  # noqa: BLE001 — one broken source must not hide the others
+            continue
+        for status in projected:
+            if status.work_id not in statuses:
+                statuses[status.work_id] = status
     return [statuses[key] for key in sorted(statuses)]
 
 
@@ -582,7 +611,7 @@ def render_external_work_advisory(
         lines.extend([
             "If all remaining work depends on one RUNNING_HEALTHY item, end your response with one JSON line:",
             '    {"wait_for": "external_work", "wait_id": "<work_id>"}',
-            'Use "subagent" instead of "external_work" for a listed subagent.',
+            'Use "subagent" instead of "external_work" for a listed subagent; a team keeps "external_work".',
             "Argus will monitor it without spending another Engineer round. File growth alone never counts as progress.",
         ])
     if any(

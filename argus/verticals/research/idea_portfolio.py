@@ -665,6 +665,7 @@ def _ensure_selection_team(
                 "routes and independent reviews finish."
             ),
             lead="engineer",
+            owner=formation.RUNTIME_OWNER,
             cwd=project_root,
             tasks=tasks,
         )
@@ -812,6 +813,7 @@ def ensure_idea_portfolio(
                 "independent review for each before one selector chooses."
             ),
             lead="engineer",
+            owner=formation.RUNTIME_OWNER,
             cwd=project_root,
             tasks=tasks,
         )

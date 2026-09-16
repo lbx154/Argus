@@ -11,6 +11,8 @@ from typing import Any
 from . import _store, pool, registry, roster, task_board
 
 _RECEIPT_FILE = "dispatch_receipt.json"
+# Marker owner for campaigns Argus forms on the lead's behalf.
+RUNTIME_OWNER = "runtime"
 _LOCK_FILE = ".formation.lock"
 _ADMISSION_LOCK_FILE = ".formation-admission.lock"
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
@@ -125,6 +127,7 @@ def _form_team(
     cwd: Path | str,
     tasks: list[dict[str, Any]],
     now: float | None = None,
+    owner: str = "lead",
 ) -> dict[str, Any]:
     """Complete or recover one exact team formation.
 
@@ -236,6 +239,7 @@ def _form_team(
                 team_root=root,
                 cwd=cwd_text,
                 now=formed_at,
+                owner=owner,
             )
         return dict(receipt)
 
@@ -284,6 +288,7 @@ def form_team(
     cwd: Path | str,
     tasks: list[dict[str, Any]],
     now: float | None = None,
+    owner: str = "lead",
 ) -> dict[str, Any]:
     """Admit and durably form one team without unbounded recursive fanout."""
     project_root = Path(project_root).expanduser().resolve()
@@ -321,6 +326,7 @@ def form_team(
             cwd=cwd,
             tasks=tasks,
             now=now,
+            owner=owner,
         )
 
 
@@ -329,4 +335,4 @@ def load_receipt(root: Path) -> dict[str, Any]:
     return dict(receipt) if isinstance(receipt, dict) else {}
 
 
-__all__ = ["form_team", "load_receipt"]
+__all__ = ["RUNTIME_OWNER", "form_team", "load_receipt"]

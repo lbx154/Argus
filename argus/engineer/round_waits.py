@@ -11,14 +11,17 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core import process_stop
 from .external_work import (
+    ExternalWorkState,
     ExternalWorkStatus,
     inspect_external_work,
     parse_external_wait_request,
+    scan_external_work,
 )
 from .round_signals import _pause_decision_clock
 from .round_state import (
@@ -34,8 +37,138 @@ if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
 
+# The lead holds its mission for this long waiting on its own team before it
+# hands the wait to the daemon, which resumes the mission when the team settles.
+_LEAD_WAIT_MAX_ENV = "ARGUS_TEAM_LEAD_WAIT_MAX_SECONDS"
+_LEAD_WAIT_MAX_DEFAULT = 3600.0
+
+
+def _lead_wait_max_seconds() -> float:
+    try:
+        return max(0.0, float(os.environ.get(_LEAD_WAIT_MAX_ENV, "") or _LEAD_WAIT_MAX_DEFAULT))
+    except ValueError:
+        return _LEAD_WAIT_MAX_DEFAULT
+
+
+def _team_wait_line(work_id: str) -> str:
+    return json.dumps({"wait_for": "external_work", "wait_id": work_id})
+
+
+_LEAD_AUTO_WAIT_ENV = "ARGUS_TEAM_LEAD_AUTO_WAIT"
+_TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
+
+
+def lead_auto_wait_enabled() -> bool:
+    """The lead waits for runtime-owned teams unless disabled or inside a worker.
+
+    A teammate runs the same round loop in the same workspace; it must never
+    wait for the team it belongs to.
+    """
+    if os.environ.get(_TEAM_TASK_ENV, "").strip():
+        return False
+    raw = os.environ.get(_LEAD_AUTO_WAIT_ENV, "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def runtime_team_wait_target(workdir: Path) -> ExternalWorkStatus | None:
+    """The runtime-owned team the lead should wait for right now, if any."""
+    for status in scan_external_work(workdir):
+        if status.source == "team" and status.owner == "runtime" and status.waitable:
+            return status
+    return None
+
+
 class RoundWaitsMixin:
     """Mixin providing ``SupervisedEngineer``'s agent-driven wait phase."""
+
+    def _handle_runtime_team_wait(
+        self,
+        *,
+        round_index: int,
+        supervised_config: "SupervisedConfig",
+        workdir: Path,
+        state: RoundLoopState,
+        on_event: Callable[[dict], None] | None,
+    ) -> RoundControl:
+        """Wait for a runtime-owned team before spending an Engineer round.
+
+        The runtime formed the idea portfolio itself and the Curator staffs it;
+        while its workers run, the lead has nothing to do but watch. It used to
+        do that with model turns — ``team status``, ``ps``, ``tail`` — and on a
+        two-slot host its open call also starved the Planner. Now the harness
+        watches the task board instead: no model call until the team finishes
+        or needs attention. A finished team ends this attempt with the same
+        structured pause an Engineer-requested wait uses, so the daemon resumes
+        the mission and the runtime forms the next step (the selector) before
+        the Engineer is called.
+        """
+        if not lead_auto_wait_enabled():
+            return control_proceed()
+        try:
+            target = runtime_team_wait_target(workdir)
+        except Exception:  # noqa: BLE001 — an unreadable board never blocks the round
+            return control_proceed()
+        if target is None:
+            return control_proceed()
+
+        from . import runner as _runner_module
+
+        session = state.engineer_session
+        thread_id = str(getattr(session, "thread_id", "") or "") or None
+        budget = _lead_wait_max_seconds()
+        started = time.monotonic()
+        waited_total = 0.0
+        current: ExternalWorkStatus | None = target
+        while True:
+            wait_reason, waited_s = _runner_module._run_external_work_wait(
+                workdir=workdir,
+                work_id=target.work_id,
+                round_index=round_index,
+                round_max=supervised_config.max_rounds,
+                on_event=on_event,
+                waited_total_s=waited_total,
+            )
+            waited_total += waited_s
+            state.last_decision_progress_at = _pause_decision_clock(
+                state.last_decision_progress_at, waited_s,
+            )
+            if wait_reason == "stop_requested" or process_stop.stop_requested():
+                return control_return((
+                    "paused_daemon_shutdown", state.rounds, state.last_engineer_message,
+                    f"daemon shutdown requested while waiting for {target.work_id}",
+                    thread_id,
+                ))
+            current = inspect_external_work(workdir, target.work_id)
+            if current is None or not current.waitable:
+                break
+            if wait_reason == "cadence_elapsed" and time.monotonic() - started < budget:
+                continue
+            # Hand the wait to the daemon: it resumes the mission once the team
+            # settles, and the mission slot is free meanwhile.
+            return control_return((
+                "paused_external_work", state.rounds, _team_wait_line(target.work_id),
+                f"runtime-owned {target.work_id} is still working; the lead released "
+                "the mission slot without spending an Engineer round",
+                thread_id,
+            ))
+        if current is not None and current.state is ExternalWorkState.NEEDS_ATTENTION:
+            self._prepare_external_work_followup(state, current)
+            state.pending_external_work_followup = (
+                "## Team follow-up\n"
+                f"The runtime-owned team `{current.work_id}` needs attention: "
+                f"{current.reason or current.description}.\n"
+                + "\n".join(f"- {fact}" for fact in current.facts)
+                + "\nSettle the failed or blocked tasks (retry, answer, or retire them) "
+                "before anything else; do not resize the pool or poll the team."
+            )
+            return control_proceed()
+        # Finished (or gone): let the daemon resume this mission so the runtime
+        # re-forms the portfolio's next step before the Engineer is called.
+        return control_return((
+            "paused_external_work", state.rounds, _team_wait_line(target.work_id),
+            f"runtime-owned {target.work_id} finished; the mission resumes to settle it",
+            thread_id,
+        ))
 
     @staticmethod
     def _wait_review_receipt_path(config: "SupervisedConfig") -> Path | None:

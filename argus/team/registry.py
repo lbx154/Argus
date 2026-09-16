@@ -34,14 +34,20 @@ def marker_path(project_root: Path, team_id: str) -> Path:
 
 
 def write_marker(project_root: Path, *, team_id: str, team_root: Path | str,
-                 cwd: Path | str, now: float) -> Path:
-    """Atomically write a campaign marker; returns its path."""
+                 cwd: Path | str, now: float, owner: str = "lead") -> Path:
+    """Atomically write a campaign marker; returns its path.
+
+    ``owner`` records who formed the campaign: ``"lead"`` for a team the
+    Engineer asked for, ``"runtime"`` for one Argus formed on its behalf (the
+    idea portfolio). The round loop waits for runtime-owned teams itself.
+    """
     path = marker_path(project_root, team_id)
     _store.atomic_write_json(path, {
         "team_id": str(team_id),
         "team_root": str(team_root),
         "cwd": str(cwd),
         "created_ts": float(now),
+        "owner": str(owner or "lead"),
     })
     return path
 
