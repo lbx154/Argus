@@ -381,7 +381,7 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
     assert 'timed rechecks' in _PLANNER_CORE_CONTRACT
     assert 'When only Argus running/paused_external_work dependencies remain' in _PLANNER_CORE_CONTRACT
     assert "`WAITING=true`" in _PLANNER_CORE_CONTRACT
-    assert "`WAIT_ID=<live subagent id>`" in _PLANNER_CORE_CONTRACT
+    assert "`WAIT_ID=<live subagent or\n  team work id from live_subagent_work_ids>`" in _PLANNER_CORE_CONTRACT
     assert "no `TASK_*` blocks" in _PLANNER_CORE_CONTRACT
     for field in ("`TASK_TITLE`", "`TASK_OBJECTIVE`", "`TASK_ACCEPTANCE_CHECK`"):
         assert field in _PLANNER_CORE_CONTRACT

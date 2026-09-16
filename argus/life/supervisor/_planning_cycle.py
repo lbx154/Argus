@@ -66,6 +66,9 @@ _OPERATOR_WAIT_MARKERS = (
 )
 
 
+# External-work sources whose state the Host can observe for a Planner wait.
+HOST_OBSERVED_WAIT_SOURCES = frozenset({"subagent", "team"})
+
 class PlanningCycleMixin(
     PlanningCycleIntakeMixin,
     PlanningCycleVerdictMixin,
@@ -73,13 +76,21 @@ class PlanningCycleMixin(
     PlanningCycleEnqueueMixin,
 ):
     def _waitable_subagent_jobs(self) -> list[Any]:
+        """Live work the Host observes and the Planner may wait on.
+
+        Subagent jobs and, since the team projection, runtime-owned and
+        lead-formed teams (``team:<id>``): a Planner that waited for route
+        workers by name had its wait degraded to a poll and re-ran every
+        backoff tick, eighteen tool turns a time, on the stable web trial
+        (2026-09-16).
+        """
         try:
             from ...engineer.external_work import scan_external_work
 
             return [
                 job
                 for job in scan_external_work(self._project_workdir())
-                if job.source == "subagent" and job.waitable
+                if job.source in HOST_OBSERVED_WAIT_SOURCES and job.waitable
             ]
         except Exception:  # noqa: BLE001 - liveness discovery is fail-soft
             log.debug("failed to inspect waitable subagents", exc_info=True)
@@ -88,7 +99,15 @@ class PlanningCycleMixin(
     @staticmethod
     def _text_references_live_subagents(text: str, jobs: list[Any]) -> bool:
         text = " ".join(str(text or "").split()).casefold()
-        return any(job.work_id.casefold() in text for job in jobs)
+        for job in jobs:
+            work_id = str(job.work_id or "").casefold()
+            if work_id and work_id in text:
+                return True
+            # A team is named by its id in prose; the ``team:`` prefix is the
+            # protocol's spelling, not the Planner's.
+            if job.source == "team" and work_id.startswith("team:") and work_id[5:] in text:
+                return True
+        return False
 
     @staticmethod
     def _text_is_monitor_only(text: str) -> bool:
@@ -198,6 +217,17 @@ class PlanningCycleMixin(
                 jobs,
             )
             monitor_only_wait = self._text_is_monitor_only(waiting_text)
+            # Waiting for a team is waiting for background work by definition:
+            # its routes run in worker sessions the Planner cannot advance, so
+            # the wording test written for subagent status probes does not
+            # apply. Without this the trial Planner's "pause until this review
+            # concludes" stayed a poll and re-ran every backoff tick.
+            if references_live_job and not monitor_only_wait and any(
+                job.source == "team" for job in jobs
+            ):
+                monitor_only_wait = self._text_references_live_subagents(
+                    waiting_text, [job for job in jobs if job.source == "team"],
+                )
             if references_live_job and monitor_only_wait and existing_contract is None:
                 source = "missing_wait_contract"
             elif existing_contract is not None:
@@ -293,6 +323,14 @@ class PlanningCycleMixin(
             return None
         watched = self._waitable_subagent_jobs()
         if not watched:
+            return None
+        if any(
+            getattr(job, "source", "") == "team" and getattr(job, "owner", "") == "runtime"
+            for job in watched
+        ):
+            # A runtime-owned team *is* the current stage's work (the idea
+            # portfolio); an overlap mission beside it would be the lead
+            # inventing work while its own routes run.
             return None
         root = self._artifact_root()
         title = "Advance independent work while background job runs"

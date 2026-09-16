@@ -52,10 +52,11 @@ class PlannerOrchestrationMixin:
         it, and empty on any probe failure because the digest is advisory.
         """
         try:
+            jobs = list(self._waitable_subagent_jobs())
             ids = sorted(
                 {
                     work_id
-                    for job in self._waitable_subagent_jobs()
+                    for job in jobs
                     if (work_id := str(getattr(job, "work_id", "") or ""))
                 }
             )
@@ -63,10 +64,25 @@ class PlannerOrchestrationMixin:
             return ""
         if not ids:
             return ""
-        return (
-            "- live_subagent_work_ids (copy one exactly into any subagent "
-            "event wait): " + ", ".join(ids)
-        )
+        lines = [
+            "- live_subagent_work_ids (copy one exactly into any subagent or "
+            "team event wait): " + ", ".join(ids)
+        ]
+        # A team's board is already read here; saying so spares the Planner
+        # the tool turns it otherwise spends re-reading tasks, pool and logs.
+        for job in sorted(jobs, key=lambda item: str(getattr(item, "work_id", ""))):
+            if str(getattr(job, "source", "") or "") != "team":
+                continue
+            facts = list(getattr(job, "facts", ()) or ())
+            summary = str(getattr(job, "description", "") or "").strip()
+            detail = "; ".join(facts[:6])
+            lines.append(
+                f"- live_team_status ({job.work_id}): {summary}"
+                + (f" — {detail}" if detail else "")
+                + ". The Host watches this board; wait on the team id rather "
+                "than re-reading its files."
+            )
+        return "\n".join(lines)
 
     def _planner_cycle_gate_reason(self) -> str:
         gate = self.config.planner_cycle_gate

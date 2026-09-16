@@ -43,8 +43,8 @@ from argus.skills.vertical_select import persist_vertical
 # prose cannot silently consume that dynamic-state allowance.
 # +100 on 2026-09-16 for one fixed policy line ("plan from the mission workspace
 # only") after the bounded Planner was seen listing sibling projects.
-MATH_SCOPE_BUDGET = 12_750
-MATURE_MATH_SCOPE_BUDGET = 18_550
+MATH_SCOPE_BUDGET = 12_850
+MATURE_MATH_SCOPE_BUDGET = 18_650
 RESEARCH_PLAN_DYNAMIC_BUDGET = 8_000
 
 

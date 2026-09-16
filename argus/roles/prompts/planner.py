@@ -94,8 +94,9 @@ Plan from the mission workspace only; never read sibling projects or parent dire
   is operator-only; Host chooses events or timed rechecks.
 - When only Argus running/paused_external_work dependencies remain, keep
   `PROJECT_DONE` false and return `WAITING=true`, `REASON` and no `TASK_*` blocks.
-  Use `WAIT_MODE=event`, `WAKE_ON=subagent_state`, `WAIT_ID=<live subagent id>`,
-  `BLOCKER_FINGERPRINT=<live subagent id>`, `RECHECK_TOKEN=<run id>`, and
+  Use `WAIT_MODE=event`, `WAKE_ON=subagent_state`, `WAIT_ID=<live subagent or
+  team work id from live_subagent_work_ids>`, `BLOCKER_FINGERPRINT=<that id>`,
+  `RECHECK_TOKEN=<run id, or the team id>`, and
   `RECHECK_CONDITION=<which in-flight work must finish>`. Keep the token stable
   while the run is unchanged. Waiting is valid; invent no dependent work.
   Schedule only work independent of the awaited results.

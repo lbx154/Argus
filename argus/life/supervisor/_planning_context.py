@@ -29,6 +29,7 @@ from ._constants import (
     VERIFICATION_PROBE_COOLDOWN_SECONDS,
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
+from ._planning_cycle import HOST_OBSERVED_WAIT_SOURCES
 
 log = logging.getLogger(__name__)
 
@@ -1388,7 +1389,7 @@ class PlanningContextMixin:
                     "state": status.state.value,
                 }
                 for status in scan_external_work(project_root)
-                if status.source == "subagent"
+                if status.source in HOST_OBSERVED_WAIT_SOURCES
             ]
         except Exception:  # noqa: BLE001 - wait evaluation must stay stable
             log.debug("external-work registry scan failed", exc_info=True)
@@ -1761,7 +1762,7 @@ class PlanningContextMixin:
                 )
             except Exception:  # noqa: BLE001 - registry discovery is fail-soft
                 log.warning("failed to resolve planner wait registry id", exc_info=True)
-            if resolved_wait is not None and resolved_wait.source == "subagent":
+            if resolved_wait is not None and resolved_wait.source in HOST_OBSERVED_WAIT_SOURCES:
                 if "subagent_state" not in wake_on:
                     wake_on.append("subagent_state")
                 context_requires_event = True
@@ -1771,7 +1772,7 @@ class PlanningContextMixin:
             else:
                 wait_id_source_unknown = True
                 normalization_reasons.append(
-                    "wait_id did not resolve to a Host-observed subagent"
+                    "wait_id did not resolve to a Host-observed subagent or team"
                 )
 
         contract_observed_revision = str(
@@ -1786,7 +1787,10 @@ class PlanningContextMixin:
         if (
             {"subagent_state", "subagent_terminal"}.intersection(wake_on)
             and not contract_observed_revision
-            and not (resolved_wait is not None and resolved_wait.source == "subagent")
+            and not (
+                resolved_wait is not None
+                and resolved_wait.source in HOST_OBSERVED_WAIT_SOURCES
+            )
         ):
             wake_on = [
                 source
@@ -1829,7 +1833,7 @@ class PlanningContextMixin:
             wait_mode == "event"
             and {"subagent_state", "subagent_terminal"}.intersection(wake_on)
             and resolved_wait is not None
-            and resolved_wait.source == "subagent"
+            and resolved_wait.source in HOST_OBSERVED_WAIT_SOURCES
         ):
             contract_observed_revision = current_observed_revision
         if (
