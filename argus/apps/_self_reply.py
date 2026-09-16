@@ -152,6 +152,33 @@ def self_retryable_transport_failure(result: Any) -> bool:
     return any(marker in fatal for marker in _SELF_RETRYABLE_TRANSPORT_ERRORS)
 
 
+_SELF_STALL_MARKERS = (
+    "hard idle timeout",
+    "restart requested by stall sub-agent",
+)
+
+
+def self_stalled_model_turn(result: Any) -> bool:
+    """The watchdog killed a turn because the provider stopped streaming.
+
+    Unlike a transport failure this can follow tool calls, so the retry must
+    continue the same provider thread (their results are already in it)
+    rather than start over and redo them.
+    """
+    if (getattr(result, "last_agent_message", "") or "").strip():
+        return False
+    fatal = str(getattr(result, "fatal_error", "") or "").strip().casefold()
+    return bool(fatal) and any(marker in fatal for marker in _SELF_STALL_MARKERS)
+
+
+_SELF_STALL_CONTINUATION = (
+    "Your previous attempt stalled before answering: the model produced no output "
+    "for a while and the turn was cut off. Continue from where you left off and give "
+    "the operator the final answer now. Do not repeat tool calls whose results are "
+    "already in this conversation."
+)
+
+
 def _execution_without_tools(result: Any) -> bool:
     """A successful prose turn is not evidence that a local action ran."""
     return (
@@ -919,7 +946,17 @@ class SelfReplyMixin:
             )
             attempt_results.append(result)
             no_action = executing and _execution_without_tools(result)
-            if self_retryable_transport_failure(result) or no_action:
+            stalled = self_stalled_model_turn(result)
+            stall_resume = (
+                (getattr(result, "thread_id", None) or seed) if stalled else None
+            )
+            if stalled and not stall_resume and bool(
+                getattr(result, "tool_activity_observed", False)
+            ):
+                # Tools already ran and there is no thread to continue: a blind
+                # restart would redo them, so surface the stall instead.
+                stalled = False
+            if self_retryable_transport_failure(result) or no_action or stalled:
                 sink.handle_event({
                     "type": "engineer.progress",
                     "kind": "provider_retry",
@@ -927,6 +964,10 @@ class SelfReplyMixin:
                     "text": (
                         "尚未执行实际操作，正在自动补做一次…"
                         if no_action else
+                        "模型停止响应，本轮被看门狗中止；正在续接同一会话重试一次…"
+                        if stalled and stall_resume else
+                        "模型停止响应，本轮被看门狗中止；正在重新发起一次…"
+                        if stalled else
                         "Provider transport failed before output; retrying once in a fresh session"
                     ),
                 })
@@ -937,11 +978,12 @@ class SelfReplyMixin:
                         "Perform the requested local work now using the available tools. "
                         "Inspect the inputs, create or update the requested files, verify them, "
                         "then report the actual result. Do not return another plan."
-                        if no_action else prompt
+                        if no_action else
+                        _SELF_STALL_CONTINUATION if stall_resume else prompt
                     ),
                     options=options,
                     run_label=run_label,
-                    resume_thread_id=None,
+                    resume_thread_id=stall_resume,
                 )
                 attempt_results.append(result)
         finally:
@@ -1220,4 +1262,5 @@ __all__ = [
     "SelfReplyMixin",
     "build_status_snapshot_reply",
     "self_retryable_transport_failure",
+    "self_stalled_model_turn",
 ]

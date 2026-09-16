@@ -1013,6 +1013,86 @@ def test_self_does_not_retry_after_tool_activity() -> None:
     assert _self_retryable_transport_failure(result) is False
 
 
+
+def test_self_resumes_the_same_thread_once_after_a_watchdog_stall() -> None:
+    """A stalled provider is retried by continuing the thread, not redoing tools.
+
+    Stable web trial project s-701ae84b (2026-09-16): the Manager ran two
+    read-only tool calls, then Gemini streamed nothing for 120s, the watchdog
+    killed the turn and the operator saw "Answer failed" with no retry.
+    """
+
+    class _StallingBackend(_FakeBackend):
+        def run_exec(self, **kwargs: Any) -> RunnerResult:
+            self.calls.append(dict(kwargs))
+            if len(self.calls) == 1:
+                return RunnerResult(
+                    exit_code=1,
+                    thread_id="stalled-session",
+                    fatal_error=(
+                        "Forced restart after hard idle timeout "
+                        "(120s without a model stream event)."
+                    ),
+                    tool_activity_observed=True,
+                    input_tokens=9,
+                )
+            return RunnerResult(
+                exit_code=0,
+                thread_id="stalled-session",
+                agent_messages=["这是继续完成的回答。"],
+                input_tokens=4,
+                output_tokens=6,
+            )
+
+    backend = _StallingBackend()
+    runner = _make_runner(backend)
+    sink = _RecordingSink()
+
+    out = runner._simple_quick_reply(objective="给我写一篇 ICLR 论文的提纲", sink=sink)
+
+    assert out.success is True
+    assert len(backend.calls) == 2
+    assert backend.calls[1]["resume_thread_id"] == "stalled-session"
+    assert "Do not repeat tool calls" in backend.calls[1]["prompt"]
+    retry = next(event for event in sink.events if event.get("kind") == "provider_retry")
+    assert "续接同一会话" in retry["text"]
+    main = next(event for event in sink.events if event.get("type") == "round.main.completed")
+    assert main["attempt_count"] == 2
+
+
+def test_self_does_not_blindly_redo_tools_after_a_stall_without_a_thread() -> None:
+    class _StallingBackend(_FakeBackend):
+        def run_exec(self, **kwargs: Any) -> RunnerResult:
+            self.calls.append(dict(kwargs))
+            return RunnerResult(
+                exit_code=1,
+                thread_id=None,
+                fatal_error="Forced restart after hard idle timeout (120s without a model stream event).",
+                tool_activity_observed=True,
+            )
+
+    backend = _StallingBackend()
+    runner = _make_runner(backend)
+    sink = _RecordingSink()
+
+    out = runner._simple_quick_reply(objective="整理一下工作区", sink=sink)
+
+    assert out.success is False
+    assert len(backend.calls) == 1
+    assert "hard idle timeout" in out.stop_reason
+    assert not any(event.get("kind") == "provider_retry" for event in sink.events)
+
+
+def test_stall_predicate_ignores_answered_turns_and_other_errors() -> None:
+    from argus.apps._runtime import _self_stalled_model_turn
+
+    stalled = RunnerResult(exit_code=1, fatal_error="Forced restart after hard idle timeout (120s without a model stream event).")
+    assert _self_stalled_model_turn(stalled) is True
+    answered = RunnerResult(exit_code=1, fatal_error="Forced restart after hard idle timeout (120s).", agent_messages=["done"])
+    assert _self_stalled_model_turn(answered) is False
+    assert _self_stalled_model_turn(RunnerResult(exit_code=1, fatal_error="ACP prompt timed out after 300s")) is False
+    assert _self_stalled_model_turn(RunnerResult(exit_code=0)) is False
+
 def test_execute_team_answer_uses_full_pipeline() -> None:
     """A TEAM route answer must not short-circuit."""
     backend = _FakeBackend(

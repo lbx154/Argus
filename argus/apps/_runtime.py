@@ -72,6 +72,9 @@ from ._self_reply import SelfReplyMixin
 from ._self_reply import (  # noqa: F401 — re-exported, see __all__
     self_retryable_transport_failure as _self_retryable_transport_failure,
 )
+from ._self_reply import (
+    self_stalled_model_turn as _self_stalled_model_turn,
+)
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +100,7 @@ __all__ = [
     "_env_flag",
     "_env_int",
     "_self_retryable_transport_failure",
+    "_self_stalled_model_turn",
     "_CommonMemory",
     "_SplitMemory",
     "_memory_project_root",
