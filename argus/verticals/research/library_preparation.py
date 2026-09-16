@@ -22,12 +22,13 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
 
     migrate_legacy_research_stage(context.state_root)
     from .idea_portfolio import (
-        DEFAULT_PORTFOLIO_SIZE,
         SELECTION_POLICY,
         ensure_idea_portfolio,
         idea_portfolio_selection,
         migrate_legacy_idea_selection,
         portfolio_required,
+        portfolio_route_count,
+        portfolio_size,
         portfolio_width,
     )
 
@@ -71,20 +72,21 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         context.workdir,
         state_root=context.state_root,
     )
+    route_count = portfolio_route_count(team_root) or portfolio_size()
     context.emit({
         "type": "idea.portfolio.formed",
         "team_root": str(team_root),
         "width": portfolio_width(team_root),
-        "route_count": DEFAULT_PORTFOLIO_SIZE,
-        "task_count": DEFAULT_PORTFOLIO_SIZE * 2,
+        "route_count": route_count,
+        "task_count": route_count * 2,
         "selection": selection or {},
         "policy": SELECTION_POLICY,
         "text": (
             f"idea portfolio selected {selection['route_id']}"
             if selection
             else (
-                "formed fixed twelve-route portfolio; selector starts after "
-                "all twelve independent reviews finish"
+                f"formed {route_count}-route portfolio; selector starts after "
+                f"all {route_count} independent reviews finish"
             )
         ),
     })

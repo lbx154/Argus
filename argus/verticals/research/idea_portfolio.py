@@ -17,7 +17,14 @@ from ...core.research_contract import (
 from ...team import formation, pool, roster, task_board
 
 TEAM_ID = "research-idea-pipeline-v8"
-DEFAULT_PORTFOLIO_SIZE = 12
+# Route count of a *new* portfolio. Twelve was the original fixed size; on a
+# two-slot demo host it meant twelve workers fighting for two model slots and
+# ~5M tokens before the first review, so the default is small and operators
+# raise it per deployment. A portfolio already on disk keeps its own count.
+DEFAULT_PORTFOLIO_SIZE = 3
+PORTFOLIO_SIZE_ENV = "ARGUS_RESEARCH_PORTFOLIO_ROUTES"
+MAX_PORTFOLIO_SIZE = 12
+_LEGACY_PORTFOLIO_SIZE = 12
 SELECTION_POLICY = "fixed_twelve_source_only_v6"
 SELECTION_TEAM_SUFFIX = "selection"
 _REVIEW_SCHEMA_VERSION = 2
@@ -35,6 +42,30 @@ _NO_NESTED_TEAM = (
     "This task is already one worker in the parent idea portfolio. Do not create, "
     "ensure, launch, or delegate another Team or idea portfolio."
 )
+
+
+def portfolio_size() -> int:
+    """Route count for a portfolio formed now: the env override, clamped."""
+    raw = os.environ.get(PORTFOLIO_SIZE_ENV, "").strip()
+    try:
+        size = int(raw) if raw else DEFAULT_PORTFOLIO_SIZE
+    except ValueError:
+        size = DEFAULT_PORTFOLIO_SIZE
+    return max(2, min(size, MAX_PORTFOLIO_SIZE))
+
+
+def portfolio_route_count(root: Path) -> int:
+    """Route count of the portfolio recorded at *root*; 0 when none exists."""
+    try:
+        rows = task_board.snapshot(root)
+    except Exception:  # noqa: BLE001 — an unreadable board is "no portfolio"
+        return 0
+    return sum(1 for row in rows if row.get("role") == "idea-route")
+
+
+def _portfolio_size_for(root: Path) -> int:
+    """A portfolio already on disk keeps its size; a new one uses the setting."""
+    return portfolio_route_count(root) or portfolio_size()
 
 
 def portfolio_width(root: Path) -> int:
@@ -138,12 +169,14 @@ def _review_task(
 def portfolio_tasks(
     team_id: str | None = None,
     artifact_root: str | None = None,
+    size: int | None = None,
 ) -> list[dict[str, Any]]:
     resolved_team_id = team_id or _team_id(1)
     internal_root = artifact_root or _artifact_root(resolved_team_id)
+    count = int(size) if size else portfolio_size()
     routes = [
         _route_task(resolved_team_id, internal_root, f"route-{index:02d}")
-        for index in range(1, DEFAULT_PORTFOLIO_SIZE + 1)
+        for index in range(1, count + 1)
     ]
     return [*routes, *(_review_task(route, internal_root) for route in routes)]
 
@@ -152,10 +185,12 @@ def _selection_tasks(
     team_id: str,
     artifact_root: str,
     available_review_ids: tuple[str, ...],
+    size: int | None = None,
 ) -> list[dict[str, Any]]:
+    count = int(size) if size else max(len(available_review_ids), 2)
     specs = {
         task["task_id"]: task
-        for task in portfolio_tasks(team_id, artifact_root)
+        for task in portfolio_tasks(team_id, artifact_root, count)
     }
     candidates: list[dict[str, str]] = []
     for review_id in available_review_ids:
@@ -175,11 +210,11 @@ def _selection_tasks(
         "task_id": selector_id,
         "title": "Select the strongest supported idea",
         "objective": (
-            "Read all twelve route/review pairs below and choose exactly one route. "
+            f"Read all {count} route/review pairs below and choose exactly one route. "
             "The choice is source-only and happens once; do not run candidate code or "
             "experiments. Record why the winner survives the alternatives, resource "
             "needs, unresolved risks, and one single-line rejection reason for each "
-            "of the other eleven routes.\n"
+            f"of the other {count - 1} routes.\n"
             + json.dumps(candidates, ensure_ascii=True, indent=2)
             + f"\nWrite `{output}` as one JSON object with schema_version="
             f"{_SELECTION_SCHEMA_VERSION}, policy=`{SELECTION_POLICY}`, route_id, "
@@ -189,8 +224,8 @@ def _selection_tasks(
             f"{_NO_NESTED_TEAM}"
         ),
         "acceptance_check": (
-            f"`{output}` records one winner after all twelve routes and reviews and "
-            "contains eleven single-line rejection reasons."
+            f"`{output}` records one winner after all {count} routes and reviews and "
+            f"contains {count - 1} single-line rejection reasons."
         ),
         "role": "idea-selector",
         "owns_paths": [output],
@@ -383,6 +418,8 @@ def _compact_selection(payload: dict[str, Any]) -> dict[str, Any]:
 def _selection_payload(
     project_root: Path,
     path: Path,
+    *,
+    expected_rejections: int | None = None,
 ) -> dict[str, Any] | None:
     payload = _json_object(path)
     required = (
@@ -410,7 +447,10 @@ def _selection_payload(
         for key, value in payload["rejections"].items()
         if str(key) != route_id and _one_line(value)
     }
-    if len(rejections) != DEFAULT_PORTFOLIO_SIZE - 1:
+    if expected_rejections is not None:
+        if len(rejections) != expected_rejections:
+            return None
+    elif not rejections:
         return None
     payload["rejections"] = rejections
     return _compact_selection(payload)
@@ -430,7 +470,7 @@ def _valid_selected_idea(payload: dict[str, Any] | None) -> dict[str, Any] | Non
         for key, value in rejections.items()
         if str(key) != str(payload.get("route_id")) and _one_line(value)
     }
-    if len(normalized) != DEFAULT_PORTFOLIO_SIZE - 1:
+    if not normalized:
         return None
     selected = dict(payload)
     selected["rejections"] = normalized
@@ -457,7 +497,8 @@ def _available_review_ids(
     team_id: str,
     artifact_root: str,
 ) -> tuple[str, ...]:
-    specs = portfolio_tasks(team_id, artifact_root)
+    size = _portfolio_size_for(root)
+    specs = portfolio_tasks(team_id, artifact_root, size)
     route_ids = {
         str(task["task_id"])
         for task in specs
@@ -468,7 +509,7 @@ def _available_review_ids(
         for task in specs
         if task.get("role") == "idea-review"
     }
-    if len(route_ids) != DEFAULT_PORTFOLIO_SIZE or len(review_ids) != DEFAULT_PORTFOLIO_SIZE:
+    if not route_ids or len(route_ids) != size or len(review_ids) != size:
         return ()
     if any(
         actual.get(task_id, {}).get("state") != "done"
@@ -606,7 +647,7 @@ def _ensure_selection_team(
 
     selection_root = _selection_team_root(project_root, team_id)
     selection_team_id = _selection_team_id(team_id)
-    tasks = _selection_tasks(team_id, artifact_root, reviews)
+    tasks = _selection_tasks(team_id, artifact_root, reviews, _portfolio_size_for(root))
     existing = task_board.snapshot(selection_root)
     receipt = formation.load_receipt(selection_root)
     canonical = (
@@ -620,8 +661,8 @@ def _ensure_selection_team(
             root=selection_root,
             team_id=selection_team_id,
             mission=(
-                "Select one idea exactly once after all twelve source-only routes "
-                "and independent reviews finish."
+                f"Select one idea exactly once after all {len(reviews)} source-only "
+                "routes and independent reviews finish."
             ),
             lead="engineer",
             cwd=project_root,
@@ -743,7 +784,7 @@ def ensure_idea_portfolio(
         }
         payload["current_verdict"] = "idea_selection_pending"
         payload["next_action"] = (
-            "Complete twelve source-only routes, twelve independent reviews, "
+            "Complete every source-only route, one independent review per route, "
             "and the one-time selector."
         )
         _write_pipeline_unlocked(state_root, payload)
@@ -752,7 +793,8 @@ def ensure_idea_portfolio(
         _dissolve_team(stale, "superseded by a newer research direction")
 
     root = project_root / TEAM_ROOT / team_id
-    tasks = portfolio_tasks(team_id, artifact_root)
+    size = _portfolio_size_for(root)
+    tasks = portfolio_tasks(team_id, artifact_root, size)
     existing = task_board.snapshot(root)
     receipt = formation.load_receipt(root)
     canonical = (
@@ -766,7 +808,7 @@ def ensure_idea_portfolio(
             root=root,
             team_id=team_id,
             mission=(
-                "Complete exactly twelve distinct source-only routes and one "
+                f"Complete exactly {size} distinct source-only routes and one "
                 "independent review for each before one selector chooses."
             ),
             lead="engineer",
@@ -820,7 +862,9 @@ def _selection_from_tasks(
     )
     if tuple(sorted(available_review_ids)) != canonical_review_ids:
         return None
-    selection_specs = _selection_tasks(team_id, artifact_root, available_review_ids)
+    selection_specs = _selection_tasks(
+        team_id, artifact_root, available_review_ids, _portfolio_size_for(root)
+    )
     if not task_board.material_specs_match(selection_root, selection_specs):
         return None
     selector = next(
@@ -836,7 +880,11 @@ def _selection_from_tasks(
     selection_path = _task_output_path(project_root, selector)
     if selection_path is None:
         return None
-    selection = _selection_payload(project_root, selection_path)
+    selection = _selection_payload(
+        project_root,
+        selection_path,
+        expected_rejections=len(canonical_review_ids) - 1,
+    )
     if selection is None:
         return None
 
@@ -901,7 +949,7 @@ def _task_selection(
         not team_id
         or not artifact_root
         or not isinstance(raw_reviews, list)
-        or len(raw_reviews) != DEFAULT_PORTFOLIO_SIZE
+        or not raw_reviews
     ):
         return None
     root = project_root / TEAM_ROOT / team_id
@@ -1089,13 +1137,13 @@ def _legacy_selection(
         if task.get("role") == "idea-review"
     }
     route_ids = set(routes) | set(reviews)
-    if len(route_ids) < DEFAULT_PORTFOLIO_SIZE:
+    if len(route_ids) < _LEGACY_PORTFOLIO_SIZE:
         route_ids.update(
             f"route-{index:02d}"
-            for index in range(1, DEFAULT_PORTFOLIO_SIZE + 1)
+            for index in range(1, _LEGACY_PORTFOLIO_SIZE + 1)
         )
     route_ids.discard(route_id)
-    rejection_ids = sorted(route_ids)[: DEFAULT_PORTFOLIO_SIZE - 1]
+    rejection_ids = sorted(route_ids)[: _LEGACY_PORTFOLIO_SIZE - 1]
     rejections: dict[str, str] = {}
     old_rejections = source.get("rejections")
     if isinstance(old_rejections, dict):
@@ -1126,9 +1174,9 @@ def _legacy_selection(
         "route_artifact": route_artifact,
         "review_artifact": _one_line(source.get("review_artifact")),
         "rationale": _one_line(source.get("rationale"))
-        or "Selected by the prior authoritative twelve-route selector.",
+        or "Selected by the prior authoritative portfolio selector.",
         "evidence_considered": _one_line(source.get("evidence_considered"))
-        or "The completed prior twelve-route portfolio and its independent reviews.",
+        or "The completed prior portfolio and its independent reviews.",
         "resource_requirements": _one_line(source.get("resource_requirements"))
         or "Carry forward the resource requirements recorded by the selected route.",
         "unresolved_risks": (
@@ -1240,7 +1288,7 @@ def idea_portfolio_completion_issues(
     )
     if selection_root is None:
         return (
-            "research idea portfolio has not completed all twelve route/review pairs",
+            "research idea portfolio has not completed all route/review pairs",
         )
     selection = _task_selection(
         project_root,
@@ -1262,12 +1310,16 @@ def idea_portfolio_completion_issues(
 
 __all__ = [
     "DEFAULT_PORTFOLIO_SIZE",
+    "MAX_PORTFOLIO_SIZE",
+    "PORTFOLIO_SIZE_ENV",
     "SELECTION_POLICY",
     "TEAM_ID",
     "ensure_idea_portfolio",
     "idea_portfolio_completion_issues",
     "idea_portfolio_selection",
     "migrate_legacy_idea_selection",
+    "portfolio_route_count",
+    "portfolio_size",
     "portfolio_required",
     "portfolio_tasks",
 ]

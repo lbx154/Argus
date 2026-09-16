@@ -70,12 +70,12 @@ def test_idea_is_source_only_and_never_reselects_after_implementation_failure() 
 
     assert "candidate execution is forbidden" in idea
     assert "do not execute candidate code" in playbook
-    assert "one selector after all 24 tasks finish" in playbook
+    assert "one selector after all route and review tasks finish" in playbook
     assert "do not reopen the portfolio" in playbook
     assert "operator-locked paper direction" in playbook
     assert "without creating a portfolio" in playbook
     assert "exploratory target" in playbook
-    assert "do not manufacture twelve routes" in playbook
+    assert "manufacture a route portfolio" in playbook
     assert "direct idea-only request" in playbook
     assert "do not continue into experiment" in playbook
 

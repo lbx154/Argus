@@ -21,5 +21,5 @@ Return through the route's internal review result:
 - the strongest prior-art argument against selecting the route.
 
 Do not create a project-visible novelty report or literature database. If a route's core mechanism already exists, explain that concern in its
-independent review; the selector still waits for all twelve route/review pairs and chooses
+independent review; the selector still waits for all route/review pairs and chooses
 once. Novelty findings never reopen selection after a winner exists.

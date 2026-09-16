@@ -15,13 +15,14 @@ hypothesis.
 
 ## How to approach the question
 
-1. For a new broad publishable or doctoral paper mission, form exactly twelve
-   materially different mechanism routes, give every route one fresh
-   independent review, and run one selector after all 24 tasks finish.
+1. For a new broad publishable or doctoral paper mission, form exactly the
+   configured number of materially different mechanism routes (default three;
+   operators set `ARGUS_RESEARCH_PORTFOLIO_ROUTES`), give every route one fresh
+   independent review, and run one selector after all route and review tasks finish.
 2. For an operator-locked paper direction, examine and position the supplied idea
    without creating a portfolio or selecting a replacement. For an exploratory
    target, perform the source-only investigation requested; do not
-   manufacture twelve routes or a paper commitment.
+   manufacture a route portfolio or a paper commitment.
 3. For a direct Idea-only request, produce the requested source-grounded idea,
    comparison, or critique and stop after independent review. Do not continue
    into Experiment, Paper, or Review unless the operator requested that

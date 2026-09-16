@@ -16,6 +16,8 @@ from argus.verticals.research.idea_portfolio import (
     ensure_idea_portfolio,
     idea_portfolio_completion_issues,
     idea_portfolio_selection,
+    portfolio_route_count,
+    portfolio_size,
     portfolio_tasks,
 )
 from argus.verticals.research.library_preparation import (
@@ -132,7 +134,7 @@ def _complete_selector(
             "unresolved_risks": [long_text or "Scale"] * 20,
             "rejections": {
                 f"route-{index:02d}": long_text or "Weaker direct case."
-                for index in range(1, 13)
+                for index in range(1, portfolio_size() + 1)
                 if f"route-{index:02d}" != selected["target"]
             },
         }),
@@ -142,15 +144,56 @@ def _complete_selector(
     return output
 
 
-def test_portfolio_is_twelve_source_only_routes_plus_twelve_reviews() -> None:
+def test_portfolio_defaults_to_three_source_only_routes_plus_reviews() -> None:
     tasks = portfolio_tasks()
 
-    assert sum(task["role"] == "idea-route" for task in tasks) == 12
-    assert sum(task["role"] == "idea-review" for task in tasks) == 12
+    assert portfolio_size() == 3
+    assert sum(task["role"] == "idea-route" for task in tasks) == 3
+    assert sum(task["role"] == "idea-review" for task in tasks) == 3
     assert all(task["owns_paths"][0].startswith(".argus/teams/") for task in tasks)
     text = " ".join(task["objective"] for task in tasks).lower()
     assert "do not execute candidate code" in text
     assert "request an experiment during selection" in text
+
+
+def test_portfolio_size_is_an_operator_setting_with_bounds(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_RESEARCH_PORTFOLIO_ROUTES", "5")
+    tasks = portfolio_tasks()
+    assert sum(task["role"] == "idea-route" for task in tasks) == 5
+    selector = [task for task in tasks if task["role"] == "idea-route"]
+    assert selector[-1]["target"] == "route-05"
+    monkeypatch.setenv("ARGUS_RESEARCH_PORTFOLIO_ROUTES", "40")
+    assert portfolio_size() == 12
+    monkeypatch.setenv("ARGUS_RESEARCH_PORTFOLIO_ROUTES", "1")
+    assert portfolio_size() == 2
+    monkeypatch.setenv("ARGUS_RESEARCH_PORTFOLIO_ROUTES", "many")
+    assert portfolio_size() == 3
+
+
+def test_a_portfolio_already_on_disk_keeps_its_route_count(tmp_path: Path, monkeypatch) -> None:
+    """Lowering the default must not re-form a live twelve-route team."""
+    _state(tmp_path)
+    monkeypatch.setenv("ARGUS_RESEARCH_PORTFOLIO_ROUTES", "12")
+    root = ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    assert portfolio_route_count(root) == 12
+    first = task_board.snapshot(root)
+
+    monkeypatch.delenv("ARGUS_RESEARCH_PORTFOLIO_ROUTES")
+    assert ensure_idea_portfolio(tmp_path, direction="reliable agents") == root
+    assert portfolio_route_count(root) == 12
+    assert [task["task_id"] for task in task_board.snapshot(root)] == [
+        task["task_id"] for task in first
+    ]
+    # ...and it still completes with twelve rejections, not the new default.
+    routes = _complete_routes_and_reviews(tmp_path, root)
+    ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    monkeypatch.setenv("ARGUS_RESEARCH_PORTFOLIO_ROUTES", "12")
+    _complete_selector(tmp_path, routes[0])
+    monkeypatch.delenv("ARGUS_RESEARCH_PORTFOLIO_ROUTES")
+    ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    assert idea_portfolio_completion_issues(tmp_path) == ()
+    selected = idea_portfolio_selection(tmp_path)
+    assert selected is not None and len(selected["rejections"]) == 11
 
 
 def test_selector_does_not_exist_until_all_route_reviews_finish(
@@ -204,7 +247,7 @@ def test_team_local_owner_ids_and_compact_handoff(tmp_path: Path) -> None:
     assert "winner_detail" not in selected
     notes = (tmp_path / "RESEARCH_NOTES.md").read_text(encoding="utf-8")
     assert notes.startswith("# Research notes — Idea stage\n")
-    assert notes.count("\n- **route-") == 11
+    assert notes.count("\n- **route-") == portfolio_size() - 1
     assert ("evidence " * 4000).strip() in notes
 
 

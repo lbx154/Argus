@@ -54,8 +54,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="idea.portfolio",
             statement=(
                 "For a new broad publishable or doctoral paper mission, complete exactly "
-                "twelve source-only routes, twelve independent route reviews, and one "
-                "selector. Candidate execution is forbidden during selection. Full "
+                "the configured number of source-only routes (default three; operators "
+                "set ARGUS_RESEARCH_PORTFOLIO_ROUTES), one independent review per route, "
+                "and one selector. Candidate execution is forbidden during selection. Full "
                 "working outputs stay under internal `.argus` team storage."
             ),
             evidence_hint="internal `.argus/teams/...` task outputs",
@@ -723,7 +724,7 @@ def planner_task_issues(
     portfolio_shaped = (
         "route" in contract
         and ("review" in contract or "selector" in contract)
-        and ("twelve" in contract or "12 " in contract)
+        and re.search(r"\b(?:twelve|\d{1,2}) (?:[a-z-]+ ){0,3}routes?\b", contract) is not None
     )
     if not explicitly_portfolio and not portfolio_shaped:
         return ()
