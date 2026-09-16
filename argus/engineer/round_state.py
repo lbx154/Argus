@@ -64,6 +64,8 @@ class RoundLoopState:
     secret_scan_cache: SecretScanCache = field(default_factory=SecretScanCache)
     engineer_session: RoleSessionCapsule | None = None
     reviewer_session: RoleSessionCapsule | None = None
+    reviewed_external_waits: set[str] = field(default_factory=set)
+    pending_external_wait_review: str | None = None
 
 
 @dataclass

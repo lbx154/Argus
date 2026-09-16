@@ -157,7 +157,7 @@ class RoundSelfReviewMixin:
                 continue_adaptor=continue_adaptor,
                 on_event=on_event,
             )
-        if handoff.next_owner == "engineer":
+        if handoff.next_owner == "engineer" and not state.pending_external_wait_review:
             return control_continue_loop()
         if not supervised_config.require_independent_review and successful_work:
             if milestone_done:

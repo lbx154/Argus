@@ -288,24 +288,29 @@ class SupervisedEngineer(
             paused = manager_wait_terminal(supervised_config, state)
             if paused is not None:
                 return paused
-            control = self._handle_agent_driven_wait(
-                round_index=round_index,
+            wait_message = (
+                outcome.engineer_result.last_agent_message or outcome.raw_engineer_message
+            )
+            review_before_wait = self._external_wait_needs_review(
                 supervised_config=supervised_config,
-                raw_engineer_message=(
-                    outcome.engineer_result.last_agent_message
-                    or outcome.raw_engineer_message
-                ),
+                raw_engineer_message=wait_message,
                 workdir=workdir,
                 state=state,
                 on_event=on_event,
             )
-            if control.action == "return":
-                return enforce_terminal_question_policy(
-                    control.terminal,
-                    supervised_config,
+            if not review_before_wait:
+                control = self._handle_agent_driven_wait(
+                    round_index=round_index,
+                    supervised_config=supervised_config,
+                    raw_engineer_message=wait_message,
+                    workdir=workdir,
+                    state=state,
+                    on_event=on_event,
                 )
-            if control.action == "continue_loop":
-                continue
+                if control.action == "return":
+                    return enforce_terminal_question_policy(control.terminal, supervised_config)
+                if control.action == "continue_loop":
+                    continue
 
             control = self._handle_progress_and_self_review(
                 round_index=round_index,
@@ -347,6 +352,22 @@ class SupervisedEngineer(
             if control.action == "continue_loop":
                 continue
             review = control.payload
+
+            if review_before_wait:
+                from .external_work import inspect_external_work, parse_external_wait_request
+
+                request = parse_external_wait_request(wait_message)
+                waiting = inspect_external_work(workdir, request[1]) if request else None
+                if review.status == "done" and waiting is not None and waiting.waitable:
+                    review = replace(
+                        review, status="continue",
+                        reason=review.reason + " The declared background run still has no terminal result.",
+                        next_action="Await the declared background run, then inspect its result before completing the mission.",
+                    )
+                self._acknowledge_external_wait_review(
+                    supervised_config=supervised_config, state=state,
+                    review=review, on_event=on_event,
+                )
 
             control = self._settle_round(
                 review=review,
