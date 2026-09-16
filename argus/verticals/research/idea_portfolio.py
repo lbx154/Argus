@@ -251,7 +251,7 @@ def _selection_tasks(
         eligibility = ""
     elif qualified:
         eligibility = (
-            " Only routes whose independent review verdict is `qualified` are "
+            " Only routes whose independent review outcome is `qualified` are "
             f"eligible ({', '.join(qualified)}); a rejected route can only receive "
             "a rejection line."
         )
@@ -656,7 +656,7 @@ def _retry_invalid_terminal_tasks(
             elif not _valid_shard(root, review):
                 reason = "reopened: result shard missing or not a success"
             else:
-                reason = "reopened: review file is not a schema 2 verdict"
+                reason = "reopened: review file is not a schema 2 review record"
             if task_board.retry_terminal(root, review_id, reason=reason):
                 retried.append(review_id)
                 log.warning("idea portfolio %s: %s", review_id, reason)

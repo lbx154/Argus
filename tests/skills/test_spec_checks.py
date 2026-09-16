@@ -244,7 +244,7 @@ def test_conftest_under_tests_still_provides_fixtures(tmp_path: Path) -> None:
     spec = workdir / "tests" / "spec"
     spec.mkdir(parents=True)
     (workdir / "tests" / "conftest.py").write_text(
-        "import pytest\n\n@pytest.fixture\ndef answer():\n    return 42\n"
+        "import pytest\n\n" "@pytest.fixture\ndef answer():\n    return 42\n"
     )
     (spec / "test_fixture.py").write_text("def test_answer(answer):\n    assert answer == 42\n")
 

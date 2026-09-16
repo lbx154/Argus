@@ -663,7 +663,7 @@ def test_selection_is_restricted_to_qualified_routes(tmp_path: Path) -> None:
     assert "regenerations" not in payload["idea_portfolio"]
     selection_root = tmp_path / ".argus" / "teams" / payload["idea_portfolio"]["selection_team_id"]
     selector = next(t for t in task_board.snapshot(selection_root) if t["role"] == "idea-selector")
-    assert "Only routes whose independent review verdict is `qualified` are eligible" in selector["objective"]
+    assert "Only routes whose independent review outcome is `qualified` are eligible" in selector["objective"]
     assert "route-01" not in selector["objective"].split("eligible (")[1].split(")")[0]
 
     rejected = next(r for r in routes if r["target"] == "route-01")
