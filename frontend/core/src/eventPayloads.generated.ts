@@ -1823,6 +1823,26 @@ export interface RoundExternalWorkWaitCompletedEvent extends EventMsg {
   "text"?: string;
 }
 
+export interface RoundExternalWorkReviewRequiredEvent extends EventMsg {
+  type: "round.external_work_review.required";
+  payload_schema_version?: 1;
+  "review_key": string;
+  "work_id"?: string;
+  "run_id"?: string;
+  "started_at"?: number | string | null;
+  "phase"?: string;
+  "outcome"?: string;
+  "text"?: string;
+}
+
+export interface RoundExternalWorkReviewCompletedEvent extends EventMsg {
+  type: "round.external_work_review.completed";
+  payload_schema_version?: 1;
+  "review_key": string;
+  "review_status"?: string;
+  "text"?: string;
+}
+
 export interface LifeDaemonReadyEvent extends EventMsg {
   type: "life.daemon.ready";
   payload_schema_version?: 1;
@@ -2164,6 +2184,8 @@ export interface EventPayloadByType {
   "round.orphan_process_group": RoundOrphanProcessGroupEvent;
   "round.external_work_wait.started": RoundExternalWorkWaitStartedEvent;
   "round.external_work_wait.completed": RoundExternalWorkWaitCompletedEvent;
+  "round.external_work_review.required": RoundExternalWorkReviewRequiredEvent;
+  "round.external_work_review.completed": RoundExternalWorkReviewCompletedEvent;
   "life.daemon.ready": LifeDaemonReadyEvent;
   "life.daemon.degraded": LifeDaemonDegradedEvent;
   "idea.portfolio.formed": IdeaPortfolioFormedEvent;

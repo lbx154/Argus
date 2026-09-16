@@ -522,6 +522,10 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('engineer', 'role.engineer', '⌛', `${localized(context, 'waiting for background work to report', '等待后台工作汇报')} · ${clean(stringField(event, 'work_id'), 80)}`, 'dim');
     case 'round.external_work_wait.completed':
       return model('engineer', 'role.engineer', '↻', localized(context, 'background work reported — resuming', '后台工作已汇报 — 继续'), 'dim');
+    case 'round.external_work_review.required':
+      return model('reviewer', 'role.reviewer', '⌛', `${localized(context, 'background work finished — an independent review of its result is required before resuming', '后台工作已结束 — 恢复前需要对其结果做一次独立审阅')} · ${clean(stringField(event, 'work_id'), 80)}`, 'dim');
+    case 'round.external_work_review.completed':
+      return model('reviewer', 'role.reviewer', '✓', `${localized(context, 'background work result reviewed', '后台工作结果已审阅')} · ${clean(stringField(event, 'review_status'), 40)}`, 'dim');
     case 'plan.draft.failed':
       return model('planner', 'role.planner', '⚠', `${localized(context, 'could not draft the plan', '未能起草计划')} · ${clean(stringField(event, 'reason'), 140)}`, 'err');
     case 'plan.draft.done': {

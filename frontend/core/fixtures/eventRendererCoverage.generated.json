@@ -136,6 +136,8 @@
     "round.checkpoint.failed",
     "round.checkpoint.recorded",
     "round.escalated",
+    "round.external_work_review.completed",
+    "round.external_work_review.required",
     "round.external_work_wait.completed",
     "round.external_work_wait.started",
     "round.main.completed",
@@ -190,7 +192,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 162
+        "missing": 164
       },
       "fallback": "greppable",
       "handled": [
@@ -337,6 +339,8 @@
         "round.checkpoint.failed",
         "round.checkpoint.recorded",
         "round.escalated",
+        "round.external_work_review.completed",
+        "round.external_work_review.required",
         "round.external_work_wait.completed",
         "round.external_work_wait.started",
         "round.model_configuration_error",
@@ -385,7 +389,7 @@
     },
     "tui": {
       "counts": {
-        "handled": 98,
+        "handled": 100,
         "hidden": 86,
         "missing": 0
       },
@@ -465,6 +469,8 @@
         "round.backend_failure.backoff",
         "round.backend_failure.hold_interrupted",
         "round.escalated",
+        "round.external_work_review.completed",
+        "round.external_work_review.required",
         "round.external_work_wait.completed",
         "round.external_work_wait.started",
         "round.main.completed",
@@ -582,7 +588,7 @@
     },
     "web": {
       "counts": {
-        "handled": 98,
+        "handled": 100,
         "hidden": 86,
         "missing": 0
       },
@@ -662,6 +668,8 @@
         "round.backend_failure.backoff",
         "round.backend_failure.hold_interrupted",
         "round.escalated",
+        "round.external_work_review.completed",
+        "round.external_work_review.required",
         "round.external_work_wait.completed",
         "round.external_work_wait.started",
         "round.main.completed",

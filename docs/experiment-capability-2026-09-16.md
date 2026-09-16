@@ -28,7 +28,17 @@
 
 ## 2. 改动(按机制,不是按文件)
 
-_待工作流落地后填写:任务简报、实现简报模板、固定 claim 与诊断梯子、主机检查进 research vertical、锚点与评审包、wiki 面板、自评工具。_
+原则:凡是能从代码、测试、配置、git 推出来的,都由主机零 token 派生,不让 agent 手写维护;凡是只有 agent 知道的(方法是什么、为什么这么设),只写一次、写在离代码最近的地方;没有任何一处是"门",证据交给有 hold 权的角色判断。
+
+1. **任务简报(SWE-bench 化的交接)。** 研究垂域接管 mission 前言(`prepare_mission`),每个 Experiment 任务开头多一份派生的 `## Task brief`(不超过 70 行):冻结的 claim 原文(METHOD.md 陈述,并注明只有操作者能改);各组件当前状态与 `# @component` 锚点位置;环境事实(解释器与版本、已装依赖与代码导入的包是否在位、third_party 克隆与钉住版本、数据目录、GPU、上一轮主机检查结果);本任务的验收、决策规则、非目标原文,以及"完成的定义";上次以来的 git 改动。零模型 token。
+2. **实现简报模板。** Planner 写每个实现任务必须按 `engineer/implementation-brief.md`:claim 原文、本任务要实现的组件(来自 METHOD.md,含 file:Symbol 入口与方程/路线章节)、接口、必须通过的 tests/spec、数据与规模(照抄路线)、命令、环境前提、完成定义、范围外。验收是可执行检查,不是形容词;一个任务一份简报;基础设施或 provider 失败重发时简报与验收逐字不变。"定义方法"不再单独派给别人:方法由同一个 Engineer 在写代码前写进 METHOD.md。
+3. **固定 claim,迭代到 work。** 手册、检查清单、Planner/Reviewer/Manager 片段、论文手册里所有"从证据重推论题"的措辞替换为六级诊断梯子:实现忠实度 → 设置与评估器(阳性对照)→ 超参与配方(一次一因)→ 规模与数据(路线的数据集与规模,不是缩水 pilot)→ 基线公平性 → 仍满足 claim 的方法变体。至少三次有诊断的尝试才允许升级,升级是带证据的操作者问题,不是缩小 claim,不是"受限情况"或"负结果"论文;Reviewer 把 claim 漂移和少于三次尝试的负结果当作修复请求;Manager 不把建立在缩小 claim 上的评审通过当作阶段完成;论文只在 claim 如述被支持时才写,以最强结果开篇,不做防御性写作。
+4. **方法卡写一次,其余派生。** METHOD.md 只有方法陈述、组件表(组件 | 想法规定(引用路线原文)| 备注)、协议、可证伪点。实现位置、测试状态、复用代码、超参数、改动记录由主机从 `# @component` 锚点、tests/spec 的 component 标记与主机跑测试的结果、src 导入扫描(映射到 third_party 钉住版本与已装包版本)、configs 的 YAML/JSON/TOML 与 `# why:` 注释、git log 派生。Atlas 研究简报里的方法卡面板展示派生结果。
+5. **主机检查进 research vertical。** 核心层只留 `argus/engineer/round_evidence.py` 注册钩子("每轮 Engineer 结束后,垂域可提供证据");研究垂域 `spec_checks.py` 在导入时注册自己,负责跑 tests/spec(隔离 pytest 配置与环境变量、超时即杀)、按组件 join、写 `.argus/round-checks/`。别的垂域不受影响。
+6. **让代码好 review。** `# @component <名>` 放在组件入口上方,`# @simplified <名>: 原因`、`# @reuses <库> <符号>` 类推,非显然决定写 `# why:`。主机据此生成"评审包":每个组件的代码片段、测试结果、超参变化、本轮改动文件(含删除)。Reviewer 的阅读顺序:评审包 → METHOD.md → 原始验证证据 → 测试 → 代码 → 最后才是 Engineer 自述。Reviewer 没有新增工具或权限。
+7. **基础设施知识自进化。** 技能只写流程(活的调研含"继任者发现"、候选隔离环境钉版本站起并测阶段表与 rollout 引擎开关 A/B、锚定当时配方的一次一因调参),不写任何框架名;当前答案在项目当时产出,存成带 "Surveyed 日期 / re-verify after 日期" 的项目 Skill,沿既有传播机制进研究垂域共享层;研究角色的动态上下文加一行今天日期,声明记得的框架名只是待验证的过期假设。
+8. **wiki 实时可见。** 左侧栏底部新增知识库面板(页数、最近 5 页、15 秒刷新、点开阅读),对应只读接口。
+9. **自评工具。** `python -m argus.verticals.research.capability_report --state-dir … --workspace …` 输出每个项目的过程指标(阶段时长、评审时长与判定、token 与费用、方法卡与组件状态、规格测试、参考实现、种子与数据集、图检、skill/wiki),支持 `--baseline` 对照。
 
 ## 3. 对照实验设计
 

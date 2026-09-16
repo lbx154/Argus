@@ -2290,6 +2290,28 @@
         "text": {"type": "string"}
       }
     },
+    "round.external_work_review.required": {
+      "version": 1,
+      "required": ["review_key"],
+      "properties": {
+        "review_key": {"type": "string", "minLength": 1},
+        "work_id": {"type": "string"},
+        "run_id": {"type": "string"},
+        "started_at": {"type": ["number", "string", "null"]},
+        "phase": {"type": "string"},
+        "outcome": {"type": "string"},
+        "text": {"type": "string"}
+      }
+    },
+    "round.external_work_review.completed": {
+      "version": 1,
+      "required": ["review_key"],
+      "properties": {
+        "review_key": {"type": "string", "minLength": 1},
+        "review_status": {"type": "string"},
+        "text": {"type": "string"}
+      }
+    },
     "life.daemon.ready": {
       "version": 1,
       "properties": {}
