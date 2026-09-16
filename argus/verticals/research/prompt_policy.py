@@ -281,11 +281,12 @@ def paper_writing_standard() -> str:
         "Preserve established scientific terminology in its correct domain sense, "
         "including `certified bounds`, `communication gates`, `communication rounds`, "
         "`numerical artifacts`, `mechanisms` and `controls`. Explain their scientific "
-        "meaning when needed; do not rename legitimate terms to satisfy a word list. A clear "
-        "thesis that a method helps only under identified conditions, or that an "
-        "expected effect does not hold, is a legitimate paper when its evidence is as "
-        "complete as a positive result would need; what is not allowed is presenting "
-        "unfinished development as a finding."
+        "meaning when needed; do not rename legitimate terms to satisfy a word list. "
+        "The paper argues the claim as stated in METHOD.md and is written only when "
+        "that claim is supported: lead with the strongest supported result, no "
+        "defensive writing, and limitations are one honest paragraph rather than the "
+        "framing. A restricted-case or negative-result paper exists only after the "
+        "operator has changed the claim; unfinished development is never a finding."
     )
 
 
@@ -352,17 +353,19 @@ def _method_card_engineer_block(stage: str, operation: str) -> str:
         "First round: write METHOD.md once from the selected route (path under "
         "'Evidence considered' in RESEARCH_NOTES.md; quote it) per "
         "engineer/method-card.md: statement, Components (Component | The idea "
-        "prescribes | Notes), Protocol, falsifier. Clone the "
-        "official or strongest public implementation at a pinned revision into "
-        "third_party/ and extend it so the code diff is the idea diff "
-        "(engineer/delta-on-reference.md). Before any claim-bearing run write "
-        "tests/spec (engineer/executable-spec.md): oracle (one function per "
-        "equation), differential tests, one knockout per component, claim-shaped "
-        "tests, each tagged @pytest.mark.component('<name as in the card>'). The "
-        "host runs tests/spec after every round and derives component status, reused "
-        "code, hyperparameters and history from code, markers, configs and git: "
-        "maintain no tables by hand. Explain a chosen value as '# why: ...' beside "
-        "it in the config; edit METHOD.md only when the method changes."
+        "prescribes | Notes), Protocol, falsifier. Clone the official or strongest "
+        "public implementation at a pinned revision into third_party/ and extend it: "
+        "the code diff is the idea diff (engineer/delta-on-reference.md). Before "
+        "any claim-bearing run write tests/spec (engineer/executable-spec.md): oracle "
+        "(one function per equation), differential tests, one knockout per "
+        "component, claim-shaped tests, each tagged "
+        "@pytest.mark.component('<name as in the card>'). Put '# @component <name>' "
+        "above each component entry point, '# @simplified' and '# @reuses' likewise "
+        "(engineer/write-for-review.md); the host builds the Reviewer's packet from "
+        "these anchors. The host runs tests/spec after every round and derives "
+        "status, reused code, hyperparameters and history from code, markers, "
+        "configs and git: maintain no tables by hand. Explain each chosen value as '# why: ...' "
+        "in the config; edit METHOD.md only when the method changes."
     )
 
 
@@ -371,19 +374,23 @@ def _method_card_reviewer_block(stage: str) -> str:
         return ""
     return (
         "## Method card first\n"
-        "Read in this order: METHOD.md, then the derived method-card status in your "
-        "context and in Raw verification evidence (host-run checks joined with the "
-        "component markers on tests/spec: proven, contradicted, partial, untested, "
-        "unchecked; reused code with revisions; hyperparameters changed since the "
-        "previous round), then tests/spec, then code, and the Engineer's account "
-        "last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
-        "INSUFFICIENT_EVIDENCE with file:line (reviewer/claim-to-code-trace.md). A "
-        "component without a knockout that fails in its absence, an untested or "
-        "contradicted component, a failing or unexplained-skip test, tests collected "
-        "last round but missing now, a hyperparameter change without a '# why' or a "
-        "card note, or code that contradicts the card is a required repair: return "
-        "continue and name the smallest fix. Do not ask for tools or re-run anything "
-        "yourself."
+        "Read in this order: the review packet in your context (component anchors "
+        "with code excerpts, test outcomes, config changes, files changed this "
+        "round), then METHOD.md, then the derived method-card status in Raw "
+        "verification evidence (host-run checks joined with tests/spec markers: "
+        "proven, contradicted, partial, untested, unchecked; reused code; "
+        "hyperparameter changes), then tests/spec, "
+        "then code, and the Engineer's account last. Per component report MATCHES, "
+        "CONTRADICTS, NOT_IMPLEMENTED or INSUFFICIENT_EVIDENCE with file:line "
+        "(reviewer/claim-to-code-trace.md). A component without a '# @component' "
+        "anchor or a knockout that fails in its absence, an untested or contradicted "
+        "component, a failing or unexplained-skip test, tests collected last round "
+        "but missing now, a hyperparameter change without a '# why' or a card note, "
+        "or code that contradicts the card is a required repair: return continue "
+        "and name the smallest fix. The claim is fixed; never accept claim drift: a "
+        "result that narrows the claim, or a negative result with fewer than three "
+        "diagnosed attempts, is a repair request. Do not ask for tools or re-run "
+        "anything yourself."
     )
 
 
@@ -394,11 +401,16 @@ def _method_card_planner_block(stage: str) -> str:
         "## Method card, reference and spec first\n"
         "The first Experiment task is the method card (METHOD.md), the pinned "
         "reference clone under third_party/ and the tests/spec suite, by the same "
-        "Engineer who implements; never a separate 'define the method' task. "
-        "Claim-bearing tasks copy the route's protocol (datasets, baselines, seeds, "
-        "scale) verbatim into acceptance. When a task is re-issued after an "
-        "infrastructure failure its acceptance stays verbatim: repair the "
-        "infrastructure, do not lower the bar."
+        "Engineer who implements; never a separate 'define the method' task. Every "
+        "implementation TASK_OBJECTIVE follows engineer/implementation-brief.md "
+        "(claim verbatim, components named from METHOD.md with file:Symbol entry "
+        "points, interfaces, tests/spec ids, data and scale, commands, environment, "
+        "definition of done, out of scope); acceptance is executable checks, not "
+        "adjectives; one task is one brief. Claim-bearing tasks copy the route's "
+        "protocol (datasets, baselines, seeds, scale) verbatim into acceptance. When "
+        "a task is re-issued after an infrastructure failure or a provider failure its "
+        "brief and acceptance stay verbatim: repair the infrastructure, do not lower "
+        "the bar."
     )
 
 
@@ -436,14 +448,16 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
                 "## Planner responsibility\n"
                 f"Plan only the highest-value unresolved work in `{stage or '(unknown)'}` "
                 "under the stage playbook. Keep repairs in the current stage, avoid "
-                "ceremonial tasks, and leave stage transitions to Manager. A hypothesis "
-                "the evidence has refuted closes its family of repairs: do not schedule "
-                "another variant of the same objective under a new title; schedule the "
-                "re-derivation of the thesis from what the evidence establishes and its "
-                "confirmation on untouched data at the scale the claim needs. In `paper`, "
-                "schedule writing; a run belongs there only for a specific evidence gap "
-                "the manuscript exposed. Retire the refuted family's pending tasks "
-                "with RETIRE_TASK."
+                "ceremonial tasks, and leave stage transitions to Manager. The claim in "
+                "METHOD.md is fixed: the Planner never rewrites the claim and never "
+                "schedules a negative-result or restricted-case paper. After a failed "
+                "comparison schedule the next undiagnosed rung of the playbook's "
+                "diagnosis ladder with its evidence, not another variant of the same "
+                "objective under a new title; after three diagnosed attempts raise the "
+                "operator question with the evidence instead of narrowing the claim. "
+                "In `paper`, schedule "
+                "writing; a run belongs there only for a specific evidence gap the "
+                "manuscript exposed. Retire superseded pending tasks with RETIRE_TASK."
             ),
         )
         if block
@@ -666,8 +680,10 @@ def _engineer_fragment(
                 "and revise the supported claims and manuscript. Take constructive suggestions "
                 "seriously and first turn them into method improvements and evidence. "
                 "Do not default to weaker claims or extra caveats as a substitute for feasible "
-                "experiments; aim to strengthen the contribution. If a real test disproves a "
-                "claim, keep that result and adjust the interpretation honestly. "
+                "experiments, and never rewrite the claim to match the code; aim to "
+                "strengthen the contribution. If a real test disproves a claim, keep that "
+                "result, work the playbook's diagnosis ladder, and raise the operator "
+                "question with the evidence rather than narrowing the claim. "
                 "Read the latest paper/REVIEW.md and confirm which concerns are now resolved. "
                 "When the method, oracle, evaluator or accounting changes, identify the "
                 "affected claims and results before choosing the next runs. Re-establish "
@@ -799,10 +815,22 @@ def render_role_prompt_context(
     if normalized_role == "reviewer":
         if normalized_operation != "evaluate":
             return ""
+        # The review packet: the host-derived method card (component status,
+        # code anchors, files changed this round). Capped here as well as at
+        # its source so a longer derivation can never crowd the Reviewer's
+        # own evidence out of the prompt.
+        packet = _derived_method_card_for_reviewer(normalized_stage, project_root)
+        if packet:
+            from .method_card import REVIEWER_MAX_LINES
+
+            packet_lines = packet.splitlines()
+            if not packet_lines[0].startswith("## Review packet"):
+                packet_lines.insert(0, "## Review packet")
+            packet = "\n".join(packet_lines[: REVIEWER_MAX_LINES + 1])
         blocks = (
             active_research_context(normalized_stage, project_root),
             research_runtime_context(normalized_stage, project_root),
-            _derived_method_card_for_reviewer(normalized_stage, project_root),
+            packet,
         )
     elif normalized_role == "planner":
         blocks = (

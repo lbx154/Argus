@@ -256,8 +256,10 @@ high-impact improvements left, even if the current paper already merits weak
 accept. Explain those opportunities and ask Engineer to revise before completion.
 Engineer implements the feedback, records the changes and validation in the
 existing `CHECKPOINT.md`, and returns for independent re-review. A failed proposed
-hypothesis can be resolved by evidence and a supported alternative; agreement
-with Reviewer is not a scientific result. Reviewer checks the actual paper and
+hypothesis is resolved by repairing the implementation or the experiment until
+the claim in `METHOD.md` is tested as stated, or by an operator decision to
+change that claim; agreement with Reviewer is not a scientific result, and a
+claim narrowed to fit the code is not a repair. Reviewer checks the actual paper and
 experiments, recognizes the progress, and closes resolved findings.
 
 Aim toward strong acceptance and best-paper quality. Honor the current requested

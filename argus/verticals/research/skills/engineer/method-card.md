@@ -59,6 +59,15 @@ the project.
    `# why: ...` comment on the same line or the line above it in the config
    file (`configs/*.yaml`). The host reads the value and the reason from
    there.
+5. Anchor each component in the code: a `# @component <component>` comment
+   on the line above the `def` or `class` that implements it, the name
+   spelled as in the card. Where you deliberately simplified, write
+   `# @simplified <component>: <reason>` there instead of, or beside, the
+   anchor; where you call reference code, `# @reuses <module.or.path> <what
+   it provides>`. The host reads these comments and shows the anchor
+   (file:line, symbol, excerpt) next to the component's status in the task
+   brief and the review packet; a component without an anchor is listed as
+   such, and an anchor for a component the card does not name is listed too.
 
 That is all you maintain. The host derives, at zero model cost, and shows in
 Atlas and to the Reviewer: each component's status (proven, contradicted,

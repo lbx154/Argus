@@ -57,12 +57,14 @@ class RoundLoopState:
     # forever. Reset by any Engineer call that ends any other way.
     provider_turn_cap_streak: int = 0
     pending_secret_guard_notes: list[str] = field(default_factory=list)
-    # Host-run project checks (``project_checks.py``). The rendered evidence
-    # waits here for the next completed review, which consumes it; the test ids
-    # collected last round let the next run name tests that disappeared.
-    pending_project_check_evidence: str = ""
-    last_project_check_test_ids: frozenset[str] = frozenset()
-    pending_project_check_engineer_note: str = ""
+    # Host-gathered round evidence (``round_evidence.py`` registry). The
+    # Reviewer rendering waits here for the next completed review, which
+    # consumes it; the Engineer note rides in the next prompt's follow-up text;
+    # ``round_evidence_state`` is each provider's opaque state from its last
+    # contribution, keyed by provider, handed back on the next round.
+    pending_round_evidence_text: str = ""
+    pending_round_evidence_engineer_note: str = ""
+    round_evidence_state: dict[str, dict] = field(default_factory=dict)
     # A completed requested job gets one result-consumption turn per run,
     # including when it finished before the harness could enter its wait.
     external_work_resumptions: set[tuple[str, str, str]] = field(default_factory=set)

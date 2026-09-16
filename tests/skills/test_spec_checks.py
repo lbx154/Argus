@@ -1,5 +1,5 @@
-"""Host-run project checks: the host runs the project's own spec suite after an
-Engineer round and shows what happened as evidence, never as a gate."""
+"""Host-run spec checks (research vertical): the host runs the project's own spec
+suite after an Engineer round and shows what happened as evidence, never as a gate."""
 from __future__ import annotations
 
 import json
@@ -11,18 +11,25 @@ from pathlib import Path
 
 import pytest
 
-from argus.engineer.project_checks import (
+from argus.engineer.round_evidence import (
+    RoundEvidence,
+    RoundEvidenceRequest,
+    registered_round_evidence_providers,
+)
+from argus.verticals.research.spec_checks import (
     NOT_A_GATE_SENTENCE,
-    PROJECT_CHECK_TIMEOUT_KNOB,
-    PROJECT_CHECKS_KNOB,
+    SPEC_CHECK_TIMEOUT_KNOB,
+    SPEC_CHECKS_KNOB,
+    STATE_LAST_TEST_IDS,
     component_status,
-    configured_check_timeout_s,
+    configured_spec_check_timeout_s,
     join_components,
     load_spec_components,
     parse_summary,
     render_for_engineer,
     render_for_reviewer,
-    run_project_checks,
+    round_evidence,
+    run_spec_checks,
 )
 
 _ALPHA = textwrap.dedent(
@@ -53,7 +60,7 @@ def _make_workdir(tmp_path: Path) -> Path:
 
 
 def _run(workdir: Path, life_dir: Path, *, round_index: int = 1, previous=frozenset(), **kw):
-    return run_project_checks(
+    return run_spec_checks(
         workdir,
         life_dir=life_dir,
         round_index=round_index,
@@ -192,8 +199,9 @@ def test_timeout_kills_the_whole_process_group(tmp_path: Path) -> None:
 
 def test_knob_off_returns_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workdir = _make_workdir(tmp_path)
+    assert SPEC_CHECKS_KNOB == "ARGUS_RESEARCH_SPEC_CHECKS"
     for value in ("off", "0"):
-        monkeypatch.setenv(PROJECT_CHECKS_KNOB, value)
+        monkeypatch.setenv(SPEC_CHECKS_KNOB, value)
         assert _run(workdir, tmp_path / "life") is None
     assert not (tmp_path / "life").exists()
 
@@ -248,11 +256,12 @@ def test_conftest_under_tests_still_provides_fixtures(tmp_path: Path) -> None:
 
 
 def test_timeout_knob_is_clamped_and_tolerant() -> None:
-    assert configured_check_timeout_s({}) == 600.0
-    assert configured_check_timeout_s({PROJECT_CHECK_TIMEOUT_KNOB: "5"}) == 30.0
-    assert configured_check_timeout_s({PROJECT_CHECK_TIMEOUT_KNOB: "99999"}) == 3600.0
-    assert configured_check_timeout_s({PROJECT_CHECK_TIMEOUT_KNOB: "abc"}) == 600.0
-    assert configured_check_timeout_s({PROJECT_CHECK_TIMEOUT_KNOB: "120"}) == 120.0
+    assert SPEC_CHECK_TIMEOUT_KNOB == "ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS"
+    assert configured_spec_check_timeout_s({}) == 600.0
+    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "5"}) == 30.0
+    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "99999"}) == 3600.0
+    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "abc"}) == 600.0
+    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "120"}) == 120.0
 
 
 def test_parse_summary_reads_only_the_short_summary_section() -> None:
@@ -280,7 +289,7 @@ def test_parse_summary_reads_only_the_short_summary_section() -> None:
 
 def test_host_failure_is_fail_soft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workdir = _make_workdir(tmp_path)
-    import argus.engineer.project_checks as module
+    import argus.verticals.research.spec_checks as module
 
     def boom(*_a, **_k):
         raise OSError("no fork for you")
@@ -527,3 +536,66 @@ def test_join_reports_skipped_marked_tests_by_file_location() -> None:
     assert joined["x"]["status"] == "partial"
     # Marked but never reported (e.g. the run died first): kept as an empty, partial entry.
     assert joined["y"] == {"tests": [], "status": "partial"}
+
+
+# --- the round-evidence provider -----------------------------------------------
+
+
+def test_provider_is_registered_on_import_and_packages_a_run(tmp_path: Path) -> None:
+    assert round_evidence in registered_round_evidence_providers()
+    workdir = _make_workdir(tmp_path)
+    life_dir = tmp_path / "life"
+
+    first = round_evidence(RoundEvidenceRequest(workdir=workdir, life_dir=life_dir, round_index=1))
+
+    assert isinstance(first, RoundEvidence)
+    assert first.reviewer_text.startswith("## Host-run project checks (round 1)")
+    assert NOT_A_GATE_SENTENCE in first.reviewer_text
+    assert first.engineer_note.startswith("## Host-run project checks from your previous round")
+    assert "tests/spec/test_beta.py::test_beta_ok" in first.state[STATE_LAST_TEST_IDS]
+    assert first.state[STATE_LAST_TEST_IDS] == sorted(first.state[STATE_LAST_TEST_IDS])
+    json.dumps(first.state)  # opaque but serialisable
+
+    # The state round-trips: the next round names the test that disappeared.
+    (workdir / "tests" / "spec" / "test_beta.py").unlink()
+    second = round_evidence(RoundEvidenceRequest(
+        workdir=workdir, life_dir=life_dir, round_index=2, previous_state=first.state,
+    ))
+    assert second is not None
+    assert "collected last round but not collected now" in second.reviewer_text
+    assert "tests/spec/test_beta.py::test_beta_ok" in second.reviewer_text
+    assert "tests/spec/test_beta.py::test_beta_ok" not in second.state[STATE_LAST_TEST_IDS]
+
+
+def test_provider_returns_none_without_spec_suite_or_with_knob_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert round_evidence(RoundEvidenceRequest(workdir=bare, life_dir=tmp_path / "life", round_index=1)) is None
+    workdir = _make_workdir(tmp_path)
+    monkeypatch.setenv(SPEC_CHECKS_KNOB, "off")
+    assert round_evidence(RoundEvidenceRequest(workdir=workdir, life_dir=tmp_path / "life", round_index=1)) is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process groups are POSIX")
+def test_incomplete_run_keeps_the_previous_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workdir = tmp_path / "project"
+    spec = workdir / "tests" / "spec"
+    spec.mkdir(parents=True)
+    (spec / "test_slow.py").write_text(
+        "import time\n\ndef test_slow():\n    time.sleep(30)\n", encoding="utf-8",
+    )
+    monkeypatch.setenv(SPEC_CHECK_TIMEOUT_KNOB, "30")  # clamped floor; the run is killed there
+    import argus.verticals.research.spec_checks as module
+
+    monkeypatch.setattr(module, "configured_spec_check_timeout_s", lambda env=None: 2.0)
+    previous = {STATE_LAST_TEST_IDS: ["tests/spec/test_old.py::test_gone"]}
+
+    produced = round_evidence(RoundEvidenceRequest(
+        workdir=workdir, life_dir=tmp_path / "life", round_index=2, previous_state=previous,
+    ))
+
+    assert produced is not None
+    assert "TIMED OUT" in produced.reviewer_text
+    assert produced.state == previous

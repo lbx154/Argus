@@ -76,7 +76,9 @@ reason.
 
 ## Keeping the card and the suite together
 
-The join is by component name: a row in the card and the marker on its
-tests must spell the name the same way. When a component is added to the
-card, its tests get the marker in the same round; when a component is
-removed, so are its markers. Nothing else needs to be kept in step.
+The join is by component name: a row in the card, the marker on its tests
+and the `# @component <component>` anchor comment above the code that
+implements it must spell the name the same way. When a component is added
+to the card, its tests get the marker and its code gets the anchor in the
+same round; when a component is removed, so are its markers and anchor.
+Nothing else needs to be kept in step.

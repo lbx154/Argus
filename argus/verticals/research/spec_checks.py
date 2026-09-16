@@ -1,11 +1,12 @@
-"""Host-run project checks after each Engineer round.
+"""Host-run spec checks after each Engineer round (research vertical).
 
 After the Engineer's turn the host runs the project's own ``tests/spec`` (and
 ``tests/parity`` when present) suite with pytest, in the project's own
 interpreter, and records what happened. The result is *evidence*: it is
 rendered into the Reviewer's raw-evidence slot and summarised for the next
-Engineer round. Nothing here blocks a stage, admits or rejects a task, or
-overrides a role's judgment; roles read it and decide.
+Engineer round through the vertical-blind registry in
+``argus.engineer.round_evidence``. Nothing here blocks a stage, admits or
+rejects a task, or overrides a role's judgment; roles read it and decide.
 
 Why the host and not the Engineer: an Engineer account of "all tests pass" is
 narrative. A read-only Reviewer cannot cheaply rerun the suite either. Running
@@ -28,7 +29,10 @@ records component markers in ``<workdir>/.argus/spec_components.json`` during
 collection, the run is joined with them: each METHOD.md component gets the
 outcomes of the tests that carry its marker and a summary status.
 
-Everything is fail-soft: any exception logs and returns ``None``.
+Everything is fail-soft: any exception logs and returns ``None``. The module
+registers :func:`round_evidence` as a provider when it is imported, which the
+research vertical does on package import; the round loop itself never names
+this module.
 """
 from __future__ import annotations
 
@@ -43,10 +47,16 @@ import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from ...engineer.round_evidence import (
+    RoundEvidence,
+    RoundEvidenceRequest,
+    register_round_evidence_provider,
+)
+
 log = logging.getLogger(__name__)
 
-PROJECT_CHECKS_KNOB = "ARGUS_SKILL_ROUND_PROJECT_CHECKS"
-PROJECT_CHECK_TIMEOUT_KNOB = "ARGUS_SKILL_ROUND_CHECK_TIMEOUT_SECONDS"
+SPEC_CHECKS_KNOB = "ARGUS_RESEARCH_SPEC_CHECKS"
+SPEC_CHECK_TIMEOUT_KNOB = "ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS"
 DEFAULT_CHECK_TIMEOUT_S = 600.0
 MIN_CHECK_TIMEOUT_S = 30.0
 MAX_CHECK_TIMEOUT_S = 3600.0
@@ -109,7 +119,7 @@ _INCOMPLETE_EXIT_CODES = frozenset({2, 3, 4})
 
 
 @dataclass(frozen=True)
-class ProjectCheckReport:
+class SpecCheckReport:
     """What the host observed from one run of the project's own checks."""
 
     round_index: int
@@ -144,20 +154,20 @@ class ProjectCheckReport:
     ran_at: float = 0.0
 
 
-def project_checks_enabled(env: dict[str, str] | None = None) -> bool:
-    """``ARGUS_SKILL_ROUND_PROJECT_CHECKS`` is on unless set to off/0/false/no."""
-    from ..core.knobs import resolve_knob
+def spec_checks_enabled(env: dict[str, str] | None = None) -> bool:
+    """``ARGUS_RESEARCH_SPEC_CHECKS`` is on unless set to off/0/false/no."""
+    from ...core.knobs import resolve_knob
 
-    value = resolve_knob(PROJECT_CHECKS_KNOB, "on", env=env).value
+    value = resolve_knob(SPEC_CHECKS_KNOB, "on", env=env).value
     return value.strip().lower() not in {"0", "off", "false", "no"}
 
 
-def configured_check_timeout_s(env: dict[str, str] | None = None) -> float:
-    """``ARGUS_SKILL_ROUND_CHECK_TIMEOUT_SECONDS`` clamped to 30..3600."""
-    from ..core.knobs import resolve_knob
+def configured_spec_check_timeout_s(env: dict[str, str] | None = None) -> float:
+    """``ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS`` clamped to 30..3600."""
+    from ...core.knobs import resolve_knob
 
     raw = resolve_knob(
-        PROJECT_CHECK_TIMEOUT_KNOB, str(int(DEFAULT_CHECK_TIMEOUT_S)), env=env,
+        SPEC_CHECK_TIMEOUT_KNOB, str(int(DEFAULT_CHECK_TIMEOUT_S)), env=env,
     ).value
     try:
         value = float(raw)
@@ -166,7 +176,7 @@ def configured_check_timeout_s(env: dict[str, str] | None = None) -> float:
     return min(MAX_CHECK_TIMEOUT_S, max(MIN_CHECK_TIMEOUT_S, value))
 
 
-def project_check_dirs(workdir: Path) -> list[str]:
+def spec_check_dirs(workdir: Path) -> list[str]:
     """Project-relative check directories, or ``[]`` when there is no spec suite."""
     if not (workdir / REQUIRED_CHECK_DIR).is_dir():
         return []
@@ -332,7 +342,7 @@ def join_components(
     return result
 
 
-def check_report_payload(report: ProjectCheckReport) -> dict:
+def check_report_payload(report: SpecCheckReport) -> dict:
     """The JSON twin of a report (what ``round-<n>.json`` holds)."""
     return {
         "round_index": report.round_index,
@@ -367,7 +377,7 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
         raise
 
 
-def write_check_json(workdir: Path, report: ProjectCheckReport) -> str:
+def write_check_json(workdir: Path, report: SpecCheckReport) -> str:
     """Write ``round-<n>.json`` and its ``latest.json`` copy; return the round path or ``""``."""
     checks_dir = Path(workdir) / ROUND_CHECKS_JSON_DIR
     round_path = checks_dir / f"round-{report.round_index}.json"
@@ -395,14 +405,14 @@ def _kill_process_group(process: subprocess.Popen) -> None:
         process.kill()
 
 
-def run_project_checks(
+def run_spec_checks(
     workdir: Path,
     *,
     life_dir: Path,
     round_index: int,
     previous_test_ids: frozenset[str],
     timeout_s: float | None = None,
-) -> ProjectCheckReport | None:
+) -> SpecCheckReport | None:
     """Run the project's own spec suite and report what happened, or ``None``.
 
     ``None`` means "nothing to show": the knob is off, the project has no
@@ -410,7 +420,7 @@ def run_project_checks(
     ``timeout_s`` overrides the knob and is not clamped.
     """
     try:
-        return _run_project_checks(
+        return _run_spec_checks(
             Path(workdir),
             life_dir=Path(life_dir),
             round_index=int(round_index),
@@ -418,21 +428,21 @@ def run_project_checks(
             timeout_s=timeout_s,
         )
     except Exception:  # noqa: BLE001 - evidence gathering must never break the round
-        log.exception("host-run project checks failed for round %s", round_index)
+        log.exception("host-run spec checks failed for round %s", round_index)
         return None
 
 
-def _run_project_checks(
+def _run_spec_checks(
     workdir: Path,
     *,
     life_dir: Path,
     round_index: int,
     previous_test_ids: frozenset[str],
     timeout_s: float | None,
-) -> ProjectCheckReport | None:
-    if not project_checks_enabled():
+) -> SpecCheckReport | None:
+    if not spec_checks_enabled():
         return None
-    check_dirs = project_check_dirs(workdir)
+    check_dirs = spec_check_dirs(workdir)
     if not check_dirs:
         return None
     checks_dir = life_dir / CHECKS_SUBDIR
@@ -444,7 +454,7 @@ def _run_project_checks(
         workdir, interpreter=interpreter, ini_path=ini_path, check_dirs=check_dirs,
     )
     effective_timeout = (
-        float(timeout_s) if timeout_s is not None else configured_check_timeout_s()
+        float(timeout_s) if timeout_s is not None else configured_spec_check_timeout_s()
     )
 
     started = time.monotonic()
@@ -512,7 +522,7 @@ def _run_project_checks(
         outcomes, load_spec_components(workdir), skipped_files=skipped_files,
     )
 
-    report = ProjectCheckReport(
+    report = SpecCheckReport(
         round_index=round_index,
         workdir=str(workdir),
         interpreter=interpreter,
@@ -539,14 +549,14 @@ def _run_project_checks(
     return replace(report, json_path=json_path)
 
 
-def _counts_line(report: ProjectCheckReport) -> str:
+def _counts_line(report: SpecCheckReport) -> str:
     parts = [
         f"{report.counts.get(outcome, 0)} {outcome.lower()}" for outcome in OUTCOMES
     ]
     return ", ".join(parts)
 
 
-def _status_line(report: ProjectCheckReport) -> str:
+def _status_line(report: SpecCheckReport) -> str:
     if report.timed_out:
         return (
             f"Result: TIMED OUT after {report.timeout_s:.0f}s; the host killed the "
@@ -555,7 +565,7 @@ def _status_line(report: ProjectCheckReport) -> str:
     return f"Exit code: {report.exit_code} (duration {report.duration_s:.1f}s)"
 
 
-def _exit_code_hint(report: ProjectCheckReport) -> str:
+def _exit_code_hint(report: SpecCheckReport) -> str:
     if report.timed_out:
         return ""
     if report.exit_code == 5:
@@ -576,7 +586,7 @@ def _failing_ids(entry: dict) -> list[str]:
     ]
 
 
-def _component_lines(report: ProjectCheckReport) -> list[str]:
+def _component_lines(report: SpecCheckReport) -> list[str]:
     lines = []
     for component, entry in report.components.items():
         tests = entry.get("tests", [])
@@ -594,7 +604,7 @@ def _component_lines(report: ProjectCheckReport) -> list[str]:
     return lines
 
 
-def render_for_reviewer(report: ProjectCheckReport) -> str:
+def render_for_reviewer(report: SpecCheckReport) -> str:
     """Raw-evidence block for the Reviewer: facts, with the not-a-gate sentence."""
     lines = [
         f"## Host-run project checks (round {report.round_index})",
@@ -634,7 +644,7 @@ def render_for_reviewer(report: ProjectCheckReport) -> str:
     return "\n".join(lines)
 
 
-def render_for_engineer(report: ProjectCheckReport) -> str:
+def render_for_engineer(report: SpecCheckReport) -> str:
     """Short note for the next Engineer round about the previous round's checks."""
     lines = [
         "## Host-run project checks from your previous round",
@@ -672,30 +682,73 @@ def render_for_engineer(report: ProjectCheckReport) -> str:
     return "\n".join(lines)
 
 
+# --- the round-evidence provider ---------------------------------------------
+
+#: Key under which the provider keeps the ids collected last round.
+STATE_LAST_TEST_IDS = "last_test_ids"
+
+
+def round_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
+    """Run the spec checks for one round and package them as round evidence.
+
+    ``None`` when there is nothing to show (knob off, no ``tests/spec``, host
+    failure). The state carries the sorted test ids of a complete run so the
+    next round can name tests that disappeared; an incomplete run (timeout,
+    collection error) keeps the previous ids.
+    """
+    previous_raw = request.previous_state.get(STATE_LAST_TEST_IDS, ())
+    previous_ids = frozenset(
+        str(test_id) for test_id in previous_raw if isinstance(test_id, str)
+    ) if isinstance(previous_raw, (list, tuple, set, frozenset)) else frozenset()
+    report = run_spec_checks(
+        request.workdir,
+        life_dir=request.life_dir,
+        round_index=request.round_index,
+        previous_test_ids=previous_ids,
+    )
+    if report is None:
+        return None
+    state = (
+        {STATE_LAST_TEST_IDS: sorted(report.test_ids)}
+        if report.collection_complete
+        else dict(request.previous_state)
+    )
+    return RoundEvidence(
+        reviewer_text=render_for_reviewer(report),
+        engineer_note=render_for_engineer(report),
+        state=state,
+    )
+
+
+register_round_evidence_provider(round_evidence)
+
+
 __all__ = [
     "COMPONENT_KINDS",
     "COMPONENT_STATUSES",
     "DEFAULT_CHECK_TIMEOUT_S",
     "LATEST_CHECKS_JSON",
     "NOT_A_GATE_SENTENCE",
-    "PROJECT_CHECKS_KNOB",
-    "PROJECT_CHECK_TIMEOUT_KNOB",
     "ROUND_CHECKS_JSON_DIR",
+    "SPEC_CHECKS_KNOB",
+    "SPEC_CHECK_TIMEOUT_KNOB",
     "SPEC_COMPONENTS_FILE",
-    "ProjectCheckReport",
+    "STATE_LAST_TEST_IDS",
+    "SpecCheckReport",
     "build_check_command",
     "check_report_payload",
     "component_status",
-    "configured_check_timeout_s",
+    "configured_spec_check_timeout_s",
     "infer_component_kind",
     "join_components",
     "load_spec_components",
     "parse_summary",
-    "project_check_dirs",
-    "project_checks_enabled",
     "project_interpreter",
     "render_for_engineer",
     "render_for_reviewer",
-    "run_project_checks",
+    "round_evidence",
+    "run_spec_checks",
+    "spec_check_dirs",
+    "spec_checks_enabled",
     "write_check_json",
 ]

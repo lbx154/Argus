@@ -142,7 +142,10 @@ explain a point is not, yet.
 ## After the fix
 
 A repaired number is not the end of the story. If the result is still short, the
-gap is a gap to close — implementation, optimization, data, scale, evaluator, or
-the method itself — and closing it over many rounds is how strong results are
+gap is a gap to close — the setup rung of the diagnosis ladder in
+`research-experiment-playbook.md` is followed by recipe, scale and data,
+baseline fairness, and faithful method variants — and closing it over many
+rounds against the claim as stated in `METHOD.md` is how strong results are
 normally reached. Stopping at the first honest measurement and writing up a
-restricted negative result is the failure this skill exists to prevent.
+restricted negative result, or rewording the claim to match the number, is the
+failure this skill exists to prevent.

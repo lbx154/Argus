@@ -1,6 +1,6 @@
 ---
 name: "Working a research result into shape"
-description: "Treat the first implementation as a first draft, work down the gap over many rounds, stay with the flat stretches, and let the idea change as you learn. Use this whenever a method falls short of its baseline or the project is deciding whether it has done enough."
+description: "Treat the first implementation as a first draft, work down the gap over many rounds against a fixed claim, stay with the flat stretches, and let the implementation change as you learn. Use this whenever a method falls short of its baseline or the project is deciding whether it has done enough."
 ---
 
 # Working a research result into shape
@@ -24,19 +24,26 @@ Bring the same persistence to the experiment that you bring to infrastructure.
 ## The first number is not a result
 
 A first implementation is a first draft. An unfavorable first measurement needs
-an explanation. Check whether:
+an explanation, and the claim in `METHOD.md` is not the thing that changes to
+supply one. Work the diagnosis ladder from `research-experiment-playbook.md`
+in order, one rung per attempt, and write down each rung's evidence:
 
-- the implementation does not do what the method describes;
-- the optimizer never found the regime the method needs;
-- the data slice is too small, too easy, or not the one the claim is about;
-- the scale is below where the effect exists at all;
-- the evaluator is measuring something adjacent to the claim;
-- the baseline is being run at an advantage the method does not get.
+- implementation fidelity: the code does not do what the card describes
+  (anchors, knockouts, differential tests);
+- setup and evaluator: the positive control, the data pipeline, leakage, a
+  pilot too small to resolve the margin;
+- hyperparameters and recipe: the optimizer never found the regime the
+  method needs; start from the framework recipe and move one factor at a time;
+- scale and data: the slice is too small, too easy, or not the one the claim
+  is about; the scale is below where the effect exists at all;
+- baseline fairness: the baseline is run at an advantage the method does not
+  get, or lands away from its published number;
+- a method variant that still satisfies the claim as stated.
 
-Each explanation suggests a different check. Resolve the plausible setup and
-implementation defects, then retain the measurement as evidence about the
-method. An expected advantage is a hypothesis; it may fail under a valid test.
-Use that evidence to develop a substantive improvement or a better explanation.
+Each rung suggests a different check. Resolve it, then retain the measurement
+as evidence about the implementation. Three distinct, diagnosed attempts come
+before any escalation, and escalation is an operator question with the
+evidence, not a reworded claim.
 
 A useful discipline: reproduce the baseline first, with your own harness. If
 your DAS, your SAE, your full-context oracle does not land where the paper that
@@ -90,35 +97,30 @@ Keep the substantive target and work on the method, evidence, or explanation.
 Correct unsupported statements promptly as results arrive, while continuing
 the scientific repair. Wording changes alone do not close a scientific gap.
 
-## Let the idea change while you grind
+## Let the implementation change while you grind; the claim does not
 
-Here is the part that is easy to miss.
+The implementation you have after twenty rounds is usually not the one you
+started with. You stabilized a term because the gradients were unstable. You
+moved a computation because the first placement never reached the regime the
+method needs. You fixed the recipe, the data loader, the evaluator. Each step
+was a local repair inside the components the card names; together they are a
+faithful implementation of the same claim. That is the research happening.
 
-The method you have after twenty rounds is usually not the method you started
-with. You added a term because the gradients were unstable. You changed the
-objective because the original one was measuring the wrong thing. You moved
-where the intervention is applied. Each step was a local repair; together they
-are a different method.
-
-That is not drift to be corrected. That is the research happening.
+What does not change is the claim in `METHOD.md`: the components the idea
+prescribes, the protocol, the falsifier. When a repair would change what the
+method *is* — a different objective, a different intervention point, a
+mechanism the card does not name — that is not a repair. Stop, record what the
+evidence shows, and put the change to the operator as a question with the
+evidence (`operator_options`). Only the operator edits the claim.
 
 So when the number finally lands, stop and look at what you are holding:
 
-- What is the thing that actually made the difference? It is often not the part
-  the original idea was named after.
-- Is the mechanism in your head still the mechanism in the code? Read the code
-  as though someone else wrote it.
-- Would the first version of this idea have predicted the result you got?
-- What is the shortest honest description of what you built?
-
-Then write the paper about *that* — the method you ended with, the insight that
-turned out to carry it, the framing your evidence actually supports. Papers
-written about the original proposal, with the real discovery buried in an
-implementation detail, are the most common way a good result becomes a
-forgettable paper.
-
-And if the answer to "what made the difference" is small and clean and not what
-you expected, that is not a disappointment. That is the contribution.
+- Is the mechanism in the card still the mechanism in the code? Read the code
+  as though someone else wrote it, anchor by anchor.
+- Did the thing that made the difference belong to a component the card
+  names? If not, the result is an operator question, not a paper.
+- Does the protocol that produced the number match the card's protocol at the
+  card's scale?
 
 ## Flexibility, and knowing what to chase
 
@@ -139,10 +141,10 @@ method selection. Preserve those observations and obtain a separate confirmation
 when the claim needs generalization; follow the experiment playbook for the
 sampling and paired analysis.
 
-Be willing to change what you are measuring when the evidence says the original
-metric was the wrong question. Be unwilling to change it because the original
-one was not going your way — the difference is whether you can state the reason
-without mentioning your own result.
+The metric is the route's metric. When the evidence says it was the wrong
+question, that is an operator question with the evidence, raised once; it is
+never changed because the original one was not going your way. The test is
+whether you can state the reason without mentioning your own result.
 
 Spend attention where the uncertainty is. A run that will tell you the same
 thing you already believe is not worth its GPU-hours, no matter how neatly it
@@ -151,18 +153,20 @@ whichever experiment most changes what you think.
 
 ## What this never becomes
 
-A failed method alone does not establish a publishable contribution. Continue
-feasible, high-value improvements within the selected research question and
-current stage. If rigorous controls reveal a boundary, develop the new principle,
-explanatory model, guarantee, or prediction that makes it important, and test it
-against the closest work. Preserving an adverse result and pursuing a stronger
-contribution belong together. The independent Reviewer decides whether the
-actual evidence meets the selected venue and the operator's completion standard.
+A failed attempt is not a publishable contribution, and neither is a restated
+claim. Continue feasible, high-value improvements within the claim as stated
+and the current stage. If rigorous controls still contradict the claim after
+three distinct, diagnosed attempts, escalate to the operator with the evidence
+and the options; do not write a restricted-case or negative-result paper on
+your own authority. Preserving an adverse result and pursuing the claim belong
+together. The independent Reviewer decides whether the actual evidence meets
+the claim, the selected venue and the operator's completion standard.
 
 ## The short version
 
-Implement, measure, diagnose, fix, measure again. Expect it to take far more
-rounds than feels reasonable. Sit through the flat parts. Let the method become
-whatever it needs to become, then look honestly at what you built and write
-about that. Pursue the surprising mechanism, preserve all outcomes, and confirm
-the resulting scientific argument independently.
+Implement, measure, diagnose, fix, measure again, against a claim that does
+not move. Expect it to take far more rounds than feels reasonable. Sit through
+the flat parts. Let the implementation become whatever it needs to become to
+satisfy the card, then look honestly at what you built and write about that.
+Preserve all outcomes, escalate with evidence rather than rewording, and
+confirm the resulting scientific argument independently.

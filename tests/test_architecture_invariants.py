@@ -1131,6 +1131,11 @@ MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "tools/subagent/_direct_run.py -> daemon",
     "tools/team.py -> team",
     "verticals/research/idea_portfolio.py -> team",
+    # The research vertical registers its host-run spec-check evidence
+    # provider with the vertical-blind registry when the package loads,
+    # the same shape as team/external_work.py registering with the
+    # engineer; the engineer itself never names the vertical.
+    "verticals/research/spec_checks.py -> engineer",
 })
 
 # Deferred imports that point at a higher layer, keyed by (file, target

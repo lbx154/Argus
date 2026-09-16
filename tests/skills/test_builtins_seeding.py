@@ -50,6 +50,8 @@ RESEARCH_BASE_SKILLS = {
     "engineer/claims-against-evidence.md",
     "engineer/figure_spec_scripts/figure_renderer.py",
     "engineer/hypothesis-implementation-contract.md",
+    "engineer/implementation-brief.md",
+    "engineer/write-for-review.md",
     "engineer/method-card.md",
     "engineer/method_card_template.md",
     "engineer/executable-spec.md",

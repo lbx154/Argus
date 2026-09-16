@@ -89,6 +89,26 @@ export interface SkillDocument {
   role: string;
 }
 
+/** One page of the project's shared Wiki, listed newest-first by the host. */
+export interface WikiPageSummary {
+  path: string;
+  title: string;
+  description: string;
+  updated_at: number;
+}
+/** The project Wiki as the host sees it: absent, or INDEX.md plus its pages. */
+export type WikiOverview =
+  | { exists: false }
+  | { exists: true; root: string; index_markdown: string; pages: WikiPageSummary[] };
+/** One Wiki page body; the host caps the Markdown and flags the cut. */
+export interface WikiPageDocument {
+  path: string;
+  title: string;
+  markdown: string;
+  truncated: boolean;
+  updated_at: number;
+}
+
 /** Status the host derived for one method component from the spec tests carrying its marker. */
 export type ResearchMethodComponentStatus = 'proven' | 'contradicted' | 'partial' | 'untested' | 'unchecked';
 /** One spec test joined to a component through its marker; outcome is null until the host has run it. */
@@ -1189,6 +1209,9 @@ export const api = {
   skillDocument: (sid: string | null, library: string, path: string, signal?: AbortSignal) =>
     getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
   researchMethod: (sid: string, signal?: AbortSignal) => getJson<ResearchMethod>(P(sid, '/research/method'), signal),
+  wiki: (sid: string, signal?: AbortSignal) => getJson<WikiOverview>(P(sid, '/wiki'), signal),
+  wikiPage: (sid: string, path: string, signal?: AbortSignal) =>
+    getJson<WikiPageDocument>(P(sid, `/wiki/page?${new URLSearchParams({ path })}`), signal),
   setLaunchCwd: (sid: string, launchCwd: string) =>
     postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   setWorkdir: (sid: string, workdir: string) =>

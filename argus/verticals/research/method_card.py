@@ -15,7 +15,10 @@ hand-written card in the Atlas web UI and to the Reviewer:
 * hyperparameters, from the YAML/JSON/TOML config files the runs use, with the
   ``# why: ...`` comment the Engineer leaves beside a value and a diff against
   the previous snapshot;
-* a change log, from ``git log``.
+* a change log, from ``git log``;
+* code anchors, from ``# @component <name>``, ``# @simplified <name>: <reason>``
+  and ``# @reuses <what> <note>`` comments the Engineer leaves in the code, so
+  a card row points at the def that implements it.
 
 Nothing here gates a stage or admits a task. Everything is fail-soft: a
 missing piece yields an empty value, never an exception.
@@ -61,7 +64,12 @@ CONFIG_SUFFIXES = (".yaml", ".yml", ".json", ".toml")
 CHANGE_LOG_ENTRIES = 15
 CHANGE_LOG_PATHS = ("METHOD.md", "src", "configs", "tests/spec", "third_party")
 GIT_TIMEOUT_S = 5.0
-REVIEWER_MAX_LINES = 40
+#: Hard cap on the review packet ``render_for_reviewer`` returns.
+REVIEWER_MAX_LINES = 120
+ANCHOR_EXCERPT_LINES = 30
+REVIEWER_EXCERPT_LINES = 20
+REVIEWER_CHANGED_FILES = 20
+MAX_ANCHORS = 200
 
 _COLUMN_ALIASES = {
     "component": "component",
@@ -76,6 +84,11 @@ _YAML_KEY_LINE = re.compile(r"^(?P<indent>\s*)(?P<key>[^\s#\-][^:#]*?):(?P<rest>
 _WHY_COMMENT = re.compile(r"#\s*why:\s*(?P<why>.+?)\s*$", re.IGNORECASE)
 _CONFIG_REFERENCE = re.compile(r"[\w][\w./-]*\.(?:ya?ml|json|toml)\b")
 _CHANGE_LOG_HEAD = re.compile(r"^(?P<when>\d{4}-\d{2}-\d{2})\t(?P<summary>.*)$")
+_ANCHOR_COMPONENT = re.compile(r"#\s*@component\s+(?P<component>.+?)\s*$")
+_ANCHOR_SIMPLIFIED = re.compile(r"#\s*@simplified\s+(?P<component>[^:]+):\s*(?P<reason>.+?)\s*$")
+_ANCHOR_REUSES = re.compile(r"#\s*@reuses\s+(?P<what>\S+)\s+(?P<note>.+?)\s*$")
+_DEF_OR_CLASS = re.compile(r"^\s*(?:async\s+)?(?:def|class)\s+(?P<name>\w+)")
+_PORCELAIN_LINE = re.compile(r"^(?P<status>[ MADRCU?!]{2}) (?P<path>.+)$")
 
 
 # --------------------------------------------------------------------------
@@ -535,6 +548,138 @@ def reused_code(workdir: Path) -> list[dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------
+# Code anchors: ``# @component``, ``# @simplified``, ``# @reuses`` comments
+# --------------------------------------------------------------------------
+
+
+def _symbol_after(lines: list[str], index: int) -> str:
+    """Name of the def/class the anchor at ``index`` sits above, or ''."""
+    for line in lines[index + 1 : index + 12]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", "@")):
+            continue
+        match = _DEF_OR_CLASS.match(line)
+        return match.group("name") if match else ""
+    return ""
+
+
+def _anchor_excerpt(lines: list[str], index: int) -> str:
+    """Up to ``ANCHOR_EXCERPT_LINES`` lines from the anchor, stopping before the
+    next component's anchor once this one's code has begun."""
+    chosen: list[str] = []
+    in_code = False
+    for line in lines[index : index + ANCHOR_EXCERPT_LINES]:
+        stripped = line.strip()
+        is_anchor = bool(_ANCHOR_COMPONENT.search(line) or _ANCHOR_SIMPLIFIED.search(line))
+        if in_code and is_anchor:
+            break
+        if stripped and not stripped.startswith("#"):
+            in_code = True
+        chosen.append(line.rstrip())
+    while chosen and not chosen[-1].strip():
+        chosen.pop()
+    return "\n".join(chosen)
+
+
+def code_anchors(workdir: Path) -> dict[str, list[dict[str, Any]]]:
+    """Anchor comments in the project's own Python files, grouped by kind.
+
+    ``{"component": [...], "simplified": [...], "reuses": [...]}``; each entry
+    carries ``file`` (project-relative), ``line`` (1-based) and, for component
+    and simplified anchors, ``component``, ``symbol`` and ``excerpt`` (up to
+    ``ANCHOR_EXCERPT_LINES`` lines from the anchor). Fail-soft: an unreadable
+    file contributes nothing.
+    """
+    workdir = Path(workdir)
+    found: dict[str, list[dict[str, Any]]] = {"component": [], "simplified": [], "reuses": []}
+    total = 0
+    for path in _iter_project_files(workdir):
+        text = _read_text(path)
+        if "@component" not in text and "@simplified" not in text and "@reuses" not in text:
+            continue
+        try:
+            relative = path.relative_to(workdir).as_posix()
+        except ValueError:
+            relative = path.as_posix()
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            if "#" not in line:
+                continue
+            component = _ANCHOR_COMPONENT.search(line)
+            simplified = _ANCHOR_SIMPLIFIED.search(line)
+            reuses = _ANCHOR_REUSES.search(line)
+            if component is None and simplified is None and reuses is None:
+                continue
+            total += 1
+            if total > MAX_ANCHORS:
+                return found
+            base = {"file": relative, "line": index + 1}
+            if reuses is not None:
+                found["reuses"].append({**base, "what": reuses.group("what"), "note": reuses.group("note")})
+                continue
+            match = component if component is not None else simplified
+            assert match is not None
+            entry = {
+                **base,
+                "component": _strip_markup(match.group("component")),
+                "symbol": _symbol_after(lines, index),
+                "excerpt": _anchor_excerpt(lines, index),
+            }
+            if simplified is not None:
+                entry["reason"] = simplified.group("reason").strip()
+                found["simplified"].append(entry)
+            else:
+                found["component"].append(entry)
+    return found
+
+
+def _attach_anchors(
+    components: list[dict[str, Any]],
+    unlisted: list[dict[str, Any]],
+    anchors: dict[str, list[dict[str, Any]]],
+) -> None:
+    """Add ``anchors``/``simplified`` to every row and list anchor-only components."""
+    by_key: dict[str, list[dict[str, Any]]] = {}
+    simplified_by_key: dict[str, list[dict[str, Any]]] = {}
+    display: dict[str, str] = {}
+    for entry in anchors.get("component", []):
+        key = normalize_component_name(entry["component"])
+        display.setdefault(key, entry["component"])
+        by_key.setdefault(key, []).append(
+            {k: entry[k] for k in ("file", "line", "symbol", "excerpt")}
+        )
+    for entry in anchors.get("simplified", []):
+        key = normalize_component_name(entry["component"])
+        display.setdefault(key, entry["component"])
+        simplified_by_key.setdefault(key, []).append(
+            {"reason": entry["reason"], "file": entry["file"], "line": entry["line"]}
+        )
+    seen: set[str] = set()
+    for row in [*components, *unlisted]:
+        key = normalize_component_name(row["component"])
+        seen.add(key)
+        row["anchors"] = by_key.get(key, [])
+        row["simplified"] = simplified_by_key.get(key, [])
+        if row["simplified"] and "(simplified)" not in row["status"]:
+            row["status"] = f"{row['status']} (simplified)"
+    for key in sorted(set(by_key) | set(simplified_by_key)):
+        if key in seen:
+            continue
+        status = "untested"
+        if simplified_by_key.get(key):
+            status += " (simplified)"
+        unlisted.append(
+            {
+                "component": display.get(key) or key,
+                "status": status,
+                "tests": [],
+                "anchors": by_key.get(key, []),
+                "simplified": simplified_by_key.get(key, []),
+            }
+        )
+
+
+# --------------------------------------------------------------------------
 # Hyperparameters: config files with ``# why`` comments
 # --------------------------------------------------------------------------
 
@@ -754,6 +899,36 @@ def change_log(workdir: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def changed_files(workdir: Path) -> list[dict[str, str]]:
+    """``git status --porcelain`` as ``[{status, path}]``; empty outside a repository."""
+    # Not ``_git``: that strips the output, and the first porcelain line's
+    # status column may begin with the space that marks an unstaged change.
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=str(workdir),
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return []
+    entries: list[dict[str, str]] = []
+    for line in proc.stdout.splitlines():
+        match = _PORCELAIN_LINE.match(line)
+        if match is None:
+            continue
+        status, path = match.group("status").strip() or "M", match.group("path").strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if path:
+            entries.append({"status": status, "path": path})
+    return entries
+
+
 # --------------------------------------------------------------------------
 # Entry points
 # --------------------------------------------------------------------------
@@ -773,6 +948,7 @@ def _empty_card() -> dict[str, Any]:
         "protocol": "",
         "falsifiers": "",
         "reused_code": [],
+        "reuse_anchors": [],
         "hyperparameters": [],
         "change_log": [],
         "checks": None,
@@ -828,6 +1004,15 @@ def derive_method_card(workdir: Path) -> dict[str, Any]:
         card["components"], card["unlisted_components"] = components, unlisted
     except Exception:  # noqa: BLE001
         log.debug("method card: component join failed", exc_info=True)
+    try:
+        anchors = code_anchors(workdir)
+        _attach_anchors(card["components"], card["unlisted_components"], anchors)
+        card["reuse_anchors"] = anchors.get("reuses", [])
+    except Exception:  # noqa: BLE001
+        log.debug("method card: anchor scan failed", exc_info=True)
+        for row in [*card["components"], *card["unlisted_components"]]:
+            row.setdefault("anchors", [])
+            row.setdefault("simplified", [])
     card["checks"] = _checks_summary(latest)
     for key, derive in (
         ("reused_code", lambda: reused_code(workdir)),
@@ -849,8 +1034,45 @@ def _count_outcomes(tests: list[dict[str, Any]]) -> str:
     return ", ".join(f"{n} {outcome}" for outcome, n in sorted(counts.items()))
 
 
+def anchor_location(entry: dict[str, Any]) -> str:
+    """``file:line (symbol)`` of a row's first anchor, or '' when it has none."""
+    anchors = entry.get("anchors") or []
+    if not anchors:
+        return ""
+    first = anchors[0]
+    symbol = f" ({first['symbol']})" if first.get("symbol") else ""
+    more = f" +{len(anchors) - 1} more" if len(anchors) > 1 else ""
+    return f"{first['file']}:{first['line']}{symbol}{more}"
+
+
+def failing_test_ids(entry: dict[str, Any]) -> list[str]:
+    return [
+        str(test.get("id") or "")
+        for test in entry.get("tests") or []
+        if str(test.get("outcome") or "").upper() in {"FAILED", "ERROR"}
+    ]
+
+
+def _excerpt_lines(entry: dict[str, Any], budget: int) -> list[str]:
+    anchors = entry.get("anchors") or []
+    if not anchors or budget <= 0:
+        return []
+    raw = str(anchors[0].get("excerpt") or "").splitlines()
+    shown = raw[: min(budget, REVIEWER_EXCERPT_LINES)]
+    lines = [f"    {line.rstrip()}" for line in shown]
+    if len(raw) > len(shown):
+        lines.append("    ...")
+    return lines
+
+
 def render_for_reviewer(workdir: Path) -> str:
-    """At most 40 lines the Reviewer reads beside ``METHOD.md``; '' without a card."""
+    """The review packet: at most ``REVIEWER_MAX_LINES`` lines beside ``METHOD.md``.
+
+    Per component its status, anchor and failing tests, then the code excerpt
+    at the anchor (trimmed to fit), then what changed this round: files from
+    ``git status``, hyperparameters against the previous snapshot, anchors
+    without a card row and card rows without an anchor. '' without a card.
+    """
     try:
         card = derive_method_card(Path(workdir))
     except Exception:  # noqa: BLE001
@@ -859,22 +1081,57 @@ def render_for_reviewer(workdir: Path) -> str:
         return ""
     lines: list[str] = ["## Method card, derived by the host (evidence, not a gate)"]
     components = card["components"]
+    excerpt_slots: list[tuple[int, dict[str, Any]]] = []
     if components:
-        lines.append("Component status from tests/spec markers joined with the host-run checks:")
+        lines.append(
+            "Component status from tests/spec markers joined with the host-run checks; "
+            "the anchor is the `# @component` comment in the code:"
+        )
         for entry in components[:12]:
             tests = entry["tests"]
             detail = f" ({len(tests)} tests: {_count_outcomes(tests)})" if tests else ""
-            lines.append(f"- {entry['component']}: {entry['status']}{detail}")
+            where = anchor_location(entry)
+            lines.append(
+                f"- {entry['component']}: {entry['status']}{detail}"
+                + (f" — {where}" if where else " — no code anchor")
+            )
+            for note in (entry.get("simplified") or [])[:2]:
+                lines.append(f"  simplified: {note['reason']} ({note['file']}:{note['line']})")
+            failing = failing_test_ids(entry)
+            if failing:
+                lines.append("  failing: " + ", ".join(failing[:5]))
+            if entry.get("anchors"):
+                excerpt_slots.append((len(lines), entry))
         if len(components) > 12:
             lines.append(f"- ... {len(components) - 12} more components in METHOD.md")
     else:
         lines.append("METHOD.md has no Components table.")
-    untested = [entry["component"] for entry in components if entry["status"] == "untested"]
+    untested = [
+        entry["component"] for entry in components if entry["status"].startswith("untested")
+    ]
     if untested:
         lines.append("Named in the card, no test carries its marker: " + ", ".join(untested[:10]))
-    unlisted = [entry["component"] for entry in card["unlisted_components"]]
-    if unlisted:
-        lines.append("Markers without a card row: " + ", ".join(unlisted[:10]))
+    without_anchor = [entry["component"] for entry in components if not entry.get("anchors")]
+    if without_anchor:
+        lines.append("Named in the card, no `# @component` anchor in the code: " + ", ".join(without_anchor[:10]))
+    unlisted_markers = [
+        entry["component"] for entry in card["unlisted_components"] if entry.get("tests")
+    ]
+    if unlisted_markers:
+        lines.append("Markers without a card row: " + ", ".join(unlisted_markers[:10]))
+    unlisted_anchors = [
+        f"{entry['component']} ({anchor_location(entry)})"
+        for entry in card["unlisted_components"]
+        if entry.get("anchors") and not entry.get("tests")
+    ]
+    if unlisted_anchors:
+        lines.append("Anchors without a card row: " + ", ".join(unlisted_anchors[:10]))
+    changed_now = changed_files(Path(workdir))
+    if changed_now:
+        lines.append(f"Files changed this round ({len(changed_now)} in git status):")
+        lines.extend(f"- {entry['status']} {entry['path']}" for entry in changed_now[:REVIEWER_CHANGED_FILES])
+        if len(changed_now) > REVIEWER_CHANGED_FILES:
+            lines.append(f"- ... {len(changed_now) - REVIEWER_CHANGED_FILES} more")
     reused = card["reused_code"]
     if reused:
         lines.append("Reused code (import scan of the project's own files):")
@@ -906,4 +1163,24 @@ def render_for_reviewer(workdir: Path) -> str:
         )
     else:
         lines.append("No host-run check recorded yet.")
+    lines = lines[:REVIEWER_MAX_LINES]
+    # Code excerpts fill what the cap leaves, contradicted components first,
+    # inserted under their own status line (later slots first so indices hold).
+    remaining = REVIEWER_MAX_LINES - len(lines)
+    ordered = sorted(
+        excerpt_slots,
+        key=lambda slot: (STATUSES.index(slot[1]["status"].split(" ")[0])
+                          if slot[1]["status"].split(" ")[0] in STATUSES else len(STATUSES)),
+    )
+    granted: list[tuple[int, list[str]]] = []
+    for position, entry in ordered:
+        if remaining <= 2:
+            break
+        share = max(3, remaining // max(1, len(ordered) - len(granted)))
+        excerpt = _excerpt_lines(entry, min(share, remaining) - 1)
+        if excerpt:
+            granted.append((position, excerpt))
+            remaining -= len(excerpt)
+    for position, excerpt in sorted(granted, key=lambda item: item[0], reverse=True):
+        lines[position:position] = excerpt
     return "\n".join(lines[:REVIEWER_MAX_LINES])

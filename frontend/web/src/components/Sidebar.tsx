@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectRow, SkillLibraryItem } from '../api';
 import { SkillLibraryEntry } from './SkillLibrary';
+import { WikiEntry } from './WikiEntry';
 import { PluginLauncher } from './PluginLauncher';
 import { VerticalStoreEntry } from './VerticalStore';
 import { WorkspaceSidePanel } from './WorkspaceShell';
@@ -152,6 +153,7 @@ export function Sidebar({
       {slim ? <PluginLauncher compact /> : null}
       {slim && onOpenVerticals ? <VerticalStoreEntry compact onOpen={onOpenVerticals} /> : null}
       {slim && onOpenSkills ? <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} compact /> : null}
+      {slim ? <WikiEntry sid={activeId} compact /> : null}
       {!slim ? (
         <>
           <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-5">
@@ -326,6 +328,7 @@ export function Sidebar({
           </div>
 
           {onOpenSkills && <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} />}
+          <WikiEntry sid={activeId} />
           <details className="sidebar-tools mx-3 mb-2 border-t border-line/60 pt-2">
             <summary className="cursor-pointer px-2 py-2 text-xs text-ink-dim">{locale === 'zh-CN' ? '工具与资源' : 'Tools and resources'}</summary>
             <PluginLauncher />

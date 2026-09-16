@@ -317,7 +317,7 @@ def test_reviewer_rendering_is_short_and_names_the_repairs(project: Path) -> Non
     text = render_for_reviewer(project)
     lines = text.splitlines()
 
-    assert 0 < len(lines) <= 40
+    assert 0 < len(lines) <= method_card.REVIEWER_MAX_LINES
     assert lines[0].startswith("## Method card")
     assert "not a gate" in lines[0]
     assert any(line.startswith("- residual gate: proven") for line in lines)
@@ -363,3 +363,125 @@ def test_yaml_why_comments_follow_nesting() -> None:
     )
 
     assert whys == {"a.b.c": "above", "a.d": "inline"}
+
+
+ANCHORED_MODEL_PY = """from __future__ import annotations
+
+import numpy as np
+from rpc import attention
+
+
+# @component residual gate
+def gate(x):
+    return 1.0 / (1.0 + np.exp(-x))
+
+
+# @simplified sparse attention: fixed k instead of learned k
+# @component Sparse Attention
+def sparse(x, k=64):
+    # @reuses rpc.attention the dense baseline path
+    return attention(x)[:k]
+
+
+# @component rotary cache
+class RotaryCache:
+    pass
+"""
+
+
+@pytest.fixture
+def anchored(project: Path) -> Path:
+    (project / "src" / "model.py").write_text(ANCHORED_MODEL_PY, encoding="utf-8")
+    return project
+
+
+def test_code_anchors_attach_to_the_card_rows(anchored: Path) -> None:
+    card = derive_method_card(anchored)
+    by_name = {entry["component"]: entry for entry in card["components"]}
+
+    gate = by_name["residual gate"]
+    assert gate["status"] == "proven"
+    assert gate["simplified"] == []
+    assert len(gate["anchors"]) == 1
+    anchor = gate["anchors"][0]
+    assert (anchor["file"], anchor["line"], anchor["symbol"]) == ("src/model.py", 7, "gate")
+    assert anchor["excerpt"].startswith("# @component residual gate\ndef gate(x):")
+    assert len(anchor["excerpt"].splitlines()) <= method_card.ANCHOR_EXCERPT_LINES
+    assert method_card.anchor_location(gate) == "src/model.py:7 (gate)"
+
+    # The join is case- and whitespace-insensitive, like the marker join.
+    sparse = by_name["sparse attention"]
+    assert sparse["status"] == "contradicted (simplified)"
+    assert sparse["anchors"][0]["symbol"] == "sparse"
+    assert sparse["simplified"] == [
+        {"reason": "fixed k instead of learned k", "file": "src/model.py", "line": 12}
+    ]
+    assert by_name["curriculum warmup"]["anchors"] == []
+    assert by_name["curriculum warmup"]["status"] == "untested"
+
+    assert card["reuse_anchors"] == [
+        {"file": "src/model.py", "line": 15, "what": "rpc.attention", "note": "the dense baseline path"}
+    ]
+    json.dumps(card)
+
+
+def test_anchors_for_components_the_card_does_not_name_are_listed(anchored: Path) -> None:
+    card = derive_method_card(anchored)
+    unlisted = {entry["component"]: entry for entry in card["unlisted_components"]}
+
+    assert set(unlisted) == {"positional bias", "rotary cache"}
+    rotary = unlisted["rotary cache"]
+    assert rotary["status"] == "untested" and rotary["tests"] == []
+    assert rotary["anchors"][0]["symbol"] == "RotaryCache"
+    assert unlisted["positional bias"]["anchors"] == []
+
+
+def test_review_packet_shows_anchor_excerpt_changes_and_gaps(anchored: Path) -> None:
+    (anchored / "src" / "new_module.py").write_text("x = 1\n", encoding="utf-8")
+    text = render_for_reviewer(anchored)
+    lines = text.splitlines()
+
+    assert 0 < len(lines) <= method_card.REVIEWER_MAX_LINES
+    gate_index = next(i for i, line in enumerate(lines) if line.startswith("- residual gate: proven"))
+    assert "src/model.py:7 (gate)" in lines[gate_index]
+    # The excerpt sits under its own status line, indented, at most 20 lines.
+    excerpt = []
+    for line in lines[gate_index + 1 :]:
+        if not line.startswith("    "):
+            break
+        excerpt.append(line)
+    assert excerpt and excerpt[0].strip() == "# @component residual gate"
+    assert excerpt[1].strip() == "def gate(x):"
+    assert len(excerpt) <= method_card.REVIEWER_EXCERPT_LINES + 1
+    sparse = next(line for line in lines if line.startswith("- sparse attention: contradicted (simplified)"))
+    assert "src/model.py:13 (sparse)" in sparse
+    assert any(line.strip().startswith("simplified: fixed k instead of learned k") for line in lines)
+    assert any(line.strip().startswith("failing: tests/spec/test_differential.py::test_sparse_matches_oracle") for line in lines)
+    assert any("no `# @component` anchor in the code: curriculum warmup" in line for line in lines)
+    assert any("Anchors without a card row: rotary cache (src/model.py:19 (RotaryCache))" in line for line in lines)
+    assert any("Markers without a card row: positional bias" in line for line in lines)
+    changed = next(i for i, line in enumerate(lines) if line.startswith("Files changed this round"))
+    assert any("src/new_module.py" in line for line in lines[changed : changed + method_card.REVIEWER_CHANGED_FILES + 1])
+    assert any("src/model.py" in line for line in lines[changed : changed + method_card.REVIEWER_CHANGED_FILES + 1])
+
+
+def test_review_packet_holds_its_cap_under_many_anchored_components(project: Path) -> None:
+    rows = "\n".join(f'| component {i} | "rule {i}" | |' for i in range(60))
+    (project / "METHOD.md").write_text(
+        METHOD_MD.replace('| curriculum warmup | "k grows linearly over the first 10% of steps" | |', rows),
+        encoding="utf-8",
+    )
+    body = "\n".join(
+        f"# @component component {i}\ndef f{i}(x):\n" + "\n".join(f"    y{j} = x + {j}" for j in range(40)) + "\n    return x\n\n"
+        for i in range(60)
+    )
+    (project / "src" / "wide.py").write_text(body, encoding="utf-8")
+    for index in range(40):
+        (project / "src" / f"extra_{index}.py").write_text(f"v{index} = {index}\n", encoding="utf-8")
+
+    lines = render_for_reviewer(project).splitlines()
+
+    assert 0 < len(lines) <= method_card.REVIEWER_MAX_LINES
+    assert lines[0].startswith("## Method card")
+    assert any(line.startswith("Files changed this round") for line in lines)
+    assert sum(1 for line in lines if line.startswith("- ") and "src/" in line and " " in line[2:4]) <= method_card.REVIEWER_CHANGED_FILES + 1

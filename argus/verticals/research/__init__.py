@@ -73,6 +73,11 @@ from .method_freeze import (
     declare_method_freeze,
     record_confirmation_result,
 )
+
+# ---------------------------------------------------------------------------
+# Per-mission task brief (the vertical's ``prepare_mission`` hook)
+# ---------------------------------------------------------------------------
+from .mission_brief import prepare_mission
 from .paper_infrastructure_review import (
     PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
     PAPER_INFRASTRUCTURE_REVIEW_MD_PATH,
@@ -97,7 +102,18 @@ from .stages import (
     stage_completion_issues,
 )
 
+# ---------------------------------------------------------------------------
+# Host-run spec checks register their round-evidence provider on import; the
+# package still imports while the module is absent (it is optional evidence).
+# ---------------------------------------------------------------------------
+try:
+    from . import spec_checks  # noqa: F401
+except ImportError:  # pragma: no cover - the provider is optional
+    pass
+
 __all__ = [
+    # mission_brief
+    "prepare_mission",
     # _review_contract_constants
     "ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY",
     "ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH",

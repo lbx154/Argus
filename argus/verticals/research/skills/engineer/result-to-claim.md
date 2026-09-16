@@ -1,26 +1,33 @@
 ---
-name: "Finding the claim in the results"
-description: "Use direct experimental evidence to decide how to improve the method next or what the paper can claim."
+name: "Reading the results against the fixed claim"
+description: "Use direct experimental evidence to decide which rung of the diagnosis ladder to work next, and, once the claim as stated is supported, what the notes hand to Paper."
 ---
 
-# Finding the claim in the results
+# Reading the results against the fixed claim
 
 Use this in Experiment. Read direct raw results, executed configuration, code,
 positive controls, evaluator outputs, and strong baseline results.
 
-Use the evidence to decide:
+The claim is the one in `METHOD.md`, fixed at Idea selection; the results do
+not choose the claim, they choose the next change to the implementation. Use
+the evidence to decide:
 
-1. what the evidence currently supports;
-2. whether implementation, evaluator, benchmark, scale, or method explains the
-   largest gap;
-3. the next highest-information method or experiment change;
-4. whether relevant wins clearly exceed losses and the headline comparisons
-   beat the strongest same-information baseline.
+1. what the evidence currently supports, cell by cell, against the claim as
+   stated;
+2. which rung of the diagnosis ladder in `research-experiment-playbook.md`
+   explains the largest gap: implementation fidelity, setup and evaluator,
+   hyperparameters and recipe, scale and data, baseline fairness, or a
+   method variant that still satisfies the claim;
+3. the one diagnosed change with the highest information value, and the
+   evidence that will show whether it worked;
+4. whether the headline comparisons now beat the strongest same-information
+   baseline with relevant wins clearly exceeding losses.
 
-If the paper-entry bar is not met, keep improving the method in Experiment.
-Do not reopen Idea selection or turn failed attempts into a negative-result
-paper; a negative or boundary thesis reaches Paper only when its evidence is as
-complete as a positive one would need. When the bar is met, rewrite the research
-notes in `RESEARCH_NOTES.md` with the positive thesis,
-decisive comparisons, essential contrary evidence, and direct sources Paper
-needs.
+If the claim as stated is not yet supported, keep working the ladder in
+Experiment and record each attempt's rung and evidence. Do not reopen Idea
+selection, restate the claim to match what the code did, or turn failed
+attempts into a negative-result paper. After three distinct, diagnosed
+attempts, escalate to the operator with the evidence; only the operator
+changes the claim. When the claim is supported, rewrite the research notes
+in `RESEARCH_NOTES.md` with the claim as stated, the decisive comparisons,
+essential contrary evidence, and direct sources Paper needs.

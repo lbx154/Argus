@@ -701,6 +701,9 @@ def create_app(
     from .routes.skill_library import register_skill_library_routes
 
     register_skill_library_routes(app, ctx)
+    from .routes.wiki import register_wiki_routes
+
+    register_wiki_routes(app, ctx)
     from .routes.pairing import register_pairing_routes
 
     register_pairing_routes(app, ctx)

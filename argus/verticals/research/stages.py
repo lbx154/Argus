@@ -16,6 +16,7 @@ from typing import Any
 from ...core.vertical_contract import IterationAssessment
 from ...skills.stage_machine import ChecklistItem
 from . import library_preparation
+from .mission_brief import prepare_mission
 from .prompt_policy import render_role_prompt_context, render_role_prompt_fragment
 from .review_purchase import review_purchase_policy
 
@@ -172,14 +173,19 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Treat method, experiment, evaluator, and evidence defects as repair work "
                 "inside Experiment. Keep the selected idea and current stage; never request "
-                "a rollback. When a matched ablation or the strongest same-information "
-                "baseline beats the mechanism on fresh evidence, the repair is to re-derive "
-                "the thesis from what the evidence establishes and confirm it on untouched "
-                "data, not to open another variant of the same objective. Unfinished "
-                "development is not a negative result; a negative or boundary thesis earns "
-                "Paper only with complete evidence for it."
+                "a rollback. The claim in METHOD.md is fixed at Idea selection and only "
+                "the operator changes it: a negative or weak result is an optimization "
+                "signal, worked down the diagnosis ladder in "
+                "research-experiment-playbook.md in order (implementation fidelity, setup "
+                "and evaluator, hyperparameters and recipe, scale and data, baseline "
+                "fairness, method variants that still satisfy the claim), one diagnosed "
+                "rung per attempt with its evidence recorded. At least three distinct, "
+                "diagnosed attempts precede escalation, and escalation is an operator "
+                "question with the evidence, never a narrowed claim, a restricted-case "
+                "paper, or a negative-result paper. Unfinished development is not a "
+                "negative result."
             ),
-            evidence_hint="repaired work products and the next decisive comparison",
+            evidence_hint="repaired work products, each attempt's rung and evidence, and the next decisive comparison",
         ),
         ChecklistItem(
             id="experiment.notes",
@@ -209,8 +215,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "completeness role: keep complete matrices in Methods, tables, or the "
                 "Appendix while prose interprets the comparisons that change the current "
                 "inference. Do not organize it as an experiment chronology or ship a "
-                "development shortfall as a finding; a negative or boundary thesis is a "
-                "paper only when its evidence is as complete as a positive one would need."
+                "development shortfall as a finding. The paper argues the claim as stated "
+                "in METHOD.md and is written only when that claim is supported: no "
+                "defensive writing, limitations in one honest paragraph rather than the "
+                "framing, and never a narrowed or negative claim the operator did not set."
             ),
             evidence_hint="paper/main.tex",
         ),
@@ -630,7 +638,8 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "schedule any upstream method, experiment, or paper repair in the current stage "
     "and never request rollback. The project-root research notes, RESEARCH_NOTES.md, "
     "are the sole normal cross-stage context until Review, with one named exception: "
-    "the method card, METHOD.md, is a work product every role reads. Review uses "
+    "the method card, METHOD.md, is a work product every role reads and its claim is "
+    "fixed until the operator changes it. Review uses "
     "paper/main.tex, its rendered output and direct dependencies, and paper/REVIEW.md."
 )
 
@@ -641,7 +650,8 @@ _ENGINEER_RESEARCH_METHOD = (
     + " Verify current models, benchmark versions, and APIs from live sources instead "
     "of memory. Preserve reproducibility through code, explicit configuration, and raw output, "
     "not extra reporting files; the method card, METHOD.md, is a work product, not a "
-    "report. Repair defects in the current stage and never move the "
+    "report. The claim in METHOD.md is fixed: make the code satisfy it, never the "
+    "card fit the code. Repair defects in the current stage and never move the "
     "work backward. Keep experiments adaptive"
 )
 
@@ -678,7 +688,9 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Keep the current stage while scheduling repairs. Never move a research project "
     "backward. Advance when the stage's scientific work is done and independently "
-    "reviewed; Review is terminal. Judge the science, not the bookkeeping: a missing "
+    "reviewed; Review is terminal. A Reviewer acceptance resting on a claim narrower "
+    "than METHOD.md states is not stage completion: hold and schedule the next rung "
+    "of the diagnosis ladder. Judge the science, not the bookkeeping: a missing "
     "or outdated research notes, review note, template detail, or file marker is "
     "repair work for the next round, never by itself a reason to hold a stage. A "
     "Reviewer judgment reached on the current mission is the current review of the "
@@ -787,6 +799,7 @@ __all__ = [
     "role_banner",
     "planner_task_issues",
     "import_legacy_state",
+    "prepare_mission",
     "search_altitude_context",
     "render_role_prompt_fragment",
     "render_role_prompt_context",

@@ -7,8 +7,11 @@ description: "The guide that defines Paper: write a complete paper from confirme
 
 ## What the paper should accomplish
 
-Produce a complete manuscript that argues the strongest contribution the
-confirmed Experiment evidence supports. Aim for the clarity, confidence,
+Produce a complete manuscript that argues the claim as stated in the
+project-root `METHOD.md`, led by the strongest supported result. The paper is
+written only when that claim is supported by the Experiment evidence; a
+narrowed claim, a "restricted case" or a negative result is not a paper
+unless the operator has changed the claim. Aim for the clarity, confidence,
 technical density, and visual finish of the strongest papers in the selected
 venue.
 
@@ -145,8 +148,11 @@ profile, or research notes.
 Paper includes the normal checks needed while writing. The scientific, visual,
 language, and whole-paper judgments are made together in Review; do not make
 them separately in Paper.
-Limitations remain accurate and specific, but they do not dominate the title,
-abstract, introduction, or conclusion when the evidence supports a strong claim.
+No defensive writing: lead with the strongest supported result, state the
+contribution plainly, and let the evidence carry it. Limitations are one
+honest paragraph of accurate, specific statements, not the framing of the
+paper; they do not enter the title, abstract, introduction, or conclusion as
+hedges, and a caveat chain never stands in for a clear statement.
 
 ## When the draft is ready
 

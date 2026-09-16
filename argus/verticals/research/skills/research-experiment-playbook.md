@@ -109,7 +109,19 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    pass without loosened tolerances or skips. Build the strongest faithful
    version of the idea, not the easiest version that can pass a local check;
    where the implementation must simplify the route, say so in the card's
-   Status column before running anything that bears a claim.
+   Notes column and mark the entry point `# @simplified` before running
+   anything that bears a claim. Each implementation task arrives as a brief
+   (`engineer/implementation-brief.md`): claim verbatim from `METHOD.md`,
+   the components this task builds with their entry points, interfaces,
+   the `tests/spec` ids that must pass, data and scale as the route states
+   them, commands, environment prerequisites and an executable definition
+   of done. A brief missing a field is completed from `METHOD.md` and the
+   route before code is written, and the completion is named in the round
+   summary; the brief is never narrowed to fit what is convenient. Write
+   the code for the Reviewer that reads it without you present
+   (`engineer/write-for-review.md`): `# @component <name>` above every
+   component entry point, `# @simplified`, `# @reuses` and `# why:` where
+   they apply; the host builds the review packet from these anchors.
 5. Beyond `tests/spec`, run only the smallest engineering checks needed to
    establish imports, shapes, branches, numerical behavior, and end-to-end
    wiring, then run a known detectable positive control through the same
@@ -155,10 +167,11 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    Persist raw measurements as cases finish, independently of final summary
    assembly. A metadata or exporter failure should be repairable from saved
    measurements rather than forcing the scientific computation to run again.
-8. Treat weak results as optimization signals. Change the method,
-   implementation, benchmark, baseline, controls, or scale when development
-   evidence identifies a concrete reason — the design and the runs live
-   together here precisely so this revision is cheap.
+8. Treat weak results as optimization signals against a fixed claim. Work
+   the diagnosis ladder below in order, one diagnosed change per attempt,
+   and record each rung's evidence — the design and the runs live together
+   here precisely so this iteration is cheap. The claim itself does not
+   move.
 9. Separate small engineering diagnostics from claim-bearing experiments.
    Stop repeating micro-benchmarks once they no longer change the next decision.
 10. Use held-out confirmation after method and evaluation choices stabilize.
@@ -290,15 +303,42 @@ the expanded experiment is reviewed, not by rerunning an unchanged inspection.
 Do not replace this check with a narrower paper claim or a standalone
 validation-only mission.
 
-When the decisive comparison goes against the mechanism, because a matched
-ablation or the strongest same-information baseline wins on fresh evidence,
-the next move is not another variant of the same objective. Return to the
-evidence and ask what it does establish: often the evaluation built to test
-the mechanism is itself the finding, or the refutation is the result the field
-needs, provided that evaluation is at claim scale. Re-derive the thesis,
-confirm it on untouched data, and carry that thesis into Paper. A further repair round
-on the same mechanism needs a concrete, diagnosed cause; repeated development
-on the same panels is not confirmation, however many cycles it took.
+### Fixed claim: iterate until it works
+
+The claim in `METHOD.md` is fixed at Idea selection. Only the operator may
+change it; no role rewrites it to fit the code, the data that happened to be
+at hand, or the first result. A negative or weak result is an optimization
+signal, the way a failing test is for infrastructure: the implementation,
+the setup or the recipe is wrong until diagnosed otherwise. Work this ladder
+in order, one rung per attempt, and record the evidence for each rung in the
+run records before moving to the next:
+
+1. **Implementation fidelity** against the method card: every component
+   anchored and reached on the executed path, knockouts that fail in the
+   component's absence, differential tests against the oracle and the
+   pinned reference (`engineer/hypothesis-implementation-contract.md`).
+2. **Setup and evaluator**: the positive control recovers a known signal
+   through the same path, the data pipeline yields what the route describes,
+   no leakage across splits, and the pilot is large enough to resolve the
+   promised margin (`engineer/suspect-the-setup.md`).
+3. **Hyperparameters and recipe**: start from the framework's recipe at the
+   pinned revision, then change one factor at a time with the reason beside
+   the value (`engineer/recipe-anchored-tuning.md`).
+4. **Scale and data**: the route's datasets and sizes, not a shrunken
+   pilot; an effect absent at toy scale has not been tested.
+5. **Baseline fairness**: matched information, compute and tuning; a baseline
+   run at an advantage, or below its published number, measures nothing.
+6. **Method variants that still satisfy the claim as stated**: a different
+   realization of the same components, never a different claim.
+
+At least three distinct, diagnosed attempts, each naming its rung and its
+evidence, precede any escalation. Escalation is an operator question carrying
+that evidence — a blocking question or `operator_options` with the diagnosed
+rungs, the numbers and the candidate changes to the claim — never a narrowed
+claim, never a "restricted case" or "negative result" paper, never a variant
+scheduled under a new title. Repeated development on the same panels is not
+confirmation, however many cycles it took; a further attempt needs a concrete,
+diagnosed cause from the ladder.
 
 Plan only on resources that are actually in hand. Human participants, ethics
 approval, paid annotation, credentials, external services, or compute the
@@ -323,9 +363,9 @@ redundant guards, fallback chains, reports, wrappers, or abstractions merely to
 make the project look robust.
 
 Do not freeze a global experiment plan, reopen Idea selection, hide relevant
-losses, or present unfinished development as a negative result; a negative or
-boundary thesis is a paper only when its evidence is as complete as a positive
-one would need.
+losses, or present unfinished development as a negative result. The paper
+argues the claim as stated in `METHOD.md`; a negative or boundary paper exists
+only after the operator has changed that claim.
 
 ## Method card
 
@@ -368,11 +408,12 @@ procedure are in `engineer/executable-spec.md`.
 
 Enter Paper after Reviewer accepts the experiment and Planner's post-result
 scale assessment finds its coverage and precision sufficient for the objective.
-The evidence must improve at least one scientifically meaningful dimension.
-Do not require a hard numeric margin,
-wins on every headline metric, or dominance over every strong baseline. Keep
-uncertainty, relevant losses, and tradeoffs visible, and scope the thesis to
-what improved. Manager alone advances the stage.
+The evidence must support the claim as stated in `METHOD.md` and improve at
+least one scientifically meaningful dimension. Do not require a hard numeric
+margin, wins on every headline metric, or dominance over every strong
+baseline. Keep uncertainty, relevant losses, and tradeoffs visible; state the
+claim's scope as the card states it, not narrowed to the cells that won.
+Manager alone advances the stage.
 
 ## Research notes
 
@@ -393,13 +434,15 @@ decision, then return here. Do not read all the sources in advance.
 | The method must be stated before it is built, or has changed | `engineer/method-card.md` | Write and update the project-root `METHOD.md` from the selected route |
 | A baseline or extended method has public code | `engineer/delta-on-reference.md` | Clone it at a pinned revision under `third_party/`, run an example, build the delta and the parity test |
 | The spec suite must be written or extended | `engineer/executable-spec.md` | Oracle, differential, knockout and claim-shaped tests under `tests/spec` from the templates |
+| An implementation task must be handed over or checked for completeness | `engineer/implementation-brief.md` | The brief a Planner writes and an Engineer verifies before code: claim, components, interfaces, tests, data, commands, environment, definition of done |
+| Code must be readable by a Reviewer who was not there | `engineer/write-for-review.md` | `# @component`, `# @simplified`, `# @reuses` and `# why:` anchors the host turns into the review packet |
 | The thesis may have drifted from code | `engineer/hypothesis-implementation-contract.md` | Map the selected mechanism to the executed path |
 | A fresh Reviewer must verify execution fidelity | `reviewer/claim-to-code-trace.md` | Trace claim-critical calls and formulas |
 | Training or large inference infrastructure is required | `engineer/infrastructure-landscape-survey.md` | Choose the framework from a current, verified survey; `engineer/training-infrastructure-guide.md` covers standing it up |
 | A project environment needs setup or repair | `project-venv-package-management.md` in the global library | Reuse the configured environment and install only required dependencies |
 | A concrete dependency or resource may block execution | `engineer/environment-readiness.md` | Check only the resources this implementation uses |
 | An experiment changes a requested time estimate or misses a milestone | `engineer/research-timeline.md` | Recompute the forecast and explain the deviation with evidence |
-| The method is below its baseline | `engineer/research-grind.md` | Diagnose and improve the largest live gap |
+| The method is below its baseline | `engineer/research-grind.md` | Work the diagnosis ladder against the fixed claim over many rounds |
 | The run may be misconfigured | `engineer/suspect-the-setup.md` | Separate setup failure from method evidence |
 | A mechanism needs one decisive ablation | `engineer/ablation-planner.md` | Choose only claim-changing ablations |
 | Raw evidence or evaluator behavior is disputed | `reviewer/reading-the-evidence.md` | Inspect code, configuration, evaluator, and rows |

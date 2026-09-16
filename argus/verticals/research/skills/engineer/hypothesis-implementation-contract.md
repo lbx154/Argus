@@ -27,9 +27,12 @@ selected thesis and the reachable call chain and return exactly one conclusion:
 - `MISMATCH`: the code runs but tests a different mechanism or comparison;
 - `NOT_IMPLEMENTED`: the selected mechanism is absent or unreachable.
 
-Fix `MISMATCH` or `NOT_IMPLEMENTED` in place before claim-bearing runs, and
-update the affected `METHOD.md` component rows in the same round when the
-method itself changed. Do not reopen Idea selection. The alignment result
+Fix `MISMATCH` or `NOT_IMPLEMENTED` in the code before claim-bearing runs;
+never resolve either by rewording the card to describe what the code does.
+The claim is fixed at Idea selection and only the operator changes it; a
+`METHOD.md` component row changes in the same round only for a deliberate,
+named simplification the operator can see, marked `# @simplified` at the entry
+point. Do not reopen Idea selection. The alignment result
 lives in the host-derived component status (from the `tests/spec` markers and
 the host's run) and in the Reviewer's returned judgment, not in a separate
 note; the research notes in `RESEARCH_NOTES.md`, written at Paper

@@ -108,60 +108,64 @@ def _engineer_decision_message(payload: dict) -> str:
     return "\n".join(line for line in lines if line)
 
 
-# Longest host-check note appended to the next Engineer prompt.
-_PROJECT_CHECK_ENGINEER_NOTE_CHARS = 2500
+# Longest host-evidence note appended to the next Engineer prompt.
+_ROUND_EVIDENCE_ENGINEER_NOTE_CHARS = 2500
 
 
-def _project_check_life_dir(workdir: Path, supervised_config: "SupervisedConfig") -> Path:
-    """Where round-check logs live: beside the mission packet, else under .argus."""
+def _round_evidence_life_dir(workdir: Path, supervised_config: "SupervisedConfig") -> Path:
+    """Where providers may write their logs: beside the mission packet, else under .argus."""
     packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
     if packet:
         return Path(packet).expanduser().parent
     return workdir / ".argus" / "life"
 
 
-def _record_round_project_checks(
+def _record_round_evidence(
     *,
     workdir: Path,
     round_index: int,
     supervised_config: "SupervisedConfig",
     state: RoundLoopState,
 ) -> None:
-    """Run the project's own spec suite and stage the result as round evidence.
+    """Ask the registered round-evidence providers and stage what they return.
 
-    The Reviewer receives the full rendering in its raw-evidence slot; the next
-    Engineer round gets a short note through the same follow-up text the
-    external-work waits use. Nothing here decides the round; fail-soft.
+    The Reviewer receives the full renderings in its raw-evidence slot; the
+    next Engineer round gets the short notes through the same follow-up text
+    the external-work waits use. Nothing here decides the round; fail-soft.
+    The host knows no provider by name -- a vertical registers its own (see
+    ``round_evidence.register_round_evidence_provider``).
     """
-    from .project_checks import (
-        render_for_engineer,
-        render_for_reviewer,
-        run_project_checks,
-    )
+    from .round_evidence import RoundEvidenceRequest, collect_round_evidence
 
-    report = run_project_checks(
-        workdir,
-        life_dir=_project_check_life_dir(workdir, supervised_config),
-        round_index=round_index,
-        previous_test_ids=state.last_project_check_test_ids,
-    )
-    if report is None:
-        return
     try:
-        if report.collection_complete:
-            state.last_project_check_test_ids = report.test_ids
-        state.pending_project_check_evidence = render_for_reviewer(report)
-        engineer_note = render_for_engineer(report)[:_PROJECT_CHECK_ENGINEER_NOTE_CHARS]
+        items = collect_round_evidence(
+            RoundEvidenceRequest(
+                workdir=workdir,
+                life_dir=_round_evidence_life_dir(workdir, supervised_config),
+                round_index=round_index,
+                previous_state=state.round_evidence_state,
+            )
+        )
+        if not items:
+            return
+        for item in items:
+            state.round_evidence_state[item.provider] = item.state
+        state.pending_round_evidence_text = "\n\n".join(
+            item.reviewer_text.strip() for item in items if item.reviewer_text.strip()
+        )
+        engineer_note = "\n\n".join(
+            item.engineer_note.strip() for item in items if item.engineer_note.strip()
+        )[:_ROUND_EVIDENCE_ENGINEER_NOTE_CHARS]
         # A retried round replaces its earlier note instead of stacking it.
         followup = state.pending_external_work_followup
-        if state.pending_project_check_engineer_note:
-            followup = followup.replace(state.pending_project_check_engineer_note, "").strip()
-        state.pending_project_check_engineer_note = engineer_note
+        if state.pending_round_evidence_engineer_note:
+            followup = followup.replace(state.pending_round_evidence_engineer_note, "").strip()
+        state.pending_round_evidence_engineer_note = engineer_note
         state.pending_external_work_followup = "\n\n".join(
             part for part in (followup, engineer_note) if part
         )
-    except Exception:  # noqa: BLE001 - evidence rendering must never break the round
-        log.exception("failed to stage host-run project check evidence")
+    except Exception:  # noqa: BLE001 - evidence staging must never break the round
+        log.exception("failed to stage host-gathered round evidence")
 
 
 class RoundExecutionMixin:
@@ -270,7 +274,7 @@ class RoundExecutionMixin:
         ):
             state.pending_secret_guard_notes.append(secret_guard_reviewer_note)
             del state.pending_secret_guard_notes[:-8]
-        _record_round_project_checks(
+        _record_round_evidence(
             workdir=workdir,
             round_index=round_index,
             supervised_config=supervised_config,

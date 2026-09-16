@@ -147,9 +147,11 @@ def test_prompt_blocks_stay_short() -> None:
         body = text.split(header, 1)[1].split("\n\n## ", 1)[0]
         return len(body.split())
 
-    assert words("engineer", "## Method card and executable spec", "execute") <= 130
-    assert words("reviewer", "## Method card first", "evaluate") <= 130
-    assert words("planner", "## Method card, reference and spec first", "plan") <= 90
+    # Raised from 130/130/90 for the write-for-review anchors, the review
+    # packet reading order and the implementation brief; trim before raising.
+    assert words("engineer", "## Method card and executable spec", "execute") <= 150
+    assert words("reviewer", "## Method card first", "evaluate") <= 170
+    assert words("planner", "## Method card, reference and spec first", "plan") <= 120
 
 
 def test_stage_checklist_and_banners_name_the_card_as_the_named_exception() -> None:

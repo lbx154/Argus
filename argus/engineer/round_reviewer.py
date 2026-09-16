@@ -298,9 +298,10 @@ class RoundReviewerMixin:
                     artifact_root=str(workdir),
                 ),
                 prev_review_summary=_previous_review_summary(state),
-                # Host-run project checks: facts the Reviewer weighs, rendered
-                # as raw evidence rather than as supervised-subagent chatter.
-                raw_evidence=state.pending_project_check_evidence,
+                # Host-gathered round evidence (e.g. a vertical's spec checks):
+                # facts the Reviewer weighs, rendered as raw evidence rather
+                # than as supervised-subagent chatter.
+                raw_evidence=state.pending_round_evidence_text,
                 scope=scope,
                 checkpoint_path=str(checkpoint_path or ""),
                 background_context=reviewer_background_context,
@@ -330,9 +331,9 @@ class RoundReviewerMixin:
                 backend_stop_kind="backend_unavailable",
             )
         if not review.backend_unavailable:
-            # A completed review has seen the host-run check evidence; a
+            # A completed review has seen the host-gathered round evidence; a
             # backend failure keeps it for the retry.
-            state.pending_project_check_evidence = ""
+            state.pending_round_evidence_text = ""
         session_metadata_persisted = True
         if reviewer_session is not None:
             if reviewer_resume_id and not review.session_resumed:
