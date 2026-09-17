@@ -122,6 +122,8 @@ class _StreamState:
 class RunExecMixin:
     """Owns the public ``run_exec`` entry point and its private phases."""
 
+    backend: str  # Initialized by AgentCliRunner; matches PromptDeliveryMixin.
+
     def run_exec(
         self,
         *,
