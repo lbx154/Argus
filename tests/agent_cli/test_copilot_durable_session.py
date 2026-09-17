@@ -160,3 +160,21 @@ def test_wall_clock_timeout_retains_binding(monkeypatch, tmp_path):
     result = runner.run_exec(prompt="fixture", resume_thread_id=None, options=options, run_label="fixture")
     assert result.thread_id == read_bindings(tmp_path)["decisions"][0]["session_id"]
     assert not result.turn_completed and result.turn_failed
+
+
+def test_live_monitor_uses_prebound_session_without_stdout_start(monkeypatch):
+    from types import SimpleNamespace
+
+    from argus.adapters.agent_cli_backend import _budget_monitor
+    queried = []
+    context = SimpleNamespace(bound_provider_session_id="bound", resume_thread_id=None,
+                              copilot_usage_cursor=object(), backend=SimpleNamespace(_is_copilot=True),
+                              cost_reservation=SimpleNamespace(observe_cost=lambda *args, **kwargs: None))
+    monitor = _budget_monitor.LiveBudgetMonitor(context)
+    monkeypatch.setattr(_budget_monitor, "read_copilot_usage_since",
+                        lambda cursor, *, session_id, timeout: queried.append(session_id))
+    assert monitor.check() is None
+    assert queried == ["bound"]
+    monitor.observe("stdout", json.dumps({"type": "result", "sessionId": "unrelated"}))
+    assert "provider_session_identity_conflict" in monitor.check()
+    assert queried == ["bound"]
