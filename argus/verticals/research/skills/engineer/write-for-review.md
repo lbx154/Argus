@@ -26,6 +26,10 @@ reported `NOT_IMPLEMENTED`.
 - `# why: <reason>` on or directly above a non-obvious decision: a
   tolerance, a masking choice, an ordering, a shortcut taken.
 
+## Claim attainment
+
+After a claim-bearing run, write `.argus/claim_attainment.json`: `{"clauses": [{"clause": ..., "obtained": ..., "met": "yes|no|partial|untested", "source": {"path": "results/x.json", "field": "ours.acc"}}]}`, one entry per clause of the claim. The host reads the pointed field and shows the value beside your words to the Reviewer and the Planner: the comparison is yours, the number is the file's. A clause you cannot meet is stated as not met, never reworded as a margin over a baseline.
+
 ## Configuration
 
 Hyperparameters live in config files (`configs/*.yaml`), each chosen value

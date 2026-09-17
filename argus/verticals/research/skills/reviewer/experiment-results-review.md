@@ -64,6 +64,10 @@ strong baseline. Keep uncertainty, relevant losses, and tradeoffs visible;
 otherwise return one concrete Experiment repair through the normal Reviewer
 response.
 
+## Start from the weakest link
+
+The packet opens with two things the Engineer did not write: its own per-clause claim attainment with the values the host read from the files it points to, and the host's log of what it ran this round (commands, how long each ran at most, tests and evaluations invoked, paths outside the workspace). Read those first and pick the one link most likely not to hold the claim: a clause marked not met, partial or untested; a stated value the host resolved differently; a headline number from a run shorter than its protocol allows; a metric whose name is not the protocol's. Open only that script. Evidence the packet already settles is not re-read; ask at most two questions, each answerable by an artifact, or judge.
+
 ## Stand-ins
 
 The packet's "Run reality" lines list definitions in the project's own code named mock, fake, stub, synthetic or oracle, with the lines that call them, and how many minutes the results directory was written over. A claim-bearing number produced through such a path is `NOT_IMPLEMENTED` for the component it stands in for, whatever the spec tests say, unless METHOD.md names the deviation and the paper calls the evaluation simulated. Ask for the real system, not for a caveat. The same lines date each result file against the last edit to the code that wrote it and name measuring functions that build their inputs from random tensors (with their first docstring line). Read them against the protocol's scale: a 32k-context sweep of two 7B models does not finish in the 57 s between a script's last edit and its summary, and a "retrieval recall" computed on random keys is a mechanism test whatever models the results file lists above it. The mission that asked for real weights is not met by real weights in the perplexity half alone.

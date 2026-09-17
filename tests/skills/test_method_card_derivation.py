@@ -585,3 +585,62 @@ def test_random_input_measurements_and_fast_results_are_dated(tmp_path: Path) ->
     assert "src/eval/run_model_eval.py:3 evaluate_retrieval_at_scale — used from src/eval/run_model_eval.py:14; builds inputs with torch.randn" in packet
     assert "- results/model_eval_summary.json was written 57 s after the last edit to src/eval/run_model_eval.py" in packet
     assert "init_weights" not in packet and "load_wikitext" not in packet
+
+
+def test_claim_attainment_shows_the_engineers_words_beside_the_hosts_values(tmp_path: Path) -> None:
+    # One project reported "+22 pp over KIVI" for a claim that asked for 96% of
+    # BF16 and got 35%. Per clause, the Engineer says met or not and points at
+    # the number; the host reads the pointed field and prints it beside the words.
+    import json
+
+    root = tmp_path / "proj"
+    (root / "results").mkdir(parents=True)
+    (root / ".argus").mkdir()
+    (root / "METHOD.md").write_text("# RotKV\n\nRotKV keeps 96% of BF16 retrieval.\n", encoding="utf-8")
+    (root / "results" / "ruler.json").write_text(
+        json.dumps({"bf16": {"acc": 1.0}, "rotkv": {"acc": 0.3458}, "runs": [{"acc": 0.9}]}), encoding="utf-8"
+    )
+    (root / ".argus" / "claim_attainment.json").write_text(
+        json.dumps(
+            {
+                "clauses": [
+                    {"clause": "preserve >96% of BF16 retrieval", "obtained": "34.6% of BF16", "met": "no",
+                     "source": {"path": "results/ruler.json", "field": "rotkv.acc"}},
+                    {"clause": "first run above 0.8", "obtained": "0.9", "met": "yes",
+                     "source": {"path": "results/ruler.json", "field": "runs.0.acc"}},
+                    {"clause": "beat KIVI by 25 pp", "obtained": "+22 pp", "met": "partial",
+                     "source": {"path": "results/ruler.json", "field": "comparison.gain"}},
+                    {"clause": "1.8x throughput", "obtained": "not measured", "met": "untested",
+                     "source": {"path": "results/profile.json", "field": "speedup"}},
+                    {"clause": "reads elsewhere", "obtained": "x", "met": "yes",
+                     "source": {"path": "/etc/hostname", "field": ""}},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    card = derive_method_card(root)
+    entries = card["claim_attainment"]
+
+    assert [e["met"] for e in entries] == ["not met", "met", "partial", "untested", "met"]
+    assert [e["pointer"] for e in entries] == ["ok", "ok", "no field", "no file", "outside workspace"]
+    assert entries[0]["value"] == "0.3458" and entries[1]["value"] == "0.9"
+
+    packet = render_for_reviewer(root)
+    assert "Claim attainment (the Engineer's statement per clause of the claim" in packet
+    assert '- [not met] preserve >96% of BF16 retrieval — Engineer: "34.6% of BF16"; host reads results/ruler.json rotkv.acc = 0.3458' in packet
+    assert "- [partial] beat KIVI by 25 pp — Engineer: \"+22 pp\"; pointer no field: results/ruler.json comparison.gain" in packet
+    assert "pointer outside workspace: /etc/hostname" in packet
+    assert packet.index("Claim attainment") < packet.index("Run reality") if "Run reality" in packet else True
+
+
+def test_results_without_an_attainment_statement_are_named_as_such(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    (root / "results").mkdir(parents=True)
+    (root / "METHOD.md").write_text("# M\n\nM does X.\n", encoding="utf-8")
+    (root / "results" / "summary.json").write_text("{}", encoding="utf-8")
+
+    packet = render_for_reviewer(root)
+
+    assert "No claim attainment statement (.argus/claim_attainment.json): results exist but the Engineer has not said which clauses of the claim they meet." in packet

@@ -122,6 +122,15 @@ _RANDOM_INPUT = re.compile(
 _MEASURING_NAME = re.compile(r"eval|bench|retriev|recall|accura|measur|score|perplex|metric|sweep", re.IGNORECASE)
 MAX_STAND_INS = 20
 STAND_IN_USES = 5
+# The Engineer's own statement of which clauses of the claim its results meet,
+# one entry per clause, each pointing at the file and field that holds the
+# number. The host reads the pointed value and shows it beside the words: the
+# comparison is the model's, the number is the file's. One control project
+# reported "+22 pp over KIVI" for a claim that asked for 96% of BF16 and got
+# 35%; a per-clause statement leaves no room for that framing.
+CLAIM_ATTAINMENT_PATH = ".argus/claim_attainment.json"
+ATTAINMENT_MAX = 8
+_ATTAINMENT_STATUS = {"yes": "met", "met": "met", "true": "met", "no": "not met", "not met": "not met", "false": "not met", "partial": "partial", "partially": "partial", "untested": "untested", "unknown": "untested", "n/a": "untested"}
 DEF_BODY_CAP = 400
 RESULT_FILES_DATED = 3
 RESULT_DIRS = ("results", "outputs", "runs", "artifacts", "logs")
@@ -794,6 +803,126 @@ def _duration(seconds: int) -> str:
     return f"{seconds / 3600.0:.1f} h"
 
 
+def _resolve_field(value: Any, field_path: str) -> tuple[bool, Any]:
+    """Follow a dotted path (``rotkv.composite_accuracy``, ``runs.0.acc``) into parsed JSON."""
+    current = value
+    for part in [p for p in str(field_path).replace("[", ".").replace("]", "").split(".") if p]:
+        if isinstance(current, dict):
+            if part not in current:
+                return False, None
+            current = current[part]
+        elif isinstance(current, list):
+            try:
+                current = current[int(part)]
+            except (ValueError, IndexError):
+                return False, None
+        else:
+            return False, None
+    return True, current
+
+
+def claim_attainment(workdir: Path) -> list[dict[str, Any]]:
+    """The Engineer's per-clause statement with the pointed values read by the host.
+
+    Each entry: clause, obtained (the Engineer's words), met (normalised),
+    source path and field, and what the host found there: ``pointer`` is
+    ``ok``, ``no file``, ``no field``, ``not json`` (file present, value not
+    addressable), ``outside workspace`` or ``no pointer``; ``value`` is the
+    resolved value rendered short; ``age_minutes`` is the file's age.
+    """
+    workdir = Path(workdir)
+    path = workdir / CLAIM_ATTAINMENT_PATH
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(_read_text(path))
+    except Exception:  # noqa: BLE001 - a malformed statement is reported as such
+        return [{"clause": "(unreadable .argus/claim_attainment.json)", "obtained": "", "met": "untested", "source": "", "field": "", "pointer": "no pointer", "value": None, "age_minutes": None}]
+    clauses = payload.get("clauses") if isinstance(payload, dict) else payload
+    if not isinstance(clauses, list):
+        return []
+    out: list[dict[str, Any]] = []
+    now = time.time()
+    for raw in clauses[:ATTAINMENT_MAX]:
+        if not isinstance(raw, dict):
+            continue
+        source: dict[str, Any] = raw["source"] if isinstance(raw.get("source"), dict) else {}
+        src_path = str(source.get("path") or raw.get("path") or "").strip()
+        field = str(source.get("field") or raw.get("field") or "").strip()
+        met_raw = str(raw.get("met") if raw.get("met") is not None else "").strip().lower()
+        entry: dict[str, Any] = {
+            "clause": str(raw.get("clause") or "").strip()[:200],
+            "obtained": str(raw.get("obtained") or "").strip()[:200],
+            "met": _ATTAINMENT_STATUS.get(met_raw, "untested" if not met_raw else met_raw[:20]),
+            "source": src_path,
+            "field": field,
+            "pointer": "no pointer",
+            "value": None,
+            "age_minutes": None,
+        }
+        if src_path:
+            target = (workdir / src_path).resolve() if not Path(src_path).is_absolute() else Path(src_path).resolve()
+            try:
+                inside = target.is_relative_to(workdir.resolve())
+            except (OSError, ValueError):
+                inside = False
+            if not inside:
+                entry["pointer"] = "outside workspace"
+            elif not target.is_file():
+                entry["pointer"] = "no file"
+            else:
+                try:
+                    entry["age_minutes"] = round((now - target.stat().st_mtime) / 60.0, 1)
+                except OSError:
+                    pass
+                if target.suffix.lower() == ".json" and field:
+                    try:
+                        found, value = _resolve_field(json.loads(_read_text(target)), field)
+                    except Exception:  # noqa: BLE001
+                        found, value = False, None
+                        entry["pointer"] = "not json"
+                    else:
+                        entry["pointer"] = "ok" if found else "no field"
+                        entry["value"] = _short_value(value) if found else None
+                else:
+                    entry["pointer"] = "not json" if field else "ok"
+        out.append(entry)
+    return out
+
+
+def _short_value(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    text = json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else value
+    return text if len(text) <= 80 else text[:77] + "..."
+
+
+def render_claim_attainment(card: dict[str, Any], *, limit: int = ATTAINMENT_MAX) -> list[str]:
+    """Lines shared by the review packet, the task brief and the Planner's context."""
+    entries = card.get("claim_attainment") or []
+    if not entries:
+        return []
+    lines = [
+        "Claim attainment (the Engineer's statement per clause of the claim; the value on the "
+        "right is what the host read from the file the entry points to):"
+    ]
+    for entry in entries[:limit]:
+        pointer = entry.get("pointer")
+        if pointer == "ok":
+            host = f"host reads {entry['source']} {entry['field']} = {entry['value']}"
+            if entry.get("age_minutes") is not None:
+                host += f" (written {entry['age_minutes']} min ago)"
+        elif pointer == "no pointer":
+            host = "no file or field named"
+        else:
+            host = f"pointer {pointer}: {entry['source']} {entry['field']}".rstrip()
+        obtained = f' — Engineer: "{entry["obtained"]}"' if entry.get("obtained") else ""
+        lines.append(f"- [{entry['met']}] {entry['clause']}{obtained}; {host}")
+    if len(entries) > limit:
+        lines.append(f"- ... {len(entries) - limit} more clauses")
+    return lines
+
+
 def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
     """Lines shared by the review packet and the task brief: stand-ins and footprint."""
     lines: list[str] = []
@@ -1252,6 +1381,7 @@ def _empty_card() -> dict[str, Any]:
         "checks": None,
         "stand_ins": [],
         "results_footprint": [],
+        "claim_attainment": [],
     }
 
 
@@ -1320,6 +1450,7 @@ def derive_method_card(workdir: Path) -> dict[str, Any]:
         ("change_log", lambda: change_log(workdir)),
         ("stand_ins", lambda: stand_ins(workdir)),
         ("results_footprint", lambda: results_footprint(workdir)),
+        ("claim_attainment", lambda: claim_attainment(workdir)),
     ):
         try:
             card[key] = derive()
@@ -1428,6 +1559,14 @@ def render_for_reviewer(workdir: Path) -> str:
     ]
     if unlisted_anchors:
         lines.append("Anchors without a card row: " + ", ".join(unlisted_anchors[:10]))
+    attainment = render_claim_attainment(card)
+    if attainment:
+        lines.extend(attainment)
+    elif any(entry.get("files") for entry in card.get("results_footprint") or []):
+        lines.append(
+            "No claim attainment statement (.argus/claim_attainment.json): results exist but the "
+            "Engineer has not said which clauses of the claim they meet."
+        )
     reality = render_run_reality(card)
     if reality:
         lines.append("Run reality (derived from the tree, not from any account):")

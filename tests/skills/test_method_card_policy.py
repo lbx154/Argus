@@ -151,10 +151,11 @@ def test_prompt_blocks_stay_short() -> None:
     # packet reading order and the implementation brief, then to 180/190/145
     # for the stand-in rule after trimming each block, then the reviewer to 220
     # for the dated results and random-input facts after trimming its reading
-    # order; trim before raising.
-    assert words("engineer", "## Method card and executable spec", "execute") <= 200
-    assert words("reviewer", "## Method card first", "evaluate") <= 220
-    assert words("planner", "## Method card, reference and spec first", "plan") <= 155
+    # order, then to 260/340/200 for the claim-attainment statement, the
+    # weakest-link reading and the stage rule on unmet clauses; trim before raising.
+    assert words("engineer", "## Method card and executable spec", "execute") <= 260
+    assert words("reviewer", "## Method card first", "evaluate") <= 340
+    assert words("planner", "## Method card, reference and spec first", "plan") <= 200
 
 
 def test_stage_checklist_and_banners_name_the_card_as_the_named_exception() -> None:
@@ -295,6 +296,13 @@ def test_stand_ins_are_named_for_engineer_reviewer_planner_and_paper() -> None:
     assert "Stand-ins (mock model, fake environment" in engineer
     assert "never report a simulation as the benchmark" in engineer
     assert "listed under Run reality is NOT_IMPLEMENTED whatever the tests say" in reviewer
+    assert "write .argus/claim_attainment.json" in engineer
+    assert "A clause you cannot meet is a negative result to state, never to reword" in engineer
+    assert "Start from Claim attainment" in reviewer
+    assert "choose the one link most likely not to hold the claim and read only there" in reviewer
+    assert "ask at most two questions, each answerable by an artifact" in reviewer
+    assert "Read Claim attainment before deciding the stage" in planner
+    assert "advancing to Paper on the clauses that happened to pass is claim drift" in planner
     assert "a one-minute run or random keys is not the protocol's evaluation" in reviewer
     assert "a benchmark run through a stand-in is not a result" in planner
     assert "a simulation is never described as a benchmark" in _paper_narrative_packaging_block()

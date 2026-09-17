@@ -211,4 +211,6 @@ def test_handoff_skills_exist_with_their_headings_and_stay_short() -> None:
         return len(rest.split())
 
     assert body_words(brief) <= 350
-    assert body_words(review) <= 300
+    # 300 -> 380 for the claim-attainment statement (one entry per clause,
+    # host-resolved pointer); trim before raising again.
+    assert body_words(review) <= 380

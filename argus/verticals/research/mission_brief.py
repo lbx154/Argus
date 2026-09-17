@@ -273,6 +273,13 @@ def _claim_section(
     return lines
 
 
+def _attainment_section(card: dict[str, Any]) -> list[str]:
+    from .method_card import render_claim_attainment
+
+    lines = render_claim_attainment(card)
+    return ["### Claim attainment (last statement)", *lines[1:]] if lines else []
+
+
 def _reality_section(card: dict[str, Any]) -> list[str]:
     """Stand-ins and the results footprint, so the Engineer sees what the Reviewer will."""
     lines = method_card.render_run_reality(card, limit=5)
@@ -626,6 +633,7 @@ def render_task_brief(
     for build in (
         lambda: _claim_section(card, root, state),
         lambda: _components_section(card),
+        lambda: _attainment_section(card),
         lambda: _environment_section(root, card),
         lambda: _reality_section(card),
         lambda: _task_section(mission, state),

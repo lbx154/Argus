@@ -372,7 +372,12 @@ def _method_card_engineer_block(stage: str, operation: str) -> str:
         "Stand-ins (mock model, fake environment, oracle policy, synthetic data where "
         "the route names real data) belong in tests/spec only: a claim-bearing run "
         "exercises the real system the route names; if it cannot run here, name the "
-        "deviation in METHOD.md and say so, never report a simulation as the benchmark."
+        "deviation in METHOD.md and say so, never report a simulation as the benchmark. "
+        "When a round produces a claim-bearing number, write .argus/claim_attainment.json: "
+        "one entry per clause of the claim with clause, obtained, met (yes/no/partial/"
+        "untested) and source {path, field} of the number; the host reads that field and "
+        "shows the value beside your words to the Reviewer and the Planner. A clause you "
+        "cannot meet is a negative result to state, never to reword."
     )
 
 
@@ -381,11 +386,17 @@ def _method_card_reviewer_block(stage: str) -> str:
         return ""
     return (
         "## Method card first\n"
-        "Read in this order: the review packet (anchors with code excerpts, test "
-        "outcomes, config changes, files changed, Run reality), then METHOD.md, then "
-        "the derived method-card status in Raw verification evidence (proven, "
-        "contradicted, partial, untested, unchecked; reused code; hyperparameter "
-        "changes), then tests/spec, then code, and the Engineer's account last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
+        "Start from Claim attainment (the Engineer's per-clause statement with the values "
+        "the host read from the files it points to) and the host log of what the Engineer "
+        "ran this round; choose the one link most likely not to hold the claim and read "
+        "only there. A clause marked not met, partial or untested is a negative result to "
+        "iterate on, never a claim to narrow; a stated value the host resolves differently, "
+        "a headline number from a run shorter than its protocol allows, or a metric named "
+        "differently from the protocol's is where you open the script. Then the review packet "
+        "(anchors with code excerpts, test outcomes, config changes, files changed, Run "
+        "reality), METHOD.md, the derived method-card status in Raw verification evidence "
+        "(proven, contradicted, partial, untested, unchecked; reused code; hyperparameter "
+        "changes), tests/spec, code, and the Engineer's account last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
         "INSUFFICIENT_EVIDENCE with file:line (reviewer/claim-to-code-trace.md). "
         "Required repairs, returned as continue naming the smallest fix: a component "
         "without a '# @component' anchor or a knockout that fails in its absence, an "
@@ -399,8 +410,9 @@ def _method_card_reviewer_block(stage: str) -> str:
         "and the paper calls the evaluation simulated. Run reality also dates each "
         "result file against the last code edit and names functions fed random "
         "tensors: a one-minute run or random keys is not the protocol's evaluation, "
-        "whatever the results file lists. Do not ask for tools or re-run anything "
-        "yourself."
+        "whatever the results file lists. Settled evidence stays settled: do not re-read "
+        "what the packet already shows; ask at most two questions, each answerable by an "
+        "artifact. Do not ask for tools or re-run anything yourself."
     )
 
 
@@ -423,7 +435,10 @@ def _method_card_planner_block(stage: str) -> str:
         "the bar. When the route hosts a model or an environment, the claim-bearing task "
         "depends on a stand-up task whose acceptance is the official example running "
         "end to end here (engineer/framework-stand-up-pilot.md); a benchmark run "
-        "through a stand-in is not a result."
+        "through a stand-in is not a result. Read Claim attainment before deciding the "
+        "stage: a clause not met, partial or untested keeps Experiment open for another "
+        "iteration on the implementation; advancing to Paper on the clauses that happened "
+        "to pass is claim drift, whatever the margin over a baseline."
     )
 
 
@@ -436,6 +451,7 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
             _stage_playbook_block(stage),
             _hardware_block_for_stage(stage, project_root),
             _method_card_planner_block(stage),
+            _attainment_block_for_planner(stage, project_root),
             (
                 "## Post-result experiment scale assessment\n"
                 "After Reviewer accepts the current experiment, apply the "
@@ -820,6 +836,19 @@ def _reviewer_fragment(
         )
         if block
     )
+
+
+def _attainment_block_for_planner(stage: str, project_root: Path | None) -> str:
+    """The Engineer's per-clause statement with host-read values, for the stage decision."""
+    if project_root is None or stage not in {"experiment", "paper"}:
+        return ""
+    try:
+        from .method_card import derive_method_card, render_claim_attainment
+
+        lines = render_claim_attainment(derive_method_card(Path(project_root)))
+    except Exception:  # noqa: BLE001 - derived context must never break a prompt
+        return ""
+    return "## Claim attainment\n" + "\n".join(lines) if lines else ""
 
 
 def _derived_method_card_for_reviewer(stage: str, project_root: Path | None) -> str:

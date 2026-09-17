@@ -433,3 +433,22 @@ def test_environment_names_the_local_model_caches(project: Path, tmp_path: Path,
     assert "2 models [org/other-model, org/small-model], 1 datasets" in line
     assert str(hub.resolve()) in line
     assert "use them before downloading or substituting" in line
+
+
+def test_brief_carries_the_last_claim_attainment_statement(project: Path, tmp_path: Path) -> None:
+    import json
+
+    (project / "results").mkdir()
+    (project / "results" / "r.json").write_text(json.dumps({"ours": {"acc": 0.35}}), encoding="utf-8")
+    (project / ".argus").mkdir(exist_ok=True)
+    (project / ".argus" / "claim_attainment.json").write_text(
+        json.dumps({"clauses": [{"clause": "keep 96% of BF16", "obtained": "35%", "met": "no", "source": {"path": "results/r.json", "field": "ours.acc"}}]}),
+        encoding="utf-8",
+    )
+
+    brief = prepare_mission(stage="experiment", project_root=project, state_root=tmp_path, mission=_mission())
+    lines = brief.splitlines()
+
+    assert "### Claim attainment (last statement)" in lines
+    assert any(line.startswith('- [not met] keep 96% of BF16 — Engineer: "35%"; host reads results/r.json ours.acc = 0.35') for line in lines)
+    assert lines.index("### Claim attainment (last statement)") < lines.index("### Environment now")

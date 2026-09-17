@@ -371,6 +371,10 @@ only after the operator has changed that claim.
 
 A claim about a model, an agent, an environment or a dataset is evidence only when that system ran. A mock model, a fake environment, an oracle policy or synthetic data standing where the route names real data belongs in `tests/spec` (knockouts, differential tests) and nowhere in a claim-bearing run. When the real system cannot run on this machine, the honest moves are, in order: stand it up (a local open-weight model behind a serving engine on the idle GPU, the environment's official example end to end — `engineer/framework-stand-up-pilot.md`), shrink the scale while keeping the system real, or name the deviation in METHOD.md and stop the run from being claim-bearing. The host lists possible stand-ins with their call sites and the results footprint (files, minutes written) under "Run reality" in the task brief and the review packet; a 350-task benchmark whose results were written in four minutes is read for what it is. The same lines date each result file against the last edit to the code (a summary written 57 s after its script cannot hold a 32k-context sweep of two 7B models) and name measuring functions that build their inputs with random tensors: a mechanism sweep on random keys is a spec test, and a results file that lists real models above numbers such a sweep produced is a false account, not a deviation.
 
+### Say what the claim got
+
+After a claim-bearing run, `.argus/claim_attainment.json` states per clause of the claim what was obtained, whether it is met, and which results file and field hold the number (`engineer/write-for-review.md`). The host resolves the pointer and shows the value; the Reviewer starts its reading there and the Planner decides the stage from it. A clause not met is the iteration signal this vertical runs on, not a sentence to soften.
+
 ## Method card
 
 `METHOD.md` at the project root is the authoritative statement of the
