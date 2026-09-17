@@ -1,12 +1,18 @@
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { ProjectRow, Snapshot } from '../../../core/src/types';
 import { DaemonManageModal } from '../components/DaemonManageModal';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
 import { cacheProjectName } from '../lib/projectName';
+
+let queryClient: QueryClient;
+beforeEach(() => {
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+});
+afterEach(() => queryClient.clear());
 
 const sid = 's-research1';
 
@@ -102,7 +108,6 @@ describe('session rename', () => {
   });
 
   it('updates the cached session list and header from the persisted server name', () => {
-    const queryClient = new QueryClient();
     queryClient.setQueryData(['snapshot', sid], snapshot());
     queryClient.setQueryData(['projects'], projectIndex());
 
@@ -127,7 +132,7 @@ describe('session rename', () => {
       />,
     );
     const sessionList = renderToStaticMarkup(
-      <Sidebar
+      <QueryClientProvider client={queryClient}><Sidebar
         projects={renamedIndex.projects}
         activeId={sid}
         localCwd="/workspace/argus"
@@ -139,7 +144,7 @@ describe('session rename', () => {
         onToggleCollapse={() => undefined}
         themeMode="light"
         onCycleTheme={() => undefined}
-      />,
+      /></QueryClientProvider>,
     );
     expect(header).toContain('Operator title');
     expect(sessionList).toContain('Operator title');

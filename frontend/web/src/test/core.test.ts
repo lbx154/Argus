@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'node:fs';
@@ -50,6 +51,12 @@ import { ArgusMark, Wordmark } from '../components/Wordmark';
 import { ConnectionProblemBanner, pairingTokenFromInput, temporaryPairingLinkFromInput } from '../components/ConnectionProblemBanner';
 import { LocalArgusUnavailableError, PairingRequiredError } from '../api';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
+
+let queryClient: QueryClient;
+beforeEach(() => {
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+});
+afterEach(() => queryClient.clear());
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -284,8 +291,8 @@ describe('shared frontend core', () => {
       onToggleCollapse: () => undefined,
       onCycleTheme: () => undefined,
     };
-    const light = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'light' }));
-    const dark = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'dark' }));
+    const light = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(Sidebar, { ...props, themeMode: 'light' })));
+    const dark = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(Sidebar, { ...props, themeMode: 'dark' })));
     expect(light).toContain('Settings');
     expect(light).toContain('data-icon="gear"');
     expect(light).toContain('lucide-sun');
