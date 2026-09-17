@@ -427,6 +427,47 @@ def _tools_line() -> str:
     return line
 
 
+SKILL_SCRIPTS = ("pptx_export.py", "paper_charts.py", "paper_chart_style.py", "echarts_figure.py", "figure_renderer.py")
+
+
+def _skill_scripts_dirs() -> list[Path]:
+    """Where the research Skill's scripts are on this host: the seeded copy first, then the packaged one."""
+    dirs: list[Path] = []
+    try:
+        from ...core.paths import shared_skills_root
+
+        seeded = shared_skills_root() / "_shared_verticals" / "research" / "engineer" / "figure_spec_scripts"
+        if seeded.is_dir():
+            dirs.append(seeded)
+    except Exception:  # noqa: BLE001 - no Skill home means the packaged copy is the answer
+        log.debug("mission brief: no seeded Skill scripts", exc_info=True)
+    packaged = Path(__file__).resolve().parent / "skills" / "engineer" / "figure_spec_scripts"
+    if packaged.is_dir() and packaged not in dirs:
+        dirs.append(packaged)
+    return dirs
+
+
+def _skill_scripts_line() -> str:
+    """The absolute home of the Skill scripts, so ``figure_spec_scripts/…`` is never a disk search.
+
+    The v5 control project's Engineer, reading ``figure_spec_scripts/pptx_export.py``
+    in the paper Skill, ran ``find / -name pptx_export.py``, then the same for
+    ``paper_chart_style.py`` and the venue style file: ten minutes each before
+    the host stopped them. The host knows the directory.
+    """
+    dirs = _skill_scripts_dirs()
+    if not dirs:
+        return ""
+    home = dirs[0]
+    present = [name for name in SKILL_SCRIPTS if (home / name).is_file()]
+    return (
+        f"- Skill scripts: `figure_spec_scripts/` in the Skill pages is `{home}` "
+        f"({', '.join(present) if present else 'empty'}); run them from there with .venv's python. "
+        "Venue style files come from the venue's own kit, not from this machine. Nothing a "
+        "Skill names lives anywhere else here: do not `find /` for it."
+    )
+
+
 def _installed_distributions(project_root: Path) -> set[str]:
     """Normalised distribution names under the project venv's site-packages."""
     names: set[str] = set()
@@ -614,6 +655,7 @@ def _environment_section(project_root: Path, card: dict[str, Any]) -> list[str]:
     for producer in (
         lambda: _torch_line(project_root),
         _tools_line,
+        _skill_scripts_line,
         lambda: _packages_line(project_root, card),
         lambda: _clones_line(project_root, card),
         _gpu_line,

@@ -486,3 +486,23 @@ def test_tools_on_path_are_listed_and_absence_is_stated(monkeypatch) -> None:
     line = mb._tools_line()
     assert line.startswith("- Tools on PATH: pip, git, latexmk (absent: uv, pdflatex, nvidia-smi, conda, node, npx, gh;")
     assert "do not `find /` for a tool" in line
+
+
+def test_the_skill_scripts_directory_is_named_so_nobody_searches_the_disk(monkeypatch, tmp_path) -> None:
+    from argus.verticals.research import mission_brief as mb
+
+    # A seeded Skill home wins over the packaged copy, and the line says what is in it.
+    seeded = tmp_path / "home" / "skills" / "_shared_verticals" / "research" / "engineer" / "figure_spec_scripts"
+    seeded.mkdir(parents=True)
+    (seeded / "pptx_export.py").write_text("# export\n")
+    (seeded / "paper_charts.py").write_text("# charts\n")
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    line = mb._skill_scripts_line()
+    assert line.startswith(f"- Skill scripts: `figure_spec_scripts/` in the Skill pages is `{seeded}` (pptx_export.py, paper_charts.py)")
+    assert "do not `find /` for it" in line and "venue's own kit" in line
+
+    # Without a seeded copy the packaged scripts beside the vertical are the answer.
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "empty"))
+    packaged = mb._skill_scripts_line()
+    assert "argus/verticals/research/skills/engineer/figure_spec_scripts" in packaged.replace("\\", "/")
+    assert "pptx_export.py" in packaged and "paper_charts.py" in packaged

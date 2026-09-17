@@ -566,7 +566,8 @@ def _engineer_figure_block(stage: str, operation: str) -> str:
         "missing point on a log axis. The method figure is composed only through "
         "PPT Master (Method D; Method B fallback): author `paper/figures/<name>.pptx`, "
         "then `" + _PPTX_EXPORT_CLI + "` writes `<name>.pdf` and `<name>.png` from it "
-        "(no Office needed); matplotlib patches and TeX-compiled drawings are not a route for it. "
+        "(no Office needed; the scripts' directory is named under Environment in the task "
+        "brief); matplotlib patches and TeX-compiled drawings are not a route for it. "
         "`" + _FIGURE_LINT_CLI + "` reports font, raster, missing-file and method-figure "
         "defects; fix them before inspecting the export at final size."
     )
