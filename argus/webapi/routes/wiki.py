@@ -249,14 +249,14 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
         return (workspace, roots[0]) if roots else None
 
     def active_vertical(sid: str) -> str:
-        from ...skills.vertical_select import resolve_skill_scope
+        from ...skills.vertical_select import resolve_project_vertical
         from ..artifacts import project_workspace
 
         workspace = project_workspace(sid, global_root=ctx.project_root_or_404(sid))
         if workspace is None:
             return ""
         try:
-            return resolve_skill_scope(workspace)
+            return resolve_project_vertical(workspace, life_dir=ctx.resolve_or_404(sid))
         except Exception:  # noqa: BLE001 - an unreadable project state hides nothing else
             return ""
 

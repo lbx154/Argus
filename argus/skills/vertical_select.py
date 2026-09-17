@@ -496,6 +496,44 @@ def resolve_skill_scope(project_root: object = ".") -> str:
         return _strip_needed(str(_load_state_payload(project_root).get("vertical") or ""))
 
 
+
+_PROJECT_VERTICAL_RECORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("manager-handoff.json", ("vertical",)),
+    ("mission-view.json", ("routing", "vertical")),
+)
+
+
+def resolve_project_vertical(project_root: object, life_dir: object | None = None) -> str:
+    """The project's vertical: its pipeline state first, then the Manager's record.
+
+    A project whose vertical was decided at the front door runs every mission
+    in that vertical yet may never write ``.argus/PIPELINE_STATE.json`` into
+    its workspace (the trial host's s-fb4716b7 ran nine research missions that
+    way). ``resolve_skill_scope`` then answers "" and the knowledge base files
+    the project's lessons under the global tier. The Manager's record sits
+    beside the project's events in ``manager-handoff.json``; the mission view
+    repeats it under ``routing``. Unknown names are ignored.
+    """
+    try:
+        found = resolve_skill_scope(project_root)
+    except Exception:  # noqa: BLE001 - an unreadable state falls through to the record
+        found = ""
+    if found or life_dir is None:
+        return found
+    root = Path(str(life_dir)).expanduser()
+    known = set(available_verticals())
+    for name, keys in _PROJECT_VERTICAL_RECORDS:
+        try:
+            payload: object = json.loads((root / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for key in keys:
+            payload = payload.get(key) if isinstance(payload, dict) else None
+        candidate = _strip_needed(str(payload or ""))
+        if candidate in known:
+            return candidate
+    return ""
+
 def resolve_checklist_vertical(project_root: object = ".") -> str | None:
     """Resolve the vertical that owns this project's checklist.
 

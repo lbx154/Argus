@@ -82,13 +82,13 @@ def _schedule_answer_learning(
     if active is not None and active.is_alive():
         return None
     vertical = ""
-    from ..skills.vertical_select import resolve_skill_scope
+    from ..skills.vertical_select import resolve_project_vertical
 
     for candidate in (state.get("manager_runner_workdir"), life_dir):
         if not candidate:
             continue
         try:
-            vertical = str(resolve_skill_scope(Path(candidate)) or "")
+            vertical = str(resolve_project_vertical(Path(candidate), life_dir=Path(life_dir)) or "")
         except Exception:  # noqa: BLE001 - an undecided vertical keeps the survey global
             vertical = ""
         if vertical:

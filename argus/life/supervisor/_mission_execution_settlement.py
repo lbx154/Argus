@@ -1597,14 +1597,14 @@ class MissionExecutionSettlementMixin:
             if isinstance(manager_decision, dict)
             else ""
         )
+        life_dir = _project_state_root(self.memory) or workspace
         if not vertical:
-            from ...skills.vertical_select import resolve_skill_scope
+            from ...skills.vertical_select import resolve_project_vertical
 
             try:
-                vertical = str(resolve_skill_scope(workspace) or "")
+                vertical = str(resolve_project_vertical(workspace, life_dir=life_dir) or "")
             except Exception:  # noqa: BLE001 - an undecided vertical keeps the lesson global
                 vertical = ""
-        life_dir = _project_state_root(self.memory) or workspace
         return reflect_after_mission(
             runner=self.runner,
             workspace=workspace,

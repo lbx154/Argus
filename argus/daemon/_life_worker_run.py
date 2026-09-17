@@ -47,10 +47,10 @@ def _maybe_consolidate(rf_state: Any, config: Any) -> None:
         runner = getattr(rf_state, "runner", None)
         if workspace is None or sup is None or runner is None:
             return
-        from ..skills.vertical_select import resolve_skill_scope
+        from ..skills.vertical_select import resolve_project_vertical
 
         try:
-            vertical = str(resolve_skill_scope(workspace) or "").strip()
+            vertical = str(resolve_project_vertical(workspace, life_dir=config.life_dir) or "").strip()
         except Exception:  # noqa: BLE001 - an undecided vertical only skips this pass
             log.debug("daemon: knowledge consolidation skipped; no vertical", exc_info=True)
             return

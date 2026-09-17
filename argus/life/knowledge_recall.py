@@ -583,11 +583,11 @@ class MarkdownKnowledgeRecall:
         return RecallResult(text, kept, principles_hit)
 
 
-def _resolve_vertical(workspace: Path) -> str:
-    from ..skills.vertical_select import resolve_skill_scope
+def _resolve_vertical(workspace: Path, life_dir: Path | None = None) -> str:
+    from ..skills.vertical_select import resolve_project_vertical
 
     try:
-        return str(resolve_skill_scope(workspace) or "").strip()
+        return str(resolve_project_vertical(workspace, life_dir=life_dir) or "").strip()
     except Exception:  # noqa: BLE001 - recall informs; an undecided vertical only narrows the roots
         return ""
 
@@ -642,7 +642,7 @@ def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
     if workspace is not None:
         workspace = Path(workspace).absolute()
         if _contained(workspace, workspace):
-            vertical = _resolve_vertical(workspace)
+            vertical = _resolve_vertical(workspace, state)
             roots.append(KnowledgeRoot("native project Skill", workspace / ".agents" / "skills", workspace))
             for wiki in _bounded_wiki_roots(workspace):
                 roots.insert(0, KnowledgeRoot("project Wiki", wiki / "pages", workspace, library=wiki))
