@@ -669,3 +669,43 @@ def test_result_tables_read_per_method_numbers_and_name_metrics_that_separate_no
     assert "niah_accuracy: all 3 methods 1 (separates nothing)" in lines[1]
     (results / "notes.json").write_text(json.dumps({"seed": 1, "note": "x"}), encoding="utf-8")
     assert all(t["file"] != "results/notes.json" for t in mc.result_tables(tmp_path))
+
+
+def test_statement_clauses_are_held_against_the_cards_falsification_conditions(tmp_path: Path) -> None:
+    from argus.verticals.research import method_card as mc
+
+    card = dict(mc._empty_card()) if hasattr(mc, "_empty_card") else {}
+    card["falsifiers"] = (
+        "The thesis is falsified if:\n"
+        "1. Under a 20% KV cache budget on the 8B model at 32K context, the method fails to outperform "
+        "VATP and RoCo by at least 3.0 points on average LongBench score, or\n"
+        "2. NIAH retrieval accuracy drops below 90% in the middle context depths (30%--70%), or\n"
+        "3. The runtime overhead reduces decoding throughput by more than 5% compared to attention-only eviction.\n"
+    )
+    assert len(mc.falsifier_items(card)) == 3
+    assert mc.falsifier_items(card)[0].startswith("Under a 20% KV cache budget") and not mc.falsifier_items(card)[0].endswith("or")
+    card["claim_attainment"] = [
+        {"clause": "reducing KV cache memory by 75%--80%", "obtained": "80% reduction at rho 0.2", "met": "met",
+         "source": "results/bench.json", "field": "runs.ours_budget_20.budget_ratio", "pointer": "ok", "value": 0.2, "age_minutes": 3},
+        {"clause": "NIAH retrieval accuracy stays above 90% in the middle depths (30%--70%)", "obtained": "100%", "met": "met",
+         "source": "results/bench.json", "field": "runs.ours_budget_20.niah_mid_depth_accuracy", "pointer": "ok", "value": 1.0, "age_minutes": 3},
+    ]
+    against = mc.attainment_against_falsifiers(card)
+    assert against["restated"] == [0]
+    assert len(against["unaddressed"]) == 2 and against["unaddressed"][0].startswith("Under a 20% KV cache budget")
+    lines = mc.render_claim_attainment(card)
+    assert "a configuration value, not a measurement" in lines[1]
+    assert "[restated: this clause is not among METHOD.md's falsification conditions" in lines[1]
+    assert "[restated" not in lines[2]
+    assert any(line.startswith("Falsification conditions in METHOD.md the statement does not address") for line in lines)
+    assert sum(1 for line in lines if line.startswith("- Under a 20%") or line.startswith("- The runtime overhead")) == 2
+
+
+def test_without_a_falsification_list_the_statement_is_shown_as_is(tmp_path: Path) -> None:
+    from argus.verticals.research import method_card as mc
+
+    card = {"falsifiers": "", "claim_attainment": [
+        {"clause": "x", "obtained": "", "met": "met", "source": "r.json", "field": "acc", "pointer": "ok", "value": 1, "age_minutes": None}
+    ]}
+    lines = mc.render_claim_attainment(card)
+    assert len(lines) == 2 and "[restated" not in lines[1]

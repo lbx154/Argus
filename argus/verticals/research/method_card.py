@@ -897,6 +897,87 @@ def _short_value(value: Any) -> str:
     return text if len(text) <= 80 else text[:77] + "..."
 
 
+_FALSIFIER_ITEM = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s+(.*\S)\s*$")
+_TRAILING_OR = re.compile(r"[,;]?\s*\b(?:or|and)\s*$", re.IGNORECASE)
+_WORD = re.compile(r"[a-z][a-z0-9\-]{2,}|\d+(?:\.\d+)?%?")
+_STOPWORDS = frozenset(
+    "the and for with under than that this from into over across when while which where "
+    "into onto upon about after before their there these those then them they will would "
+    "should could must have has had been being are was were not any all each per via "
+    "claim thesis falsified fails fail failure method ours our its it's at on in of to by "
+    "is as be or an a".split()
+)
+_CONFIG_FIELD = re.compile(
+    r"(?:^|[._\[])(?:budget|budget_ratio|ratio|rho|config|configuration|seed|seeds|steps|epochs|lr|"
+    r"learning_rate|batch|batch_size|window|obs_window|local_window|n_samples|num_samples|context_length|"
+    r"max_len|sink_tokens)(?:$|[._\]])",
+    re.IGNORECASE,
+)
+FALSIFIER_MATCH = 0.3
+
+
+def falsifier_items(card: dict[str, Any]) -> list[str]:
+    """The individual conditions under METHOD.md's falsification heading, one string each."""
+    text = str(card.get("falsifiers") or "")
+    items: list[str] = []
+    for raw in text.splitlines():
+        match = _FALSIFIER_ITEM.match(raw)
+        if match:
+            items.append(_TRAILING_OR.sub("", match.group(1)).strip())
+    if items:
+        return items
+    body = " ".join(line.strip() for line in text.splitlines() if line.strip())
+    body = re.sub(r"^.*?falsified if:?\s*", "", body, flags=re.IGNORECASE)
+    return [part.strip() for part in re.split(r"(?<=[.;])\s+", body) if len(part.strip()) > 20]
+
+
+def _content_words(text: str) -> set[str]:
+    return {w for w in _WORD.findall(text.lower()) if w not in _STOPWORDS}
+
+
+def falsifier_coverage(clause: str, falsifiers: list[str]) -> tuple[int, float]:
+    """(index of the best-matching falsifier, its coverage), coverage = shared content words / the falsifier's."""
+    words = _content_words(clause)
+    best, best_score = -1, 0.0
+    for index, condition in enumerate(falsifiers):
+        target = _content_words(condition)
+        if not target:
+            continue
+        score = len(words & target) / len(target)
+        if score > best_score:
+            best, best_score = index, score
+    return best, best_score
+
+
+def attainment_against_falsifiers(card: dict[str, Any]) -> dict[str, Any]:
+    """Which statement clauses restate the claim, and which METHOD.md conditions the statement leaves out.
+
+    v5's Engineer stated three clauses of its own wording, all met, while
+    METHOD.md's three falsification conditions (a LongBench margin, a
+    mid-depth retrieval floor, a throughput ceiling) went untested; the
+    Reviewer repeated the statement. The host can hold the statement against
+    the card's own list.
+    """
+    falsifiers = falsifier_items(card)
+    entries = card.get("claim_attainment") or []
+    if not falsifiers or not entries:
+        return {"falsifiers": falsifiers, "restated": [], "unaddressed": []}
+    covered: set[int] = set()
+    restated: list[int] = []
+    for position, entry in enumerate(entries):
+        index, score = falsifier_coverage(str(entry.get("clause") or ""), falsifiers)
+        if index >= 0 and score >= FALSIFIER_MATCH:
+            covered.add(index)
+        else:
+            restated.append(position)
+    unaddressed = [falsifiers[i] for i in range(len(falsifiers)) if i not in covered]
+    return {"falsifiers": falsifiers, "restated": restated, "unaddressed": unaddressed}
+
+
+def _configuration_field(field: str) -> bool:
+    return bool(field) and bool(_CONFIG_FIELD.search(str(field)))
+
+
 def render_claim_attainment(card: dict[str, Any], *, limit: int = ATTAINMENT_MAX) -> list[str]:
     """Lines shared by the review packet, the task brief and the Planner's context."""
     entries = card.get("claim_attainment") or []
@@ -906,21 +987,42 @@ def render_claim_attainment(card: dict[str, Any], *, limit: int = ATTAINMENT_MAX
         "Claim attainment (the Engineer's statement per clause of the claim; the value on the "
         "right is what the host read from the file the entry points to):"
     ]
-    for entry in entries[:limit]:
+    against = attainment_against_falsifiers(card)
+    restated = set(against["restated"])
+    for position, entry in enumerate(entries[:limit]):
         pointer = entry.get("pointer")
         if pointer == "ok":
             host = f"host reads {entry['source']} {entry['field']} = {entry['value']}"
             if entry.get("age_minutes") is not None:
                 host += f" (written {entry['age_minutes']} min ago)"
+            if _configuration_field(str(entry.get("field") or "")):
+                host += " — a configuration value, not a measurement"
         elif pointer == "no pointer":
             host = "no file or field named"
         else:
             host = f"pointer {pointer}: {entry['source']} {entry['field']}".rstrip()
         obtained = f' — Engineer: "{entry["obtained"]}"' if entry.get("obtained") else ""
-        lines.append(f"- [{entry['met']}] {entry['clause']}{obtained}; {host}")
+        note = (
+            " [restated: this clause is not among METHOD.md's falsification conditions; the claim is fixed]"
+            if position in restated and against["falsifiers"]
+            else ""
+        )
+        lines.append(f"- [{entry['met']}] {entry['clause']}{obtained}; {host}{note}")
     if len(entries) > limit:
         lines.append(f"- ... {len(entries) - limit} more clauses")
+    if against["unaddressed"]:
+        lines.append(
+            "Falsification conditions in METHOD.md the statement does not address (untested until stated, "
+            "whatever the clauses above say):"
+        )
+        for condition in against["unaddressed"][:ATTAINMENT_MAX]:
+            lines.append(f"- {_one_line_text(condition, 200)}")
     return lines
+
+
+def _one_line_text(text: str, limit: int) -> str:
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
 RESULT_TABLE_FILES = 3

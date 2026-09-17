@@ -14,7 +14,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from ...core.event_catalog import EventType
 from ...core.runner_errors import is_execution_host_startup_error
@@ -74,6 +74,13 @@ class MissionExecutionSettlementMixin:
     """Repair settlement, stage guard, final status, and journal emission."""
 
     _confirm_mission_completion_receipt: Callable[[dict[str, Any]], bool]
+
+    if TYPE_CHECKING:
+        # Provided by LifeSupervisor (_core.py); declared so the type checker
+        # knows the mixin's calls resolve there.
+        def _project_workdir(self) -> Path: ...
+
+        def _budget_global_root(self) -> Path: ...
 
     # ------------------------------------------------------------------
     # Phase: restricted validator-repair capability settlement
