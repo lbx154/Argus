@@ -136,9 +136,9 @@ v3 在 v2 的交接修复之上加了两件事:主机从树上派生的"Run real
    Reviewer 提示只加一句:一分钟的运行或随机 key 不是协议里的评测,不管结果文件上写了什么模型。仍然不是门:一个物理仿真器就该用随机初值,由 Reviewer 判断。
 2. *形式合规的 pptx。* v3 的 Engineer 查了 `ppt_master status`(ready)、`which soffice`(没有),然后用 TikZ 编译了框架图,再用 python-pptx 造了一个同名 pptx。文字相同、形状数在阈值边缘,原有的形状/路径比对没抓到。v3.5 加一条不需要阈值的事实:方法图 PDF 的 producer 是 pdfTeX/XeTeX/matplotlib 等——没有任何 PPTX 导出链会产出这些 producer,所以旁边的 pptx 只是陪衬。v3 的树上现在报 `was produced by pdfTeX-1.40.25, which no PPTX export chain produces`。
 
-**v3 暴露、还没修的。** 见 4.5 前三条。
+**v3 暴露、还没修的。** 见 4.7 前三条。
 
-### 4.6 重画演示:GPT-6 Astra 走路线 D/B(23:53–00:07 PDT)
+### 4.5 重画演示:GPT-6 Astra 走路线 D/B(23:53–00:07 PDT)
 
 用户要求用 GPT-6 Astra 重画 v3 论文的 Figure 1 并跑完整流程。做法:独立进程调用网页前门同一入口 `manager_message`(`argus-eval-20260916/redraw_astra/run_redraw.py`),只在该进程环境里把 `ARGUS_SKILL_ENGINEER_MODEL` 设为 `gpt-6-astra`,共享实例与 v4 对照的模型不受影响;Manager 前门分类后走 self-implement 路线。
 
@@ -152,7 +152,7 @@ v3 在 v2 的交接修复之上加了两件事:主机从树上派生的"Run real
 
 对比 v3 自己产出的三块项目符号框(同一工作区、gemini-3.8-flash、并入写全文的任务、6 分钟):差别来自三件事——图单独成任务、导出链可执行、模型能看自己渲染的 PNG 并返修。产物在 `argus-eval-20260916/figures/v3-astra/`。
 
-### 4.7 v4(v3.5/v3.6 = 8ac7a1a01…2254a98c0;对照项目 s-bed96846,23:13–03:19 PDT,已完成)
+### 4.6 v4(v3.5/v3.6 = 8ac7a1a01…2254a98c0;对照项目 s-bed96846,23:13–03:19 PDT,已完成)
 
 v4 是第一个从头到尾跑在"Run reality 带结果时间戳与随机输入函数、方法图导出链可用"版本上的对照。题目再次选中 Decoupled-RotKV(同 v3),参考克隆 kivi@876b4d2。
 
@@ -179,10 +179,10 @@ v4 是第一个从头到尾跑在"Run reality 带结果时间戳与随机输入�
 1. *claim 阈值不在 Reviewer 眼前。* claim 原文(>96%、匹敌 4-bit)只在 00:24、01:03 两包出现;决定性的 02:54 是 Reviewer 线程续轮,包里省了静态块。修法:包里常驻 claim 的数值阈值一行;主机从 results/*.json 摘各方法的顶层数字并排列出(bf16 1.00 / rotkv 0.35 / rtn4 0.45),续轮也保留这两样和"claim 固定"一句。
 2. *结果字段的来源。* Run reality 增加"results 里每个数值字段由脚本哪一行赋值",公式困惑度一眼可见。
 3. *替身识别再进一步。* 注意力头级命中率被命名为 RULER accuracy、方法卡的"低频通道"被实现成 `[:16]`——这两类需要懂领域的评审读代码,提示解决不了,评审模型水平问题;至少让 Reviewer 包里带上结果文件字段名与 METHOD.md 指标名的对照。
-4. *方法图缺席。* paper 阶段 8 分钟、没画方法图、Reviewer 没提。图要单独成任务(见 4.5)。
+4. *方法图缺席。* paper 阶段 8 分钟、没画方法图、Reviewer 没提。图要单独成任务(见 4.7)。
 5. *越界读取三次。* `/data/chenxi/...` 的 Llama-3-8B-Web 权重、基线与 v2 项目工作区的 .sty/.bib/main.tex、运行树源码。工作区边界要做。
 
-### 4.5 仍然存在的问题
+### 4.7 仍然存在的问题
 
 - **路线 D 在这台机器上从未走通过最后一步(v3.6 已补)。** 09-08 至今 6 张带 pptx 的方法图,PDF 的 producer 是 pdfTeX ×2、cairo ×2、Ghostscript ×1,没有一张从 pptx 导出;PPT Master 自己不导 PDF,机器上也没有 PowerPoint/LibreOffice,技能只写"从 pptx 导出"却没写用什么导。v3 的 Engineer 查到 `which soffice` 为空后,转而用 `inspect.getsource` 读了 figure_lint 的全部源码,照着阈值(150 段路径、20 个形状、60% 词重叠)做同名 pptx,并把另一个租户的 pptx 当"能过"的样本;6 分钟里跑了 8 次 lint。v3.6(e5ebccc34)加了导出步骤 `figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx`:用 PPT Master 自带的 `pptx_to_svg.py` 读 pptx,浏览器渲染出 `<name>.pdf`(producer Skia/PDF)和按稿件宽度的 `<name>.png`,2.7 秒,不需要 Office;lint 对 pptx 旁 producer 不是导出链的 PDF 直接点名;Planner 验收、Engineer 路线、Reviewer 图段、阶段检查单都写了同一条命令。用它真导 v3 那个 pptx,得到的是三块无箭头的项目符号框(figures/v3/decoupled_rotkv_framework.pptx-true-export.png),渲染干净,构图空洞——构图问题要靠下一条。
 - **Reviewer 的看图是走过场。** v3 的 review 阶段 25 秒内读了 11 张整页 PNG,对文字被裁掉的框架图写 "cleanly illustrates",给 Strong Accept。整页缩略图上看不出图内裁切。v3.6 让导出器顺手产出 `<name>.png`,并在 Reviewer 的图段里写明"打开它,三个框里的项目符号不是机制";还没做的是把图单独立成任务(带设计、渲染、返修循环),以及主机把每张 `\includegraphics` 引用的图按稿件宽度渲染进评审包。
