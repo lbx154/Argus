@@ -456,12 +456,61 @@ def _checks_line(project_root: Path, card: dict[str, Any]) -> str:
     return line
 
 
+MODEL_CACHE_ENTRIES = 8
+
+
+def _model_cache_line() -> str:
+    """Local model and dataset caches, so nobody searches the disk for them.
+
+    Two Engineers ran `find /` over the whole machine looking for weights or a
+    package (66 minutes in one case); a third, finding nothing quickly, wrote a
+    mock model. The caches are where the hub library keeps them: the
+    configured HF_HUB_CACHE / HF_HOME, or the default under the home directory.
+    """
+    roots: list[Path] = []
+    for env in ("HF_HUB_CACHE", "HF_HOME"):
+        value = os.environ.get(env, "").strip()
+        if value:
+            path = Path(value).expanduser()
+            roots.append(path if env == "HF_HUB_CACHE" else path / "hub")
+    roots.append(Path.home() / ".cache" / "huggingface" / "hub")
+    seen: set[Path] = set()
+    parts: list[str] = []
+    for root in roots:
+        try:
+            root = root.resolve()
+        except OSError:
+            continue
+        if root in seen or not root.is_dir():
+            continue
+        seen.add(root)
+        try:
+            entries = sorted(p.name for p in root.iterdir() if p.is_dir() and p.name.startswith(("models--", "datasets--")))
+        except OSError:
+            continue
+        if not entries:
+            continue
+        names = [e.split("--", 1)[1].replace("--", "/") for e in entries]
+        models = [n for e, n in zip(entries, names) if e.startswith("models--")]
+        datasets = [n for e, n in zip(entries, names) if e.startswith("datasets--")]
+        shown = models[:MODEL_CACHE_ENTRIES]
+        more = f" (+{len(models) - len(shown)} more)" if len(models) > len(shown) else ""
+        parts.append(
+            f"{root}: {len(models)} models" + (f" [{', '.join(shown)}{more}]" if shown else "")
+            + (f", {len(datasets)} datasets" if datasets else "")
+        )
+    if not parts:
+        return ""
+    return "- Model caches (hub layout; use them before downloading or substituting): " + "; ".join(parts)
+
+
 def _environment_section(project_root: Path, card: dict[str, Any]) -> list[str]:
     lines = ["### Environment now", _interpreter_line(project_root)]
     for producer in (
         lambda: _packages_line(project_root, card),
         lambda: _clones_line(project_root, card),
         _gpu_line,
+        _model_cache_line,
         lambda: _checks_line(project_root, card),
     ):
         try:

@@ -417,3 +417,19 @@ def test_run_reality_names_stand_ins_and_the_results_footprint(project: Path, tm
     assert any(line.startswith("- src/eval.py:1 mock_worker_llm — used from src/eval.py:5") for line in lines)
     assert any(line.startswith("Results footprint: results/ 1 files") for line in lines)
     assert lines.index("### Run reality") < lines.index("### This task")
+
+
+def test_environment_names_the_local_model_caches(project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Engineers searched the whole disk for weights (one `find /` ran 66 minutes)
+    # or mocked the model; the brief names the hub caches and what they hold.
+    hub = tmp_path / "hub"
+    for name in ("models--org--small-model", "models--org--other-model", "datasets--org--corpus"):
+        (hub / name).mkdir(parents=True)
+    monkeypatch.setenv("HF_HUB_CACHE", str(hub))
+
+    brief = prepare_mission(stage="experiment", project_root=project, state_root=tmp_path, mission=_mission())
+    line = next(row for row in brief.splitlines() if row.startswith("- Model caches"))
+
+    assert "2 models [org/other-model, org/small-model], 1 datasets" in line
+    assert str(hub.resolve()) in line
+    assert "use them before downloading or substituting" in line
