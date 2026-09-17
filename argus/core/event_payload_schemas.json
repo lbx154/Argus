@@ -1627,6 +1627,98 @@
         "text": {"type": "string"}
       }
     },
+    "knowledge.learned": {
+      "version": 1,
+      "required": [
+        "kind",
+        "scope",
+        "path",
+        "title"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "learned",
+            "promoted"
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "project",
+            "vertical",
+            "global"
+          ]
+        },
+        "vertical": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "source_project": {
+          "type": "string"
+        },
+        "mission_id": {
+          "type": "string"
+        },
+        "page_kind": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "knowledge.recalled": {
+      "version": 1,
+      "required": [
+        "role",
+        "paths"
+      ],
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scope_counts": {
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "vertical": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "global": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "objective_excerpt": {
+          "type": "string"
+        },
+        "mission_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
     "project.completed": {
       "version": 1,
       "required": ["vertical", "source", "required_gate", "evidence_refs", "from_state"],

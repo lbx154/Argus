@@ -2933,11 +2933,13 @@ class LifeMemory:
 
     def render_recall_context(
         self, objective: str, *, max_entries: int = 4, max_chars: int = 6_000,
+        role: str = "engineer", mission_id: str = "",
     ) -> str:
         from .knowledge_recall import render_memory_recall
 
         return render_memory_recall(
             self, objective, max_entries=max_entries, max_chars=max_chars,
+            role=role, mission_id=mission_id,
         )
 
     def render_failure_experience_context(
@@ -2963,12 +2965,16 @@ class LifeMemory:
         objective: str = "",
         identity_chars: int = 600,
         max_journal_entries: int = 0,
+        role: str = "engineer",
+        mission_id: str = "",
     ) -> str:
         """Render the memory block we inject as ``prelude_context``.
 
         The header explicitly marks the block as non-authoritative so
         the engineer/reviewer prompts can downweight it on conflict.
         Returns an empty string if there's nothing useful to inject.
+        ``role``/``mission_id`` only label the recall record; the Manager's
+        own reply passes ``role="manager"``.
         """
         identity = self.identity.prompt_text()
         if identity_chars > 0:
@@ -2979,7 +2985,9 @@ class LifeMemory:
             else []
         )
 
-        failure_context = self.render_recall_context(objective)
+        failure_context = self.render_recall_context(
+            objective, role=role, mission_id=mission_id,
+        )
 
         if not identity and not relevant and not failure_context:
             return ""
@@ -3408,13 +3416,16 @@ class MemoryBundle:
         objective: str = "",
         identity_chars: int = 600,
         max_project_entries: int = 0,
+        role: str = "engineer",
+        mission_id: str = "",
     ) -> str:
         """Render a unified memory prelude for prompt injection.
 
         Order is: global identity → recent project memories. Cross-project
         journal entries are intentionally excluded:
         workspace prompts must not satisfy or steer the current mission with
-        artifacts from another project.
+        artifacts from another project. ``role``/``mission_id`` only label
+        the recall record; the Manager's own reply passes ``role="manager"``.
         """
         identity = self.global_mem.identity.prompt_text()
         if identity_chars > 0:
@@ -3426,7 +3437,9 @@ class MemoryBundle:
             else []
         )
 
-        failure_context = self.render_recall_context(objective)
+        failure_context = self.render_recall_context(
+            objective, role=role, mission_id=mission_id,
+        )
 
         if not (identity or project_hits or failure_context):
             return ""
@@ -3461,11 +3474,13 @@ class MemoryBundle:
 
     def render_recall_context(
         self, objective: str, *, max_entries: int = 4, max_chars: int = 6_000,
+        role: str = "engineer", mission_id: str = "",
     ) -> str:
         from .knowledge_recall import render_memory_recall
 
         return render_memory_recall(
             self, objective, max_entries=max_entries, max_chars=max_chars,
+            role=role, mission_id=mission_id,
         )
 
     def render_failure_experience_context(

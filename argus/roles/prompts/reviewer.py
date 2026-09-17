@@ -719,6 +719,12 @@ def render_reviewer_prompt(
     # new mission rotated the fingerprint, forced a cold start, and re-sent the
     # full rubric — so those blocks ride in the delta below instead.
     #
+    # What repeated lessons of this vertical have settled into. Bounded and
+    # present only once the vertical has compiled principles; it changes only
+    # when they are recompiled, so it belongs to the static text.
+    from ...wiki.context import render_project_principles
+
+    principles_block = render_project_principles(_proot)
     # Within the static text, what holds for every mission of the role comes
     # first, then what holds for the stage, and last the recalled Skill block,
     # which follows the mission's task: a fresh Reviewer on a new mission then
@@ -758,6 +764,7 @@ def render_reviewer_prompt(
         + "\n\n"
         + (optimize_banner + "\n\n" if optimize_banner else "")
         + matched_review_skill_block
+        + ("\n\n" + sanitize_model_visible_text(principles_block) if principles_block else "")
     )
     # Per-round DELTA — everything that varies with the mission or the round.
     # Fresh Reviewers receive this after the full static rubric every time.

@@ -114,6 +114,8 @@ export interface WikiPageDocument {
 
 /** Where a knowledge page lives: shared by everyone, by one vertical, or kept by one project. */
 export type WikiScope = 'global' | 'vertical' | 'project';
+/** What a knowledge page is: a fact, a lesson from reflection, a survey distilled after an answer, a set of principles, or a plain page. */
+export type WikiPageKind = 'fact' | 'lesson' | 'survey' | 'principles' | 'page';
 /** One knowledge page flattened across libraries, newest first; the host adds scope, vertical and root. */
 export interface WikiLibraryItem {
   scope: WikiScope;
@@ -123,6 +125,14 @@ export interface WikiLibraryItem {
   title: string;
   description: string;
   updated_at: number;
+  /** Front-matter kind; the host falls back to "page" when a page names none. */
+  kind: WikiPageKind | string;
+  /** Where the page came from, e.g. "<project>/<mission>" or "chat/<session>"; empty when unknown. */
+  source: string;
+  /** ISO date the page was written; empty when unknown. */
+  created: string;
+  /** How many times the host handed this page to a role as recalled knowledge. */
+  reuse_count: number;
 }
 /** One knowledge library (global, one vertical, or the project): INDEX.md plus its pages. */
 export interface WikiLibrary {
@@ -131,6 +141,8 @@ export interface WikiLibrary {
   root: string;
   index_markdown: string;
   pages: WikiPageSummary[];
+  /** The library's principles.md, compiled from repeated lessons; null until there is one. */
+  principles?: string | null;
 }
 /** Every knowledge library the host can see for the given project, plus the flattened page list. */
 export interface WikiCatalog {
@@ -152,6 +164,27 @@ export interface WikiDocument {
   markdown: string;
   truncated: boolean;
   updated_at: number;
+}
+
+/** One line of the host's knowledge journal: something learned, recalled into a prompt, or promoted to a shared level. */
+export type KnowledgeEventKind = 'learned' | 'recalled' | 'promoted';
+export interface KnowledgeEvent {
+  ts: number;
+  kind: KnowledgeEventKind;
+  scope: WikiScope;
+  vertical: string;
+  /** Page path relative to its library root, e.g. "pages/lessons/20260917-torch-search.md" or "principles.md". */
+  path: string;
+  title: string;
+  source_project: string;
+  mission_id: string;
+  role: string;
+  page_kind: string;
+  note: string;
+}
+/** The knowledge journal, newest first. */
+export interface KnowledgeFeed {
+  events: KnowledgeEvent[];
 }
 
 /** Status the host derived for one method component from the spec tests carrying its marker. */
@@ -1261,6 +1294,8 @@ export const api = {
     getJson<WikiCatalog>(`/api/wiki${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
   wikiDocument: (sid: string | null, scope: WikiScope, vertical: string, path: string, signal?: AbortSignal) =>
     getJson<WikiDocument>(`/api/wiki/page?${new URLSearchParams({ scope, vertical, path, ...(sid ? { sid } : {}) })}`, signal),
+  knowledgeFeed: (limit = 50, signal?: AbortSignal) =>
+    getJson<KnowledgeFeed>(`/api/knowledge/feed?${new URLSearchParams({ limit: String(limit) })}`, signal),
   setLaunchCwd: (sid: string, launchCwd: string) =>
     postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   setWorkdir: (sid: string, workdir: string) =>

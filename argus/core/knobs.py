@@ -198,6 +198,12 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_METRICS_MAX_ARCHIVES", "14", "maximum number of rotated metrics archives to retain", "telemetry"),
     Knob("ARGUS_SKILL_AGENT_IO_MODE", "full", "agent I/O persistence: full saves prompt and every raw stream frame exactly once plus a summary; compact stores summary only", "telemetry"),
     Knob("ARGUS_SKILL_SAFE_MODE", "off", "extra-conservative guardrails", "lifecycle", cockpit=True),
+    # --- learning (what Argus keeps from missions and answers) ---
+    Knob("ARGUS_SKILL_REFLECTION", "1", "after each mission, look back once and keep at most one lesson page, two fact pages and one procedure when something durable was learned", "learning", cockpit=True),
+    Knob("ARGUS_SKILL_REFLECTION_MODEL", "auto", "model for the post-mission reflection and answer learning; auto uses the cheap front-door model", "models", cockpit=True),
+    Knob("ARGUS_SKILL_ANSWER_LEARNING", "1", "after a researched chat answer, keep a survey page with its sources and a date to re-verify", "learning"),
+    Knob("ARGUS_SKILL_CONSOLIDATE_INTERVAL_S", "3600", "seconds between passes that rebuild a vertical's shared knowledge index and recompile its principles from repeated lessons", "learning"),
+    Knob("ARGUS_SKILL_RECALL_SIBLING_WIKIS", "1", "let knowledge recall read the shared vertical tier and other projects' Wikis on this host; ignored on multi-tenant hosts", "learning"),
     Knob("ARGUS_SKILL_ENGINEER_SANDBOX", "off", "codex sandbox for builder roles (engineer/reviewer/planner/subagent): set 'workspace-write' to confine writes to the project workdir + a writable allowlist (excludes ~/.argus-skill, the package, ~/.codex) and scrub VCS creds, instead of --dangerously-bypass. Default OFF — verify required network, cache, and remote accelerator access before enabling", "lifecycle"),
     Knob("ARGUS_SKILL_MEASURED_MODE", "off", "measured-mode evaluation gating", "lifecycle"),
     Knob("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "off", "bypass the capability-vault preflight on daemon start", "lifecycle"),
@@ -262,6 +268,9 @@ _TOGGLE_KNOBS = frozenset(
         "ARGUS_SKILL_SHOW_REASONING",
         "ARGUS_SKILL_ENABLE_TELEGRAM",
         "ARGUS_SKILL_ENABLE_FEISHU",
+        "ARGUS_SKILL_REFLECTION",
+        "ARGUS_SKILL_ANSWER_LEARNING",
+        "ARGUS_SKILL_RECALL_SIBLING_WIKIS",
     }
 )
 _NON_NEGATIVE_INT_KNOBS = frozenset(

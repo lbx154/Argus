@@ -6,8 +6,13 @@ same shape under ``<ARGUS_SKILL_HOME>/wiki``: ``_global/`` for every project
 and ``_shared_verticals/<vertical>/`` for the projects of one vertical, filled
 by copying reviewed project pages. These routes only locate those Wikis, list
 their pages newest-first and serve one page at a time, so the knowledge browser
-can show what a project, its vertical and the host have learned. Nothing here
-writes.
+can show what a project, its vertical and the host have learned.
+
+Each page row also carries what its front matter says about it (``kind``,
+``source``, ``created``) and how many times the host has handed it to a role,
+read from the knowledge journal (:mod:`argus.wiki.journal`). A vertical library
+adds its ``principles.md`` when one has been compiled, and ``/api/knowledge/feed``
+serves the journal itself newest-first. Nothing here writes.
 """
 
 from __future__ import annotations
@@ -21,15 +26,22 @@ from fastapi import Depends, HTTPException, Query
 
 from ...core import paths as core_paths
 from ...wiki.auto_hooks import discover_wikis
+from ...wiki.journal import read_knowledge_events, reuse_counts
 from ...wiki.schema import parse_page
 from .context import ServerContext
 
 INDEX_FILENAME = "INDEX.md"
+PRINCIPLES_FILENAME = "principles.md"
 INDEX_LIMIT = 32 * 1024
 PAGE_LIMIT = 128 * 1024
 PAGE_COUNT_LIMIT = 200
+FEED_LIMIT = 500
 SCOPES = ("global", "vertical", "project")
+# What a knowledge page is, as named by its front matter; anything else is a page.
+PAGE_KINDS = ("fact", "lesson", "survey", "principles", "page")
 _HEADING = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
+
+ReuseCounts = dict[tuple[str, str, str], int]
 
 
 def _read_text(path: Path, limit: int) -> tuple[str, bool]:
@@ -47,15 +59,58 @@ def _strip_front_matter(text: str) -> str:
     return content.lstrip("\n") if separator else text
 
 
-def _title_and_description(text: str, fallback: str) -> tuple[str, str]:
-    """Front-matter title/description; the first H1 (or the file stem) otherwise."""
+def _front_matter(text: str) -> dict[str, Any]:
+    """The front matter mapping, or an empty dict when there is none or it is not a mapping."""
+    if not text.startswith("---\n"):
+        return {}
+    front, separator, _content = text[4:].partition("\n---\n")
+    if not separator:
+        return {}
+    try:
+        loaded = yaml.safe_load(front)
+    except yaml.YAMLError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _scalar(value: Any) -> str:
+    """A front matter value as text; dates keep their ISO form."""
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value).strip()
+
+
+def _page_meta(text: str, fallback: str) -> dict[str, str]:
+    """title/description/kind/source/created from the front matter, with fallbacks.
+
+    A page without valid front matter takes its title from the first H1 (or the
+    file stem), an empty description, and is a plain ``page``.
+    """
+    meta = {"title": fallback, "description": "", "kind": "page", "source": "", "created": ""}
     try:
         page = parse_page(text)
-        return page.title, page.description
     except (ValueError, yaml.YAMLError):
-        pass
-    match = _HEADING.search(text)
-    return (match.group(1).strip() if match else fallback), ""
+        match = _HEADING.search(text)
+        if match:
+            meta["title"] = match.group(1).strip()
+        return meta
+    meta["title"], meta["description"] = page.title, page.description
+    front = _front_matter(text)
+    kind = _scalar(front.get("kind")).lower()
+    meta["kind"] = kind if kind in PAGE_KINDS else "page"
+    meta["source"] = _scalar(front.get("source"))
+    meta["created"] = _scalar(front.get("created"))
+    return meta
+
+
+def _reuse_count(counts: ReuseCounts, scope: str, vertical: str, path: str) -> int:
+    """Recalls of one page. A recall that named no vertical still counts for the page."""
+    total = counts.get((scope, vertical, path), 0)
+    if vertical:
+        total += counts.get((scope, "", path), 0)
+    return total
 
 
 def _page_rows(wiki_root: Path) -> list[dict[str, Any]]:
@@ -73,17 +128,24 @@ def _page_rows(wiki_root: Path) -> list[dict[str, Any]]:
             updated_at = path.stat().st_mtime
         except OSError:
             continue
-        title, description = _title_and_description(text, path.stem)
         rows.append(
             {
                 "path": (Path("pages") / relative).as_posix(),
-                "title": title,
-                "description": description,
+                **_page_meta(text, path.stem),
                 "updated_at": updated_at,
             }
         )
     rows.sort(key=lambda row: (-row["updated_at"], row["path"]))
     return rows[:PAGE_COUNT_LIMIT]
+
+
+def _with_reuse_counts(
+    rows: list[dict[str, Any]], counts: ReuseCounts, *, scope: str, vertical: str
+) -> list[dict[str, Any]]:
+    return [
+        {**row, "reuse_count": _reuse_count(counts, scope, vertical, row["path"])}
+        for row in rows
+    ]
 
 
 def _index_markdown(root: Path) -> str:
@@ -92,6 +154,18 @@ def _index_markdown(root: Path) -> str:
     except OSError:
         return ""
     return text
+
+
+def _principles_markdown(root: Path) -> str | None:
+    """The library's compiled principles without their front matter; None until there are any."""
+    path = root / PRINCIPLES_FILENAME
+    try:
+        if not path.is_file():
+            return None
+        text, _ = _read_text(path, PAGE_LIMIT)
+    except OSError:
+        return None
+    return _strip_front_matter(text)
 
 
 def _read_page(root: Path, path: str) -> dict[str, Any]:
@@ -114,11 +188,9 @@ def _read_page(root: Path, path: str) -> dict[str, Any]:
         updated_at = target.stat().st_mtime
     except OSError as exc:
         raise HTTPException(status_code=409, detail="Cannot read wiki page") from exc
-    title, description = _title_and_description(markdown, target.stem)
     return {
         "path": (Path("pages") / target.relative_to(pages_root)).as_posix(),
-        "title": title,
-        "description": description,
+        **_page_meta(markdown, target.stem),
         "content": _strip_front_matter(markdown),
         "markdown": markdown,
         "truncated": truncated,
@@ -147,13 +219,17 @@ def _shared_vertical_roots(global_root: Path) -> list[tuple[str, Path]]:
     ]
 
 
-def _library(scope: str, vertical: str, root: Path, *, root_label: str) -> dict[str, Any]:
+def _library(
+    scope: str, vertical: str, root: Path, *, root_label: str, counts: ReuseCounts
+) -> dict[str, Any]:
     return {
         "scope": scope,
         "vertical": vertical,
         "root": root_label,
         "index_markdown": _index_markdown(root),
-        "pages": _page_rows(root),
+        "pages": _with_reuse_counts(_page_rows(root), counts, scope=scope, vertical=vertical),
+        # Principles are compiled per shared library; a project keeps none of its own.
+        "principles": _principles_markdown(root) if scope != "project" else None,
     }
 
 
@@ -205,6 +281,7 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
     @app.get("/api/wiki", dependencies=[Depends(ctx.require_auth)])
     def _knowledge(sid: str | None = Query(None, max_length=128)) -> dict[str, Any]:
         global_root = ctx.project_root_or_404(sid) if sid else ctx.roots[0]
+        counts = reuse_counts(global_root)
         libraries: list[dict[str, Any]] = []
         active = ""
         if sid:
@@ -213,14 +290,21 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
             if located is not None:
                 workspace, root = located
                 libraries.append(
-                    _library("project", active, root, root_label=relative_root(workspace, root))
+                    _library(
+                        "project", active, root,
+                        root_label=relative_root(workspace, root), counts=counts,
+                    )
                 )
         shared_verticals = _shared_vertical_roots(global_root)
         for vertical, root in shared_verticals:
-            libraries.append(_library("vertical", vertical, root, root_label=str(root)))
+            libraries.append(
+                _library("vertical", vertical, root, root_label=str(root), counts=counts)
+            )
         global_wiki = core_paths.global_wiki_root(global_root)
         if _shared_wiki_exists(global_wiki):
-            libraries.append(_library("global", "", global_wiki, root_label=str(global_wiki)))
+            libraries.append(
+                _library("global", "", global_wiki, root_label=str(global_wiki), counts=counts)
+            )
         items = [
             {**page, "scope": library["scope"], "vertical": library["vertical"], "root": library["root"]}
             for library in libraries
@@ -267,17 +351,31 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
         page = _read_page(root, path)
         return {"scope": scope, "vertical": vertical, **page}
 
+    @app.get("/api/knowledge/feed", dependencies=[Depends(ctx.require_auth)])
+    def _knowledge_feed(
+        limit: int = Query(50, ge=1, le=FEED_LIMIT),
+        kind: str = Query("", max_length=64),
+        sid: str | None = Query(None, max_length=128),
+    ) -> dict[str, Any]:
+        """The knowledge journal newest-first: what was learned, recalled and shared."""
+        global_root = ctx.project_root_or_404(sid) if sid else ctx.roots[0]
+        kinds = [part.strip() for part in kind.split(",") if part.strip()] or None
+        return {"events": read_knowledge_events(global_root, limit=limit, kinds=kinds)}
+
     @app.get("/api/projects/{sid}/wiki", dependencies=[Depends(ctx.require_auth)])
     def _wiki(sid: str) -> dict[str, Any]:
         located = wiki_root(sid)
         if located is None:
             return {"exists": False}
         workspace, root = located
+        counts = reuse_counts(ctx.project_root_or_404(sid))
         return {
             "exists": True,
             "root": relative_root(workspace, root),
             "index_markdown": _index_markdown(root),
-            "pages": _page_rows(root),
+            "pages": _with_reuse_counts(
+                _page_rows(root), counts, scope="project", vertical=active_vertical(sid)
+            ),
         }
 
     @app.get("/api/projects/{sid}/wiki/page", dependencies=[Depends(ctx.require_auth)])

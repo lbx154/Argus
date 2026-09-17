@@ -1,6 +1,7 @@
 """Role-scoped paths for agent-native, on-demand Skill discovery."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -148,8 +149,15 @@ def role_skill_libraries(
     task: str = "",
     on_event: Callable[[dict], None] | None = None,
     required_relative_paths: tuple[str, ...] = (),
+    recalled_paths: Sequence[Path | str] | None = None,
 ) -> RoleSkillLibraries:
+    """Role-scoped library paths plus the pages recall already showed this role.
+
+    ``recalled_paths`` is supplied by a caller that rendered knowledge recall
+    for the same prompt; it is reported, never read or injected here.
+    """
     roots = skill_library_roots(skill_store)
+    recalled = list(dict.fromkeys(Path(item) for item in (recalled_paths or ())))
     native_project_paths = _native_project_roots(skill_store, roots)
     role_scoped_roots = [root for root in roots if root not in native_project_paths]
     own_paths = _pool_paths(
@@ -170,7 +178,7 @@ def role_skill_libraries(
                 "own_paths": [str(path) for path in own_paths],
                 "reference_paths": [str(path) for path in reference_paths],
                 "required_paths": [str(path) for path in required_paths],
-                "recalled_paths": [],
+                "recalled_paths": [str(path) for path in recalled],
                 "precedence": ["project", "vertical", "global"],
                 "discovery": "native-or-path-fallback",
                 "text": "Skill library paths supplied for on-demand discovery",
@@ -193,6 +201,7 @@ def role_skill_libraries(
             ])
         ),
         required_paths=required_paths,
+        recalled_paths=recalled,
         block=render_skill_library_paths(
             skill_store,
             role=role,

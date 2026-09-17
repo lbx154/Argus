@@ -1549,6 +1549,10 @@ class MissionExecutionSettlementMixin:
             )
         except Exception:
             log.exception("post-mission learning failed after durable completion")
+        try:
+            self._reflect_after_mission(state)
+        except Exception:
+            log.exception("reflection after the mission failed; the result stands")
         cost_sink = state.cost_sink
         assert cost_sink is not None, "mission completion requires a prepared cost sink"
         usage = cost_sink.usage_summary()
@@ -1564,6 +1568,61 @@ class MissionExecutionSettlementMixin:
             except Exception:
                 log.exception("post-mission usage receipt deferred; call ledger remains authoritative")
         return result
+
+    def _reflect_after_mission(self, state: _MissionRunState) -> dict[str, Any]:
+        """Look back once on the finished mission and keep what it taught.
+
+        Runs after the completion is durable and after Skill propagation. The
+        reflection module decides whether anything is worth writing; this hook
+        only gathers the facts it needs and hands over the project's event
+        sink. Nothing here changes the mission result.
+        """
+        from ..reflection import reflect_after_mission
+        from ._evolution import _project_state_root
+
+        item, outcome = state.item, state.outcome
+        workspace = Path(state.execution_workdir or self._project_workdir())
+        manager_decision = getattr(item, "manager_decision", {}) or {}
+        vertical = (
+            str(manager_decision.get("vertical") or "").strip()
+            if isinstance(manager_decision, dict)
+            else ""
+        )
+        if not vertical:
+            from ...skills.vertical_select import resolve_skill_scope
+
+            try:
+                vertical = str(resolve_skill_scope(workspace) or "")
+            except Exception:  # noqa: BLE001 - an undecided vertical keeps the lesson global
+                vertical = ""
+        life_dir = _project_state_root(self.memory) or workspace
+        return reflect_after_mission(
+            runner=self.runner,
+            workspace=workspace,
+            life_dir=life_dir,
+            global_root=self._budget_global_root(),
+            vertical=vertical,
+            project_id=life_dir.name or workspace.name,
+            mission_id=str(item.id),
+            title=str(item.title or ""),
+            objective=str(item.original_objective or item.objective or ""),
+            acceptance=str(getattr(item, "acceptance_check", "") or ""),
+            review_status=str(getattr(outcome, "final_review_status", "") or ""),
+            review_reason=str(getattr(outcome, "final_review_reason", "") or ""),
+            stop_reason=(
+                f"status={state.status}; stop_kind={state.stop_kind or 'none'}; "
+                f"reason={state.stop_reason or 'none'}"
+            ),
+            # The round text the Reviewer read is not kept on the outcome; the
+            # engineer's own account of the run is the factual record we have.
+            host_round_log="",
+            run_reality=str(
+                getattr(outcome, "summary", "") or getattr(outcome, "final_message", "") or ""
+            ),
+            emit=self._emit,
+            elapsed_s=float(state.elapsed or 0.0),
+            rounds=int(state.rounds or 0),
+        )
 
     def _build_settled_experience(self, state: _MissionRunState) -> Any:
         """Freeze conservative evidence before the completion commit; no I/O."""

@@ -226,6 +226,8 @@ class EventType(StrEnum):
     WIKI_PROMOTION_DEMOTED = "wiki.promotion.demoted"
     WIKI_RETIRED_COMPRESSED = "wiki.retired.compressed"
     WIKI_EVOLUTION_COMPLETED = "wiki.evolution.completed"
+    KNOWLEDGE_LEARNED = "knowledge.learned"
+    KNOWLEDGE_RECALLED = "knowledge.recalled"
     OPERATOR_ALERT = "operator_alert"
     MANAGER_LIVE_VIEW_UPDATED = "manager.live_view.updated"
     MANAGER_LIVE_VIEW_REJECTED = "manager.live_view.rejected"
@@ -292,6 +294,10 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.WIKI_PROMOTION_DEMOTED,
     EventType.WIKI_RETIRED_COMPRESSED,
     EventType.WIKI_EVOLUTION_COMPLETED,
+    # A page written into the knowledge library is one line worth keeping;
+    # the recall that hands pages to a role happens every prompt and stays
+    # in the full stream only.
+    EventType.KNOWLEDGE_LEARNED,
     EventType.LIFE_MISSION_STARTED,
     EventType.LIFE_MISSION_COMPLETED,
     EventType.LIFE_MANAGER_INTENT_STARTED,
@@ -435,7 +441,7 @@ def _category(event_type: EventType) -> EventCategory:
         return EventCategory.PLANNER
     if value.startswith(("skill.", "team.learning.", "self.learning.")):
         return EventCategory.SKILL
-    if value.startswith("wiki."):
+    if value.startswith(("wiki.", "knowledge.")):
         return EventCategory.WIKI
     if value.startswith("idea."):
         return EventCategory.IDEA

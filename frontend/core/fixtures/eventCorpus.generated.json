@@ -2657,11 +2657,48 @@
     },
     {
       "event": {
+        "kind": "learned",
+        "mission_id": "mission id",
+        "page_kind": "page kind",
+        "path": "path",
+        "payload_schema_version": 1,
+        "scope": "project",
+        "source_project": "source project",
+        "text": "Renderer event detail",
+        "title": "Shared event renderer",
+        "ts": 1700000178,
+        "type": "knowledge.learned",
+        "vertical": "software"
+      },
+      "id": "knowledge.learned"
+    },
+    {
+      "event": {
+        "mission_id": "mission id",
+        "objective_excerpt": "objective excerpt",
+        "paths": [
+          "path"
+        ],
+        "payload_schema_version": 1,
+        "role": "engineer",
+        "scope_counts": {
+          "global": 1,
+          "project": 1,
+          "vertical": 1
+        },
+        "text": "Renderer event detail",
+        "ts": 1700000179,
+        "type": "knowledge.recalled"
+      },
+      "id": "knowledge.recalled"
+    },
+    {
+      "event": {
         "operator_alert": true,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
-        "ts": 1700000178,
+        "ts": 1700000180,
         "type": "operator_alert"
       },
       "id": "operator_alert"
@@ -2678,7 +2715,7 @@
         "source": "daemon",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000179,
+        "ts": 1700000181,
         "type": "manager.live_view.updated"
       },
       "id": "manager.live_view.updated"
@@ -2688,7 +2725,7 @@
         "error": "provider request failed",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000180,
+        "ts": 1700000182,
         "type": "manager.live_view.rejected"
       },
       "id": "manager.live_view.rejected"
@@ -2698,7 +2735,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000181,
+        "ts": 1700000183,
         "turn_kind": "qa",
         "type": "manager.turn.started"
       },
@@ -2708,7 +2745,7 @@
       "event": {
         "message_id": "message id",
         "payload_schema_version": 1,
-        "ts": 1700000182,
+        "ts": 1700000184,
         "type": "manager.turn.cancelled"
       },
       "id": "manager.turn.cancelled"
@@ -2723,7 +2760,7 @@
         ],
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000183,
+        "ts": 1700000185,
         "type": "user.note"
       },
       "id": "user.note"
@@ -2734,7 +2771,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000184,
+        "ts": 1700000186,
         "type": "ui.operator"
       },
       "id": "ui.operator"
@@ -2750,7 +2787,7 @@
           }
         ],
         "text": "Renderer event detail",
-        "ts": 1700000185,
+        "ts": 1700000187,
         "turn_kind": "qa",
         "type": "ui.argus"
       },

@@ -918,6 +918,31 @@ export interface WikiEvolutionCompletedEvent extends EventMsg {
   "text"?: string;
 }
 
+export interface KnowledgeLearnedEvent extends EventMsg {
+  type: "knowledge.learned";
+  payload_schema_version?: 1;
+  "kind": "learned" | "promoted";
+  "scope": "project" | "vertical" | "global";
+  "vertical"?: string;
+  "path": string;
+  "title": string;
+  "source_project"?: string;
+  "mission_id"?: string;
+  "page_kind"?: string;
+  "text"?: string;
+}
+
+export interface KnowledgeRecalledEvent extends EventMsg {
+  type: "knowledge.recalled";
+  payload_schema_version?: 1;
+  "role": string;
+  "paths": Array<string>;
+  "scope_counts"?: { "project"?: number; "vertical"?: number; "global"?: number; };
+  "objective_excerpt"?: string;
+  "mission_id"?: string;
+  "text"?: string;
+}
+
 export interface ProjectCompletedEvent extends EventMsg {
   type: "project.completed";
   payload_schema_version?: 1;
@@ -2087,6 +2112,8 @@ export interface EventPayloadByType {
   "wiki.promotion.demoted": WikiPromotionDemotedEvent;
   "wiki.retired.compressed": WikiRetiredCompressedEvent;
   "wiki.evolution.completed": WikiEvolutionCompletedEvent;
+  "knowledge.learned": KnowledgeLearnedEvent;
+  "knowledge.recalled": KnowledgeRecalledEvent;
   "project.completed": ProjectCompletedEvent;
   "project.completion_refused": ProjectCompletionRefusedEvent;
   "research.achievement.certified": ResearchAchievementCertifiedEvent;

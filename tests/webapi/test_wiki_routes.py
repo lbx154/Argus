@@ -328,3 +328,159 @@ def test_project_wiki_page_carries_content_and_description(tmp_path):
     assert body["content"] == "# Queue\n\nBody.\n"
     assert body["markdown"].startswith("---\n")
     assert body["title"] == "Queue"
+
+
+# --- page metadata, reuse counts, principles and the knowledge feed ----------
+
+
+def _lesson(title: str, description: str, body: str, **front: str) -> str:
+    extra = "".join(f"{key}: {value}\n" for key, value in front.items())
+    return f"---\ntitle: {title}\ndescription: {description}\n{extra}---\n\n{body}\n"
+
+
+def test_knowledge_pages_carry_kind_source_created_and_reuse_count(tmp_path):
+    from argus.wiki.journal import append_knowledge_event
+
+    client, workspace = _client(tmp_path)
+    home = tmp_path / "state"
+    project = _wiki(workspace)
+    _decide_vertical(workspace, "research")
+    _write(project / "pages" / "queue.md", _page("Queue", "How the queue works", "Body."), 2_000)
+    research = _shared(home, "_shared_verticals", "research")
+    lesson = research / "pages" / "lessons" / "20260917-torch-search.md"
+    _write(
+        lesson,
+        _lesson(
+            "Search torch docs first", "Read before guessing", "Body.",
+            kind="lesson", source="s-fb4716b7/cf2c076f939e", created="2026-09-17",
+            audience="vertical", confidence="high",
+        ),
+        3_000,
+    )
+    # A kind the library does not know is shown as a plain page.
+    _write(research / "pages" / "odd.md", _lesson("Odd", "Unknown kind", "Body.", kind="rumour"), 2_500)
+    shared_global = _shared(home, "_global")
+    _write(shared_global / "pages" / "hosts.md", _page("Hosts", "Host facts", "Body."), 1_000)
+
+    recalled = dict(kind="recalled", scope="vertical", vertical="research", path="pages/lessons/20260917-torch-search.md")
+    append_knowledge_event(home, role="engineer", **recalled)
+    append_knowledge_event(home, role="reviewer", **recalled)
+    append_knowledge_event(home, kind="learned", scope="vertical", vertical="research", path="pages/lessons/20260917-torch-search.md")
+    append_knowledge_event(home, kind="recalled", scope="global", path="pages/hosts.md")
+    # A recall of the project page that named no vertical still counts for it.
+    append_knowledge_event(home, kind="recalled", scope="project", vertical="", path="pages/queue.md")
+    append_knowledge_event(home, kind="recalled", scope="project", vertical="research", path="pages/queue.md")
+
+    body = client.get("/api/wiki", params={"sid": "demo"}, headers=HEADERS).json()
+    project_lib, vertical_lib, global_lib = body["libraries"]
+    (queue,) = project_lib["pages"]
+    assert queue["kind"] == "page"
+    assert queue["source"] == ""
+    assert queue["created"] == ""
+    assert queue["reuse_count"] == 2
+    torch, odd = vertical_lib["pages"]
+    assert torch["kind"] == "lesson"
+    assert torch["source"] == "s-fb4716b7/cf2c076f939e"
+    assert torch["created"] == "2026-09-17"
+    assert torch["reuse_count"] == 2
+    assert odd["kind"] == "page"
+    assert odd["reuse_count"] == 0
+    (hosts,) = global_lib["pages"]
+    assert hosts["reuse_count"] == 1
+    assert [(row["path"], row["kind"], row["reuse_count"]) for row in body["items"]] == [
+        ("pages/lessons/20260917-torch-search.md", "lesson", 2),
+        ("pages/odd.md", "page", 0),
+        ("pages/queue.md", "page", 2),
+        ("pages/hosts.md", "page", 1),
+    ]
+    assert body["items"][0]["source"] == "s-fb4716b7/cf2c076f939e"
+
+    page = client.get(
+        "/api/wiki/page",
+        params={"scope": "vertical", "vertical": "research", "path": "pages/lessons/20260917-torch-search.md"},
+        headers=HEADERS,
+    ).json()
+    assert (page["kind"], page["source"], page["created"]) == ("lesson", "s-fb4716b7/cf2c076f939e", "2026-09-17")
+
+
+def test_knowledge_libraries_carry_their_principles(tmp_path):
+    client, workspace = _client(tmp_path)
+    home = tmp_path / "state"
+    _wiki(workspace)
+    _decide_vertical(workspace, "research")
+    research = _shared(home, "_shared_verticals", "research")
+    (research / "principles.md").write_text(
+        "---\ntitle: Research principles\ndescription: Compiled from lessons\nkind: principles\n---\n\n"
+        "1. Read the docs before guessing — evidence: [a](pages/lessons/a.md), [b](pages/lessons/b.md)\n\n"
+        "## History\n\n- 2026-09-17 compiled from 2 lessons\n",
+        encoding="utf-8",
+    )
+    _shared(home, "_shared_verticals", "software")
+    _shared(home, "_global")
+
+    body = client.get("/api/wiki", params={"sid": "demo"}, headers=HEADERS).json()
+    by_key = {(lib["scope"], lib["vertical"]): lib for lib in body["libraries"]}
+    assert by_key[("vertical", "research")]["principles"] == (
+        "1. Read the docs before guessing — evidence: [a](pages/lessons/a.md), [b](pages/lessons/b.md)\n\n"
+        "## History\n\n- 2026-09-17 compiled from 2 lessons\n"
+    )
+    assert by_key[("vertical", "software")]["principles"] is None
+    assert by_key[("global", "")]["principles"] is None
+    assert by_key[("project", "research")]["principles"] is None
+
+
+def test_knowledge_feed_serves_the_journal_newest_first(tmp_path):
+    from argus.wiki.journal import append_knowledge_event
+
+    client, _workspace = _client(tmp_path)
+    home = tmp_path / "state"
+    assert client.get("/api/knowledge/feed").status_code == 401
+    assert client.get("/api/knowledge/feed", headers=HEADERS).json() == {"events": []}
+
+    append_knowledge_event(home, kind="learned", scope="vertical", vertical="research", path="pages/lessons/a.md", title="A", ts=1)
+    append_knowledge_event(home, kind="recalled", scope="vertical", vertical="research", path="pages/lessons/a.md", role="engineer", ts=2)
+    append_knowledge_event(home, kind="promoted", scope="global", path="pages/hosts.md", title="Hosts", ts=3)
+
+    body = client.get("/api/knowledge/feed", headers=HEADERS).json()
+    assert [(row["kind"], row["path"]) for row in body["events"]] == [
+        ("promoted", "pages/hosts.md"),
+        ("recalled", "pages/lessons/a.md"),
+        ("learned", "pages/lessons/a.md"),
+    ]
+    assert body["events"][1]["role"] == "engineer"
+    assert set(body["events"][0]) == {
+        "ts", "kind", "scope", "vertical", "path", "title", "source_project", "mission_id", "role", "page_kind", "note",
+    }
+    limited = client.get("/api/knowledge/feed", params={"limit": 2}, headers=HEADERS).json()
+    assert [row["ts"] for row in limited["events"]] == [3, 2]
+    filtered = client.get("/api/knowledge/feed", params={"kind": "learned,promoted"}, headers=HEADERS).json()
+    assert [row["kind"] for row in filtered["events"]] == ["promoted", "learned"]
+    assert client.get("/api/knowledge/feed", params={"limit": 0}, headers=HEADERS).status_code == 422
+    assert client.get("/api/knowledge/feed", params={"limit": 100_000}, headers=HEADERS).status_code == 422
+    # The feed can be read against a project's root too; an unknown project is a 404.
+    assert client.get("/api/knowledge/feed", params={"sid": "demo"}, headers=HEADERS).json() == body
+    assert client.get("/api/knowledge/feed", params={"sid": "missing"}, headers=HEADERS).status_code == 404
+    assert client.post("/api/knowledge/feed", headers=HEADERS, json={}).status_code == 405
+
+
+def test_project_wiki_rows_carry_kind_source_created_and_reuse_count(tmp_path):
+    from argus.wiki.journal import append_knowledge_event
+
+    client, workspace = _client(tmp_path)
+    home = tmp_path / "state"
+    root = _wiki(workspace)
+    _write(
+        root / "pages" / "facts" / "gpu.md",
+        _lesson("GPU", "Which GPU the host has", "Body.", kind="fact", source="chat/8f3a2b1c", created="2026-09-16"),
+        2_000,
+    )
+    _write(root / "pages" / "legacy.md", "# Legacy heading\n\nOld page.\n", 1_000)
+    append_knowledge_event(home, kind="recalled", scope="project", path="pages/facts/gpu.md")
+
+    body = client.get("/api/projects/demo/wiki", headers=HEADERS).json()
+    gpu, legacy = body["pages"]
+    assert (gpu["kind"], gpu["source"], gpu["created"], gpu["reuse_count"]) == ("fact", "chat/8f3a2b1c", "2026-09-16", 1)
+    assert (legacy["kind"], legacy["source"], legacy["created"], legacy["reuse_count"]) == ("page", "", "", 0)
+    page = client.get("/api/projects/demo/wiki/page", params={"path": "pages/facts/gpu.md"}, headers=HEADERS).json()
+    assert (page["kind"], page["source"], page["created"]) == ("fact", "chat/8f3a2b1c", "2026-09-16")
+    assert page["content"] == "Body.\n"

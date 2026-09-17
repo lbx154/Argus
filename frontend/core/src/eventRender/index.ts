@@ -606,6 +606,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'wiki.initialized': case 'wiki.hook.warning': case 'wiki.created': case 'wiki.updated':
     case 'wiki.retired': case 'wiki.promotion.promoted': case 'wiki.promotion.demoted':
     case 'wiki.retired.compressed': case 'wiki.evolution.completed':
+    case 'knowledge.learned': case 'knowledge.recalled':
     // Bookkeeping a reader of the feed does not need: retries, receipts, and
     // state the sidebar or a later message already shows.
     case 'life.planner.verdict.discarded': case 'life.manager.feedback.unresolved':

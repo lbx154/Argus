@@ -33,6 +33,50 @@ _RUNNING_STALL_ERROR = "executor exited without completing the task"
 _RUNNING_STALL_POLL_SECONDS = 1.0
 
 
+def _maybe_consolidate(rf_state: Any, config: Any) -> None:
+    """Run the hourly knowledge consolidation for this project's vertical.
+
+    Called after every drain pass, before the sleep. Skips quietly when the
+    daemon has no project workspace, the vertical is undecided, or the shared
+    root has nothing new; ``consolidate_knowledge`` reads its receipt first,
+    so the common path costs a few file reads. Never raises into the loop.
+    """
+    try:
+        workspace = getattr(config, "project_workdir", None)
+        sup = getattr(rf_state, "sup", None)
+        runner = getattr(rf_state, "runner", None)
+        if workspace is None or sup is None or runner is None:
+            return
+        from ..skills.vertical_select import resolve_skill_scope
+
+        try:
+            vertical = str(resolve_skill_scope(workspace) or "").strip()
+        except Exception:  # noqa: BLE001 - an undecided vertical only skips this pass
+            log.debug("daemon: knowledge consolidation skipped; no vertical", exc_info=True)
+            return
+        if not vertical:
+            return
+        root_of = getattr(sup, "_budget_global_root", None)
+        global_root = (
+            root_of()
+            if callable(root_of)
+            else getattr(getattr(rf_state, "mem", None), "global_root", None)
+        )
+        if not isinstance(global_root, (str, Path)):
+            return
+        from ..life.consolidation import consolidate_knowledge
+
+        consolidate_knowledge(
+            runner=runner,
+            global_root=Path(global_root),
+            life_dir=Path(config.life_dir),
+            vertical=vertical,
+            emit=getattr(sup, "_emit", None),
+        )
+    except Exception:  # noqa: BLE001 - consolidation never stops the drain loop
+        log.exception("daemon: knowledge consolidation failed")
+
+
 class LifeWorkerRunMixin:
     """``run_forever``'s post-boot phases: main loop and shutdown."""
 
@@ -397,6 +441,9 @@ class LifeWorkerRunMixin:
                     supervisor._planning_cycles = 0
                 if self._stop.is_set():
                     break
+                # Between passes the host sleeps on what it learned: at most
+                # one consolidation per interval per vertical, cheap otherwise.
+                _maybe_consolidate(rf_state, self.config)
                 # Honor the supervisor's suggested backoff (escalating while it is
                 # idle awaiting an external dependency). The sleep is wakeable: it returns
                 # early on stop, or when the user inbox grows — so /add and /nudge

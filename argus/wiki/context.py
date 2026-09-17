@@ -85,4 +85,86 @@ def render_knowledge_wiki_block(
     )
 
 
-__all__ = ["render_knowledge_wiki_block", "shared_knowledge_roots"]
+PRINCIPLES_HEADER = (
+    "## How this vertical works now (principles distilled from earlier missions)"
+)
+PRINCIPLES_CHAR_LIMIT = 1500
+_PRINCIPLES_FILENAME = "principles.md"
+
+
+def _strip_front_matter(text: str) -> str:
+    if not text.startswith("---\n"):
+        return text
+    _front, separator, content = text[4:].partition("\n---\n")
+    return content if separator else text
+
+
+def _without_history(body: str) -> str:
+    """The principles themselves: everything before a ``## History`` heading."""
+    kept: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## ") and stripped[3:].strip().lower() == "history":
+            break
+        kept.append(line.rstrip())
+    return "\n".join(kept).strip()
+
+
+def render_principles_block(vertical_root: Path | str, *, limit: int = PRINCIPLES_CHAR_LIMIT) -> str:
+    """The vertical's ``principles.md`` as one bounded prompt block, or ``""``.
+
+    The front matter and the ``## History`` section are dropped; what remains
+    is the numbered list of working rules with their evidence links. The block
+    never exceeds ``limit`` characters, header included.
+    """
+    path = Path(vertical_root).expanduser() / _PRINCIPLES_FILENAME
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ""
+    body = _without_history(_strip_front_matter(text))
+    if not body:
+        return ""
+    budget = limit - len(PRINCIPLES_HEADER) - 1
+    if budget <= 0:
+        return ""
+    if len(body) > budget:
+        cut = body[: budget - 1]
+        newline = cut.rfind("\n")
+        if newline > budget // 2:
+            cut = cut[:newline]
+        body = cut.rstrip() + "…"
+    return f"{PRINCIPLES_HEADER}\n{body}"
+
+
+def render_project_principles(
+    project_root: Path | str, *, global_root: Path | str | None = None,
+) -> str:
+    """The principles block of the vertical this project was routed to, or ``""``.
+
+    The vertical is read the same way :func:`shared_knowledge_roots` reads it;
+    a project without a decided vertical, or one whose state cannot be read,
+    gets no block. Nothing here raises into a prompt builder.
+    """
+    from ..skills.vertical_select import resolve_skill_scope
+
+    try:
+        vertical = resolve_skill_scope(Path(project_root).expanduser())
+    except Exception:  # noqa: BLE001 - an unreadable state is not the prompt's problem
+        return ""
+    if not vertical:
+        return ""
+    try:
+        root = paths.shared_vertical_wiki_root(vertical, global_root)
+    except ValueError:
+        return ""
+    return render_principles_block(root)
+
+
+__all__ = [
+    "PRINCIPLES_HEADER",
+    "render_knowledge_wiki_block",
+    "render_principles_block",
+    "render_project_principles",
+    "shared_knowledge_roots",
+]

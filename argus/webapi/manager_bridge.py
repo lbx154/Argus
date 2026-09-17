@@ -16,6 +16,7 @@ dispatch, and pending-question operations from their owning modules.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,72 @@ log = logging.getLogger(__name__)
 
 _PLAN_PREVIEW_CACHE_TTL_S = 60.0
 _TEAM_REPLAY_WINDOW_S = 90.0
+
+
+def _schedule_answer_learning(
+    sid: str,
+    *,
+    life_dir: Path,
+    global_root: Path | str | None,
+    operator_text: str,
+    reply: str,
+) -> threading.Thread | None:
+    """Keep a researched chat answer as a survey page, off the reply's thread.
+
+    The answer is already on its way to the operator; nothing here delays it.
+    Returns the started thread, or ``None`` when there was nothing to learn
+    from, learning is switched off, the Manager runner has no backend, or a
+    previous learning pass for this project is still running.
+    """
+    from ..life.reflection import answer_is_research, answer_learning_enabled
+
+    if not answer_learning_enabled() or not answer_is_research(operator_text, reply):
+        return None
+    state = _chat_state_for(sid, manager_activity=False)
+    runner = state.get("manager_runner")
+    backend = getattr(runner, "_backend", None)
+    if backend is None or global_root is None:
+        return None
+    active = state.get("_answer_learning_thread")
+    if active is not None and active.is_alive():
+        return None
+    vertical = ""
+    from ..skills.vertical_select import resolve_skill_scope
+
+    for candidate in (state.get("manager_runner_workdir"), life_dir):
+        if not candidate:
+            continue
+        try:
+            vertical = str(resolve_skill_scope(Path(candidate)) or "")
+        except Exception:  # noqa: BLE001 - an undecided vertical keeps the survey global
+            vertical = ""
+        if vertical:
+            break
+    root = Path(global_root)
+
+    def _learn() -> None:
+        from ..life.event_log import JsonlEventSink
+        from ..life.reflection import reflect_after_answer
+
+        sink = JsonlEventSink(None, life_dir=Path(life_dir))
+        try:
+            reflect_after_answer(
+                runner_backend=backend,
+                global_root=root,
+                life_dir=Path(life_dir),
+                project_id=sid,
+                vertical=vertical,
+                operator_text=operator_text,
+                reply=reply,
+                emit=sink.append,
+            )
+        except Exception:  # noqa: BLE001 - the reply is already delivered
+            log.exception("learning from the answer failed")
+
+    thread = threading.Thread(target=_learn, name="argus-answer-learning", daemon=True)
+    state["_answer_learning_thread"] = thread
+    thread.start()
+    return thread
 
 
 def _recent_team_replay(
@@ -293,18 +360,24 @@ def _manager_message(
     def _after_reply(reply: str) -> None:
         runner = _chat_state_for(sid).get("manager_runner")
         schedule = getattr(runner, "_schedule_self_learning_review", None)
-        if not callable(schedule):
-            return
-        try:
-            schedule(objective=operator_text, reply=reply)
-        except Exception as exc:  # noqa: BLE001 - learning never owns the answer
-            from ..life.event_log import JsonlEventSink
+        if callable(schedule):
+            try:
+                schedule(objective=operator_text, reply=reply)
+            except Exception as exc:  # noqa: BLE001 - learning never owns the answer
+                from ..life.event_log import JsonlEventSink
 
-            JsonlEventSink(None, life_dir=life_dir).append({
-                "type": "self.learning.review.failed",
-                "agent_layer": "self",
-                "error": f"{type(exc).__name__}: {exc}",
-            })
+                JsonlEventSink(None, life_dir=life_dir).append({
+                    "type": "self.learning.review.failed",
+                    "agent_layer": "self",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+        _schedule_answer_learning(
+            sid,
+            life_dir=life_dir,
+            global_root=mem.global_root,
+            operator_text=operator_text,
+            reply=reply,
+        )
 
     emitter = _TurnEmitter(
         life_dir=life_dir,
