@@ -106,9 +106,20 @@ v2 项目 `s-e2a29d20`,16:03 创建,16:57 完成(0.92 h),题目换成了 web age
 
 **但 v2 的实验不是真的。** 路线 03 明确写了托管本地开放权重模型(GPU 0–1 上以推理引擎服务 14B 级模型)作为执行策略与内容工作器;Engineer 写的 `runtime.py` 在没有模型函数时退回 mock 解析器,评估器用 `mock_worker_llm` 与合成 DOM,"350 任务 × 3 种子 × 4 方法"的 results/ 在 4.7 分钟内写完;METHOD.md 的 Deviations 写 "none",论文摘要写 "We evaluate PBIS across 350 comprehensive benchmark tasks across WebArena and WorkArena",Reviewer 只在 limitations 里提到"合成 DOM 结构"便给了 accept(8/10)。方法与代码一致、测试全绿、claim 未漂移——机制都按设计工作,却对"实验是否真跑了"一无所知。这是 v3 的目标(第 2 节第 12 条):主机把替身与结果足迹作为事实交给 Engineer 与 Reviewer,并把"替身不算结果"写进三方的规则。
 
-### 4.4 v3 结果
+### 4.4 v3(a3bcc4fad…8ac7a1a01,运行中的对照项目 s-793a4918)
 
-_待填写(运行中)。_
+v3 在 v2 的交接修复之上加了两件事:主机从树上派生的"Run reality"(替身函数扫描 + results/ 足迹)进 Reviewer 包与任务简报;方法图必须有同名 `.pptx` 且导出确实来自它(figure_lint 比对形状/路径/文字)。截至 22:41 PDT(3.05 h,仍在 experiment 阶段),已经能看到的差别:
+
+| 项 | 基线 | v2 | v3(进行中) |
+|---|---|---|---|
+| 想法阶段产出 | 一条路线,选择理由被当成"claim" | 同 | 三条有一手文献出处的机制路线,独立评审后选 Decoupled-RotKV;RESEARCH_NOTES 写明资源尺寸 |
+| METHOD.md Deviations | 无 | "none"(实际全是 mock) | 如实写出"单元验证在合成激活分布上跑" |
+| 合成/替身实验的处置 | 被接受为结果 | 被接受为结果(4.7 分钟"基准") | Reviewer 包里出现 `retrieval_pilot.py:18 create_synthetic_retrieval_scenario (the protocol names it)`;Reviewer 把它判为正对照,Planner 下一任务要求"在真实 transformer 权重上评测" |
+| 真实模型 | 否 | 否 | 是:Engineer 在 GPU 2 加载 Qwen2.5-7B-Instruct(14.8 GB,进程 cwd 为本项目 workspace),把 Decoupled-RotKV cache 挂进 transformers 的 DynamicCache |
+| 主机侧 spec 测试 | — | 14 | 8(仍在增长) |
+| 费用(到 experiment 中段) | $21.45 全程 | $6.72 全程 | $4.49 / 32 次调用 |
+
+两处代价:21:17 我在阶段中途重启 8985 服务,Engineer 会话被切断,重试会话里模型去 `find /` 找权重缓存,空转 66 分钟(22:25 杀掉);v3.4(5764039e7)因此在任务简报的 Environment 段加了本机模型缓存清单,并把"运行测试"的具体解释器命令写进简报。**最终结果(paper/review 阶段、方法图 pptx 真源检查、评审返修次数)待项目完成后补到本节末尾。**
 
 ### 4.5 仍然存在的问题
 
