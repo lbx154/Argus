@@ -195,7 +195,7 @@ v4 是第一个从头到尾跑在"Run reality 带结果时间戳与随机输入�
 - 选题空间拥挤时"重生成一次"不够;重生成的路线应被要求换问题而不是换方法,或允许 Manager 在全否两次后向操作者提问。
 - 真实数据上"持平"的结果被论文写成 "matches or exceeds";这与 claim 的"2× 更少特征"并不等价,Reviewer 给了 accept(8/10)。固定 claim 的梯子在这里没有被走完——Planner 在合成对照成功后直接进入论文,没有按 4–5 级(规模与数据、基线公平性)继续迭代。
 
-### 4.8 v3.7 联合评审(11f25da63,03:59 部署;对照项目 v5 s-fb4716b7,03:59 起,进行中)
+### 4.8 v3.7 联合评审(11f25da63,03:59 部署;对照项目 v5 s-fb4716b7,03:59–12:35 PDT,已完成)
 
 v4 的 Reviewer 一轮读 105 个文件,其中 61 个是 Engineer 刚读过的,却没打开那个用公式算"困惑度"的脚本;它接受了 35% 对 96% 的 claim 漂移,因为恢复的评审轮次里没有阈值,只有 Engineer 的叙述。用户的口径:Reviewer 不该是独立评审,而是共享证据与工件的联合评审;不要机械,要智能。v3.7 改的是评审的输入,不是给它新工具:
 
@@ -208,6 +208,28 @@ v4 的 Reviewer 一轮读 105 个文件,其中 61 个是 Engineer 刚读过的,�
 
 v5 要证明的事:达成表被写出且指针解析;评审包里出现主机日志;Reviewer 在有未满足子句时返 continue;Planner 不提前进 Paper;Reviewer 读文件次数远低于 v4 的 105。截至 05:05,v5 仍在 Idea 阶段(1 h,$4.7):第一代三条路线被各自的独立评审全部否掉后重开,第二代在跑;尚无可验证的评审包。结果见监控日志与后续小节。
 
+**v5 结果(03:59–12:35,8.66 h,$11.78;v4 4.12 h,$15.83;8 个任务,6 次评审全 done,5 次评审跳过)**
+
+| 要证明的事 | 结果 |
+|---|---|
+| 达成表被写出且指针解析 | 是,但只有一次:任务 3(Llama 基准)后 Engineer 写了 `.argus/claim_attainment.json`,4 条子句,指针全部解析到 `results/llama3_benchmark_eval.json` 的字段;Qwen(任务 4)与消融(任务 5)之后没有重写,表一直停在 Llama 版本 |
+| 评审包里出现主机日志 | 是:10 个评审包全部带"Engineer's actions this round (host log since …)";从任务 3 起都带"Claim attainment"行 |
+| Reviewer 读文件次数 | 每轮 3/3/8/11/7/6/8/7/12/10 次,全程 75 次(v4 一轮 105);评审中位 49 s |
+| Reviewer 在有未满足子句时返 continue | 没有检验到位:任务 3 的表把配置值(budget_ratio=0.2)和"PPL 上界"(SnapKV 更好)都标成 met,评审按表 done;e79ba72fb 之后主机会把陈述对照 METHOD.md 的证伪条件,未被陈述覆盖的条件写成 untested,但 v5 运行树没有这一版 |
+| Planner 不提前进 Paper | 否。11:10 判定"Llama/Qwen/LongBench/多深度检索/消融全部满足声明"转写稿;而两个模型上 SnapKV 都没有声明所说的"灾难性检索失败"(NIAH 全 1.0),Qwen 上我们的 NIAH 0.93 还低于 SnapKV。v4 的漂移是收窄阈值,v5 的漂移是无视前提没有复现 |
+
+Qwen-2.5-7B(rho=0.10/0.20/0.50):我们 PPL 3.10/2.967/2.979、NIAH 0.93/0.93/1.00、LongBench 8.82/9.84/9.63;SnapKV PPL 3.08/3.02/3.00、NIAH 1.0/1.0/1.0、LongBench 8.43/9.72/9.54。LongBench 略好、NIAH 略差、PPL 各有胜负——一个"没有灾难可消除"的结果,论文却按原声明写了。
+
+另外三件事:
+
+- **后台任务评审的系统性失败。**任务 4、5 都是 Engineer 把评测派成持久任务后结束回合;Reviewer 被要求评这一轮,却两次照抄 Engineer 的等待记号 `{"wait_for": …}` 而没写判定行,主机按"评审后端不可用 2/2"把任务记成 error(评测照跑,Planner 等它结束再开新任务)。修复 2c19d769b:评审包点名"你评的是派发,等待行是 Engineer 的";带正文、以等待记号收尾的评审读作"延后到该任务"(continue)。
+- **全盘 find。**实验阶段 1 次(`uv`,154 min,4.7 节),写稿阶段 6 次(`iclr*.sty`、`pptx_export.py`、`paper_chart_style.py`、`playwright`、`svg_to_pptx.py`、`figure_lint*`),每次到 10 分钟被常驻监视终止,合计约 1 h 空转。修复:任务简报环境段列出 torch 所在、PATH 上的工具(缺席即缺席)、技能脚本目录的绝对路径(79ba3bf7c)。
+- **预算。**08:44 全局日 token 上限(50M,主要是 v4 花掉的)打断一轮 Engineer,上限提到 200M 后继续。
+
+图件:`fig1_method` 走 PPT Master 路线 D(pptx → Chromium/Skia 的 PDF+PNG,`FIGURE_PROVENANCE.json` 记 `pptx_export.py`),内容对,但仍是三列胶囊的排版;`fig2`、`fig3` 是 matplotlib 手绘(运行树里还没有 paper_charts 助手):figure_lint 指出图例框在坐标区内、柱状纵轴从 50 起、图内标题。论文 12 页,同行评审阶段一轮通过。对比表 `argus-eval-20260916/snapshots/s-fb4716b7-final-vs-v4.md`、`-vs-baseline.md`;图与稿 `figures/v5/`。
+
+结论:联合评审把读文件次数压到 v4 的七成、成本降 26%,评审包里确实有了达成表与主机日志;但达成表只写了一次,Planner 仍按叙述转阶段。已在 dev、未在 v5 运行树的机制:陈述对照证伪条件(e79ba72fb)、每轮按方法列出最新结果文件里的数字(不依赖 Engineer 写表)、有结果无陈述 → continue。
+
 ### 4.9 数据图:助手来画,不再由脚本决定好不好看(04:30–05:10 PDT)
 
 用户连问四次"为什么图这么丑"。答案分两半:方法图已由路线 D 与 Astra 演示解决(4.5);数据图的问题在绘制调用本身——v3/v4 的脚本自己写 PALETTE、把带框图例钉在数据上、`set_ylim(-2, 105)`、把多 seed 平均成一根没有误差线的柱、加图内标题。样式助手 `paper_chart_style` 只定主题,画什么、怎么画仍是脚本说了算,所以主题再好也救不了。
@@ -218,3 +240,23 @@ v5 要证明的事:达成表被写出且指针解析;评审包里出现主机日
 - **图任务的模型路由**(`ARGUS_SKILL_FIGURE_MODEL`,cockpit 别名 `figure_model`):Astra 只负责需要"看图"的工作。研究垂域在自己的模块上暴露 `model_route_for_task(text)`:任务文本点名图的源、导出或工具(`.pptx`、`pptx_export`、`paper_charts`、`figures/src/<stem>/facts.json`)或说"画/重画 … figure",走 `figure` 路线;只是"把图放进论文"的写作任务不走。执行层在组装一次任务的循环配置时向垂域要路线,按环境 → cockpit 持久值的顺序解析 `ARGUS_SKILL_<ROUTE>_MODEL`;`auto`/未设保持工程师模型,不设就什么都不变。部署后把该旋钮设为能看图的模型,方法图任务就自动用它,其余任务不动。
 
 未做:范例图库(强论文数据图的构图样本)、Reviewer 侧看图(只读工具读 PNG 需要能看图的评审模型)。
+
+### 4.10 持续自进化:学到的东西有人写、有人读(09-17 09:30–12:40 PDT,f51f26c1f…7740bbdd9,已部署 8985)
+
+用户的问题:知识库与技能库真的在复用、真的在自进化吗?先审计实例(24 个项目、约 150 个任务)的账:实例范围内 0 个由代理写出的技能;10 页知识库(0.39 页/小时);Reviewer 读过 0 个技能页、0 个知识页;跨项目复用 2 例(其中 1 例是队友主动);知识召回 `recalled_paths` 174/174 为空(召回根只有本项目的 Wiki);技能提升 39/39 跳过("no project skill delta");Planner 与 Reviewer 的提示里没有任何"写下来"的指令;知识库提升在运行实例上没有接线。答案是"没有":有零星的写,没有读,也没有反思。
+
+今晚接上的闭环。主机负责一切确定的部分(能写到哪、前后快照、front matter 检查、INDEX 行、事件、日志、收据),模型只负责"什么值得记":
+
+| 环节 | 机制 |
+|---|---|
+| 读回来 | 知识召回读四层:本项目 Wiki → 垂域共享层(`<home>/wiki/_shared_verticals/<vertical>/pages`,经验教训优先)→ 该垂域的原则 → 全局层 → 同垂域其他项目的 Wiki(多租户主机上关闭)。每条带页面种类、来源、日期。每次召回记 `knowledge.recalled` 事件与日志,于是"复用 N 次"可数 |
+| 任务后反思 | 每个跑满一分钟、至少一轮的任务结束后,一次小模型调用(reasoning low;写权限限定在垂域共享层、项目 Wiki、项目技能层),最多写:一页经验教训到垂域层、两页事实到项目 Wiki(标 `audience: vertical` 的在评审 done 后提升到共享层)、一条流程到项目技能层。"没学到就不写"是明写的默认。收据 `.argus/REFLECTED.json` 保证一个任务只反思一次 |
+| 问答后学习 | 聊天里做过调研的回答(至少两个 URL,或 600 字以上的问句回答)在回复线程外写一页综述到共享层:来源、结论、复核日期(90 天);同名页只追加带日期的"更新"段 |
+| 巩固 | 每个垂域每小时一次(守护进程两次 drain 之间):重建 INDEX.md;有 3 页以上教训时编成 `principles.md`,每条原则必须引用至少两页存在的教训,否则回滚上一版;原则注入 Engineer、Reviewer、Planner 的提示 |
+| 看得见 | `<home>/knowledge-journal.jsonl`;事件 `knowledge.learned` / `knowledge.recalled`;`/api/wiki` 每页带 kind、source、reuse_count,库带 principles;`/api/knowledge/feed`;知识库覆盖层默认"学习动态"页,另有经验教训、原则、全局、垂直领域、项目页,卡片带种类徽章与"复用 N 次";侧栏"刚学到"行 |
+
+开关:`ARGUS_SKILL_REFLECTION`(默认开)、`ARGUS_SKILL_REFLECTION_MODEL`(auto = 前门小模型)、`ARGUS_SKILL_ANSWER_LEARNING`、`ARGUS_SKILL_CONSOLIDATE_INTERVAL_S`(3600)、`ARGUS_SKILL_RECALL_SIBLING_WIKIS`。
+
+验证:ruff、事件生成器、tsc、vitest 1227、后端全量(除本机 venv 装了社区垂域包导致 `tests/verticals/test_store.py` 两项的环境差异)、端到端脚本(反思 → 巩固 → 召回 → `/api/wiki` → `/api/knowledge/feed`)。12:38 部署到 8985(v5 已结束,实例空闲),知识库覆盖层已在公网地址可见(`argus-eval-20260916/ui/learning/`)。部署时发现两件事:手动播种要用 `seed_context_skills(<home>/skills/_shared_verticals/research, "research")`,`seed_builtin_skills_for_vertical(<home>/skills, …)` 会把垂域文件播到公共层;项目垂域在工作区没有 `PIPELINE_STATE.json` 时(s-fb4716b7 就是)从 `manager-handoff.json` / `mission-view.json` 读,否则教训会落到全局层、"垂直领域"页为空(已修)。
+
+未做:v5 的九个任务在部署前结束,没有反思记录,第一条教训要等下一个任务;Reviewer 侧仍无写指令(它的判断进 REVIEW.md,由反思读);用户提的"改变思维方式"目前只到原则注入提示这一步,原则如何改变 Planner 的阶段判断还没有证据。
