@@ -2,8 +2,9 @@ import type { DispatchObserver } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useGitDiff } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope } from './api';
+import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem } from './api';
 import { SkillLibrary } from './components/SkillLibrary';
+import { WikiLibrary } from './components/WikiLibrary';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import ResearchBrief from './research-brief';
@@ -77,7 +78,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading' | 'skills' | 'verticals';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading' | 'skills' | 'wiki' | 'verticals';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -154,6 +155,11 @@ export default function App() {
     setSkillSelection(item ?? null);
     setSkillScope(scope);
     setOverlay('skills');
+  }, []);
+  const [wikiSelection, setWikiSelection] = useState<WikiLibraryItem | null>(null);
+  const openWiki = useCallback((page?: WikiLibraryItem) => {
+    setWikiSelection(page ?? null);
+    setOverlay('wiki');
   }, []);
   const {
     cycleTheme,
@@ -1002,6 +1008,7 @@ export default function App() {
           resumingId={resumingSid}
           onOpenPanel={(panel) => setOverlay(panel)}
           onOpenSkills={openSkillLibrary}
+          onOpenWiki={openWiki}
           onOpenVerticals={() => setOverlay('verticals')}
           onNew={startNewSession}
           loading={projectsQ.isLoading}
@@ -1233,6 +1240,9 @@ export default function App() {
       {/* global overlays */}
       <Modal open={overlay === 'skills'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
         {overlay === 'skills' && <SkillLibrary sid={activeSid} projectName={projects.find(project => project.id === activeSid)?.display_name} initialSelection={skillSelection} initialScope={skillScope} />}
+      </Modal>
+      <Modal open={overlay === 'wiki'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识库' : 'Knowledge base'} width="max-w-6xl">
+        {overlay === 'wiki' && <WikiLibrary sid={activeSid} projectName={projects.find(project => project.id === activeSid)?.display_name} initialSelection={wikiSelection} />}
       </Modal>
       <Modal open={overlay === 'reading'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}>
         <ModalHeader title={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'} />

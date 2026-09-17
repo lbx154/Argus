@@ -167,11 +167,12 @@ def build_simple_prompt(
             "be read, say what remains unknown. You are the Manager and may modify state or use "
             "tools when that is required to carry out the operator's instruction.\n\n"
         )
-        from ...wiki.context import render_knowledge_wiki_block
+        from ...wiki.context import render_knowledge_wiki_block, shared_knowledge_roots
 
         knowledge = render_knowledge_wiki_block(
             workspace_root,
             role="Manager",
+            shared_roots=shared_knowledge_roots(workspace_root),
         )
     return (
         f"You are Argus Manager, using one {runner_backend_label()} worker. "

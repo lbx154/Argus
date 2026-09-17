@@ -1,124 +1,122 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer, type ReactTestInstance } from 'react-test-renderer';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { api, type WikiOverview, type WikiPageSummary } from '../api';
+import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
+import { api, type WikiCatalog, type WikiLibraryItem, type WikiScope } from '../api';
 import { WikiEntry } from './WikiEntry';
+import { wikiQueryKey } from './WikiLibrary';
 
 vi.mock('../i18n', () => ({ useI18n: () => ({ locale: 'en-US', t: (key: string) => key }) }));
-vi.mock('../api', () => ({ api: { wiki: vi.fn(), wikiPage: vi.fn() } }));
+vi.mock('../api', () => ({ api: { wikiLibrary: vi.fn(), wikiDocument: vi.fn() } }));
 vi.mock('../lib/format', () => ({ formatRelativeTime: (ts: number) => `rel:${ts}` }));
 vi.mock('./MarkdownContent', () => ({ MarkdownContent: ({ children }: { children: string }) => <div data-markdown>{children}</div> }));
 vi.mock('./Modal', () => ({
-  Modal: ({ open, onClose, children, label }: { open: boolean; onClose: () => void; children: unknown; label: string }) =>
-    open ? <div role="dialog" aria-label={label}><button data-modal-close onClick={onClose}>close</button>{children as never}</div> : null,
   ModalHeader: ({ title, sub }: { title: string; sub?: string }) => <div data-modal-header>{title}{sub}</div>,
 }));
 
-const page = (name: string, updated_at: number): WikiPageSummary => ({
-  path: `pages/${name.toLowerCase()}.md`, title: name, description: `About ${name}`, updated_at,
+const page = (name: string, updated_at: number, scope: WikiScope = 'project', vertical = ''): WikiLibraryItem => ({
+  scope, vertical, root: scope === 'project' ? '.autors/proj/wiki' : `/shared/wiki/${scope}/${vertical}`,
+  path: `pages/${name.toLowerCase().replace(/\s+/g, '-')}.md`, title: name, description: `About ${name}`, updated_at,
 });
-const fixture: WikiOverview = {
-  exists: true, root: '.autors/proj/wiki', index_markdown: '# Index\n',
-  pages: [page('Newest', 60), page('Fifth', 50), page('Fourth', 40), page('Third', 30), page('Second', 20), page('Oldest', 10)],
+const items = [
+  page('Newest', 60), page('Fifth', 50, 'vertical', 'research'), page('Fourth', 40), page('Third', 30, 'global'),
+  page('Second', 20), page('Oldest', 10),
+];
+const fixture: WikiCatalog = {
+  scopes: ['global', 'vertical', 'project'],
+  libraries: [
+    { scope: 'project', vertical: 'research', root: '.autors/proj/wiki', index_markdown: '# Index\n', pages: items.filter(item => item.scope === 'project') },
+    { scope: 'vertical', vertical: 'research', root: '/shared/wiki/vertical/research', index_markdown: '', pages: items.filter(item => item.scope === 'vertical') },
+    { scope: 'global', vertical: '', root: '/shared/wiki/global/', index_markdown: '', pages: items.filter(item => item.scope === 'global') },
+  ],
+  items: [...items],
+  verticals: ['research'],
+  active_vertical: 'research',
+  errors: [],
 };
 let client: QueryClient;
 let renderer: ReactTestRenderer;
+let onOpen: Mock<(page?: WikiLibraryItem) => void>;
 const content = (node: ReactTestInstance): string => node.children.map(child => typeof child === 'string' ? child : content(child)).join('');
 const button = (name: string) => renderer.root.findAllByType('button').find(node => content(node).startsWith(name))!;
-const dialogs = () => renderer.root.findAllByProps({ role: 'dialog' });
 const settle = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(5); }); };
-async function mount(props: { sid?: string | null; compact?: boolean } = {}) {
-  await act(async () => {
-    renderer = create(<QueryClientProvider client={client}><WikiEntry sid={props.sid === undefined ? 'one' : props.sid} compact={props.compact} /></QueryClientProvider>);
-  });
+const tree = (props: { sid?: string | null; compact?: boolean; withOpen?: boolean } = {}) =>
+  <QueryClientProvider client={client}>
+    <WikiEntry sid={props.sid === undefined ? 'one' : props.sid} compact={props.compact} onOpen={props.withOpen === false ? undefined : onOpen} />
+  </QueryClientProvider>;
+async function mount(props: { sid?: string | null; compact?: boolean; withOpen?: boolean } = {}) {
+  await act(async () => { renderer = create(tree(props)); });
   await settle();
 }
 
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks();
+  onOpen = vi.fn<(page?: WikiLibraryItem) => void>();
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
-  vi.mocked(api.wiki).mockResolvedValue(structuredClone(fixture));
-  vi.mocked(api.wikiPage).mockImplementation(async (_sid, path) => ({ path, title: `Title of ${path}`, markdown: 'Page body. '.repeat(50), truncated: false, updated_at: 60 }));
+  vi.mocked(api.wikiLibrary).mockResolvedValue(structuredClone(fixture));
 });
 afterEach(() => { act(() => renderer?.unmount()); client.clear(); vi.useRealTimers(); });
 
-it('shows one muted line when the project has no wiki', async () => {
-  vi.mocked(api.wiki).mockResolvedValue({ exists: false });
+it('shows one muted line when no level has any page yet', async () => {
+  vi.mocked(api.wikiLibrary).mockResolvedValue({ ...structuredClone(fixture), libraries: [], items: [] });
   await mount();
-  expect(api.wiki).toHaveBeenCalledWith('one', expect.any(AbortSignal));
-  expect(content(renderer.root)).toContain('No wiki pages yet');
+  expect(api.wikiLibrary).toHaveBeenCalledWith('one', expect.any(AbortSignal));
+  expect(content(renderer.root)).toContain('No knowledge pages yet');
   expect(renderer.root.findAllByType('button')).toHaveLength(1);
-  expect(dialogs()).toHaveLength(0);
 });
 
-it('renders nothing without a project and stays quiet when the request fails', async () => {
+it('still lists shared knowledge without a project and stays quiet when the request fails', async () => {
   await mount({ sid: null });
-  expect(api.wiki).not.toHaveBeenCalled();
-  expect(renderer.root.findAllByType('section')).toHaveLength(0);
-  vi.mocked(api.wiki).mockRejectedValue(new Error('Offline'));
-  await act(async () => renderer.update(<QueryClientProvider client={client}><WikiEntry sid="two" /></QueryClientProvider>)); await settle();
-  expect(content(renderer.root)).toContain('Wiki unavailable');
-  expect(content(renderer.root)).not.toContain('No wiki pages yet');
+  expect(api.wikiLibrary).toHaveBeenCalledWith(null, expect.any(AbortSignal));
+  expect(renderer.root.findAllByType('section')).toHaveLength(1);
+  expect(renderer.root.findByProps({ 'aria-label': '6 pages' })).toBeDefined();
+  vi.mocked(api.wikiLibrary).mockRejectedValue(new Error('Offline'));
+  await act(async () => renderer.update(tree({ sid: 'two' }))); await settle();
+  expect(content(renderer.root)).toContain('Knowledge base unavailable');
+  expect(content(renderer.root)).not.toContain('No knowledge pages yet');
 });
 
-it('lists the five most recently updated pages with the page count', async () => {
+it('renders nothing and asks the host for nothing when it has nowhere to open', async () => {
+  await mount({ withOpen: false });
+  expect(api.wikiLibrary).not.toHaveBeenCalled();
+  expect(renderer.root.findAllByType('section')).toHaveLength(0);
+});
+
+it('lists the five newest pages across levels with the total count and each level in the footer', async () => {
   await mount();
   const text = content(renderer.root);
-  expect(text).toContain('Wiki');
+  expect(text).toContain('Knowledge base');
   expect(renderer.root.findByProps({ 'aria-label': '6 pages' })).toBeDefined();
   const rows = renderer.root.findAllByType('button').slice(1).map(content);
-  expect(rows).toEqual(['Newestrel:60', 'Fifthrel:50', 'Fourthrel:40', 'Thirdrel:30', 'Secondrel:20']);
+  expect(rows).toEqual(['NewestProject · rel:60', 'Fifthresearch · rel:50', 'FourthProject · rel:40', 'ThirdGlobal · rel:30', 'SecondProject · rel:20']);
   expect(text).not.toContain('Oldest');
-  expect(text).not.toContain('No wiki pages yet');
+  expect(text).not.toContain('No knowledge pages yet');
 });
 
-it('opens a page in the modal, reads its body, and closes again', async () => {
+it('opens the browser from the title and hands a page over when one is clicked', async () => {
   await mount();
-  act(() => button('Fourth').props.onClick()); await settle();
-  expect(dialogs()).toHaveLength(1);
-  expect(api.wikiPage).toHaveBeenCalledWith('one', 'pages/fourth.md', expect.any(AbortSignal));
-  const dialog = content(dialogs()[0]);
-  expect(dialog).toContain('Title of pages/fourth.md');
-  expect(dialog).toContain('pages/fourth.md');
-  expect(dialog).toContain('Updated ');
-  expect(content(renderer.root.findByProps({ 'data-markdown': true })).length).toBeGreaterThan(500);
-  act(() => renderer.root.findByProps({ 'data-modal-close': true }).props.onClick());
-  expect(dialogs()).toHaveLength(0);
-  expect(renderer.root.findAllByProps({ 'data-markdown': true })).toHaveLength(0);
+  act(() => button('Knowledge base').props.onClick());
+  expect(onOpen).toHaveBeenCalledTimes(1);
+  expect(onOpen.mock.calls[0]).toEqual([]);
+  act(() => button('Fifth').props.onClick());
+  expect(onOpen).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'vertical', vertical: 'research', path: 'pages/fifth.md' }));
+  expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0);
+  expect(api.wikiDocument).not.toHaveBeenCalled();
 });
 
-it('lets the modal list every page and step back from a page to the list', async () => {
-  await mount();
-  act(() => button('Wiki').props.onClick()); await settle();
-  const list = renderer.root.findByProps({ 'aria-label': 'Wiki pages' });
-  const rows = list.findAllByType('button').map(content);
-  expect(rows[0]).toBe('INDEX.md');
-  expect(rows.slice(1)).toHaveLength(6);
-  expect(rows.at(-1)).toContain('Oldest');
-  expect(content(dialogs()[0])).toContain('.autors/proj/wiki · 6 pages');
-  act(() => list.findAllByType('button').at(-1)!.props.onClick()); await settle();
-  expect(api.wikiPage).toHaveBeenCalledWith('one', 'pages/oldest.md', expect.any(AbortSignal));
-  act(() => button('← Back to pages').props.onClick());
-  expect(renderer.root.findByProps({ 'aria-label': 'Wiki pages' }).findAllByType('button')).toHaveLength(7);
-  act(() => button('INDEX.md').props.onClick());
-  expect(content(renderer.root.findByProps({ 'data-markdown': true }))).toBe('# Index\n');
-});
-
-it('shows only an icon with a badge in the slim sidebar and opens the page list from it', async () => {
+it('shows only an icon with a badge in the slim sidebar and opens the browser from it', async () => {
   await mount({ compact: true });
   expect(renderer.root.findAllByType('button')).toHaveLength(1);
   expect(content(renderer.root)).toBe('6');
   expect(content(renderer.root)).not.toContain('Newest');
-  act(() => renderer.root.findByType('button').props.onClick()); await settle();
-  expect(dialogs()).toHaveLength(1);
-  expect(content(dialogs()[0])).toContain('Oldest');
+  act(() => renderer.root.findByType('button').props.onClick());
+  expect(onOpen).toHaveBeenCalledWith();
 });
 
 it('picks up a page the project just wrote without remounting', async () => {
   await mount();
-  const next: WikiOverview = { ...fixture, pages: [page('Just written', 70), ...fixture.pages] };
-  vi.mocked(api.wiki).mockResolvedValue(next);
-  await act(async () => { await client.invalidateQueries({ queryKey: ['wiki', 'one'] }); }); await settle();
+  const next: WikiCatalog = { ...fixture, items: [page('Just written', 70), ...fixture.items] };
+  vi.mocked(api.wikiLibrary).mockResolvedValue(next);
+  await act(async () => { await client.invalidateQueries({ queryKey: wikiQueryKey('one') }); }); await settle();
   expect(content(renderer.root.findAllByType('button')[1])).toContain('Just written');
   expect(renderer.root.findByProps({ 'aria-label': '7 pages' })).toBeDefined();
 });

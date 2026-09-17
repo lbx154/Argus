@@ -30,6 +30,9 @@ __all__ = [
     "session_state_root",
     "session_trash_root",
     "verticals_root",
+    "shared_wiki_root",
+    "global_wiki_root",
+    "shared_vertical_wiki_root",
     "PathResolutionError",
     "resolve_runtime_path",
 ]
@@ -145,3 +148,21 @@ def session_trash_root(root: str | Path | None = None) -> Path:
 def verticals_root(root: str | Path | None = None) -> Path:
     """Return the Vertical Store root (community verticals installed per directory)."""
     return _root(root) / "verticals"
+
+
+def shared_wiki_root(root: str | Path | None = None) -> Path:
+    """Return the host-wide knowledge root that holds the shared Wikis.
+
+    ``_global/`` is read by every project; ``_shared_verticals/<vertical>/``
+    by the projects of one vertical. Each holds an optional ``INDEX.md`` plus
+    ``pages/**/*.md`` exactly like a project Wiki.
+    """
+    return _root(root) / "wiki"
+
+
+def global_wiki_root(root: str | Path | None = None) -> Path:
+    return shared_wiki_root(root) / "_global"
+
+
+def shared_vertical_wiki_root(vertical: str, root: str | Path | None = None) -> Path:
+    return shared_wiki_root(root) / "_shared_verticals" / _safe_component(vertical, label="vertical")

@@ -794,6 +794,16 @@ class MissionExecutionSettlementMixin:
                         "life supervisor: learned vertical failure note could not be saved"
                     )
 
+        if (
+            success
+            and not iteration_requeued
+            and final_review_status.strip().lower() == "done"
+            and str(
+                getattr(outcome, "final_review_source", "") or ""
+            ).strip().lower() == "reviewer"
+        ):
+            self._share_reviewed_wiki_pages(state, manager_decision)
+
         forbid_operator_parking = False
         if status == "blocked" and operator_question:
             forbid_operator_parking = (
@@ -1603,6 +1613,46 @@ class MissionExecutionSettlementMixin:
                 store.record_settled(experience)
         except (OSError, TypeError, ValueError):
             log.exception("life supervisor: failed to persist settled experience")
+
+    def _share_reviewed_wiki_pages(
+        self,
+        state: _MissionRunState,
+        manager_decision: Any,
+    ) -> None:
+        """Copy audience-tagged project Wiki pages into the shared knowledge roots.
+
+        Runs only after a mission the Reviewer accepted. Nothing here can fail
+        the mission: every filesystem error is logged and swallowed.
+        """
+        from ...core import paths as core_paths
+        from ...wiki.promote import promote_wiki_pages
+
+        try:
+            workspace = Path(state.execution_workdir or self._project_workdir())
+            vertical = ""
+            if isinstance(manager_decision, dict):
+                vertical = str(manager_decision.get("vertical") or "").strip()
+            if not vertical:
+                from ...skills.vertical_select import resolve_skill_scope
+
+                try:
+                    vertical = resolve_skill_scope(workspace)
+                except Exception:  # noqa: BLE001 - an undecided vertical only skips the vertical tier
+                    vertical = ""
+            promoted = promote_wiki_pages(
+                workspace,
+                vertical=vertical,
+                shared_root=core_paths.shared_wiki_root(self._budget_global_root()),
+            )
+        except OSError:
+            log.exception("life supervisor: shared knowledge could not be updated")
+            return
+        for scope, pages in promoted.items():
+            if pages:
+                log.info(
+                    "life supervisor: %d wiki page(s) shared with the %s knowledge (%s): %s",
+                    len(pages), scope, vertical or "-", ", ".join(pages),
+                )
 
 
 __all__ = ["MissionExecutionSettlementMixin"]

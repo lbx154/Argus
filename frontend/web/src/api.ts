@@ -104,6 +104,51 @@ export type WikiOverview =
 export interface WikiPageDocument {
   path: string;
   title: string;
+  description?: string;
+  /** Page body without the front matter, when the host provides it. */
+  content?: string;
+  markdown: string;
+  truncated: boolean;
+  updated_at: number;
+}
+
+/** Where a knowledge page lives: shared by everyone, by one vertical, or kept by one project. */
+export type WikiScope = 'global' | 'vertical' | 'project';
+/** One knowledge page flattened across libraries, newest first; the host adds scope, vertical and root. */
+export interface WikiLibraryItem {
+  scope: WikiScope;
+  vertical: string;
+  root: string;
+  path: string;
+  title: string;
+  description: string;
+  updated_at: number;
+}
+/** One knowledge library (global, one vertical, or the project): INDEX.md plus its pages. */
+export interface WikiLibrary {
+  scope: WikiScope;
+  vertical: string;
+  root: string;
+  index_markdown: string;
+  pages: WikiPageSummary[];
+}
+/** Every knowledge library the host can see for the given project, plus the flattened page list. */
+export interface WikiCatalog {
+  scopes: WikiScope[];
+  libraries: WikiLibrary[];
+  items: WikiLibraryItem[];
+  verticals: string[];
+  active_vertical: string;
+  errors: string[];
+}
+/** One knowledge page: body without the front matter, raw text capped by the host. */
+export interface WikiDocument {
+  scope: WikiScope;
+  vertical: string;
+  path: string;
+  title: string;
+  description: string;
+  content: string;
   markdown: string;
   truncated: boolean;
   updated_at: number;
@@ -1212,6 +1257,10 @@ export const api = {
   wiki: (sid: string, signal?: AbortSignal) => getJson<WikiOverview>(P(sid, '/wiki'), signal),
   wikiPage: (sid: string, path: string, signal?: AbortSignal) =>
     getJson<WikiPageDocument>(P(sid, `/wiki/page?${new URLSearchParams({ path })}`), signal),
+  wikiLibrary: (sid: string | null, signal?: AbortSignal) =>
+    getJson<WikiCatalog>(`/api/wiki${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
+  wikiDocument: (sid: string | null, scope: WikiScope, vertical: string, path: string, signal?: AbortSignal) =>
+    getJson<WikiDocument>(`/api/wiki/page?${new URLSearchParams({ scope, vertical, path, ...(sid ? { sid } : {}) })}`, signal),
   setLaunchCwd: (sid: string, launchCwd: string) =>
     postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   setWorkdir: (sid: string, workdir: string) =>

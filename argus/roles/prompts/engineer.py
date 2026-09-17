@@ -359,11 +359,12 @@ def build_mission_prompt(
     if contract_block:
         sections.append(contract_block)
     if project_root is not None:
-        from ...wiki.context import render_knowledge_wiki_block
+        from ...wiki.context import render_knowledge_wiki_block, shared_knowledge_roots
 
         knowledge_block = render_knowledge_wiki_block(
             project_root,
             role="Engineer",
+            shared_roots=shared_knowledge_roots(project_root),
         )
         if knowledge_block:
             sections.append(sanitize_model_visible_text(knowledge_block))
