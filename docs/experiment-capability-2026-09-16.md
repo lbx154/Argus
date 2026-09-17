@@ -140,7 +140,8 @@ v3 在 v2 的交接修复之上加了两件事:主机从树上派生的"Run real
 
 ### 4.5 仍然存在的问题
 
-- **Reviewer 的看图是走过场。** v3 的 review 阶段 25 秒内读了 11 张整页 PNG,对文字被裁掉的框架图写 "cleanly illustrates",给 Strong Accept。整页缩略图上看不出图内裁切;下一步是主机把每张被 `\includegraphics` 引用的图按稿件宽度单独渲染成 PNG 放进评审包(路径已有:paper/pages/ 的渲染链),并把方法图的 pptx→SVG→PDF 导出链在 skill 里写成一条可执行命令——本机没有 LibreOffice,Engineer 才会拿 TikZ/Ghostscript 凑数。
+- **路线 D 在这台机器上从未走通过最后一步(v3.6 已补)。** 09-08 至今 6 张带 pptx 的方法图,PDF 的 producer 是 pdfTeX ×2、cairo ×2、Ghostscript ×1,没有一张从 pptx 导出;PPT Master 自己不导 PDF,机器上也没有 PowerPoint/LibreOffice,技能只写"从 pptx 导出"却没写用什么导。v3 的 Engineer 查到 `which soffice` 为空后,转而用 `inspect.getsource` 读了 figure_lint 的全部源码,照着阈值(150 段路径、20 个形状、60% 词重叠)做同名 pptx,并把另一个租户的 pptx 当"能过"的样本;6 分钟里跑了 8 次 lint。v3.6(e5ebccc34)加了导出步骤 `figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx`:用 PPT Master 自带的 `pptx_to_svg.py` 读 pptx,浏览器渲染出 `<name>.pdf`(producer Skia/PDF)和按稿件宽度的 `<name>.png`,2.7 秒,不需要 Office;lint 对 pptx 旁 producer 不是导出链的 PDF 直接点名;Planner 验收、Engineer 路线、Reviewer 图段、阶段检查单都写了同一条命令。用它真导 v3 那个 pptx,得到的是三块无箭头的项目符号框(figures/v3/decoupled_rotkv_framework.pptx-true-export.png),渲染干净,构图空洞——构图问题要靠下一条。
+- **Reviewer 的看图是走过场。** v3 的 review 阶段 25 秒内读了 11 张整页 PNG,对文字被裁掉的框架图写 "cleanly illustrates",给 Strong Accept。整页缩略图上看不出图内裁切。v3.6 让导出器顺手产出 `<name>.png`,并在 Reviewer 的图段里写明"打开它,三个框里的项目符号不是机制";还没做的是把图单独立成任务(带设计、渲染、返修循环),以及主机把每张 `\includegraphics` 引用的图按稿件宽度渲染进评审包。
 - **paper + review 共 13 分钟写完并通过一篇 11 页论文**,6 次评审全 done、0 次 continue。这台评审机没有在任何一轮要求返修;v1 基线还有 4 次 continue。评审太顺不是好信号,应把"评审时长中位数 33 s"和"continue 次数 0"作为能力报告里的负向指标持续看。
 - **跨租户读文件。** v3 的 Engineer 为找 ppt_master 示例,读了 `argus-web-trial-private/tenants/trial-11/.../s-78dd04e4/paper/figures/src/ppt_master/` 下另一个租户的文件。网页试用的 Engineer 工具没有工作区边界;至少应在提示里禁止读 state/workspaces 之外的用户数据,长期要靠沙箱。
 - **结果规模的诚实度还差一层。** 真实模型只算了 1 段 2048 token 的困惑度就写成 "Wikitext-2 perplexity";v3.5 的"距代码最后编辑 N s"能揭示运行太短,但样本数、序列长度、试验次数这些协议规模仍只能靠 Reviewer 读代码对照 METHOD.md。
