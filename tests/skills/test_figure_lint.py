@@ -224,3 +224,25 @@ def test_an_export_whose_words_are_not_in_the_pptx_is_reported(tmp_path: Path) -
     issues = mod.figure_lint_issues(tmp_path)
 
     assert any("shares only" in i and "the export and the editable source show different figures" in i for i in issues)
+
+
+def test_a_tex_compiled_method_figure_beside_a_look_alike_pptx_is_reported(tmp_path: Path) -> None:
+    # One paper's framework figure was a TikZ standalone compiled by pdfTeX;
+    # a python-pptx companion of the same stem carried the same labels and
+    # enough shapes to pass the fidelity comparison. The producer settles it.
+    from pypdf import PdfWriter
+
+    figures = tmp_path / "paper" / "figures"
+    figures.mkdir(parents=True)
+    writer = PdfWriter()
+    writer.add_blank_page(width=400, height=200)
+    writer.add_metadata({"/Producer": "pdfTeX-1.40.25", "/Creator": "TeX"})
+    with (figures / "framework.pdf").open("wb") as handle:
+        writer.write(handle)
+    _fake_pptx(figures / "framework.pptx", shapes=30, custom_paths=10, text="offline rotation quantizer residual")
+    _paper(tmp_path, "\\begin{figure}\\includegraphics{framework}\\caption{Overview of the architecture.}\\end{figure}")
+
+    issues = mod.figure_lint_issues(tmp_path)
+
+    assert any("was produced by pdfTeX-1.40.25, which no PPTX export chain produces" in i for i in issues)
+    assert not any("was exported by matplotlib" in i for i in issues)

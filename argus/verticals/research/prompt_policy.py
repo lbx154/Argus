@@ -381,13 +381,11 @@ def _method_card_reviewer_block(stage: str) -> str:
         return ""
     return (
         "## Method card first\n"
-        "Read in this order: the review packet in your context (component anchors "
-        "with code excerpts, test outcomes, config changes, files changed this "
-        "round, Run reality), then METHOD.md, then the derived method-card status in "
-        "Raw verification evidence (host-run checks joined with tests/spec markers: "
-        "proven, contradicted, partial, untested, unchecked; reused code; "
-        "hyperparameter changes), then tests/spec, then code, and the Engineer's "
-        "account last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
+        "Read in this order: the review packet (anchors with code excerpts, test "
+        "outcomes, config changes, files changed, Run reality), then METHOD.md, then "
+        "the derived method-card status in Raw verification evidence (proven, "
+        "contradicted, partial, untested, unchecked; reused code; hyperparameter "
+        "changes), then tests/spec, then code, and the Engineer's account last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
         "INSUFFICIENT_EVIDENCE with file:line (reviewer/claim-to-code-trace.md). "
         "Required repairs, returned as continue naming the smallest fix: a component "
         "without a '# @component' anchor or a knockout that fails in its absence, an "
@@ -398,8 +396,11 @@ def _method_card_reviewer_block(stage: str) -> str:
         "result with fewer than three diagnosed attempts, is a repair request. A "
         "result produced through a stand-in listed under Run reality is "
         "NOT_IMPLEMENTED whatever the tests say, unless METHOD.md Deviations names it "
-        "and the paper calls the evaluation simulated. Do not ask for tools or re-run "
-        "anything yourself."
+        "and the paper calls the evaluation simulated. Run reality also dates each "
+        "result file against the last code edit and names functions fed random "
+        "tensors: a one-minute run or random keys is not the protocol's evaluation, "
+        "whatever the results file lists. Do not ask for tools or re-run anything "
+        "yourself."
     )
 
 

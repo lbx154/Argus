@@ -149,9 +149,11 @@ def test_prompt_blocks_stay_short() -> None:
 
     # Raised from 130/130/90 for the write-for-review anchors, the review
     # packet reading order and the implementation brief, then to 180/190/145
-    # for the stand-in rule after trimming each block; trim before raising.
+    # for the stand-in rule after trimming each block, then the reviewer to 220
+    # for the dated results and random-input facts after trimming its reading
+    # order; trim before raising.
     assert words("engineer", "## Method card and executable spec", "execute") <= 200
-    assert words("reviewer", "## Method card first", "evaluate") <= 195
+    assert words("reviewer", "## Method card first", "evaluate") <= 220
     assert words("planner", "## Method card, reference and spec first", "plan") <= 155
 
 
@@ -293,6 +295,7 @@ def test_stand_ins_are_named_for_engineer_reviewer_planner_and_paper() -> None:
     assert "Stand-ins (mock model, fake environment" in engineer
     assert "never report a simulation as the benchmark" in engineer
     assert "listed under Run reality is NOT_IMPLEMENTED whatever the tests say" in reviewer
+    assert "a one-minute run or random keys is not the protocol's evaluation" in reviewer
     assert "a benchmark run through a stand-in is not a result" in planner
     assert "a simulation is never described as a benchmark" in _paper_narrative_packaging_block()
 

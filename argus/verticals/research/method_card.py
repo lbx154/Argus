@@ -106,8 +106,24 @@ _STAND_IN_NAME = re.compile(
 _STAND_IN_NOTE = re.compile(
     r"#.*\b(?:mock|stub|fake|stand-in|placeholder|simulated|for spec tests)\b", re.IGNORECASE
 )
+# A docstring's first line often says what the name does not: one
+# `evaluate_retrieval_at_scale` built its keys with torch.randn, called the
+# sweep "synthetic long-context retrieval" in its docstring, and the results
+# file listed two real models above the numbers it produced.
+_STAND_IN_DOC = re.compile(
+    r"\b(?:synthetic|simulated|mock(?:ed)?|toy|stand-in|placeholder|"
+    r"random(?:ly)?[ -](?:generated|initiali[sz]ed|sampled|drawn|tensors?|inputs?|data|keys|weights|activations))\b",
+    re.IGNORECASE,
+)
+_RANDOM_INPUT = re.compile(
+    r"\b(?:torch\.(?:randn|rand|randint|randperm|normal|bernoulli)|"
+    r"(?:np|numpy)\.random\.(?:randn|rand|random|normal|randint|uniform|standard_normal))\s*\("
+)
+_MEASURING_NAME = re.compile(r"eval|bench|retriev|recall|accura|measur|score|perplex|metric|sweep", re.IGNORECASE)
 MAX_STAND_INS = 20
 STAND_IN_USES = 5
+DEF_BODY_CAP = 400
+RESULT_FILES_DATED = 3
 RESULT_DIRS = ("results", "outputs", "runs", "artifacts", "logs")
 RESULT_WALK_CAP = 5000
 
@@ -568,13 +584,78 @@ def reused_code(workdir: Path) -> list[dict[str, Any]]:
     return result
 
 
+def _def_body(lines: list[str], start: int) -> list[str]:
+    """Lines of the def/class starting at ``start`` (0-based), by indentation."""
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    # A signature may run over several lines; the body starts after the
+    # line that closes it with ':'.
+    end = start
+    while end < len(lines) - 1 and end - start < 40 and not lines[end].split("#", 1)[0].rstrip().endswith(":"):
+        end += 1
+    body: list[str] = []
+    for line in lines[end + 1 : end + 1 + DEF_BODY_CAP]:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and len(line) - len(line.lstrip()) <= indent:
+            break
+        body.append(line)
+    return body
+
+
+def _docstring_first_line(body: list[str]) -> str:
+    for offset, line in enumerate(body[:12]):
+        stripped = line.strip()
+        if not stripped or stripped.endswith(":") or stripped.startswith(("@", "#", ")")):
+            continue
+        head = stripped.lstrip("rRuUbB")
+        for quote in ('"""', "'''"):
+            if head.startswith(quote):
+                text = head[3:]
+                if text.endswith(quote):
+                    text = text[:-3]
+                if not text.strip():
+                    text = body[offset + 1].strip() if offset + 1 < len(body) else ""
+                return text.strip()[:160]
+        return ""
+    return ""
+
+
+def _stand_in_body_note(lines: list[str], start: int, name: str) -> str:
+    """Why a def whose name is innocent may still be a stand-in, or ''.
+
+    Two facts from the body: a first docstring line that says synthetic,
+    simulated, random or toy, and a measuring function (eval, benchmark,
+    recall, perplexity ...) that builds its inputs with a random-tensor
+    generator instead of reading the data the protocol names.
+    """
+    body = _def_body(lines, start)
+    doc = _docstring_first_line(body)
+    doc_hit = _STAND_IN_DOC.search(doc) is not None
+    generators: list[str] = []
+    for line in body:
+        code = line.split("#", 1)[0]
+        for found in _RANDOM_INPUT.finditer(code):
+            token = found.group(0).rstrip("( ").strip()
+            if token not in generators:
+                generators.append(token)
+    random_hit = bool(generators) and (doc_hit or _MEASURING_NAME.search(name) is not None)
+    if not (doc_hit or random_hit):
+        return ""
+    parts: list[str] = []
+    if generators and random_hit:
+        parts.append("builds inputs with " + ", ".join(generators[:3]))
+    if doc:
+        parts.append(f"docstring: '{doc}'")
+    return "; ".join(parts)
+
+
 def stand_ins(workdir: Path) -> list[dict[str, Any]]:
     """Possible stand-ins in the project's own code, each with its call sites.
 
     Definitions (``def``/``class``) whose name says mock, fake, stub, dummy,
-    simulated, synthetic, oracle, toy or placeholder, and comments that say a
-    path is a stand-in. tests/ and third_party/ are not scanned: that is where
-    stand-ins belong.
+    simulated, synthetic, oracle, toy or placeholder; definitions whose
+    docstring says so or which measure something on inputs drawn from a
+    random-tensor generator; and comments that say a path is a stand-in.
+    tests/ and third_party/ are not scanned: that is where stand-ins belong.
     """
     workdir = Path(workdir)
     files = _iter_project_files(workdir)
@@ -600,10 +681,16 @@ def stand_ins(workdir: Path) -> list[dict[str, Any]]:
     for path, lines in texts.items():
         for index, line in enumerate(lines, start=1):
             match = _DEF_OR_CLASS.match(line)
-            if match is not None and _STAND_IN_NAME.search(match.group("name")):
-                definitions.append(
-                    {"kind": "definition", "name": match.group("name"), "file": _rel(path), "line": index, "used_from": []}
-                )
+            if match is not None:
+                name = match.group("name")
+                entry = {"kind": "definition", "name": name, "file": _rel(path), "line": index, "used_from": []}
+                if _STAND_IN_NAME.search(name):
+                    definitions.append(entry)
+                    continue
+                note = _stand_in_body_note(lines, index - 1, name)
+                if note:
+                    entry["note"] = note
+                    definitions.append(entry)
                 continue
             if _STAND_IN_NOTE.search(line):
                 notes.append(
@@ -634,29 +721,47 @@ def results_footprint(workdir: Path) -> list[dict[str, Any]]:
     """
     workdir = Path(workdir)
     out: list[dict[str, Any]] = []
+    code_times: list[tuple[float, str]] | None = None
     for name in RESULT_DIRS:
         directory = workdir / name
         if not directory.is_dir():
             continue
         count, total, oldest, newest = 0, 0, None, None
+        latest: list[tuple[float, str]] = []
         for dirpath, dirnames, filenames in os.walk(directory):
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
             for filename in filenames:
+                full = os.path.join(dirpath, filename)
                 try:
-                    stat = os.stat(os.path.join(dirpath, filename))
+                    stat = os.stat(full)
                 except OSError:
                     continue
                 count += 1
                 total += stat.st_size
                 oldest = stat.st_mtime if oldest is None else min(oldest, stat.st_mtime)
                 newest = stat.st_mtime if newest is None else max(newest, stat.st_mtime)
+                latest.append((stat.st_mtime, os.path.relpath(full, workdir).replace(os.sep, "/")))
+                latest.sort(reverse=True)
+                del latest[RESULT_FILES_DATED:]
                 if count >= RESULT_WALK_CAP:
                     break
             if count >= RESULT_WALK_CAP:
                 break
         if count == 0:
-            out.append({"dir": name, "files": 0, "bytes": 0, "span_minutes": 0.0, "newest_age_minutes": None})
+            out.append({"dir": name, "files": 0, "bytes": 0, "span_minutes": 0.0, "newest_age_minutes": None, "newest": []})
             continue
+        if code_times is None:
+            code_times = _code_mtimes(workdir)
+        # The run that wrote a result file lasted at most the time since the
+        # last edit to the code that wrote it: a summary written 61 s after
+        # its script cannot hold a 32k-context sweep of two 7B models.
+        dated: list[dict[str, Any]] = []
+        for mtime, rel in latest:
+            before = [(m, path) for m, path in code_times if m <= mtime]
+            if not before:
+                continue
+            code_mtime, code_file = max(before)
+            dated.append({"file": rel, "seconds_after_code": int(round(mtime - code_mtime)), "code_file": code_file})
         now = time.time()
         out.append(
             {
@@ -665,9 +770,28 @@ def results_footprint(workdir: Path) -> list[dict[str, Any]]:
                 "bytes": total,
                 "span_minutes": round((newest - oldest) / 60.0, 1),
                 "newest_age_minutes": round((now - newest) / 60.0, 1),
+                "newest": dated,
             }
         )
     return out
+
+
+def _code_mtimes(workdir: Path) -> list[tuple[float, str]]:
+    times: list[tuple[float, str]] = []
+    for path in _iter_project_files(workdir):
+        try:
+            times.append((path.stat().st_mtime, path.relative_to(workdir).as_posix()))
+        except (OSError, ValueError):
+            continue
+    return times
+
+
+def _duration(seconds: int) -> str:
+    if seconds < 120:
+        return f"{seconds} s"
+    if seconds < 7200:
+        return f"{seconds / 60.0:.1f} min"
+    return f"{seconds / 3600.0:.1f} h"
 
 
 def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
@@ -686,16 +810,16 @@ def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
         for entry in definitions[:limit]:
             used = ", ".join(entry.get("used_from") or []) or "no call site found"
             word = _STAND_IN_NAME.search(entry["name"])
+            token = word.group(0).lower() if word is not None else ""
             # A synthetic dataset the protocol itself names is the experiment,
             # not a stand-in for it; say so instead of making the Reviewer look.
             named = (
                 " (the protocol names it)"
-                if word is not None and word.group(0).strip("_").lower().rstrip("abcdefghijklmnopqrstuvwxyz")[:0] == "" and any(
-                    key in protocol for key in ("synthetic", "simulat", "oracle", "toy") if key in word.group(0).lower()
-                )
+                if any(key in token and key in protocol for key in ("synthetic", "simulat", "oracle", "toy"))
                 else ""
             )
-            lines.append(f"- {entry['file']}:{entry['line']} {entry['name']} — used from {used}{named}")
+            note = f"; {entry['note']}" if entry.get("note") else ""
+            lines.append(f"- {entry['file']}:{entry['line']} {entry['name']} — used from {used}{named}{note}")
         for entry in notes[: max(0, limit - min(limit, len(definitions)))][:2]:
             lines.append(f"- {entry['file']}:{entry['line']} {entry['name']}")
         if len(definitions) > limit:
@@ -712,6 +836,12 @@ def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
                 f"written over {entry['span_minutes']} min, newest {entry['newest_age_minutes']} min ago"
             )
         lines.append("Results footprint: " + "; ".join(parts))
+        dated = [item for entry in footprint[:3] for item in (entry.get("newest") or [])][:RESULT_FILES_DATED]
+        for item in dated:
+            lines.append(
+                f"- {item['file']} was written {_duration(item['seconds_after_code'])} "
+                f"after the last edit to {item['code_file']}"
+            )
     return lines
 
 

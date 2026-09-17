@@ -211,6 +211,9 @@ _PPTX_TEXT = re.compile(rb"<a:t>([^<]*)</a:t>")
 _PDF_PATH_OP = re.compile(rb"(?<=[\s])(?:m|l|c|v|y|re)(?=[\s])")
 _WORD = re.compile(r"[A-Za-z][A-Za-z\-]{2,}")
 #: A PDF with at least this many path segments is a drawing, not a page of text.
+# Producers that read TeX or a plotting script, never a PPTX: a PDF stamped
+# with one of these was not exported from the PPTX of the same stem.
+_NOT_A_PPTX_EXPORT = re.compile(r"pdfTeX|XeTeX|LuaTeX|LuaHBTeX|dvips|dvipdfm|TikZ|pgf|Graphviz|R \d|grDevices", re.IGNORECASE)
 PDF_DRAWING_SEGMENTS = 150
 #: Fewer native shapes than this, with no drawn path, is a caption-and-boxes companion.
 PPTX_COMPANION_SHAPES = 20
@@ -319,6 +322,17 @@ def _method_figure_issues(project_root: Path) -> list[str]:
                     f"method figure `{shown}` was exported by matplotlib; the method figure is "
                     "composed through Method D (PPT Master; Method B fallback) per "
                     "engineer/paper-framework-figure-studio.md, never drawn as matplotlib boxes"
+                )
+            elif _NOT_A_PPTX_EXPORT.search(producer):
+                # A TikZ standalone compiled by pdfTeX beside a python-pptx
+                # companion of the same stem: the words match, the shape count
+                # passes, and no PPTX export chain has ever produced pdfTeX output.
+                issues.append(
+                    f"method figure `{shown}` was produced by {producer.strip()[:40]}, which no PPTX "
+                    f"export chain produces; a `{Path(raw).stem}.pptx` beside it is a companion, not "
+                    "the source. Method D exports the included PDF from the native PPTX "
+                    "(pptx_to_svg, then the SVG renderer), and the Reviewer returns a TikZ or "
+                    "matplotlib drawing with a look-alike PPTX"
                 )
         matched = any(stem == s or stem in s or s in stem for s in stems) if stem else False
         if not matched and not (len(stems) == 1 and len(method_figures(paper_root)) == 1):

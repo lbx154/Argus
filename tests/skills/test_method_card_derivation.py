@@ -526,3 +526,62 @@ def test_projects_without_stand_ins_show_no_run_reality_lines(project: Path) -> 
     card = derive_method_card(project)
     assert [e for e in card["stand_ins"] if e["kind"] == "definition"] == []
     assert "Possible stand-ins" not in render_for_reviewer(project)
+
+
+def test_random_input_measurements_and_fast_results_are_dated(tmp_path: Path) -> None:
+    # One "real model benchmark" loaded two 7B checkpoints for perplexity and
+    # then computed "retrieval recall at 32k" on torch.randn keys; the summary
+    # listed both models above the numbers and was written 57 s after the
+    # script's last edit. Two facts from the tree say so without a gate.
+    import os
+
+    root = tmp_path / "proj"
+    (root / "src" / "eval").mkdir(parents=True)
+    (root / "METHOD.md").write_text("# RotKV\n\nRotKV keeps retrieval under INT2.\n", encoding="utf-8")
+    script = root / "src" / "eval" / "run_model_eval.py"
+    script.write_text(
+        "import torch\n\n"
+        "def evaluate_retrieval_at_scale(\n"
+        "    seq_lens=(8192,),\n"
+        "    num_trials=10,\n"
+        "):\n"
+        '    """Evaluates multi-depth retrieval recall across contexts."""\n'
+        "    K = torch.randn(1, 8, 8192, 128)\n"
+        "    idx = torch.randint(0, 8192, (5,))  # needle positions\n"
+        "    return K, idx\n\n"
+        "def run_model_eval():\n"
+        '    """Runs perplexity on real models and synthetic long-context retrieval."""\n'
+        "    return evaluate_retrieval_at_scale()\n\n"
+        "def init_weights(module):\n"
+        '    """Xavier initialisation for the projection."""\n'
+        "    module.weight.data = torch.randn(4, 4)\n\n"
+        "def load_wikitext(path):\n"
+        '    """Reads the test split from the arrow file."""\n'
+        "    return open(path, 'rb').read()\n",
+        encoding="utf-8",
+    )
+    (root / "results").mkdir()
+    summary = root / "results" / "model_eval_summary.json"
+    summary.write_text("{}", encoding="utf-8")
+    code_time = 1_800_000_000.0
+    os.utime(script, (code_time, code_time))
+    os.utime(summary, (code_time + 57, code_time + 57))
+
+    card = derive_method_card(root)
+
+    by_name = {e["name"]: e for e in card["stand_ins"] if e["kind"] == "definition"}
+    assert set(by_name) == {"evaluate_retrieval_at_scale", "run_model_eval"}
+    assert by_name["evaluate_retrieval_at_scale"]["note"] == (
+        "builds inputs with torch.randn, torch.randint; docstring: 'Evaluates multi-depth retrieval recall across contexts.'"
+    )
+    assert "src/eval/run_model_eval.py:14" in by_name["evaluate_retrieval_at_scale"]["used_from"]
+    assert by_name["run_model_eval"]["note"].startswith("docstring: 'Runs perplexity on real models and synthetic")
+    footprint = card["results_footprint"][0]
+    assert footprint["newest"] == [
+        {"file": "results/model_eval_summary.json", "seconds_after_code": 57, "code_file": "src/eval/run_model_eval.py"}
+    ]
+
+    packet = render_for_reviewer(root)
+    assert "src/eval/run_model_eval.py:3 evaluate_retrieval_at_scale — used from src/eval/run_model_eval.py:14; builds inputs with torch.randn" in packet
+    assert "- results/model_eval_summary.json was written 57 s after the last edit to src/eval/run_model_eval.py" in packet
+    assert "init_weights" not in packet and "load_wikitext" not in packet
