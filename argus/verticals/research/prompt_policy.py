@@ -387,13 +387,12 @@ def _method_card_reviewer_block(stage: str) -> str:
     return (
         "## Method card first\n"
         "Start from Claim attainment (the Engineer's per-clause statement with the values "
-        "the host read from the files it points to) and the host log of what the Engineer "
-        "ran this round; choose the one link most likely not to hold the claim and read "
-        "only there. A clause marked not met, partial or untested is a negative result to "
+        "the host read from the files it points to) and the host log of the Engineer's round; "
+        "choose the one link most likely not to hold the claim and read only there. A clause marked not met, partial or untested is a negative result to "
         "iterate on, never a claim to narrow; a stated value the host resolves differently, "
         "a headline number from a run shorter than its protocol allows, or a metric named "
         "differently from the protocol's is where you open the script. Then the review packet "
-        "(anchors with code excerpts, test outcomes, config changes, files changed, Run "
+        "(anchors, test outcomes, config changes, files changed, Run "
         "reality), METHOD.md, the derived method-card status in Raw verification evidence "
         "(proven, contradicted, partial, untested, unchecked; reused code; hyperparameter "
         "changes), tests/spec, code, and the Engineer's account last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
@@ -409,10 +408,11 @@ def _method_card_reviewer_block(stage: str) -> str:
         "NOT_IMPLEMENTED whatever the tests say, unless METHOD.md Deviations names it "
         "and the paper calls the evaluation simulated. Run reality also dates each "
         "result file against the last code edit and names functions fed random "
-        "tensors: a one-minute run or random keys is not the protocol's evaluation, "
-        "whatever the results file lists. Settled evidence stays settled: do not re-read "
+        "tensors: a one-minute run or random keys is not the protocol's evaluation. "
+        "Settled evidence stays settled: do not re-read "
         "what the packet already shows; ask at most two questions, each answered by a "
-        "file or a number. Do not ask for tools or re-run anything yourself."
+        "file or a number. A path outside the workspace in the host log (another venv or "
+        "project) is a reproducibility question to raise. Do not ask for tools or re-run anything yourself."
     )
 
 
