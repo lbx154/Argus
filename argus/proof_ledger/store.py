@@ -783,18 +783,28 @@ class MathState:
 
     def _route_issues(self) -> list[StateIssue]:
         current = {claim.ref() for claim in self.current_claims()}
+        recorded = {claim.ref() for claim in self.claims}
         issues: list[StateIssue] = []
         for index, route in enumerate(
             sorted(self.routes, key=lambda item: item.route_id)
         ):
             path = f"$.routes[{index}]"
-            if route.goal not in current:
+            # Retirement freezes a historical plan; revising its claim must
+            # not make that immutable history invalidate the current ledger.
+            # Still require an exact recorded reference, including its hash.
+            retired = bool(route.retired_because.strip())
+            valid_goals = recorded if retired else current
+            if route.goal not in valid_goals:
+                required_version = (
+                    "any recorded version of a claim" if retired
+                    else "the current version of any claim"
+                )
                 issues.append(
                     StateIssue(
                         "route_goal_stale",
                         f"{path}.goal",
                         f"route {route.route_id!r} aims at a statement that is not "
-                        "the current version of any claim",
+                        f"{required_version}",
                     )
                 )
             if route.goal in route.obligations and not route.retired_because.strip():
