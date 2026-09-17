@@ -194,3 +194,27 @@ v4 是第一个从头到尾跑在"Run reality 带结果时间戳与随机输入�
 - 自进化产出(项目 skill、决策记录)在 v1 里为零。本题不涉及训练基础设施选型,`# why` 与决策记录的触发条件也从未到达 Engineer(见 4.2);v2 之后再看。
 - 选题空间拥挤时"重生成一次"不够;重生成的路线应被要求换问题而不是换方法,或允许 Manager 在全否两次后向操作者提问。
 - 真实数据上"持平"的结果被论文写成 "matches or exceeds";这与 claim 的"2× 更少特征"并不等价,Reviewer 给了 accept(8/10)。固定 claim 的梯子在这里没有被走完——Planner 在合成对照成功后直接进入论文,没有按 4–5 级(规模与数据、基线公平性)继续迭代。
+
+### 4.8 v3.7 联合评审(11f25da63,03:59 部署;对照项目 v5 s-fb4716b7,03:59 起,进行中)
+
+v4 的 Reviewer 一轮读 105 个文件,其中 61 个是 Engineer 刚读过的,却没打开那个用公式算"困惑度"的脚本;它接受了 35% 对 96% 的 claim 漂移,因为恢复的评审轮次里没有阈值,只有 Engineer 的叙述。用户的口径:Reviewer 不该是独立评审,而是共享证据与工件的联合评审;不要机械,要智能。v3.7 改的是评审的输入,不是给它新工具:
+
+| 机制 | 内容 | 所在 |
+|---|---|---|
+| 声明达成表 | Engineer 每产出一个承载 claim 的数字,写 `.argus/claim_attainment.json`:每条子句一行——子句、得到的值、met(yes/no/partial/untested)、来源 {path, field}。主机顺着 path/field 去读文件里的真值,连同"写于 N 分钟前"、指针是否解析(ok / no file / no field / outside workspace)一起放进方法卡与评审包;没有这张表而 results/ 有文件,包里写一行"结果存在但 Engineer 没说满足哪条子句" | `method_card.claim_attainment`、`mission_brief` |
+| 主机回合日志 | 从 `events.jsonl` 汇总本轮 Engineer 做了什么:N 条命令、M 次读、K 次写、用时;最长的四条命令(以到下一动作的时间为上界);调用过的测试/评估;工作区之外碰过的路径。这是主机的记录,不是 Engineer 的自述 | `round_log.render_round_log`,由 `spec_checks` 注册为回合证据 |
+| 最弱环节评审 | 评审提示改为:先看声明达成表与主机日志,选一个最可能撑不住 claim 的环节,只读那里;标 not met / partial / untested 的子句是要迭代的负结果,不是可以收窄的 claim;已定的证据不再重读;最多问两个问题,每个都由一个文件或一个数字回答 | `prompt_policy` reviewer 块(≤340 词) |
+| Planner 阶段规则 | 读声明达成表再定阶段:有子句 not met / partial / untested 就保持 Experiment;拿碰巧通过的子句进论文是 claim 漂移,不论对基线赢了多少 | `prompt_policy` planner 块 |
+
+v5 要证明的事:达成表被写出且指针解析;评审包里出现主机日志;Reviewer 在有未满足子句时返 continue;Planner 不提前进 Paper;Reviewer 读文件次数远低于 v4 的 105。截至 05:05,v5 仍在 Idea 阶段(1 h,$4.7):第一代三条路线被各自的独立评审全部否掉后重开,第二代在跑;尚无可验证的评审包。结果见监控日志与后续小节。
+
+### 4.9 数据图:助手来画,不再由脚本决定好不好看(04:30–05:10 PDT)
+
+用户连问四次"为什么图这么丑"。答案分两半:方法图已由路线 D 与 Astra 演示解决(4.5);数据图的问题在绘制调用本身——v3/v4 的脚本自己写 PALETTE、把带框图例钉在数据上、`set_ylim(-2, 105)`、把多 seed 平均成一根没有误差线的柱、加图内标题。样式助手 `paper_chart_style` 只定主题,画什么、怎么画仍是脚本说了算,所以主题再好也救不了。
+
+- **`paper_charts` 助手**(`figure_spec_scripts/paper_charts.py`,与样式助手一起复制进 `paper/analysis/`):脚本只传数据与名字——`bars / lines / dots / grid + finish / save`。助手决定:我们的方法拿强调色、黑边或粗实线并置顶;基线取互异的色、标记与虚线(灰度可读);重复运行(列表的列表)自动画均值 ± 标准差的误差线或误差带并记录重复数;条形从零(截断必须给 `truncated_reason`,记入 facts);一个图例放在面板上方;2 的幂自动 log2 轴;log 轴上的零报错而不是画哨兵;点图标签自动避让、"better" 箭头放在轴外;无图内标题。`save` 写 PDF(TrueType)、稿件宽度的 PNG(给人看)、`paper/figures/src/<stem>/facts.json`(每个序列的重复数、轴起点、图例位置、缺失点)与来源记录。
+- **`figure_lint` 的新事实**:脚本仍手工做的决定(≥3 个手写颜色、钉住的框图例、`set_ylim` 从非零起的条形轴、图内标题),以及 facts 里记录的"条形轴不从零""图例在图内"。技能文档、论文手册、阶段说明、工程师/评审/规划者提示全部改为"把数据交给 paper_charts";规划者:每张图是独立任务,带"导出 → 看 PNG → 改 → 再导出"的返修循环。
+- **验证**:用 GPT-6 Astra 在 v3 项目里按新助手重画三张数据图(5.7 min,$2.17),三张都过关:perplexity_eval 双面板柱状(BF16 参照线在柱上方)、retrieval_depth_breakdown 与 retrieval_scaling 折线(我们的方法粗实线实心标记、基线空心)。facts 如实记 repeats=1——只有汇总单值,没有伪造误差线。Engineer 顺手改了助手副本四处(逐条件的参照线、参照线置于柱之上、共享 y 轴不裁切、基线空心标记),已上游化;lint 两处误报(把助手文件自身当手绘脚本;折线轴不从零也报)已修。前后对比:`argus-eval-20260916/figures/v3/` 对 `figures/v3-astra-data/`。
+- **图任务的模型路由**(`ARGUS_SKILL_FIGURE_MODEL`,cockpit 别名 `figure_model`):Astra 只负责需要"看图"的工作。研究垂域在自己的模块上暴露 `model_route_for_task(text)`:任务文本点名图的源、导出或工具(`.pptx`、`pptx_export`、`paper_charts`、`figures/src/<stem>/facts.json`)或说"画/重画 … figure",走 `figure` 路线;只是"把图放进论文"的写作任务不走。执行层在组装一次任务的循环配置时向垂域要路线,按环境 → cockpit 持久值的顺序解析 `ARGUS_SKILL_<ROUTE>_MODEL`;`auto`/未设保持工程师模型,不设就什么都不变。部署后把该旋钮设为能看图的模型,方法图任务就自动用它,其余任务不动。
+
+未做:范例图库(强论文数据图的构图样本)、Reviewer 侧看图(只读工具读 PNG 需要能看图的评审模型)。
