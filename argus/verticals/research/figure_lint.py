@@ -79,6 +79,7 @@ _MAX_WALK_DEPTH = 6
 
 STYLE_HELPER = "paper_chart_style"
 CHART_HELPER = "paper_charts"
+HELPER_FILES = {f"{STYLE_HELPER}.py", f"{CHART_HELPER}.py"}
 _HEX_COLOR = re.compile(r"[\"']#[0-9A-Fa-f]{6}[\"']")
 _PINNED_LEGEND = re.compile(
     r"\.legend\([^)]*(?:frameon\s*=\s*True|facecolor\s*=|loc\s*=\s*[\"'](?:upper|lower|center)[^\"']*[\"'])"
@@ -513,6 +514,8 @@ def _plot_script_issues(project_root: Path) -> list[str]:
         if "matplotlib" not in text and "pyplot" not in text:
             continue
         shown = script.relative_to(project_root.resolve()).as_posix()
+        if script.name in HELPER_FILES:
+            continue  # the helpers' own demo code is not a figure script
         boxes = len(_BOX_PATCH.findall(text))
         arrows = len(_ARROW_PROPS.findall(text))
         labels = len(_TEXT_CALL.findall(text))
@@ -574,7 +577,7 @@ def _figure_facts_issues(project_root: Path) -> list[str]:
         for panel in payload.get("panels") or []:
             if not isinstance(panel, dict):
                 continue
-            if panel.get("axis_from_zero") is False:
+            if panel.get("kind") == "bars" and panel.get("axis_from_zero") is False:
                 reason = str(panel.get("truncated_reason") or "").strip()
                 issues.append(
                     f"figure `{stem}` has bars that do not start at zero (reason recorded: "

@@ -310,7 +310,7 @@ def test_facts_recorded_by_the_helper_are_reported(tmp_path: Path) -> None:
                 "figure": "cut",
                 "panels": [
                     {"kind": "bars", "axis_from_zero": False, "truncated_reason": "all above 80", "legend": "inside"},
-                    {"kind": "lines", "legend": "above"},
+                    {"kind": "lines", "axis_from_zero": False, "legend": "above"},
                 ],
             }
         ),
@@ -319,4 +319,17 @@ def test_facts_recorded_by_the_helper_are_reported(tmp_path: Path) -> None:
     issues = mod.figure_lint_issues(tmp_path)
     assert any("figure `cut` has bars that do not start at zero (reason recorded: all above 80)" in i for i in issues)
     assert any("figure `cut` places its legend inside the axes" in i for i in issues)
-    assert len(issues) == 2
+    assert len(issues) == 2  # a line chart's axis need not start at zero
+
+
+def test_the_helper_files_themselves_are_not_linted_as_figure_scripts(tmp_path: Path) -> None:
+    _paper(tmp_path, "no figures")
+    analysis = tmp_path / "paper" / "analysis"
+    analysis.mkdir(parents=True)
+    demo = (
+        "import matplotlib.pyplot as plt\nCOLORS = ['#0173B2', '#DE8F05', '#029E73']\n"
+        "ax.legend(frameon=True, loc='upper right')\nax.set_title('before')\nfig.savefig('x.png')\n"
+    )
+    (analysis / "paper_chart_style.py").write_text(demo, encoding="utf-8")
+    (analysis / "paper_charts.py").write_text(demo, encoding="utf-8")
+    assert mod.figure_lint_issues(tmp_path) == ()

@@ -128,3 +128,31 @@ def test_exports_carry_truetype_fonts_and_name_the_helper(tmp_path: Path) -> Non
     chunks = figure_lint._png_text_chunks(Path(written["png"]))
     assert chunks["Software"].startswith("paper_charts")
     assert json.loads(chunks["paper_charts:facts"])["figure"] == "fonts"
+
+
+def test_a_reference_may_vary_per_x_and_baselines_get_hollow_markers() -> None:
+    x = [8, 16, 32]
+    fig, ax = pc.lines(
+        x, {"Base": [88, 82, 66], "Ours": [100, 100, 94]}, ours="Ours",
+        reference=[100, 100, 98], reference_label="BF16", two_column=True,
+    )
+    labels = [line.get_label() for line in ax.get_lines()]
+    assert labels[-1] == "BF16" and len(ax.get_lines()[-1].get_xdata()) == 3
+    base = [line for line in ax.get_lines() if line.get_label() == "Base"][0]
+    assert base.get_markerfacecolor() == "none"
+    with pytest.raises(ValueError, match="one value per x"):
+        pc.lines(x, {"Ours": [1, 2, 3]}, reference=[1, 2], two_column=True)
+    matplotlib.pyplot.close(fig)
+
+
+def test_shared_y_panels_keep_the_taller_limit_and_the_legend_follows_drawing_order(tmp_path: Path) -> None:
+    fig, axes = pc.grid(1, 2, column="double", two_column=True, sharey=True)
+    pc.bars(["a"], {"Base": [90.0], "Ours": [95.0]}, ours="Ours", ax=axes[0])
+    pc.bars(["a"], {"Base": [4.0], "Ours": [5.0]}, ours="Ours", ax=axes[1])
+    pc.finish(fig)
+    assert axes[0].get_ylim()[1] >= 95.0 * pc.HEADROOM
+    assert [t.get_text() for t in fig.legends[0].get_texts()] == ["Base", "Ours"]
+    _paper(tmp_path)
+    written = pc.save(fig, tmp_path / "paper" / "figures" / "shared", project_root=tmp_path)
+    panels = json.loads(Path(written["facts"]).read_text(encoding="utf-8"))["panels"]
+    assert all(p["axis_from_zero"] is True for p in panels)

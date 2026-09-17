@@ -90,6 +90,7 @@ class Facts:
     xscale: str = "linear"
     yscale: str = "linear"
     column: str = "single"
+    reference: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if v not in ("", None)}
@@ -265,6 +266,8 @@ def finish(fig: Any, *, legend: str | None = "above", letters: bool = True) -> N
     for ax in fig.axes:
         for handle, label in zip(*ax.get_legend_handles_labels()):
             seen.setdefault(label, handle)
+    order = list(dict.fromkeys(s["name"] for f in _FACTS.get(id(fig), []) for s in f.series))
+    seen = {name: seen[name] for name in [*order, *seen] if name in seen}
     if legend == "above" and len(seen) > 1:
         fig.legend(list(seen.values()), list(seen), loc="outside upper center", ncol=min(len(seen), LEGEND_MAX_COLUMNS), frameon=False)
     elif legend == "inside" and len(seen) > 1:
@@ -368,15 +371,20 @@ def bars(
     axis.tick_params(axis="x", length=0)
     _rotate_if_long(axis, categories)
     if reference is not None:
-        axis.axhline(reference, color="#555555", linestyle=(0, (4, 2)), linewidth=0.8, zorder=1,
+        axis.axhline(reference, color="#555555", linestyle=(0, (4, 2)), linewidth=0.8, zorder=4,
                      label=reference_label or None)
+        facts.reference = {"name": reference_label, "repeats": 1, "spread": False}
         top = max(top, reference)
     if ylim is not None:
         axis.set_ylim(*ylim)
         facts.axis_from_zero = ylim[0] <= 0
         facts.truncated_reason = truncated_reason.strip()
     else:
-        axis.set_ylim(0, top * (HEADROOM + (0.04 if annotate else 0.0)) if top > 0 else 1)
+        # A later shared-y panel must not shrink the limits and clip earlier bars.
+        siblings = axis.get_shared_y_axes().get_siblings(axis)
+        upper = top * (HEADROOM + (0.04 if annotate else 0.0)) if top > 0 else 1
+        upper = max(upper, *(a.get_ylim()[1] for a in siblings if a is not axis), 0)
+        axis.set_ylim(0, upper)
         facts.axis_from_zero = True
     axis.grid(axis="y", alpha=0.3, linewidth=0.5)
     axis.set_axisbelow(True)
@@ -408,7 +416,7 @@ def lines(
     xscale: str | None = None,
     yscale: str = "linear",
     ylim: tuple[float, float] | None = None,
-    reference: float | None = None,
+    reference: float | Sequence[Any] | None = None,
     reference_label: str = "",
     legend: str | None = "above",
     column: str = "single",
@@ -423,6 +431,8 @@ def lines(
     ``"log"`` or ``"log2"``; when omitted, powers of two (context lengths,
     budgets) get a log2 axis. A log y axis with a zero or negative value is
     an error: annotate the zero or use ``yscale="symlog"`` instead of a sentinel.
+    ``reference`` may also contain one recorded value (or repeats) per x,
+    because a full-precision baseline need not be constant across conditions.
     """
     series = _series(data, ours, errors)
     fig, axis = (ax.figure, ax) if ax is not None else _single(column, palette, two_column, aspect)
@@ -451,8 +461,9 @@ def lines(
             linestyle=dash,
             linewidth=2.2 if s.ours else 1.3,
             markersize=5.5 if s.ours else 4.2,
+            markerfacecolor=color if s.ours else "none",
             markeredgecolor="black" if s.ours else color,
-            markeredgewidth=0.6 if s.ours else 0.0,
+            markeredgewidth=0.6 if s.ours else 0.8,
             zorder=5 if s.ours else 3,
         )
         if s.spread is not None:
@@ -475,8 +486,23 @@ def lines(
     if yscale != "linear":
         axis.set_yscale(yscale)
     if reference is not None:
-        axis.axhline(reference, color="#555555", linestyle=(0, (4, 2)), linewidth=0.8, zorder=1,
-                     label=reference_label or None)
+        if _is_number(reference):
+            axis.axhline(reference, color="#555555", linestyle=(0, (4, 2)), linewidth=0.8,
+                         zorder=1, label=reference_label or None)
+            facts.reference = {"name": reference_label, "repeats": 1, "spread": False}
+        else:
+            if len(reference) != len(xs):
+                raise ValueError("reference must contain one value per x")
+            ref = _series({reference_label: reference}, None, None)[0]
+            axis.plot(xs, ref.mean, color="#555555", linestyle=(0, (4, 2)),
+                      marker="o", markersize=8, markerfacecolor="none", markeredgewidth=0.8,
+                      linewidth=0.8, zorder=1, label=reference_label or None)
+            if ref.spread is not None:
+                axis.fill_between(xs, [m - e for m, e in zip(ref.mean, ref.spread)],
+                                  [m + e for m, e in zip(ref.mean, ref.spread)],
+                                  color="#555555", alpha=0.12, linewidth=0, zorder=1)
+                facts.error_bars = True
+            facts.reference = _series_facts([ref])[0]
     if ylim is not None:
         axis.set_ylim(*ylim)
     axis.grid(True, alpha=0.25, linewidth=0.5)
@@ -647,7 +673,10 @@ def save(
     if stem_path.suffix.lower() in {".pdf", ".png", ".svg"}:
         stem_path = stem_path.with_suffix("")
     stem_path.parent.mkdir(parents=True, exist_ok=True)
-    facts = [f.as_dict() for f in _FACTS.pop(id(fig), [])]
+    recorded = _FACTS.pop(id(fig), [])
+    for axis, item in zip(fig.axes, recorded):
+        item.axis_from_zero = bool(axis.get_ylim()[0] == 0)
+    facts = [f.as_dict() for f in recorded]
     for f in facts:
         f.setdefault("legend", "none")
     payload = {"helper": HELPER, "figure": stem_path.name, "panels": facts, "inputs": [str(p) for p in inputs]}
