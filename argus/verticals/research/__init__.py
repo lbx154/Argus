@@ -31,13 +31,6 @@ from ...skills.evidence_chain import (
 )
 
 # ---------------------------------------------------------------------------
-# Round evidence: the host log of the Engineer's actions (registers itself)
-# ---------------------------------------------------------------------------
-from . import (
-    round_log as _round_log,  # noqa: F401
-)
-
-# ---------------------------------------------------------------------------
 # Shared review-contract constants / helpers
 # ---------------------------------------------------------------------------
 from ._review_contract_constants import (

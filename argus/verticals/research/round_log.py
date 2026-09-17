@@ -11,7 +11,9 @@ tests and evaluations ran, and which paths lay outside the workspace. The
 Reviewer then decides where to look instead of looking everywhere.
 
 Evidence, not a gate: the provider renders text into the Reviewer's
-raw-evidence slot and never decides anything.
+raw-evidence slot and never decides anything. This module only renders text;
+:mod:`spec_checks`, the research vertical's round-evidence entry point, wraps
+:func:`render_round_log` as a provider, so nothing here knows the engineer layer.
 """
 from __future__ import annotations
 
@@ -21,12 +23,6 @@ import re
 import time
 from pathlib import Path
 from typing import Any
-
-from ...engineer.round_evidence import (
-    RoundEvidence,
-    RoundEvidenceRequest,
-    register_round_evidence_provider,
-)
 
 EVENTS_NAME = "events.jsonl"
 LIFE_DIR_ASCENT = 4
@@ -192,23 +188,10 @@ def render_round_log(workdir: Path, life_dir: Path, round_index: int, *, now: fl
     return "\n".join([f"Engineer's actions this round (host log since {started}):", *lines])
 
 
-def round_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
-    try:
-        text = render_round_log(request.workdir, request.life_dir, request.round_index)
-    except Exception:  # noqa: BLE001 - evidence must never break a round
-        return None
-    if not text:
-        return None
-    return RoundEvidence(reviewer_text=text)
-
-
-register_round_evidence_provider(round_evidence)
-
 __all__ = [
     "engineer_actions",
     "find_events_file",
     "render_round_log",
-    "round_evidence",
     "round_window_start",
     "summarize_actions",
 ]

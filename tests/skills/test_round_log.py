@@ -13,6 +13,7 @@ from pathlib import Path
 
 from argus.engineer.round_evidence import RoundEvidenceRequest
 from argus.verticals.research import round_log as mod
+from argus.verticals.research import spec_checks
 
 
 def _event(ts: float, kind: str, text: str, *, layer: str = "engineer", tool: str = "bash") -> dict:
@@ -61,12 +62,12 @@ def test_provider_is_silent_without_a_log_or_a_round(tmp_path: Path) -> None:
     workdir = tmp_path / "workspace"
     workdir.mkdir()
     request = RoundEvidenceRequest(workdir=workdir, life_dir=tmp_path / "nowhere", round_index=1)
-    assert mod.round_evidence(request) is None
+    assert spec_checks.round_log_evidence(request) is None
 
     project = tmp_path / "project"
     _write_events(project / "events.jsonl", [_event(1.0, "command_execution", "echo hi")])
     request = RoundEvidenceRequest(workdir=workdir, life_dir=project / "handoffs" / "x", round_index=1)
-    assert mod.round_evidence(request) is None  # no round.start or mission start to anchor the window
+    assert spec_checks.round_log_evidence(request) is None  # no round.start or mission start to anchor the window
 
 
 def test_provider_falls_back_to_the_mission_start_and_reports_in_the_reviewer_slot(tmp_path: Path) -> None:
@@ -84,7 +85,16 @@ def test_provider_falls_back_to_the_mission_start_and_reports_in_the_reviewer_sl
     )
     request = RoundEvidenceRequest(workdir=workdir, life_dir=project / "handoffs" / "x", round_index=3)
 
-    evidence = mod.round_evidence(request)
+    evidence = spec_checks.round_log_evidence(request)
 
     assert evidence is not None and evidence.engineer_note == ""
     assert "run_positive_control.py" in evidence.reviewer_text and "ran ≤57 s" in evidence.reviewer_text
+
+
+def test_the_research_vertical_registers_the_provider_and_the_renderer_knows_no_higher_layer() -> None:
+    import argus.verticals.research  # noqa: F401 - importing the vertical registers its providers
+    from argus.engineer.round_evidence import registered_round_evidence_providers
+
+    assert spec_checks.round_log_evidence in registered_round_evidence_providers()
+    source = Path(mod.__file__).read_text(encoding="utf-8")
+    assert "engineer.round_evidence" not in source and "register_round_evidence_provider" not in source

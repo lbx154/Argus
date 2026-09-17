@@ -52,6 +52,7 @@ from ...engineer.round_evidence import (
     RoundEvidenceRequest,
     register_round_evidence_provider,
 )
+from . import round_log
 
 log = logging.getLogger(__name__)
 
@@ -720,7 +721,17 @@ def round_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
     )
 
 
+def round_log_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
+    """The host log of the Engineer's actions this round (:mod:`round_log`), in the Reviewer's slot."""
+    try:
+        text = round_log.render_round_log(request.workdir, request.life_dir, request.round_index)
+    except Exception:  # noqa: BLE001 - evidence must never break a round
+        return None
+    return RoundEvidence(reviewer_text=text) if text else None
+
+
 register_round_evidence_provider(round_evidence)
+register_round_evidence_provider(round_log_evidence)
 
 
 __all__ = [
@@ -747,6 +758,7 @@ __all__ = [
     "render_for_engineer",
     "render_for_reviewer",
     "round_evidence",
+    "round_log_evidence",
     "run_spec_checks",
     "spec_check_dirs",
     "spec_checks_enabled",

@@ -411,8 +411,8 @@ def _method_card_reviewer_block(stage: str) -> str:
         "result file against the last code edit and names functions fed random "
         "tensors: a one-minute run or random keys is not the protocol's evaluation, "
         "whatever the results file lists. Settled evidence stays settled: do not re-read "
-        "what the packet already shows; ask at most two questions, each answerable by an "
-        "artifact. Do not ask for tools or re-run anything yourself."
+        "what the packet already shows; ask at most two questions, each answered by a "
+        "file or a number. Do not ask for tools or re-run anything yourself."
     )
 
 

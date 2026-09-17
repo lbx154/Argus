@@ -300,7 +300,7 @@ def test_stand_ins_are_named_for_engineer_reviewer_planner_and_paper() -> None:
     assert "A clause you cannot meet is a negative result to state, never to reword" in engineer
     assert "Start from Claim attainment" in reviewer
     assert "choose the one link most likely not to hold the claim and read only there" in reviewer
-    assert "ask at most two questions, each answerable by an artifact" in reviewer
+    assert "ask at most two questions, each answered by a file or a number" in reviewer
     assert "Read Claim attainment before deciding the stage" in planner
     assert "advancing to Paper on the clauses that happened to pass is claim drift" in planner
     assert "a one-minute run or random keys is not the protocol's evaluation" in reviewer
