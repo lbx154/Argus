@@ -986,6 +986,7 @@ def cost_control_snapshot(
     tokens, unsettled_tokens = _observed_tokens(records, state)
     payload = {
         "day": state["day"],
+        "accounting_state": "accounting_pending" if unresolved else "clear",
         "daily_tokens": tokens,
         "daily_token_cap": resolve_budget_caps(global_root=root).global_daily_token_cap,
         "unsettled_tokens": unsettled_tokens,

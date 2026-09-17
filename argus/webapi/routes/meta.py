@@ -20,7 +20,14 @@ from typing import Any
 from fastapi import Depends, Header, HTTPException, Request, Response
 
 from .context import ServerContext
-from .models import BudgetSetIn, ConfigSetIn, CostAcknowledgeIn, IdentitySetIn, SkillsIn
+from .models import (
+    BudgetSetIn,
+    ConfigSetIn,
+    CostAcknowledgeIn,
+    IdentitySetIn,
+    SessionRepairIn,
+    SkillsIn,
+)
 
 _RESOURCE_PROSE_LIMIT = 300
 
@@ -273,6 +280,24 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
                     "admission_reason": cost_admission_reason(global_root=root)}
         except CostControlStateError as exc:
             raise HTTPException(503, "cost control is temporarily unavailable") from exc
+
+    @app.post("/api/projects/{sid}/cost-control/session-repair", dependencies=[Depends(ctx.require_auth)])
+    def _repair_session(sid: str, body: SessionRepairIn) -> dict[str, Any]:
+        from ...core.session_repair import SessionRepairRejected, repair_session
+
+        project = ctx.resolve_or_404(sid)
+        try:
+            return {"repair": repair_session(project, **body.model_dump())}
+        except FileNotFoundError as exc:
+            raise HTTPException(409, "required original evidence unavailable") from exc
+        except LookupError as exc:
+            raise HTTPException(404, "original call record not found or ambiguous") from exc
+        except SessionRepairRejected as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, "repair evidence could not be parsed or validated") from exc
+        except OSError as exc:
+            raise HTTPException(503, "repair evidence or audit storage unavailable") from exc
 
     @app.post("/api/projects/{sid}/cost-control/acknowledge", dependencies=[Depends(ctx.require_auth)])
     def _acknowledge_cost(sid: str, body: CostAcknowledgeIn) -> dict[str, Any]:

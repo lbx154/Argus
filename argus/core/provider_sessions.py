@@ -52,7 +52,12 @@ def write_bindings(project_root: Path, payload: dict[str, Any]) -> None:
 def bind_before_dispatch(project_root: Path, *, call_id: str, session_id: str,
                          resumed: bool) -> None:
     ledger = UsageLedger(project_root, migrate_legacy=False)
-    with ledger._locked():
+    with UsageLedger(project_root.parent, migrate_legacy=False)._locked(), ledger._locked():
+        for project in project_root.parent.iterdir():
+            if project.is_dir() and not project.is_symlink():
+                if any(d["kind"] == "repair" and d["session_id"] == session_id
+                       for d in read_bindings(project)["decisions"]):
+                    raise ValueError("historically repaired provider session is quarantined; do not resume")
         payload = read_bindings(project_root)
         own = [d for d in payload["decisions"] if d["call_id"] == call_id]
         if own:

@@ -86,6 +86,7 @@ class UsageRecord:
     error: str = ""
     source: UsageSource = "run_exec"
     schema_version: int = 1
+    accounting_pending: str = ""
 
     def to_jsonable(self) -> dict[str, Any]:
         row = asdict(self)
@@ -140,6 +141,13 @@ class UsageRecord:
             pricing_status = "not_billed"
             pricing_tier = "not_started"
             cost = 0.0
+        pending = str(row.get("accounting_pending") or "")
+        if (row.get("provider") == "copilot" and row.get("status") == "error"
+                and pricing_status != "not_billed"):
+            pending = pending or ("cancelled_tail_unverified" if row.get("thread_id")
+                                  else "lost_session_identity")
+        if pending:
+            pricing_status = "partial"
         started_at = _float(row.get("started_at"), _float(row.get("ts"), 0.0))
         completed_at = _float(
             row.get("completed_at"),
@@ -177,6 +185,7 @@ class UsageRecord:
             error=error,
             source=("legacy.events" if row.get("source") == "legacy.events" else "run_exec"),
             schema_version=max(1, _optional_int(row.get("schema_version")) or 1),
+            accounting_pending=pending,
         )
 
 
@@ -239,6 +248,8 @@ def _reconciled_token_quote(record: UsageRecord) -> PricingQuote | None:
 
 
 def usage_pricing_reason(record: UsageRecord) -> str:
+    if record.accounting_pending:
+        return f"accounting_pending: {record.accounting_pending}"
     if record.error:
         return record.error
     if record.provider.strip().lower() == "copilot":
@@ -364,6 +375,10 @@ def build_usage_record(
         pricing_tier = quote.tier
         cost_usd = quote.cost_usd
         cost_basis = "token"
+    pending = ""
+    if normalized_provider == "copilot" and status == "error" and pricing_status != "not_billed":
+        pending = "cancelled_tail_unverified" if thread_id else "lost_session_identity"
+        pricing_status = "partial"
     return UsageRecord(
         call_id=str(call_id),
         project_id=Path(project_root).name,
@@ -396,6 +411,7 @@ def build_usage_record(
         error=str(error or "")[:2000],
         source=source,
         schema_version=2,
+        accounting_pending=pending,
     )
 
 
@@ -514,6 +530,10 @@ class UsageLedger:
             handle = self.path.open("r", encoding="utf-8")
         except OSError:
             return out
+        from .provider_sessions import read_bindings
+
+        repairs = {d["call_id"]: d for d in read_bindings(self.project_root)["decisions"]
+                   if d["kind"] == "repair"}
         startup_receipts = None
         with handle:
             for raw in handle:
@@ -523,6 +543,15 @@ class UsageLedger:
                     continue
                 if not isinstance(row, dict):
                     continue
+                repair = repairs.get(str(row.get("call_id") or ""))
+                if repair:
+                    # Identity overlay only: preserve original raw row and never
+                    # import guessed receipt totals into the aggregation source.
+                    original = json.loads(repair["original_row"])
+                    if row != original:
+                        raise ValueError("historically repaired usage row changed; manual audit required")
+                    row = {**row, "thread_id": repair["session_id"],
+                           "accounting_pending": repair["accounting_pending"]}
                 receipt = None
                 if is_local_startup_parser_error(row.get("error")):
                     if startup_receipts is None:
@@ -637,6 +666,10 @@ class UsageLedger:
         updated = 0
         with self._locked():
             rows = _read_usage_json_rows(self.path)
+            from .provider_sessions import read_bindings
+
+            repairs = {d["call_id"] for d in read_bindings(self.project_root)["decisions"]
+                       if d["kind"] == "repair"}
             # Current records already carry the session id. Reading the entire
             # raw event history is only necessary for older records without it.
             call_threads = (
@@ -679,7 +712,7 @@ class UsageLedger:
                 and str(item.get("session_id") or "")
             }
             for row in rows:
-                if not _copilot_usage_needs_reconciliation(row):
+                if row.get("call_id") in repairs or not _copilot_usage_needs_reconciliation(row):
                     continue
                 call_id = str(row.get("call_id") or "")
                 completed_at = _float(row.get("completed_at"), 0.0)
@@ -735,7 +768,7 @@ class UsageLedger:
                             "cost_usd": usage.cost_usd,
                             "cost_basis": "token",
                             "pricing_status": (
-                                "priced" if usage.cost_usd is not None else "partial"
+                                "priced" if usage.cost_usd is not None and row.get("status") != "error" else "partial"
                             ),
                             "pricing_tier": "copilot_token",
                             "schema_version": max(2, _optional_int(row.get("schema_version")) or 1),

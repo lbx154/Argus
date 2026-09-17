@@ -134,3 +134,13 @@ class SkillsIn(BaseModel):
 
 class DisposeIn(BaseModel):
     op: str = "done"  # done | skip | rm
+
+
+class SessionRepairIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    call_id: str = Field(min_length=1, max_length=128)
+    session_id: str = Field(min_length=36, max_length=36)
+    dry_run: bool = True
+    expected_row_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    expected_evidence_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    reason: str = Field(default="", max_length=1000)

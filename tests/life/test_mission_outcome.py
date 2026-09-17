@@ -1131,3 +1131,17 @@ def test_resumable_mission_is_not_quarantined_from_replanning() -> None:
         "outcome": {"execution_status": "paused", "resumable": True},
     })
     assert _is_recent_no_progress_failure(outcome_only) is False
+
+
+def test_accounting_denial_does_not_become_monetary_budget_pause(tmp_path):
+    supervisor, sink = _make_supervisor(
+        tmp_path,
+        _Outcome(success=False, status="budget_exhausted", stop_kind="cost_unreconciled",
+                 recoverable=True, stop_reason="unresolved provider cost: synthetic missing session"),
+    )
+    supervisor.memory.backlog.add(BacklogItem.new(title="accounting fixture", objective="remain paused"))
+    result = supervisor.tick()
+    assert result is not None and result["status"] == "paused_cost"
+    assert result.get("success") is not True
+    completed = _completed_event(sink)
+    assert completed["stop_kind"] == "cost_unreconciled"

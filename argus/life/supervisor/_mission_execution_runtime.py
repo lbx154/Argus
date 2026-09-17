@@ -1147,8 +1147,8 @@ class MissionExecutionRuntimeMixin:
             # it has no provider interruption and preserves the existing question.
             pause_status = "paused_operator"
         if state.status == "budget_exhausted":
-            state.status = "paused_budget"
-            pause_status = "paused_budget"
+            pause_status = "paused_cost" if state.stop_kind == "cost_unreconciled" else "paused_budget"
+            state.status = pause_status
         if not pause_status:
             return None
         if pause_status == "paused_provider_cooldown":
