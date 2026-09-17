@@ -683,7 +683,7 @@ def stand_ins(workdir: Path) -> list[dict[str, Any]]:
             match = _DEF_OR_CLASS.match(line)
             if match is not None:
                 name = match.group("name")
-                entry = {"kind": "definition", "name": name, "file": _rel(path), "line": index, "used_from": []}
+                entry: dict[str, Any] = {"kind": "definition", "name": name, "file": _rel(path), "line": index, "used_from": []}
                 if _STAND_IN_NAME.search(name):
                     definitions.append(entry)
                     continue
