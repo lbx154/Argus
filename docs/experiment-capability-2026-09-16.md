@@ -152,6 +152,36 @@ v3 在 v2 的交接修复之上加了两件事:主机从树上派生的"Run real
 
 对比 v3 自己产出的三块项目符号框(同一工作区、gemini-3.8-flash、并入写全文的任务、6 分钟):差别来自三件事——图单独成任务、导出链可执行、模型能看自己渲染的 PNG 并返修。产物在 `argus-eval-20260916/figures/v3-astra/`。
 
+### 4.7 v4(v3.5/v3.6 = 8ac7a1a01…2254a98c0;对照项目 s-bed96846,23:13–03:19 PDT,已完成)
+
+v4 是第一个从头到尾跑在"Run reality 带结果时间戳与随机输入函数、方法图导出链可用"版本上的对照。题目再次选中 Decoupled-RotKV(同 v3),参考克隆 kivi@876b4d2。
+
+| 指标 | 基线 | v1 | v2 | v3 | v4 |
+|---|---|---|---|---|---|
+| 总时长 | 2.97 h | 2.85 h | 0.92 h | 3.43 h | 4.12 h |
+| 调用 / 费用(state 口径) | 140 / $12.02 | 50 / $5.94 | 68 / $6.72 | 54 / $7.79 | 91 / $15.83 |
+| 任务 / 评审 | 8 / 10(continue 4) | 6 / 6 | — / 6 | 6 / 6(continue 0) | 10 / 12(continue 2,均因后台任务未结束) |
+| 组件 proven / spec 测试 | 0 / 0 | 4 / 14 | 3 / 9 | 3+1 partial / 9 | 4 / 9 |
+| 真实模型 | 否 | 否 | 否 | 2×7B 各 1 段 2048 token 困惑度 | SmolLM2-360M(正对照)、TinyLlama-1.1B(RULER/困惑度/LongBench/profiling)、Llama-3-8B-Web(RULER 4k–32k、困惑度);claim 写的 Llama-3.1-8B 未用 |
+| 主打数字 | 合成 | 真实数据 | 4.7 分钟"基准" | torch.randn 上的机制扫描 | 8B 上的注意力头级 needle 命中率(不是生成式 RULER):BF16 1.00 / KIVI 0.12 / RotKV 0.35 / RTN INT4 0.45 |
+| claim 处置 | — | — | — | 接受 | **接受了 claim 漂移**:claim 要求保留 BF16 的 >96%、匹敌 4-bit;实测 35%、低于 4-bit RTN;Reviewer 02:54 按 "+22.46pp over KIVI" 判 done,Planner 03:01 "decisively establishes superiority",论文按实数写但叙事仍是优越 |
+| METHOD.md Deviations | 无 | — | "none" | 写了合成激活,漏了合成检索 | "none"(模型三次替换、PG-19/LongBench 缩水均未写) |
+| 方法图 | matplotlib | matplotlib | matplotlib | TikZ + 陪衬 pptx | **没有**:论文只有 4 张 matplotlib 数据图,paper 阶段 8 分钟 |
+| 数据图 | 6 缺陷 | 0 | 0 | 0(手写颜色、截轴、轴内图例) | 1 缺陷(绕过助手);图内标题、带框图例压线、手写配色 |
+| 评审结论 | accept 8/10 | accept | accept | Strong Accept | Accept (Poster/Oral), Confidence 5/5;REVIEW.md 承认"对 RTN INT4 仍有差距" |
+
+**v3.5 机制在 v4 里的表现。**
+- "结果文件距代码最后编辑 N s"在每个 Reviewer 包里都出现了(RULER 4.7 min、困惑度 21 s、LongBench 64 s→10.2 min、profiling 24 s、8B RULER 17.1 min),`build_ruler_prompt` 被正确列为合成(RULER 本就合成,协议点名)。这些事实到位了,但 Reviewer 没有一次因它们返修;两次 continue 都是"后台任务未结束"。
+- 正对照结果里的 "perplexity" 是 `ce_bf16 + attn_mae×1e-4` 取指数的公式值(783 / 516),Engineer 汇报只引了实测的余弦/MAE,Reviewer 没读脚本。后续困惑度改为真前向。
+- 独立代码评审(5 维度 + 反方验证,15 条确认、0 条推翻):残差取在 `[:16]` 即 HF 布局下**最高频**的 16 个坐标(方法卡说低频),knockout 测试同样埋在 `[:16]` 故全绿;正对照生成路径 `angles=None` 即单位阵,"RotKV 生成"其实没旋转;注意力分数漏掉 input_layernorm(MAE 四万的来源);探针里的 "KIVI" 无 group size、无全精度窗口;"胜出"靠 0.0002 的余弦差且比特预算不等。骨架(split 布局可交换、融合、cache 接入、代数 oracle 测试)是合格的,证据链不是。
+
+**v4 暴露、下一版要修的。**
+1. *claim 阈值不在 Reviewer 眼前。* claim 原文(>96%、匹敌 4-bit)只在 00:24、01:03 两包出现;决定性的 02:54 是 Reviewer 线程续轮,包里省了静态块。修法:包里常驻 claim 的数值阈值一行;主机从 results/*.json 摘各方法的顶层数字并排列出(bf16 1.00 / rotkv 0.35 / rtn4 0.45),续轮也保留这两样和"claim 固定"一句。
+2. *结果字段的来源。* Run reality 增加"results 里每个数值字段由脚本哪一行赋值",公式困惑度一眼可见。
+3. *替身识别再进一步。* 注意力头级命中率被命名为 RULER accuracy、方法卡的"低频通道"被实现成 `[:16]`——这两类需要懂领域的评审读代码,提示解决不了,评审模型水平问题;至少让 Reviewer 包里带上结果文件字段名与 METHOD.md 指标名的对照。
+4. *方法图缺席。* paper 阶段 8 分钟、没画方法图、Reviewer 没提。图要单独成任务(见 4.5)。
+5. *越界读取三次。* `/data/chenxi/...` 的 Llama-3-8B-Web 权重、基线与 v2 项目工作区的 .sty/.bib/main.tex、运行树源码。工作区边界要做。
+
 ### 4.5 仍然存在的问题
 
 - **路线 D 在这台机器上从未走通过最后一步(v3.6 已补)。** 09-08 至今 6 张带 pptx 的方法图,PDF 的 producer 是 pdfTeX ×2、cairo ×2、Ghostscript ×1,没有一张从 pptx 导出;PPT Master 自己不导 PDF,机器上也没有 PowerPoint/LibreOffice,技能只写"从 pptx 导出"却没写用什么导。v3 的 Engineer 查到 `which soffice` 为空后,转而用 `inspect.getsource` 读了 figure_lint 的全部源码,照着阈值(150 段路径、20 个形状、60% 词重叠)做同名 pptx,并把另一个租户的 pptx 当"能过"的样本;6 分钟里跑了 8 次 lint。v3.6(e5ebccc34)加了导出步骤 `figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx`:用 PPT Master 自带的 `pptx_to_svg.py` 读 pptx,浏览器渲染出 `<name>.pdf`(producer Skia/PDF)和按稿件宽度的 `<name>.png`,2.7 秒,不需要 Office;lint 对 pptx 旁 producer 不是导出链的 PDF 直接点名;Planner 验收、Engineer 路线、Reviewer 图段、阶段检查单都写了同一条命令。用它真导 v3 那个 pptx,得到的是三块无箭头的项目符号框(figures/v3/decoupled_rotkv_framework.pptx-true-export.png),渲染干净,构图空洞——构图问题要靠下一条。
