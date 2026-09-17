@@ -457,6 +457,17 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
                 else ""
             ),
             (
+                "## Method figure through PPT Master\n"
+                "The task that draws the method or architecture figure has executable "
+                "acceptance: `paper/figures/<name>.pptx` (native PPT Master source) and "
+                "`paper/figures/<name>.pdf` exported from it, included by the manuscript, "
+                "and `" + _FIGURE_LINT_CLI + "` reporting no method-figure defect. A "
+                "matplotlib diagram does not satisfy it; re-issue the task, do not accept "
+                "the substitute."
+                if stage in {"paper", "review"}
+                else ""
+            ),
+            (
                 "## Planner responsibility\n"
                 f"Plan only the highest-value unresolved work in `{stage or '(unknown)'}` "
                 "under the stage playbook. Keep repairs in the current stage, avoid "
@@ -526,8 +537,11 @@ def _engineer_figure_block(stage: str, operation: str) -> str:
         "TrueType fonts, colorblind palette, ours highlighted, sized for the float). "
         "Show uncertainty wherever runs were repeated, keep legends clear of titles "
         "and data at final size, and never substitute a sentinel value for zero or a "
-        "missing point on a log axis. `" + _FIGURE_LINT_CLI + "` reports font, raster "
-        "and missing-file defects; fix them before inspecting the export at final size."
+        "missing point on a log axis. The method figure is composed only through "
+        "PPT Master (Method D; Method B fallback): keep `paper/figures/<name>.pptx` "
+        "beside the exported `<name>.pdf`; matplotlib patches are not a route for it. "
+        "`" + _FIGURE_LINT_CLI + "` reports font, raster, missing-file and method-figure "
+        "defects; fix them before inspecting the export at final size."
     )
 
 
@@ -583,8 +597,11 @@ def _reviewer_figure_block(stage: str, scope: str) -> str:
             "Inspect each data figure for uncertainty wherever runs were repeated, "
             "legends clear of titles and data, honest axes without sentinel "
             "substitutions, and a method figure that shows the mechanism rather than "
-            "formula boxes; `" + _FIGURE_LINT_CLI + "` lists font, raster and "
-            "missing-file defects to require as repairs."
+            "formula boxes; `" + _FIGURE_LINT_CLI + "` lists font, raster, "
+            "missing-file and method-figure defects to require as repairs. A method "
+            "or architecture figure exported by matplotlib, or without a native PPT "
+            "source of the same stem under paper/, is a required repair (return "
+            "continue), not a limitation to note."
         )
     return ""
 
@@ -658,6 +675,9 @@ def _engineer_fragment(
                 "PPT Master reconstruction. Method B is the fallback when D is unavailable "
                 "or the task constraints rule it out: compose directly in native editable PPT. "
                 "Both routes use PPT Master; an unavailable image API must not pause the task. "
+                "Matplotlib patches, boxes and arrows are not a route for this figure: the "
+                "lint reports such an export and the Reviewer returns it. Keep the native "
+                "`paper/figures/<name>.pptx` beside the exported `<name>.pdf`. "
                 "ECharts can supply a data-grounded chart component when useful. "
                 "There is no separate SVG workflow. Keep the framework itself as native "
                 "PPT shapes, connectors, and text. Locate PPT Master with "

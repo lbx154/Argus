@@ -39,6 +39,23 @@ _BOX_PATCH = re.compile(r"FancyBboxPatch|patches\.Rectangle|Rectangle\(|FancyArr
 _TEXT_CALL = re.compile(r"\.(?:text|annotate)\(")
 _ARROW_PROPS = re.compile(r"arrowprops\s*=")
 _DATA_CALL = re.compile(r"\.(?:plot|bar|barh|scatter|errorbar|imshow|hist|boxplot|fill_between|violinplot|pcolormesh|contourf?)\(")
+_FIGURE_ENV_RE = re.compile(r"\\begin\{figure\*?\}(?P<body>.*?)\\end\{figure\*?\}", re.DOTALL)
+_CAPTION_RE = re.compile(r"\\caption\s*(?:\[[^\]]*\])?\s*\{(?P<text>[^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", re.DOTALL)
+_LABEL_RE = re.compile(r"\\label\s*\{([^}]+)\}")
+# Words that make a figure the paper's method figure: the one Method D owns.
+_METHOD_FIGURE_WORDS = re.compile(
+    r"architect|overview|pipeline|framework|mechanism|schematic|illustrat|workflow|"
+    r"system design|our (?:method|approach)|teaser",
+    re.IGNORECASE,
+)
+# A results chart often says "framework" or "mechanism" in passing; measured
+# quantities in the caption mean it is a data figure, which keeps its route.
+_DATA_FIGURE_WORDS = re.compile(
+    r"accuracy|error|rate\b|\d+\s*%|\bvs\.?\b|versus|against|budget|ablation|"
+    r"comparison|results?\b|curve|performance|throughput|latency|score|loss|"
+    r"precision|recall|\bF1\b|runtime|speedup|convergence|scaling|success",
+    re.IGNORECASE,
+)
 _SKIPPED_DIRS = {
     # A pinned reference clone is somebody else's plotting code; the lint
     # speaks about this project's figures. One report listed three files
@@ -136,6 +153,91 @@ def included_graphics(paper_root: Path) -> list[tuple[str, Path | None]]:
                 break
         results.append((raw, resolved))
     return results
+
+
+def method_figures(paper_root: Path) -> list[tuple[str, Path | None, str]]:
+    """``(raw_reference, resolved_path, caption)`` for the manuscript's method figures.
+
+    A figure environment whose caption or label speaks of the architecture,
+    overview, pipeline, framework or mechanism; failing any such wording, the
+    first figure environment in the main source. These are the figures Method
+    D (PPT Master) owns.
+    """
+    resolved_by_raw = {raw: resolved for raw, resolved in included_graphics(paper_root)}
+    found: list[tuple[str, Path | None, str]] = []
+    first: tuple[str, Path | None, str] | None = None
+    for source in _tex_sources(paper_root):
+        text = _strip_comments(_read(source))
+        for match in _FIGURE_ENV_RE.finditer(text):
+            body = match.group("body")
+            refs = [raw.strip() for raw in _INCLUDE_RE.findall(body) if raw.strip()]
+            if not refs:
+                continue
+            caption = " ".join(m.group("text") for m in _CAPTION_RE.finditer(body))
+            labels = " ".join(_LABEL_RE.findall(body))
+            caption_one_line = re.sub(r"\s+", " ", caption).strip()
+            entry = (refs[0], resolved_by_raw.get(refs[0]), caption_one_line[:200])
+            # The file name or label saying "mechanism" or "architecture" is the
+            # author's own classification and wins; a caption alone counts only
+            # when it carries no measured quantity, since results captions say
+            # "framework" in passing.
+            named_method = _METHOD_FIGURE_WORDS.search(labels + " " + refs[0]) is not None
+            data_words = _DATA_FIGURE_WORDS.search(caption + " " + labels) is not None
+            if first is None and not data_words:
+                first = entry
+            if named_method or (_METHOD_FIGURE_WORDS.search(caption) and not data_words):
+                found.append(entry)
+    if not found and first is not None:
+        found.append(first)
+    return found
+
+
+def _native_sources(project_root: Path) -> list[Path]:
+    """Every editable PPTX under paper/ (PPT Master's canonical source)."""
+    paper_root = project_root / "paper"
+    if not paper_root.is_dir():
+        return []
+    sources: list[Path] = []
+    for current, dirs, files in os.walk(paper_root):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in _SKIPPED_DIRS]
+        sources.extend(Path(current) / name for name in files if name.lower().endswith(".pptx"))
+    return sources
+
+
+def _method_figure_issues(project_root: Path) -> list[str]:
+    """The method figure is composed through Method D or it is a defect.
+
+    One project's Engineer ran ``ppt_master status`` (ready), then drew the
+    architecture figure with matplotlib patches; the labels overlapped the
+    boxes and nothing editable existed. Two checks, both from the tree: the
+    exported PDF's producer, and an editable PPTX with the export's stem.
+    """
+    issues: list[str] = []
+    paper_root = project_root / "paper"
+    sources = _native_sources(project_root)
+    stems = {source.stem.lower() for source in sources}
+    for raw, resolved, _caption in method_figures(paper_root):
+        stem = Path(raw).stem.lower()
+        shown = raw
+        if resolved is not None and resolved.suffix.lower() == ".pdf":
+            try:
+                producer, _subtypes = _pdf_producer_and_fonts(resolved)
+            except Exception:  # noqa: BLE001 - unreadable PDFs are reported elsewhere
+                producer = ""
+            if "matplotlib" in producer.lower():
+                issues.append(
+                    f"method figure `{shown}` was exported by matplotlib; the method figure is "
+                    "composed through Method D (PPT Master; Method B fallback) per "
+                    "engineer/paper-framework-figure-studio.md, never drawn as matplotlib boxes"
+                )
+        matched = any(stem == s or stem in s or s in stem for s in stems) if stem else False
+        if not matched and not (len(stems) == 1 and len(method_figures(paper_root)) == 1):
+            issues.append(
+                f"method figure `{shown}` has no editable PPT Master source under paper/ "
+                f"(expected `{Path(raw).stem}.pptx` beside the export); Method D keeps the "
+                "native PPTX as the canonical source and exports the included PDF from it"
+            )
+    return issues
 
 
 def _pdf_producer_and_fonts(path: Path) -> tuple[str, set[str]]:
@@ -303,6 +405,7 @@ def figure_lint_issues(project_root: Path | str) -> tuple[str, ...]:
     issues: list[str] = []
     for raw, resolved in included_graphics(paper_root):
         issues.extend(_graphic_issues(raw, resolved, root))
+    issues.extend(_method_figure_issues(root))
     issues.extend(_plot_script_issues(root))
     return tuple(dict.fromkeys(issues))
 

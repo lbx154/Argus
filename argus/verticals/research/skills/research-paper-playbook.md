@@ -100,7 +100,10 @@ do not create a new report or validation-only task.
    ablation, diagnostic, or generalization finding; each answers a different
    question from real evidence. A table or duplicate panel does not substitute
    for a scientific figure. Produce editable sources, publication-size exports,
-   and a readable rendered paper. Data figures go through the shared
+   and a readable rendered paper. The method figure is composed through PPT
+   Master (Method D, Method B fallback): `paper/figures/<name>.pptx` is the
+   source and `<name>.pdf` its export; matplotlib boxes are not a route for it.
+   Data figures go through the shared
    `paper_chart_style` helper (`engineer/paper-chart-styling.md`): vector PDF
    with TrueType fonts, colorblind palette, ours highlighted, sized for the
    float, legends clear of titles and data at final size, error bars or bands

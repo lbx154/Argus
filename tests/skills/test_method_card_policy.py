@@ -295,3 +295,16 @@ def test_stand_ins_are_named_for_engineer_reviewer_planner_and_paper() -> None:
     assert "listed under Run reality is NOT_IMPLEMENTED whatever the tests say" in reviewer
     assert "a benchmark run through a stand-in is not a result" in planner
     assert "a simulation is never described as a benchmark" in _paper_narrative_packaging_block()
+
+
+def test_method_figure_goes_through_ppt_master_for_every_role() -> None:
+    engineer = _fragment("engineer", "paper", operation="execute")
+    reviewer = _fragment("reviewer", "paper", operation="evaluate")
+    planner = _fragment("planner", "paper", operation="plan")
+
+    assert "composed only through PPT Master (Method D; Method B fallback)" in engineer
+    assert "Matplotlib patches, boxes and arrows are not a route for this figure" in engineer
+    assert "without a native PPT source of the same stem" in reviewer
+    assert "## Method figure through PPT Master" in planner
+    assert "A matplotlib diagram does not satisfy it" in planner
+    assert "## Method figure through PPT Master" not in _fragment("planner", "experiment", operation="plan")

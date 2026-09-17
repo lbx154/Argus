@@ -140,3 +140,36 @@ def test_box_and_arrow_diagrams_drawn_in_matplotlib_are_reported(tmp_path: Path)
 
     assert any("scripts/architecture.py" in i and "box-and-arrow diagram" in i for i in issues)
     assert not any("scripts/results.py" in i and "box-and-arrow diagram" in i for i in issues)
+
+
+def test_method_figure_needs_a_native_ppt_source_and_not_a_matplotlib_export(tmp_path: Path) -> None:
+    # The Engineer that drew the architecture figure with matplotlib patches
+    # had run `ppt_master status` (ready) minutes earlier. Two facts from the
+    # tree catch it: the export's producer and the missing editable PPTX.
+    _draw(tmp_path / "paper" / "figures" / "fig1_mechanism.pdf", fonttype=42)
+    _draw(tmp_path / "paper" / "figures" / "fig2_results.pdf", fonttype=42)
+    _paper(
+        tmp_path,
+        "\\begin{figure}\\includegraphics{fig1_mechanism}\\caption{Overview of the PBIS architecture.}\\label{fig:arch}\\end{figure}\n"
+        "\\begin{figure}\\includegraphics{fig2_results}\\caption{Accuracy against budget.}\\end{figure}\n",
+    )
+
+    issues = mod.figure_lint_issues(tmp_path)
+
+    assert any("method figure `fig1_mechanism` was exported by matplotlib" in i for i in issues)
+    assert any("method figure `fig1_mechanism` has no editable PPT Master source" in i and "fig1_mechanism.pptx" in i for i in issues)
+    assert not any("fig2_results" in i and "method figure" in i for i in issues)
+
+    (tmp_path / "paper" / "figures" / "fig1_mechanism.pptx").write_bytes(b"PK")
+    issues = mod.figure_lint_issues(tmp_path)
+    assert not any("has no editable PPT Master source" in i for i in issues)
+    assert any("was exported by matplotlib" in i for i in issues)  # the export itself is still wrong
+
+
+def test_first_figure_is_the_method_figure_when_no_caption_says_so(tmp_path: Path) -> None:
+    _draw(tmp_path / "paper" / "figures" / "teaser.pdf", fonttype=42)
+    _paper(tmp_path, "\\begin{figure}\\includegraphics{teaser}\\caption{Our contribution at a glance.}\\end{figure}\n")
+
+    figures = mod.method_figures(tmp_path / "paper")
+
+    assert [raw for raw, _resolved, _caption in figures] == ["teaser"]

@@ -123,6 +123,13 @@ An explicit operator choice overrides the default.
 **Method D is the default: reference figures -> image-API design blueprint ->
 editable reconstruction -> native PPTX through PPT Master -> paper export.**
 
+Matplotlib is not a route for these figures. A script that places
+`FancyBboxPatch` boxes and `annotate` arrows produces a diagram nobody can
+edit, with labels that overlap at publication size; `figure_lint` reports such
+an export and the Reviewer returns it. The canonical source is the native
+PPTX at `paper/figures/<name>.pptx`; the included `<name>.pdf` is exported
+from it and keeps the same stem, so the host can pair them.
+
 Both D and B author the framework in native editable PowerPoint objects.
 An unavailable image interface selects B automatically; it is not a reason
 to pause the paper or ask the operator to configure an API.
