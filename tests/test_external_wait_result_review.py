@@ -117,3 +117,20 @@ def test_missions_without_independent_review_keep_model_free_wait(tmp_path, monk
     result, _, engineer = execute(tmp_path, monkeypatch, reviewer, independent=False)
     assert result[0] == "paused_external_work"
     assert reviewer.calls == 0 and engineer.calls == 1
+
+
+def test_the_reviewer_is_told_it_judges_the_launch_not_the_wait(tmp_path, monkeypatch):
+    job(tmp_path)
+
+    class Recording(Reviewer):
+        context = ""
+
+        def evaluate(self, **kwargs):
+            self.context = str(kwargs.get("background_context") or "")
+            return super().evaluate(**kwargs)
+
+    reviewer = Recording()
+    execute(tmp_path, monkeypatch, reviewer)
+    assert reviewer.calls == 1
+    assert "wait for `train`" in reviewer.context
+    assert "not a judgment" in reviewer.context and "do not wait yourself" in reviewer.context

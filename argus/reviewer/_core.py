@@ -1031,6 +1031,10 @@ class Reviewer:
             except Exception:  # noqa: BLE001 - interpretation cannot certify by default
                 log.exception("could not interpret the final Reviewer's natural judgment")
                 parsed = None
+        if parsed is None and not venue_required:
+            from ._parsing import decision_from_deferred_wait
+
+            parsed = decision_from_deferred_wait(decision_messages)
         if parsed is None:
             from ._parsing import describe_unparsed_verdict
 
