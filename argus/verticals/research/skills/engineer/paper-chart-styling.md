@@ -28,109 +28,84 @@ figures (teaser/pipeline/architecture) are not covered here — route those thro
 
 ## How to draw the charts
 
-1. **Install the required plotting stack in the project venv**:
+The script names the data; the helper draws. Every past figure that looked
+wrong was wrong in the drawing calls (hand-typed colours, a framed legend on
+the data, bars from 30, seeds averaged into one bar, an in-plot title), so
+`paper_charts.py` makes those calls the same way for every figure.
+
+1. **Install the plotting stack in the project venv**: `pip install matplotlib
+   seaborn SciencePlots`. A missing package is an environment error to repair,
+   not permission to draw with plain matplotlib or hand-authored SVG.
+
+2. **Copy both helper files next to the analysis scripts** (the project venv
+   does not need `argus`):
    ```bash
-   pip install 'argus[figures]'
-   # or: pip install matplotlib seaborn SciencePlots
-   ```
-   Do not continue with plain matplotlib or a hand-authored SVG data plot when
-   this dependency is missing. Surface the installation failure and repair the
-   project environment.
-
-2. **Copy the shared style helper into the project** so analysis scripts can
-   import it without `argus` on the path:
-   ```bash
-   python - <<'PY'
-   import shutil
-   from pathlib import Path
-   from argus.verticals.research.skills.engineer.figure_spec_scripts import paper_chart_style
-   src = Path(paper_chart_style.__file__)
-   Path("paper/analysis").mkdir(parents=True, exist_ok=True)
-   shutil.copy(src, "paper/analysis/paper_chart_style.py")
-   print("copied ->", "paper/analysis/paper_chart_style.py")
-   PY
+   SRC=$(dirname "$(find "$ARGUS_SKILL_HOME" . -name paper_charts.py -path '*figure_spec_scripts*' 2>/dev/null | head -1)")
+   mkdir -p paper/analysis && cp "$SRC/paper_charts.py" "$SRC/paper_chart_style.py" paper/analysis/
    ```
 
-3. **Apply the style once at the top of the analysis script**, before creating
-   any figure. The style reads the column layout (one- vs two-column template)
-   from the project's researched `research/VENUE_PROFILE.json`, so sizes match
-   the venue template automatically:
+3. **Pass data and names; take the figure back.** A series is a list of
+   numbers, or a list of lists when runs were repeated: the helper draws the
+   mean with the spread (std over repeats) as error bars or bands and records
+   the repeat count. Pass the per-seed rows, never their average.
    ```python
-   from paper_chart_style import set_pub_style, figure_size, highlight_ours
-   import matplotlib.pyplot as plt
+   from paper_charts import bars, lines, dots, grid, finish, save
 
-   colors = set_pub_style(column="double", palette="colorblind")
-   # Without a researched venue profile, read the actual template and pass its
-   # layout explicitly to BOTH set_pub_style and figure_size. For a single-column kit:
-   # colors = set_pub_style(column="double", two_column=False, palette="colorblind")
-   # size = figure_size("double", two_column=False)
+   fig, ax = bars(["4k", "8k", "16k", "32k"], acc, ours="Ours",
+                  xlabel="Context length", ylabel="RULER accuracy (%)",
+                  reference=96.4, reference_label="BF16")      # dashed upper bound
+   save(fig, "paper/figures/ruler_accuracy", inputs=["results/ruler.json"])
+
+   fig, ax = lines(lengths, memory_gb, ours="Ours", yscale="log",
+                   xlabel="Sequence length (tokens)", ylabel="KV cache (GB)")
+   fig, ax = dots({"KIVI": (2.0, 36.1, 1.2), "Ours": (2.25, 90.9, 0.5)},
+                  ours="Ours", xlabel="Bits per element", ylabel="Accuracy (%)", better="upper left")
+
+   fig, axes = grid(1, 2, column="double")                    # panels share one legend
+   bars(..., ax=axes[0]); lines(..., ax=axes[1]); finish(fig)
+   save(fig, "paper/figures/main_results", inputs=[...])
    ```
-   - `palette` is one of `colorblind` (default), `muted` (cool journal tone), or
-     `high_contrast` (talks/posters). All three are colour-blind-safe.
+   What the helper decides: the proposed method (`ours=`) takes the accent
+   colour, a black edge or a heavy solid line and sits on top; baselines take
+   distinct palette colours with distinct markers and dashes so the figure
+   reads in greyscale; bars start at zero (a higher start needs
+   `truncated_reason=`, recorded for the caption); one legend sits above the
+   panels, never on the data; powers of two get a log2 axis; a zero on a log
+   axis is an error to state, not a sentinel to plot; no in-plot title.
+   `column="single"` or `"double"` sizes the figure for its LaTeX float; pass
+   `two_column=` explicitly when `research/VENUE_PROFILE.json` is absent.
 
-4. **Size each figure for the LaTeX float it will sit in** — this is what keeps
-   fonts crisp (LaTeX rescaling a wrongly-sized graphic is what warps text):
-   - Full-width `figure*` (teaser, main results panel): `figure_size("double")`.
-   - Single-column `figure` (ablation, per-component): `figure_size("single")`.
-   ```python
-   fig, ax = plt.subplots(figsize=figure_size("single"))
-   ```
-   Match the final width to the current template's actual `\columnwidth` or
-   `\textwidth`; the helper's dimensions are starting sizes, not venue facts.
-   Unknown column layout is an actionable argument error: inspect the existing
-   author kit and supply it, without asking the operator to choose a layout.
+4. **`save` writes what the manuscript and the review need**: `<stem>.pdf`
+   (TrueType fonts, embed this), `<stem>.png` at manuscript width (open it and
+   look), `paper/figures/src/<stem>/facts.json` (what the figure encodes:
+   repeats per series, axis origin, legend placement, missing points) and a
+   provenance entry. `inputs=` names the results files the figure came from.
 
-5. **Encode redundantly and highlight the proposed method** so the figure reads
-   in greyscale and under CVD, and the reader's eye lands on "Ours":
-   - Vary `marker` and `linestyle` per series in addition to colour (e.g.
-     markers `o`/`s`/`D`/`^`, linestyles `-`/`--`/`:`).
-   - Call `highlight_ours(ax, ours_index=<i>)` to fade baselines to neutral grey
-     and give the proposed series full saturation + a dark outline / heavier weight.
-   - Axes carry units (`accuracy (%)`, `latency (ms)`); prefer direct labels or a
-     small legend over a giant legend box.
+5. **Look at the PNG at final size** before the figure enters the draft:
+   clipping, crowded ticks, labels covering dots, panels that compare methods
+   on different y-scales. Repair in the data or the call, not by post-editing
+   the PDF.
 
-6. **Never use rainbow/`jet`.** For sequential data use `viridis`/`cividis`; for
-   diverging data use `coolwarm`. Keep grids subtle, spines thin.
+6. **Choose the chart from the estimand.** Bars for a few categories, lines
+   for a swept variable, dots for a two-metric trade-off, `grid` when the
+   panels tell one story. No 3-D, no dual axes, no truncated axis without a
+   caption sentence. Each figure supports one claim of the draft; do not plot
+   every metric.
 
-7. **Choose chart grammar from the estimand, not visual novelty.** Do not use
-   3-D charts, dual axes, or truncated axes without a claim-relevant,
-   explicitly disclosed reason. Show uncertainty when the claim depends on it,
-   keep comparable panels on consistent scales, and prevent legends,
-   annotations, and labels from covering data. Omit an in-plot title when the
-   caption already identifies the figure.
+7. **Learn composition from real papers.** Before locking layouts, run the
+   *Learning from strong published papers* skill on two or three open-access
+   papers in the area: panel count, axis conventions, how they emphasise their
+   own method, caption phrasing. Match the conventions, not the data.
 
-8. **Save vector/high-dpi with embedded fonts** (the helper sets `pdf.fonttype=42`
-   and 600 dpi): generate PDF, SVG, and a high-DPI PNG for inspection from the
-   same plotting script. Embed the PDF in the paper; do not replace the data
-   renderer with manually constructed SVG primitives.
+8. **`python -m argus.verticals.research.figure_lint --project-root .`** names
+   the drawing decisions a script still makes by hand (colours, pinned legends,
+   truncated bar axes, in-plot titles), missing or raster or Type 3 figures,
+   and the facts the helper recorded (a bar axis not from zero, a legend
+   inside). Run it before handing figures to the manuscript.
 
-9. **Learn composition from real papers.** Before locking figure layouts, run the
-   **Learning from strong published papers** skill and study how 2–3 open-access papers in
-   the same area compose their data figures: how many panels, axis conventions,
-   how they highlight their own method, legend placement, and caption phrasing.
-   Match those conventions; do not copy their data or exact styling verbatim.
-
-10. **Drive figure choice from the current draft.** Decide which figures the
-    story needs (main result curve, key ablation, cost/quality trade-off) rather
-    than dumping every metric. Each figure should support a specific claim.
-
-11. **Inspect the exported PDF at final use size.** Check clipping, crowded or
-    ambiguous ticks, legend/data overlap, panel alignment, font embedding,
-    grayscale discrimination, and whether labels remain readable at the actual
-    single- or double-column width.
-
-12. **Show uncertainty and keep the axes honest.** Wherever runs were
-    repeated, the figure shows it: error bars or shaded bands from the same
-    rows, with the caption naming the spread (std or CI) and repeat count. Place legends where they cover no data or
-    title (`constrained_layout=True`, `loc="best"` checked at final size, or a
-    single shared legend outside the panels). Never plot a substituted
-    sentinel (for example `1e-8` standing in for an exact zero on a log axis):
-    annotate the zero, use `symlog`, or change the panel. Panels that compare
-    methods share the same y-scale and method colours. Run
-    `python -m argus.verticals.research.figure_lint --project-root .` before
-    handing figures to the manuscript; it lists missing files, raster
-    matplotlib exports, Type 3 fonts, and plotting scripts that bypass this
-    helper.
+For a custom chart the helper has no verb for (heatmaps, violins), apply
+`paper_charts.apply_style()` first and keep the same rules by hand: palette
+from the helper, legend outside, axis from zero for lengths, no title.
 
 ## Readable heatmap annotations
 
@@ -166,8 +141,8 @@ or masked values. Check annotation legibility during the existing export
 inspection; a local text-color repair does not reopen the figure's composition.
 
 ## Notes
-- The helper is dependency-light and self-contained; the copy in `paper/analysis/`
-  is what your scripts import. Re-copy it if you upgrade.
+- Both helper files are dependency-light and self-contained; the copies in
+  `paper/analysis/` are what your scripts import. Re-copy them if you upgrade.
 - SciencePlots is mandatory for this route. A missing package is an environment
   error, not permission to fall back to the retired ad-hoc data-figure method.
 - This skill styles data plots only. For conceptual/method figures, use

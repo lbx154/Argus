@@ -21,6 +21,7 @@ from the command line.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import struct
@@ -77,6 +78,15 @@ _MAX_SCRIPT_BYTES = 400_000
 _MAX_WALK_DEPTH = 6
 
 STYLE_HELPER = "paper_chart_style"
+CHART_HELPER = "paper_charts"
+_HEX_COLOR = re.compile(r"[\"']#[0-9A-Fa-f]{6}[\"']")
+_PINNED_LEGEND = re.compile(
+    r"\.legend\([^)]*(?:frameon\s*=\s*True|facecolor\s*=|loc\s*=\s*[\"'](?:upper|lower|center)[^\"']*[\"'])"
+)
+_YLIM_LOWER = re.compile(r"set_ylim\(\s*(?:bottom\s*=\s*)?(\d+(?:\.\d+)?)")
+_BAR_CALL = re.compile(r"\.barh?\(")
+_TITLE_CALL = re.compile(r"\.set_title\(|\.suptitle\(")
+HAND_COLOURS = 3
 __all__ = ["STYLE_HELPER", "figure_lint_issues", "included_graphics", "main", "method_figures"]
 
 
@@ -513,14 +523,65 @@ def _plot_script_issues(project_root: Path) -> list[str]:
                 "engineer/paper-framework-figure-studio.md (reference figures, a design "
                 "blueprint, an editable PPT Master reconstruction), not matplotlib boxes"
             )
+        if CHART_HELPER in text:
+            continue  # the helper made the drawing decisions
+        facts = _hand_drawing_facts(text)
         if STYLE_HELPER in text:
+            if facts:
+                issues.append(
+                    f"`{shown}` draws by hand beside the {STYLE_HELPER} theme: " + "; ".join(facts)
+                    + f"; the {CHART_HELPER} helper (bars/lines/dots/save) makes these choices "
+                    "the same way for every figure"
+                )
             continue
         issues.append(
-            f"`{shown}` saves matplotlib figures without the shared {STYLE_HELPER} "
-            "helper; data figures apply set_pub_style/figure_size/highlight_ours from "
-            "engineer/paper-chart-styling.md, and conceptual figures follow the Figure "
-            "Studio workflow rather than matplotlib boxes"
+            f"`{shown}` saves matplotlib figures without the shared {STYLE_HELPER}/{CHART_HELPER} "
+            "helpers" + (": " + "; ".join(facts) if facts else "") + "; data figures pass their "
+            f"data to {CHART_HELPER} (bars/lines/dots/save, engineer/paper-chart-styling.md), and "
+            "conceptual figures follow the Figure Studio workflow rather than matplotlib boxes"
         )
+    return issues
+
+
+def _hand_drawing_facts(text: str) -> list[str]:
+    """What a plotting script decided by hand: the choices that made past figures look wrong."""
+    facts: list[str] = []
+    colours = len(set(c.lower() for c in _HEX_COLOR.findall(text)))
+    if colours >= HAND_COLOURS:
+        facts.append(f"sets {colours} colours by hand")
+    if _PINNED_LEGEND.search(text):
+        facts.append("pins a framed legend inside the axes")
+    lower = [float(v) for v in _YLIM_LOWER.findall(text) if float(v) > 0]
+    if lower and _BAR_CALL.search(text):
+        facts.append(f"starts a bar axis at {lower[0]:g} instead of zero")
+    if _TITLE_CALL.search(text):
+        facts.append("writes an in-plot title beside the caption")
+    return facts
+
+
+def _figure_facts_issues(project_root: Path) -> list[str]:
+    """Facts the helper recorded at export (paper/figures/src/<stem>/facts.json)."""
+    issues: list[str] = []
+    src = project_root / "paper" / "figures" / "src"
+    if not src.is_dir():
+        return issues
+    for facts_path in sorted(src.glob("*/facts.json")):
+        try:
+            payload = json.loads(facts_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        stem = str(payload.get("figure") or facts_path.parent.name)
+        for panel in payload.get("panels") or []:
+            if not isinstance(panel, dict):
+                continue
+            if panel.get("axis_from_zero") is False:
+                reason = str(panel.get("truncated_reason") or "").strip()
+                issues.append(
+                    f"figure `{stem}` has bars that do not start at zero (reason recorded: "
+                    f"{reason or 'none'}); the caption says so, or the axis returns to zero"
+                )
+            if panel.get("legend") == "inside":
+                issues.append(f"figure `{stem}` places its legend inside the axes; check at final size that it covers no data")
     return issues
 
 
@@ -535,6 +596,7 @@ def figure_lint_issues(project_root: Path | str) -> tuple[str, ...]:
         issues.extend(_graphic_issues(raw, resolved, root))
     issues.extend(_method_figure_issues(root))
     issues.extend(_plot_script_issues(root))
+    issues.extend(_figure_facts_issues(root))
     return tuple(dict.fromkeys(issues))
 
 

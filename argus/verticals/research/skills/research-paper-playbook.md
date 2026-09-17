@@ -106,11 +106,12 @@ do not create a new report or validation-only task.
    writes `<name>.pdf` and `<name>.png` from it without any Office suite;
    matplotlib boxes and TeX-compiled drawings are not a route for it.
    Data figures go through the shared
-   `paper_chart_style` helper (`engineer/paper-chart-styling.md`): vector PDF
-   with TrueType fonts, colorblind palette, ours highlighted, sized for the
-   float, legends clear of titles and data at final size, error bars or bands
-   wherever runs were repeated, and honest axes: annotate an exact zero or use
-   a symlog scale instead of plotting a substituted sentinel.
+   `paper_charts` helper (`engineer/paper-chart-styling.md`): the script passes
+   series and per-seed rows, the helper draws bars, lines and dots (ours
+   emphasised, repeats as error bars or bands, bars from zero, one legend
+   outside, vector PDF with TrueType fonts, a PNG at manuscript width and a
+   facts record) and honest axes: annotate an exact zero or use a symlog scale
+   instead of plotting a substituted sentinel.
    `python -m argus.verticals.research.figure_lint` lists font, raster and
    missing-file defects to fix before inspecting at final size. For the method pipeline, use
    `engineer/paper-framework-figure-studio.md`: design the composition from the
