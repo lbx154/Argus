@@ -477,3 +477,12 @@ def test_the_brief_says_where_torch_is_instead_of_letting_the_engineer_search_th
     # cached: a second call runs no probe
     monkeypatch.setattr(mb.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("probe ran twice")))
     assert mb._torch_line(tmp_path) == line
+
+
+def test_tools_on_path_are_listed_and_absence_is_stated(monkeypatch) -> None:
+    from argus.verticals.research import mission_brief as mb
+
+    monkeypatch.setattr(mb.shutil, "which", lambda name: f"/usr/bin/{name}" if name in {"git", "pip", "latexmk"} else None)
+    line = mb._tools_line()
+    assert line.startswith("- Tools on PATH: pip, git, latexmk (absent: uv, pdflatex, nvidia-smi, conda, node, npx, gh;")
+    assert "do not `find /` for a tool" in line

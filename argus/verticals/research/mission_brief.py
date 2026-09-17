@@ -408,10 +408,23 @@ def _torch_line(project_root: Path) -> str:
         return ""
     parts = [f"{path} [{label}]: {result}" for label, path, result in probes]
     return (
-        "- Torch on this host: " + "; ".join(parts) + ". Create .venv and install torch into it "
-        "(pip or uv; the CUDA wheels match the driver above); do not scan the disk for packages "
-        "(`find /`): the host has already listed what exists."
+        "- Torch on this host: " + "; ".join(parts) + ". Create .venv and pip install torch into it "
+        "(CUDA wheels matching the driver above); do not scan the disk for packages (`find /`): "
+        "the host has already listed what exists."
     )
+
+
+TOOLS_OF_INTEREST = ("uv", "pip", "git", "latexmk", "pdflatex", "nvidia-smi", "conda", "node", "npx", "gh")
+
+
+def _tools_line() -> str:
+    """Which command-line tools are on PATH, so absence is a fact and not a search."""
+    present = [name for name in TOOLS_OF_INTEREST if shutil.which(name)]
+    missing = [name for name in TOOLS_OF_INTEREST if name not in present]
+    line = "- Tools on PATH: " + (", ".join(present) if present else "none of the usual ones")
+    if missing:
+        line += f" (absent: {', '.join(missing)}; absent here means absent, do not `find /` for a tool)"
+    return line
 
 
 def _installed_distributions(project_root: Path) -> set[str]:
@@ -600,6 +613,7 @@ def _environment_section(project_root: Path, card: dict[str, Any]) -> list[str]:
     lines = ["### Environment now", _interpreter_line(project_root)]
     for producer in (
         lambda: _torch_line(project_root),
+        _tools_line,
         lambda: _packages_line(project_root, card),
         lambda: _clones_line(project_root, card),
         _gpu_line,
