@@ -46,9 +46,7 @@ def test_missing_and_type3_figures_are_reported(tmp_path: Path) -> None:
     issues = mod.figure_lint_issues(tmp_path)
     assert any("plain.pdf` embeds Type 3 fonts" in issue for issue in issues)
     assert any("`absent` is included by the manuscript but the file is missing" in issue for issue in issues)
-    assert not any("styled" in issue and "Type 3" in issue for issue in issues)
-    # Any export by a plotting library is off-route now, styled or not.
-    assert any("styled.pdf` was exported by matplotlib, which is not a figure route" in issue for issue in issues)
+    assert not any("styled" in issue for issue in issues)
     assert not any("commented_out" in issue for issue in issues)
 
 
@@ -64,9 +62,7 @@ def test_raster_matplotlib_exports_are_reported(tmp_path: Path) -> None:
     assert any("raster export from matplotlib" in issue for issue in issues)
 
 
-def test_plot_scripts_are_off_route_wherever_they_live(tmp_path: Path) -> None:
-    # Every script that saves matplotlib figures outside tests/ and the
-    # interpreter's own directories is off-route; a style import saves nothing.
+def test_plot_scripts_without_the_shared_style_helper_are_reported(tmp_path: Path) -> None:
     _paper(tmp_path, "no figures")
     scripts = tmp_path / "scripts"
     scripts.mkdir()
@@ -75,7 +71,7 @@ def test_plot_scripts_are_off_route_wherever_they_live(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (scripts / "styled.py").write_text(
-        "from some_style import set_pub_style\nimport matplotlib.pyplot as plt\n"
+        "from paper_chart_style import set_pub_style\nimport matplotlib.pyplot as plt\n"
         "set_pub_style()\nplt.savefig('y.pdf')\n",
         encoding="utf-8",
     )
@@ -87,10 +83,8 @@ def test_plot_scripts_are_off_route_wherever_they_live(tmp_path: Path) -> None:
     tests_dir.mkdir()
     (tests_dir / "test_plot.py").write_text("import matplotlib\nsavefig(\n", encoding="utf-8")
     issues = mod.figure_lint_issues(tmp_path)
-    assert len(issues) == 2
-    assert all("is not a figure route in this vertical" in issue for issue in issues)
-    assert {issue.split("`")[1] for issue in issues} == {"scripts/plain.py", "scripts/styled.py"}
-    assert all("echarts_figure.py" in issue and "PPT Master" in issue for issue in issues)
+    assert len(issues) == 1
+    assert "`scripts/plain.py` saves matplotlib figures without the shared paper_chart_style" in issues[0]
 
 
 def test_lint_is_silent_without_a_manuscript(tmp_path: Path) -> None:
@@ -162,14 +156,14 @@ def test_method_figure_needs_a_native_ppt_source_and_not_a_matplotlib_export(tmp
 
     issues = mod.figure_lint_issues(tmp_path)
 
-    assert any("fig1_mechanism.pdf` was exported by matplotlib, which is not a figure route" in i for i in issues)
+    assert any("method figure `fig1_mechanism` was exported by matplotlib" in i for i in issues)
     assert any("method figure `fig1_mechanism` has no editable PPT Master source" in i and "fig1_mechanism.pptx" in i for i in issues)
-    assert not any("fig2_results" in i and "has no editable PPT Master source" in i for i in issues)
+    assert not any("fig2_results" in i and "method figure" in i for i in issues)
 
     (tmp_path / "paper" / "figures" / "fig1_mechanism.pptx").write_bytes(b"PK")
     issues = mod.figure_lint_issues(tmp_path)
     assert not any("has no editable PPT Master source" in i for i in issues)
-    assert any("fig1_mechanism.pdf` was exported by matplotlib" in i for i in issues)  # the export itself is still wrong
+    assert any("was exported by matplotlib" in i for i in issues)  # the export itself is still wrong
 
 
 def test_first_figure_is_the_method_figure_when_no_caption_says_so(tmp_path: Path) -> None:
@@ -179,3 +173,54 @@ def test_first_figure_is_the_method_figure_when_no_caption_says_so(tmp_path: Pat
     figures = mod.method_figures(tmp_path / "paper")
 
     assert [raw for raw, _resolved, _caption in figures] == ["teaser"]
+
+
+def _fake_pptx(path: Path, *, shapes: int, custom_paths: int, text: str) -> None:
+    import zipfile
+
+    body = "".join(
+        f"<p:sp><p:txBody><a:p><a:r><a:t>{word}</a:t></a:r></a:p></p:txBody>"
+        + ("<a:custGeom><a:pathLst/></a:custGeom>" if k < custom_paths else "")
+        + "</p:sp>"
+        for k, word in enumerate((text.split() + ["box"] * shapes)[:shapes])
+    )
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("ppt/slides/slide1.xml", f"<p:sld>{body}</p:sld>")
+
+
+def test_a_companion_pptx_that_did_not_produce_the_export_is_reported(tmp_path: Path) -> None:
+    # Thirteen preset rectangles beside a PDF full of drawn curves: the PDF came
+    # from somewhere else and the stem rule was met in form only.
+    figures = tmp_path / "paper" / "figures"
+    figures.mkdir(parents=True)
+    fig, ax = plt.subplots(figsize=(4, 2))
+    for k in range(40):
+        ax.plot(range(50), [((i * k) % 7) for i in range(50)])
+    ax.set_title("Radial quadrature versus Monte Carlo sampling on the sphere")
+    fig.savefig(figures / "fig1_mechanism.pdf")
+    plt.close(fig)
+    _fake_pptx(figures / "fig1_mechanism.pptx", shapes=13, custom_paths=0, text="Radial quadrature versus Monte Carlo sampling sphere")
+    _paper(tmp_path, "\\begin{figure}\\includegraphics{fig1_mechanism}\\caption{Mechanism overview.}\\end{figure}")
+
+    issues = mod.figure_lint_issues(tmp_path)
+
+    assert any("was not exported from this PPTX" in i and "13 preset shapes and no drawn path" in i for i in issues)
+
+    _fake_pptx(figures / "fig1_mechanism.pptx", shapes=60, custom_paths=40, text="Radial quadrature versus Monte Carlo sampling sphere")
+    issues = mod.figure_lint_issues(tmp_path)
+    assert not any("was not exported from this PPTX" in i for i in issues)
+
+
+def test_an_export_whose_words_are_not_in_the_pptx_is_reported(tmp_path: Path) -> None:
+    figures = tmp_path / "paper" / "figures"
+    figures.mkdir(parents=True)
+    fig, ax = plt.subplots(figsize=(4, 2))
+    ax.text(0.1, 0.5, "Gauss Laguerre radial nodes Stiefel frames Gegenbauer cancellation feature map")
+    fig.savefig(figures / "overview.pdf")
+    plt.close(fig)
+    _fake_pptx(figures / "overview.pptx", shapes=30, custom_paths=10, text="Completely different words about another topic entirely")
+    _paper(tmp_path, "\\begin{figure}\\includegraphics{overview}\\caption{Architecture.}\\end{figure}")
+
+    issues = mod.figure_lint_issues(tmp_path)
+
+    assert any("shares only" in i and "the export and the editable source show different figures" in i for i in issues)

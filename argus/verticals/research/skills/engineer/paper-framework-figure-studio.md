@@ -116,17 +116,17 @@ review or an otherwise acceptable paper.
 ## Default Method D; fallback Method B
 
 This is the routing contract for conceptual, method, architecture, taxonomy,
-teaser, and graphical-abstract figures. Quantitative charts stay on the built-in chart route (an ECharts option
-rendered to vector; a data panel inside a method figure is composed into the PPT).
+teaser, and graphical-abstract figures. Quantitative charts, including the data
+panel of a mixed figure, stay on the SciencePlots/Matplotlib route.
 An explicit operator choice overrides the default.
 
 **Method D is the default: reference figures -> image-API design blueprint ->
 editable reconstruction -> native PPTX through PPT Master -> paper export.**
 
-Plotting libraries are not a route for these figures. A script that places
-boxes and arrows produces a diagram nobody can edit, with labels that overlap
-at publication size; `figure_lint` reports such an export and the Reviewer
-returns it. The canonical source is the native
+Matplotlib is not a route for these figures. A script that places
+`FancyBboxPatch` boxes and `annotate` arrows produces a diagram nobody can
+edit, with labels that overlap at publication size; `figure_lint` reports such
+an export and the Reviewer returns it. The canonical source is the native
 PPTX at `paper/figures/<name>.pptx`; the included `<name>.pdf` is exported
 from it and keeps the same stem, so the host can pair them.
 
@@ -203,7 +203,7 @@ actual data, disable animation, set final dimensions and type scale, and use
 the SVG renderer for a vector component. Keep its option/data source and check
 its conversion into the final PPT. ECharts is not a substitute for composing
 the method with editable PowerPoint objects. Ordinary standalone result plots
-follow Styling data figures for publication (the ECharts route).
+can retain the established SciencePlots/Matplotlib route.
 
 ## Publication style
 
@@ -418,7 +418,7 @@ Decompose complex figures — build panels and modules separately, then compose.
 | Panels of verbatim text (prompts, trajectories, rubrics) | Aligned native PPT text with measured wrapping, readable type, and restrained highlights |
 | Exact load-bearing topology, taxonomy trees | Generate coordinates if useful, then draw explicit native PPT nodes and connectors |
 | Data component inside a method figure | ECharts with actual data and vector output, composed and checked inside the native PPT |
-| Results teaser | The ECharts route through Styling data figures for publication |
+| Results teaser | Matplotlib through Styling data figures for publication |
 
 Inspect every render at actual publication size against the design rules above:
 reading direction, clear primary emphasis, decodable legend, text budget,

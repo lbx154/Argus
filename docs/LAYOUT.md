@@ -133,6 +133,7 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 - `plugins/` - the installable `argus` host plugin for Claude Code and Codex: MCP config, bundled Skills, install scripts.
 - `research/` - generated architecture-audit output (about 2 MB) and maintenance decisions. Not built, not tested, not shipped.
 - `scripts/` - one-off repository scripts (brand asset generation).
+- `tools/` - opt-in operator tooling kept outside the package: `rl_experiment_benchmark/` (a local benchmark of whether Argus carries out an RL experiment on its own: `start.py` attaches a declared case to a session, `collect.py` gathers the outcome; see its README).
 - `technical_report/` - LaTeX sources and compiled PDF of the technical report. Private-mirror only (`repository_parity.PRIVATE_ONLY_PATTERNS`). Not built, not tested, not shipped.
 - `tests/` - the pytest suite. `tests/<pkg>/` mirrors some packages; about 200 files still sit at the root (phase 10 unifies the convention).
 - `update/` - two follow-up notes for the PR gate. Not built, not tested, not shipped.

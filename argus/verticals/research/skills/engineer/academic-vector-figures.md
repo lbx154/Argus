@@ -69,9 +69,8 @@ Export the chart as a vector component through the existing browser renderer
 and compose it using PPT Master's native conversion where supported. Inspect
 the resulting PPT, including text editability and all clipping boundaries.
 Do not flatten the full figure into a slide image. Ordinary standalone
-quantitative plots follow Styling data figures for publication (the same
-ECharts route, exported on its own); do not replace measured curves with
-hand-drawn PowerPoint geometry.
+quantitative plots may keep their established SciencePlots/Matplotlib source;
+do not replace measured curves with hand-drawn PowerPoint geometry.
 
 The framework itself remains in native PPT, with one matching formal PDF and
 PNG. SVG is an internal component format, not a separate authoring workflow.

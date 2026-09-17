@@ -1,6 +1,6 @@
 ---
 name: "Turning results into tables and figures"
-description: "Turn raw outputs into tables and figures through the built-in routes: the ECharts chart rendered to vector for data, native PPT Master for method figures, with HTML/SVG, ECharts, Recharts, or FigureSpec components composed inside the chosen route."
+description: "Turn raw outputs into tables and figures using native PPT Master or SciencePlots/Matplotlib, with optional HTML/SVG, ECharts, Recharts, Vega, or FigureSpec components inside the chosen route."
 ---
 
 # Turning results into tables and figures
@@ -44,9 +44,8 @@ affected values from new raw rows without repeatedly redesigning the figure.
 
 ## Figures
 
-- Use the single built-in data-figure route (an ECharts option rendered to
-  vector through `echarts_figure.py`, see `paper-chart-styling.md`) for
-  quantitative paper charts.
+- Use the single SciencePlots/Matplotlib data-figure path for quantitative paper
+  charts.
 - Use Composing a conceptual paper figure (`paper-framework-figure-studio.md`)
   for method/architecture pipelines: design meaningful groups and visual
   hierarchy from code and paper, expose the real mechanism with informative

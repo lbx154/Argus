@@ -1,6 +1,6 @@
 ---
 name: "FigureSpec: drawing exact diagrams from JSON"
-description: "Use Choosing how to draw a research figure first; prepare exact graph geometry or a local vector component inside the selected Method D/B native PPT composition through PPT Master. FigureSpec is not a standalone framework-figure route; quantitative plots keep the built-in ECharts chart route."
+description: "Use Choosing how to draw a research figure first; prepare exact graph geometry or a local vector component inside the selected Method D/B native PPT composition through PPT Master. FigureSpec is not a standalone framework-figure route; quantitative plots keep SciencePlots/Matplotlib."
 ---
 
 # FigureSpec: drawing exact diagrams from JSON
@@ -19,9 +19,9 @@ unavailable. This renderer supplies geometry or a component to that composition.
 It does not replace the framework with its default boxes and arrows, and an
 editable SVG alone does not satisfy the native PowerPoint source requirement.
 
-Quantitative data, metric, result, and uncertainty plots stay on the built-in
-chart route (Styling data figures for publication). ECharts can also supply a
-genuine data component in a PPT figure. A schematic neighborhood is not a measured result; preserve the
+Quantitative data, metric, result, and uncertainty plots stay on the existing
+SciencePlots/Matplotlib route. ECharts can supply a genuine data component in a
+PPT figure. A schematic neighborhood is not a measured result; preserve the
 original graph data or mark the example as schematic.
 
 ## Source and renderer

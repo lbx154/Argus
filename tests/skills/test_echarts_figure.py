@@ -97,7 +97,8 @@ def test_cli_reads_settings_from_the_spec(mod, tmp_path: Path, monkeypatch: pyte
     seen: dict[str, object] = {}
 
     def fake_render(option, **kwargs):
-        seen.update(kwargs); seen["option"] = option
+        seen.update(kwargs)
+        seen["option"] = option
         return {"pdf": "x.pdf"}
 
     monkeypatch.setattr(mod, "render_chart", fake_render)

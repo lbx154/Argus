@@ -27,6 +27,7 @@ import struct
 import sys
 import zlib
 from pathlib import Path
+from typing import Any
 
 _INCLUDE_RE = re.compile(r"\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 _INPUT_RE = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]+)\}")
@@ -75,7 +76,8 @@ _MAX_SCRIPTS = 3000
 _MAX_SCRIPT_BYTES = 400_000
 _MAX_WALK_DEPTH = 6
 
-__all__ = ["STYLE_HELPER", "figure_lint_issues", "included_graphics", "main"]
+STYLE_HELPER = "paper_chart_style"
+__all__ = ["STYLE_HELPER", "figure_lint_issues", "included_graphics", "main", "method_figures"]
 
 
 def _strip_comments(text: str) -> str:
@@ -203,6 +205,95 @@ def _native_sources(project_root: Path) -> list[Path]:
     return sources
 
 
+_PPTX_SHAPE = re.compile(rb"<p:(?:sp|cxnSp|pic|grpSp)>")
+_PPTX_CUSTGEOM = re.compile(rb"<a:custGeom>")
+_PPTX_TEXT = re.compile(rb"<a:t>([^<]*)</a:t>")
+_PDF_PATH_OP = re.compile(rb"(?<=[\s])(?:m|l|c|v|y|re)(?=[\s])")
+_WORD = re.compile(r"[A-Za-z][A-Za-z\-]{2,}")
+#: A PDF with at least this many path segments is a drawing, not a page of text.
+PDF_DRAWING_SEGMENTS = 150
+#: Fewer native shapes than this, with no drawn path, is a caption-and-boxes companion.
+PPTX_COMPANION_SHAPES = 20
+#: Share of the export's words that must also be in the PPTX text.
+PPTX_TEXT_OVERLAP = 0.6
+
+
+def _pptx_summary(path: Path) -> dict[str, Any]:
+    """Shapes, drawn paths and words of every slide in a PPTX, from its XML."""
+    import zipfile
+
+    shapes = paths = 0
+    words: set[str] = set()
+    with zipfile.ZipFile(path) as archive:
+        for name in archive.namelist():
+            if not (name.startswith("ppt/slides/slide") and name.endswith(".xml")):
+                continue
+            xml = archive.read(name)
+            shapes += len(_PPTX_SHAPE.findall(xml))
+            paths += len(_PPTX_CUSTGEOM.findall(xml))
+            text = " ".join(m.group(1).decode("utf-8", "replace") for m in _PPTX_TEXT.finditer(xml))
+            words.update(w.lower() for w in _WORD.findall(text))
+    return {"shapes": shapes, "paths": paths, "words": words}
+
+
+def _pdf_summary(path: Path) -> dict[str, Any]:
+    """Path segments and words of a PDF's pages."""
+    from pypdf import PdfReader
+
+    reader = PdfReader(str(path))
+    segments = 0
+    words: set[str] = set()
+    for page in reader.pages:
+        try:
+            contents = page.get_contents()
+            data = contents.get_data() if contents is not None else b""
+        except Exception:  # noqa: BLE001 - an odd stream counts as no drawing
+            data = b""
+        segments += len(_PDF_PATH_OP.findall(data))
+        try:
+            words.update(w.lower() for w in _WORD.findall(page.extract_text() or ""))
+        except Exception:  # noqa: BLE001
+            pass
+    return {"segments": segments, "words": words}
+
+
+def _export_matches_source(stem: str, source: Path, export: Path) -> list[str]:
+    """Is the included PDF plausibly exported from the same-stem PPTX?
+
+    One Engineer drew a detailed figure through an SVG, exported it with
+    Ghostscript, and wrote a thirteen-rectangle PPTX beside it so the stem
+    rule was met. The PPTX had no drawn path and the machine had no
+    LibreOffice to export from it. Two facts tell: a PDF full of path segments
+    against a PPTX of a few preset shapes and no custom geometry, and the
+    export's words missing from the PPTX text.
+    """
+    try:
+        pptx = _pptx_summary(source)
+        pdf = _pdf_summary(export)
+    except Exception:  # noqa: BLE001 - unreadable files are reported elsewhere
+        return []
+    issues: list[str] = []
+    if (
+        pdf["segments"] >= PDF_DRAWING_SEGMENTS
+        and pptx["paths"] == 0
+        and pptx["shapes"] < PPTX_COMPANION_SHAPES
+    ):
+        issues.append(
+            f"method figure `{stem}.pdf` has {pdf['segments']} drawn path segments while "
+            f"`{stem}.pptx` holds {pptx['shapes']} preset shapes and no drawn path: the PDF "
+            "was not exported from this PPTX; Method D keeps the native PPT as the source "
+            "(PPT Master's svg_to_pptx produces drawn shapes) and exports the included PDF from it"
+        )
+    if pdf["words"]:
+        overlap = len(pdf["words"] & pptx["words"]) / len(pdf["words"])
+        if overlap < PPTX_TEXT_OVERLAP:
+            issues.append(
+                f"method figure `{stem}.pdf` shares only {overlap:.0%} of its words with "
+                f"`{stem}.pptx`: the export and the editable source show different figures"
+            )
+    return issues
+
+
 def _method_figure_issues(project_root: Path) -> list[str]:
     """The method figure is composed through Method D or it is a defect.
 
@@ -218,6 +309,17 @@ def _method_figure_issues(project_root: Path) -> list[str]:
     for raw, resolved, _caption in method_figures(paper_root):
         stem = Path(raw).stem.lower()
         shown = raw
+        if resolved is not None and resolved.suffix.lower() == ".pdf":
+            try:
+                producer, _subtypes = _pdf_producer_and_fonts(resolved)
+            except Exception:  # noqa: BLE001 - unreadable PDFs are reported elsewhere
+                producer = ""
+            if "matplotlib" in producer.lower():
+                issues.append(
+                    f"method figure `{shown}` was exported by matplotlib; the method figure is "
+                    "composed through Method D (PPT Master; Method B fallback) per "
+                    "engineer/paper-framework-figure-studio.md, never drawn as matplotlib boxes"
+                )
         matched = any(stem == s or stem in s or s in stem for s in stems) if stem else False
         if not matched and not (len(stems) == 1 and len(method_figures(paper_root)) == 1):
             issues.append(
@@ -225,6 +327,13 @@ def _method_figure_issues(project_root: Path) -> list[str]:
                 f"(expected `{Path(raw).stem}.pptx` beside the export); Method D keeps the "
                 "native PPTX as the canonical source and exports the included PDF from it"
             )
+            continue
+        if resolved is not None and resolved.suffix.lower() == ".pdf":
+            source = next((s for s in sources if s.stem.lower() == stem), None) or (
+                sources[0] if len(sources) == 1 else None
+            )
+            if source is not None:
+                issues.extend(_export_matches_source(Path(raw).stem, source, resolved))
     return issues
 
 
@@ -304,19 +413,13 @@ def _graphic_issues(raw: str, resolved: Path | None, project_root: Path) -> list
             producer, subtypes = _pdf_producer_and_fonts(resolved)
         except Exception as exc:  # noqa: BLE001 - a broken figure is an issue
             return [f"figure `{shown}` is not a readable PDF: {exc}"]
-        found: list[str] = []
-        if "matplotlib" in producer.lower():
-            found.append(
-                f"figure `{shown}` was exported by matplotlib, which is not a figure route in "
-                "this vertical; re-export it through engineer/paper-chart-styling.md "
-                "(echarts_figure.py) or, for a method figure, PPT Master"
-            )
-        if "/Type3" in subtypes:
-            found.append(
-                f"figure `{shown}` embeds Type 3 fonts; the vertical's routes embed text as "
-                "TrueType at publication size"
-            )
-        return found
+        if "matplotlib" in producer.lower() and "/Type3" in subtypes:
+            return [
+                f"figure `{shown}` embeds Type 3 fonts (plain matplotlib defaults); "
+                f"draw data figures through the shared {STYLE_HELPER} helper so text is "
+                "embedded as TrueType at publication size"
+            ]
+        return []
     if suffix in _RASTER_SUFFIXES:
         software = ""
         if suffix == ".png":
@@ -353,14 +456,9 @@ def _iter_scripts(project_root: Path):
 
 
 def _plot_script_issues(project_root: Path) -> list[str]:
-    """Scripts that draw figures outside the vertical's routes.
-
-    The routes are the browser-rendered ECharts chart (data) and PPT Master
-    (method figures). A script importing matplotlib and saving figures is
-    off-route wherever it lives outside tests/ and third_party/; the
-    box-and-arrow shape of an architecture diagram is named separately so the
-    repair is obvious.
-    """
+    """Data figures may be drawn with matplotlib through the shared style helper;
+    a box-and-arrow diagram drawn with matplotlib patches is a method figure on
+    the wrong route and is named separately so the repair is obvious."""
     issues: list[str] = []
     for script in _iter_scripts(project_root):
         try:
@@ -382,12 +480,15 @@ def _plot_script_issues(project_root: Path) -> list[str]:
                 f"`{shown}` draws a box-and-arrow diagram with matplotlib patches; "
                 "conceptual and architecture figures follow "
                 "engineer/paper-framework-figure-studio.md (reference figures, a design "
-                "blueprint, an editable PPT Master reconstruction), never a plotting script"
+                "blueprint, an editable PPT Master reconstruction), not matplotlib boxes"
             )
+        if STYLE_HELPER in text:
+            continue
         issues.append(
-            f"`{shown}` draws with matplotlib, which is not a figure route in this vertical; "
-            "data charts go through engineer/paper-chart-styling.md (an ECharts option "
-            "rendered to vector by echarts_figure.py) and method figures through PPT Master"
+            f"`{shown}` saves matplotlib figures without the shared {STYLE_HELPER} "
+            "helper; data figures apply set_pub_style/figure_size/highlight_ours from "
+            "engineer/paper-chart-styling.md, and conceptual figures follow the Figure "
+            "Studio workflow rather than matplotlib boxes"
         )
     return issues
 
