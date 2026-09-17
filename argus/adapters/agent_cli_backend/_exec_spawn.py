@@ -23,6 +23,10 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from ...agent_cli._copilot_session import (
+    CopilotSessionArgumentsError,
+    CopilotSessionCompatibilityError,
+)
 from ...core.event_catalog import EventType
 from ...core.models import RunnerResult
 from ...core.runner_errors import (
@@ -168,6 +172,13 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             error=str(exc),
         )
         raise
+    except (CopilotSessionCompatibilityError, CopilotSessionArgumentsError) as exc:
+        # These typed preparation refusals are raised before callback/spawn,
+        # not inferred from stderr or cancellation. No provider work occurred.
+        finish_quota(ctx, error_text=str(exc), success=False)
+        return finalize_result(ctx, RunnerResult(exit_code=2, fatal_error=str(exc),
+                                                stop_kind="permanent_error"),
+                               status="denied", error=str(exc))
     except FileNotFoundError as exc:
         runner_name = str(
             getattr(backend._runner, "agent_bin", "")

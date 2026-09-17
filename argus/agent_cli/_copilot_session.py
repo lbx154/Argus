@@ -7,6 +7,14 @@ import uuid
 from dataclasses import replace
 
 
+class CopilotSessionCompatibilityError(RuntimeError):
+    """Known refusal before any provider process or metered work is started."""
+
+
+class CopilotSessionArgumentsError(ValueError):
+    """Conflicting identity selectors refused before provider dispatch."""
+
+
 def supports_session_id(agent_bin: str) -> bool:
     # Probe the selected loader, not the outer npm package version. No model
     # request or permission flags; failure is explicit compatibility refusal.
@@ -27,12 +35,12 @@ def prepare_session(runner, options, resume_thread_id):
     args = [*runner.default_extra_args, *(options.extra_args or [])]
     if any(arg.split("=", 1)[0] in {"--session-id", "--resume", "--continue"}
            for arg in args):
-        raise ValueError("Copilot identity flags must not be supplied in extra_args")
+        raise CopilotSessionArgumentsError("Copilot identity flags must not be supplied in extra_args")
     if resume_thread_id:
         identity = resume_thread_id
     else:
         if not supports_session_id(runner.agent_bin):
-            raise RuntimeError("Copilot compatibility: --session-id support required for durable accounting; no call dispatched")
+            raise CopilotSessionCompatibilityError("Copilot compatibility: --session-id support required for durable accounting; no call dispatched")
         identity = str(uuid.uuid4())
     callback(identity, bool(resume_thread_id))
     return replace(options, _provider_session_id=identity), identity

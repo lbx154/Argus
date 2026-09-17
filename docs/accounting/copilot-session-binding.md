@@ -21,7 +21,9 @@ flags change.
 
 Older CLIs without demonstrated flag support are refused before cold dispatch;
 Argus does not silently fall back to an unbound metered call. A timed-out help
-probe also refuses; it does not imply a provider charge. Low-level embedders
+probe also refuses; it does not imply a provider charge. Typed capability or
+identity-argument preparation refusals are recorded as denied/not-billed because
+no provider process was started; this never classifies cancelled metered work. Low-level embedders
 using AgentCliRunner without an accounting callback retain their existing API
 and do **not** gain a durable-accounting guarantee. Warm ACP keeps its existing
 protocol and is outside this cold-CLI fix's guarantee.

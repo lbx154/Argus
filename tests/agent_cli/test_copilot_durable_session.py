@@ -178,3 +178,22 @@ def test_live_monitor_uses_prebound_session_without_stdout_start(monkeypatch):
     monitor.observe("stdout", json.dumps({"type": "result", "sessionId": "unrelated"}))
     assert "provider_session_identity_conflict" in monitor.check()
     assert queried == ["bound"]
+
+
+def test_backend_unsupported_cli_is_known_predispatch_refusal(monkeypatch, tmp_path):
+    from argus.adapters.agent_cli_backend import AgentCliBackend
+    from argus.core.models import RunnerOptions as BackendOptions
+
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
+    backend = AgentCliBackend(backend="copilot")
+    project = tmp_path / "project"
+    backend.set_usage_context(project_root=project, mission_id="fixture-mission")
+    monkeypatch.setattr(backend._runner, "_acp_enabled", lambda *_: False)
+    monkeypatch.setattr(_copilot_session, "supports_session_id", lambda _: False)
+    monkeypatch.setattr(_run_exec, "spawn_owned_process", lambda *a, **kw: pytest.fail("must not spawn"))
+    result = backend.run_exec(prompt="fixture", run_label="engineer-r1",
+                              options=BackendOptions(model="gpt-5.6-sol", working_dir=str(tmp_path)))
+    assert result.exit_code == 2 and result.thread_id is None
+    assert result.pricing_status == "not_billed" and result.cost_usd == 0
+    row = json.loads((project / "usage.jsonl").read_text())
+    assert row["status"] == "denied" and not read_bindings(project)["decisions"]
