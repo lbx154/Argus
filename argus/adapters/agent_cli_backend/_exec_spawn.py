@@ -23,7 +23,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from ...agent_cli._copilot_session import (
+from ...agent_cli.agent_cli_runner import (
     CopilotSessionArgumentsError,
     CopilotSessionCompatibilityError,
 )
