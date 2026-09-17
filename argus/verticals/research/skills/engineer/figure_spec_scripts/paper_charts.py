@@ -682,7 +682,9 @@ def _register(root: Path, stem_path: Path, pdf: Path, source: str | Path | None,
         return
     try:
         from argus.verticals.research.figure_provenance import register_figure
-
+    except ImportError:  # the project venv has no argus: the facts file is the record
+        return
+    try:
         register_figure(
             project_root=root,
             figure_id=stem_path.name,

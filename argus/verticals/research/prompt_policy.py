@@ -480,7 +480,11 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
                 "`<name>.pdf` and `<name>.png` written from it by `" + _PPTX_EXPORT_CLI + "`, "
                 "the PDF included by the manuscript, and `" + _FIGURE_LINT_CLI + "` reporting "
                 "no method-figure defect. A matplotlib or TeX-compiled diagram does not satisfy it; "
-                "re-issue the task, do not accept the substitute."
+                "re-issue the task, do not accept the substitute. Figures are their own Engineer "
+                "tasks with a look-and-repair loop (export, open the PNG, fix, export again), not a "
+                "line inside the writing task; a data-figure task is done when "
+                "`paper/figures/src/<stem>/facts.json` sits beside each export and the lint names "
+                "no hand-drawing."
                 if stage in {"paper", "review"}
                 else ""
             ),
