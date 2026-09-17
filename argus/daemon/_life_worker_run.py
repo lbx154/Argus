@@ -82,6 +82,8 @@ class LifeWorkerRunMixin:
 
     # Constructed by LifeWorker; every run/lock wait observes this same signal.
     _stop: threading.Event
+    # Set by LifeWorker at construction (a LifeWorkerConfig).
+    config: Any
 
     def _fail_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
         """Fail durable running claims whose executor thread is no longer alive."""

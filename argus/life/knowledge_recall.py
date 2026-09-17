@@ -19,6 +19,7 @@ import logging
 import os
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -697,15 +698,16 @@ def record_recall(memory: Any, result: RecallResult, *, objective: str, role: st
     mission_id = str(mission_id or "").strip()
     global_root = _recall_global_root(memory)
     if global_root is not None:
+        appender: Callable[..., Any] | None
         try:
-            from ..wiki.journal import append_knowledge_event
+            from ..wiki.journal import append_knowledge_event as appender
         except ImportError:
-            append_knowledge_event = None
-        if append_knowledge_event is not None:
+            appender = None
+        if appender is not None:
             for hit in shown:
                 document = hit.document
                 try:
-                    append_knowledge_event(
+                    appender(
                         global_root, kind="recalled", scope=document.scope, vertical=document.vertical,
                         path=document.relative_path, title=document.meta.title,
                         source_project=document.origin if document.meta.source or (

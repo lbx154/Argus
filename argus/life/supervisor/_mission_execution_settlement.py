@@ -20,6 +20,9 @@ from ...core.event_catalog import EventType
 from ...core.runner_errors import is_execution_host_startup_error
 from ...core.stop_kinds import stop_kind_is_recoverable
 from ..memory import BacklogItem
+
+if TYPE_CHECKING:
+    from ..memory import LifeMemory
 from ..mission_outcome import (
     mission_outcome_class,
     mission_outcome_dimensions,
@@ -78,9 +81,14 @@ class MissionExecutionSettlementMixin:
     if TYPE_CHECKING:
         # Provided by LifeSupervisor (_core.py); declared so the type checker
         # knows the mixin's calls resolve there.
+        memory: LifeMemory
+        runner: Any
+
         def _project_workdir(self) -> Path: ...
 
         def _budget_global_root(self) -> Path: ...
+
+        def _emit(self, event: dict[str, Any]) -> bool: ...
 
     # ------------------------------------------------------------------
     # Phase: restricted validator-repair capability settlement
