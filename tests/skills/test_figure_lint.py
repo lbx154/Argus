@@ -246,3 +246,25 @@ def test_a_tex_compiled_method_figure_beside_a_look_alike_pptx_is_reported(tmp_p
 
     assert any("was produced by pdfTeX-1.40.25, which no PPTX export chain produces" in i for i in issues)
     assert not any("was exported by matplotlib" in i for i in issues)
+
+
+def test_a_pdf_beside_the_pptx_must_carry_an_export_producer(tmp_path: Path) -> None:
+    # Six PPTX-paired method figures on one machine: producers pdfTeX, cairo,
+    # Ghostscript, none from the PPTX. The exporter renders through Chromium
+    # (Skia/PDF); Office suites are the other legitimate producers.
+    from pypdf import PdfWriter
+
+    figures = tmp_path / "paper" / "figures"
+    figures.mkdir(parents=True)
+    _fake_pptx(figures / "overview.pptx", shapes=30, custom_paths=10, text="rotation quantizer residual stream")
+    _paper(tmp_path, "\\begin{figure}\\includegraphics{overview}\\caption{Overview of the mechanism.}\\end{figure}")
+
+    for producer, expected in (("GPL Ghostscript 10.02.1", True), ("cairo 1.18.0", True), ("Skia/PDF m151", False), ("LibreOffice 24.2", False)):
+        writer = PdfWriter()
+        writer.add_blank_page(width=400, height=200)
+        writer.add_metadata({"/Producer": producer})
+        with (figures / "overview.pdf").open("wb") as handle:
+            writer.write(handle)
+        issues = mod.figure_lint_issues(tmp_path)
+        flagged = any("was not exported from `overview.pptx`" in i and "pptx_export.py --pptx paper/figures/overview.pptx" in i for i in issues)
+        assert flagged is expected, (producer, issues)

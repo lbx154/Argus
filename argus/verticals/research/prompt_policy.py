@@ -460,11 +460,11 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
             (
                 "## Method figure through PPT Master\n"
                 "The task that draws the method or architecture figure has executable "
-                "acceptance: `paper/figures/<name>.pptx` (native PPT Master source) and "
-                "`paper/figures/<name>.pdf` exported from it, included by the manuscript, "
-                "and `" + _FIGURE_LINT_CLI + "` reporting no method-figure defect. A "
-                "matplotlib diagram does not satisfy it; re-issue the task, do not accept "
-                "the substitute."
+                "acceptance: `paper/figures/<name>.pptx` (native PPT Master source), "
+                "`<name>.pdf` and `<name>.png` written from it by `" + _PPTX_EXPORT_CLI + "`, "
+                "the PDF included by the manuscript, and `" + _FIGURE_LINT_CLI + "` reporting "
+                "no method-figure defect. A matplotlib or TikZ diagram does not satisfy it; "
+                "re-issue the task, do not accept the substitute."
                 if stage in {"paper", "review"}
                 else ""
             ),
@@ -527,6 +527,10 @@ def _engineer_compute_stage(stage: str, operation: str) -> str:
 
 
 _FIGURE_LINT_CLI = "python -m argus.verticals.research.figure_lint"
+# The export step of Method D/B: PPT Master reads the PPTX, the browser renders
+# the slide. No PowerPoint or LibreOffice on the machine is needed, so no
+# Engineer has a reason to compile a TikZ look-alike beside a companion PPTX.
+_PPTX_EXPORT_CLI = "figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx"
 
 
 def _engineer_figure_block(stage: str, operation: str) -> str:
@@ -541,8 +545,9 @@ def _engineer_figure_block(stage: str, operation: str) -> str:
         "Show uncertainty wherever runs were repeated, keep legends clear of titles "
         "and data at final size, and never substitute a sentinel value for zero or a "
         "missing point on a log axis. The method figure is composed only through "
-        "PPT Master (Method D; Method B fallback): keep `paper/figures/<name>.pptx` "
-        "beside the exported `<name>.pdf`; matplotlib patches are not a route for it. "
+        "PPT Master (Method D; Method B fallback): author `paper/figures/<name>.pptx`, "
+        "then `" + _PPTX_EXPORT_CLI + "` writes `<name>.pdf` and `<name>.png` from it "
+        "(no Office needed); matplotlib patches and TikZ are not a route for it. "
         "`" + _FIGURE_LINT_CLI + "` reports font, raster, missing-file and method-figure "
         "defects; fix them before inspecting the export at final size."
     )
@@ -600,9 +605,11 @@ def _reviewer_figure_block(stage: str, scope: str) -> str:
             "Inspect each data figure for uncertainty wherever runs were repeated, "
             "legends clear of titles and data, honest axes without sentinel "
             "substitutions, and a method figure that shows the mechanism rather than "
-            "formula boxes; `" + _FIGURE_LINT_CLI + "` lists font, raster, "
+            "formula boxes; open `paper/figures/<name>.png`, the exporter's render at "
+            "manuscript width, and read it as a reader would: bullet lists in three boxes "
+            "are not a mechanism. `" + _FIGURE_LINT_CLI + "` lists font, raster, "
             "missing-file and method-figure defects to require as repairs. A method "
-            "or architecture figure exported by matplotlib, or without a native PPT "
+            "or architecture figure exported by matplotlib or TeX, or without a native PPT "
             "source of the same stem under paper/, is a required repair (return "
             "continue), not a limitation to note."
         )
@@ -679,8 +686,9 @@ def _engineer_fragment(
                 "or the task constraints rule it out: compose directly in native editable PPT. "
                 "Both routes use PPT Master; an unavailable image API must not pause the task. "
                 "Matplotlib patches, boxes and arrows are not a route for this figure: the "
-                "lint reports such an export and the Reviewer returns it. Keep the native "
-                "`paper/figures/<name>.pptx` beside the exported `<name>.pdf`. "
+                "lint reports such an export and the Reviewer returns it. Author the native "
+                "`paper/figures/<name>.pptx`; `" + _PPTX_EXPORT_CLI + "` exports `<name>.pdf` "
+                "and `<name>.png` from it, and the PDF's producer shows which route made it. "
                 "ECharts can supply a data-grounded chart component when useful. "
                 "There is no separate SVG workflow. Keep the framework itself as native "
                 "PPT shapes, connectors, and text. Locate PPT Master with "

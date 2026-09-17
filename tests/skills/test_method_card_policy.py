@@ -307,7 +307,10 @@ def test_method_figure_goes_through_ppt_master_for_every_role() -> None:
 
     assert "composed only through PPT Master (Method D; Method B fallback)" in engineer
     assert "Matplotlib patches, boxes and arrows are not a route for this figure" in engineer
+    assert "figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx" in engineer
+    assert "open `paper/figures/<name>.png`, the exporter's render at manuscript width" in reviewer
+    assert "written from it by `figure_spec_scripts/pptx_export.py" in planner
     assert "without a native PPT source of the same stem" in reviewer
     assert "## Method figure through PPT Master" in planner
-    assert "A matplotlib diagram does not satisfy it" in planner
+    assert "A matplotlib or TikZ diagram does not satisfy it" in planner
     assert "## Method figure through PPT Master" not in _fragment("planner", "experiment", operation="plan")

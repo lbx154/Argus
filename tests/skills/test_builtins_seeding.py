@@ -61,6 +61,7 @@ RESEARCH_BASE_SKILLS = {
     "engineer/suspect-the-setup.md",
     "engineer/figure_spec_scripts/paper_chart_style.py",
     "engineer/figure_spec_scripts/echarts_figure.py",
+    "engineer/figure_spec_scripts/pptx_export.py",
     "engineer/paper-framework-figure-studio.md",
     "engineer/research-visualization-router.md",
     "engineer/research_visual_scripts/browser_render.py",

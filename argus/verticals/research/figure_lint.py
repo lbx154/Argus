@@ -214,6 +214,11 @@ _WORD = re.compile(r"[A-Za-z][A-Za-z\-]{2,}")
 # Producers that read TeX or a plotting script, never a PPTX: a PDF stamped
 # with one of these was not exported from the PPTX of the same stem.
 _NOT_A_PPTX_EXPORT = re.compile(r"pdfTeX|XeTeX|LuaTeX|LuaHBTeX|dvips|dvipdfm|TikZ|pgf|Graphviz|R \d|grDevices", re.IGNORECASE)
+# Producers an export from a PPTX can carry: the vertical's exporter
+# (pptx_export.py renders through Chromium, producer Skia/PDF) and the Office
+# suites. Anything else beside a PPTX of the same stem came from elsewhere.
+_PPTX_EXPORT_PRODUCER = re.compile(r"Skia/PDF|LibreOffice|OpenOffice|PowerPoint|Keynote|WPS", re.IGNORECASE)
+PPTX_EXPORT_CLI = "figure_spec_scripts/pptx_export.py --pptx paper/figures/<stem>.pptx"
 PDF_DRAWING_SEGMENTS = 150
 #: Fewer native shapes than this, with no drawn path, is a caption-and-boxes companion.
 PPTX_COMPANION_SHAPES = 20
@@ -312,11 +317,14 @@ def _method_figure_issues(project_root: Path) -> list[str]:
     for raw, resolved, _caption in method_figures(paper_root):
         stem = Path(raw).stem.lower()
         shown = raw
+        producer = ""
+        route_issue = False
         if resolved is not None and resolved.suffix.lower() == ".pdf":
             try:
                 producer, _subtypes = _pdf_producer_and_fonts(resolved)
             except Exception:  # noqa: BLE001 - unreadable PDFs are reported elsewhere
                 producer = ""
+            route_issue = "matplotlib" in producer.lower() or _NOT_A_PPTX_EXPORT.search(producer) is not None
             if "matplotlib" in producer.lower():
                 issues.append(
                     f"method figure `{shown}` was exported by matplotlib; the method figure is "
@@ -347,6 +355,15 @@ def _method_figure_issues(project_root: Path) -> list[str]:
                 sources[0] if len(sources) == 1 else None
             )
             if source is not None:
+                if producer and not route_issue and _PPTX_EXPORT_PRODUCER.search(producer) is None:
+                    # Ghostscript or cairo beside a PPTX: the PDF was rendered from
+                    # an SVG or something else, and the PPTX was written to match.
+                    issues.append(
+                        f"method figure `{shown}` (producer {producer.strip()[:40]}) was not exported from "
+                        f"`{source.name}`; write the PDF and PNG from the PPTX with "
+                        f"`{PPTX_EXPORT_CLI.replace('<stem>', Path(raw).stem)}` (no Office needed) so the "
+                        "included figure is the editable source"
+                    )
                 issues.extend(_export_matches_source(Path(raw).stem, source, resolved))
     return issues
 

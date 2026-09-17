@@ -128,7 +128,21 @@ Matplotlib is not a route for these figures. A script that places
 edit, with labels that overlap at publication size; `figure_lint` reports such
 an export and the Reviewer returns it. The canonical source is the native
 PPTX at `paper/figures/<name>.pptx`; the included `<name>.pdf` is exported
-from it and keeps the same stem, so the host can pair them.
+from it and keeps the same stem, so the host can pair them. The export step
+is one command and needs neither PowerPoint nor LibreOffice:
+
+```bash
+EXPORT=$(find "$ARGUS_SKILL_HOME" . -name pptx_export.py -path '*figure_spec_scripts*' 2>/dev/null | head -1)
+$ARGUS_SKILL_PYTHON "$EXPORT" --pptx paper/figures/<name>.pptx   # writes <name>.pdf and <name>.png
+```
+
+It reads the PPTX with PPT Master's `pptx_to_svg.py`, renders the slide in
+the browser, keeps the slide SVG under `paper/figures/src/<name>/`, and
+records provenance. The PDF's producer then says Skia/PDF; a PDF beside a
+PPTX with any other producer (pdfTeX, Ghostscript, cairo, matplotlib) is
+reported by `figure_lint` as not exported from the PPTX. Open `<name>.png`
+after every export: that is the figure at manuscript width, and three boxes
+of bullet points in it are a composition to redo, not a figure to include.
 
 Both D and B author the framework in native editable PowerPoint objects.
 An unavailable image interface selects B automatically; it is not a reason

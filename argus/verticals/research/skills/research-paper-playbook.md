@@ -102,7 +102,9 @@ do not create a new report or validation-only task.
    for a scientific figure. Produce editable sources, publication-size exports,
    and a readable rendered paper. The method figure is composed through PPT
    Master (Method D, Method B fallback): `paper/figures/<name>.pptx` is the
-   source and `<name>.pdf` its export; matplotlib boxes are not a route for it.
+   source, and `figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx`
+   writes `<name>.pdf` and `<name>.png` from it without any Office suite;
+   matplotlib boxes and TikZ are not a route for it.
    Data figures go through the shared
    `paper_chart_style` helper (`engineer/paper-chart-styling.md`): vector PDF
    with TrueType fonts, colorblind palette, ours highlighted, sized for the

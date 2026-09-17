@@ -165,7 +165,10 @@ and editable PPT Master reconstruction), with Method B direct native PPT design
 as the fallback when the image interface is unavailable. Keep the framework in
 editable PPT; ECharts can supply actual data components. Preserve the academic
 palette and precise mathematical typography.
-Regenerate the included PDF. A successful
+Regenerate the included PDF with `figure_spec_scripts/pptx_export.py --pptx
+paper/figures/<name>.pptx`, which also writes `<name>.png` at manuscript width;
+open that PNG and judge the composition (a mechanism shown, not bullet lists in
+boxes) before anything else. A successful
 render or font check alone does not establish that the figure is visually sound.
 
 A full paper should aim for three informative figures and include at least two
