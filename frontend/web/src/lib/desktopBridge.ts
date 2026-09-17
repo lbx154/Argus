@@ -11,6 +11,7 @@ export interface DesktopDeliveryNotification {
   title: string;
   summary: string;
   path?: string;
+  sessionId?: string;
 }
 
 export interface CompletionNotificationInput {
@@ -18,12 +19,24 @@ export interface CompletionNotificationInput {
   title: string;
   summary?: string;
   path?: string;
+  sessionId?: string;
 }
 
 type EmbeddedDesktopMessage = {
   type?: unknown;
   payload?: unknown;
 };
+
+/** Identity is exact: never trim, truncate or reinterpret it as a path/URL.
+ * Unicode namespaces and existing dotted session names remain admissible. */
+export function isDesktopSessionId(value: unknown): value is string {
+  return typeof value === 'string' && /^[\p{L}\p{N}_-][\p{L}\p{N}_.-]{0,127}$/u.test(value);
+}
+
+function notificationSession(value: unknown): { sessionId?: string } | null {
+  if (value === undefined) return {};
+  return isDesktopSessionId(value) ? { sessionId: value } : null;
+}
 
 function nonEmptyString(value: unknown, limit: number): string {
   return typeof value === 'string' ? value.trim().slice(0, limit) : '';
@@ -42,9 +55,11 @@ export function completionNotificationPayload(
   input: CompletionNotificationInput,
 ): DesktopDeliveryNotification | null {
   const deliveryId = nonEmptyString(input.completionId, 300);
-  if (!deliveryId) return null;
+  const session = notificationSession(input.sessionId);
+  if (!deliveryId || !session) return null;
   const path = nonEmptyString(input.path, 1_000);
   return {
+    ...session,
     deliveryId,
     title: notificationPlainText(input.title, 240) || '已完成的任务',
     summary: notificationPlainText(input.summary, 500),
@@ -54,10 +69,13 @@ export function completionNotificationPayload(
 
 export function deliveryNotificationPayload(
   delivery: DeliveryReceipt,
+  sessionId?: string,
 ): DesktopDeliveryNotification | null {
   const deliveryId = nonEmptyString(delivery.delivery_id, 300);
-  if (!deliveryId) return null;
+  const session = notificationSession(sessionId);
+  if (!deliveryId || !session) return null;
   return {
+    ...session,
     deliveryId,
     title: nonEmptyString(delivery.title, 240) || 'Argus',
     summary: nonEmptyString(delivery.summary, 1_000),
@@ -84,9 +102,11 @@ function notificationPayload(value: unknown): DesktopDeliveryNotification | null
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   const deliveryId = nonEmptyString(row.deliveryId, 300);
-  if (!deliveryId) return null;
+  const session = notificationSession(row.sessionId);
+  if (!deliveryId || !session) return null;
   const path = nonEmptyString(row.path, 1_000);
   return {
+    ...session,
     deliveryId,
     title: nonEmptyString(row.title, 240) || 'Argus',
     summary: nonEmptyString(row.summary, 1_000),
@@ -104,8 +124,8 @@ export function notifyDesktopCompletion(
   return Promise.resolve(true);
 }
 
-export function notifyDesktopDelivery(delivery: DeliveryReceipt): Promise<boolean> {
-  const payload = deliveryNotificationPayload(delivery);
+export function notifyDesktopDelivery(delivery: DeliveryReceipt, sessionId?: string): Promise<boolean> {
+  const payload = deliveryNotificationPayload(delivery, sessionId);
   return payload ? notifyDesktopCompletion(payload) : Promise.resolve(false);
 }
 
@@ -115,13 +135,29 @@ export function setDesktopLargePreview(active: boolean): void {
   parent.postMessage({ type: 'argus:large-preview', payload: active }, '*');
 }
 
+function isDesktopParentOrigin(origin: string): boolean {
+  // The desktop iframe intentionally uses no-referrer. Chromium/WebView2
+  // still exposes its actual ancestry; unlike message data this is supplied
+  // by the browser, and also supports the isolated loopback development shell.
+  const ancestor = typeof window !== 'undefined' ? window.location?.ancestorOrigins?.[0] : undefined;
+  if (ancestor && ancestor !== 'null') return origin === ancestor;
+  if (typeof document !== 'undefined' && document.referrer) {
+    try {
+      const parent = new URL(document.referrer);
+      if (parent.protocol === 'http:' || parent.protocol === 'https:') return origin === parent.origin;
+      if (parent.protocol === 'tauri:' && parent.hostname === 'localhost') return origin === 'tauri://localhost';
+    } catch { /* An unavailable referrer is not permission to trust any origin. */ }
+  }
+  return ['http://tauri.localhost', 'https://tauri.localhost', 'tauri://localhost'].includes(origin);
+}
+
 export function subscribeDesktopDelivery(
   callback: (payload: DesktopDeliveryNotification) => void,
 ): () => void {
   const parent = embeddedDesktopParent();
   if (!parent) return () => undefined;
   const listener = (event: MessageEvent<EmbeddedDesktopMessage>): void => {
-    if (event.source !== parent || event.data?.type !== 'argus:open-delivery') return;
+    if (event.source !== parent || !isDesktopParentOrigin(event.origin) || event.data?.type !== 'argus:open-delivery') return;
     const payload = notificationPayload(event.data.payload);
     if (payload) callback(payload);
   };
