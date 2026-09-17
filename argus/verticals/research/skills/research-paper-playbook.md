@@ -104,7 +104,7 @@ do not create a new report or validation-only task.
    Master (Method D, Method B fallback): `paper/figures/<name>.pptx` is the
    source, and `figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx`
    writes `<name>.pdf` and `<name>.png` from it without any Office suite;
-   matplotlib boxes and TikZ are not a route for it.
+   matplotlib boxes and TeX-compiled drawings are not a route for it.
    Data figures go through the shared
    `paper_chart_style` helper (`engineer/paper-chart-styling.md`): vector PDF
    with TrueType fonts, colorblind palette, ours highlighted, sized for the

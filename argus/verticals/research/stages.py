@@ -250,7 +250,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "direct native PPT fallback, retaining its canonical editable "
                 "source (`paper/figures/<name>.pptx`) and the vector PDF and PNG written "
                 "from it by figure_spec_scripts/pptx_export.py with the same stem; a "
-                "diagram drawn with matplotlib patches or compiled from TikZ does not "
+                "diagram drawn with matplotlib patches or compiled from TeX does not "
                 "satisfy this item. Ground it in the "
                 "manuscript and executed code, with clear grouping, visual hierarchy, "
                 "balanced spacing, and publication-size typography. Use proper "

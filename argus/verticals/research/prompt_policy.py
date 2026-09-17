@@ -463,7 +463,7 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
                 "acceptance: `paper/figures/<name>.pptx` (native PPT Master source), "
                 "`<name>.pdf` and `<name>.png` written from it by `" + _PPTX_EXPORT_CLI + "`, "
                 "the PDF included by the manuscript, and `" + _FIGURE_LINT_CLI + "` reporting "
-                "no method-figure defect. A matplotlib or TikZ diagram does not satisfy it; "
+                "no method-figure defect. A matplotlib or TeX-compiled diagram does not satisfy it; "
                 "re-issue the task, do not accept the substitute."
                 if stage in {"paper", "review"}
                 else ""
@@ -547,7 +547,7 @@ def _engineer_figure_block(stage: str, operation: str) -> str:
         "missing point on a log axis. The method figure is composed only through "
         "PPT Master (Method D; Method B fallback): author `paper/figures/<name>.pptx`, "
         "then `" + _PPTX_EXPORT_CLI + "` writes `<name>.pdf` and `<name>.png` from it "
-        "(no Office needed); matplotlib patches and TikZ are not a route for it. "
+        "(no Office needed); matplotlib patches and TeX-compiled drawings are not a route for it. "
         "`" + _FIGURE_LINT_CLI + "` reports font, raster, missing-file and method-figure "
         "defects; fix them before inspecting the export at final size."
     )

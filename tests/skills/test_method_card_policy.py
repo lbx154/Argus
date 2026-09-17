@@ -312,5 +312,5 @@ def test_method_figure_goes_through_ppt_master_for_every_role() -> None:
     assert "written from it by `figure_spec_scripts/pptx_export.py" in planner
     assert "without a native PPT source of the same stem" in reviewer
     assert "## Method figure through PPT Master" in planner
-    assert "A matplotlib or TikZ diagram does not satisfy it" in planner
+    assert "A matplotlib or TeX-compiled diagram does not satisfy it" in planner
     assert "## Method figure through PPT Master" not in _fragment("planner", "experiment", operation="plan")
