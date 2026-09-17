@@ -41,6 +41,35 @@ log = logging.getLogger(__name__)
 _PLANNER_PREVIEW_MAX_SECONDS = 180
 
 
+def _engineer_model_for_task(default: str, vertical: str, task_text: str, project_root: Path | None) -> str:
+    """The engineer model for this task, or the route model its vertical asked for.
+
+    A vertical's module may define ``model_route_for_task(text) -> str`` (the
+    research vertical routes figure work to ``figure``); the route's knob
+    ``ARGUS_SKILL_<ROUTE>_MODEL`` then names the model and ``auto`` keeps the
+    engineer's. Anything failing here keeps the default: routing is a
+    convenience and must never stop a mission.
+    """
+    if not vertical or not task_text:
+        return default
+    try:
+        from ..verticals._base import load_vertical
+
+        module = load_vertical(vertical, project_root=project_root)
+        route_for = getattr(module, "model_route_for_task", None)
+        route = str(route_for(task_text) or "").strip() if callable(route_for) else ""
+        if not route:
+            return default
+        from ..core.knobs import resolve_task_route_model
+
+        chosen = resolve_task_route_model(route, fallback=default)
+    except Exception:  # noqa: BLE001 - see above
+        return default
+    if chosen != default:
+        log.info("engineer model for this task: %s (route %s)", chosen, route)
+    return chosen
+
+
 def _decided_vertical(config: object, workdir: Path) -> str:
     """The Manager-classified vertical of this mission, or "" when undecided.
 
@@ -520,6 +549,7 @@ class SkillLoopExecuteMixin:
                 max_rounds_override=max_rounds_override,
                 context_packet_path=context_packet_path,
                 mission_id=mission_id,
+                objective=objective,
                 workflow_mode_override=workflow_mode_override,
             )
             self._build_execute_skill_store_and_loop(ex_state, sink=sink)
@@ -592,6 +622,7 @@ class SkillLoopExecuteMixin:
         context_packet_path: str,
         mission_id: str | None,
         workflow_mode_override: str,
+        objective: str = "",
     ) -> None:
         """Resolve the workdir/vertical-derived flags and build the
         ``SkillLoopConfig`` for this mission.
@@ -675,7 +706,7 @@ class SkillLoopExecuteMixin:
         # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         config_kwargs = {
-            "engineer_model": args.engineer_model,
+            "engineer_model": _engineer_model_for_task(args.engineer_model, active_vertical, objective, _proot),
             "reviewer_model": args.reviewer_model,
             "require_independent_review": effective_require_independent_review,
             "engineer_initial_reasoning_effort": os.environ.get(

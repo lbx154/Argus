@@ -417,6 +417,7 @@ _CONFIG_ALIASES = {
     "opencode_provider": "ARGUS_SKILL_OPENCODE_PROVIDER",
     "model": "ARGUS_SKILL_MODEL",
     "engineer_model": "ARGUS_SKILL_ENGINEER_MODEL",
+    "figure_model": "ARGUS_SKILL_FIGURE_MODEL",
     "reviewer_model": "ARGUS_SKILL_REVIEWER_MODEL",
     "planner_model": "ARGUS_SKILL_PLAN_MODEL",
     "manager_model": "ARGUS_SKILL_MANAGER_MODEL",

@@ -117,6 +117,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MODEL", "auto", "shared model override; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_MANAGER_MODEL", "auto", "model for the Manager; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_MODEL", "auto", "model for the L1 engineer; auto uses the selected backend's default", "models", cockpit=True),
+    Knob("ARGUS_SKILL_FIGURE_MODEL", "auto", "model for figure tasks (the method figure through PPT Master, data figures); auto follows the engineer model", "models", cockpit=True),
     Knob("ARGUS_SKILL_MAP_MODEL", "auto", "map summaries model; auto follows the research engineer model", "models", cockpit=True),
     Knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto", "map summaries reasoning effort; auto follows the research engineer", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto", "map teaching review reasoning effort; auto follows map summaries", "reasoning", cockpit=True),
@@ -922,6 +923,34 @@ def backend_uses_openai_catalog(
 
 #: Knob values that mean "decide for me" rather than naming a model.
 _AUTO_MODEL_SENTINELS = frozenset({"", "auto", "inherit", "default"})
+
+
+def resolve_task_route_model(
+    route: str,
+    *,
+    fallback: str,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """The model for one kind of task when the operator named one; else ``fallback``.
+
+    A vertical may say that a task belongs to a route (the research vertical
+    routes figure work to ``figure``). The route's knob is
+    ``ARGUS_SKILL_<ROUTE>_MODEL``; an unknown route or an automatic value
+    (``auto``, ``inherit``, empty) keeps the engineer's model, so nothing
+    changes for operators who never set it. Environment outranks the
+    persisted cockpit value, as for every other model knob.
+    """
+    cleaned = str(route or "").strip()
+    name = f"ARGUS_SKILL_{cleaned.upper()}_MODEL"
+    if not cleaned or name not in {knob.name for knob in KNOBS}:
+        return fallback
+    env_map = env if env is not None else os.environ
+    value = str(env_map.get(name, "") or "").strip()
+    if not value:
+        from .knob_store import read_persisted_knobs
+
+        value = str(read_persisted_knobs().get(name, "") or "").strip()
+    return fallback if value.lower() in _AUTO_MODEL_SENTINELS else value
 
 
 def resolve_cheap_route_model(
