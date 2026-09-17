@@ -452,3 +452,28 @@ def test_brief_carries_the_last_claim_attainment_statement(project: Path, tmp_pa
     assert "### Claim attainment (last statement)" in lines
     assert any(line.startswith('- [not met] keep 96% of BF16 — Engineer: "35%"; host reads results/r.json ours.acc = 0.35') for line in lines)
     assert lines.index("### Claim attainment (last statement)") < lines.index("### Environment now")
+
+
+def test_the_brief_says_where_torch_is_instead_of_letting_the_engineer_search_the_disk(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from argus.verticals.research import mission_brief as mb
+
+    monkeypatch.setattr(mb, "_TORCH_PROBE_CACHE", {})
+    monkeypatch.setattr(
+        mb,
+        "_host_interpreters",
+        lambda root: [("host runtime (read-only; never install into it)", Path("/opt/rt/bin/python")), ("python3 on PATH", Path("/usr/bin/python3"))],
+    )
+
+    def fake_run(cmd, **kwargs):
+        has = cmd[0] == "/opt/rt/bin/python"
+        return SimpleNamespace(returncode=0 if has else 1, stdout="2.9.0 True\n" if has else "", stderr="" if has else "ModuleNotFoundError")
+
+    monkeypatch.setattr(mb.subprocess, "run", fake_run)
+    line = mb._torch_line(tmp_path)
+    assert line.startswith("- Torch on this host: /opt/rt/bin/python [host runtime (read-only; never install into it)]: torch 2.9.0 (CUDA yes); /usr/bin/python3 [python3 on PATH]: no torch.")
+    assert "do not scan the disk for packages (`find /`)" in line
+    # cached: a second call runs no probe
+    monkeypatch.setattr(mb.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("probe ran twice")))
+    assert mb._torch_line(tmp_path) == line

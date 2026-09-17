@@ -26,7 +26,9 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import subprocess
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -50,6 +52,9 @@ DEFINITION_OF_DONE = (
 )
 
 INTERPRETER_TIMEOUT_S = 5.0
+TORCH_PROBE_TIMEOUT_S = 15.0
+TORCH_CANDIDATES = 5
+_TORCH_PROBE_CACHE: dict[str, str] = {}
 COMPONENT_LINES = 12
 DATA_DIRS = ("data", "datasets")
 DATA_ENTRIES = 5
@@ -329,6 +334,86 @@ def _interpreter_line(project_root: Path) -> str:
     )
 
 
+def _torch_probe(python: Path) -> str:
+    """``torch 2.9.0 (CUDA yes)``, ``no torch``, or '' when the interpreter cannot be run.
+
+    Cached for the process: torch installs do not change between rounds and
+    the import alone takes seconds.
+    """
+    key = str(python)
+    if key in _TORCH_PROBE_CACHE:
+        return _TORCH_PROBE_CACHE[key]
+    try:
+        proc = subprocess.run(
+            [str(python), "-c", "import torch; print(torch.__version__, torch.cuda.is_available())"],
+            capture_output=True,
+            text=True,
+            timeout=TORCH_PROBE_TIMEOUT_S,
+            check=False,
+        )
+        out = (proc.stdout or "").strip().split()
+        if proc.returncode == 0 and len(out) >= 2:
+            result = f"torch {out[0]} (CUDA {'yes' if out[1] == 'True' else 'no'})"
+        else:
+            result = "no torch"
+    except (OSError, subprocess.SubprocessError):
+        result = ""
+    _TORCH_PROBE_CACHE[key] = result
+    return result
+
+
+def _host_interpreters(project_root: Path) -> list[tuple[str, Path]]:
+    """Interpreters worth asking about torch: the project venv, the host runtime, PATH, conda."""
+    found: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+
+    def add(label: str, raw: object) -> None:
+        if not raw or len(found) >= TORCH_CANDIDATES:
+            return
+        path = Path(str(raw))
+        try:
+            real = str(path.resolve())
+        except OSError:
+            return
+        if real in seen or not path.exists():
+            return
+        seen.add(real)
+        found.append((label, path))
+
+    add(".venv/bin/python", project_root / ".venv" / "bin" / "python")
+    add("host runtime (read-only; never install into it)", sys.executable)
+    add("python3 on PATH", shutil.which("python3"))
+    add("system python3", "/usr/bin/python3")
+    add("python on PATH", shutil.which("python"))
+    conda_prefix = os.environ.get("CONDA_PREFIX", "")
+    if conda_prefix:
+        add("conda env", Path(conda_prefix) / "bin" / "python")
+    for envs_root in (Path.home() / ".conda" / "envs", Path.home() / "miniconda3" / "envs", Path.home() / "anaconda3" / "envs"):
+        if envs_root.is_dir():
+            for env in sorted(envs_root.iterdir())[:3]:
+                add(f"conda env {env.name}", env / "bin" / "python")
+    return found
+
+
+def _torch_line(project_root: Path) -> str:
+    """Where torch already is on this host, so nobody searches the disk for it.
+
+    The v5 control project's Engineer, told only "no .venv in the project",
+    tried the system python, found no torch and ran ``find / -name torch``
+    for eight minutes. The host can answer that question in seconds.
+    """
+    probes = [(label, path, _torch_probe(path)) for label, path in _host_interpreters(project_root)]
+    probes = [(label, path, result) for label, path, result in probes if result]
+    if not probes:
+        return ""
+    parts = [f"{path} [{label}]: {result}" for label, path, result in probes]
+    return (
+        "- Torch on this host: " + "; ".join(parts) + ". Create .venv and install torch into it "
+        "(pip or uv; the CUDA wheels match the driver above); do not scan the disk for packages "
+        "(`find /`): the host has already listed what exists."
+    )
+
+
 def _installed_distributions(project_root: Path) -> set[str]:
     """Normalised distribution names under the project venv's site-packages."""
     names: set[str] = set()
@@ -514,6 +599,7 @@ def _model_cache_line() -> str:
 def _environment_section(project_root: Path, card: dict[str, Any]) -> list[str]:
     lines = ["### Environment now", _interpreter_line(project_root)]
     for producer in (
+        lambda: _torch_line(project_root),
         lambda: _packages_line(project_root, card),
         lambda: _clones_line(project_root, card),
         _gpu_line,
