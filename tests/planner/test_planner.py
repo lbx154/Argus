@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.planner.planner import (
+from argus.core.models import RunnerResult
+from argus.planner.planner import (
     NO_CONCRETE_TASKS_ERROR,
     OPEN_ENDED_PROJECT_DONE_ERROR,
     PLANNER_SUPERSEDED_ERROR,
@@ -13,7 +13,7 @@ from argus_skill.planner.planner import (
     parse_planner_text,
     parse_task_scope,
 )
-from argus_skill.roles.prompts.planner import (
+from argus.roles.prompts.planner import (
     _BOUNDED_DAG_FOOTER,
     _PLANNER_CORE_CONTRACT,
     _PLANNER_DECISION_FOOTER,
@@ -47,6 +47,58 @@ def test_planner_uses_only_the_explicit_final_footer() -> None:
 
     assert verdict.project_done is False
     assert [task.title for task in verdict.new_tasks] == ["Run benchmark"]
+
+
+@pytest.mark.parametrize(
+    ("lines", "expected"),
+    [
+        (
+            "RETIRE_TASK=item-a | The experiment refuted the hypothesis.",
+            (("item-a", "The experiment refuted the hypothesis."),),
+        ),
+        (
+            "RETIRE_TASK=item-a | The experiment refuted the hypothesis.\n"
+            "RETIRE_TASK=item-b | This repair belongs to the same closed family.",
+            (
+                ("item-a", "The experiment refuted the hypothesis."),
+                ("item-b", "This repair belongs to the same closed family."),
+            ),
+        ),
+    ],
+)
+def test_parse_retire_tasks(lines: str, expected: tuple) -> None:
+    verdict = parse_planner_text(
+        "PROJECT_DONE=false\nREASON=Retire the refuted line of work.\n" + lines
+    )
+
+    assert verdict.error == ""
+    assert verdict.new_tasks == []
+    assert verdict.retire_tasks == expected
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["RETIRE_TASK=item-a", "RETIRE_TASK=item-a | ", "RETIRE_TASK= | No item.", "RETIRE_TASK="],
+)
+def test_parse_retire_task_ignores_malformed_line(line: str) -> None:
+    verdict = parse_planner_text("PROJECT_DONE=true\nREASON=Work is complete.\n" + line)
+
+    assert verdict.error == ""
+    assert verdict.retire_tasks == ()
+
+
+def test_retire_tasks_use_only_the_footer_before_plan_update() -> None:
+    verdict = parse_planner_text(
+        "RETIRE_TASK=quoted | Discard this earlier thought.\n"
+        "Decision:\nPROJECT_DONE=false\nWAITING=true\nREASON=Await new evidence.\n"
+        "RETIRE_TASK=item-a | The hypothesis was refuted.\n"
+        "PLAN_UPDATE=# Research plan\n"
+        "RETIRE_TASK=plan-text | This is document content."
+    )
+
+    assert verdict.error == ""
+    assert verdict.waiting
+    assert verdict.retire_tasks == (("item-a", "The hypothesis was refuted."),)
 
 
 def test_structured_planner_payload_preserves_list_item_text() -> None:
@@ -315,16 +367,22 @@ def test_planner_accepts_json_decision_without_event_prefix(text: str) -> None:
 
 
 def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> None:
-    assert "Planner read-only delegation contract" in _PLANNER_CORE_CONTRACT
-    assert "Do not edit project files" in _PLANNER_CORE_CONTRACT
-    assert "Engineer owns edits" in _PLANNER_CORE_CONTRACT
+    assert 'Assigning work' in _PLANNER_CORE_CONTRACT
+    assert 'do not edit.' in _PLANNER_CORE_CONTRACT
+    assert 'Engineer implements, runs commands and tests, and iterates' in _PLANNER_CORE_CONTRACT
     assert "ARGUS_ROLE_DECISION=" not in _PLANNER_CORE_CONTRACT
     assert "PROJECT_DONE=false" in _PLANNER_CORE_CONTRACT
     assert "TASK_KEY=k1" in _PLANNER_CORE_CONTRACT
+    assert "RETIRE_TASK=<item id> | <one-sentence reason>" in _PLANNER_CORE_CONTRACT
+    assert 'never retire running or done work' in _PLANNER_CORE_CONTRACT
     assert "`wake_on`" in _PLANNER_CORE_CONTRACT
-    assert "semantically" in _PLANNER_CORE_CONTRACT
+    assert '`wake_on` (synonyms/combined sources)' in _PLANNER_CORE_CONTRACT
     assert "synonyms/combined sources" in _PLANNER_CORE_CONTRACT
-    assert "bounded poll" in _PLANNER_CORE_CONTRACT
+    assert 'timed rechecks' in _PLANNER_CORE_CONTRACT
+    assert 'When only Argus running/paused_external_work dependencies remain' in _PLANNER_CORE_CONTRACT
+    assert "`WAITING=true`" in _PLANNER_CORE_CONTRACT
+    assert "`WAIT_ID=<live subagent or\n  team work id from live_subagent_work_ids>`" in _PLANNER_CORE_CONTRACT
+    assert "no `TASK_*` blocks" in _PLANNER_CORE_CONTRACT
     for field in ("`TASK_TITLE`", "`TASK_OBJECTIVE`", "`TASK_ACCEPTANCE_CHECK`"):
         assert field in _PLANNER_CORE_CONTRACT
     for field in (
@@ -336,17 +394,17 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
     ):
         assert field not in _PLANNER_CORE_CONTRACT
     assert "`TASK_SCOPE`" in _PLANNER_CORE_CONTRACT
-    assert "optional (default `bounded`)" in _PLANNER_CORE_CONTRACT
-    assert "optional (omit to hold)" in _PLANNER_CORE_CONTRACT
+    assert '`TASK_SCOPE`\n  defaults to `bounded`' in _PLANNER_CORE_CONTRACT
+    assert 'Optional `ADVANCE_TO_STAGE` must be Host-valid; omit to hold' in _PLANNER_CORE_CONTRACT
     assert "enqueue-time validation/normalization" not in _PLANNER_CORE_CONTRACT
     assert "external algorithm" in _PLANNER_CORE_CONTRACT
-    assert "primary-source grounding" in _PLANNER_CORE_CONTRACT
-    assert "starting context, not a" in _PLANNER_CORE_CONTRACT
-    assert "fresh paper/source/issue/hardware investigation" in _PLANNER_CORE_CONTRACT
-    assert "When related attempts repeatedly fail" in (
+    assert 'Ground external algorithms beyond Wiki/Skills in primary sources' in _PLANNER_CORE_CONTRACT
+    assert 'beyond Wiki/Skills' in _PLANNER_CORE_CONTRACT
+    assert 'Consult papers,\n  source, issues, or hardware when consequential' in _PLANNER_CORE_CONTRACT
+    assert 'Repeated failures require rereading' in (
         _PLANNER_CORE_CONTRACT
     )
-    assert "official implementations" in _PLANNER_CORE_CONTRACT
+    assert 'official code' in _PLANNER_CORE_CONTRACT
 
 
 @pytest.mark.parametrize(
@@ -391,11 +449,11 @@ def test_planner_forbids_binary_outcome_labels_and_standing_keeps_exploring(
     )
 
     assert "accepted " + "no" + "-go" not in finite.lower()
-    assert "bare launch verdict" in finite.lower()
+    assert 'never a bare work announcement' in finite.lower()
     assert "what happened" in finite
-    assert "timing/profiling" in finite
-    assert "This campaign remains active until the operator stops it" not in finite
-    assert "This campaign remains active until the operator stops it" in standing
+    assert 'timing, profiling' in finite
+    assert 'Continue until stopped by the operator' not in finite
+    assert 'Continue until stopped by the operator' in standing
 
 
 def test_parse_planner_allows_binary_outcome_words_inside_a_task() -> None:
@@ -824,13 +882,125 @@ def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
     assert "Do not use tools" in runner.calls[1]["prompt"]
     assert NO_CONCRETE_TASKS_ERROR in runner.calls[1]["prompt"]
     assert "PROJECT_DONE=false" in runner.calls[1]["prompt"]
-    assert "If work remains, include concrete tasks" in runner.calls[1]["prompt"]
+    assert "If work can start now, include concrete tasks" in runner.calls[1]["prompt"]
     assert "TASK_TITLE=Run the next decisive check" in runner.calls[1]["prompt"]
     assert (
         "TASK_OBJECTIVE=execute the concrete check required by current evidence"
         in runner.calls[1]["prompt"]
     )
     assert runner.calls[1]["options"].working_dir == "/tmp/project"
+
+
+def test_repair_missing_waiting_marker_preserves_in_flight_wait(monkeypatch) -> None:
+    # The production response named the blocker but omitted WAITING=true.
+    fields = (
+        "PROJECT_DONE=false\n"
+        "REASON=Wait for the existing blind test to finish.\n"
+        "BLOCKER_FINGERPRINT=blind-test\n"
+        "RECHECK_CONDITION=blind-test finishes\n"
+        "RECHECK_TOKEN=blind-test-run-1\n"
+    )
+    runner = _SequenceRunner([
+        fields,
+        fields + "WAITING=true\nWAIT_MODE=event\nWAKE_ON=subagent_state\nWAIT_ID=blind-test",
+    ])
+    monkeypatch.setattr(
+        Planner, "_build_planner_prompt", staticmethod(lambda **kwargs: "planner prompt")
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="assess the blind test",
+        config=PlannerConfig(working_dir="/tmp/project"),
+    )
+
+    assert len(runner.calls) == 2
+    repair = runner.calls[1]["prompt"]
+    assert "Blocker fields alone do not declare waiting" in repair
+    assert "`WAITING=true` and no `TASK_*` blocks" in repair
+    assert "background work launched by Argus" in repair
+    assert verdict.error == ""
+    assert verdict.waiting is True
+    assert verdict.project_done is False
+    assert verdict.new_tasks == []
+    assert verdict.waiting_contract is not None
+    assert verdict.waiting_contract.wait_id == "blind-test"
+    assert verdict.waiting_contract.wake_on == ("subagent_state",)
+
+
+@pytest.mark.parametrize("project_done", ["false", "true"])
+def test_repair_preserves_certified_increment_operator_handoff(
+    monkeypatch, tmp_path, project_done,
+) -> None:
+    reason = (
+        "Current final certification is accepted; "
+        "waiting for new explicit operator direction."
+    )
+    footer = (
+        "PROJECT_DONE=false\n"
+        f"REASON={reason}\n"
+        "WAITING=true\n"
+        "BLOCKER_FINGERPRINT=new-operator-direction\n"
+        "RECHECK_CONDITION=New explicit operator instruction arrives\n"
+        "RECHECK_TOKEN=accepted-increment\n"
+        "OPERATOR_ACTION_REQUIRED=true\n"
+        "WAIT_MODE=event\n"
+        "WAKE_ON=operator_input\n"
+        "ALLOW_VERIFICATION_PROBE=false\n"
+        "STAGE_RECONCILIATION_REQUIRED=false\n"
+    )
+    runner = _SequenceRunner([
+        f"PROJECT_DONE={project_done}\nREASON={reason}",
+        footer,
+    ])
+    monkeypatch.setattr(
+        Planner, "_build_planner_prompt",
+        staticmethod(lambda **kwargs: (
+            "The final stage is complete and the current increment is certified. "
+            "No active backlog or live subagent work remains. Latest operator "
+            "instruction: report only; preserve the artifact and create no new work."
+        )),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="keep improving the standing research campaign",
+        config=PlannerConfig(working_dir=str(tmp_path), open_ended=True),
+    )
+
+    assert len(runner.calls) == 2
+    repair = runner.calls[1]["prompt"]
+    assert "latest explicit operator instructions" in repair
+    assert "no-new-work" in repair
+    assert "current final certification" in repair
+    assert "final stage is complete" in repair
+    assert "no active backlog or live subagent work remains" in repair
+    assert "Uncertified work or a generic empty response" in repair
+    assert "Do not set `project_done=true`" in repair
+    assert "Delegate the next distinct task, or use" not in repair
+    assert "`waiting` only for a real external blocker" not in repair
+    assert "Re-inspect current project reality" not in repair
+    assert "PROJECT_DONE=false\nWAITING=true\n" in repair
+    for field in (
+        "OPERATOR_ACTION_REQUIRED=true", "WAIT_MODE=event",
+        "WAKE_ON=operator_input", "ALLOW_VERIFICATION_PROBE=false",
+        "STAGE_RECONCILIATION_REQUIRED=false",
+        "BLOCKER_FINGERPRINT=new-operator-direction",
+        "RECHECK_CONDITION=New explicit operator instruction arrives",
+        "RECHECK_TOKEN=<current certified increment reference>",
+    ):
+        assert field in repair
+    assert runner.calls[1]["resume_thread_id"] == "planner-thread"
+    assert verdict.error == ""
+    assert verdict.project_done is False
+    assert verdict.waiting is True
+    assert verdict.reason == reason
+    assert verdict.new_tasks == []
+    assert verdict.waiting_contract is not None
+    assert verdict.waiting_contract.operator_action_required is True
+    assert verdict.waiting_contract.blocker_fingerprint == "new-operator-direction"
+    assert verdict.waiting_contract.recheck_token == "accepted-increment"
+    assert verdict.waiting_contract.wake_on == ("operator_input",)
+    assert verdict.waiting_contract.allow_verification_probe is False
+    assert verdict.waiting_contract.stage_reconciliation_required is False
 
 
 def test_plan_next_accepts_structured_decision_with_redundant_brace(monkeypatch) -> None:
@@ -940,6 +1110,47 @@ def test_plan_next_holds_stage_when_staged_advance_is_missing(monkeypatch) -> No
     assert verdict.advance_to_stage == ""
     assert len(runner.calls) == 1
     assert "advance_to_stage missing; holding current stage" in verdict.diagnostics
+
+
+def test_missing_stage_holds_valid_task_after_scope_normalization(
+    monkeypatch,
+) -> None:
+    runner = _SequenceRunner([
+        "\n".join(
+            [
+                "PROJECT_DONE=false",
+                "REASON=review the isolated candidate",
+                "TASK_KEY=review-candidate",
+                "TASK_TITLE=Review candidate",
+                "TASK_OBJECTIVE=Review exactly the frozen candidate rows.",
+                "TASK_SCOPE=bounded；one isolated review mission",
+            ]
+        ),
+    ])
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "original planner prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="audit the candidate",
+        planning_cycle=10,
+        config=PlannerConfig(
+            working_dir="/tmp/project",
+            require_stage_decision=True,
+            current_stage="solve",
+        ),
+    )
+
+    assert verdict.error == ""
+    assert verdict.advance_to_stage == ""
+    assert len(runner.calls) == 1
+    assert "advance_to_stage missing; holding current stage" in verdict.diagnostics
+    assert verdict.new_tasks[0].scope == "bounded"
+    assert verdict.new_tasks[0].objective == (
+        "Review exactly the frozen candidate rows."
+    )
 
 
 def test_plan_next_keeps_task_containing_binary_outcome_label(monkeypatch) -> None:
@@ -1116,8 +1327,9 @@ def test_plan_next_ignores_malformed_context_ref_metadata(monkeypatch) -> None:
     assert len(runner.calls) == 1
 
 
+@pytest.mark.parametrize("open_ended", [False, True])
 def test_plan_next_reports_bounded_failure_after_empty_task_repair_exhaustion(
-    monkeypatch,
+    monkeypatch, open_ended,
 ) -> None:
     runner = _SequenceRunner([
         "PROJECT_DONE=false\nREASON=still not complete",
@@ -1131,7 +1343,7 @@ def test_plan_next_reports_bounded_failure_after_empty_task_repair_exhaustion(
 
     verdict = Planner(runner).plan_next(
         continuous_objective="fix the verifier",
-        config=PlannerConfig(working_dir="/tmp/project"),
+        config=PlannerConfig(working_dir="/tmp/project", open_ended=open_ended),
     )
 
     assert verdict.project_done is False
@@ -1209,3 +1421,74 @@ def test_planner_zero_exit_fatal_error_preserves_actionable_reason() -> None:
         "ignored old stderr\n"
         "recent stderr detail"
     )
+
+
+def test_planner_config_reads_the_shared_rolling_session_budget(monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", raising=False)
+    assert PlannerConfig().role_session_max_input_tokens == 120_000
+
+    # The same environment knob that budgets Engineer rolling sessions in
+    # round_config and the loop entry now budgets the Planner's session.
+    monkeypatch.setenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", "42000")
+    assert PlannerConfig().role_session_max_input_tokens == 42_000
+
+    monkeypatch.setenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", "not-a-number")
+    assert PlannerConfig().role_session_max_input_tokens == 120_000
+
+
+def test_planner_turn_budget_outlives_a_long_campaign() -> None:
+    # Six turns rotated the Planner hundreds of times across one 48-hour run,
+    # each rotation re-paying the full static prompt with a cold cache.
+    assert PlannerConfig().role_session_max_turns == 20
+
+
+def test_parse_planner_objective_keeps_the_brief_that_follows_it() -> None:
+    # An implementation brief is a document: claim, components, interfaces,
+    # tests, commands. Everything up to the next field belongs to the objective,
+    # including blank lines, fenced commands and a field the reader never heard of.
+    verdict = parse_planner_text(
+        "PROJECT_DONE=false\n"
+        "REASON=Open the experiment stage.\n"
+        "TASK_KEY=exp_spec\n"
+        "TASK_TITLE=Author METHOD.md and tests/spec\n"
+        "TASK_OBJECTIVE=## Claim\n"
+        "The method halves the error at equal budget.\n"
+        "\n"
+        "## Components to implement this task\n"
+        "1. `radial_quadrature`: `src/quadrature.py:RadialQuadrature`\n"
+        "\n"
+        "## Commands\n"
+        "```bash\n"
+        "CUDA_VISIBLE_DEVICES=1 python -m pytest tests/spec -v\n"
+        "```\n"
+        "TASK_STAGE_CLOSING=false\n"
+        "TASK_ACCEPTANCE_CHECK=pytest tests/spec exits zero\n"
+    )
+
+    assert verdict.error == ""
+    task = verdict.new_tasks[0]
+    assert task.title == "Author METHOD.md and tests/spec"
+    assert task.objective.startswith("## Claim\nThe method halves the error")
+    assert "## Components to implement this task" in task.objective
+    assert "CUDA_VISIBLE_DEVICES=1 python -m pytest tests/spec -v" in task.objective
+    assert "TASK_STAGE_CLOSING" not in task.objective
+    assert "pytest tests/spec exits zero" not in task.objective
+    assert task.acceptance_check == "pytest tests/spec exits zero"
+
+
+def test_parse_numbered_planner_objective_keeps_its_following_lines() -> None:
+    verdict = parse_planner_text(
+        "PROJECT_DONE=false\n"
+        "REASON=Delegate.\n"
+        "TASK_1_TITLE=Certify\n"
+        "TASK_1_OBJECTIVE=## Claim\n"
+        "Produce the theorem.\n"
+        "- one lemma per file\n"
+        "TASK_1_ACCEPTANCE_CHECK=Run the verifier.\n"
+    )
+
+    assert verdict.error == ""
+    assert verdict.new_tasks[0].objective == (
+        "## Claim\nProduce the theorem.\n- one lemma per file"
+    )
+    assert verdict.new_tasks[0].acceptance_check == "Run the verifier."

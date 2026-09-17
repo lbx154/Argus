@@ -1,4 +1,4 @@
-"""M0 tests for the web/TUI backend API (argus_skill/webapi/server.py).
+"""M0 tests for the web/TUI backend API (argus/webapi/server.py).
 
 Uses a temp global_root with a hand-built fake project so no daemon is needed.
 Skips cleanly if the ``[web]`` extra (fastapi) is not installed.
@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.cost_control import CostControlLockBusyError
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.core.transcript import append_turn
-from argus_skill.core.usage import UsageLedger, UsageRecord
-from argus_skill.webapi import project_state, server
-from argus_skill.webapi.protocol import (
+from argus.core.cost_control import CostControlLockBusyError
+from argus.core.session import SessionMeta, write_session_meta
+from argus.core.transcript import append_turn
+from argus.core.usage import UsageLedger, UsageRecord
+from argus.webapi import project_state, server
+from argus.webapi.protocol import (
     API_CAPABILITIES,
     API_PROTOCOL_MAJOR,
     API_PROTOCOL_MINOR,
@@ -271,7 +271,7 @@ def test_snapshot_reuses_host_cost_and_usage_across_projects(
         calls["usage"] += 1
         return project_state._empty_usage_summary()
 
-    import argus_skill.life.supervisor as supervisor_module
+    import argus.life.supervisor as supervisor_module
 
     monkeypatch.setattr(project_state, "cost_control_snapshot", cost)
     monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", usage)
@@ -306,7 +306,7 @@ def test_compact_snapshot_never_reports_global_usage_below_project_usage(
         calls += 1
         return project_usage
 
-    import argus_skill.life.supervisor as supervisor_module
+    import argus.life.supervisor as supervisor_module
 
     monkeypatch.setattr(project_state, "project_usage_summary", lambda _root: project_usage)
     monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", global_usage)
@@ -333,8 +333,11 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
     _make_project(tmp_path, "s-nonblocking-host")
     started = threading.Event()
     release = threading.Event()
+    request_thread = threading.get_ident()
+    refresh_threads: list[int] = []
 
     def slow_cost(*, global_root):
+        refresh_threads.append(threading.get_ident())
         started.set()
         assert release.wait(timeout=5.0)
         return {"day": "2026-07-27", "active_reservations": 0}
@@ -342,7 +345,7 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
     def usage(*, global_root, now=None):
         return project_state._empty_usage_summary()
 
-    import argus_skill.life.supervisor as supervisor_module
+    import argus.life.supervisor as supervisor_module
 
     monkeypatch.setattr(project_state, "cost_control_snapshot", slow_cost)
     monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", usage)
@@ -353,20 +356,19 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
     with project_state._HOST_REFRESHING_LOCK:
         project_state._HOST_REFRESHING.clear()
 
-    before = time.monotonic()
     snap = server.build_snapshot(
         "s-nonblocking-host",
         global_root=tmp_path,
         compact=True,
     )
-    elapsed = time.monotonic() - before
 
     try:
         assert snap is not None
-        assert elapsed < 0.5
         assert snap["cost_control"] is None
         assert snap["global_usage_summary"]["call_count"] == 0
         assert started.wait(timeout=1.0)
+        assert len(refresh_threads) == 1
+        assert refresh_threads[0] != request_thread
     finally:
         release.set()
 
@@ -383,7 +385,7 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
 def test_project_index_and_routes_span_machine_session_roots(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.life.memory import BacklogItem, LifeMemory
+    from argus.life.memory import BacklogItem, LifeMemory
 
     primary = tmp_path / "private"
     machine = tmp_path / "machine"
@@ -545,20 +547,25 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout(
     assert Path(meta["runtime"]["source_root"]) == Path(__file__).parents[2]
     assert meta["runtime"]["pid"] > 0
     assert meta["runtime"]["desktop_launch_nonce"] == "desktop-launch-test"
-    runtime = meta["runtime"]
-    assert runtime["release_id"].startswith("0.1.1+")
-    assert runtime["release_matches_source"] is (
-        runtime["manifest_source_digest"] == runtime["runtime_source_digest"]
-    )
 
 
-def test_web_serve_refuses_strict_release_mismatch(monkeypatch) -> None:
+def test_web_serve_refuses_a_mismatched_source_root(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.runtime_identity.release_match_preflight_error",
-        lambda: "release mismatch",
+        "argus.core.runtime_identity.source_root_preflight_error",
+        lambda: "source-root mismatch",
     )
 
-    with pytest.raises(RuntimeError, match="webapi refused inconsistent release"):
+    with pytest.raises(RuntimeError, match="webapi refused mismatched source root"):
+        server.serve()
+
+
+def test_web_serve_refuses_a_configured_root_the_launcher_did_not_load(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_SOURCE_ROOT", str(tmp_path / "other-worktree"))
+
+    with pytest.raises(RuntimeError, match="webapi refused mismatched source root"):
         server.serve()
 
 
@@ -613,6 +620,7 @@ def test_build_snapshot_shape_and_failsoft(
         "daemon",
         "roles",
         "backlog",
+        "pending_questions",
         "recent_events",
         "spend_usd",
         "spend_status",
@@ -635,7 +643,7 @@ def test_build_snapshot_shape_and_failsoft(
     assert snap["cost_control"]["unresolved_calls"] == 0
     assert snap["daemon_commands"]["revision"] == 0
     assert snap["observability"]["slo"]["status"] == "healthy"
-    assert snap["mission_view"]["schema_version"] == 6
+    assert snap["mission_view"]["schema_version"] == 7
     assert len(snap["roles"]) == 4  # manager/planner/engineer/reviewer
     assert {r["role"] for r in snap["roles"]} == {"manager", "planner", "engineer", "reviewer"}
     assert len(snap["recent_events"]) == 2
@@ -691,13 +699,10 @@ def test_compact_snapshot_never_runs_expensive_metrics_projection(
     with project_state._METRICS_CACHE_LOCK:
         project_state._METRICS_CACHE.clear()
     try:
-        before = time.monotonic()
         snap = server.build_snapshot("s-fast", global_root=tmp_path, compact=True)
-        elapsed = time.monotonic() - before
 
         assert snap is not None
         assert snap["observability"] is None
-        assert elapsed < 0.5
         assert calls == 0
 
         full = server.build_snapshot("s-fast", global_root=tmp_path)
@@ -941,7 +946,6 @@ def test_get_meta_is_public_versioned_and_uncached(
     assert r.headers["x-argus-protocol"] == (
         f"argus.webapi/{API_PROTOCOL_MAJOR}.{API_PROTOCOL_MINOR}"
     )
-    assert r.headers["x-argus-release"].startswith("0.1.1+")
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["authentication"] == {
         "required": True,
@@ -981,11 +985,36 @@ def test_system_doctor_requires_auth_and_returns_typed_read_only_report(
     }
 
 
+def test_system_doctor_probes_its_bound_address_not_default_or_host_header(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes = []
+
+    def probe_web(host: str, port: int):
+        probes.append((host, port))
+        return "compatible", {"service": "argus-skill-webapi"}
+
+    monkeypatch.setattr("argus.maintenance.doctor._probe_web", probe_web)
+    app = server.create_app(global_root=tmp_path, auth_token="secret")
+    with TestClient(app, base_url="http://127.0.0.1:55418") as doctor_client:
+        response = doctor_client.get(
+            "/api/system/doctor",
+            headers={"Authorization": "Bearer secret", "Host": "elsewhere.invalid:8799"},
+        )
+
+    assert response.status_code == 200
+    assert probes == [("127.0.0.1", 55418)]
+    web = next(item for item in response.json()["findings"] if item["scope"] == "web")
+    assert web["evidence"]["host"] == "127.0.0.1"
+    assert web["evidence"]["port"] == 55418
+
+
 def test_system_resources_requires_auth_and_redacts_status(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.tools.resource_ledger import ledger as resource_ledger
+    from argus.tools.resource_ledger import ledger as resource_ledger
 
     now = time.time()
     long_reason = "please   release\n" + "x" * 400

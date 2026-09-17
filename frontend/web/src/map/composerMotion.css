@@ -1,0 +1,284 @@
+/* The island and editor share one surface. Only its bounds move; text and the
+   Argus mark keep their proportions throughout the expansion. */
+.map-composer-dock.map-island-dock {
+  /* Corridor between the legend (bottom-left, ~300px wide at left: 76px) and
+     the minimap (bottom-right, ~160x110 including margins). The expanded
+     panel prefers dead center, slides right just enough to clear the legend,
+     and is capped so it clears the minimap while the corridor still fits. */
+  --island-clear-left: 392px;
+  --island-clear-right: 176px;
+  --composer-width: clamp(320px, calc(100% - var(--island-clear-left) - var(--island-clear-right)), 560px);
+  /* iOS-island feel: fast start, long soft landing. */
+  --island-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  left: min(
+    max(50%, calc(var(--island-clear-left) + var(--composer-width) / 2)),
+    calc(100% - var(--composer-width) / 2 - 13px)
+  );
+  width: var(--composer-width);
+  max-width: calc(100% - 26px);
+  /* Only width animates; `left` snaps (the corridor shift is 0 on wide
+   * canvases, and animating it doubled the per-frame layout work). The dock
+   * subtree is layout-contained so the expansion never reflows the canvas. */
+  transition: width 280ms var(--island-ease);
+  contain: layout;
+  will-change: width;
+}
+.map-composer-dock.map-island-dock[data-compact="true"] {
+  left: 50%;
+  width: 278px;
+}
+.map-composer-dock.map-island-dock[data-compact="true"][data-pending="true"] {
+  width: 340px;
+}
+.map-island-dock .map-island-surface {
+  position: relative;
+  display: block;
+  height: calc(var(--map-editor-height) + 80px);
+  max-height: 40vh;
+  padding: 0;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid rgb(var(--line) / .8);
+  border-radius: 25px;
+  background: var(--map-paper);
+  box-shadow: 0 9px 28px #233b5510, 0 2px 5px #233b5509;
+  transition: height 280ms var(--island-ease), border-radius 280ms var(--island-ease),
+    background-color 220ms ease, border-color 220ms ease, box-shadow 260ms ease;
+  transform: translateZ(0);
+  will-change: height;
+}
+.map-island-dock .map-island-surface:focus-within {
+  border-color: #a0b8cb;
+  box-shadow: 0 10px 32px #233b5516;
+}
+.map-island-dock[data-compact="true"] .map-island-surface {
+  height: 60px;
+  border-radius: 32px;
+}
+.map-island-dock .map-composer-brand {
+  position: absolute;
+  z-index: 3;
+  left: 15px;
+  bottom: 13px;
+  width: 34px;
+  height: 34px;
+  transition: background-color 160ms ease, opacity 160ms ease;
+}
+.map-island-dock[data-compact="true"] .map-composer-brand {
+  pointer-events: none;
+}
+.map-island-dock .map-composer-brand path,
+.map-island-dock .map-composer-brand circle {
+  transition: fill 220ms ease;
+}
+.map-island-launch {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 19px 0 61px;
+  text-align: left;
+  color: rgb(var(--ink));
+  opacity: 0;
+  transform: translateY(-7px) scale(0.985);
+  pointer-events: none;
+  transition: opacity 90ms ease, transform 280ms var(--island-ease);
+}
+.map-island-dock[data-compact="true"] .map-island-launch {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+  transition: opacity 160ms ease 70ms, transform 280ms var(--island-ease);
+}
+.map-island-launch:focus-visible {
+  outline: 2px solid #a3bccf;
+  outline-offset: -5px;
+  border-radius: inherit;
+}
+.map-island-copy {
+  min-width: 0;
+  flex: 1;
+}
+.map-island-copy strong,
+.map-island-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-island-copy strong {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 580;
+  letter-spacing: .01em;
+}
+.map-island-copy small {
+  color: rgb(var(--ink-faint));
+  font-size: 11px;
+  line-height: 16px;
+}
+.map-island-indicator {
+  display: grid;
+  place-items: center;
+  flex: 0 0 18px;
+  color: rgb(var(--ink-dim));
+}
+.map-island-dock[data-state="sent"] .map-island-indicator,
+.map-island-dock[data-state="task"] .map-island-indicator,
+.map-island-dock[data-state="message"] .map-island-indicator {
+  color: rgb(var(--ok));
+}
+.map-island-dock[data-pending="true"] .map-island-launch {
+  right: 45px;
+  padding-right: 10px;
+  gap: 12px;
+}
+.map-island-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  color: rgb(var(--blue));
+}
+.map-island-wave i {
+  width: 2px;
+  height: 13px;
+  border-radius: 2px;
+  background: currentColor;
+  animation: map-island-listening 1.1s ease-in-out infinite;
+}
+.map-island-wave i:nth-child(2) { animation-delay: -260ms; }
+.map-island-wave i:nth-child(3) { animation-delay: -520ms; }
+.map-island-stop {
+  position: absolute;
+  right: 12px;
+  top: 14px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgb(var(--line) / .8);
+  border-radius: 50%;
+  color: rgb(var(--ink-dim));
+  background: rgb(var(--line) / .25);
+}
+.map-island-stop:hover { background: rgb(var(--line) / .6); }
+.map-island-stop:focus-visible { outline: 2px solid #a3bccf; outline-offset: 2px; }
+.map-island-dock .map-composer-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 15px 13px;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 180ms ease 90ms, transform 280ms var(--island-ease) 40ms;
+}
+.map-island-dock[data-compact="true"] .map-composer-editor {
+  opacity: 0;
+  transform: translateY(9px);
+  pointer-events: none;
+  transition: opacity 80ms ease, transform 280ms var(--island-ease);
+}
+.map-island-dock .map-composer textarea {
+  display: block;
+  flex: none;
+  width: 100%;
+  min-height: 44px;
+  /* Keep the whole surface within ~40vh on short viewports. */
+  max-height: min(156px, calc(40vh - 104px));
+  padding: 0 3px;
+  font-size: 15px;
+  line-height: 26px;
+  overscroll-behavior: contain;
+}
+.map-island-dock .map-reference-chips {
+  max-height: 96px;
+  overflow-y: auto;
+}
+.map-island-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 38px;
+  padding-left: 44px;
+}
+.map-island-collapse {
+  display: grid;
+  place-items: center;
+  flex: 0 0 26px;
+  height: 28px;
+  border-radius: 7px;
+  color: rgb(var(--ink-faint));
+}
+.map-island-collapse:hover { background: rgb(var(--line) / .6); }
+.map-island-collapse:focus-visible { outline: 2px solid #a3bccf; }
+.map-island-key-hint {
+  flex: 1;
+  color: rgb(var(--ink-faint));
+  font-size: 11px;
+  white-space: nowrap;
+}
+.map-island-dock .map-route-select {
+  margin-left: auto;
+  border-color: transparent;
+  padding: 6px;
+  max-width: 98px;
+}
+.map-island-dock .map-route-select:hover { background: rgb(var(--line) / .35); }
+.map-island-dock .map-send {
+  width: 36px;
+  height: 36px;
+  background: #2d536f;
+  transition: background-color 150ms ease, transform 160ms ease, opacity 100ms ease;
+}
+.map-island-dock .map-send:disabled { background: rgb(var(--line) / .7); }
+.map-island-dock .map-send:not(:disabled):hover { background: #24445b; transform: translateY(-1px); }
+.map-island-dock .map-send:not(:disabled):active { transform: scale(.92); }
+.map-island-dock[data-compact="true"] .map-send,
+.map-island-dock[data-compact="true"]:hover .map-send { width: 36px; opacity: 0; pointer-events: none; }
+.map-island-dock .map-composer-caption {
+  max-width: 100%;
+  transition: opacity 160ms ease;
+}
+.map-island-dock[data-compact="true"] .map-composer-caption {
+  opacity: 0;
+}
+.map-island-dock[data-state="error"] .map-composer-caption {
+  color: rgb(var(--err));
+}
+@keyframes map-island-listening {
+  0%, 100% { transform: scaleY(.38); opacity: .65; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+/* Hovering the island expands it (handled in MapComposer with a leave grace
+ * period); the border glow below only bridges the first hover frames. */
+@media (hover: hover) and (pointer: fine) {
+  .map-island-dock[data-compact="true"] .map-island-surface:hover {
+    border-color: #a0b8cb;
+    box-shadow: 0 10px 32px #233b5516;
+  }
+}
+@media (max-width: 640px) {
+  /* Mobile keeps the historical behavior: centered, near-full-width, and no
+     corridor or 40vh caps (the legend and minimap move out of the way). */
+  .map-composer-dock.map-island-dock {
+    --composer-width: calc(100% - 26px);
+    left: 50%;
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+  .map-island-dock .map-composer textarea { font-size: 16px; max-height: 156px; }
+  .map-island-dock .map-island-surface { border-radius: 23px; max-height: none; }
+  .map-island-dock .map-reference-chips { max-height: 65px; }
+  .map-island-key-hint { visibility: hidden; width: 0; }
+  .map-island-toolbar { gap: 6px; }
+  .map-island-dock .map-route-select { max-width: 105px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-composer-dock.map-island-dock,
+  .map-island-dock *,
+  .map-island-dock *::before,
+  .map-island-dock *::after { animation: none !important; transition: none !important; }
+}

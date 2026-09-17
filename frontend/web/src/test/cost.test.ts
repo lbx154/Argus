@@ -6,7 +6,7 @@ import type { EventMsg } from '../api';
 import { CostGauge } from '../components/CostGauge';
 
 /** Parity with frontend/tui/test/cost.test.ts — web spend math must match the
- *  terminal exactly (both port argus_skill cost accounting). */
+ *  terminal exactly (both port argus cost accounting). */
 describe('computeSpend', () => {
   it('does not aggregate lifecycle-event costs', () => {
     const events: EventMsg[] = [

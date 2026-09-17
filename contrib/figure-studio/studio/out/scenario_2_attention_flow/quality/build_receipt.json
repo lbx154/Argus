@@ -1,0 +1,106 @@
+{
+  "receipt_version": "2.0",
+  "figure_id": "scenario_2_attention_flow",
+  "route": "ppt-master",
+  "contract_source": "/data/v-boxiuli/argus_figure_test/studio/contracts/scenario_2_attention_flow.json",
+  "validation": "/data/v-boxiuli/argus_figure_test/studio/figure_contract.schema.json",
+  "artifacts": {
+    "contract": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/contract.json",
+      "sha256": "463ac173817382c5f23e028cb078b5746c0307c1046fae718d0584740b08f9aa"
+    },
+    "svg": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.svg",
+      "sha256": "7dbb0dfdde1be6487722738685dca55959f56bbdaab7ef1298608baadcd42936"
+    },
+    "png": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.png",
+      "sha256": "1d8965ff78c93782a0ed378c4c0441ad8beed2baa4fd83f45f5ceb2230bab2c9"
+    },
+    "pdf": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pdf",
+      "sha256": "454196fce82a7795e48374681bf63724dcda9b28dd4dd91a80c458ebcc32318e"
+    },
+    "pptx": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pptx",
+      "sha256": "fba2fc3e8a0186f652442cd99b141f69f56bccca93b6192ed5055e8f7dd94730"
+    }
+  },
+  "steps": [
+    {
+      "name": "load_validate_contract",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/build_figure.py build --contract /data/v-boxiuli/argus_figure_test/studio/contracts/scenario_2_attention_flow.json --out-root /data/v-boxiuli/argus_figure_test/studio/out",
+      "duration_seconds": 0.06947
+    },
+    {
+      "name": "render_svg",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/figma_figure_renderer.py render /data/v-boxiuli/argus_figure_test/studio/contracts/scenario_2_attention_flow.json --output /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.svg",
+      "duration_seconds": 0.244323
+    },
+    {
+      "name": "ensure_pptmaster_project",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py ensure-project /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow scenario_2_attention_flow 178",
+      "duration_seconds": 0.002916
+    },
+    {
+      "name": "pptmaster_checker",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py check-svg /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/svg_output/P01.svg",
+      "duration_seconds": 0.276512
+    },
+    {
+      "name": "gate_pre_export",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/figure_quality_gate_v2.py check /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/svg_output/P01.svg --contract /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/contract.json --output /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/quality/gate_pre.json",
+      "duration_seconds": 0.4565
+    },
+    {
+      "name": "export_pptx",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py export-pptx /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pptx",
+      "duration_seconds": 0.594689
+    },
+    {
+      "name": "pptx_roundtrip",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py roundtrip /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pptx /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/roundtrip",
+      "duration_seconds": 0.340426
+    },
+    {
+      "name": "gate_pptx_editability",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/figure_quality_gate_v2.py check /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/svg_output/P01.svg --contract /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/contract.json --pptx /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pptx --output /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/quality/gate.json",
+      "duration_seconds": 0.475728
+    },
+    {
+      "name": "publication_exports",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python -m cairosvg /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.svg -o /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.png -f png --output-width 2560 && /data/v-boxiuli/argus_test_env/bin/python -m cairosvg /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.svg -o /data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pdf -f pdf",
+      "png_dimensions": {
+        "width": 2560,
+        "height": 1440
+      },
+      "duration_seconds": 0.907348
+    },
+    {
+      "name": "copy_finals",
+      "status": "passed",
+      "repro": "copy final SVG/PNG/PPTX/PDF to /data/v-boxiuli/argus_figure_test/studio",
+      "duration_seconds": 0.002573
+    }
+  ],
+  "gate_summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "tool_revisions": {
+    "ppt_master_git": "2e29f3d3cfc379c689b07027d0fa776b9ff79291",
+    "python": "3.12.3"
+  }
+}

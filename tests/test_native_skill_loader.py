@@ -2,16 +2,16 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import (
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
     BACKEND_COPILOT,
     BACKEND_OPENCODE,
     BACKEND_PI,
 )
-from argus_skill.skills.role_library import role_skill_libraries
-from argus_skill.skills.store import SkillStore
+from argus.skills.role_library import role_skill_libraries
+from argus.skills.store import SkillStore
 
 
 @pytest.mark.parametrize(

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.team import _store
-from argus_skill.team import leaderboard as lb
+from argus.team import _store
+from argus.team import leaderboard as lb
 
 
 def _shard(root: Path, member: str, target: str, metric, mechanism: str,

@@ -1,4 +1,4 @@
-"""Unit tests for Manager Plan mode (``argus_skill.manager.plan_mode``).
+"""Unit tests for Manager Plan mode (``argus.manager.plan_mode``).
 
 Plan mode previews a SHORT step-by-step plan BEFORE any task is queued
 (Codex / Claude-Code / Cursor parity). These tests target the pure parser
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.manager.plan_mode import (
+from argus.manager.plan_mode import (
     build_plan_prompt,
     draft_plan,
     parse_plan_notes,
@@ -293,11 +293,11 @@ def test_draft_plan_resolves_backend_wrapper() -> None:
     assert [s.title for s in plan.steps] == ["Step one"]
 
 
-def test_draft_plan_trims_to_eight_steps() -> None:
+def test_draft_plan_keeps_every_step() -> None:
     many = [{"title": f"Step {i}"} for i in range(20)]
     runner = _StubRunner(json.dumps(many))
     plan = draft_plan(runner, "obj")
-    assert len(plan.steps) == 8
+    assert len(plan.steps) == 20
 
 
 def test_draft_plan_runner_error_sets_explicit_error() -> None:

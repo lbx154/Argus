@@ -48,6 +48,10 @@ html[data-theme="dark"] {
   --ws-space-5: 20px;
   --ws-space-6: 24px;
   --ws-space-8: 32px;
+  --brand-body: #d7d9dc;
+  --brand-eye: #ffffff;
+  --brand-pupil: #202326;
+  --brand-highlight: #ffffff;
 
   /* Compatibility aliases consumed by the current application styles. */
   --void: var(--ws-canvas);
@@ -71,6 +75,10 @@ html[data-theme="dark"] {
 
 html[data-theme="light"] {
   color-scheme: light;
+  --brand-body: #000000;
+  --brand-eye: #ffffff;
+  --brand-pupil: #000000;
+  --brand-highlight: #ffffff;
   --ws-canvas: #f4f6f9;
   --ws-canvas-raised: #eef1f5;
   --ws-surface: #ffffff;

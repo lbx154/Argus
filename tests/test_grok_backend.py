@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import BACKEND_GROK
-from argus_skill.core.token_usage import extract_token_usage
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import BACKEND_GROK
+from argus.core.token_usage import extract_token_usage
 
 
 def _runner(agent_bin: str = "grok") -> AgentCliRunner:

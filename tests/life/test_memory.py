@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from argus_skill.life.memory import (
+from argus.life.memory import (
     Backlog,
     BacklogItem,
     EventJournal,
@@ -151,6 +152,31 @@ def test_event_journal_projects_legacy_team_waiting_as_planner_waiting(
     assert entries[0].kind == "planner_waiting"
 
 
+def test_event_journal_rg_tail_decodes_utf8_independent_of_system_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_text("", encoding="utf-8")
+    output = json.dumps(
+        {"type": "user.note", "ts": 1, "title": "审计", "text": "真实问题"},
+        ensure_ascii=False,
+    )
+
+    monkeypatch.setattr("argus.life.memory.shutil.which", lambda _name: "rg")
+
+    def _run(argv, **kwargs):  # noqa: ANN001, ANN003
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
+        return subprocess.CompletedProcess(argv, 0, stdout=output + "\n", stderr="")
+
+    monkeypatch.setattr("argus.life.memory.subprocess.run", _run)
+
+    tail = EventJournal(path).tail(1)
+
+    assert [entry.title for entry in tail] == ["审计"]
+    assert [entry.summary for entry in tail] == ["真实问题"]
+
+
 def test_event_journal_tail_prefilters_non_journal_json_before_decoding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -170,11 +196,292 @@ def test_event_journal_tail_prefilters_non_journal_json_before_decoding(
         calls += 1
         return original(value, *args, **kwargs)
 
-    monkeypatch.setattr("argus_skill.life.memory.json.loads", _counted)
+    monkeypatch.setattr("argus.life.memory.json.loads", _counted)
     tail = EventJournal(path).tail(1)
 
     assert [entry.summary for entry in tail] == ["keep me"]
     assert calls <= 2
+
+
+def _append_settlement_event(
+    path: Path,
+    *,
+    item_id: str,
+    status: str = "done",
+    success: bool = True,
+    iteration: dict[str, Any] | None = None,
+    title: str = "node",
+) -> None:
+    row: dict[str, Any] = {
+        "type": "life.mission.completed",
+        "item_id": item_id,
+        "ts": time.time(),
+        "success": success,
+        "status": status,
+        "title": title,
+        "summary": status,
+    }
+    if iteration is not None:
+        row["iteration"] = iteration
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+
+def test_event_journal_tail_for_item_returns_only_that_items_settlements(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    mine = "aaaa1111bbbb"
+    other = "cccc2222dddd"
+    _append_settlement_event(
+        path, item_id=mine, status="replan_requested", success=False,
+    )
+    _append_settlement_event(
+        path, item_id=other, status="replan_requested", success=False,
+    )
+    # Journal-level events for the SAME item are not settlements and must not
+    # appear in (or dilute) the per-item settlement tail.
+    with path.open("a", encoding="utf-8") as fh:
+        for row in (
+            {"type": "life.mission.started", "item_id": mine, "title": "node"},
+            {"type": "life.planner.waiting", "item_id": mine, "reason": "wait"},
+            {"type": "user.note", "id": mine, "text": "note"},
+        ):
+            fh.write(json.dumps({**row, "ts": time.time()}) + "\n")
+    _append_settlement_event(
+        path, item_id=mine, status="done", success=True,
+        iteration={"requeued": True},
+    )
+    _append_settlement_event(path, item_id=mine, status="done", success=True)
+
+    entries = EventJournal(path).tail_for_item(mine, n=10)
+
+    # Same kind mapping as tail(): replan/iterated/complete are distinguished.
+    assert [entry.kind for entry in entries] == [
+        "mission_replan_requested", "mission_iterated", "mission_complete",
+    ]
+    assert all(entry.id == mine for entry in entries)
+    assert EventJournal(path).tail_for_item(other, n=10)[0].id == other
+
+
+def test_event_journal_tail_for_item_spans_rollovers_and_truncates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    item_id = "feed3333cafe"
+    for target, title in (
+        (path.with_suffix(".jsonl.2"), "oldest"),
+        (path.with_suffix(".jsonl.3"), "older"),
+        (path.with_suffix(".jsonl.1"), "recent"),
+        (path, "live"),
+    ):
+        _append_settlement_event(
+            target,
+            item_id=item_id,
+            status="replan_requested",
+            success=False,
+            title=title,
+        )
+
+    journal = EventJournal(path)
+    assert [entry.title for entry in journal.tail_for_item(item_id, n=10)] == [
+        "oldest", "older", "recent", "live",
+    ]
+    assert [entry.title for entry in journal.tail_for_item(item_id, n=2)] == [
+        "recent", "live",
+    ]
+    assert journal.tail_for_item(item_id, n=0) == []
+    assert journal.tail_for_item("", n=5) == []
+
+
+def test_event_journal_tail_settlements_skips_journal_chatter(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    _append_settlement_event(
+        path, item_id="aaaa1111bbbb", status="no_progress", success=False,
+        title="failed",
+    )
+    # Journal-level chatter between settlements must not occupy window slots:
+    # settlements from ANY item survive an arbitrarily talkative planner.
+    with path.open("a", encoding="utf-8") as fh:
+        for _ in range(30):
+            fh.write(json.dumps({
+                "type": "life.planner.waiting",
+                "ts": time.time(),
+                "reason": "waiting on external dependency",
+            }) + "\n")
+    _append_settlement_event(
+        path, item_id="cccc2222dddd", status="done", success=True, title="ok",
+    )
+
+    entries = EventJournal(path).tail_settlements(2)
+
+    assert [entry.title for entry in entries] == ["failed", "ok"]
+    assert [entry.kind for entry in entries] == ["mission_failed", "mission_complete"]
+
+
+def test_event_journal_tail_settlements_kinds_filter_owns_window_slots(
+    tmp_path: Path,
+) -> None:
+    """With ``kinds``, only matching settlements occupy window slots.
+
+    Mirrors ``tail_for_item``: the planner failure quarantine passes exactly
+    its quarantine-or-release kinds, so pause/requeue settlements cannot evict
+    an older failure out of a threshold-sized window.
+    """
+    path = tmp_path / "events.jsonl"
+    _append_settlement_event(
+        path, item_id="aaaa1111bbbb", status="no_progress", success=False,
+        title="failed",
+    )
+    # Neutral settlements: a budget pause and an iteration requeue.
+    _append_settlement_event(
+        path, item_id="bbbb2222cccc", status="paused_budget", success=False,
+        title="paused",
+    )
+    _append_settlement_event(
+        path, item_id="cccc3333dddd", status="done", success=True,
+        iteration={"requeued": True}, title="requeued",
+    )
+    _append_settlement_event(
+        path, item_id="dddd4444eeee", status="done", success=True, title="ok",
+    )
+
+    journal = EventJournal(path)
+    filtered = journal.tail_settlements(
+        2, kinds={"mission_failed", "mission_complete"}
+    )
+    unfiltered = journal.tail_settlements(2)
+
+    assert [entry.title for entry in filtered] == ["failed", "ok"]
+    assert [entry.kind for entry in filtered] == [
+        "mission_failed", "mission_complete",
+    ]
+    # Without the filter the same window is spent on the neutral noise.
+    assert [entry.title for entry in unfiltered] == ["requeued", "ok"]
+
+
+def test_event_journal_tail_settlements_spans_rollovers_and_truncates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    # A different item per generation: the settlement tail is journal-wide,
+    # unlike tail_for_item.
+    for target, title, item_id in (
+        (path.with_suffix(".jsonl.2"), "oldest", "item2222aaaa"),
+        (path.with_suffix(".jsonl.3"), "older", "item3333bbbb"),
+        (path.with_suffix(".jsonl.1"), "recent", "item1111cccc"),
+        (path, "live", "item0000dddd"),
+    ):
+        _append_settlement_event(
+            target, item_id=item_id, status="no_progress", success=False,
+            title=title,
+        )
+
+    journal = EventJournal(path)
+    assert [entry.title for entry in journal.tail_settlements(10)] == [
+        "oldest", "older", "recent", "live",
+    ]
+    assert [entry.title for entry in journal.tail_settlements(2)] == [
+        "recent", "live",
+    ]
+    assert journal.tail_settlements(0) == []
+
+
+def test_event_journal_tail_settlements_reads_legacy_spelling(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "mission.completed",
+            "item_id": "legacy1111aa",
+            "ts": time.time(),
+            "success": False,
+            "status": "no_progress",
+            "title": "legacy settlement",
+            "summary": "no progress",
+        }) + "\n")
+
+    entries = EventJournal(path).tail_settlements(5)
+
+    assert [entry.title for entry in entries] == ["legacy settlement"]
+    assert entries[0].kind == "mission_failed"
+
+
+def test_event_journal_tail_kinds_window_ignores_other_journal_kinds(
+    tmp_path: Path,
+) -> None:
+    """Only entries of the requested kinds occupy window slots.
+
+    Mirrors ``tail_settlements``: journal-level chatter between matches must
+    not shrink the window. Unlike ``tail_settlements``, ``budget_pause`` from
+    its independent ``life.budget.pause`` source (not a settlement) still
+    qualifies when asked for.
+    """
+    path = tmp_path / "events.jsonl"
+    _append_settlement_event(
+        path, item_id="aaaa1111bbbb", status="no_progress", success=False,
+        title="failed",
+    )
+    with path.open("a", encoding="utf-8") as fh:
+        for _ in range(30):
+            fh.write(json.dumps({
+                "type": "life.planner.waiting",
+                "ts": time.time(),
+                "reason": "waiting on external dependency",
+            }) + "\n")
+        # Independent (non-settlement) budget_pause event source.
+        fh.write(json.dumps({
+            "type": "life.budget.pause",
+            "ts": time.time(),
+            "title": "cap reached",
+            "reason": "daily cap reached",
+        }) + "\n")
+    _append_settlement_event(
+        path, item_id="cccc2222dddd", status="done", success=True, title="ok",
+    )
+
+    journal = EventJournal(path)
+    entries = journal.tail_kinds(
+        3, kinds={"mission_failed", "mission_complete", "budget_pause"},
+    )
+
+    assert [entry.title for entry in entries] == ["failed", "cap reached", "ok"]
+    assert [entry.kind for entry in entries] == [
+        "mission_failed", "budget_pause", "mission_complete",
+    ]
+    # Kind filtering: unrequested kinds neither appear nor occupy slots.
+    assert [entry.title for entry in journal.tail_kinds(
+        2, kinds={"mission_failed", "mission_complete"},
+    )] == ["failed", "ok"]
+
+
+def test_event_journal_tail_kinds_spans_rollovers_and_truncates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    for target, title, item_id in (
+        (path.with_suffix(".jsonl.2"), "oldest", "item2222aaaa"),
+        (path.with_suffix(".jsonl.3"), "older", "item3333bbbb"),
+        (path.with_suffix(".jsonl.1"), "recent", "item1111cccc"),
+        (path, "live", "item0000dddd"),
+    ):
+        _append_settlement_event(
+            target, item_id=item_id, status="no_progress", success=False,
+            title=title,
+        )
+
+    journal = EventJournal(path)
+    assert [entry.title for entry in journal.tail_kinds(
+        10, kinds={"mission_failed"},
+    )] == ["oldest", "older", "recent", "live"]
+    assert [entry.title for entry in journal.tail_kinds(
+        2, kinds={"mission_failed"},
+    )] == ["recent", "live"]
+    assert journal.tail_kinds(0, kinds={"mission_failed"}) == []
 
 
 # ---------- Backlog --------------------------------------------------------
@@ -480,7 +787,7 @@ def test_identity_default_is_idempotent(tmp_path: Path) -> None:
     assert card.read() == ""
     assert card.ensure_default() is True
     body1 = card.read()
-    assert "argus-skill" in body1
+    assert "argus" in body1
     # Idempotent — second call returns False, doesn't overwrite.
     assert card.ensure_default() is False
     assert card.read() == body1
@@ -499,6 +806,45 @@ def test_default_identity_is_not_model_context(tmp_path: Path) -> None:
     card = IdentityCard(tmp_path / "identity.md")
     card.ensure_default()
     assert card.prompt_text() == ""
+
+
+def test_untouched_pre_rename_default_identity_is_still_the_default(tmp_path: Path) -> None:
+    """An install seeded before the rename must not start injecting the template as operator text.
+
+    The pre-rename card differs from the current one only in its heading
+    (``# argus-skill -- operator identity card``); ``prompt_text()`` treats both
+    as "no identity" and ``ensure_default()`` upgrades the byte-identical old
+    default to the current template.
+    """
+    from argus.life.memory import _DEFAULT_IDENTITY, _LEGACY_DEFAULT_IDENTITY
+
+    assert _LEGACY_DEFAULT_IDENTITY.startswith("# argus-skill — operator identity card\n")
+    assert _DEFAULT_IDENTITY.startswith("# argus — operator identity card\n")
+    assert _LEGACY_DEFAULT_IDENTITY.split("\n", 1)[1] == _DEFAULT_IDENTITY.split("\n", 1)[1]
+
+    path = tmp_path / "identity.md"
+    path.write_text(_LEGACY_DEFAULT_IDENTITY, encoding="utf-8")  # the on-disk card of an old install
+    card = IdentityCard(path)
+    assert card.prompt_text() == ""
+
+    assert card.ensure_default() is True
+    assert card.read() == _DEFAULT_IDENTITY
+    assert card.prompt_text() == ""
+    assert card.ensure_default() is False
+
+
+def test_edited_pre_rename_identity_is_kept_and_injected(tmp_path: Path) -> None:
+    from argus.life.memory import _LEGACY_DEFAULT_IDENTITY
+
+    edited = _LEGACY_DEFAULT_IDENTITY.replace("<!-- fill in -->", "Alex", 1)
+    assert edited != _LEGACY_DEFAULT_IDENTITY
+    path = tmp_path / "identity.md"
+    path.write_text(edited, encoding="utf-8")
+    card = IdentityCard(path)
+
+    assert card.ensure_default() is False
+    assert card.read() == edited
+    assert "Alex" in card.prompt_text()
 
 
 # ---------- LifeMemory facade + retrieval ----------------------------------
@@ -650,3 +996,56 @@ def test_legacy_mixed_backlog_lazily_splits_terminal_archive(tmp_path: Path) -> 
     ]
     assert {row["status"] for row in active_rows} == {"pending"}
     assert {row["status"] for row in archive_rows} == {"done", "failed"}
+
+
+def test_plan_revision_replacements_start_streak_tracked(tmp_path: Path) -> None:
+    """Rows inserted through ``apply_plan_revision`` are brand new, exactly
+    like ``Backlog.add`` rows: their zero replan streak is authoritative, so
+    the first settlement must not fall back to the journal migration scan."""
+    b = Backlog(tmp_path / "backlog.jsonl")
+    original = b.add(BacklogItem.new(
+        title="v1 node", objective="first cut",
+        plan_id="plan-1", plan_version=1, node_key="root",
+    ))
+    replacement = BacklogItem.new(
+        title="v2 node", objective="second cut",
+        plan_id="plan-2", plan_version=2, node_key="root",
+    )
+    # Simulate a pre-upgrade in-memory row: apply_plan_revision itself must
+    # stamp the flag, not inherit it from the constructor path.
+    replacement.replan_streak_tracked = False
+
+    b.apply_plan_revision(
+        expected_plan_id="plan-1",
+        expected_version=1,
+        new_plan_id="plan-2",
+        new_version=2,
+        supersede_item_ids=[original.id],
+        new_items=[replacement],
+        reason="refuted",
+    )
+
+    stored = next(row for row in b.all() if row.id == replacement.id)
+    assert stored.replan_streak_tracked is True
+    assert stored.consecutive_replans == 0
+
+
+def test_operator_reply_continuation_starts_streak_tracked(
+    tmp_path: Path,
+) -> None:
+    """The continuation created for an operator answer is a brand-new row, so
+    it must start with an authoritative zero replan streak (no journal scan)."""
+    b = Backlog(tmp_path / "backlog.jsonl")
+    blocked = BacklogItem.new(title="blocked", objective="choose a GPU")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU?"
+    b.add(blocked)
+
+    original, continuation = b.continue_with_operator_reply(
+        blocked.id, "Use GPU 1",
+    )
+
+    assert original is not None and continuation is not None
+    stored = next(row for row in b.all() if row.id == continuation.id)
+    assert stored.replan_streak_tracked is True
+    assert stored.consecutive_replans == 0

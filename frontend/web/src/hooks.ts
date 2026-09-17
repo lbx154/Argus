@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { api, isAuthenticationError, openStream, type EventMsg, type ProjectIndex, type Snapshot } from './api';
-import { eventKey } from './lib/eventRender';
+import { eventKey } from '../../core/src/events';
 import { cacheProjectName } from './lib/projectName';
+import { PageUpdateRequiredError } from './lib/pageUpdate';
 
 /* ------------------------------------------------------------------ REST */
 
@@ -14,7 +15,7 @@ export const ARTIFACTS_POLL_MS = 10_000;
 export const GIT_DIFF_POLL_MS = 10_000;
 
 export function queryRetryPolicy(failureCount: number, error: unknown): boolean {
-  return !isAuthenticationError(error) && failureCount < 1;
+  return !isAuthenticationError(error) && !(error instanceof PageUpdateRequiredError) && failureCount < 1;
 }
 
 export function projectCostPollInterval(error: unknown): number | false {
@@ -28,7 +29,9 @@ export function projectPollInterval(index?: ProjectIndex): number {
 }
 
 export function snapshotPollInterval(snapshot?: Snapshot): number {
-  return snapshot?.daemon.alive ? ACTIVE_DAEMON_POLL_MS : SNAPSHOT_POLL_MS;
+  return snapshot?.daemon.alive || snapshot?.manager_requests?.some(request => request.status === 'running')
+    ? ACTIVE_DAEMON_POLL_MS
+    : SNAPSHOT_POLL_MS;
 }
 
 export const useProjects = () =>
@@ -100,6 +103,10 @@ export const useArtifact = (
     queryKey: ['artifact', sid, path, version],
     queryFn: ({ signal }) => api.artifact(sid!, path!, signal),
     enabled: !!sid && !!path,
+    // The Reviewer edits this same file every round. Keep an open opinion
+    // current without remounting the page or reloading PDF previews.
+    refetchInterval: (query) => path && /(?:^|[\\/])REVIEW\.md$/i.test(path)
+      && !isAuthenticationError(query.state.error) ? 2_000 : false,
   });
 
 export const useGitDiff = (sid: string | null, enabled = true) =>
@@ -191,8 +198,8 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
   if (action.kind === 'seed') {
     const seen = new Set<string>();
     const events: EventMsg[] = [];
-    [...action.events, ...state.events].forEach((ev, i) => {
-      const k = eventKey(ev, i);
+    [...action.events, ...state.events].forEach((ev) => {
+      const k = eventKey(ev);
       if (!seen.has(k)) {
         seen.add(k);
         events.push(ev);
@@ -202,7 +209,7 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
     return {
       sid: state.sid,
       events: retained,
-      seen: new Set(retained.map((ev, i) => eventKey(ev, i))),
+      seen: new Set(retained.map((ev) => eventKey(ev))),
     };
   }
   // Live provider streams may deliver many fragments in one display frame.
@@ -212,9 +219,8 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
   let events: EventMsg[] | null = null;
   let seen: Set<string> | null = null;
   for (const ev of incoming) {
-    const currentEvents = events ?? state.events;
     const currentSeen = seen ?? state.seen;
-    const k = eventKey(ev, currentEvents.length);
+    const k = eventKey(ev);
     if (currentSeen.has(k)) continue;
     if (!events || !seen) {
       events = [...state.events];
@@ -226,7 +232,7 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
   if (!events || !seen) return state;
   if (events.length > MAX_EVENTS) {
     const removed = events.splice(0, events.length - MAX_EVENTS);
-    removed.forEach((ev, i) => seen.delete(eventKey(ev, i)));
+    removed.forEach((ev) => seen.delete(eventKey(ev)));
   }
   return { sid: state.sid, events, seen };
 }
@@ -257,7 +263,7 @@ export function artifactRefreshEventKey(events: EventMsg[]): string {
       ARTIFACT_REFRESH_EVENT_TYPES.has(type)
       || (type === 'engineer.progress' && event.kind === 'file_change')
     ) {
-      return eventKey(event, i);
+      return eventKey(event);
     }
   }
   return '';
@@ -279,7 +285,7 @@ export function snapshotRefreshEventKey(events: EventMsg[]): string {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i];
     if (SNAPSHOT_REFRESH_EVENT_TYPES.has(String(event.type ?? ''))) {
-      return eventKey(event, i);
+      return eventKey(event);
     }
   }
   return '';
@@ -288,6 +294,14 @@ export function snapshotRefreshEventKey(events: EventMsg[]): string {
 /** Subscribe to a project's live event feed: REST replay seed + WS tail with
  *  auto-reconnect. Dedupes by event key so reconnect backfill never doubles. */
 export function useEventStream(sid: string | null, reconnectKey = 0): StreamHandle {
+  const [browserOnline, setBrowserOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
+  useEffect(() => {
+    const sync = () => setBrowserOnline(navigator.onLine !== false);
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', sync);
+    sync();
+    return () => { window.removeEventListener('online', sync); window.removeEventListener('offline', sync); };
+  }, []);
   const [state, dispatch] = useReducer(streamReducer, {
     sid: null,
     events: [],
@@ -361,6 +375,6 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
 
   return {
     events: state.sid === sid ? state.events : [],
-    connected: connection.sid === sid && connection.connected,
+    connected: browserOnline && connection.sid === sid && connection.connected,
   };
 }

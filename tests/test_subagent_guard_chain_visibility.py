@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills import run_contract
-from argus_skill.tools.subagent import (
+from argus.skills import run_contract
+from argus.tools.subagent import (
     _direct_run,
     _discuss_run,
     _supervised_preflight,

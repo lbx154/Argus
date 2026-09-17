@@ -13,15 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.agent_cli._run_exec import _StreamState
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import (
+from argus.agent_cli._run_exec import _StreamState
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import (
     BACKEND_DSH,
     CLAUDE_FAMILY,
     default_runner_bin,
     normalize_runner_backend,
 )
-from argus_skill.core.backend_readiness import default_model_for_backend
+from argus.core.backend_readiness import default_model_for_backend
 
 
 def _runner(agent_bin: str = "dsh") -> AgentCliRunner:
@@ -29,7 +29,7 @@ def _runner(agent_bin: str = "dsh") -> AgentCliRunner:
 
 
 def _overlay_path() -> Path:
-    from argus_skill.agent_cli._sandbox_commands import _dsh_overlay_patch_path
+    from argus.agent_cli._sandbox_commands import _dsh_overlay_patch_path
 
     return Path(_dsh_overlay_patch_path())
 
@@ -163,7 +163,7 @@ def test_dsh_oversized_prompt_uses_workspace_mission_file(tmp_path: Path) -> Non
 
 
 def test_dsh_env_maps_model_and_permission_mode() -> None:
-    from argus_skill.agent_cli._prompt_delivery import _apply_dsh_env
+    from argus.agent_cli._prompt_delivery import _apply_dsh_env
 
     env = _apply_dsh_env(
         {"PATH": "/usr/bin"},
@@ -178,7 +178,7 @@ def test_dsh_env_maps_model_and_permission_mode() -> None:
 
 
 def test_dsh_env_splits_qualified_model_and_read_only() -> None:
-    from argus_skill.agent_cli._prompt_delivery import _apply_dsh_env
+    from argus.agent_cli._prompt_delivery import _apply_dsh_env
 
     env = _apply_dsh_env(
         {"PATH": "/usr/bin"},
@@ -192,7 +192,7 @@ def test_dsh_env_splits_qualified_model_and_read_only() -> None:
 
 
 def test_dsh_env_disables_tools_for_tool_free_calls() -> None:
-    from argus_skill.agent_cli._prompt_delivery import _apply_dsh_env
+    from argus.agent_cli._prompt_delivery import _apply_dsh_env
 
     env = _apply_dsh_env(
         {"PATH": "/usr/bin"},
@@ -207,7 +207,7 @@ def test_dsh_resolves_beside_real_node_when_only_node_shim_is_on_path(
     tmp_path: Path,
     require_symlink_support,
 ) -> None:
-    from argus_skill.agent_cli import runner_backend
+    from argus.agent_cli import runner_backend
 
     prefix_bin = tmp_path / "node-prefix" / "bin"
     shim_bin = tmp_path / "shims"
@@ -304,7 +304,7 @@ def test_dsh_readiness_accepts_key_from_dsh_home_env_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from argus_skill.core.backend_readiness import _probe_cli_auth
+    from argus.core.backend_readiness import _probe_cli_auth
 
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("DSH_HOME", str(tmp_path))
@@ -323,7 +323,7 @@ def test_dsh_readiness_rejects_without_any_key(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from argus_skill.core.backend_readiness import _probe_cli_auth
+    from argus.core.backend_readiness import _probe_cli_auth
 
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("DSH_HOME", str(tmp_path))

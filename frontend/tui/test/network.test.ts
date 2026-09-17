@@ -17,7 +17,11 @@ function compatibleMeta(): Record<string, unknown> {
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
-      package_version: '0.1.1',
+      package_version: RELEASE_ID.split('+')[0],
+      release_id: RELEASE_ID,
+      manifest_source_digest: RELEASE_SOURCE_DIGEST,
+      runtime_source_digest: RELEASE_SOURCE_DIGEST,
+      release_matches_source: true,
       source_root: 'G:\\code\\argus',
       configured_source_root: 'G:\\code\\argus',
       source_root_matches_config: true,
@@ -26,10 +30,6 @@ function compatibleMeta(): Record<string, unknown> {
       python_version: '3.13.0',
       executable: 'G:\\code\\argus\\.venv\\Scripts\\python.exe',
       started_at: '2026-08-13T00:00:00Z',
-      release_id: RELEASE_ID,
-      manifest_source_digest: RELEASE_SOURCE_DIGEST,
-      runtime_source_digest: RELEASE_SOURCE_DIGEST,
-      release_matches_source: true,
     },
   };
 }

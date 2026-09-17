@@ -1,9 +1,8 @@
 import type { Role } from '../api';
 import { useI18n } from '../i18n';
 import { theme, effortColor } from '../lib/theme';
+import { AGENT_ROLES, agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { PanelHeader } from './primitives';
-
-const ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
 
 /** age_s (seconds since the role's last event) → "now"/"Ns"/"Nm"/"Nh". */
 function ageLabel(age: number | null): string {
@@ -21,8 +20,8 @@ function ageLabel(age: number | null): string {
 export function RolesPanel({ roles }: { roles: Role[] }) {
   const { t } = useI18n();
   const byRole = new Map(roles.map((r) => [r.role, r]));
-  const ordered = ORDER.map((r) => byRole.get(r)).filter(Boolean) as Role[];
-  const extra = roles.filter((r) => !ORDER.includes(r.role));
+  const ordered = AGENT_ROLES.map((r) => byRole.get(r)).filter(Boolean) as Role[];
+  const extra = roles.filter((r) => !isAgentRole(r.role));
   const all = [...ordered, ...extra];
 
   return (
@@ -35,14 +34,16 @@ export function RolesPanel({ roles }: { roles: Role[] }) {
             <div key={r.role} className="grid grid-cols-[84px_minmax(0,1fr)_auto] items-center gap-2 border-b border-line/60 px-3 py-2 last:border-b-0">
               <div className="flex items-center gap-1.5">
                 <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ background: r.active ? hue : 'rgb(var(--ink-faint))' }}
+                  data-role-dot={r.role}
+                  aria-hidden="true"
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: hue }}
                 />
                 <span
                   className="text-[11px] font-medium capitalize"
                   style={{ color: r.active ? hue : theme.inkDim }}
                 >
-                  {r.role}
+                  {isAgentRole(r.role) ? agentRoleName(r.role, t) : r.role}
                 </span>
               </div>
               <div className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={r.model}>{r.model || '—'}</div>

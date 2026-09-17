@@ -3,10 +3,10 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.memory import Backlog, BacklogItem
-from argus_skill.manager import front_door
-from argus_skill.manager._session_ops import (
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.memory import Backlog, BacklogItem
+from argus.manager import front_door
+from argus.manager._session_ops import (
     clear_manager_pipeline_yield,
     manager_pipeline_yield_requested,
     request_manager_pipeline_yield,
@@ -24,10 +24,10 @@ def test_pipeline_yield_marker_tracks_live_request(tmp_path) -> None:
 def test_pipeline_yield_marker_clears_dead_request(tmp_path, monkeypatch) -> None:
     request_manager_pipeline_yield(tmp_path)
 
-    def dead_process(_pid, _signal):
-        raise ProcessLookupError
+    def dead_process(_pid):
+        return False
 
-    monkeypatch.setattr("argus_skill.manager._session_ops.os.kill", dead_process)
+    monkeypatch.setattr("argus.manager._session_ops.is_pid_running", dead_process)
 
     assert manager_pipeline_yield_requested(tmp_path) is False
     assert not (tmp_path / ".manager_pipeline_yield.json").exists()

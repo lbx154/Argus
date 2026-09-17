@@ -1,0 +1,490 @@
+"""Free helpers + mutable scratch state for one continuous-planner cycle.
+
+``_PlanCycleState`` is threaded through the ``_plan_next_work`` lifecycle
+phase mixins in ``_planning_cycle_intake.py``, ``_planning_cycle_verdict.py``,
+``_planning_cycle_completion.py``, and ``_planning_cycle_enqueue.py``. It is
+process-local scratch state for a single planning cycle call, never
+persisted.
+
+The free functions below operate on Reviewer-authored dynamic-plan revision
+requests and the persisted research-target completion gate; they have no
+``self`` dependency and are reused by more than one phase.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import time
+from pathlib import Path
+from typing import Any
+
+from ..memory import BacklogItem
+
+log = logging.getLogger(__name__)
+
+
+def _revision_reason(revision_request: dict[str, Any]) -> str:
+    for key in ("review_reason", "reason", "stop_reason", "summary"):
+        value = str(revision_request.get(key) or "").strip()
+        if value:
+            return value
+    # A replan request is itself a durable reason to replace the active plan.
+    # Returning an empty string makes the atomic revision reject after Planner
+    # already produced a valid replacement, then reruns the refuted item.
+    return "Reviewer requested replacement of the active plan"
+
+
+def _render_revision_request(
+    revision_request: dict[str, Any],
+    active_items: list[BacklogItem],
+) -> str:
+    challenge = revision_request.get("plan_challenge")
+    challenge = challenge if isinstance(challenge, dict) else {}
+    lines = [
+        "DYNAMIC PLAN REVISION REQUEST (Reviewer evidence; Manager already routed authority):",
+        "- manager_action: " + str(challenge.get("manager_action") or "revise"),
+        "- authority_impact: " + str(challenge.get("authority_impact") or "technical"),
+        "- reason: "
+        + (
+            _revision_reason(revision_request)
+            or "Reviewer requested reconsideration; inspect the referenced "
+            "artifacts and current CHECKPOINT.md before deciding."
+        ),
+        "- challenged_assumption: "
+        + str(challenge.get("challenge") or _revision_reason(revision_request)),
+        "- proposed_alternative: "
+        + str(challenge.get("alternative") or "none; inspect evidence before choosing"),
+        "- remaining active nodes:",
+    ]
+    lines.extend(
+        f"  - {item.node_key or item.id}: [{item.status}] {item.title}" for item in active_items
+    )
+    lines.append(
+        "Return a complete replacement batch for the remaining active nodes. "
+        "Completed nodes are immutable. User goals, safety, authority, and trust "
+        "limits remain hard constraints; candidates, methods, decomposition, and "
+        "validators are revisable working choices. Compare the proposed alternative "
+        "against the user objective instead of preserving stale mission wording. "
+        "Do not return project_done. Exception: if "
+        "current_stage itself makes the prerequisite repair illegal, return "
+        "waiting=true with a waiting_contract whose "
+        "stage_reconciliation_required=true; emit no replacement tasks and let the "
+        "Manager decide HOLD versus ROLLBACK. Never use this exception for polling "
+        "or an ordinary implementation blocker."
+    )
+    return "\n".join(lines)
+
+
+def _research_project_done_issue(
+    project_root: object,
+    journal_entries: list[Any],
+    *,
+    current_signature: str = "",
+    evidence_root: object | None = None,
+) -> str:
+    """Require final review for the state's target and current execution files.
+
+    ``project_root`` owns the target contract; a daemon's manuscript may live
+    separately under ``evidence_root``.
+    """
+    from ...core.research_contract import (
+        research_target_contract,
+        resolve_research_target_level,
+        resolve_research_target_set_at,
+    )
+    from ...skills.vertical_select import resolve_checklist_vertical
+    from ...verticals._base import load_vertical_contract
+
+    vertical = resolve_checklist_vertical(project_root)
+    supported = (
+        load_vertical_contract(vertical, project_root=project_root).research_target_levels
+        if vertical is not None
+        else ()
+    )
+    target_contract = research_target_contract(
+        supported_levels=supported,
+        selected_level=resolve_research_target_level(project_root),
+    )
+    target_level = target_contract.selected_level
+    if target_contract.required and target_level is None:
+        return "missing_research_target_level"
+    target_set_at = resolve_research_target_set_at(project_root) or 0.0
+    candidate_root = Path(
+        str(evidence_root if evidence_root is not None else project_root)
+    )
+    submission_candidate_exists = any(
+        (candidate_root / relative).is_file()
+        for relative in ("paper/main.tex", "paper/main.pdf")
+    )
+    for entry in reversed(journal_entries):
+        if str(getattr(entry, "kind", "") or "") not in {
+            "mission_complete",
+            "mission_replan_requested",
+        }:
+            continue
+        try:
+            entry_ts = float(getattr(entry, "ts", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if entry_ts < target_set_at:
+            break
+        extra = getattr(entry, "extra", None)
+        if not isinstance(extra, dict):
+            continue
+        if (
+            str(extra.get("scope") or "").strip().lower() == "final_submission"
+            and extra.get("final_submission_certified") is True
+        ):
+            if submission_candidate_exists:
+                certified_signature = str(
+                    extra.get("final_submission_signature") or ""
+                )
+                if not certified_signature:
+                    continue
+                if not current_signature:
+                    from ..terminal_state import build_project_state_signature
+
+                    current_signature = build_project_state_signature(
+                        project_root=candidate_root,
+                        state_root=Path(str(project_root)),
+                    )
+                if certified_signature != current_signature:
+                    continue
+            manuscript_binding = extra.get("manuscript_snapshot")
+            if (
+                (candidate_root / "paper/main.tex").is_file()
+                and not isinstance(manuscript_binding, dict)
+            ):
+                continue
+            if isinstance(manuscript_binding, dict):
+                try:
+                    from ...core.manuscript_snapshot import manuscript_review_status
+
+                    if manuscript_review_status(extra, candidate_root).get("status") != "current":
+                        continue
+                except Exception:  # noqa: BLE001 - unreadable binding fails closed
+                    continue
+            # A venue recommendation can only exist for a submission-shaped
+            # deliverable; exploratory campaigns without a paper must not be
+            # held for an acceptance no reviewer could ever record. Mirrors
+            # the signature/manuscript gates above.
+            if vertical == "research" and submission_candidate_exists:
+                from types import SimpleNamespace
+
+                from ...core.venue_review import current_venue_acceptance_issue
+
+                if current_venue_acceptance_issue(
+                    SimpleNamespace(
+                        venue_review=extra.get("venue_review"),
+                        venue_review_snapshot=extra.get("venue_review_snapshot"),
+                        review_source="reviewer",
+                    ),
+                    state_root=Path(str(project_root)), artifact_root=candidate_root,
+                ):
+                    continue
+            return ""
+    if target_level is None:
+        return ""
+    return f"missing_{target_level}_reviewer_certification"
+
+
+def _staged_goal_completion_issue(project_root: object) -> str:
+    """Require the ordinary Reviewer/Manager final-stage certificate."""
+    from ...skills.stage_machine import current_stage
+    from ...skills.vertical_select import (
+        resolve_vertical,
+        vertical_completion_certificate_status,
+    )
+    from ...verticals._base import (
+        load_vertical,
+        vertical_checklist_stage_order,
+        vertical_completion_gate,
+    )
+
+    try:
+        vertical = resolve_vertical(project_root)
+        module = load_vertical(vertical, project_root=project_root)
+        if vertical_completion_gate(module) != "none":
+            return ""
+        stages = vertical_checklist_stage_order(module)
+        status = vertical_completion_certificate_status(project_root, vertical)
+        if not stages or status.get("ok"):
+            return ""
+        # Name the stage that actually holds the disputed record and BOTH
+        # fingerprints. Bug #41: this used to advertise a fresh hash of the
+        # FINAL stage while the comparison that failed was on whichever stage
+        # was certified — so the Planner was handed a number that appears
+        # nowhere in the ledger, and every attempt to reconcile it chased a
+        # stage that had never been completed.
+        detail = f"current_stage={current_stage(project_root)}"
+        stage = str(status.get("stage") or "")
+        if stage:
+            detail += f", certified_stage={stage}"
+        persisted = str(status.get("persisted") or "")
+        expected = str(status.get("expected") or "")
+        if expected:
+            detail += f", contract=v{status.get('version')}:{expected}"
+        if persisted and persisted != expected:
+            detail += f", persisted=v{status.get('persisted_version')}:{persisted}"
+        source = str(status.get("source") or "")
+        if source:
+            detail += f", certified_by={source}"
+        reason = str(status.get("reason") or "")
+        remedy = ""
+        if persisted and expected and persisted != expected:
+            remedy = (
+                " — the stored certificate was computed against a different "
+                "checklist; re-certify the stage through the running framework "
+                "to restamp it"
+            )
+        return (
+            f"{vertical} final stage is not Reviewer-certified "
+            f"({detail}{f'; {reason}' if reason else ''}){remedy}"
+        )
+    except Exception:  # noqa: BLE001
+        return "staged completion could not be resolved"
+
+
+def goal_gate_task_title(project_root: object) -> str:
+    """Name the Goal Gate mission after the stage it has to finish.
+
+    Include the active stage so the operator sees the work being completed, not
+    only the certification step. The stage name also keeps deduplication keys
+    distinct across different gates.
+    """
+    from ...skills.stage_machine import current_stage
+
+    try:
+        stage = str(current_stage(project_root) or "").strip()
+    except Exception:  # noqa: BLE001 — the generic title is always valid
+        stage = ""
+    return (
+        f"Finish and certify the {stage} stage"
+        if stage
+        else "Finish and certify the current stage"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Completion-rejection stop-loss
+#
+# When the Planner keeps declaring the project done and the completion
+# requirement keeps turning it back for the same reason, neither side can
+# resolve the disagreement alone: every further cycle is a paid model call that
+# reproduces the same exchange. These helpers persist a consecutive count of
+# same-reason turn-backs (keyed on the reason alone, so background file churn
+# cannot reset it) and a paused flag once the count reaches the threshold. The
+# pause lifts when the backlog itself changes or the operator replies.
+# ---------------------------------------------------------------------------
+
+
+def completion_rejection_circuit_path(root: Path | str, objective: str) -> Path:
+    """State file for the completion-rejection stop-loss of one objective."""
+    fingerprint = hashlib.sha256(
+        str(objective or "").encode("utf-8")
+    ).hexdigest()[:16]
+    return Path(root) / f"completion-rejection-circuit-{fingerprint}.json"
+
+
+def completion_rejection_reason_key(diagnostic: str, reason: str) -> str:
+    """Stable key for one rejection cause, insensitive to whitespace churn."""
+    normalized_reason = " ".join(str(reason or "").split())
+    canonical = f"{str(diagnostic or '').strip()}\n{normalized_reason}"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def load_completion_rejection_circuit(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, TypeError, ValueError):
+        log.warning("completion-rejection record is unreadable: %s", path)
+        return None
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        return None
+    return payload
+
+
+def _write_completion_rejection_circuit(path: Path, payload: dict[str, Any]) -> bool:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    try:
+        tmp.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        log.exception("failed to persist completion-rejection record: %s", path)
+        return False
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def record_completion_rejection(
+    path: Path,
+    *,
+    diagnostic: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Count one more completion turn-back; a different reason restarts at 1.
+
+    Returns the persisted state (best effort — an unwritable disk still
+    returns the computed state so the caller's threshold decision is made on
+    this process's own observation).
+    """
+    key = completion_rejection_reason_key(diagnostic, reason)
+    previous = load_completion_rejection_circuit(path)
+    same_cause = bool(previous is not None and previous.get("reason_key") == key)
+    now = time.time()
+    state: dict[str, Any] = {
+        "version": 1,
+        "reason_key": key,
+        "diagnostic": str(diagnostic or "").strip(),
+        "reason": str(reason or "").strip()[:2000],
+        "consecutive_rejections": (
+            int(previous.get("consecutive_rejections") or 0) + 1 if same_cause else 1
+        ),
+        "first_at": (
+            float(previous.get("first_at") or now) if same_cause else now
+        ),
+        "updated_at": now,
+        "paused": False,
+        "pause_backlog_signature": "",
+    }
+    _write_completion_rejection_circuit(path, state)
+    return state
+
+
+def pause_completion_rejection_circuit(
+    path: Path,
+    *,
+    backlog_signature: str,
+    operator_context_revision: int = 0,
+) -> dict[str, Any] | None:
+    """Stop further completion attempts until the backlog moves or the
+    operator replies."""
+    state = load_completion_rejection_circuit(path)
+    if state is None:
+        return None
+    state["paused"] = True
+    state["pause_backlog_signature"] = str(backlog_signature or "")
+    state["operator_context_revision"] = operator_context_revision
+    state["paused_at"] = time.time()
+    _write_completion_rejection_circuit(path, state)
+    return state
+
+
+def resume_completion_rejection_circuit(
+    path: Path,
+    *,
+    reason: str,
+) -> dict[str, Any] | None:
+    """Allow one more completion attempt; the count survives so an identical
+    turn-back pauses again immediately."""
+    state = load_completion_rejection_circuit(path)
+    if state is None or not state.get("paused"):
+        return None
+    state["paused"] = False
+    state["pause_backlog_signature"] = ""
+    state["resumed_at"] = time.time()
+    state["resume_reason"] = str(reason or "")[:200]
+    _write_completion_rejection_circuit(path, state)
+    return state
+
+
+def clear_completion_rejection_circuit(path: Path) -> None:
+    """Forget the whole history — the project completed, or the cause is gone."""
+    try:
+        Path(path).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        log.exception("failed to clear completion-rejection record: %s", path)
+
+
+class _PlanCycleState:
+    """Mutable scratch state threaded through one ``_plan_next_work`` call."""
+
+    def __init__(self, revision_request: dict[str, Any] | None) -> None:
+        self.revision_request: dict[str, Any] | None = (
+            dict(revision_request) if isinstance(revision_request, dict) else None
+        )
+
+        # Set by the intake/gate phase.
+        self.operator_messages: list[str] = []
+        self.fresh_operator_messages: list[str] = []
+        # Physical identities survive display/text deduplication until settlement.
+        self.inbox_delivery_messages: list[str] = []
+        self.had_operator_messages = False
+        self.operator_context_revision: int = 0
+        self.has_unhandled_operator_input: bool = False
+        self.revision_active_items: list[BacklogItem] = []
+        self.revision_witness_active_item_ids: list[str] = []
+        self.expected_plan_id: str = ""
+        self.expected_plan_version: int = 0
+        self.manager_intent: Any = None
+
+        # Set by the planner-invocation phase.
+        self.subagent_family_failures: dict[str, Any] = {}
+        self.verdict: Any = None
+        self.planner_invoked = False
+        # The durable generation that authorized this invocation. A late host
+        # failure may pause only this generation, never a newer operator request.
+        self.planner_continuous_state: Any | None = None
+        self.completion_accepted = False
+        self.certified_operator_wait = False
+
+        # Set by the unchanged-input gate in the intake phase; empty when the
+        # cycle's inputs could not be fingerprinted (skip stays disabled).
+        self.planner_input_signature: str = ""
+
+        # Set by the dedupe/enqueue phases.
+        self.existing_items: list[BacklogItem] = []
+        self.seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
+        self.active_base_signatures: dict[tuple[str, ...], BacklogItem] = {}
+        self.active_node_keys: dict[str, BacklogItem] = {}
+        self.terminal_blocker_fingerprints: dict[str, BacklogItem] = {}
+        self.recent_failures: dict[Any, Any] = {}
+        self.added_titles: list[str] = []
+        self.added_impact_scores: list[int] = []
+        self.skipped_duplicate_titles: list[str] = []
+        # (title, reason) for tasks whose requested parallel_safe flag was
+        # stripped during canonicalization. Collected here and reported only
+        # for tasks that actually commit, so dedup-skipped proposals do not
+        # spam the journal on replan loops.
+        self.dropped_parallel: list[tuple[str, str]] = []
+        self.skipped_certification_reproposal_titles: list[str] = []
+        self.skipped_certification_reproposal_reasons: list[str] = []
+        self.skipped_recent_failure_titles: list[str] = []
+        self.skipped_subagent_family_failure_titles: list[str] = []
+        self.skipped_task_feedback: list[dict[str, str]] = []
+        self.new_plan_id: str = ""
+        self.new_plan_version: int = 1
+        self.key_map: dict[str, str] = {}
+        self.pending_items: list[tuple[Any, Any]] = []
+
+
+__all__ = [
+    "_PlanCycleState",
+    "_render_revision_request",
+    "_research_project_done_issue",
+    "_staged_goal_completion_issue",
+    "_revision_reason",
+    "completion_rejection_circuit_path",
+    "completion_rejection_reason_key",
+    "load_completion_rejection_circuit",
+    "record_completion_rejection",
+    "pause_completion_rejection_circuit",
+    "resume_completion_rejection_circuit",
+    "clear_completion_rejection_circuit",
+]

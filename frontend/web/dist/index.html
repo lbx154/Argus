@@ -9,11 +9,15 @@
     <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0b0d11" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/svg+xml" href="./favicon-dark.svg" media="(prefers-color-scheme: dark)" />
+    <link rel="preload" href="./assets/geist-latin-wght-normal-BgDaEnEv.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="./assets/geist-mono-latin-wght-normal-XN7g48iV.woff2" as="font" type="font/woff2" crossorigin />
     <!-- Installable on a phone: Android reads the manifest, iOS reads the
          apple-* tags and the touch icon. -->
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" media="(prefers-color-scheme: light)" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon-dark.png" media="(prefers-color-scheme: dark)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Argus" />
@@ -21,17 +25,26 @@
     <title>Argus · Workbench</title>
     <script>
       (() => {
-        const mode = localStorage.getItem('argus.theme') || 'system';
+        let mode = 'system';
+        let style = 'standard';
+        try {
+          mode = localStorage.getItem('argus.theme') || 'system';
+          style = localStorage.getItem('argus.themeStyle') === 'gradient' ? 'gradient' : 'standard';
+        } catch {
+          // Browser storage is optional; stable defaults still render immediately.
+        }
         const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.dataset.themeStyle = style;
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-DZlhKyF2.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-hePW80VL.js">
-    <link rel="modulepreload" crossorigin href="/assets/icons-Ef92GGEA.js">
-    <link rel="modulepreload" crossorigin href="/assets/query-DlyGfxkB.js">
-    <link rel="modulepreload" crossorigin href="/assets/markdown-_lxUfE2K.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-uI9fNQxT.css">
+    <script type="module" crossorigin src="./assets/index-RCk8CeyS.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/rolldown-runtime-hePW80VL.js">
+    <link rel="modulepreload" crossorigin href="./assets/icons-DRlFT_ri.js">
+    <link rel="modulepreload" crossorigin href="./assets/query-CUzIxVzm.js">
+    <link rel="modulepreload" crossorigin href="./assets/markdown-D-35pK1E.js">
+    <link rel="stylesheet" crossorigin href="./assets/markdown-DvoRHisr.css">
+    <link rel="stylesheet" crossorigin href="./assets/index-BOWcjllG.css">
   </head>
   <body>
     <div id="root"></div>

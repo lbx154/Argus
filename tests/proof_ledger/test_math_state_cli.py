@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.proof_ledger import (
+from argus.proof_ledger import (
     ClaimStatus,
     ClaimVersion,
     EvidenceTier,
@@ -39,17 +39,17 @@ from argus_skill.proof_ledger import (
     Verdict,
     load_state,
 )
-from argus_skill.tools.lean_check import audit_lean_tools
-from argus_skill.verticals.math import math_state
-from argus_skill.verticals.math.lean_evidence import validate_lean_evidence
-from argus_skill.verticals.math.math_state import (
+from argus.tools.lean_check import audit_lean_tools
+from argus.verticals.math import math_state
+from argus.verticals.math.lean_evidence import validate_lean_evidence
+from argus.verticals.math.math_state import (
     AGENT_WRITABLE_TIERS,
     main,
     record_lean_evidence,
 )
 
 REPO_ROOT = Path(__file__).parents[2]
-MODULE = REPO_ROOT / "argus_skill" / "verticals" / "math" / "math_state.py"
+MODULE = REPO_ROOT / "argus" / "verticals" / "math" / "math_state.py"
 
 THEOREM = (
     "theorem argus_add_comm (a b : Nat) : a + b = b + a := Nat.add_comm a b\n"
@@ -518,7 +518,7 @@ def test_simultaneous_writers_do_not_lose_a_record(tmp_path: Path) -> None:
             [
                 sys.executable,
                 "-m",
-                "argus_skill.verticals.math.math_state",
+                "argus.verticals.math.math_state",
                 "claim",
                 "--project-root",
                 str(tmp_path),
@@ -1542,7 +1542,7 @@ def test_only_the_retirement_command_rewrites_a_recorded_route() -> None:
 
 # -- an unreferenced CLI is the same as no CLI ------------------------------
 
-SKILLS = REPO_ROOT / "argus_skill" / "verticals" / "math" / "skills"
+SKILLS = REPO_ROOT / "argus" / "verticals" / "math" / "skills"
 
 
 def test_the_engineer_is_told_which_commands_write_the_ledger() -> None:
@@ -1601,7 +1601,7 @@ def test_a_real_compile_reaches_closed_kernel_through_the_documented_commands(
     This is the claim the PR rests on — that ``closed_kernel`` is reachable
     only by running a proof kernel — and the only way to check it is to run one.
     """
-    from argus_skill.verticals.math.lean_evidence import main as lean_main
+    from argus.verticals.math.lean_evidence import main as lean_main
 
     source = _source(tmp_path)
     fidelity = _fidelity(tmp_path)
@@ -1631,7 +1631,7 @@ def test_a_real_compile_failure_leaves_the_claim_unproved_and_says_so(
     tmp_path: Path,
 ) -> None:
     """The other half: the exit code and the state agree that nothing was proved."""
-    from argus_skill.verticals.math.lean_evidence import main as lean_main
+    from argus.verticals.math.lean_evidence import main as lean_main
 
     source = _source(
         tmp_path, "theorem argus_false (n : Nat) : n = n + 1 := by rfl\n"
@@ -1673,7 +1673,7 @@ def test_two_real_compiles_in_the_documented_directory_keep_both_certificates(
     both records named it, and neither ``math_state show`` nor ``lean_evidence
     check`` said a word about it.
     """
-    from argus_skill.verticals.math.lean_evidence import main as lean_main
+    from argus.verticals.math.lean_evidence import main as lean_main
 
     def verify(claim_id: str, theorem: str, note: str, statement: str) -> None:
         source = _source(tmp_path, theorem)

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.tools import ppt_master as ppt_master_module
-from argus_skill.tools.ppt_master import (
+from argus.tools import ppt_master as ppt_master_module
+from argus.tools.ppt_master import (
     install_ppt_master,
     install_root,
     ppt_master_status,
@@ -24,7 +24,11 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def _fake_upstream(tmp_path: Path) -> tuple[Path, str]:
+def _fake_upstream(
+    tmp_path: Path,
+    *,
+    requirements: str = "",
+) -> tuple[Path, str]:
     repo = tmp_path / "upstream"
     skill = repo / "skills" / "ppt-master"
     (skill / "workflows").mkdir(parents=True)
@@ -41,7 +45,7 @@ def _fake_upstream(tmp_path: Path) -> tuple[Path, str]:
     )
     (skill / "scripts" / "project_manager.py").write_text("", encoding="utf-8")
     (skill / "scripts" / "svg_to_pptx.py").write_text("", encoding="utf-8")
-    (skill / "requirements.txt").write_text("", encoding="utf-8")
+    (skill / "requirements.txt").write_text(requirements, encoding="utf-8")
     subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
     _git(repo, "config", "user.name", "test")
     _git(repo, "config", "user.email", "test@example.com")
@@ -156,6 +160,7 @@ def test_status_requires_dependencies_for_current_python(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(ppt_master_module, "_install_requirements", lambda *_args: None)
     upstream, revision = _fake_upstream(tmp_path)
     home = tmp_path / "argus-home"
     install_ppt_master(
@@ -171,6 +176,30 @@ def test_status_requires_dependencies_for_current_python(
     assert status.valid is True
     assert status.dependencies_installed is False
     assert status.detail == "toolkit installed; dependencies not recorded for this Python"
+
+
+def test_status_rejects_missing_recorded_dependency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ppt_master_module, "_install_requirements", lambda *_args: None)
+    upstream, revision = _fake_upstream(
+        tmp_path,
+        requirements="definitely-missing-ppt-master-package>=1\n",
+    )
+    home = tmp_path / "argus-home"
+    status = install_ppt_master(
+        global_root=home,
+        repository=str(upstream),
+        revision=revision,
+        install_dependencies=True,
+    )
+
+    assert status.dependencies_installed is False
+    assert status.detail == (
+        "missing dependency distributions for this Python: "
+        "definitely-missing-ppt-master-package"
+    )
 
 
 def test_dependency_install_uses_uv_when_python_has_no_pip(

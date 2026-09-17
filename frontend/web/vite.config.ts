@@ -2,27 +2,38 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 
-// Dev: proxy /api → the local argus webapi (argus-skill --web, default :8799).
+// Dev: proxy /api → the local argus webapi (argus --web, default :8799).
 // Prod: `vite build` emits static assets the API serves from frontend/web/dist.
 const API = process.env.ARGUS_WEB_API ?? 'http://127.0.0.1:8799';
 
 export default defineConfig({
+  // The same build is served at / and /admin/data. Relative chunks and fonts
+  // stay inside the corresponding authenticated asset namespace.
+  base: './',
   plugins: [react()],
   server: {
     port: 5173,
     fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] },
     proxy: {
       '/api': { target: API, changeOrigin: true, ws: true },
+      '/admin/api': { target: API, changeOrigin: true },
+      '/admin/status': { target: API, changeOrigin: true },
+      '/admin/logout': { target: API, changeOrigin: true },
     },
   },
   build: {
     outDir: 'dist',
+    // Hosted pages allow same-origin assets under a strict CSP, not data URLs.
+    assetsInlineLimit: 0,
+    // Open tabs can still request chunks from a previous release. Vite replaces
+    // index.html and emits new fingerprinted assets without deleting those chunks.
+    emptyOutDir: false,
     sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('/node_modules/gsap/')) return 'motion';
-          if (id.includes('react-markdown') || id.includes('remark-') || id.includes('micromark') || id.includes('mdast') || id.includes('hast')) return 'markdown';
+          if (id.includes('react-markdown') || id.includes('remark-') || id.includes('rehype-') || id.includes('/katex/') || id.includes('micromark') || id.includes('mdast') || id.includes('hast')) return 'markdown';
           if (id.includes('@fortawesome')) return 'icons';
           if (id.includes('@tanstack/react-query')) return 'query';
           return undefined;

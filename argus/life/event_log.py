@@ -1,0 +1,414 @@
+"""Persistent JSONL event log.
+
+Every supervisor / sink event is fanned-out to ``<life_dir>/events.jsonl``
+in addition to whatever interactive sink the caller already had. This
+gives the daemon, the ``--watch`` cockpit, future Web UI, and post-hoc
+postmortem a single ground-truth replay surface that survives daemon
+restarts.
+
+The design is intentionally minimal:
+
+* Decorator pattern: ``JsonlEventSink(downstream, path)`` wraps any sink
+  conforming to the ``handle_event(dict)`` protocol. Durable append happens
+  before downstream delivery, and the return value acknowledges whether the
+  canonical log accepted the event.
+* One JSON object per line. ``ts`` is injected if the caller didn't.
+* Transient live-replacement events are delivered downstream but never written
+  to the append-only audit log. Their final message/tool events remain durable.
+* Soft size cap: when ``events.jsonl`` exceeds ``ROLL_BYTES`` we rotate
+  to ``events.jsonl.1``. We retain EVERY generation: the previous ``.1``
+  is moved aside to the next free ``events.jsonl.<N>`` (``.2``, ``.3``, …)
+  rather than being deleted, so no event is ever lost. ``.1`` always holds
+  the most-recent previous roll (readers/tailers that expect it keep
+  working); the full lifetime history is the union of ``events.jsonl*``.
+* Concurrency: a process-local lock plus a portable file lock serializes append
+  and rotation. Projection runs after releasing that lock and atomically records
+  its consumed log position with the view, so failed projection is replayable.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import threading
+import time
+import uuid
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any, Protocol
+
+from ..core.event_catalog import (
+    SIGNAL_EVENT_TYPES,
+    EventType,
+    normalize_event_envelope,
+)
+from ..core.jsonl_reader import MAX_JSONL_RECORD_BYTES
+from ..core.secret_guard import (
+    known_secret_values,
+    redact_secrets_record,
+    redact_secrets_text,
+)
+
+# Rotation bounds disk use without truncating live work or losing the current log.
+ROLL_BYTES = 100 * 1024 * 1024  # 100 MiB
+EVENT_FILE = "events.jsonl"
+ROLL_FILE = "events.jsonl.1"
+EVENT_LOCK_FILE = "events.lock"
+log = logging.getLogger(__name__)
+
+
+def mission_delivery_was_persisted(life_dir: Path, delivery_id: str) -> bool:
+    """Check canonical completion acceptance before retrying a failed outbox ack."""
+    from ..core.mission_view._replay import events_locked
+    from .mission_event_index import mission_event_index
+
+    with events_locked(life_dir):
+        return mission_event_index(str(Path(life_dir).resolve())).contains(delivery_id)
+
+
+def event_log_paths(log_path: Path) -> list[Path]:
+    """Return retained log generations from oldest to newest."""
+    path = Path(log_path)
+    numbered: list[tuple[int, Path]] = []
+    prefix = path.name + "."
+    for candidate in path.parent.glob(prefix + "*"):
+        suffix = candidate.name[len(prefix) :]
+        if suffix.isdigit():
+            numbered.append((int(suffix), candidate))
+    retained = [
+        candidate
+        for number, candidate in sorted(numbered)
+        if number >= 2
+    ]
+    newest_roll = next(
+        (candidate for number, candidate in numbered if number == 1),
+        None,
+    )
+    if newest_roll is not None:
+        retained.append(newest_roll)
+    if path.exists():
+        retained.append(path)
+    return retained
+
+
+def iter_call_events(log_path: Path, call_id: str) -> Iterator[dict[str, Any]]:
+    """Yield one call's rows across retained generations, oldest first."""
+    target = str(call_id or "").strip()
+    if not target:
+        raise ValueError("call_id must be non-empty")
+    matched_generations: list[list[dict[str, Any]]] = []
+    for path in reversed(event_log_paths(Path(log_path))):
+        generation_matches: list[dict[str, Any]] = []
+        found_start = False
+        with path.open("r", encoding="utf-8") as handle:
+            for line_number, raw in enumerate(handle, start=1):
+                if not raw.endswith("\n"):
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"invalid JSONL row at {path}:{line_number}: {exc}"
+                    ) from exc
+                if isinstance(row, dict) and str(row.get("call_id") or "") == target:
+                    generation_matches.append(row)
+                    found_start = found_start or row.get("type") == "agent.io.start"
+        if generation_matches:
+            matched_generations.append(generation_matches)
+        if found_start:
+            break
+    for generation in reversed(matched_generations):
+        yield from generation
+
+# Idle-poll chatter that pollutes the persistent log without telling
+# operators anything actionable. We keep these on the in-process sink
+# (so the daemon log / stderr still see them) but skip writing them to
+# events.jsonl. Match by ``type`` + literal ``text``; an exact-match
+# table avoids false positives.
+DROP_FROM_DISK: frozenset[tuple[str, str]] = frozenset({
+    (EventType.LIFE_STATUS, "backlog empty; exiting"),
+    (EventType.LIFE_STATUS, "stop requested while idle"),
+})
+
+
+# High-value event types ALWAYS persisted, even in "signal" verbosity: mission
+# / round lifecycle, verdicts, skill-memory mutations, planner decisions, and
+# escalations. The noise we drop in "signal" mode is the
+# per-command / intermediate-message / idle-poll churn (engineer.progress
+# command_execution, session.roll, watchdog waits, telemetry deltas, match
+# diagnostics) that bloats events.jsonl to multi-MB without telling an operator
+# what changed. Errors and wins are preserved by a separate text-marker rule.
+HIGH_VALUE_EVENT_TYPES = SIGNAL_EVENT_TYPES
+# In "signal" mode, an engineer.progress event is kept only if its text carries
+# a win/result/error marker (so a measured win or a traceback is never lost).
+_SIGNAL_TEXT_MARKERS = (
+    "RESULT", "correct=true", "cand_ms", "Traceback", "Error:",
+    "exit_code", "FAILED", "NO_TRACE", "RUNTIME_ERROR",
+)
+
+
+def _should_persist_for_verbosity(event: dict[str, Any], verbosity: str) -> bool:
+    """True if this event should hit disk at the given verbosity.
+
+    ``full`` keeps everything (legacy behaviour). ``signal`` keeps only
+    high-value types + anything carrying an error/win marker.
+    """
+    if verbosity != "signal":
+        return True
+    t = str(event.get("type", ""))
+    if t in HIGH_VALUE_EVENT_TYPES:
+        return True
+    tl = t.lower()
+    if "error" in tl or "fail" in tl or "escalat" in tl or "alert" in tl:
+        return True
+    text = str(event.get("text", "") or "")
+    return any(m in text for m in _SIGNAL_TEXT_MARKERS)
+
+
+
+class _Sink(Protocol):
+    def handle_event(self, event: dict[str, Any]) -> bool | None: ...
+
+
+class JsonlEventSink:
+    """Tee any event sink to ``<life_dir>/events.jsonl``."""
+
+    def __init__(
+        self,
+        downstream: _Sink | None,
+        *,
+        life_dir: Path,
+        roll_bytes: int = ROLL_BYTES,
+        verbosity: str | None = None,
+    ) -> None:
+        self._downstream = downstream
+        self._dir = Path(life_dir)
+        self._path = self._dir / EVENT_FILE
+        self._roll_path = self._dir / ROLL_FILE
+        self._roll_bytes = max(1024 * 1024, int(roll_bytes))
+        self._lock = threading.Lock()
+        self._dir.mkdir(parents=True, exist_ok=True)
+        # "signal" (default) persists only high-value events + error/win markers —
+        # this is the SELLABLE trajectory: a clean per-mission episode, no
+        # command/idle/heartbeat churn. "full" keeps everything for deep debug.
+        # Errors are NEVER dropped (full, untruncated, via markers). Explicit arg
+        # wins; else env; else "signal" so teammates emit clean episodes too.
+        if verbosity is None:
+            verbosity = os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "signal")
+        self._verbosity = "signal" if str(verbosity).strip().lower() == "signal" else "full"
+
+    # --- Sink protocol -----------------------------------------------
+
+    def handle_event(self, event: dict[str, Any]) -> bool:
+        safe_event = self._normalize(event)
+        if safe_event.get("transient") is True:
+            persisted = True
+        elif self._is_idle_chatter(safe_event):
+            persisted = True
+        elif not _should_persist_for_verbosity(safe_event, self._verbosity):
+            persisted = True
+        else:
+            persisted = self._append(safe_event)
+        if not persisted:
+            if safe_event.get("event_validation") and self._downstream is not None:
+                try:
+                    self._downstream.handle_event(safe_event)
+                except Exception:  # noqa: BLE001
+                    pass
+            return False
+        if safe_event.pop("_mission_delivery_duplicate", False):
+            return True
+        if self._downstream is not None:
+            try:
+                self._downstream.handle_event(safe_event)
+            except Exception:  # noqa: BLE001
+                pass
+        return True
+
+    def handle_stream_line(self, stream: str, line: str) -> None:  # noqa: ARG002
+        """Accept stream progress so the sink satisfies EventSink."""
+        safe_line = redact_secrets_text(
+            line,
+            known_values=known_secret_values(),
+        )
+        if self._downstream is not None:
+            try:
+                handler = getattr(self._downstream, "handle_stream_line", None)
+                if handler is not None:
+                    handler(stream, safe_line)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def close(self) -> None:
+        """Best-effort close for EventSink compatibility."""
+        if self._downstream is None:
+            return
+        try:
+            closer = getattr(self._downstream, "close", None)
+            if closer is not None:
+                closer()
+        except Exception:  # noqa: BLE001
+            pass
+
+    @staticmethod
+    def _is_idle_chatter(event: dict[str, Any]) -> bool:
+        t = str(event.get("type", ""))
+        text = str(event.get("text", ""))
+        return (t, text) in DROP_FROM_DISK
+
+    # --- public so tests / migrations can drop one-shot lines --------
+
+    def append(self, event: dict[str, Any]) -> bool:
+        return self._append(dict(event))
+
+    # --- helpers -----------------------------------------------------
+
+    def _append(self, event: dict[str, Any]) -> bool:
+        try:
+            from .mission_event_index import is_mission_delivery_event
+
+            payload = self._normalize(event)
+            if "mission_delivery_id" in payload and not is_mission_delivery_event(payload):
+                # The delivery namespace is reserved for validated completion
+                # envelopes. Reject before touching its durable receipt index.
+                return False
+            # A fixed final envelope field lets an unlogged compatibility view
+            # notice canonical ownership even if its projection callback fails.
+            payload.pop("log_writer_version", None)
+            payload["log_writer_version"] = 1
+            line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            encoded_line = (line + "\n").encode("utf-8")
+            if payload.get("mission_delivery_id") and len(encoded_line) > MAX_JSONL_RECORD_BYTES:
+                # Every accepted completion must remain readable by receipt
+                # recovery. Leave an oversized delivery pending for repair.
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        valid = not bool(payload.get("event_validation"))
+        if payload.get("event_validation"):
+            try:
+                from ..core.metrics import metrics_root_for_project, record_metric
+
+                record_metric(
+                    metrics_root_for_project(self._dir),
+                    "event.validation_failure",
+                    labels={"type": payload.get("type") or "unknown"},
+                    fields={
+                        "errors": payload["event_validation"].get("errors", [])
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        from ..core.mission_view._replay import events_locked, sync_directory
+
+        with self._lock:
+            try:
+                with events_locked(self._dir):
+                    from .mission_event_index import mission_event_index
+
+                    key = str(payload.get("mission_delivery_id") or "")
+                    index = mission_event_index(str(self._dir.resolve())) if key else None
+                    duplicate = index is not None and index.contains(key)
+                    if duplicate:
+                        event["_mission_delivery_duplicate"] = True
+                    else:
+                        self._maybe_roll()
+                        with self._path.open("a+b") as fh:
+                            if fh.tell():
+                                fh.seek(-1, os.SEEK_END)
+                                if fh.read(1) != b"\n":
+                                    # Preserve an interrupted row without joining it.
+                                    fh.write(b"\n")
+                            if index is not None:
+                                index.begin(key, fh)
+                            fh.write(encoded_line)
+                            fh.flush()
+                            os.fsync(fh.fileno())
+                        sync_directory(self._dir)
+                        if index is not None:
+                            index.finish(key)
+            except Exception:  # noqa: BLE001
+                # Disk full / read-only / permission — keep silent so the
+                # supervisor doesn't crash. Operators see the warning in
+                # the daemon log via _DaemonSink.handle_event downstream.
+                return False
+        # Never invoke the projection API or downstream callbacks while owning
+        # the append lock. Another writer may win first; reconciliation consumes
+        # the durable stream order, independently of callback arrival order.
+        try:
+            from ..core.mission_view import (
+                mission_view_handles_event,
+                update_mission_view_event,
+            )
+
+            if mission_view_handles_event(payload.get("type")):
+                update_mission_view_event(self._dir, payload, logged=True)
+        except Exception:  # noqa: BLE001 - canonical append remains successful
+            log.warning("Mission View projection deferred to log replay", exc_info=True)
+        return valid
+
+    @staticmethod
+    def _normalize(event: dict[str, Any]) -> dict[str, Any]:
+        out = normalize_event_envelope(event, timestamp=time.time())
+        # Preserve the existing explicit id convention used by timeline rows;
+        # otherwise give this durable event a stable identity before delivery.
+        out.setdefault("event_id", str(out.get("id") or uuid.uuid4().hex))
+        # Drop non-serialisable values rather than crash.
+        for k, v in list(out.items()):
+            try:
+                json.dumps(v)
+            except Exception:  # noqa: BLE001
+                out[k] = repr(v)  # full repr — events.jsonl is the ground-truth replay; don't clip diagnostics
+        return redact_secrets_record(
+            out,
+            known_values=known_secret_values(),
+        )
+
+    def _maybe_roll(self) -> None:
+        try:
+            size = self._path.stat().st_size
+        except FileNotFoundError:
+            return
+        except Exception:  # noqa: BLE001
+            return
+        if size < self._roll_bytes:
+            return
+        try:
+            # Preserve EVERY generation. Instead of deleting the previous roll,
+            # move it aside to the next free ``events.jsonl.<N>`` (N>=2) so no
+            # events are ever lost. ``.1`` stays the most-recent previous roll
+            # (readers/tailers that expect it keep working); older generations
+            # accumulate as .2, .3, … and are swept up by the ``events.jsonl*``
+            # glob during full-history reconstruction.
+            if self._roll_path.exists():
+                n = 2
+                while (self._dir / f"{EVENT_FILE}.{n}").exists():
+                    n += 1
+                os.replace(self._roll_path, self._dir / f"{EVENT_FILE}.{n}")
+            os.replace(self._path, self._roll_path)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def wrap(
+    downstream: _Sink | None,
+    *,
+    life_dir: Path | str,
+    roll_bytes: int = ROLL_BYTES,
+) -> JsonlEventSink:
+    """Convenience factory used by `apps/_runtime.py` / `life_worker.py`."""
+    return JsonlEventSink(
+        downstream,
+        life_dir=Path(life_dir),
+        roll_bytes=roll_bytes,
+    )
+
+
+__all__ = [
+    "JsonlEventSink",
+    "wrap",
+    "ROLL_BYTES",
+    "EVENT_FILE",
+    "ROLL_FILE",
+    "DROP_FROM_DISK",
+]

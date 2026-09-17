@@ -23,12 +23,6 @@ const ESSENTIAL_KNOBS: EssentialKnob[] = [
     description: 'Maximum background sessions running on this host.',
   },
   {
-    name: 'ARGUS_SKILL_UNPRICED_COST_POLICY',
-    group: 'Safety',
-    label: 'Unpriced calls',
-    description: 'Whether calls with unresolved pricing are blocked or allowed.',
-  },
-  {
     name: 'ARGUS_SKILL_SAFE_MODE',
     group: 'Safety',
     label: 'Safe mode',

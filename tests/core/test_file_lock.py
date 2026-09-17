@@ -5,7 +5,7 @@ from pathlib import Path
 import portalocker
 import pytest
 
-from argus_skill.core.file_lock import exclusive_file_lock
+from argus.core.file_lock import exclusive_file_lock
 
 
 def test_exclusive_file_lock_times_out_under_contention(tmp_path: Path) -> None:

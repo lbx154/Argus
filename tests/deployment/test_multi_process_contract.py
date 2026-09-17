@@ -12,13 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.release import release_manifest
-
 pytestmark = pytest.mark.e2e
 
 
 def _reserve_worker(root: str, project: str, start, finish, queue, call_id: str) -> None:
-    from argus_skill.core.cost_control import reserve_call_budget
+    from argus.core.cost_control import reserve_call_budget
 
     start.wait()
     reservation, reason = reserve_call_budget(
@@ -38,7 +36,7 @@ def _reserve_worker(root: str, project: str, start, finish, queue, call_id: str)
 
 
 def _command_worker(root: str, start, queue, marker: str) -> None:
-    from argus_skill.daemon.commands import execute_daemon_command
+    from argus.daemon.commands import execute_daemon_command
 
     start.wait()
 
@@ -136,7 +134,7 @@ def test_real_webapi_process_exposes_release_protocol_metrics_and_projects(
     source_root = Path(__file__).parents[2]
     code = (
         "from pathlib import Path; import uvicorn; "
-        "from argus_skill.webapi.server import create_app; "
+        "from argus.webapi.server import create_app; "
         f"uvicorn.run(create_app(global_root=Path({str(tmp_path)!r})), "
         f"host='127.0.0.1', port={port}, log_level='error')"
     )
@@ -163,15 +161,7 @@ def test_real_webapi_process_exposes_release_protocol_metrics_and_projects(
                     stderr = process.stderr.read() if process.stderr else ""
                     raise AssertionError(f"WebAPI failed to start: {stderr}")
                 time.sleep(0.1)
-        assert meta["runtime"]["release_id"] == release_manifest()["release_id"]
-        # The manifest digest is refreshed at release, so between releases the
-        # working tree is legitimately ahead of it. What the contract owes a
-        # client is the comparison itself, computed against a source root the
-        # process could actually find — not that today happens to be a release.
-        assert meta["runtime"]["manifest_source_digest"]
-        assert meta["runtime"]["runtime_source_digest"]
-        assert isinstance(meta["runtime"]["release_matches_source"], bool)
-        assert headers["X-Argus-Release"] == release_manifest()["release_id"]
+        assert meta["runtime"]["package_version"]
         projects, _ = _get_json(base + "/api/projects?include_empty=true")
         assert [row["id"] for row in projects["projects"]] == ["s-deploy"]
         metrics, _ = _get_json(base + "/api/metrics")

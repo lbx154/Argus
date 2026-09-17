@@ -9,15 +9,18 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.daemon._life_worker_identity import (
+from argus.daemon._life_worker_identity import (
     _refresh_file_backed_objective_for_resume,
     _write_manager_handoff_identity,
 )
-from argus_skill.daemon.life_worker import (
+from argus.daemon.life_worker import (
+    LifeWorker,
+    LifeWorkerConfig,
     _apply_continuous_suppression,
     _rearm_operator_drain_for_resume,
+    _RunForeverState,
 )
-from argus_skill.daemon.state import (
+from argus.daemon.state import (
     GRACEFUL_STOP_REASON,
     read_continuous_state,
     write_continuous_config,
@@ -26,7 +29,7 @@ from argus_skill.daemon.state import (
 # ---- parser: the daemon-level opt-in flag exists, off by default -----------
 
 def test_resume_continuous_flag_parses():
-    from argus_skill.apps.cli._parser import build_parser
+    from argus.apps.cli._parser import build_parser
 
     p = build_parser()
     assert p.parse_args(["--daemon-fg"]).resume_continuous is False
@@ -158,6 +161,76 @@ def test_a_finished_campaign_is_not_restarted_by_a_restart(tmp_path: Path) -> No
     )
 
     assert state.enabled is False
+
+
+def test_disabled_open_ended_campaign_does_not_keep_bounded_worker_resident(
+    tmp_path: Path,
+) -> None:
+    write_continuous_config(
+        tmp_path,
+        enabled=False,
+        objective="finished campaign",
+        open_ended=True,
+        done_reason="planner declared project done",
+    )
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            continuous_open_ended=False,
+        )
+    )
+    state = _RunForeverState()
+    state.cfg = worker.config
+    state.runtime_root = tmp_path
+
+    worker._rf_resolve_continuous_boot_state(state)
+
+    assert state.init_continuous is False
+    assert state.init_objective == ""
+    assert state.cfg.continuous_open_ended is False
+    assert state.continuous_provider() == (False, "", False)
+
+
+def test_resumed_bounded_campaign_reaches_the_mission_runner(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """The runner namespace is built before the persisted campaign lifetime is
+    read. A bounded campaign resumed by a daemon launched with the open-ended
+    default must still hand the Manager stage hook ``open_ended=False``;
+    otherwise it can never complete at the current stage and is advanced into
+    stages the objective never asked for."""
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="survey the literature and rank twelve directions",
+        open_ended=False,
+    )
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            continuous_open_ended=True,
+            resume_continuous=True,
+        )
+    )
+    state = _RunForeverState()
+    state.cfg = worker.config
+    state.runtime_root = tmp_path
+    state.runner = SimpleNamespace(
+        _args=SimpleNamespace(open_ended=True, continuous_objective="")
+    )
+
+    worker._rf_resolve_continuous_boot_state(state)
+
+    assert state.init_continuous is True
+    assert state.cfg.continuous_open_ended is False
+    assert state.runner._args.open_ended is False
+    assert state.runner._args.continuous_objective == (
+        "survey the literature and rank twelve directions"
+    )
 
 
 def test_resume_continuous_preserves_operator_authority_hold(

@@ -5,19 +5,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.transcript import read_turns
-from argus_skill.life import MemoryBundle
-from argus_skill.life.memory import LifeMemory
-from argus_skill.manager import Manager
-from argus_skill.manager.classification_contract import (
+from argus.core.transcript import read_turns
+from argus.life import MemoryBundle
+from argus.life.memory import LifeMemory
+from argus.manager import Manager
+from argus.manager.classification_contract import (
     REPOSITORY_TOOL_CLAUSE,
     STRUCTURED_DECISION_CLAUSE,
     contract_failure_count,
 )
-from argus_skill.manager.domain_author import (
+from argus.manager.domain_author import (
     ManagerClassificationContractError,
 )
-from argus_skill.manager.front_door import (
+from argus.manager.front_door import (
     ManagerHandoffError,
     ManagerModelCapabilityMismatchError,
     manager_bounded_handoff,
@@ -137,7 +137,6 @@ def test_repository_tool_contract_has_its_own_clause(tmp_path, monkeypatch) -> N
         json.dumps({
             "choice": "new",
             "vertical": "custom_runtime",
-            "stages": ["measure", "implement", "verify"],
             "workflow_mode": "staged",
             "execution_task": "Build the project-specific runtime.",
             "rationale": "new local capability",
@@ -245,7 +244,7 @@ def test_threshold_changes_message_publishes_alert_and_stays_fail_closed(
 
 
 def test_cockpit_manager_model_alias_is_role_specific(tmp_path, monkeypatch) -> None:
-    from argus_skill.webapi.mission_items import set_operator_config
+    from argus.webapi.mission_items import set_operator_config
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     result = set_operator_config("manager_model", "capable/manager-model")
@@ -259,8 +258,8 @@ def test_cockpit_manager_model_alias_is_role_specific(tmp_path, monkeypatch) -> 
 def test_manager_chat_surfaces_capability_message_without_dispatch(
     tmp_path, monkeypatch,
 ) -> None:
-    from argus_skill.manager import config_intent, front_door
-    from argus_skill.webapi import manager_bridge, manager_state
+    from argus.manager import config_intent, front_door
+    from argus.webapi import manager_bridge, manager_state
 
     sid = "manager-mismatch-inline"
     life_dir = tmp_path / "projects" / sid

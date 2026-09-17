@@ -1,15 +1,19 @@
 """Shared publication chart style helper (paper_chart_style.py).
 
 The helper is the single source of truth for how DATA figures look in a paper:
-colour-blind-safe palettes, venue-aware figure sizes, font embedding, and an
-"emphasise Ours" convention. matplotlib is an optional (project-venv) dependency,
-so the matplotlib-touching tests skip cleanly when it is absent.
+colour-blind-safe palettes, venue-aware figure sizes (column layout read from
+the project's researched venue profile), font embedding, and an "emphasise
+Ours" convention. matplotlib is an optional (project-venv) dependency, so the
+matplotlib-touching tests skip cleanly when it is absent.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
-from argus_skill.verticals.research.skills.engineer.figure_spec_scripts import (
+from argus.verticals.research.skills.engineer.figure_spec_scripts import (
     paper_chart_style as pcs,
 )
 
@@ -24,28 +28,101 @@ def test_palettes_are_named_and_colorblind_set() -> None:
         assert all(c.startswith("#") and len(c) == 7 for c in colors)
 
 
-def test_figure_size_two_column_vs_single_column_venue() -> None:
-    # Two-column venue: single vs double are different physical widths.
-    single = pcs.figure_size("single", venue="EMNLP")
-    double = pcs.figure_size("double", venue="EMNLP")
+def test_figure_size_two_column_vs_single_column_layout() -> None:
+    # Two-column template: single vs double are different physical widths.
+    single = pcs.figure_size("single", two_column=True)
+    double = pcs.figure_size("double", two_column=True)
     assert single[0] < double[0]
     assert double[0] > 6.0  # full text width
     assert single[0] < 3.6  # one column
-    # Single-column venue: one text width regardless of the column arg.
-    ncol = pcs.figure_size("single", venue="NeurIPS")
+    # Single-column template: one text width regardless of the column arg.
+    ncol = pcs.figure_size("single", two_column=False)
     assert ncol[0] > single[0]
-    assert pcs.figure_size("double", venue="NeurIPS")[0] == ncol[0]
+    assert pcs.figure_size("double", two_column=False)[0] == ncol[0]
 
 
-def test_is_two_column_inference() -> None:
-    assert pcs._is_two_column("EMNLP") is True
-    assert pcs._is_two_column("AAAI") is True
-    assert pcs._is_two_column(None) is True  # default: two-column
-    assert pcs._is_two_column("NeurIPS") is False
-    assert pcs._is_two_column("icml") is False
+def test_column_layout_comes_from_researched_venue_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The researched research/VENUE_PROFILE.json decides the layout; walking up
+    # from a nested working directory finds it.
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "VENUE_PROFILE.json").write_text(
+        json.dumps({"key": "JOURNALX", "two_column": False}), encoding="utf-8"
+    )
+    nested = tmp_path / "paper" / "analysis"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+    assert pcs._project_two_column() is False
+    assert pcs.figure_size("double")[0] == pcs.figure_size("single")[0]
+
+    (research / "VENUE_PROFILE.json").write_text(
+        json.dumps({"key": "CONFY", "two_column": True}), encoding="utf-8"
+    )
+    assert pcs._project_two_column() is True
+    assert pcs.figure_size("double")[0] > pcs.figure_size("single")[0]
+
+
+@pytest.mark.parametrize("profile", [None, "not json", "{}", '{"two_column":"false"}'])
+def test_column_layout_requires_template_choice_without_valid_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    profile: str | None,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    if profile is not None:
+        research = tmp_path / "research"
+        research.mkdir()
+        (research / "VENUE_PROFILE.json").write_text(profile, encoding="utf-8")
+    with pytest.raises(ValueError, match="Read its current template"):
+        pcs.figure_size()
+    # An explicit choice works without a cached profile, including for ICLR's
+    # single-column template. Unknown metadata must not silently narrow it.
+    assert pcs.figure_size("single", two_column=False)[0] == 5.5
+    assert pcs.figure_size("single", two_column=True)[0] == 3.3
 
 
 # ---- matplotlib-backed behaviour ------------------------------------------
+
+@pytest.mark.parametrize("facecolor, expected", [
+    ("#CBE9D3", "black"),  # Pale green: white digits disappear at paper size.
+    ("#243D4E", "white"),
+    ("#808080", "black"),  # Black exceeds 5:1; white is below 4:1 here.
+    ("#00FF00", "black"),  # Green's luminance must not use an RGB mean.
+])
+def test_annotation_text_uses_visible_color_contrast(facecolor, expected) -> None:
+    pytest.importorskip("matplotlib")
+    assert pcs.contrast_text_color(facecolor) == expected
+
+
+def test_same_heatmap_value_needs_different_text_after_colormap_reversal() -> None:
+    colors = pytest.importorskip("matplotlib.colors")
+    cmap = colors.ListedColormap(["#CBE9D3", "#243D4E"])
+    norm = colors.Normalize(vmin=0, vmax=10)
+    assert pcs.contrast_text_color(cmap(norm(3))) == "black"
+    assert pcs.contrast_text_color(cmap.reversed()(norm(3))) == "white"
+
+
+def test_annotation_text_accounts_for_rgba_and_artist_opacity() -> None:
+    pytest.importorskip("matplotlib")
+    assert pcs.contrast_text_color("#243D4E", alpha=1.0) == "white"
+    assert pcs.contrast_text_color("#243D4E", alpha=0.2) == "black"
+    # Intrinsic 0.5 alpha and additional 0.9 artist opacity combine to 0.45;
+    # replacing intrinsic alpha with 0.9 would incorrectly choose white text.
+    assert pcs.contrast_text_color((0, 0, 0, 0.5), alpha=0.9) == "black"
+
+
+def test_annotation_text_composites_axes_and_canvas_backgrounds() -> None:
+    pytest.importorskip("matplotlib")
+    assert pcs.contrast_text_color((1, 1, 1, 0.25), background="black") == "white"
+    assert pcs.contrast_text_color((1, 1, 1, 0.25), background="white") == "black"
+    # Transparent cell and axes expose the actual dark figure background.
+    assert pcs.contrast_text_color("none", background="none", canvas="#243D4E") == "white"
+    assert pcs.contrast_text_color("none", background=(1, 1, 1, 0.25), canvas="black") == "white"
+    assert pcs.contrast_text_color("black", alpha=0.0, background="white") == "black"
+
 
 def test_set_pub_style_applies_and_returns_palette() -> None:
     pytest.importorskip("matplotlib")
@@ -53,12 +130,14 @@ def test_set_pub_style_applies_and_returns_palette() -> None:
     matplotlib.use("Agg")
     import matplotlib as mpl
 
-    colors = pcs.set_pub_style(venue="EMNLP", column="double", palette="muted")
+    colors = pcs.set_pub_style(column="double", palette="muted", two_column=True)
     assert colors == pcs.PALETTES["muted"]
     # Font embedding for camera-ready PDFs.
     assert mpl.rcParams["pdf.fonttype"] == 42
-    # Figure size reflects the requested (venue, column).
-    assert tuple(mpl.rcParams["figure.figsize"]) == pcs.figure_size("double", venue="EMNLP")
+    # Figure size reflects the requested (layout, column).
+    assert tuple(mpl.rcParams["figure.figsize"]) == pcs.figure_size(
+        "double", two_column=True
+    )
     # Palette is installed on the prop cycle.
     cycle_colors = mpl.rcParams["axes.prop_cycle"].by_key()["color"]
     assert cycle_colors[0] == pcs.PALETTES["muted"][0]
@@ -68,8 +147,64 @@ def test_set_pub_style_unknown_palette_falls_back_to_default() -> None:
     pytest.importorskip("matplotlib")
     import matplotlib
     matplotlib.use("Agg")
-    colors = pcs.set_pub_style(palette="does-not-exist")
+    colors = pcs.set_pub_style(palette="does-not-exist", two_column=True)
     assert colors == pcs.PALETTES[pcs.DEFAULT_PALETTE]
+
+
+def test_set_pub_style_requires_scienceplots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("matplotlib")
+
+    real_import = pcs.importlib.import_module
+
+    def reject_scienceplots(name: str, package: str | None = None):
+        if name == "scienceplots":
+            raise ModuleNotFoundError("No module named 'scienceplots'")
+        return real_import(name, package)
+
+    monkeypatch.setattr(pcs.importlib, "import_module", reject_scienceplots)
+
+    with pytest.raises(RuntimeError, match=r"argus\[figures\]"):
+        pcs.set_pub_style()
+
+
+def test_research_data_figures_have_one_renderer_path() -> None:
+    skill_root = pcs.__file__.rsplit("figure_spec_scripts", 1)[0]
+
+    chart_skill = Path(skill_root, "paper-chart-styling.md").read_text(encoding="utf-8")
+    analysis_skill = Path(
+        skill_root, "research-results-analysis-and-figures.md"
+    ).read_text(encoding="utf-8")
+    router_skill = Path(
+        skill_root, "research-visualization-router.md"
+    ).read_text(encoding="utf-8")
+
+    normalized_chart = " ".join(chart_skill.split())
+    normalized_analysis = " ".join(analysis_skill.split())
+    normalized_router = " ".join(router_skill.split())
+
+    assert "SciencePlots is mandatory for this route" in normalized_chart
+    assert "single SciencePlots/Matplotlib data-figure path" in normalized_analysis
+    assert "Any paper data/metric/result chart" in normalized_router
+    assert (
+        "Other conceptual or teaser figure | "
+        "Composing a conceptual paper figure"
+    ) in normalized_router
+    assert (
+        "Method pipeline or architecture overview | Composing a conceptual paper figure"
+    ) in normalized_router
+
+
+def test_chart_skill_has_no_builtin_venue_api() -> None:
+    # The skill's examples must match the real API: no venue= parameter, no
+    # built-in venue keys — layout comes from the researched profile.
+    skill_root = pcs.__file__.rsplit("figure_spec_scripts", 1)[0]
+    chart_skill = Path(skill_root, "paper-chart-styling.md").read_text(encoding="utf-8")
+    assert 'venue="' not in chart_skill
+    assert "venue=" not in chart_skill
+    for literal in ("EMNLP", "AAAI", "NeurIPS"):
+        assert literal not in chart_skill
 
 
 def test_highlight_ours_bars_emphasises_ours_and_greys_baselines() -> None:
@@ -78,7 +213,7 @@ def test_highlight_ours_bars_emphasises_ours_and_greys_baselines() -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    pcs.set_pub_style(venue="EMNLP")
+    pcs.set_pub_style(two_column=True)
     fig, ax = plt.subplots()
     ax.bar(["a", "b", "c"], [1.0, 2.0, 3.0])
     pcs.highlight_ours(ax, ours_index=2)
@@ -90,13 +225,53 @@ def test_highlight_ours_bars_emphasises_ours_and_greys_baselines() -> None:
     plt.close(fig)
 
 
+def test_highlight_ours_grouped_bars_emphasises_the_whole_series() -> None:
+    pytest.importorskip("matplotlib")
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    pcs.set_pub_style(two_column=True)
+    fig, ax = plt.subplots()
+    x = [0, 1]
+    ax.bar(
+        [value - 0.2 for value in x],
+        [1.0, 1.5],
+        width=0.2,
+        yerr=[0.1, 0.1],
+        capsize=2,
+    )
+    ax.bar(x, [1.4, 1.8], width=0.2, yerr=[0.1, 0.1], capsize=2)
+    ax.bar(
+        [value + 0.2 for value in x],
+        [1.7, 2.1],
+        width=0.2,
+        yerr=[0.1, 0.1],
+        capsize=2,
+    )
+    pcs.highlight_ours(ax, ours_index=2)
+
+    bar_containers = [
+        container for container in ax.containers if hasattr(container, "patches")
+    ]
+    assert len(bar_containers) == 3
+    for index, container in enumerate(bar_containers):
+        for bar in container.patches:
+            if index == 2:
+                assert bar.get_edgecolor()[:3] == (0.0, 0.0, 0.0)
+                assert bar.get_alpha() in (None, 1.0)
+            else:
+                assert bar.get_alpha() == pytest.approx(0.85)
+    plt.close(fig)
+
+
 def test_highlight_ours_lines_thickens_ours() -> None:
     pytest.importorskip("matplotlib")
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    pcs.set_pub_style(venue="EMNLP")
+    pcs.set_pub_style(two_column=True)
     fig, ax = plt.subplots()
     for _ in range(3):
         ax.plot([0, 1, 2], [0, 1, 2])
@@ -112,6 +287,4 @@ def test_demo_renders_before_and_after(tmp_path) -> None:
     written = pcs._demo(str(tmp_path))
     assert len(written) == 2
     for path in written:
-        from pathlib import Path
-
         assert Path(path).is_file() and Path(path).stat().st_size > 0

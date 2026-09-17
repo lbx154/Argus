@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.core.usage import UsageSummary
-from argus_skill.webapi import mission_items, project_state
+from argus.core.usage import UsageSummary
+from argus.webapi import mission_items, project_state
 
 
 def _usage_summary() -> UsageSummary:

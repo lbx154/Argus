@@ -1,0 +1,1023 @@
+.argus-map {
+  --map-paper: rgb(var(--panel));
+  --map-card-surface: rgb(var(--panel));
+  --map-canvas: #f5f7fa;
+  --map-dot: #d6dfe9;
+  --map-minimap-mask: rgba(242, 245, 249, 0.75);
+  --map-vignette: rgba(36, 54, 76, 0.045);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--map-paper);
+  color: rgb(var(--ink));
+  font-family: "Geist Variable", sans-serif;
+}
+[data-theme="dark"] .argus-map {
+  /* Cards sit a step above the canvas instead of matching the near-black
+   * panel: pure panel-on-canvas read as holes in the dark screenshots. */
+  --map-card-surface: #1d2734;
+  --map-canvas: #10161f;
+  --map-dot: #263241;
+  --map-minimap-mask: rgba(13, 19, 27, 0.72);
+  --map-vignette: rgba(0, 0, 0, 0.3);
+}
+/* The header is two lines: the session's name, then one sentence on where
+ * the work stands. Everything else about the map lives behind the options
+ * button at the right. */
+.map-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 24px 0;
+}
+.map-heading { flex: 1; min-width: 0; }
+.map-more { position: relative; flex-shrink: 0; }
+.map-more > summary {
+  list-style: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgb(var(--line));
+  border-radius: 10px;
+  color: rgb(var(--ink-dim));
+  cursor: pointer;
+}
+.map-more > summary::-webkit-details-marker { display: none; }
+.map-more[open] > summary { color: rgb(var(--blue)); border-color: rgb(var(--blue) / 0.45); }
+.map-more-menu {
+  position: absolute;
+  right: 0;
+  top: 40px;
+  z-index: 30;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: rgb(var(--panel));
+  border: 1px solid rgb(var(--line));
+  border-radius: 12px;
+  box-shadow: 0 12px 40px #1834541a;
+}
+.map-more-menu .map-scope-button { margin-left: 0; text-align: left; }
+.map-more-menu .map-team-progress { padding: 2px 0 6px; border-bottom: 1px solid rgb(var(--line) / .6); }
+/* Entries that only matter where the canvas legend is hidden. */
+.map-narrow-only { display: none; }
+.map-status-row {
+  display: flex;
+  align-items: center;
+  padding: 3px 24px 10px;
+  font-size: 12.5px;
+  color: rgb(var(--ink-dim));
+}
+.map-status-line { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; }
+.map-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-status-sep { color: rgb(var(--ink-faint)); }
+.map-attention-link {
+  flex-shrink: 0;
+  color: #a06a4b;
+  font-weight: 550;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.map-attention-link:hover { color: #7f5238; text-decoration-style: solid; }
+[data-theme="dark"] .map-attention-link { color: #d9a883; }
+.map-live-dot { width: 6px; height: 6px; border-radius: 50%; background: #5da890; box-shadow: 0 0 0 3px #5da89020; animation: map-live-dot 1.6s ease-in-out infinite; }
+@keyframes map-live-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (max-width: 640px) {
+  .map-status-row { padding: 2px 14px 8px; font-size: 12px; }
+  .map-header { padding: 10px 14px 0; }
+}
+.map-heading h1 {
+  font-size: 18px;
+  letter-spacing: -0.3px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-dataset-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: rgb(var(--ink-dim));
+  min-width: 0;
+}
+.map-dataset-bar > svg {
+  color: #6186a9;
+  flex-shrink: 0;
+}
+.map-dataset-bar select {
+  background: var(--map-paper);
+  color: rgb(var(--ink));
+  font-weight: 550;
+  border: 0;
+  outline-offset: 3px;
+  max-width: 360px;
+  min-width: 0;
+}
+.map-dataset-description {
+  font-size: 11px;
+  color: rgb(var(--ink-faint));
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.map-capture {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 11px;
+  color: rgb(var(--ink-faint));
+}
+/* The subtask tally, one compact line inside the options menu. */
+.map-team-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  color: rgb(var(--ink-faint));
+  font-size: 12px;
+}
+.map-team-progress > span { display: inline-flex; align-items: center; gap: 5px; }
+.map-team-progress strong, .map-team-progress b { color: rgb(var(--ink-dim)); font-weight: 550; font-variant-numeric: tabular-nums; }
+.map-card-team-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.map-canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--map-canvas);
+}
+/* One toolbar row across the top of the canvas: finding and moving on the
+ * left, the conversation, the agents and the deliveries on the right. The
+ * row itself lets pointer events through to the canvas; only its controls
+ * catch them. */
+.map-canvas-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+  position: absolute;
+  top: 17px;
+  left: 20px;
+  right: 20px;
+  z-index: 6;
+  pointer-events: none;
+}
+.map-canvas-toolbar > * { pointer-events: auto; }
+.map-toolbar-gap { flex: 1; min-width: 6px; pointer-events: none; }
+.map-canvas-toolbar > button,
+.map-search,
+.map-workspace-actions button {
+  background: var(--map-paper);
+  border: 1px solid rgb(var(--line) / 0.7);
+  box-shadow: 0 2px 6px #24364c05;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  color: rgb(var(--ink-dim));
+  font-size: 12px;
+  white-space: nowrap;
+}
+.map-canvas-toolbar > button {
+  padding: 0 10px;
+}
+.map-search {
+  padding: 0 10px;
+  width: 195px;
+}
+.map-search svg {
+  color: rgb(var(--ink-faint));
+  flex-shrink: 0;
+}
+.map-search input {
+  background: transparent;
+  border: 0;
+  outline: none;
+  min-width: 0;
+  width: 100%;
+  font-size: 12px;
+  color: rgb(var(--ink));
+}
+.map-search:focus-within {
+  border-color: #7b9cbc;
+}
+.map-feedback {
+  position: absolute;
+  z-index: 8;
+  top: 61px;
+  left: 20px;
+  padding: 7px 12px;
+  background: var(--map-paper);
+  border-radius: 6px;
+  font-size: 11px;
+  border: 1px solid rgb(var(--line));
+}
+.map-attention-detail,
+.map-dependencies {
+  flex-shrink: 0;
+  padding: 8px 28px;
+  border-bottom: 1px solid rgb(var(--line) / .6);
+  font-size: 11px;
+  color: rgb(var(--ink-dim));
+}
+.map-attention-detail { display: flex; align-items: baseline; gap: 10px; }
+.map-attention-detail > strong { flex-shrink: 0; color: #ac724a; }
+.map-attention-detail > p { max-height: 4.5em; overflow-y: auto; white-space: pre-line; }
+.map-dependencies > div { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 3px 0; }
+.map-dependencies strong { flex: 0 0 70px; font-weight: 550; }
+.map-dependencies button {
+  flex-shrink: 0;
+  max-width: min(420px, 65vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border: 1px solid rgb(var(--line) / .7);
+  border-radius: 6px;
+}
+.map-dependencies button:hover,
+.map-dependencies .map-trace-task,
+.map-canvas-toolbar > button[aria-pressed="true"] {
+  color: rgb(var(--blue));
+  border-color: rgb(var(--blue) / .45);
+  background: rgb(var(--blue) / .06);
+}
+.map-card {
+  --state: #9babbc;
+  position: relative;
+  width: 272px;
+  min-height: 192px;
+  box-sizing: border-box;
+  border: 1px solid rgb(var(--line) / 0.8);
+  border-top: 3px solid var(--state);
+  background: var(--map-card-surface);
+  border-radius: 10px;
+  box-shadow:
+    0 3px 12px #24364c07,
+    0 1px 2px #24364c05;
+  transition:
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
+  cursor: pointer;
+}
+.map-card:hover {
+  transform: translateY(-2px);
+}
+.map-card:active {
+  transform: translateY(0) scale(0.988);
+  transition-duration: 0.08s;
+}
+[data-theme="dark"] .map-card {
+  border-color: rgb(255 255 255 / 0.09);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+}
+.map-card:hover {
+  box-shadow: 0 7px 24px #24364c12;
+}
+[data-theme="dark"] .map-card:hover {
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.5);
+}
+.map-card.is-selected {
+  outline: 2px solid #528abd;
+  outline-offset: 3px;
+}
+.map-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 9px;
+}
+.map-card-number {
+  font-size: 11px;
+  font-family: "Geist Mono Variable", monospace;
+  color: rgb(var(--ink-faint));
+  letter-spacing: 0.4px;
+}
+.map-status {
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--state, #6b859f);
+  background: color-mix(in srgb, var(--state, #6b859f) 9%, transparent);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.map-state-done {
+  --state: #528e73;
+}
+.map-state-running {
+  --state: #4a86c5;
+}
+.map-state-failed {
+  --state: #bd785f;
+}
+.map-state-question {
+  --state: #bd923f;
+}
+.map-state-paused {
+  --state: #a58a56;
+}
+.map-state-superseded {
+  --state: #9588a8;
+}
+.map-state-aborted,
+.map-state-skipped,
+.map-state-missing {
+  --state: #9d9fa6;
+}
+.map-live-dot,
+.map-state-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.map-live-dot {
+  box-shadow: 0 0 0 3px #4a86c516;
+}
+.map-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  line-height: 1.6;
+  margin: 0 16px 7px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 44px;
+}
+.map-card-copy {
+  margin: 0 16px 13px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: rgb(var(--ink-faint));
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 36px;
+}
+.map-card-bottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid rgb(var(--line) / 0.45);
+  padding: 10px 16px;
+  font-size: 11px;
+  color: rgb(var(--ink-faint));
+}
+.map-card-bottom time {
+  margin-left: auto;
+  font-size: 11px;
+}
+.map-role {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #77899f;
+}
+.map-role > span {
+  height: 5px;
+  width: 5px;
+  border-radius: 2px;
+  background: currentColor;
+}
+.map-role-engineer {
+  color: rgb(var(--role-engineer));
+}
+.map-role-reviewer {
+  color: rgb(var(--role-reviewer));
+}
+.map-role-manager {
+  color: rgb(var(--role-manager));
+}
+.map-role-planner {
+  color: rgb(var(--role-planner));
+}
+.argus-map .react-flow__handle {
+  width: 7px;
+  height: 7px;
+  background: var(--map-paper);
+  border: 1.5px solid #94a6b8;
+}
+.argus-map .react-flow__node:focus-visible .map-card {
+  outline: 3px solid #528abd;
+  outline-offset: 3px;
+}
+.map-legend {
+  position: absolute;
+  bottom: 19px;
+  left: 76px;
+  z-index: 6;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  background: var(--map-paper);
+  border: 1px solid rgb(var(--line) / 0.7);
+  padding: 9px 12px;
+  border-radius: 7px;
+  font-size: 11px;
+  color: rgb(var(--ink-faint));
+  box-shadow: 0 2px 6px #24364c05;
+}
+.map-legend > span,
+.map-legend > button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.map-legend b {
+  display: block;
+  width: 20px;
+  border-top: 1.5px solid #648db7;
+}
+.map-legend .dashed {
+  border-top: 1.5px dashed #a0afbf;
+}
+.map-legend .is-muted {
+  opacity: 0.45;
+}
+.map-graph-warning {
+  position: absolute;
+  bottom: 67px;
+  left: 76px;
+  background: var(--map-paper);
+  color: #b47d45;
+  border: 1px solid #b47d4530;
+  border-radius: 6px;
+  padding: 7px 10px;
+  z-index: 5;
+  font-size: 11px;
+}
+.argus-map .react-flow__controls {
+  box-shadow: 0 2px 9px #24364c08;
+  border: 1px solid rgb(var(--line) / 0.7);
+  border-radius: 7px;
+  overflow: hidden;
+  left: 6px;
+  bottom: 5px;
+}
+.argus-map .react-flow__controls-button {
+  background: var(--map-paper);
+  fill: rgb(var(--ink-dim));
+  border-bottom: 1px solid rgb(var(--line) / 0.5);
+  width: 28px;
+  height: 28px;
+}
+.argus-map .react-flow__minimap {
+  background: var(--map-paper);
+  border: 1px solid rgb(var(--line) / 0.7);
+  border-radius: 9px;
+  overflow: hidden;
+  width: 140px;
+  height: 95px;
+  box-shadow: 0 3px 10px #24364c08;
+  bottom: 3px;
+  right: 5px;
+}
+.map-playback {
+  height: 48px;
+  flex-shrink: 0;
+  border-top: 1px solid rgb(var(--line) / 0.7);
+  padding: 0 25px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: rgb(var(--ink-dim));
+}
+.map-playback button {
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  color: #6988a8;
+}
+.map-playback button:disabled {
+  opacity: 0.3;
+}
+.map-playback input {
+  accent-color: #7094b6;
+  flex: 1;
+  max-width: 280px;
+  height: 3px;
+}
+.map-playback small {
+  margin-left: auto;
+  color: rgb(var(--ink-faint));
+  font-size: 11px;
+}
+.map-count {
+  font-family: "Geist Mono Variable", monospace;
+  font-size: 11px;
+}
+.map-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 200px;
+  height: 100%;
+  color: rgb(var(--ink-faint));
+  font-size: 12px;
+}
+.map-empty h3 {
+  font-size: 16px;
+  color: rgb(var(--ink-dim));
+}
+.map-empty button,
+.map-data-error button {
+  border: 1px solid rgb(var(--line));
+  padding: 5px 10px;
+  border-radius: 5px;
+}
+.map-data-error {
+  padding: 8px 28px;
+  font-size: 11px;
+  color: #b87753;
+}
+@media (max-width: 1100px) {
+  .map-dataset-description {
+    display: none;
+  }
+  .map-header {
+    padding: 18px 20px;
+  }
+  .map-inspector {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    box-shadow: -8px 0 30px #13223612;
+  }
+  .map-heading h1 {
+    font-size: 19px;
+  }
+}
+/* Below the desktop breakpoint the canvas keeps its whole width: the legend
+ * and the overview inset go, and the options menu offers what they did. */
+@media (max-width: 1023px) {
+  .map-legend,
+  .argus-map .react-flow__minimap {
+    display: none;
+  }
+  .map-more-menu .map-narrow-only { display: block; }
+}
+/* Narrow desktops and tablets: the toolbar keeps every control as an icon. */
+@media (max-width: 1199px) {
+  .map-canvas-toolbar button > span {
+    display: none;
+  }
+  .map-search {
+    width: 150px;
+  }
+}
+@media (max-width: 640px) {
+  .map-heading h1 {
+    font-size: 15px;
+  }
+  .map-dataset-bar > svg {
+    display: none;
+  }
+  .map-dataset-bar select {
+    max-width: 100%;
+    font-size: 12px;
+  }
+  .map-capture {
+    display: none;
+  }
+  .map-canvas-toolbar {
+    left: 12px;
+    right: 12px;
+    top: 12px;
+    gap: 4px;
+  }
+  /* The search is an icon until it is tapped, then it opens for typing. */
+  .map-search {
+    width: 38px;
+    padding: 0 11px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .map-search:focus-within {
+    width: 160px;
+  }
+  .map-search:not(:focus-within) input {
+    opacity: 0;
+  }
+  .map-canvas-toolbar > button { flex-shrink: 0; }
+  /* Inside a card the row keeps the pager and the way back; the search and
+   * the whole-map fit wait until the reader is back on the overview. */
+  .map-canvas-wrap[data-detailed="true"] .map-search,
+  .map-canvas-wrap[data-detailed="true"] .map-fit-button {
+    display: none;
+  }
+  .map-attention-detail, .map-dependencies { padding: 7px 14px; }
+  .map-dependencies strong { flex-basis: 60px; }
+  .map-playback {
+    padding: 0 12px;
+    gap: 9px;
+  }
+  .map-playback small {
+    display: none;
+  }
+  .map-inspector {
+    width: min(340px, 94%);
+  }
+  .map-graph-warning {
+    left: 12px;
+    right: 12px;
+    bottom: 110px;
+  }
+}
+
+@media (max-width: 640px) {
+  .argus-map {
+    padding-bottom: calc(3.25rem + env(safe-area-inset-bottom));
+  }
+  .map-playback input {
+    min-width: 30px;
+    width: 80px;
+  }
+}
+.map-scope-button {
+  margin-left: 12px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: rgb(var(--ink-dim));
+  font-size: 12px;
+}
+.map-history-progress { display: flex; align-items: center; gap: 12px; padding: 10px 24px; font-size: 12px; color: rgb(var(--ink-dim)); }
+.map-history-progress button { margin-left: auto; color: rgb(var(--blue)); }
+.map-history-choice { padding: 30px; }
+.map-history-choice h2 { font-size: 20px; font-weight: 600; margin-bottom: 16px; }
+.map-history-choice p { font-size: 13px; line-height: 1.8; margin-bottom: 10px; }
+.map-history-options { display: grid; gap: 10px; margin: 22px 0 16px; }
+.map-history-options button { text-align: left; border: 1px solid rgb(var(--line)); border-radius: 12px; padding: 14px 16px; transition: border-color 160ms, background 160ms; }
+.map-history-options button:first-child, .map-history-options button:hover { border-color: rgb(var(--blue)); background: rgb(var(--blue) / .05); }
+.map-history-options strong { display: block; font-size: 14px; margin-bottom: 5px; }
+.map-history-options span, .map-history-choice small { display: block; font-size: 12px; line-height: 1.6; opacity: .72; }
+@media (max-width: 640px) { .map-history-choice { padding: 22px; } .map-scope-button { margin-left: 8px; } }
+
+/* The right-hand group of the toolbar: the drawers and the deliveries. */
+.map-workspace-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
+.map-workspace-actions button { position: relative; padding: 0 10px; }
+.map-workspace-actions button[aria-expanded=true] { color: rgb(var(--blue)); border-color: rgb(var(--blue) / .45); background: rgb(var(--blue) / .07); }
+.map-workspace-actions button:disabled { opacity: .45; cursor: default; }
+/* A small dot on the activity icon says whether an agent is at work right now. */
+.map-agent-toggle i { position: absolute; left: 21px; top: 7px; width: 6px; height: 6px; box-sizing: content-box; border: 1.5px solid var(--map-paper); background: #94a4b0; border-radius: 50%; }
+.map-agent-toggle i[data-active=true] { background: #5da890; box-shadow: 0 0 0 2px #5da89033; }
+.map-delivery-toggle:not(:disabled) { color: rgb(var(--blue)); }
+.map-delivery-toggle b { padding: 1px 6px; border-radius: 6px; background: rgb(var(--blue) / .1); color: rgb(var(--blue)); font-size: 11px; font-weight: 600; }
+.map-conversation { position: absolute; z-index: 10; right: 18px; top: 62px; bottom: 150px; width: min(520px, calc(100% - 36px)); display: flex; flex-direction: column; min-height: 150px; overflow: hidden; background: rgb(var(--panel)); border: 1px solid rgb(var(--line)); border-radius: 18px; box-shadow: 0 16px 60px #1834541c; animation: map-agent-enter 250ms ease-out; }
+.map-conversation>header { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid rgb(var(--line)); color: rgb(var(--ink-dim)); font-size: 12px; }
+.map-conversation>header button { margin-left: auto; padding: 10px; border-radius: 8px; }
+.map-conversation .conversation-row { max-width: 100%; padding: 12px 16px; }
+.map-conversation .conversation-row .text-\[15px\] { font-size: 13px; }
+.map-conversation-empty { margin: auto; max-width: 300px; padding: 24px; font-size: 13px; line-height: 1.8; color: rgb(var(--ink-dim)); }
+.map-conversation-pending { padding: 10px 16px; font-size: 12px; color: rgb(var(--blue)); border-top: 1px solid rgb(var(--line)); }
+.map-starters { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.map-starters button { padding: 9px 12px; border: 1px solid rgb(var(--line)); background: rgb(var(--panel)); border-radius: 10px; font-size: 12px; color: rgb(var(--blue)); pointer-events: auto; }
+.map-empty p { max-width: 450px; }
+@media(max-width:640px) { .map-workspace-actions { gap: 4px; } .map-workspace-actions button { padding: 0; width: 36px; justify-content: center; } .map-agent-toggle i { left: 20px; } .map-delivery-toggle b { position: absolute; right: -5px; top: -6px; padding: 0 4px; font-size: 11px; line-height: 15px; } .map-conversation { top: 56px; right: 10px; width: calc(100% - 20px); bottom: 148px; } .map-starters { margin-top: 12px; } .map-starters button { padding: 9px; font-size: 12px; } }
+@media(prefers-reduced-motion:reduce) { .map-conversation { animation: none; } }
+
+/* --- Overview legibility: the far and middle zoom must read by status. --- */
+/* Compact (card under ~230 screen px): title and status carry the card. */
+.map-macro[data-overview-density="compact"] .map-card,
+.map-macro[data-overview-density="micro"] .map-card {
+  background: linear-gradient(
+    color-mix(in srgb, var(--state) 8%, var(--map-card-surface)),
+    var(--map-card-surface) 82%
+  );
+  border-left: 4px solid color-mix(in srgb, var(--state) 65%, transparent);
+}
+.map-macro[data-overview-density="compact"] .map-card h3 {
+  font-size: 19px;
+  line-height: 1.4;
+  /* Two lines: the compact card has a fixed height (atlas.css --summary-height),
+   * so a third title line was squeezed by the flex column and cut mid-glyph. */
+  -webkit-line-clamp: 2;
+  min-height: 0;
+}
+.map-macro[data-overview-density="compact"] .map-card-copy,
+.map-macro[data-overview-density="compact"] .map-card-submap-hint {
+  display: none;
+}
+.map-macro[data-overview-density="compact"] .map-card-stages > span > span {
+  display: none;
+}
+.map-macro[data-overview-density="compact"] .map-card-stages svg {
+  width: 15px;
+  height: 15px;
+}
+.map-macro[data-overview-density="compact"] .map-card-number {
+  font-size: 12px;
+}
+.map-macro[data-overview-density="compact"] .map-status {
+  font-size: 13px;
+}
+.map-macro[data-overview-density="compact"] .map-card-bottom {
+  font-size: 12px;
+}
+/* Micro (under ~140 screen px): a status post-it. Text keeps shrinking with
+ * distance, so the card's color and a watermark glyph carry the status. */
+.map-macro[data-overview-density="micro"] .map-card {
+  background: color-mix(in srgb, var(--state) 13%, var(--map-card-surface));
+  border-left-width: 6px;
+  border-color: color-mix(in srgb, var(--state) 30%, rgb(var(--line)));
+}
+.map-macro[data-overview-density="micro"] .map-card::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  font-size: 46px;
+  line-height: 1;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--state) 60%, transparent);
+  pointer-events: none;
+}
+.map-macro[data-overview-density="micro"].map-state-done .map-card::before { content: "✓"; }
+.map-macro[data-overview-density="micro"].map-state-failed .map-card::before { content: "✕"; }
+.map-macro[data-overview-density="micro"].map-state-question .map-card::before { content: "?"; }
+.map-macro[data-overview-density="micro"].map-state-paused .map-card::before { content: "‖"; }
+.map-macro[data-overview-density="micro"].map-state-running .map-card::before { content: "▶"; }
+.map-macro[data-overview-density="micro"].map-state-superseded .map-card::before { content: "↪"; }
+.map-macro[data-overview-density="micro"] .map-card-top,
+.map-macro[data-overview-density="micro"] .map-card-copy,
+.map-macro[data-overview-density="micro"] .map-card-stages,
+.map-macro[data-overview-density="micro"] .map-card-bottom {
+  display: none;
+}
+.map-macro[data-overview-density="micro"] .map-card h3 {
+  font-size: 29px;
+  line-height: 1.28;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+  -webkit-line-clamp: 3;
+  min-height: 0;
+  margin: 18px 18px 14px;
+  padding-right: 34px;
+}
+.map-macro[data-overview-density="micro"] .macro-note-badge {
+  font-size: 16px;
+  padding: 3px 9px;
+}
+/* A live task announces itself: a breathing ring in its own state color. */
+.map-macro[data-active="true"] .map-card::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 13px;
+  border: 2px solid color-mix(in srgb, var(--state) 55%, transparent);
+  pointer-events: none;
+  animation: map-live-ring 2.6s ease-in-out infinite;
+}
+@keyframes map-live-ring {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.012);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-macro[data-active="true"] .map-card::after {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+/* Failed and questioned work must pop; replaced work must recede. */
+.map-macro.map-state-failed .map-card,
+.map-macro.map-state-question .map-card {
+  border-color: color-mix(in srgb, var(--state) 42%, rgb(var(--line)));
+}
+.map-macro.map-state-superseded .map-card {
+  opacity: 0.72;
+  filter: saturate(0.72);
+}
+.map-macro.map-state-superseded .map-card:hover {
+  opacity: 0.95;
+  filter: none;
+}
+/* Sub-task completion at a glance, right above the card footer. */
+.map-card-teambar {
+  display: block;
+  height: 3px;
+  margin: 0 16px 8px;
+  border-radius: 2px;
+  background: rgb(var(--line) / 0.55);
+  overflow: hidden;
+}
+.map-card-teambar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--state) 75%, transparent);
+  transition: width 0.4s ease-out;
+}
+.map-macro[data-overview-density="micro"] .map-card-teambar {
+  display: none;
+}
+/* --- Canvas atmosphere: a quiet vignette keeps the eye on the center. --- */
+.map-canvas-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  background: radial-gradient(
+    120% 92% at 50% 42%,
+    transparent 62%,
+    var(--map-vignette) 100%
+  );
+}
+/* --- Frame-rate work: cull invisible paint, animate on the compositor. --- */
+/* An unfocused card's inner submap is opacity:0 by design, yet its whole
+ * subtree still took part in style, layout, and paint. Skipping it here is
+ * the single biggest smoothness win while panning or zooming the overview. */
+.map-macro[data-focused="false"] .macro-detail {
+  content-visibility: hidden;
+}
+/* Focus is a stage: everything that is not the opened card steps back. */
+.map-macro {
+  transition: opacity 0.35s ease;
+}
+.map-canvas-wrap[data-detailed="true"] .map-macro[data-focused="false"] {
+  opacity: 0.24;
+}
+.map-canvas-wrap[data-detailed="true"] .map-macro[data-focused="false"]:hover {
+  opacity: 0.85;
+}
+.argus-map .react-flow__edges {
+  transition: opacity 0.35s ease;
+}
+.map-canvas-wrap[data-detailed="true"] .react-flow__edges {
+  opacity: 0.3;
+}
+.map-canvas-wrap[data-detailed="true"] .react-flow__node-branch {
+  opacity: 0.35;
+}
+/* The first frame renders at an arbitrary viewport before the camera fits;
+ * fade the canvas in once the opening framing is in place. */
+.map-canvas-wrap .react-flow {
+  transition: opacity 0.5s ease;
+}
+.map-canvas-wrap[data-fitted="false"] .react-flow {
+  opacity: 0;
+  transition: none;
+}
+/* While a task is open the toolbar shrinks to icons so it stops sitting on
+ * the card heading; the search box grows back the moment it is focused. */
+.map-search {
+  transition: width 0.25s ease;
+}
+.map-canvas-wrap[data-detailed="true"] .map-search:not(:focus-within) {
+  width: 38px;
+}
+.map-canvas-wrap[data-detailed="true"] .map-search:not(:focus-within) input {
+  opacity: 0;
+}
+.map-canvas-wrap[data-detailed="true"] .map-canvas-toolbar > button:not(.map-back-button) span {
+  display: none;
+}
+/* Light touch feedback on the chrome. */
+.map-canvas-toolbar > button,
+.map-workspace-actions button {
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.map-canvas-toolbar > button:active,
+.map-workspace-actions button:active {
+  transform: scale(0.95);
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-macro,
+  .argus-map .react-flow__edges,
+  .map-canvas-wrap .react-flow,
+  .map-search,
+  .map-card,
+  .map-canvas-toolbar > button,
+  .map-workspace-actions button,
+  .map-attention-link {
+    transition: none;
+  }
+  .map-card:hover,
+  .map-card:active {
+    transform: none;
+  }
+}
+
+/* --- Search feedback: how many matches, and the currently focused result. --- */
+.map-search-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgb(var(--ink-faint));
+  background: rgb(var(--line) / 0.35);
+  border-radius: 8px;
+  padding: 2px 7px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* --- Loading skeleton: three quiet ghost cards while history streams in. --- */
+.map-empty.is-loading .map-ghosts {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+.map-empty.is-loading .map-ghosts i {
+  position: relative;
+  overflow: hidden;
+  width: 118px;
+  height: 84px;
+  border-radius: 9px;
+  border: 1px solid rgb(var(--line) / 0.6);
+  background: color-mix(in srgb, rgb(var(--line)) 12%, var(--map-paper));
+}
+.map-empty.is-loading .map-ghosts i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.35) 50%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  animation: map-ghost-sheen 1.6s ease-in-out infinite;
+}
+[data-theme="dark"] .map-empty.is-loading .map-ghosts i::after {
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.07) 50%,
+    transparent 70%
+  );
+}
+.map-empty.is-loading .map-ghosts i:nth-child(2)::after { animation-delay: 140ms; }
+.map-empty.is-loading .map-ghosts i:nth-child(3)::after { animation-delay: 280ms; }
+@keyframes map-ghost-sheen {
+  60%, 100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-empty.is-loading .map-ghosts i::after { animation: none; }
+}
+/* --- Playback bar (historical datasets): quiet, but no longer an afterthought. --- */
+.map-playback button {
+  border: 1px solid rgb(var(--line) / 0.7);
+  border-radius: 8px;
+  width: 30px;
+  height: 26px;
+  justify-content: center;
+  background: var(--map-paper);
+  transition: transform 0.12s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.map-playback button:not(:disabled):hover {
+  border-color: #7ca9c8;
+  color: rgb(var(--blue));
+}
+.map-playback button:not(:disabled):active {
+  transform: scale(0.94);
+}
+.map-playback input {
+  height: 4px;
+  border-radius: 3px;
+}
+.map-playback .map-count {
+  background: rgb(var(--line) / 0.35);
+  border-radius: 8px;
+  padding: 2px 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-playback button { transition: none; }
+}

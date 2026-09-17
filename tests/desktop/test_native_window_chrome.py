@@ -24,23 +24,33 @@ def test_windows_caption_buttons_use_a_native_non_client_frame() -> None:
     assert window["theme"] == "Light"
     assert window["backgroundColor"] == "#f9fafb"
     assert "frame-src http://127.0.0.1:*" in security["csp"]
-    assert security["freezePrototype"] is True
-    assert config["bundle"]["resources"]["../resources/WebView2Loader.dll"] == "WebView2Loader.dll"
+    # Tauri's global flag also freezes remote iframe prototypes on WebView2,
+    # breaking d3/React Flow. The privileged main frame remains frozen via the
+    # guarded initialization script; remote commands remain capability-denied.
+    assert security["freezePrototype"] is False
+    host = (TAURI_ROOT / "src-tauri/src/lib.rs").read_text(encoding="utf-8")
+    init = (TAURI_ROOT / "src-tauri/src/shell-init.js").read_text(encoding="utf-8")
+    assert '.initialization_script(include_str!("shell-init.js"))' in host
+    assert "window === window.top" in init
+    assert "Object.freeze(Object.prototype)" in init
+    windows = json.loads((TAURI_ROOT / "src-tauri/tauri.windows.conf.json").read_text())
+    assert windows["bundle"]["resources"]["../resources/WebView2Loader.dll"] == "WebView2Loader.dll"
 
 
-def test_installer_bypasses_close_to_tray_before_replacing_files() -> None:
+def test_installer_blocks_occupied_target_without_killing_other_installations() -> None:
     config = _config()
     hooks = (TAURI_ROOT / "src-tauri" / "installer-hooks.nsh").read_text(encoding="utf-8")
 
     nsis = config["bundle"]["windows"]["nsis"]
     assert nsis["installerHooks"] == "installer-hooks.nsh"
-    assert "NSIS_HOOK_PREINSTALL" in hooks
-    assert '/IM "Argus.exe"' in hooks
-    assert '/IM "argus-backend.exe"' in hooks
-    assert "taskkill.exe" in hooks
+    assert "!macroundef CheckIfAppIsRunning" in hooks
+    assert "installer-preflight.ps1" in hooks
+    assert '-InstallDirectory "$INSTDIR"' in hooks
+    assert "KillProcess" not in hooks
+    assert "taskkill" not in hooks
 
 
-def test_desktop_launches_backend_without_a_console_or_forced_setup() -> None:
+def test_desktop_launches_backend_without_a_console_or_forced_backend() -> None:
     backend = (TAURI_ROOT / "src-tauri" / "src" / "backend.rs").read_text(encoding="utf-8")
     settings = (TAURI_ROOT / "src-tauri" / "src" / "settings.rs").read_text(encoding="utf-8")
     shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
@@ -52,20 +62,58 @@ def test_desktop_launches_backend_without_a_console_or_forced_setup() -> None:
     assert 'Command::new("taskkill")' in process
     assert 'Command::new("tasklist")' in process
     assert "creation_flags(CREATE_NO_WINDOW)" in process
-    assert "mandatory launcher wizard" in settings
-    assert "First-run preferences are optional" in shell
+    assert "if !settings.runner_configured || !settings.setup_complete" not in settings
+    assert "resolve_runner_configuration(&settings)" in backend
+    assert 'if settings.runner_configured {' in backend
+    assert '.env_remove("ARGUS_SKILL_RUNNER_BIN")' in backend
+    assert "if (!setup.value.complete)" in shell
+    assert "showWizard(setup.value)" in shell
 
 
-def test_ready_cockpit_path_avoids_settings_discovery_and_duplicate_reload() -> None:
+def test_frozen_command_shims_do_not_embed_unicode_or_verbatim_paths_in_batch_files() -> None:
+    backend = (TAURI_ROOT / "src-tauri/src/backend.rs").read_text(encoding="utf-8")
+    assert '.env("ARGUS_SKILL_PYTHON", &shell_command)' in backend
+    assert "shell_command_path(&command.command)" in backend
+    assert "shell_command_path(command)" in backend
+    assert "%ARGUS_SKILL_PYTHON%" in backend
+    assert "if not defined ARGUS_SKILL_PYTHON exit /b 1" in backend
+
+
+def test_ready_cockpit_checks_initial_setup_without_duplicate_reload() -> None:
     shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
     ready_path = shell.split("async function handleReady", 1)[1].split(
         "function runnerDescription", 1
     )[0]
 
     assert "desktopBridge.openCockpit()" in ready_path
-    assert "desktopBridge.getSetup()" not in ready_path
-    assert "cockpitMounted && cockpitFrame.src === url" in shell
-    assert "}, 50);" in shell
+    assert ready_path.index("desktopBridge.getSetup()") < ready_path.index("desktopBridge.openCockpit()")
+    assert "if (!setup.value.complete)" in ready_path
+    assert "cockpitMounted && sameCockpitConnection(cockpitFrame.src, url)" in shell
+    assert "url.searchParams.delete('desktopTheme')" in shell
+    assert "visibleEyeCycle({" in shell
+    assert "nativeVisible: () => desktopBridge.isWindowVisible()" in shell
+    # Motion is always on; native visibility still gates elapsed animation time.
+    assert "motionEnabled: () => true" in shell
+    assert "eyeMotionEnabled" not in shell
+
+
+def test_onboarding_requires_a_selected_available_runner_before_saving() -> None:
+    shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
+    host = (TAURI_ROOT / "src-tauri" / "src" / "lib.rs").read_text(encoding="utf-8")
+    setup_command = host.split("async fn complete_setup", 1)[1].split(
+        "async fn restart_backend", 1
+    )[0]
+
+    assert "runnerSelected = setup.runnerConfigured" in shell
+    assert "runnerSelected = true" in shell
+    assert "runnerSelected && button.dataset.kind === runnerKind" in shell
+    assert "wizardNext.disabled = true" in shell
+    assert "!runnerSelected || !(runnerBins[runnerKind] || detectedRunners[runnerKind])" in shell
+    assert "检测到可执行文件不代表已完成登录" in shell
+    assert setup_command.index("resolve_runner_configuration(&next)") < setup_command.index(
+        "app_state.settings.replace(next)"
+    )
+    assert "Path::new(&executable).is_file()" in setup_command
 
 
 def test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint() -> None:
@@ -77,7 +125,10 @@ def test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint() ->
     )
 
     assert "window.parent !== window" in entry
-    assert "useState(!embeddedDesktop)" in entry
+    # Current dev removed the startup scene entirely instead of gating a
+    # second splash with the old React state hook. Keep that stronger boundary.
+    assert "StartupScene" not in entry
+    assert "document.documentElement.dataset.argusEmbedded = String(embeddedDesktop)" in entry
     assert "data-argus-embedded" in styles
     assert "content-visibility: auto" in styles
     assert "backdrop-filter: blur(8px)" in styles
@@ -86,7 +137,8 @@ def test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint() ->
 def test_cockpit_theme_can_update_native_chrome_without_overlay_controls() -> None:
     host = (TAURI_ROOT / "src-tauri" / "src" / "lib.rs").read_text(encoding="utf-8")
     shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
-    cockpit = (ROOT / "frontend" / "web" / "src" / "useWorkbenchLayout.ts").read_text(encoding="utf-8")
+    layout = (ROOT / "frontend" / "web" / "src" / "useWorkbenchLayout.ts").read_text(encoding="utf-8")
+    cockpit = (ROOT / "frontend" / "web" / "src" / "useWorkbenchTheme.ts").read_text(encoding="utf-8")
 
     assert "apply_window_appearance" in host
     assert "set_window_theme" in host
@@ -99,6 +151,8 @@ def test_cockpit_theme_can_update_native_chrome_without_overlay_controls() -> No
     assert "DwmSetWindowAttribute" in host
     assert "DWMWA_CAPTION_COLOR" in host
     assert "DWMWA_TEXT_COLOR" in host
+    assert "import { useWorkbenchTheme } from './useWorkbenchTheme'" in layout
+    assert "const { themeMode, themeStyle, cycleTheme } = useWorkbenchTheme()" in layout
     assert "argus:theme-changed" in cockpit
 
 
@@ -146,9 +200,13 @@ def test_release_build_requires_signed_tauri_update_artifacts() -> None:
     assert "desktop-tauri" in workflow
     assert "TAURI_SIGNING_PRIVATE_KEY" in workflow
     assert "stage_webview2_loader" in (TAURI_ROOT / "src-tauri" / "build.rs").read_text(encoding="utf-8")
-    stage = (TAURI_ROOT / "scripts" / "stage-release.ps1").read_text(encoding="utf-8")
+    stage = (TAURI_ROOT / "scripts" / "stage-windows-release.mjs").read_text(encoding="utf-8")
     assert "Expected exactly one NSIS installer for version" in stage
     assert "Argus_${escapedVersion}" in stage
+    assert "verifyTauriSignature" in stage
+    assert "Release output already exists" in stage
+    wrapper = (TAURI_ROOT / "scripts" / "stage-release.ps1").read_text(encoding="utf-8")
+    assert "Remove-Item" not in wrapper
     assert (TAURI_ROOT / "scripts" / "smoke-host.py").is_file()
     assert "dangerousInsecureTransportProtocol" not in json.dumps(config)
     assert "也不允许证书绕过" in desktop_doc
@@ -177,8 +235,21 @@ def test_trusted_shell_menu_merges_background_close_actions_and_matches_theme() 
     assert "quit-detached" not in host
     assert "install_menu" not in host
     assert "desktop-menu-bar" in styles
-    assert "--chrome-bg: #eaf2ff" in styles
-    assert "--chrome-bg: #111d30" in styles
+    assert "--chrome-bg: #f5f5f7" in styles
+    assert "--chrome-bg: #161618" in styles
     assert "background: var(--chrome-bg)" in styles
     assert "border-bottom: 0" in styles
-    assert "inset: var(--desktop-menu-height) 0 0" in styles
+    assert "inset: calc(var(--desktop-menu-height) + var(--desktop-notice-height)) 0 0" in styles
+
+
+def test_native_brand_keeps_the_sclera_and_highlight_white_in_dark_mode() -> None:
+    shell = (TAURI_ROOT / "src" / "index.html").read_text(encoding="utf-8")
+    styles = (TAURI_ROOT / "src" / "style.css").read_text(encoding="utf-8")
+
+    assert shell.count('class="argus-mark-eye-white"') == 3
+    assert shell.count('class="argus-mark-pupil"') == 3
+    assert shell.count('class="argus-mark-highlight"') == 3
+    assert "--brand-body: #d7d9dc" in styles
+    assert "--brand-eye: #ffffff" in styles
+    assert "--brand-pupil: #202326" in styles
+    assert "--brand-highlight: #ffffff" in styles

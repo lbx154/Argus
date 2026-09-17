@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.domains.chemistry.playground import (
+from argus.domains.chemistry.playground import (
     candidate_path,
     initialize_candidate,
     main,

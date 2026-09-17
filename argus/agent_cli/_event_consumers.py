@@ -1,0 +1,770 @@
+"""Per-backend JSON event parsing: turns each backend's stdout event stream
+into ``(thread_id, turn_completed, turn_failed, fatal_error)`` updates plus
+appended assistant message text. Extracted verbatim from ``agent_cli_runner.py``.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+
+from ..core.runner_errors import is_execution_host_startup_error
+from .runner_backend import (
+    BACKEND_COPILOT,
+    BACKEND_CURSOR,
+    BACKEND_DSH,
+    BACKEND_GROK,
+    BACKEND_OPENCODE,
+    BACKEND_PI,
+    CLAUDE_FAMILY,
+)
+
+
+@dataclass
+class _CopilotWriteState:
+    """Parent reply and native-command wait state, independent of capture limits."""
+
+    empty_final_answer: bool = False
+    last_tool_waiting: bool = False
+    # The CLI's own exit code from its ``result`` event. Recorded here rather
+    # than worded into ``fatal_error`` at once: the runner's finalize step
+    # writes the failure record, where the CLI's last stderr lines can
+    # accompany the exit code instead of leaving it to stand alone.
+    exit_code: int | None = None
+
+
+@dataclass
+class _OpenCodeWriteState:
+    """Per-run write-side accumulator for OpenCode and Pi streaming text.
+
+    ``open_index`` is the ``agent_messages`` slot of the assistant reply
+    currently streaming (``None`` between steps). OpenCode emits text as
+    streaming deltas, so the consumer accumulates consecutive deltas into that
+    one slot instead of the old one-element-per-chunk behaviour — that old
+    behaviour is what let a Planner footer spanning several chunks lose all but
+    its last chunk. ``_run_exec.py`` threads one instance per turn so a reply is
+    assembled on the write side and the reader keeps reading ``[-1]``.
+    """
+
+    open_index: int | None = None
+
+
+def _append_opencode_text(
+    agent_messages: list[str],
+    write_state: _OpenCodeWriteState,
+    text: str,
+) -> None:
+    """Accumulate one OpenCode text delta into the streaming reply element.
+
+    Deltas keep their own surrounding whitespace so a reply that is split
+    across chunks (``"Hello "`` then ``"world"``) reassembles to ``"Hello
+    world"`` rather than ``"Helloworld"``: only ``_close_opencode_text``
+    strips, once the whole element is final. Whitespace-only deltas never
+    start a fresh element, so a step that emits nothing does not leave an
+    empty row behind.
+    """
+    if not text:
+        return
+    index = write_state.open_index
+    if index is None or not (0 <= index < len(agent_messages)):
+        if not text.strip():
+            return
+        agent_messages.append(text)
+        write_state.open_index = len(agent_messages) - 1
+    else:
+        agent_messages[index] += text
+
+
+def _close_opencode_text(
+    agent_messages: list[str],
+    write_state: _OpenCodeWriteState,
+) -> None:
+    """Finalize the streaming reply: trim it and drop whitespace-only steps."""
+    index = write_state.open_index
+    if index is None or not (0 <= index < len(agent_messages)):
+        return
+    stripped = agent_messages[index].strip()
+    if stripped:
+        agent_messages[index] = stripped
+    else:
+        del agent_messages[index]
+    write_state.open_index = None
+
+
+class EventConsumerMixin:
+    """Dispatches one parsed JSON event to the active backend's consumer."""
+
+    @staticmethod
+    def _event_usage_model(event: dict) -> str:
+        """Best-effort model identity across Claude-compatible event shapes."""
+        candidates: list[object] = [event]
+        for key in ("message", "data", "response", "usage"):
+            value = event.get(key)
+            if isinstance(value, dict):
+                candidates.append(value)
+        for source in candidates:
+            if not isinstance(source, dict):
+                continue
+            for key in ("model", "model_id", "modelId"):
+                value = source.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return ""
+
+    @staticmethod
+    def _event_has_tool_activity(event: dict) -> bool:
+        """Detect tool use for every streamed CLI dialect.
+
+        The regular subprocess path previously never set
+        ``tool_activity_observed`` at all; only Copilot ACP did.  Inspect both
+        event names and nested content blocks so Claude ``tool_use``, Codex
+        command/file items, Copilot tool deltas, and OpenCode tool parts count.
+        """
+
+        event_type = str(event.get("type") or "").strip().casefold()
+        capability_event = (
+            event_type.startswith("session.mcp_")
+            or event_type.startswith("mcp.tools.")
+            or event_type in {"session.tools_updated", "session.skills_loaded"}
+        )
+        if not capability_event and any(
+            marker in event_type
+            for marker in (
+                "tool",
+                "command_execution",
+                "file_change",
+                "web_search",
+                "mcp_",
+                "function_call",
+            )
+        ):
+            return True
+
+        tool_types = {
+            "tool",
+            "tool_use",
+            "tool_result",
+            "tool_call",
+            "function_call",
+            "command_execution",
+            "file_change",
+            "web_search",
+            "mcp_tool_call",
+            "local_shell_call",
+        }
+        stack: list[object] = [
+            event.get("message"),
+            event.get("item"),
+            event.get("part"),
+            event.get("data"),
+            event.get("content"),
+        ]
+        while stack:
+            value = stack.pop()
+            if isinstance(value, list):
+                stack.extend(value)
+                continue
+            if not isinstance(value, dict):
+                continue
+            nested_type = str(value.get("type") or "").strip().casefold()
+            if nested_type in tool_types:
+                return True
+            if any(
+                key in value
+                for key in (
+                    "tool_calls",
+                    "toolCalls",
+                    "tool_call_id",
+                    "toolCallId",
+                    "tool_name",
+                    "toolName",
+                    "function_call",
+                )
+            ):
+                return True
+            stack.extend(value.values())
+        return False
+
+    def _event_ends_provider_turn(self, event: dict) -> bool:
+        """True when this event marks the end of ONE provider request.
+
+        A "provider turn" here is one request/response round trip inside a
+        single CLI call — the unit the CLI resends the whole transcript for,
+        and therefore the unit the per-call allowance counts. Each dialect
+        exposes a different receipt for it:
+
+        - copilot: ``model.call_finished`` fires once per model request.
+          Native subagents share stdout but have separate conversations; their
+          events carry a top-level ``agentId`` and do not consume the parent
+          conversation's allowance.
+        - claude family / cursor / grok: one ``assistant`` frame per assistant
+          message, carrying that request's ``message.usage``.
+        - opencode: one ``step_finish`` per step (reason ``tool-calls`` for the
+          intermediate rounds, ``stop`` for the last).
+        - pi: one assistant ``message_end`` per provider turn.
+        - codex: one ``item.completed`` per settled item; the reasoning item
+          rides along with the same response as the message/tool item, so only
+          non-reasoning items count.
+        - dsh: no per-turn events at all, so nothing ever counts (its calls
+          stay bounded by the wall-clock and idle watchdogs instead).
+        """
+        event_type = str(event.get("type") or "").strip()
+        if self.backend == BACKEND_COPILOT:
+            agent_id = event.get("agentId")
+            is_subagent = isinstance(agent_id, str) and bool(agent_id.strip())
+            return event_type == "model.call_finished" and not is_subagent
+        if self.backend in CLAUDE_FAMILY or self.backend in (
+            BACKEND_CURSOR,
+            BACKEND_GROK,
+        ):
+            return event_type == "assistant"
+        if self.backend == BACKEND_OPENCODE:
+            return event_type == "step_finish"
+        if self.backend == BACKEND_PI:
+            if event_type != "message_end":
+                return False
+            message = event.get("message")
+            return (
+                isinstance(message, dict)
+                and str(message.get("role") or "").strip() == "assistant"
+            )
+        if self.backend == BACKEND_DSH:
+            return False
+        if event_type != "item.completed":
+            return False
+        item = event.get("item")
+        return isinstance(item, dict) and str(item.get("type") or "") != "reasoning"
+
+    def _consume_event(
+        self,
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+        write_state: _OpenCodeWriteState | None = None,
+        copilot_write_state: _CopilotWriteState | None = None,
+        disable_tools: bool = False,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        if self.backend in CLAUDE_FAMILY:
+            # qoder emits the same stream-json schema as claude.
+            return self._consume_claude_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+        if self.backend == BACKEND_GROK:
+            return self._consume_grok_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+        if self.backend == BACKEND_CURSOR:
+            state = self._consume_claude_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+            if isinstance(state[3], str) and state[3].startswith("Claude runner reported "):
+                state = (*state[:3], state[3].replace("Claude runner", "Cursor CLI", 1))
+            return state
+        if self.backend == BACKEND_COPILOT:
+            return self._consume_copilot_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+                write_state=copilot_write_state,
+            )
+        if self.backend == BACKEND_OPENCODE:
+            if write_state is None:
+                write_state = _OpenCodeWriteState()
+            return self._consume_opencode_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                write_state=write_state,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+        if self.backend == BACKEND_PI:
+            return self._consume_pi_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                write_state=write_state,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+        return self._consume_codex_event(
+            event=event,
+            thread_id=thread_id,
+            agent_messages=agent_messages,
+            turn_completed=turn_completed,
+            turn_failed=turn_failed,
+            fatal_error=fatal_error,
+            disable_tools=disable_tools,
+        )
+
+    @staticmethod
+    def _consume_codex_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+        disable_tools: bool = False,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        event_type = event.get("type")
+        if event_type == "thread.started":
+            thread_id = event.get("thread_id", thread_id)
+        elif event_type == "item.completed":
+            item = event.get("item", {})
+            if not isinstance(item, dict):
+                return thread_id, turn_completed, turn_failed, fatal_error
+            if item.get("type") == "agent_message":
+                message = item.get("text", "")
+                if isinstance(message, str):
+                    agent_messages.append(message)
+            elif item.get("type") == "error" and not disable_tools:
+                message = item.get("message")
+                if isinstance(message, str) and is_execution_host_startup_error(message):
+                    # A completion receipt cannot restore a missing execution
+                    # capability. Only trusted CLI diagnostics enter this path;
+                    # ordinary assistant prose and recoverable errors do not.
+                    turn_failed = True
+                    fatal_error = message
+        elif event_type == "turn.completed":
+            turn_completed = True
+        elif event_type == "turn.failed":
+            turn_failed = True
+            err = event.get("error", {})
+            if isinstance(err, dict):
+                maybe_msg = err.get("message")
+                if isinstance(maybe_msg, str) and not is_execution_host_startup_error(fatal_error):
+                    fatal_error = maybe_msg
+        elif event_type == "error" and fatal_error is None:
+            maybe_msg = event.get("message")
+            if isinstance(maybe_msg, str):
+                fatal_error = maybe_msg
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
+    def _consume_claude_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        event_type = str(event.get("type") or "").strip()
+        session_id = event.get("session_id")
+        if isinstance(session_id, str) and session_id.strip():
+            thread_id = session_id
+
+        if event_type == "assistant":
+            message = event.get("message")
+            text = EventConsumerMixin._extract_claude_message_text(message)
+            if text:
+                agent_messages.append(text)
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type != "result":
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        structured_output = event.get("structured_output")
+        if structured_output is not None:
+            text = json.dumps(structured_output, ensure_ascii=True)
+            if not agent_messages or agent_messages[-1] != text:
+                agent_messages.append(text)
+        else:
+            result_text = event.get("result")
+            if isinstance(result_text, str):
+                normalized = result_text.strip()
+                if normalized and (not agent_messages or agent_messages[-1].strip() != normalized):
+                    agent_messages.append(normalized)
+
+        is_error = bool(event.get("is_error", False))
+        subtype = str(event.get("subtype") or "").strip()
+        if not is_error and subtype == "success":
+            turn_completed = True
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        turn_failed = True
+        if fatal_error is None:
+            result_text = event.get("result")
+            if isinstance(result_text, str) and result_text.strip():
+                fatal_error = result_text.strip()
+            else:
+                fatal_error = f"Claude runner reported {subtype or 'error'}."
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
+    def _consume_grok_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        state = EventConsumerMixin._consume_claude_event(
+            event=event,
+            thread_id=thread_id,
+            agent_messages=agent_messages,
+            turn_completed=turn_completed,
+            turn_failed=turn_failed,
+            fatal_error=fatal_error,
+        )
+        if (
+            str(event.get("type") or "").strip() == "result"
+            and state[1]
+            and str(event.get("stop_reason") or "").strip().lower() != "end_turn"
+        ):
+            stop_reason = str(event.get("stop_reason") or "unknown").strip()
+            state = (
+                state[0],
+                False,
+                True,
+                f"Grok Build stopped with {stop_reason}.",
+            )
+        if state[3] and state[3].startswith("Claude runner reported "):
+            state = (*state[:3], state[3].replace("Claude runner", "Grok Build", 1))
+        return state
+
+    @staticmethod
+    def _consume_copilot_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+        write_state: _CopilotWriteState | None = None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        event_type = str(event.get("type") or "").strip()
+        data = event.get("data")
+        # A stream can report an error after HTTP 200. Only inspect structured
+        # error envelopes, never assistant text that happens to discuss errors.
+        envelope = event.get("error")
+        # Newer Copilot versions multiplex delegated agents onto the same stream.
+        # Their local messages/results cannot complete or replace the parent turn.
+        # An explicit top-level provider envelope still fails closed.
+        if str(event.get("agentId") or "").strip() and not isinstance(envelope, dict):
+            return thread_id, turn_completed, turn_failed, fatal_error
+        # Copilot puts recoverable tool/MCP operation errors in data.error too.
+        # They are feedback to the agent, not a failed model request. Preserve
+        # them in the stream without poisoning the eventual completion receipt.
+        # A top-level provider error envelope remains fatal on every event type.
+        local_operation = event_type.startswith(("tool.", "mcp.", "session.mcp_"))
+        if not isinstance(envelope, dict) and isinstance(data, dict) and not local_operation:
+            envelope = data.get("error")
+        if isinstance(envelope, dict) or event_type == "session.error":
+            envelope = envelope if isinstance(envelope, dict) else data if isinstance(data, dict) else {}
+            code = str(envelope.get("code") or envelope.get("errorType") or "provider_stream_failed")
+            message = str(envelope.get("message") or "Copilot stream failed.")
+            status = envelope.get("statusCode")
+            if type(status) is int and 400 <= status <= 599:
+                message = f"HTTP {status}: {message}"
+            return thread_id, False, True, fatal_error or f"{code}: {message}"
+        if event_type == "tool.execution_complete" and isinstance(data, dict):
+            telemetry = data.get("toolTelemetry")
+            properties = telemetry.get("properties") if isinstance(telemetry, dict) else {}
+            properties = properties if isinstance(properties, dict) else {}
+            if write_state is not None:
+                write_state.last_tool_waiting = (
+                    str(properties.get("read_target_state") or "").casefold() == "active"
+                    or (
+                        str(properties.get("shell_error_category") or "").casefold()
+                        == "command_timeout"
+                        and str(properties.get("is_timeout") or "").casefold() == "true"
+                    )
+                )
+            return thread_id, turn_completed, turn_failed, fatal_error
+        if event_type == "assistant.message" and isinstance(data, dict):
+            content = data.get("content")
+            if str(data.get("phase") or "").casefold() == "final_answer":
+                empty = not isinstance(content, str) or not content.strip()
+                if write_state is not None:
+                    write_state.empty_final_answer = empty
+                if empty:
+                    # An explicit empty final answer must not expose an older
+                    # progress message as the completed response.
+                    agent_messages.append("")
+            if isinstance(content, str) and content.strip():
+                agent_messages.append(content.strip())
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "model.response" and isinstance(data, dict):
+            response = data.get("response")
+            response = response if isinstance(response, dict) else {}
+            content = response.get("content")
+            if isinstance(content, str) and content.strip():
+                message = content.strip()
+                if not agent_messages or agent_messages[-1] != message:
+                    agent_messages.append(message)
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "error" or (
+            event_type == "session.error" and isinstance(data, dict)
+            and data.get("errorType") == "query"
+        ):
+            turn_failed = True
+            if fatal_error is None:
+                if isinstance(data, dict):
+                    maybe_msg = data.get("message")
+                    if isinstance(maybe_msg, str) and maybe_msg.strip():
+                        fatal_error = maybe_msg.strip()
+                        status_code = data.get("statusCode")
+                        if event_type == "session.error" and type(status_code) is int and 400 <= status_code <= 599:
+                            fatal_error = f"HTTP {status_code}: {fatal_error}"
+                if fatal_error is None:
+                    maybe_msg = event.get("message")
+                    if isinstance(maybe_msg, str) and maybe_msg.strip():
+                        fatal_error = maybe_msg.strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type != "result":
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        session_id = event.get("sessionId")
+        if isinstance(session_id, str) and session_id.strip():
+            thread_id = session_id
+
+        exit_code = event.get("exitCode")
+        if type(exit_code) is int and exit_code == 0:
+            turn_completed = not turn_failed and not fatal_error
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        turn_completed = False
+        turn_failed = True
+        if write_state is not None and type(exit_code) is int:
+            # The current runner adds stderr context when it finalizes this receipt.
+            write_state.exit_code = exit_code
+        elif fatal_error is None:
+            # Legacy/direct consumers have no accumulator to carry this diagnostic.
+            fatal_error = (f"Copilot CLI exited with code {exit_code}." if type(exit_code) is int
+                           else "Copilot CLI result did not contain a valid exit code.")
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
+    def _consume_opencode_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        write_state: _OpenCodeWriteState,
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        session_id = event.get("sessionID")
+        if isinstance(session_id, str) and session_id.strip():
+            thread_id = session_id
+
+        event_type = str(event.get("type") or "").strip()
+        part = event.get("part")
+        part = part if isinstance(part, dict) else {}
+        if event_type == "text":
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                _append_opencode_text(agent_messages, write_state, text)
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "error":
+            _close_opencode_text(agent_messages, write_state)
+            turn_failed = True
+            error = event.get("error")
+            error = error if isinstance(error, dict) else {}
+            data = error.get("data")
+            data = data if isinstance(data, dict) else {}
+            message = data.get("message") or error.get("message") or event.get("message")
+            if fatal_error is None and isinstance(message, str) and message.strip():
+                fatal_error = message.strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type != "step_finish":
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        _close_opencode_text(agent_messages, write_state)
+        reason = str(part.get("reason") or "").strip().lower()
+        if reason in {"tool-calls", "tool_calls"}:
+            return thread_id, turn_completed, turn_failed, fatal_error
+        if reason == "stop":
+            turn_completed = True
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        turn_failed = True
+        if fatal_error is None:
+            fatal_error = f"OpenCode runner reported {reason or 'unknown'}."
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
+    def _consume_pi_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        write_state: _OpenCodeWriteState | None = None,
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        """Consume Pi's documented ``--mode json`` session event stream."""
+        event_type = str(event.get("type") or "").strip()
+        if event_type == "session":
+            session_id = event.get("id")
+            if isinstance(session_id, str) and session_id.strip():
+                thread_id = session_id.strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "message_end":
+            message = event.get("message")
+            message = message if isinstance(message, dict) else {}
+            if str(message.get("role") or "").strip() != "assistant":
+                return thread_id, turn_completed, turn_failed, fatal_error
+            text = EventConsumerMixin._extract_claude_message_text(message)
+            open_index = write_state.open_index if write_state is not None else None
+            if write_state is not None and open_index is not None and 0 <= open_index < len(agent_messages):
+                del agent_messages[open_index]
+                write_state.open_index = None
+            if text and (not agent_messages or agent_messages[-1] != text):
+                agent_messages.append(text)
+            stop_reason = str(message.get("stopReason") or "").strip().lower()
+            if stop_reason in {"error", "aborted"}:
+                turn_failed = True
+                if fatal_error is None:
+                    detail = str(message.get("errorMessage") or "").strip()
+                    fatal_error = detail or f"Pi runner reported {stop_reason}."
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "message_update":
+            delta = event.get("assistantMessageEvent")
+            delta = delta if isinstance(delta, dict) else {}
+            delta_type = str(delta.get("type") or "").strip()
+            if delta_type == "text_delta":
+                text = delta.get("delta")
+                if (
+                    write_state is not None
+                    and isinstance(text, str)
+                    and text
+                ):
+                    _append_opencode_text(agent_messages, write_state, text)
+            elif delta_type == "error":
+                turn_failed = True
+                if fatal_error is None:
+                    detail = str(
+                        delta.get("errorMessage")
+                        or delta.get("message")
+                        or delta.get("reason")
+                        or ""
+                    ).strip()
+                    fatal_error = detail or "Pi runner reported a streaming error."
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "auto_retry_end" and event.get("success") is False:
+            turn_failed = True
+            if fatal_error is None:
+                fatal_error = str(event.get("finalError") or "Pi retries exhausted.").strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "extension_error":
+            turn_failed = True
+            if fatal_error is None:
+                fatal_error = str(event.get("error") or "Pi extension failed.").strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "agent_settled" and not turn_failed:
+            turn_completed = True
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
+    def _extract_claude_message_text(message: object) -> str:
+        if not isinstance(message, dict):
+            return ""
+        content = message.get("content")
+        if not isinstance(content, list):
+            return ""
+        parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "text":
+                continue
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text)
+        return "\n".join(parts).strip()
+
+    @staticmethod
+    def _parse_json_line(line: str) -> dict | None:
+        stripped = line.strip()
+        if not stripped.startswith("{"):
+            return None
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
+
+    @staticmethod
+    def _retain_json_event(event: dict) -> bool:
+        """Keep semantic/final events, not high-frequency transport deltas.
+
+        Every event is still consumed immediately and forwarded to the live
+        callback. This only bounds the post-turn ``AgentRunResult`` retained in
+        Python memory. Token-bearing deltas are kept for accounting.
+        """
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        token_fields = {
+            "input_tokens",
+            "cached_input_tokens",
+            "cache_write_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "inputTokens",
+            "cachedInputTokens",
+            "cacheWriteTokens",
+            "outputTokens",
+            "reasoningOutputTokens",
+        }
+        if any(field in event or field in data for field in token_fields):
+            return True
+        return str(event.get("type") or "") not in {
+            "assistant.message_delta",
+            "assistant.reasoning_delta",
+            "assistant.tool_call_delta",
+            "session.background_tasks_changed",
+            "tool.execution_partial_result",
+            # Pi's partial/full aggregate transport frames are consumed live;
+            # ``message_end`` retains the final text + usage once per turn.
+            "message_start",
+            "message_update",
+            "turn_start",
+            "turn_end",
+            "agent_end",
+            "queue_update",
+        }

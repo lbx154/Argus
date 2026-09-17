@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" data-pptx-page-role="content" data-layout-type-scale="22" data-layout-card-padding-x="12" data-layout-layer-gap="28">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FBFAF7"/>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#1F2933"/>
+    </marker>
+    <marker id="arrow-highlight" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#D55E00"/>
+    </marker>
+    <symbol id="ic-brackets" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 4h-3v16h3"/>
+      <path d="M16 4h3v16h-3"/>
+    </symbol>
+    <symbol id="ic-brain" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15.5 13a3.5 3.5 0 0 0 -3.5 3.5v1a3.5 3.5 0 0 0 7 0v-1.8"/>
+      <path d="M8.5 13a3.5 3.5 0 0 1 3.5 3.5v1a3.5 3.5 0 0 1 -7 0v-1.8"/>
+      <path d="M17.5 16a3.5 3.5 0 0 0 0 -7h-.5"/>
+      <path d="M19 9.3v-2.8a3.5 3.5 0 0 0 -7 0"/>
+      <path d="M6.5 16a3.5 3.5 0 0 1 0 -7h.5"/>
+      <path d="M5 9.3v-2.8a3.5 3.5 0 0 1 7 0v10"/>
+    </symbol>
+    <symbol id="ic-letter-k" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7 4l0 16"/>
+      <path d="M7 12h2l8 -8"/>
+      <path d="M9 12l8 8"/>
+    </symbol>
+    <symbol id="ic-letter-q" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 9a5 5 0 0 0 -5 -5h-2a5 5 0 0 0 -5 5v6a5 5 0 0 0 5 5h2a5 5 0 0 0 5 -5v-6"/>
+      <path d="M13 15l5 5"/>
+    </symbol>
+    <symbol id="ic-letter-v" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 4l6 16l6 -16"/>
+    </symbol>
+    <symbol id="ic-login" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2"/>
+      <path d="M21 12h-13l3 -3"/>
+      <path d="M11 15l-3 -3"/>
+    </symbol>
+    <symbol id="ic-logout" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2"/>
+      <path d="M9 12h12l-3 -3"/>
+      <path d="M18 15l3 -3"/>
+    </symbol>
+  </defs>
+  <g id="groups" data-pptx-bounds="239.7 12.1 472.87 651.05">
+    <g id="multi-head-processing" data-pptx-bounds="240.45 63.6 471.37 598.8" data-group-id="multi-head-processing" data-figure-role="group">
+      <rect x="240.45" y="63.6" width="471.37" height="598.8" rx="16" fill="#F0FAEE" fill-opacity="0.35" stroke="#9CA3AF" stroke-width="1.5" data-figure-role="group" stroke-dasharray="7 5"/>
+      <rect x="256.45" y="12.6" width="322.88" height="45" rx="22.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true"/>
+      <text x="269.45" y="43.2" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="27" font-weight="600" fill="#111827" text-anchor="start" data-figure-role="group-label" data-text-role="group-label">Multi-Head Processing</text>
+    </g>
+  </g>
+  <g id="edges" data-pptx-bounds="197.98 134 932.22 478">
+    <path id="e-query" d="M 198.98 351.5 L 230.45 351.5 L 230.45 145 L 268.45 145" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="query" data-edge-from="input-embedding" data-edge-to="query-projection" data-edge-source="input-embedding" data-edge-target="query-projection" data-figure-role="edge"/>
+    <path id="e-key" d="M 198.98 373 L 268.45 373" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="key" data-edge-from="input-embedding" data-edge-to="key-projection" data-edge-source="input-embedding" data-edge-target="key-projection" data-figure-role="edge"/>
+    <path id="e-value" d="M 198.98 394.5 L 230.45 394.5 L 230.45 601 L 268.45 601" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="value" data-edge-from="input-embedding" data-edge-to="value-projection" data-edge-source="input-embedding" data-edge-target="value-projection" data-figure-role="edge"/>
+    <path id="e-query-to-attention" d="M 444.18 145 L 460.18 145 L 460.18 351.5 L 488.18 351.5" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="query-to-attention" data-edge-from="query-projection" data-edge-to="scaled-dot-product" data-edge-source="query-projection" data-edge-target="scaled-dot-product" data-figure-role="edge"/>
+    <path id="e-key-to-attention" d="M 444.18 373 L 488.18 373" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="key-to-attention" data-edge-from="key-projection" data-edge-to="scaled-dot-product" data-edge-source="key-projection" data-edge-target="scaled-dot-product" data-figure-role="edge"/>
+    <path id="e-value-to-attention" d="M 444.18 601 L 460.18 601 L 460.18 394.5 L 488.18 394.5" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="value-to-attention" data-edge-from="value-projection" data-edge-to="scaled-dot-product" data-edge-source="value-projection" data-edge-target="scaled-dot-product" data-figure-role="edge"/>
+    <path id="e-attention-to-concat" d="M 683.81 373 L 941.15 373" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="attention-to-concat" data-edge-from="scaled-dot-product" data-edge-to="concat" data-edge-source="scaled-dot-product" data-edge-target="concat" data-figure-role="edge"/>
+    <path id="e-concat-to-output" d="M 1083.2 373 L 1127.2 373" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="concat-to-output" data-edge-from="concat" data-edge-to="linear-output" data-edge-source="concat" data-edge-target="linear-output" data-figure-role="edge"/>
+  </g>
+  <g id="nodes" data-pptx-bounds="9.8 104.6 1260.4 536.8">
+    <g id="input-embedding" data-pptx-bounds="9.8 332.6 190.19 80.8" data-node-id="input-embedding" data-figure-role="node">
+      <rect fill="#FFE2D1" stroke="#1F2933" stroke-width="2" data-node-id="input-embedding" x="10.8" y="333.6" width="188.19" height="78.8" rx="12"/>
+      <rect x="16.8" y="354" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-login" x="22.8" y="360" width="26" height="26"/>
+      <text x="125.89" y="367.28" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="22" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="input-embedding">
+        <tspan x="125.89" y="367.28">Input </tspan>
+        <tspan x="125.89" dy="26.4">Embedding</tspan>
+      </text>
+    </g>
+    <g id="query-projection" data-pptx-bounds="267.45 104.6 177.73 80.8" data-node-id="query-projection" data-figure-role="node">
+      <rect fill="#FFF2BD" stroke="#1F2933" stroke-width="2" data-node-id="query-projection" x="268.45" y="105.6" width="175.73" height="78.8" rx="12"/>
+      <rect x="274.45" y="126" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-letter-q" x="280.45" y="132" width="26" height="26"/>
+      <text x="377.31" y="139.28" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="22" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="query-projection">
+        <tspan x="377.31" y="139.28">Query </tspan>
+        <tspan x="377.31" dy="26.4">Projection</tspan>
+      </text>
+    </g>
+    <g id="key-projection" data-pptx-bounds="267.45 332.6 177.73 80.8" data-node-id="key-projection" data-figure-role="node">
+      <rect fill="#FFF2BD" stroke="#1F2933" stroke-width="2" data-node-id="key-projection" x="268.45" y="333.6" width="175.73" height="78.8" rx="12"/>
+      <rect x="274.45" y="354" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-letter-k" x="280.45" y="360" width="26" height="26"/>
+      <text x="377.31" y="367.28" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="22" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="key-projection">
+        <tspan x="377.31" y="367.28">Key </tspan>
+        <tspan x="377.31" dy="26.4">Projection</tspan>
+      </text>
+    </g>
+    <g id="value-projection" data-pptx-bounds="267.45 560.6 177.73 80.8" data-node-id="value-projection" data-figure-role="node">
+      <rect fill="#FFF2BD" stroke="#1F2933" stroke-width="2" data-node-id="value-projection" x="268.45" y="561.6" width="175.73" height="78.8" rx="12"/>
+      <rect x="274.45" y="582" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-letter-v" x="280.45" y="588" width="26" height="26"/>
+      <text x="377.31" y="595.28" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="22" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="value-projection">
+        <tspan x="377.31" y="595.28">Value </tspan>
+        <tspan x="377.31" dy="26.4">Projection</tspan>
+      </text>
+    </g>
+    <g id="scaled-dot-product" data-pptx-bounds="487.18 316.5 197.64 113" data-node-id="scaled-dot-product" data-figure-role="node">
+      <rect fill="#E2F7DF" stroke="#1F2933" stroke-width="2" data-node-id="scaled-dot-product" x="488.18" y="317.5" width="195.64" height="111" rx="12"/>
+      <rect x="494.18" y="344" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-brain" x="500.18" y="350" width="26" height="26"/>
+      <text x="607" y="352.8" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="22" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="scaled-dot-product">
+        <tspan x="607" y="352.8">Scaled </tspan>
+        <tspan x="607" dy="26.4">Dot-Product</tspan>
+      </text>
+      <text x="607" y="405.12" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="400" fill="#4B5563" text-anchor="middle" data-figure-role="sublabel" data-text-role="sublabel" data-label-for="scaled-dot-product">Attention × h</text>
+    </g>
+    <g id="concat" data-pptx-bounds="940.15 340 144.05 66" data-node-id="concat" data-figure-role="node">
+      <rect fill="#FFF2BD" stroke="#1F2933" stroke-width="2" data-node-id="concat" x="941.15" y="341" width="142.05" height="64" rx="12"/>
+      <rect x="947.15" y="354" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-brackets" x="953.15" y="360" width="26" height="26"/>
+      <text x="1033.18" y="380.48" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="22" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="concat">Concat</text>
+    </g>
+    <g id="linear-output" data-pptx-bounds="1126.2 332.6 144 80.8" data-node-id="linear-output" data-figure-role="node">
+      <rect fill="#EADFFF" stroke="#1F2933" stroke-width="2" data-node-id="linear-output" x="1127.2" y="333.6" width="142" height="78.8" rx="12"/>
+      <rect x="1133.2" y="354" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-logout" x="1139.2" y="360" width="26" height="26"/>
+      <text x="1219.2" y="367.28" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="22" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="linear-output">
+        <tspan x="1219.2" y="367.28">Linear </tspan>
+        <tspan x="1219.2" dy="26.4">Output</tspan>
+      </text>
+    </g>
+  </g>
+  <g id="edge-labels" data-pptx-bounds="205.48 230.25 708.17 285.5">
+    <rect x="211.11" y="230.75" width="38.66" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="query"/>
+    <text x="230.45" y="258.75" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="query">Q</text>
+    <rect x="205.98" y="355.5" width="37.47" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="key"/>
+    <text x="224.71" y="383.5" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="key">K</text>
+    <rect x="212.3" y="480.25" width="36.29" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="value"/>
+    <text x="230.45" y="508.25" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="value">V</text>
+    <rect x="340.29" y="280" width="239.77" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="query-to-attention"/>
+    <text x="460.18" y="308" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="query-to-attention">Attention Weights</text>
+    <rect x="711.81" y="355.5" width="201.34" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="attention-to-concat"/>
+    <text x="812.48" y="383.5" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="attention-to-concat">Context Vector</text>
+  </g>
+</svg>

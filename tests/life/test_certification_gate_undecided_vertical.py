@@ -30,15 +30,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life.supervisor._planning_context import PlanningContextMixin
-from argus_skill.skills.vertical_select import (
+from argus.life.supervisor._planning_context import PlanningContextMixin
+from argus.skills.vertical_select import (
     resolve_vertical,
     resolve_vertical_if_decided,
 )
-from argus_skill.verticals._base import load_vertical_contract
+from argus.verticals._base import load_vertical_contract
 
 CERTIFIED = "research"
-NOT_CERTIFIED = ("math", "materials", "speedrun", "software")
+NOT_CERTIFIED = ("math", "math_synth", "kernel_engineering", "software")
 
 
 class _Harness(PlanningContextMixin):
@@ -70,8 +70,8 @@ def test_an_undecided_project_is_not_at_its_final_gate(tmp_path) -> None:
 def test_a_vertical_without_a_certified_gate_stays_ungated(
     tmp_path, vertical
 ) -> None:
-    """``speedrun`` is the one the docstring names: gating it wedges it forever."""
-    from argus_skill.skills.vertical_select import persist_vertical
+    """``math_synth`` (a metric vertical) is the shape that, gated, wedges forever."""
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, vertical)
 
@@ -80,7 +80,7 @@ def test_a_vertical_without_a_certified_gate_stays_ungated(
 
 def test_research_keeps_its_gate(tmp_path) -> None:
     """The fix must change nothing for the vertical the gate exists for."""
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, CERTIFIED)
 
@@ -88,7 +88,7 @@ def test_research_keeps_its_gate(tmp_path) -> None:
 
 
 def test_the_operator_switch_still_wins_over_a_certified_vertical(tmp_path) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, CERTIFIED)
 
@@ -105,7 +105,7 @@ def test_a_workdir_that_records_no_decision_does_not_gate(tmp_path) -> None:
     root and ran in a separate repository workdir that holds only the adopted
     objective. Any caller handed the workdir sees an undecided project.
     """
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "s-ed5b69fc"
     workdir = tmp_path / "argus-testbed-univ24-r16"

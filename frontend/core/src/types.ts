@@ -146,6 +146,9 @@ export interface RequestUsage {
 
 export interface CostControlSnapshot {
   day: string;
+  daily_tokens?: number;
+  daily_token_cap?: number;
+  unsettled_tokens?: number;
   active_reservations: number;
   unresolved_calls: number;
   blocking_unresolved_calls?: number;
@@ -220,6 +223,8 @@ export type MissionRoleStatus = 'active' | 'done' | 'waiting' | 'rejected' | 'er
 export interface MissionRoleView {
   role: string;
   status: MissionRoleStatus | string;
+  /** Stable code naming the state the label describes; localize by this. */
+  kind?: string;
   label: string;
   updated_at: number;
   backend?: string;
@@ -251,6 +256,10 @@ export interface MissionRoleWorkItem {
   title: string;
   detail: string;
   status: string;
+  /** Why a round produced no judgment (rows with kind "review" and status "skipped"). */
+  cause?: string;
+  /** The runtime's own record (exit code, retry count); shown apart from the sentence. */
+  technical?: string;
   item_id?: string;
   mission_id?: string;
   mission_title?: string;
@@ -279,9 +288,15 @@ export interface MissionTimelineItem {
   ts: number;
   type: string;
   role: string;
+  /** Stable code naming what happened; localize by this, not by the title. */
+  kind?: string;
   title: string;
   detail: string;
   tone: 'neutral' | 'info' | 'success' | 'error' | 'skill' | string;
+  /** Why a round produced no judgment (rows with kind "round_not_judged"). */
+  cause?: string;
+  /** The runtime's own record (exit code, retry count); shown apart from the sentence. */
+  technical?: string;
   item_id?: string;
   branch_id?: string;
 }
@@ -313,14 +328,17 @@ export interface MissionStorageView {
 }
 
 export interface MissionView {
-  schema_version: 6;
+  schema_version: number;
   bootstrapped?: boolean;
+  /** "zh" or "en" once the operator's request has been seen; the view's sentences are in this language. */
+  language?: string;
   health?: string;
   mission: {
     id: string;
     title: string;
     objective: string;
     summary: string;
+    final_output?: string;
     status: string;
     started_at: number | null;
     completed_at: number | null;
@@ -388,6 +406,8 @@ export interface Snapshot {
   continuous?: ContinuousState;
   /** Present on compact UI snapshots. */
   pending_questions?: Array<Record<string, unknown>>;
+  /** Foreground Manager/SELF requests that remain cancellable across a page reload. */
+  manager_requests?: Array<{ request_id: string; status: 'running' }>;
   partial?: boolean;
   diagnostics?: Array<{
     section: string;
@@ -451,7 +471,18 @@ export type ArtifactKind =
   | 'video'
   | 'binary';
 
-/** Reviewer-approved result file exposed by the protected artifact API. */
+/** An immutable, server-retained version of a progress explanation. */
+export interface ProgressSourceRef {
+  source_id: string;
+  title: string;
+  generated_at: number;
+  path: string;
+  task_id: string;
+  card_key: string;
+  copy_revision: number;
+}
+
+/** A registered project file exposed by the protected artifact API. */
 export interface ArtifactInfo {
   path: string;
   name: string;
@@ -463,8 +494,27 @@ export interface ArtifactInfo {
   mtime: number | null;
   /** Absolute local location shown on hover; reads still use the protected path. */
   storage_path?: string;
-  source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery';
+  source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery' | 'reader_foundation' | 'progress_snapshot';
+  progress_source?: ProgressSourceRef;
   group_title?: string;
+  /** An explicit reading request, separate from a research result or review. */
+  reader_foundation?: {
+    id: string;
+    /** Missing on earlier records; those records are root foundations. */
+    kind?: 'foundation' | 'clarification' | 'progress_answer';
+    progress_source?: ProgressSourceRef;
+    parent_id?: string | null;
+    root_id?: string;
+    sources?: Array<{ id: string; path: string; title: string }>;
+    question: string;
+    title?: string;
+    locale: 'zh-CN' | 'en-US';
+    source_task_id?: string | null;
+    created_at: number;
+    version: number;
+    state: 'generating' | 'complete' | 'failed';
+    deadline_exceeded?: boolean;
+  };
   /** Included by the single-artifact endpoint for text/HTML files only. */
   preview?: string;
   truncated?: boolean;
@@ -477,4 +527,73 @@ export interface GitDiffView {
   stat: string;
   diff: string;
   truncated: boolean;
+}
+
+// --- Vertical store (GET /api/verticals; capability "verticals.store.v1") ---
+
+/** Where a vertical comes from: shipped in core, bundled with the package, installed from the catalog, or only listed there. */
+export type VerticalKind = 'builtin' | 'package' | 'installed' | 'available';
+
+export type VerticalAction = 'install' | 'update' | 'enable' | 'disable' | 'uninstall';
+
+/** The store's record of the last or current lifecycle job for one vertical. */
+export interface VerticalOperation {
+  status: 'running' | 'done' | 'failed';
+  action: string;
+  /** Integer percent 0–100; 0 means the job has not reported a step yet. */
+  progress: number;
+  message: string | null;
+  /** ISO-8601 UTC timestamps, e.g. "2026-09-14T19:00:00Z". */
+  started: string;
+  finished: string | null;
+}
+
+export interface VerticalRow {
+  name: string;
+  purpose: string;
+  purpose_zh: string | null;
+  kind: VerticalKind;
+  version: string | null;
+  installed_version: string | null;
+  enabled: boolean;
+  update_available: boolean;
+  /** Other verticals this one needs, by name. */
+  requires: string[];
+  /** Verticals this one shares resources with, by name. */
+  shared: string[];
+  python_requirements: string[];
+  /** Python distributions not importable from the environment Argus runs in. */
+  missing_python: string[];
+  tags: string[];
+  size_bytes: number | null;
+  /** Project sids currently bound to this vertical. */
+  used_by: string[];
+  operation: VerticalOperation | null;
+  managed_by_host: boolean;
+  /** The only actions the server accepts right now; the UI offers nothing else. */
+  actions: VerticalAction[];
+}
+
+export interface VerticalCatalogStatus {
+  source: string;
+  /** ISO-8601 UTC, or null when the catalog was never fetched. */
+  fetched_at: string | null;
+  release_tag: string | null;
+  error: string | null;
+}
+
+export interface VerticalsPayload {
+  verticals: VerticalRow[];
+  catalog: VerticalCatalogStatus;
+  host: {
+    managed_by_host: boolean;
+    store_root: string;
+  };
+}
+
+/** 202 for install/update/uninstall jobs, 200 for enable/disable. */
+export interface VerticalManageResult {
+  name: string;
+  action: VerticalAction;
+  operation: VerticalOperation | null;
 }

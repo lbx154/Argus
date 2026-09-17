@@ -93,3 +93,110 @@ describe('optimistic Manager conversation', () => {
     expect(merged.filter((event) => event.type === 'ui.operator')).toHaveLength(2);
   });
 });
+
+describe('tool steps behind a Manager reply', () => {
+  it('shows the work before any words arrive, then keeps it under the reply', async () => {
+    const { mergeOptimisticManagerSteps, settleOptimisticManagerTurn } = await import('../lib/conversationEvents');
+    const operator = optimisticOperatorEvent('s-fast', 1, '数一下行数', 1_000);
+    const step = { kind: 'command_execution', label: '$ wc -l', status: 'running', started_ts: 1, ended_ts: 0 };
+    const working = mergeOptimisticManagerSteps([operator], 's-fast', 1, [step], 1_500, true);
+
+    expect(working).toHaveLength(2);
+    expect(working[1]).toMatchObject({ type: 'ui.argus', text: '', live: true, steps: [step] });
+
+    const replied = mergeOptimisticManagerDelta(working, 's-fast', 1, '一行。', 'web-1-argus', 2_000, 'snapshot');
+    expect(replied).toHaveLength(2);
+    expect(replied[1]).toMatchObject({ text: '一行。', live: true, steps: [step] });
+
+    const settled = settleOptimisticManagerTurn(replied, 1, 3_000);
+    expect(settled[1]).toMatchObject({ live: false });
+    expect((settled[1].steps as Array<Record<string, unknown>>)[0]).toMatchObject({ status: 'stopped', ended_ts: 3 });
+  });
+
+  it('prefers the journaled steps over the live trail once the transcript has them', async () => {
+    const { mergeOptimisticManagerSteps } = await import('../lib/conversationEvents');
+    const operator = optimisticOperatorEvent('s-fast', 1, '数一下行数', 1_000);
+    const live = mergeOptimisticManagerSteps([operator], 's-fast', 1, [{ kind: 'tool_use', label: 'x', status: 'running', started_ts: 1, ended_ts: 0 }], 1_500, true);
+    const replied = mergeOptimisticManagerDelta(live, 's-fast', 1, '一行。', 'web-1-argus', 2_000, 'snapshot');
+    const journaled = [{ kind: 'tool_use', label: 'x', status: 'completed', started_ts: 1, ended_ts: 2 }];
+
+    const merged = mergeConversationEvents(
+      [],
+      [
+        { ts: 1, role: 'operator', text: '数一下行数', message_id: 'web-1-operator' },
+        { ts: 2, role: 'argus', text: '一行。', message_id: 'web-1-argus', steps: journaled },
+      ],
+      replied,
+    );
+
+    const reply = merged.find((event) => event.type === 'ui.argus');
+    expect(reply).toMatchObject({ text: '一行。', live: false, steps: journaled });
+  });
+
+  it('carries steps on transcript rows replayed after a reload', () => {
+    const steps = [{ kind: 'tool_use', label: 'x', status: 'completed', started_ts: 1, ended_ts: 2 }];
+    const merged = mergeConversationEvents([], [{ ts: 2, role: 'argus', text: 'done', steps }], []);
+    expect(merged[0]).toMatchObject({ type: 'ui.argus', steps });
+  });
+});
+
+describe('task receipt replay and live deduplication', () => {
+  it('retains missing task metadata when the same receipt is already in the live feed', () => {
+    const live = { type: 'ui.argus', text: 'External interrupt: daemon stop requested',
+      ts: 1789216024, message_id: 'mission-result-task-a-paused_daemon_shutdown' };
+    const merged = mergeConversationEvents([live], [{ role: 'argus', text: live.text,
+      ts: 1789216023, message_id: live.message_id, mission_result: true, item_id: 'task-a', success: false }], []);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toEqual({ ...live, mission_result: true, item_id: 'task-a', success: false });
+    expect(live).not.toHaveProperty('mission_result');
+  });
+
+  it('does not overwrite existing live task metadata', () => {
+    const live = { type: 'ui.argus', text: 'A recorded result', ts: 20, message_id: 'receipt-a',
+      mission_result: false, item_id: 'task-a', success: true };
+    const merged = mergeConversationEvents([live], [{ role: 'argus', text: live.text, ts: 19,
+      message_id: live.message_id, mission_result: true, item_id: 'task-a', success: false }], []);
+    expect(merged).toEqual([live]);
+  });
+
+  it.each([
+    { message_id: 'receipt-b', item_id: 'task-b' },
+    { message_id: 'receipt-b', item_id: 'task-a' },
+    { message_id: 'receipt-a', item_id: 'task-b' },
+    { item_id: 'task-a' },
+  ])('keeps identical receipt text separate without compatible durable identity: %j', identity => {
+    const live = { type: 'ui.argus', text: 'External interrupt: daemon stop requested', ts: 20, ...identity };
+    const merged = mergeConversationEvents([live], [{ role: 'argus', text: live.text, ts: 19,
+      message_id: 'receipt-a', mission_result: true, item_id: 'task-a', success: false }], []);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ message_id: 'receipt-a', item_id: 'task-a', mission_result: true });
+    expect(merged[1]).toEqual(live);
+  });
+
+  it('matches receipt identity before another live copy with the same template text', () => {
+    const text = 'External interrupt: daemon stop requested';
+    const merged = mergeConversationEvents([
+      { type: 'ui.argus', text, ts: 20, message_id: 'receipt-a' },
+      { type: 'ui.argus', text, ts: 21, message_id: 'receipt-b' },
+    ], [{ role: 'argus', text, ts: 19, message_id: 'receipt-a', mission_result: true, item_id: 'task-a', success: false }], []);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ message_id: 'receipt-a', mission_result: true, item_id: 'task-a', success: false });
+    expect(merged[1]).not.toHaveProperty('mission_result');
+  });
+
+  it('keeps the existing content fallback for ordinary dispatch acknowledgements', () => {
+    const live = { type: 'ui.argus', text: 'Scheduled.', ts: 20, message_id: 'dispatch-a' };
+    expect(mergeConversationEvents([live], [{ role: 'argus', text: live.text, ts: 19, message_id: 'journal-a' }], [])).toEqual([live]);
+  });
+});
+
+it('does not duplicate a legacy delivery when transcript lacks its message id', () => {
+  const row = { text: 'Result ready', ts: 100, mission_result: true, delivery_id: 'delivery:one' };
+  const merged = mergeConversationEvents(
+    [{ ...row, type: 'ui.argus', message_id: 'web-one-argus', ts: 100.001 }],
+    [{ ...row, role: 'argus' }], [],
+  );
+  expect(merged).toHaveLength(1);
+  expect(merged[0].message_id).toBe('web-one-argus');
+});

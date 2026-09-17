@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.team import task_board as tb
+from argus.team import task_board as tb
 
 
 def _form(root: Path) -> None:
@@ -58,6 +58,28 @@ def test_reassign_stale_returns_to_pending(tmp_path: Path) -> None:
     tb.claim_top(tmp_path, "tm-2", now=200.0)
     tb.heartbeat(tmp_path, "a", now=205.0)
     assert tb.reassign_stale(tmp_path, ttl=100.0, now=210.0) == []
+
+
+@pytest.mark.parametrize("terminal_state", ["done", "failed"])
+def test_retry_terminal_returns_task_to_pending(
+    tmp_path: Path,
+    terminal_state: str,
+) -> None:
+    tb.form(tmp_path, [{"task_id": "a", "objective": "x"}])
+    tb.claim_top(tmp_path, "tm-1", now=1.0)
+    if terminal_state == "done":
+        tb.complete(tmp_path, "a", shard="shards/a.jsonl")
+    else:
+        tb.fail(tmp_path, "a", reason="invalid output")
+
+    assert tb.retry_terminal(tmp_path, "a") is True
+    task = tb.snapshot(tmp_path)[0]
+    assert task["state"] == "pending"
+    assert task["owner"] == ""
+    assert task["result_shard"] == ""
+    assert task["finished_ts"] == 0.0
+    assert task["attempts"] == 1
+    assert tb.retry_terminal(tmp_path, "a") is False
 
 
 @pytest.mark.parametrize("task_id", ["", ".", "..", "../escape", "nested/task", r"nested\task"])
@@ -358,3 +380,19 @@ def test_form_never_takes_lifecycle_fields_from_a_spec(tmp_path: Path) -> None:
     assert task["heartbeat_ts"] == 0.0 and task["reason"] == ""
     assert task["acceptance_check"] == "carried"
     assert tb.claim_top(tmp_path, "w1", now=1.0)["task_id"] == "a"
+
+
+def test_release_paused_waits_out_backoff_before_reclaim(tmp_path: Path) -> None:
+    """A provider-refused task returns to the queue but not before its backoff."""
+    tb.form(tmp_path, [{"task_id": "t::a", "objective": "x"}])
+    tb.claim_top(tmp_path, "tm-1", now=1.0)
+    tb.release_paused(tmp_path, "t::a", reason="stop_kind=provider_cooldown", retry_after=100.0)
+    task = {t["task_id"]: t for t in tb.snapshot(tmp_path)}["t::a"]
+    assert task["state"] == "pending" and task["owner"] == ""
+    assert task["pause_reason"] == "stop_kind=provider_cooldown"
+    assert task["attempts"] == 1
+    assert tb.count_in_flight(tmp_path) == 0
+    assert tb.claim_top(tmp_path, "tm-2", now=50.0) is None
+    got = tb.claim_top(tmp_path, "tm-2", now=100.0)
+    assert got is not None and got["task_id"] == "t::a"
+    assert got["pause_reason"] == "" and got["retry_after_ts"] == 0.0

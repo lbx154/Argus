@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import argus_skill
-from argus_skill.skills.role_context import load_builtin_skill_text
+import argus
+from argus.skills.role_context import load_builtin_skill_text
 
-ROOT = Path(argus_skill.__file__).resolve().parent
+ROOT = Path(argus.__file__).resolve().parent
 
 # The specific agent-facing shell recipe the prompts used to emit. Its absence is
 # the regression guard (a passing comment mentioning rollback_stage won't match
@@ -45,7 +45,7 @@ def test_reviewer_reports_upstream_defects_instead_of_rolling_back() -> None:
     assert "Manager owns rollback" in src
 
 
-def test_auto_research_skill_does_not_tell_engineer_to_advance_stage() -> None:
-    md = _src("verticals/research/skills/engineer/auto-research-pipeline.md")
+def test_experiment_playbook_does_not_tell_engineer_to_advance_stage() -> None:
+    md = _src("verticals/research/skills/research-experiment-playbook.md")
     assert "advance to the next stage and update" not in md
-    assert "Manager-owned" in md
+    assert "Manager alone advances" in md

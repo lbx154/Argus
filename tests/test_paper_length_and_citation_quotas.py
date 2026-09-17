@@ -6,6 +6,9 @@ second-to-last page. Both punished short, complete papers and rewarded padding.
 The venue page count is a *ceiling*; citation sufficiency is proportional to
 what the paper claims. What must still fail is fabrication, over-length, and
 wrong templates.
+
+Full papers nevertheless have a near-limit writing target, developed through
+principle-level analysis rather than an experiment report or a numerical gate.
 """
 from __future__ import annotations
 
@@ -14,11 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.research import venue_profiles
+from argus.verticals.research import venue_profiles
 
 SKILLS = (
     Path(__file__).resolve().parents[1]
-    / "argus_skill"
+    / "argus"
     / "verticals"
     / "research"
     / "skills"
@@ -35,9 +38,8 @@ def _read(relative: str) -> str:
     "relative",
     [
         "reviewer/academic-paper-peer-review-benchmark.md",
-        "reviewer/aaai-academic-language-review.md",
-        "engineer/aaai-format-preflight.md",
-        "engineer/emnlp-format-preflight.md",
+        "reviewer/venue-academic-language-review.md",
+        "engineer/venue-format-preflight.md",
     ],
 )
 def test_no_bibliography_count_floor_in_skills(relative) -> None:
@@ -49,7 +51,9 @@ def test_no_bibliography_count_floor_in_skills(relative) -> None:
 
 def test_reference_count_is_not_a_hard_blocker() -> None:
     text = _read("reviewer/academic-paper-peer-review-benchmark.md")
-    blockers = text.split("## Hard blockers", 1)[1].split("##", 1)[0]
+    blockers = text.split(
+        "## Problems that mean the paper does not hold yet", 1
+    )[1].split("##", 1)[0]
 
     assert "BibTeX entries" not in blockers
     assert "cited keys" not in blockers
@@ -70,7 +74,7 @@ def test_venue_profiles_no_longer_carry_a_bibliography_quota() -> None:
 # -- page budget is a ceiling, not a quota ----------------------------------
 
 def test_page_limit_is_described_as_a_ceiling() -> None:
-    text = _read("engineer/aaai-format-preflight.md")
+    text = _read("engineer/venue-format-preflight.md")
 
     assert "ceiling, not a quota" in text
     # The old rule forced body content until the Conclusion reached page 7.
@@ -79,16 +83,82 @@ def test_page_limit_is_described_as_a_ceiling() -> None:
 
 
 def test_over_length_is_still_enforced() -> None:
-    text = _read("engineer/aaai-format-preflight.md")
+    text = _read("engineer/venue-format-preflight.md")
 
-    assert "exceeds 7.0" in text
-    assert "page-map reflow" in text
+    assert "exceeds the current limit" in text
+    assert "reflow content" in text
 
 
-def test_padding_is_explicitly_discouraged() -> None:
-    text = _read("engineer/aaai-format-preflight.md")
+def test_preflight_routes_expansion_to_the_writing_policy() -> None:
+    text = _read("engineer/venue-format-preflight.md")
 
-    assert "Never pad to reach a page number" in text
+    assert "principle-led" in text
+    assert "toward its writing target" in text
+
+
+def test_full_paper_length_target_is_distinct_from_official_limit() -> None:
+    text = " ".join(_read("research-paper-playbook.md").split())
+
+    for required in (
+        "uses nearly all",
+        "not an official minimum",
+        "Never silently switch tracks",
+        "Do not infer body length from total PDF",
+        "If the limit is unknown",
+        "Actively expand principle-level analysis",
+        "Distinguish derivation, proposed explanation, and empirical observation",
+        "existing research notes",
+    ):
+        assert required in text
+
+
+@pytest.mark.parametrize("role,operation", [
+    ("engineer", "mission"),
+    ("reviewer", "evaluate"),
+])
+def test_live_paper_prompts_carry_length_policy(role: str, operation: str) -> None:
+    from argus.verticals.research.prompt_policy import render_role_prompt_fragment
+
+    text = render_role_prompt_fragment(
+        role=role,
+        operation=operation,
+        stage="paper" if role == "engineer" else "review",
+        scope="" if role == "engineer" else "final_submission",
+        project_root=None,
+    )
+    assert "research-paper-playbook.md" in text
+    assert "principle-level analysis" in text
+    assert "derivations, and design tradeoffs" in text
+    assert "technically complete" not in text
+    assert "experiment report" in text
+    assert "not total PDF pages" in text
+    assert "short-paper and partial-edit requests" in text
+    assert "full unused body page" not in text
+    assert "shorter-paper exception" not in text
+
+
+def test_paper_skills_favor_principle_led_expansion() -> None:
+    for relative in (
+        "research-paper-playbook.md",
+        "research-review-playbook.md",
+        "engineer/venue-paper-drafting.md",
+        "engineer/references/paper-writing-craft.md",
+    ):
+        text = " ".join(_read(relative).split())
+        assert "principle-level analysis" in text
+        assert "technically complete" not in text
+        assert "full unused body page" not in text
+        assert "shorter-paper exception" not in text
+
+
+def test_compression_has_no_fixed_reduction_target() -> None:
+    for relative in (
+        "engineer/venue-paper-drafting.md",
+        "engineer/references/paper-writing-craft.md",
+    ):
+        text = " ".join(_read(relative).split())
+        assert "a cut of a third is normal" not in text
+        assert "target reduction fraction" in text
 
 
 # -- the layout reviewer's underfill signal ---------------------------------
@@ -101,7 +171,7 @@ def _issue_call(code: str) -> dict:
     """
     import ast
 
-    from argus_skill.verticals.research import paper_layout_review as mod
+    from argus.verticals.research import paper_layout_review as mod
 
     tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
     for node in ast.walk(tree):

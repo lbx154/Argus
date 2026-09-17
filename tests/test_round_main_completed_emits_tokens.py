@@ -10,10 +10,10 @@ ever saw the reviewer half (zeroed) and engineers got billed at $0,
 silently breaking iteration budget enforcement.
 
 Citations:
-- argus_skill/engineer/runner.py — emits ``round.main.completed``
-- argus_skill/engineer/reviewer.py — sets input/output_tokens on every
+- argus/engineer/runner.py — emits ``round.main.completed``
+- argus/engineer/reviewer.py — sets input/output_tokens on every
   ReviewDecision return path
-- argus_skill/life/supervisor.py:166 — ``_CostTrackingSink.handle_event``
+- argus/life/supervisor.py:166 — ``_CostTrackingSink.handle_event``
   reads the two fields from these events
 """
 
@@ -22,16 +22,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
-from argus_skill.core.models import (
+from argus.core.models import (
     ReviewDecision,
     RunnerResult,
 )
-from argus_skill.engineer.runner import (
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer import Reviewer, ReviewerConfig
 
 
 class _TokenedEngineer:

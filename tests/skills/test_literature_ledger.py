@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.verticals.research.literature_ledger import (
+from argus.verticals.research.literature_ledger import (
     MATRIX_PATH,
     literature_coverage_advisories,
     main,

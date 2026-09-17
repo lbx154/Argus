@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.roles.prompts import planner as planner_prompts
+from argus.roles.prompts import planner as planner_prompts
 
 
 def _resume(tmp_path: Path, altitude: str, monkeypatch) -> str:
@@ -26,7 +26,7 @@ def _resume(tmp_path: Path, altitude: str, monkeypatch) -> str:
         "continuous_request",
         planner_prompts.continuous_request,
     )
-    from argus_skill.roles.prompts import registry
+    from argus.roles.prompts import registry
 
     real = registry.resolve_role_prompt
 

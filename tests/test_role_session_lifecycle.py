@@ -4,14 +4,14 @@ import json
 import subprocess
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.core.models import RunnerResult
-from argus_skill.core.role_session import (
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.core.models import RunnerResult
+from argus.core.role_session import (
     RoleSessionCapsule,
     signal_role_session_file,
 )
-from argus_skill.planner import Planner, PlannerConfig
+from argus.planner import Planner, PlannerConfig
 
 
 def _review(status: str) -> str:
@@ -148,7 +148,7 @@ def test_fresh_policy_repeats_task_contract_on_continuation_round(
         if label.startswith("engineer-")
     ]
     assert len(engineer_prompts) == 2
-    assert all("## Effective task contract" in prompt for prompt in engineer_prompts)
+    assert all('## Task authority' in prompt for prompt in engineer_prompts)
     assert all(
         "implement the contract-preserving change" in prompt
         for prompt in engineer_prompts
@@ -247,7 +247,25 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     first_loop = _loop(first, tmp_path, context, checkpoint, policy="mission")
     first_loop.config.max_rounds = 1
     first_loop.config.hard_escalate_rounds = 0
-    assert first_loop.run("same objective", workdir=tmp_path).status == "max_rounds"
+    interrupted = first_loop.run("same objective", workdir=tmp_path)
+
+    assert interrupted.status == "max_rounds"
+    assert not interrupted.successful
+    assert [label for label, _prompt, _options in first.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    capsules = context.parent / "role-sessions"
+    engineer_before_restart = json.loads(
+        (capsules / "engineer.json").read_text(encoding="utf-8")
+    )
+    reviewer_before_restart = json.loads(
+        (capsules / "reviewer.json").read_text(encoding="utf-8")
+    )
+    assert engineer_before_restart["thread_id"] == "e1"
+    assert engineer_before_restart["decisive_output"] == "partial"
+    assert reviewer_before_restart["thread_id"] == "v1"
+    assert "partial" not in reviewer_before_restart["decisive_output"]
 
     second = MemoryBackend()
     second.queue("engineer-r1", CannedResponse(message="finished", thread_id="e1"))
@@ -264,6 +282,11 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     ] == [("engineer-r1", "e1"), ("reviewer", "v1")]
     prompt = next(prompt for label, prompt, _ in second.history if label == "engineer-r1")
     assert str(context.parent / "role-sessions" / "engineer.json") in prompt
+    assert str(context.parent / "role-sessions" / "reviewer.json") not in prompt
+    assert [label for label, _prompt, _options in second.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
 
 
 def test_rolling_capsule_rotates_when_branch_changes(tmp_path: Path) -> None:
@@ -288,6 +311,72 @@ def test_rolling_capsule_rotates_when_branch_changes(tmp_path: Path) -> None:
     assert capsule.prepare(max_turns=6, max_input_tokens=120_000) is None
     assert capsule.action == "rotated"
     assert capsule.rotation_reason == "branch_changed"
+
+
+def test_cached_tokens_do_not_count_against_the_rotation_budget(tmp_path: Path) -> None:
+    capsule = RoleSessionCapsule.open(
+        role="engineer",
+        policy="rolling",
+        objective_revision="v1",
+        workdir=tmp_path,
+        backend="codex",
+        model="model",
+        checkpoint_path=None,
+        path=tmp_path / "state" / "engineer.json",
+    )
+
+    capsule.complete(
+        RunnerResult(
+            exit_code=0,
+            thread_id="thread-1",
+            input_tokens=100_000,
+            cached_input_tokens=90_000,
+        )
+    )
+
+    # Only the 10k tokens the provider read fresh count toward rotation; the
+    # raw billed input alone would already exhaust this budget on turn one.
+    assert capsule.input_tokens == 10_000
+    assert capsule.prepare(max_turns=20, max_input_tokens=15_000) == "thread-1"
+    assert capsule.action == "resumed"
+
+    capsule.complete(
+        RunnerResult(
+            exit_code=0,
+            thread_id="thread-1",
+            input_tokens=100_000,
+            cached_input_tokens=95_000,
+        )
+    )
+
+    assert capsule.input_tokens == 15_000
+    assert capsule.prepare(max_turns=20, max_input_tokens=15_000) is None
+    assert capsule.action == "rotated"
+    assert capsule.rotation_reason == "context_limit"
+
+
+def test_result_without_cache_data_counts_its_full_input(tmp_path: Path) -> None:
+    class LegacyResult:
+        exit_code = 0
+        thread_id = "thread-legacy"
+        input_tokens = 50_000
+
+    capsule = RoleSessionCapsule.open(
+        role="engineer",
+        policy="rolling",
+        objective_revision="v1",
+        workdir=tmp_path,
+        backend="codex",
+        model="model",
+        checkpoint_path=None,
+        path=tmp_path / "state" / "engineer.json",
+    )
+
+    capsule.complete(LegacyResult())
+
+    # A result that reports nothing about caching counts in full, which errs
+    # toward rotating sooner rather than trusting an absent number.
+    assert capsule.input_tokens == 50_000
 
 
 def test_planner_mission_session_survives_new_planner_instance(tmp_path: Path) -> None:

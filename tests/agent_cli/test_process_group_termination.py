@@ -3,8 +3,8 @@ from __future__ import annotations
 import signal
 from types import SimpleNamespace
 
-from argus_skill.agent_cli import _process_control, agent_cli_runner
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
+from argus.agent_cli import _process_control, agent_cli_runner
+from argus.agent_cli.agent_cli_runner import AgentCliRunner
 
 
 class _FakeProcess:

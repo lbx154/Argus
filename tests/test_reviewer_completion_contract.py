@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.reviewer import Reviewer, ReviewerConfig
-from argus_skill.reviewer._parsing import parse_decision_text
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer._parsing import parse_decision_text
 
 
 def test_done_is_the_reviewers_completion_judgment() -> None:

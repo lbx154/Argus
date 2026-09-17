@@ -58,7 +58,7 @@ import {
 } from './components/DaemonReplacementPicker.js';
 import { projectMissionView } from '../../core/src/missionView.js';
 import { isPromptRewriteShortcut } from '../../core/src/shortcuts.js';
-import { operatorDecisionCards } from '../../core/src/decisions.js';
+import { operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions.js';
 import { useProjectFeed } from './appProjectFeed.js';
 import { useManagerSession } from './appManagerSession.js';
 import { usePanelState } from './appPanelState.js';
@@ -145,14 +145,17 @@ export function App({
   );
   const [pendingExit, setPendingExit] = useState(false);
   const [showReasoning] = useState(resolveShowReasoning);
-  const pendingDecision = useMemo(() => operatorDecisionCards(
+  const snapshotDecision = useMemo(() => operatorDecisionCards(
     snap?.pending_questions ?? [],
     (snap?.backlog ?? []).map((item) => ({ ...item })),
   )[0] ?? null, [snap?.backlog, snap?.pending_questions]);
+  const [answeringDecision, setAnsweringDecision] = useState<OperatorDecisionCard | null>(null);
+  const pendingDecision = answeringDecision ?? snapshotDecision;
   const [decisionSelection, setDecisionSelection] = useState(0);
   const [decisionNote, setDecisionNote] = useState<Edit>(EMPTY);
   const [decisionBusy, setDecisionBusy] = useState(false);
   const [decisionError, setDecisionError] = useState('');
+  const decisionSubmitting = useRef(false);
 
   useEffect(() => {
     setMenuSel(0);
@@ -456,7 +459,7 @@ export function App({
   };
 
   const submitPendingDecision = async () => {
-    if (!pendingDecision || decisionBusy) return;
+    if (!pendingDecision || decisionSubmitting.current) return;
     const freeform = pendingDecision.options.length === 0;
     const option = pendingDecision.options[decisionSelection];
     const note = decisionNote.value.trim();
@@ -465,18 +468,23 @@ export function App({
       return;
     }
     if (!freeform && !option) return;
+    decisionSubmitting.current = true;
+    setAnsweringDecision(pendingDecision);
     setDecisionBusy(true);
     setDecisionError('');
     try {
-      const result = pendingDecision.legacy
+      const result = pendingDecision.kind === 'domain_intake'
+        ? await api.answerDomain(pendingDecision.id, freeform ? 'custom' : option!.id, note)
+        : pendingDecision.legacy
         ? await api.answerPending(pendingDecision.item_id, note)
         : await api.resolveDecision(
             pendingDecision.id,
             freeform ? 'custom' : option!.id,
             note,
           );
-      if (result.resolved === false) {
+      if (result.resolved === false || result.kind === 'error' || result.kind === 'cancelled') {
         setDecisionError(String(result.reply || 'A more specific answer is required.'));
+        setSnap(await api.snapshot());
         return;
       }
       setNotice(String(result.reply || 'Your answer was delivered to the team.'));
@@ -484,6 +492,8 @@ export function App({
     } catch (error) {
       setDecisionError((error as Error).message);
     } finally {
+      decisionSubmitting.current = false;
+      setAnsweringDecision(null);
       setDecisionBusy(false);
     }
   };
@@ -495,7 +505,7 @@ export function App({
       if (pendingDecision && paste.text) {
         const freeform = pendingDecision.options.length === 0;
         const selected = pendingDecision.options[decisionSelection];
-        const custom = selected?.requires_note
+        const custom = selected?.requires_note || pendingDecision.kind === 'domain_intake'
           ? decisionSelection
           : pendingDecision.options.findIndex((option) => option.id === 'custom');
         if (freeform || custom >= 0) {
@@ -563,7 +573,7 @@ export function App({
         return;
       }
       const selected = pendingDecision.options[decisionSelection];
-      if (selected?.requires_note) {
+      if (selected?.requires_note || (pendingDecision.kind === 'domain_intake' && (decisionNote.value || !/^[1-9]$/.test(input)))) {
         if (key.leftArrow) setDecisionNote(left);
         else if (key.rightArrow) setDecisionNote(right);
         else if (key.backspace || key.delete) setDecisionNote(backspace);

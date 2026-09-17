@@ -9,16 +9,16 @@ from typing import Any
 
 import pytest
 
-from argus_skill.apps._runtime import _ExecuteState, _SkillLoopRunner
-from argus_skill.core.models import LoopOutcome, ReviewDecision, RoundRecord
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.mission_outcome import (
+from argus.apps._runtime import _ExecuteState, _SkillLoopRunner
+from argus.core.models import LoopOutcome, ReviewDecision, RoundRecord
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.mission_outcome import (
     mission_outcome_class,
     mission_outcome_dimensions,
     outcome_dimension_summary,
     review_keeps_mission_resumable,
 )
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
 
 class _Sink:
@@ -42,6 +42,7 @@ class _Outcome:
     final_review_reason: str = ""
     final_message: str = ""
     summary: str = ""
+    final_output: str = ""
 
 
 class _FixedOutcomeRunner:
@@ -93,6 +94,113 @@ def test_completed_event_carries_existing_engineer_summary(tmp_path) -> None:
     assert _completed_event(sink)["summary"] == (
         "Created RESULT.txt and verified its exact contents."
     )
+
+
+def test_reviewer_summary_creates_delivery_when_engineer_returns_only_footer(
+    tmp_path,
+) -> None:
+    supervisor, sink = _make_supervisor(
+        tmp_path,
+        _Outcome(
+            success=True,
+            status="done",
+            final_review_status="done",
+            final_review_reason="已完整审阅《餐饮企业运营手册.md》；符合交付条件。",
+            final_message=(
+                "Decision:\n"
+                "MILESTONE_STATUS=done\n"
+                "RESULT=已完成餐饮企业运营手册。\n"
+                "NEXT_OWNER=reviewer"
+            ),
+        ),
+    )
+    workdir = supervisor._project_workdir()
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / "餐饮企业运营手册.md").write_text("# 手册\n", encoding="utf-8")
+    supervisor.memory.backlog.add(
+        BacklogItem.new(title="制作运营手册", objective="制作餐饮企业运营手册")
+    )
+
+    supervisor.tick()
+
+    event = _completed_event(sink)
+    assert event["summary"] == "已完整审阅《餐饮企业运营手册.md》；符合交付条件。"
+    assert event["delivery"]["primary_target"]["path"] == "餐饮企业运营手册.md"
+
+
+def test_reviewed_engineer_path_survives_malformed_reviewer_link(tmp_path) -> None:
+    supervisor, sink = _make_supervisor(
+        tmp_path,
+        _Outcome(
+            success=True,
+            status="done",
+            final_review_status="done",
+            final_review_reason="team-result.txt` passed independent byte verification.",
+            final_message=(
+                "Decision:\n"
+                "MILESTONE_STATUS=done\n"
+                "RESULT=Created `team-result.txt` and verified it.\n"
+                "NEXT_OWNER=reviewer"
+            ),
+        ),
+    )
+    workdir = supervisor._project_workdir()
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / "team-result.txt").write_text("ARGUS_TEAM_OK\n", encoding="utf-8")
+    supervisor.memory.backlog.add(
+        BacklogItem.new(title="Create team result", objective="Create team-result.txt")
+    )
+
+    supervisor.tick()
+
+    assert _completed_event(sink)["delivery"]["primary_target"]["path"] == (
+        "team-result.txt"
+    )
+
+
+def test_direct_reviewed_website_delivers_when_both_final_messages_omit_files(tmp_path) -> None:
+    supervisor, sink = _make_supervisor(tmp_path, _Outcome(
+        success=True, status="done", final_review_status="done",
+        final_review_source="reviewer", final_review_reason="Browser checks passed.",
+        final_output="RESULT=The responsive travel planner is complete.",
+    ))
+    workdir = supervisor._project_workdir()
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / "index.html").write_text("<!doctype html><h1>Travel planner</h1>", encoding="utf-8")
+    item = BacklogItem.new(
+        title="Create travel planner", objective="Create a responsive travel planner",
+        tags=["manager_direct", "scope:bounded", "review:required"],
+    )
+    supervisor.memory.backlog.add(item)
+    original_execute = supervisor.runner.execute
+
+    def execute(**kwargs):
+        events = [
+            {"type": "life.mission.started"},
+            {
+                "type": "engineer.progress", "kind": "tool_use", "agent_layer": "engineer",
+                "tool_name": "apply_patch", "text": "apply_patch: *** Begin Patch\n*** Add File: index.html\n+product",
+            },
+            {"type": "round.review.started"},
+            {
+                "type": "engineer.progress", "kind": "tool_use", "agent_layer": "reviewer",
+                "tool_name": "view", "text": 'view: {"path": "index.html"}',
+            },
+            {"type": "round.review.completed", "status": "done", "review_source": "reviewer"},
+        ]
+        with (supervisor.memory.root / "events.jsonl").open("a", encoding="utf-8") as handle:
+            for event in events:
+                handle.write(json.dumps({"item_id": item.id, **event}) + "\n")
+        return original_execute(**kwargs)
+
+    supervisor.runner.execute = execute
+    supervisor.tick()
+
+    completed = _completed_event(sink)
+    assert completed["overall_complete"] is True
+    assert completed["delivery_candidates"] == ["index.html"]
+    assert completed["delivery"]["primary_target"]["path"] == "index.html"
+    assert completed["delivery"]["review_status"] == "done"
 
 
 @pytest.mark.parametrize(
@@ -228,7 +336,7 @@ def test_normal_completion_events_include_outcome_class(
 
 
 def test_first_independent_success_promotes_learned_vertical(tmp_path) -> None:
-    from argus_skill.verticals._data_domain import (
+    from argus.verticals._data_domain import (
         load_data_domain,
         write_data_domain,
     )
@@ -280,7 +388,7 @@ def test_promotion_write_failure_does_not_undo_successful_mission(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.verticals._data_domain import (
+    from argus.verticals._data_domain import (
         load_data_domain,
         write_data_domain,
     )
@@ -316,7 +424,7 @@ def test_promotion_write_failure_does_not_undo_successful_mission(
         raise OSError("disk full")
 
     monkeypatch.setattr(
-        "argus_skill.verticals._data_domain.promote_data_domain",
+        "argus.verticals._data_domain.promote_data_domain",
         fail_promotion,
     )
 
@@ -475,14 +583,94 @@ def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
     )
 
 
-def test_daemon_shutdown_is_persisted_as_recoverable_pause(tmp_path) -> None:
+def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> None:
+    from argus.core.mission_view import load_mission_view, update_mission_view_event
+
+    body = "# Complete report\n\n" + "\n\n".join(
+        f"Section {index}: verified result with supporting detail."
+        for index in range(80)
+    )
+    wire_message = (
+        f"{body}\n\n"
+        "Decision:\n"
+        "MILESTONE_STATUS=done\n"
+        "NEXT_OWNER=reviewer\n"
+        "OPERATOR_QUESTION=none\n"
+        "OPERATOR_OPTIONS=none"
+    )
+    loop_outcome = LoopOutcome(
+        status="done",
+        rounds=[
+            RoundRecord(
+                round_index=1,
+                engineer_message=wire_message,
+                engineer_exit_code=0,
+                review=ReviewDecision(
+                    status="done",
+                    reason="The report is complete.",
+                    next_action="",
+                ),
+            )
+        ],
+        final_message=wire_message,
+        reason="",
+        workdir=str(tmp_path),
+    )
+    execute_state = _ExecuteState()
+    execute_state.outcome = loop_outcome
+    execute_state.effective_status = "done"
+    runtime_outcome = _SkillLoopRunner.__new__(
+        _SkillLoopRunner
+    )._build_execute_outcome(execute_state)
+    supervisor, sink = _make_supervisor(tmp_path, runtime_outcome)
+    supervisor.memory.backlog.add(
+        BacklogItem.new(title="long report", objective="deliver the full report")
+    )
+
+    supervisor.tick()
+
+    assert len(runtime_outcome.summary) == 1200
+    assert runtime_outcome.final_output == body
+    assert _completed_event(sink)["summary"] == runtime_outcome.summary
+    assert _completed_event(sink)["final_output"] == body
+    for event in sink.events:
+        update_mission_view_event(tmp_path / "projected", event)
+    mission = load_mission_view(tmp_path / "projected")["mission"]
+    assert mission["summary"] == runtime_outcome.summary
+    assert mission["final_output"] == body
+
+
+def test_completion_does_not_invent_engineer_output_from_review_or_runtime_text(tmp_path) -> None:
+    supervisor, sink = _make_supervisor(
+        tmp_path,
+        _Outcome(
+            success=False, status="blocked",
+            final_message="Runtime blocked execution.",
+            final_review_reason="Reviewer needs more evidence.",
+        ),
+    )
+    supervisor.memory.backlog.add(
+        BacklogItem.new(title="blocked task", objective="deliver a report"),
+    )
+    supervisor.tick()
+    assert _completed_event(sink)["summary"] == "Reviewer needs more evidence."
+    assert _completed_event(sink)["final_output"] == ""
+
+
+@pytest.mark.parametrize(
+    ("stop_kind", "recoverable"),
+    [("daemon_shutdown", True), (None, False)],
+)
+def test_daemon_shutdown_is_persisted_as_recoverable_pause(
+    tmp_path, stop_kind, recoverable,
+) -> None:
     supervisor, sink = _make_supervisor(
         tmp_path,
         _Outcome(
             success=False,
             status="paused_daemon_shutdown",
-            stop_kind="daemon_shutdown",
-            recoverable=True,
+            stop_kind=stop_kind,
+            recoverable=recoverable,
             stop_reason="daemon shutdown requested",
         ),
     )
@@ -495,6 +683,7 @@ def test_daemon_shutdown_is_persisted_as_recoverable_pause(tmp_path) -> None:
     assert result is not None and result["status"] == "paused_daemon_shutdown"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.status == "paused_daemon_shutdown"
+    assert any(row.id == item.id for row in supervisor.memory.backlog.active())
     completed = _completed_event(sink)
     assert completed["success"] is False
     assert completed["stop_kind"] == "daemon_shutdown"
@@ -538,12 +727,44 @@ def test_external_work_wait_releases_and_auto_resumes_the_mission(tmp_path) -> N
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.status == "paused_external_work"
     assert stored.outcome["external_wait"]["work_id"] == "job-1"
-    assert _completed_event(sink)["external_wait"]["work_id"] == "job-1"
+    waiting_event = _completed_event(sink)
+    assert waiting_event["external_wait"]["work_id"] == "job-1"
+    assert waiting_event["title"] == "benchmark"
+
+    from argus.core.transcript import read_turns
+
+    # The lifecycle releases a slot, but the conversation must not declare the
+    # still-running work failed or complete. Redelivery remains idempotent.
+    supervisor._publish_mission_completion_message(waiting_event)
+    supervisor._publish_mission_completion_message(waiting_event)
+    messages = [
+        row for row in read_turns(supervisor.memory.root)
+        if str(row.get("message_id") or "").startswith("mission-wait-")
+    ]
+    assert len(messages) == 1
+    message = messages[0]
+    assert message["mission_result"] is False
+    assert "success" not in message
+    assert "benchmark" in message["text"]
+    assert "automatically" in message["text"]
+    assert "Could not complete" not in message["text"]
+    live_message = next(
+        row for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
+        if (row := json.loads(line)).get("message_id") == message["message_id"]
+    )
+    assert live_message["status"] == "paused_external_work"
+    assert live_message["user_action_required"] is False
+    assert live_message["external_wait"]["work_id"] == "job-1"
+    assert supervisor._resume_automatic_pauses() == []
+    assert next(row for row in supervisor.memory.backlog.all() if row.id == item.id).status == (
+        "paused_external_work"
+    )
 
     status_path.write_text(json.dumps({
         "version": 1,
         "work_id": "job-1",
-        "state": "completed",
+        "state": "terminal",
+        "outcome": "done",
         "heartbeat_at": time.time(),
         "stale_after_seconds": 300,
         "poll_after_seconds": 30,
@@ -885,8 +1106,8 @@ def test_resumable_mission_is_not_quarantined_from_replanning() -> None:
     mission's own settlement event quarantined its task signature out of the
     next planning cycle — the mechanism that left the queue empty.
     """
-    from argus_skill.life.memory import JournalEntry
-    from argus_skill.life.supervisor import _is_recent_no_progress_failure
+    from argus.life.memory import JournalEntry
+    from argus.life.supervisor import _is_recent_no_progress_failure
 
     def _entry(extra: dict[str, Any]) -> JournalEntry:
         return JournalEntry.new(

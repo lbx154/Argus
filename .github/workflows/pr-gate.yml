@@ -2,7 +2,7 @@ name: pr-gate
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     types: [opened, edited, synchronize, reopened, ready_for_review]
 
 permissions:
@@ -26,6 +26,6 @@ jobs:
           python-version: "3.11"
       - name: Check PR description against patch
         run: |
-          python argus_skill/release_tools/pr_gate/__main__.py \
+          python argus/release_tools/pr_gate/__main__.py \
             --event "$GITHUB_EVENT_PATH" \
             --output pr-gate-result.json

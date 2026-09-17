@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { AlertCircle, Antenna, Bell, Boxes, CheckSquare2, Command, Database, FlaskConical, GitBranch, Languages, LayoutDashboard, Menu, MessageSquareReply, MoonStar, PanelLeftClose, PanelLeftOpen, Radar, Search, Settings2, UsersRound, X, type LucideIcon } from 'lucide-react'
 import { apiWebSocketUrl, loadDashboard, performAction, type DataMode } from './api/client'
@@ -52,8 +52,14 @@ const navGroups: NavGroup[] = [
 const allNavItems = navGroups.flatMap((group) => group.items)
 
 function ArgusMark({ size = 22 }: { size?: number }) {
-  const gradient = `argus-flywheel-${useId().replaceAll(':', '')}`
-  return <svg viewBox="0 0 512 512" role="img" aria-label="Argus" style={{ width: size, height: size }}><defs><linearGradient id={gradient} gradientUnits="userSpaceOnUse" x1="66" y1="0" x2="440" y2="0"><stop offset="0%" stopColor="#075fe4" /><stop offset="100%" stopColor="#d99a16" /></linearGradient></defs><path d="M352 112q0-30 30-30h28q30 0 30 30v320h-88v-52q-46 62-129 62Q66 442 66 266T228 88q80 0 124 56v-32ZM140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z" fill={`url(#${gradient})`} fillRule="evenodd" /><path d="M286 266A42 42 0 1 0 202 266A42 42 0 1 0 286 266ZM274 248A12 12 0 1 0 250 248A12 12 0 1 0 274 248Z" fill={`url(#${gradient})`} fillRule="evenodd" /></svg>
+  return (
+    <svg viewBox="0 0 512 512" role="img" aria-label="Argus" style={{ width: size, height: size }}>
+      <path d="M352 112q0-30 30-30h28q30 0 30 30v320h-88v-52q-46 62-129 62Q66 442 66 266T228 88q80 0 124 56v-32ZM140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z" fill="var(--brand-body)" fillRule="evenodd" />
+      <path d="M140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z" fill="var(--brand-eye)" />
+      <circle cx="244" cy="266" r="42" fill="var(--brand-pupil)" />
+      <circle cx="262" cy="248" r="12" fill="var(--brand-highlight)" />
+    </svg>
+  )
 }
 
 function Shell({ children, mode }: { children: ReactNode; mode: DataMode }) {

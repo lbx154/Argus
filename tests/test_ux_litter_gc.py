@@ -1,6 +1,6 @@
 """UX-C: hide empty-session litter from the picker + GC sweeps it safely.
 
-Every bare ``argus-skill`` launch mints a fresh session dir; they piled up to 69
+Every bare ``argus`` launch mints a fresh session dir; they piled up to 69
 empty shells that made the resume picker useless. list_sessions(include_empty=
 False) hides content-less sessions (unless live), and GC sweeps them to trash
 after a startup grace period.
@@ -12,12 +12,12 @@ import os
 import time
 from pathlib import Path
 
-from argus_skill.core.project_gc import (
+from argus.core.project_gc import (
     _project_is_empty,
     gc_stale_projects,
     maybe_gc_stale_projects,
 )
-from argus_skill.core.session import list_sessions
+from argus.core.session import list_sessions
 
 
 def _mk(

@@ -11,8 +11,12 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { markdownRemarkPlugins, markdownRehypePlugins } from '../../components/markdownMath';
 import { PdfPreview } from '../../components/PdfPreview';
+import { isMarkdownArtifact } from '../../lib/artifactPresentation';
+import { downloadBlob } from '../../lib/downloadBlob';
+import { agentRoleColor } from '../../lib/agentRoles';
+import { plainDetail } from '../../lib/plainStatus';
 import { api } from '../api';
 import { roleLabel } from '../enumLabels';
 import type { ArtifactInfo, EventMsg } from '../types';
@@ -110,13 +114,15 @@ export function Spinner({ label }: { label?: string }) {
 }
 
 export function Markdown({ children, className }: { children: string; className?: string }) {
+  const { locale } = useWorkbenchText();
   return (
     <div className={cx('markdown', className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={markdownRemarkPlugins}
+        rehypePlugins={markdownRehypePlugins(locale === 'zh-CN')}
         components={{
-          a: ({ href, children: label }) => (
-            <a href={href} target="_blank" rel="noreferrer">{label}<ExternalLink size={11} /></a>
+          a: ({ href, title, children: label }) => (
+            <a href={href} title={title} target="_blank" rel="noreferrer">{label}<ExternalLink size={11} /></a>
           ),
         }}
       >
@@ -144,15 +150,15 @@ export function EventTimeline({
     <div className={cx('event-list', dense && 'event-list--dense')}>
       {rows.map((event, index) => {
         const role = eventRole(event);
-        const title = eventTitle(event);
-        const detail = eventDetail(event, dense ? 180 : 480);
+        const title = eventTitle(event, locale);
+        const detail = plainDetail(eventDetail(event, dense ? 180 : 480), locale).text;
         const tone = statusTone(String(event.status ?? event.kind ?? event.type ?? ''));
         return (
           <article className="event-row" key={`${event.type}-${event.ts}-${event.message_id ?? index}`}>
             <div className={cx('event-row__marker', `event-row__marker--${tone}`)} />
             <div className="event-row__content">
               <div className="event-row__meta">
-                <span className={cx('role-label', `role-label--${role}`)}>{roleLabel(role, text)}</span>
+                <span className="role-label" style={{ color: agentRoleColor(role) }}>{roleLabel(role, text)}</span>
                 <time>{formatClock(event.ts, locale)}</time>
               </div>
               <div className="event-row__title">{title}</div>
@@ -255,12 +261,7 @@ export function ArtifactViewer({
 
   const download = async () => {
     const blob = await api.artifactBlob(sid, artifact.path, true);
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = artifact.name;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, artifact.name);
   };
 
   return (
@@ -282,8 +283,8 @@ export function ArtifactViewer({
         {detail.isLoading || (media && !mediaUrl && !mediaError) ? <Spinner label={text('正在读取产物', 'Reading artifact')} /> : null}
         {detail.isError ? <div className="inline-error">{detail.error.message}</div> : null}
         {mediaError ? <div className="inline-error">{mediaError}</div> : null}
-        {detail.data?.kind === 'markdown' ? <Markdown>{detail.data.preview || text('（空文件）', '(empty file)')}</Markdown> : null}
-        {detail.data && ['text', 'html', 'json', 'table'].includes(detail.data.kind) ? (
+        {detail.data && isMarkdownArtifact(detail.data) ? <Markdown>{detail.data.preview || text('（空文件）', '(empty file)')}</Markdown> : null}
+        {detail.data && !isMarkdownArtifact(detail.data) && ['text', 'html', 'json', 'table'].includes(detail.data.kind) ? (
           <pre className="code-preview">{detail.data.preview || text('（空文件）', '(empty file)')}{detail.data.truncated ? text('\n\n… 预览已截断', '\n\n… preview truncated') : ''}</pre>
         ) : null}
         {artifact.kind === 'image' && mediaUrl ? <img className="media-preview" src={mediaUrl} alt={artifact.why || artifact.name} /> : null}

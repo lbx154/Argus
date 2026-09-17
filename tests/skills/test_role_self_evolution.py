@@ -2,20 +2,20 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.manager import Manager
-from argus_skill.planner import Planner
-from argus_skill.reviewer import Reviewer
-from argus_skill.roles.prompts.engineer import build_mission_prompt
-from argus_skill.skills.layered import LayeredSkillStore
-from argus_skill.skills.missions import PlannerMission, SelfMission
-from argus_skill.skills.role_memory import (
+from argus.manager import Manager
+from argus.planner import Planner
+from argus.reviewer import Reviewer
+from argus.roles.prompts.engineer import build_mission_prompt
+from argus.skills.layered import LayeredSkillStore
+from argus.skills.missions import PlannerMission, SelfMission
+from argus.skills.role_memory import (
     profile_role_skill_dir,
     profile_self_skill_dir,
     project_role_skill_dir,
     role_skill_maintenance_block,
     role_skill_maintenance_enabled,
 )
-from argus_skill.skills.store import SkillStore
+from argus.skills.store import SkillStore
 
 
 def test_global_role_self_evolution_ab_knob(monkeypatch) -> None:
@@ -100,7 +100,7 @@ def test_engineer_learning_targets_engineer_bucket(tmp_path) -> None:
     )
 
     assert f"Engineer Skill directory (project layer only): {skill_dir}" in prompt
-    assert "No unrelated cleanup/hardening" in prompt
+    assert 'Add no unrelated cleanup, hardening, or substitute outputs' in prompt
     assert "Keep only reusable role learning here" in prompt
     assert "route durable project facts" in prompt
     assert "never write shared/global layers" in prompt
@@ -133,7 +133,7 @@ def test_main_reviewer_never_edits_skills_directly(tmp_path) -> None:
     assert "Reviewer self-evolution" not in control
     assert "Reviewer self-evolution" not in treatment
     assert str((tmp_path / "skills" / "reviewer").resolve()) not in treatment
-    assert "You do not change the work under review" in treatment
+    assert 'Leave sources, outputs, and builds unchanged' in treatment
 
 
 def test_reviewer_protected_resource_evidence_requires_a_traceable_mutation(
@@ -154,8 +154,8 @@ def test_reviewer_protected_resource_evidence_requires_a_traceable_mutation(
         working_dir=tmp_path,
     )
 
-    assert "External identity drift without a mission mutation" in prompt
-    assert "mutation command attributable to this mission" in prompt
+    assert 'Identity drift proves neither failure nor causation' in prompt
+    assert "this mission's mutation command" in prompt
 
 
 def test_planner_does_not_write_skills_during_planning(tmp_path, monkeypatch) -> None:

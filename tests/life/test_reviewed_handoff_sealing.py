@@ -18,9 +18,9 @@ itself independent evidence, so an Engineer self-review must never produce
 one, or the Engineer would certify its own stage transition.
 
 Citations:
-- argus_skill/engineer/round_settlement.py — the seal
-- argus_skill/life/context_packet.py — ``record_reviewed_handoff``
-- argus_skill/engineer/round_self_review.py — the self-review ``_settle_round``
+- argus/engineer/round_settlement.py — the seal
+- argus/life/context_packet.py — ``record_reviewed_handoff``
+- argus/engineer/round_self_review.py — the self-review ``_settle_round``
   caller whose verdicts carry ``review_source="engineer_self_review"``
 """
 
@@ -30,19 +30,19 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.core.task_frontier import (
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.core.task_frontier import (
     TaskFrontier,
     load_task_frontier,
     save_task_frontier,
 )
-from argus_skill.engineer.runner import (
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.life.context_packet import FRONTIER_FILENAME
-from argus_skill.reviewer import ReviewerConfig
+from argus.life.context_packet import FRONTIER_FILENAME
+from argus.reviewer import ReviewerConfig
 
 
 class _StubEngineer:

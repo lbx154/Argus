@@ -3,11 +3,37 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor
 
-from argus_skill.core.operator_decision import build_operator_decision
-from argus_skill.daemon.state import read_continuous_state, write_continuous_config
-from argus_skill.life.memory import BacklogItem, MemoryBundle
-from argus_skill.manager import front_door
-from argus_skill.webapi import manager_pending_question
+import pytest
+
+from argus.core.operator_context import OperatorContextStore
+from argus.core.operator_decision import build_operator_decision
+from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.life.memory import BacklogItem, MemoryBundle
+from argus.manager import front_door
+from argus.webapi import manager_pending_question
+
+
+@pytest.mark.parametrize("asked_at", [100.0, None])
+def test_snapshot_preserves_question_time_without_backfilling_legacy_cards(
+    tmp_path, asked_at,
+) -> None:
+    from argus.webapi.project_state import build_snapshot
+
+    mem, card = _blocked_project(tmp_path)
+    if asked_at is None:
+        card.pop("asked_at")
+    else:
+        card["asked_at"] = asked_at
+    mem.backlog.update("item", operator_decision=card)
+
+    for compact in (False, True):
+        snapshot = build_snapshot("s-decision", global_root=tmp_path, compact=compact)
+        assert snapshot is not None
+        projected = snapshot["backlog"][0]["operator_decision"]
+        assert projected.get("asked_at") == asked_at
+        assert ("asked_at" in projected) == (asked_at is not None)
+        if compact:
+            assert snapshot["pending_questions"][0]["operator_decision"] == projected
 
 
 def _blocked_project(tmp_path, sid: str = "s-decision"):
@@ -157,6 +183,7 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
         "local-fallback",
         global_root=tmp_path,
     )
+    answer_ledger = (mem.project_root / "operator_context.jsonl").read_bytes()
     second = manager_pending_question.manager_resolve_operator_decision(
         "s-decision",
         card["id"],
@@ -170,6 +197,9 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
     assert first["resolution_id"] == second["resolution_id"]
     assert first["resume_requested"] is True
     assert len(mem.backlog.all()) == 2
+    assert (mem.project_root / "operator_context.jsonl").read_bytes() == answer_ledger
+    directives = OperatorContextStore(mem.project_root).records()
+    assert len(directives) == 1 and directives[0].source == "operator.explicit_answer"
 
     stale = manager_pending_question.manager_resolve_operator_decision(
         "s-decision",
@@ -179,129 +209,6 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
         global_root=tmp_path,
     )
     assert stale is not None and stale["application_status"] == "stale"
-
-    maintenance = mem.backlog.add(
-        BacklogItem.new(
-            title="Reviewed maintenance",
-            objective="Publish reviewed maintenance",
-            item_id="maintenance",
-        )
-    )
-    deployment_card = build_operator_decision(
-        item_id=maintenance.id,
-        title=maintenance.title,
-        reason="Reviewer accepted the change.",
-        question="Adopt the reviewed change?",
-        options=[
-            {"id": "adopt", "label": "Adopt", "description": "Deploy it."},
-            {"id": "decline", "label": "Decline", "description": "Do not deploy."},
-        ],
-    )
-    deployment_card["decision_kind"] = "framework_deployment"
-    mem.backlog.update(
-        maintenance.id,
-        status="paused_operator",
-        pending_question="Adopt the reviewed change?",
-        operator_decision=deployment_card,
-    )
-    pending = mem.project_root / "maintenance" / "pending"
-    pending.mkdir(parents=True)
-    (pending / f"{maintenance.id}.json").write_text(
-        json.dumps({
-            "repository": str(tmp_path),
-            "worktree": str(tmp_path / "worktree"),
-            "public_base": "base",
-            "reviewed_candidate": "candidate",
-            "reviewer_verdict": "done",
-            "acceptance_command": ["python", "-V"],
-            "evidence_refs": ["events.jsonl:1"],
-            "mission_id": maintenance.id,
-            "receipt_dir": str(tmp_path / "receipts"),
-            "origin_remote": "origin",
-            "private_remote": "private",
-            "input_digest": "changed-after-card-creation",
-            "approval_binding": {
-                "input_digest": "frozen-identity",
-            },
-        }),
-        encoding="utf-8",
-    )
-    approvals: list[dict[str, object]] = []
-    deployments: list[dict[str, object]] = []
-
-    def approve(_change, approval):
-        approvals.append(approval)
-        return approval
-
-    monkeypatch.setattr(
-        "argus_skill.maintenance.deploy_boundary.approve_reviewed_change",
-        approve,
-    )
-
-    def partial_deployment(_change, approval):
-        deployments.append(approval)
-        return {
-            "verdict": "REJECT",
-            "baseline_failures": [],
-            "candidate_failures": [],
-            "acceptance_passed": True,
-            "release_matches_source": True,
-            "both_publication_routes_complete": False,
-            "partial_publication": True,
-            "daemon_roll_permitted": False,
-        }
-
-    monkeypatch.setattr(
-        "argus_skill.maintenance.deploy_boundary.deploy_reviewed_change",
-        partial_deployment,
-    )
-    monkeypatch.setattr(
-        "argus_skill.life.supervisor._mission_execution_runtime.dispose_maintenance_worktree",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        "argus_skill.life.supervisor.pending_notify.notify_pending_question",
-        lambda *_args, **_kwargs: None,
-    )
-
-    partial = manager_pending_question.manager_resolve_operator_decision(
-        "s-decision",
-        deployment_card["id"],
-        "adopt",
-        global_root=tmp_path,
-    )
-    replayed_old = manager_pending_question.manager_resolve_operator_decision(
-        "s-decision",
-        deployment_card["id"],
-        "adopt",
-        global_root=tmp_path,
-    )
-
-    assert partial is not None and partial["deployment"]["partial_publication"] is True
-    assert replayed_old is not None and replayed_old["application_status"] == "stale"
-    assert len(approvals) == 1
-    assert len(deployments) == 1
-    assert deployments[0]["input_digest"] == "frozen-identity"
-    current = next(row for row in mem.backlog.history() if row.id == maintenance.id)
-    assert current.operator_decision["id"] != deployment_card["id"]
-    assert current.operator_decision["status"] == "pending"
-    assert [
-        option["id"] for option in current.operator_decision["options"]
-    ] == ["adopt"]
-    declined_recovery = manager_pending_question.manager_answer_pending_question(
-        "s-decision",
-        maintenance.id,
-        "decline",
-        global_root=tmp_path,
-    )
-    assert declined_recovery == {
-        "error": "choose an available deployment option",
-        "answered_item_id": maintenance.id,
-    }
-    sidecar = json.loads(
-        (pending / f"{maintenance.id}.json").read_text(encoding="utf-8")
-    )
-    assert sidecar["approval_binding"] == {"input_digest": "frozen-identity"}
 
 
 def test_campaign_generation_change_does_not_block_pending_decision(

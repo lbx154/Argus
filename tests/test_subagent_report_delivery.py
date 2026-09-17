@@ -21,13 +21,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.paths import session_state_root
-from argus_skill.core.project import project_fingerprint
-from argus_skill.tools import subagent as _sub
-from argus_skill.tools.subagent import _cli, _core, _reporting, _text
-from argus_skill.tools.subagent._registry import REGISTRY_DIR, _read_task, _write_task
+from argus.core.paths import session_state_root
+from argus.core.project import project_fingerprint
+from argus.tools import subagent as _sub
+from argus.tools.subagent import _cli, _core, _reporting, _text
+from argus.tools.subagent._registry import REGISTRY_DIR, _read_task, _write_task
 
-_REPORTING_LOGGER = "argus_skill.tools.subagent._reporting"
+_REPORTING_LOGGER = "argus.tools.subagent._reporting"
 
 
 def _fail_delivery(monkeypatch: pytest.MonkeyPatch, message: str = "inbox offline") -> None:
@@ -35,7 +35,7 @@ def _fail_delivery(monkeypatch: pytest.MonkeyPatch, message: str = "inbox offlin
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError(message)
 
-    monkeypatch.setattr("argus_skill.apps._inbox.queue_inbox_message", _boom)
+    monkeypatch.setattr("argus.apps._inbox.queue_inbox_message", _boom)
 
 
 def _capture_delivery(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, str, str]]:
@@ -45,7 +45,7 @@ def _capture_delivery(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, str, 
     def _record(life_dir: Path | str, text: str, *, source: str, stage: str = "") -> None:
         calls.append((Path(life_dir), text, source))
 
-    monkeypatch.setattr("argus_skill.apps._inbox.queue_inbox_message", _record)
+    monkeypatch.setattr("argus.apps._inbox.queue_inbox_message", _record)
     return calls
 
 
@@ -86,7 +86,7 @@ def test_queue_to_inbox_uses_the_life_dir_it_is_given(
     def _must_not_infer(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("identity must not be inferred when life_dir is given")
 
-    monkeypatch.setattr("argus_skill.core.project.project_fingerprint", _must_not_infer)
+    monkeypatch.setattr("argus.core.project.project_fingerprint", _must_not_infer)
     explicit = tmp_path / "life" / "abc123def456"
 
     _reporting._queue_to_inbox("report body", task_id="t1", life_dir=explicit)
@@ -148,6 +148,72 @@ def test_alert_engineer_recovers_the_cwd_from_the_persisted_record(
     _reporting._alert_engineer(tid, "COMPLETED", {"task_id": tid, "mode": "direct"})
 
     assert calls[0][0] == session_state_root(project_fingerprint(run_cwd).fingerprint)
+
+
+def test_reports_return_to_distinct_submitting_sessions_for_one_workdir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    run_cwd = tmp_path / "shared-project"
+    run_cwd.mkdir()
+    calls = _capture_delivery(monkeypatch)
+    owners = [tmp_path / "projects" / "s-first", tmp_path / "projects" / "s-second"]
+    for index, owner in enumerate(owners):
+        tid = f"drawing-{index}"
+        _write_task(tid, {
+            "task_id": tid, "run_id": f"run-{index}", "state": "running",
+            "cwd": str(run_cwd), "owner_session_root": str(owner),
+        })
+        # Terminal writers need not repeat every submission field.
+        _write_task(tid, {"task_id": tid, "run_id": f"run-{index}", "state": "done"})
+    monkeypatch.setenv("ARGUS_SKILL_SESSION_ROOT", str(tmp_path / "wrong-session"))
+
+    def must_not_infer(*_args, **_kwargs):
+        raise AssertionError("the recorded session owns this report")
+
+    monkeypatch.setattr("argus.core.project.project_fingerprint", must_not_infer)
+    for index, owner in enumerate(owners):
+        tid = f"drawing-{index}"
+        _reporting._alert_engineer(tid, "COMPLETED", {
+            "task_id": tid, "run_id": f"run-{index}", "mode": "direct",
+        })
+        assert _read_task(tid)["owner_session_root"] == str(owner)
+    assert [call[0] for call in calls] == owners
+
+
+def test_session_owner_does_not_leak_into_a_new_run_or_an_old_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    tid = "reused-task"
+    first = tmp_path / "s-first"
+    second = tmp_path / "s-second"
+    _write_task(tid, {
+        "task_id": tid, "run_id": "old", "state": "done",
+        "owner_session_root": str(first), "cwd": str(tmp_path),
+    })
+    _write_task(tid, {"task_id": tid, "run_id": "new", "state": "starting"})
+    assert "owner_session_root" not in _read_task(tid)
+    _write_task(tid, {
+        "task_id": tid, "run_id": "new", "state": "running",
+        "owner_session_root": str(second),
+    })
+    calls = _capture_delivery(monkeypatch)
+
+    # An unbound late report cannot borrow the recipient of the newer run.
+    _reporting._alert_engineer(tid, "COMPLETED", {
+        "task_id": tid, "run_id": "old", "mode": "direct", "cwd": str(tmp_path),
+    })
+    assert calls == []
+    assert (REGISTRY_DIR / f"{tid}_ALERT.md").exists()
+    assert "report_delivery" not in _read_task(tid)
+
+    # A retained owner on that same late report still identifies its recipient.
+    _reporting._alert_engineer(tid, "COMPLETED", {
+        "task_id": tid, "run_id": "old", "mode": "direct",
+        "owner_session_root": str(first),
+    })
+    assert calls[0][0] == first
+    assert _read_task(tid)["owner_session_root"] == str(second)
 
 
 def test_alert_engineer_records_a_failed_delivery_on_the_task_record(
@@ -336,13 +402,13 @@ def test_a_failed_discussion_notice_is_not_settled_as_a_crashed_run(
     """
     import os
 
-    from argus_skill.tools.subagent import _run_discussion
-    from argus_skill.tools.subagent._discussion_log import (
+    from argus.tools.subagent import _run_discussion
+    from argus.tools.subagent._discussion_log import (
         _append_discussion,
         _render_discussion,
     )
-    from argus_skill.tools.subagent._registry import _read_task, _write_task
-    from argus_skill.tools.subagent._reporting import InboxDeliveryError
+    from argus.tools.subagent._registry import _read_task, _write_task
+    from argus.tools.subagent._reporting import InboxDeliveryError
 
     monkeypatch.chdir(tmp_path)
     tid = "train-undeliverable"
@@ -362,15 +428,15 @@ def test_a_failed_discussion_notice_is_not_settled_as_a_crashed_run(
         raise InboxDeliveryError("inbox unwritable")
 
     monkeypatch.setattr(
-        "argus_skill.tools.subagent._discuss_run._supervisor_discuss_with_usage",
+        "argus.tools.subagent._discuss_run._supervisor_discuss_with_usage",
         fake_discuss,
     )
     monkeypatch.setattr(
-        "argus_skill.tools.subagent._discuss_run._queue_to_inbox",
+        "argus.tools.subagent._discuss_run._queue_to_inbox",
         refuse_delivery,
     )
     monkeypatch.setattr(
-        "argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0
+        "argus.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0
     )
     _write_task(tid, {"state": "discussing", "task_id": tid})
 

@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from argus_skill.core.event_catalog import EventType
-from argus_skill.wiki.bootstrap import init_wiki, is_initialized_wiki
-from argus_skill.wiki.lifecycle import ensure_project_wiki
+from argus.core.event_catalog import EventType
+from argus.wiki.bootstrap import init_wiki, is_initialized_wiki
+from argus.wiki.lifecycle import ensure_project_wiki
 
 
 def test_init_creates_minimal_tree(tmp_path: Path) -> None:

@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.engineer.external_work import ExternalWorkState, scan_external_work
-from argus_skill.tools.resource_ledger import cli as ledger_cli
-from argus_skill.tools.resource_ledger.ledger import ResourceLedger, owner_identity
-from argus_skill.tools.resource_ledger.probe import NvidiaAdapter, ResourceProbe
-from argus_skill.tools.subagent import _cli as subagent_cli
-from argus_skill.tools.subagent import _resource_admission
-from argus_skill.tools.subagent._direct_run import _run_direct
-from argus_skill.tools.subagent._registry import _read_task, _write_task
+from argus.engineer.external_work import ExternalWorkState, scan_external_work
+from argus.tools.resource_ledger import cli as ledger_cli
+from argus.tools.resource_ledger.ledger import ResourceLedger, owner_identity
+from argus.tools.resource_ledger.probe import NvidiaAdapter, ResourceProbe
+from argus.tools.subagent import _cli as subagent_cli
+from argus.tools.subagent import _resource_admission
+from argus.tools.subagent._direct_run import _run_direct
+from argus.tools.subagent._registry import _read_task, _write_task
 
 
 def _snapshot(*, status: str = "available", enforcement: str = "strict") -> dict:
@@ -287,7 +287,7 @@ def test_run_wrapper_releases_on_normal_exit(tmp_path: Path) -> None:
     root = tmp_path / "normal-ledger"
     result = subprocess.run(
         [
-            sys.executable, "-m", "argus_skill.tools.resource_ledger", "run",
+            sys.executable, "-m", "argus.tools.resource_ledger", "run",
             "--accelerator", "none", "--ttl", "1", "--",
             sys.executable, "-c", "pass",
         ],
@@ -351,7 +351,7 @@ def test_run_wrapper_kill9_leaves_only_ttl_bounded_grant(tmp_path: Path) -> None
     child_pid_path = tmp_path / "child.pid"
     proc = subprocess.Popen(
         [
-            sys.executable, "-m", "argus_skill.tools.resource_ledger", "run",
+            sys.executable, "-m", "argus.tools.resource_ledger", "run",
             "--accelerator", "none", "--ttl", "0.3", "--",
             "/bin/sh", "-c", f"echo $$ > {child_pid_path}; exec /bin/sleep 30",
         ],

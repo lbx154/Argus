@@ -6,24 +6,24 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.research_contract import (
+from argus.core.research_contract import (
     normalize_research_result,
     research_completion_issue,
     resolve_research_target_level,
 )
-from argus_skill.manager.stage_decider import final_stage_completion_decision
-from argus_skill.skills.stage_machine import (
+from argus.manager.stage_decider import final_stage_completion_decision
+from argus.skills.stage_machine import (
     ChecklistLoadState,
     format_stage_checklist,
     resolve_stage_checklist_contract,
 )
-from argus_skill.skills.vertical_select import (
+from argus.skills.vertical_select import (
     VERTICAL_PURPOSES,
     VERTICALS,
     persist_vertical,
     require_vertical,
 )
-from argus_skill.verticals._base import (
+from argus.verticals._base import (
     load_vertical,
     vertical_checklist_items,
     vertical_checklist_stage_order,
@@ -103,7 +103,7 @@ def test_math_is_registered_as_three_stage_targeted_vertical() -> None:
 
 
 def test_math_vertical_contains_only_contract_skills_and_metadata() -> None:
-    root = Path(__file__).parents[2] / "argus_skill" / "verticals" / "math"
+    root = Path(__file__).parents[2] / "argus" / "verticals" / "math"
     files = {
         path.relative_to(root).as_posix()
         for path in root.rglob("*")
@@ -200,8 +200,8 @@ def test_generic_roles_load_math_skill_context_only_for_math() -> None:
 
 
 def test_math_completion_hook_requires_objective_and_policy_graph(tmp_path: Path) -> None:
-    from argus_skill.verticals.math import objective_mode
-    from argus_skill.verticals.math.stages import stage_completion_issues
+    from argus.verticals.math import objective_mode
+    from argus.verticals.math.stages import stage_completion_issues
 
     persist_vertical(tmp_path, "math")
     assert "objective mode" in " ".join(stage_completion_issues("scope", tmp_path))
@@ -296,7 +296,7 @@ def test_math_checklist_is_small_and_judges_results_not_files() -> None:
         assert artifact not in rendered
     assert "error-free attempt" in rendered
     assert "leave this item unsatisfied" in rendered
-    assert "original Goal Gate is achieved" in rendered
+    assert "originally requested goal is achieved" in rendered
     # The gap item must be satisfied by a proposition changing status, not by a
     # file existing — otherwise the graph becomes the paperwork it replaced.
     gap_item = next(
@@ -318,9 +318,9 @@ def test_math_roles_keep_methods_optional_and_checks_real() -> None:
     assert "no fixed bundle of output filenames is required" in engineer
     assert "fresh real compiler run" in engineer
     assert "Do not require\nparticular filenames" in reviewer
-    assert "separate audit artifact" in reviewer
-    assert "required workflow or evidence package" in scientist_create
-    assert "Do not create a process artifact" in scientist_adapt
+    assert "separate search report" in reviewer
+    assert "required workflow or required evidence" in scientist_create
+    assert "Do not create a process file" in scientist_adapt
 
 
 def test_parallel_routes_are_dispatched_without_a_prescribed_width() -> None:
@@ -403,7 +403,7 @@ def test_empty_math_review_store_entry_loads_seeds_not_empty(tmp_path: Path) -> 
 
 
 def test_math_has_no_target_schema_or_legacy_lifecycle_branches() -> None:
-    root = Path(__file__).parents[2] / "argus_skill"
+    root = Path(__file__).parents[2] / "argus"
     manager = (root / "manager" / "_core.py").read_text(encoding="utf-8")
     domain_author = (root / "manager" / "domain_author.py").read_text(encoding="utf-8")
     reviewer = (root / "reviewer" / "_core.py").read_text(encoding="utf-8")
@@ -486,7 +486,7 @@ def test_doctoral_significance_completes_a_doctoral_target() -> None:
 
 def test_a_higher_rating_never_fails_a_lower_target() -> None:
     """The ladder is monotone: nothing is refused for being too good."""
-    from argus_skill.core.research_contract import ACCEPTED_SIGNIFICANCE
+    from argus.core.research_contract import ACCEPTED_SIGNIFICANCE
 
     order = ("exploratory", "publishable", "doctoral")
     for index, target in enumerate(order):
@@ -657,21 +657,17 @@ def test_research_target_persists_and_non_target_vertical_clears_it(tmp_path) ->
     assert "research_target_set_at" not in state
 
 
-def test_reviewer_keeps_its_stage_checklist_when_the_daemon_names_the_vertical(
+@pytest.mark.parametrize("workflow_mode", ["staged", "direct"])
+def test_reviewer_keeps_workflow_policy_when_the_daemon_names_the_vertical(
     tmp_path: Path,
+    workflow_mode: str,
 ) -> None:
-    """The daemon passes ``vertical_override`` for a real campaign.
-
-    That used to route the Reviewer down the same branch as a vertical named
-    for a directory with no pipeline state, which suppresses the checklist —
-    so a math Reviewer in ``solve`` was judging without the ~2k characters of
-    acceptance criteria the Engineer's own prompt still carried.
-    """
+    """Named verticals retain staged checklists and direct task review policy."""
     import json
 
-    from argus_skill import SkillLoop, SkillLoopConfig
-    from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-    from argus_skill.verticals.math.objective_mode import set_objective
+    from argus import SkillLoop, SkillLoopConfig
+    from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+    from argus.verticals.math.objective_mode import set_objective
 
     skills = tmp_path / "skills"
     skills.mkdir()
@@ -695,7 +691,7 @@ def test_reviewer_keeps_its_stage_checklist_when_the_daemon_names_the_vertical(
         engineer_runner=backend,
         reviewer_runner=backend,
         config=SkillLoopConfig(
-            max_rounds=1, workflow_mode="direct", active_vertical="math",
+            max_rounds=1, workflow_mode=workflow_mode, active_vertical="math",
         ),
     )
     loop.run("Prove G.", workdir=tmp_path, scope="bounded")
@@ -703,8 +699,9 @@ def test_reviewer_keeps_its_stage_checklist_when_the_daemon_names_the_vertical(
     reviewer_prompt = next(
         prompt for label, prompt, _options in backend.history if label == "reviewer"
     )
-    assert "Stage checklist (solve)" in reviewer_prompt
-    assert "solve.substantive-result" in reviewer_prompt
+    assert "Review the mathematics, not the paperwork." in reviewer_prompt
+    assert ("Stage checklist (solve)" in reviewer_prompt) == (workflow_mode == "staged")
+    assert ("solve.substantive-result" in reviewer_prompt) == (workflow_mode == "staged")
     # The failure this replaced: a stage the checklist loader could not resolve
     # renders as a manufactured blocker rather than as nothing.
     assert "Configuration error" not in reviewer_prompt
@@ -719,7 +716,7 @@ def test_math_never_certifies_its_own_proof() -> None:
     Reviewer, no artifact and no proof graph. Every sibling research vertical
     already declares it; math was the omission.
     """
-    from argus_skill.verticals._base import (
+    from argus.verticals._base import (
         load_vertical,
         vertical_requires_independent_review,
     )
@@ -735,7 +732,7 @@ def test_math_review_survives_a_direct_workflow_decision(tmp_path: Path) -> None
     and completion-gate checks beside it. A Manager that collapses a proof into
     one direct work package must still not collapse away its verification.
     """
-    from argus_skill.apps._runtime_supervisor import (
+    from argus.apps._runtime_supervisor import (
         _independent_review_required_for_project_root,
     )
 
@@ -754,7 +751,7 @@ def test_the_scope_instruction_survived_the_deletion() -> None:
     """
     skill = (
         Path(__file__).resolve().parents[2]
-        / "argus_skill/verticals/math/skills/reviewer/math-research-review.md"
+        / "argus/verticals/math/skills/reviewer/math-research-review.md"
     ).read_text(encoding="utf-8")
 
     assert "known status of the problem" in " ".join(skill.split())

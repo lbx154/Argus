@@ -14,13 +14,13 @@ import time
 
 import pytest
 
-from argus_skill.agent_cli import agent_cli_runner as runner_mod
-from argus_skill.agent_cli.agent_cli_runner import (
+from argus.agent_cli import _run_exec
+from argus.agent_cli.agent_cli_runner import (
     AgentCliRunner,
     RunnerOptions,
     _turn_wall_clock_seconds,
 )
-from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT
+from argus.agent_cli.runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT
 
 
 class _FakeStdin:
@@ -63,7 +63,7 @@ def _fake_copilot(monkeypatch: pytest.MonkeyPatch):
         popen_kwargs.update(kwargs)
         return _FakeProc(lines)
 
-    monkeypatch.setattr(runner_mod.subprocess, "Popen", _popen)
+    monkeypatch.setattr(_run_exec, "spawn_owned_process", _popen)
     # Don't require a real copilot binary on PATH.
     monkeypatch.setattr(AgentCliRunner, "_resolve_executable", staticmethod(lambda x: x))
     return popen_kwargs
@@ -109,6 +109,64 @@ def test_none_callback_leaves_turn_unchanged(_fake_copilot, monkeypatch) -> None
     assert result.exit_code == 0
 
 
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_copilot_model_response_waits_for_authoritative_result(
+    monkeypatch: pytest.MonkeyPatch,
+    exit_code: int,
+) -> None:
+    final = "MILESTONE_STATUS=done\nNEXT_OWNER=reviewer"
+    lines = [
+        json.dumps({"type": "assistant.message", "data": {"content": final}}),
+        json.dumps(
+            {
+                "type": "model.response",
+                "data": {
+                    "kind": "response",
+                    "response": {
+                        "content": final,
+                        "responses_message_status": "completed",
+                        "phase": "final_answer",
+                    },
+                },
+            }
+        ),
+        json.dumps({"type": "result", "sessionId": "sess-final", "exitCode": exit_code}),
+    ]
+    process = _FakeProc(lines)
+
+    monkeypatch.setattr(_run_exec, "spawn_owned_process", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_resolve_executable",
+        staticmethod(lambda value: value),
+    )
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_build_command",
+        lambda self, **kwargs: ["copilot", "-p"],
+    )
+
+    def terminate(proc, *, include_detached_children=False):  # noqa: ARG001
+        raise AssertionError("model responses must not terminate the provider")
+
+    monkeypatch.setattr(AgentCliRunner, "_terminate_process", staticmethod(terminate))
+
+    result = AgentCliRunner(
+        agent_bin="copilot",
+        backend=BACKEND_COPILOT,
+    ).run_exec(
+        prompt="finish",
+        resume_thread_id=None,
+        options=RunnerOptions(),
+        run_label="engineer-r1",
+    )
+
+    assert result.thread_id == "sess-final"
+    assert result.turn_completed is (exit_code == 0)
+    assert result.turn_failed is (exit_code != 0)
+    assert result.agent_messages == [final]
+
+
 def test_claude_stream_records_tool_activity_and_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -143,8 +201,8 @@ def test_claude_stream_records_tool_activity_and_model(
         ),
     ]
     monkeypatch.setattr(
-        runner_mod.subprocess,
-        "Popen",
+        _run_exec,
+        "spawn_owned_process",
         lambda *args, **kwargs: _FakeProc(lines),
     )
     monkeypatch.setattr(
@@ -226,8 +284,8 @@ def test_clean_exit_with_message_but_no_terminal_result_fails_closed(
         ),
     ]
     monkeypatch.setattr(
-        runner_mod.subprocess,
-        "Popen",
+        _run_exec,
+        "spawn_owned_process",
         lambda *args, **kwargs: _FakeProc(lines),
     )
     monkeypatch.setattr(
@@ -272,12 +330,12 @@ def test_cli_process_starts_in_its_own_posix_session(_fake_copilot, monkeypatch)
         options=RunnerOptions(),
         run_label="stream-test",
     )
-    if runner_mod.os.name == "nt":
-        assert _fake_copilot["creationflags"] & runner_mod.subprocess.CREATE_NO_WINDOW
+    if _run_exec.os.name == "nt":
+        assert _fake_copilot["creationflags"] & _run_exec.subprocess.CREATE_NO_WINDOW
         startup = _fake_copilot["startupinfo"]
         assert startup is not None
-        assert startup.dwFlags & runner_mod.subprocess.STARTF_USESHOWWINDOW
-        assert startup.wShowWindow == runner_mod.subprocess.SW_HIDE
+        assert startup.dwFlags & _run_exec.subprocess.STARTF_USESHOWWINDOW
+        assert startup.wShowWindow == _run_exec.subprocess.SW_HIDE
     else:
         assert _fake_copilot["start_new_session"] is True
 
@@ -328,8 +386,8 @@ def test_runner_retains_bounded_stream_tail_with_exact_counts(monkeypatch) -> No
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_CAPTURE_STDOUT_LINES", "3")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_CAPTURE_JSON_EVENTS", "4")
     monkeypatch.setattr(
-        runner_mod.subprocess,
-        "Popen",
+        _run_exec,
+        "spawn_owned_process",
         lambda *args, **kwargs: _FakeProc(lines),
     )
     monkeypatch.setattr(
@@ -386,8 +444,8 @@ def test_post_exit_drain_keeps_queued_terminal_event_with_slow_callback(
         )
     )
     monkeypatch.setattr(
-        runner_mod.subprocess,
-        "Popen",
+        _run_exec,
+        "spawn_owned_process",
         lambda *args, **kwargs: _FakeProc(lines),
     )
     monkeypatch.setattr(

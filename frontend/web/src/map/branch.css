@@ -1,0 +1,210 @@
+/* Promoted team branches (Atlas graph-structure batch). All node and edge
+ * styles introduced by the fan-out promotion live in this file; map.css,
+ * atlas.css and submap.css stay untouched. Colors reuse the atlas language:
+ * the same --state hues as map.css (mapped locally below, since this sheet
+ * loads later) and the paper/line/ink tokens, so both themes self-adapt. */
+
+.map-branch {
+  --state: #9babbc; /* fallback; the local map-state-* mapping below wins */
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding: 0 40px 0 30px;
+  /* Status wash strong enough to read at far zoom, mirroring the cards'
+   * micro wash; mixing against the paper token keeps dark theme honest. */
+  background: color-mix(in srgb, var(--state) 14%, var(--map-paper));
+  border: 2px solid color-mix(in srgb, var(--state) 30%, rgb(var(--line)));
+  border-left: 12px solid var(--state);
+  border-radius: 95px;
+  box-shadow: 0 10px 42px #16375010, 0 2px 6px #16375008;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: rgb(var(--ink));
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+/* Local copy of the atlas state palette (same hues as map.css). branch.css
+ * loads after map.css, so the pill's own --state fallback used to shadow the
+ * shared single-class .map-state-* overrides; the two-class selectors below
+ * win the cascade deterministically. */
+.map-branch.map-state-done {
+  --state: #528e73;
+}
+.map-branch.map-state-running {
+  --state: #4a86c5;
+}
+.map-branch.map-state-failed {
+  --state: #bd785f;
+}
+.map-branch.map-state-question {
+  --state: #bd923f;
+}
+.map-branch.map-state-paused {
+  --state: #a58a56;
+}
+.map-branch.map-state-superseded {
+  --state: #9588a8;
+}
+.map-branch:hover {
+  border-color: color-mix(in srgb, var(--state) 58%, rgb(var(--line)));
+  border-left-color: var(--state);
+  box-shadow: 0 14px 52px color-mix(in srgb, var(--state) 22%, transparent),
+    0 2px 8px #16375012;
+}
+.map-branch:focus-visible {
+  outline: 6px solid rgb(var(--blue) / 0.45);
+  outline-offset: 6px;
+}
+.map-branch-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  color: var(--state);
+  background: color-mix(in srgb, var(--state) 12%, transparent);
+}
+.map-branch-glyph svg {
+  width: 44px;
+  height: 44px;
+}
+/* Status glyph before the title: the cards' micro watermark alphabet. */
+.map-branch-state {
+  flex: none;
+  margin-right: -6px;
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1;
+  color: color-mix(in srgb, var(--state) 82%, rgb(var(--ink)));
+}
+.map-branch-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 46px;
+  font-weight: 620;
+  line-height: 1.25;
+}
+/* Fan ordinal ("k/N"): present only when MapPanel supplies both numbers. */
+.map-branch-fan {
+  flex: none;
+  font-family: "Geist Mono Variable", monospace;
+  font-size: 30px;
+  font-weight: 620;
+  line-height: 1;
+  letter-spacing: 1px;
+  padding: 9px 16px;
+  border-radius: 40px;
+  color: color-mix(in srgb, var(--state) 70%, rgb(var(--ink)));
+  background: color-mix(in srgb, var(--state) 14%, transparent);
+  border: 2px solid color-mix(in srgb, var(--state) 30%, transparent);
+}
+.map-branch-dot {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--state);
+  box-shadow: 0 0 0 9px color-mix(in srgb, var(--state) 16%, transparent);
+}
+/* A running pill breathes like the cards' live ring: opacity and border
+ * only, on a calmer 2.4s cadence. The left rail is pinned so it never dims. */
+.map-branch[data-status="running"] {
+  animation: map-branch-breathe 2.4s ease-in-out infinite;
+}
+.map-branch[data-overflow="true"] {
+  border-style: dashed;
+  border-left-style: solid;
+  color: rgb(var(--ink-dim));
+}
+/* A folded group speaks a whole sentence for the subtasks it stands for. Like
+ * the cards' titles, its type grows as the camera pulls back (--map-zoom is
+ * the live zoom, set on the canvas), so the sentence reads at overview zoom
+ * instead of shrinking into a sliver; a small handle says what a click does. */
+.map-branch-group {
+  /* Capped so that, however far the camera pulls back, the sentence still
+   * fits its frame in four lines; beyond that the reader zooms in. */
+  --group-type: clamp(40px, calc(11px / var(--map-zoom, 0.24)), 110px);
+  gap: calc(var(--group-type) * 0.45);
+  padding: 0 calc(var(--group-type) * 0.7) 0 calc(var(--group-type) * 0.55);
+  border-radius: 64px;
+}
+.map-branch-group .map-branch-title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  font-size: var(--group-type);
+  line-height: 1.3;
+}
+.map-branch-group .map-branch-glyph {
+  width: calc(var(--group-type) * 1.8);
+  height: calc(var(--group-type) * 1.8);
+}
+.map-branch-group .map-branch-glyph svg {
+  width: calc(var(--group-type) * 0.95);
+  height: calc(var(--group-type) * 0.95);
+}
+.map-branch-group .map-branch-dot {
+  width: calc(var(--group-type) * 0.6);
+  height: calc(var(--group-type) * 0.6);
+}
+.map-branch-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  font-size: calc(var(--group-type) * 0.8);
+  font-weight: 560;
+  line-height: 1;
+  padding: 0.4em 0.7em;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--state) 70%, rgb(var(--ink)));
+  background: color-mix(in srgb, var(--state) 14%, transparent);
+  border: 2px solid color-mix(in srgb, var(--state) 30%, transparent);
+}
+.map-branch-toggle svg {
+  width: 1em;
+  height: 1em;
+}
+.map-branch-group[data-expanded="true"] {
+  border-style: dashed;
+  border-left-style: solid;
+}
+[data-theme="dark"] .map-branch {
+  box-shadow: 0 10px 36px #0004;
+}
+/* Opacity only: border-color keyframes ran on the main thread every frame. */
+@keyframes map-branch-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-branch[data-status="running"] {
+    animation: none;
+  }
+}
+
+/* Edge visual language for the promoted structure. Group-level opacity keeps
+ * the fan quiet and pushes chronological context further into the background;
+ * stroke width and dash pattern come from MapPanel's inline edge styles. */
+.react-flow__edge.map-edge-fanout,
+.react-flow__edge.map-edge-fanin {
+  opacity: 0.62;
+}
+.react-flow__edge.map-edge-context {
+  opacity: 0.55;
+}

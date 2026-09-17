@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.research.academic_language_review import (
+from argus.verticals.research.academic_language_review import (
     describe_reviewer_route_unavailable,
 )
 
@@ -102,7 +102,7 @@ def test_never_masks_the_underlying_error_when_lookup_fails(
 ) -> None:
     # The message helper runs on a path that is already failing; it must not
     # add a second failure of its own.
-    import argus_skill.tools.capability_vault as vault_module
+    import argus.tools.capability_vault as vault_module
 
     def _explode(*_args, **_kwargs):
         raise OSError("vault unreadable")
@@ -121,7 +121,7 @@ def test_the_gate_stays_blocking_regardless_of_the_message() -> None:
     # backend, an unreviewed paper could pass on a copilot-only deployment.
     import inspect
 
-    from argus_skill.verticals.research import academic_language_review as mod
+    from argus.verticals.research import academic_language_review as mod
 
     source = inspect.getsource(mod.generate_academic_language_review)
     call_site = source[source.index("model_review_unavailable"):][:400]

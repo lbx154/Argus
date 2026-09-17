@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.verticals.kernel_engineering.benchmark_preflight import (
+from argus.verticals.kernel_engineering.benchmark_preflight import (
     main,
     parse_shape_id,
     preflight_shape,

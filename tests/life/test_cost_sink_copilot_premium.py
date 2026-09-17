@@ -12,11 +12,11 @@ daily cap blind. These tests pin the fix end to end:
 """
 from __future__ import annotations
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.adapters.agent_cli_backend._result import (
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.adapters.agent_cli_backend._result import (
     _extract_copilot_premium_requests,
 )
-from argus_skill.life.supervisor._cost import _CostTrackingSink
+from argus.life.supervisor._cost import _CostTrackingSink
 
 
 class _Down:
@@ -146,7 +146,7 @@ def test_sink_counts_same_session_skill_maintenance_as_engineer_cost() -> None:
 
 
 def test_copilot_rate_is_configurable(monkeypatch) -> None:
-    from argus_skill.life.supervisor import _cost
+    from argus.life.supervisor import _cost
 
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST", "0.10")
     assert _cost._copilot_usd_per_premium_request() == 0.10

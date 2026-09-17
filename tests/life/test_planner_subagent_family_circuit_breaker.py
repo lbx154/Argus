@@ -19,15 +19,15 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor._config import LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import (
+from argus.core.models import RunnerResult
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor._config import LifeSupervisorConfig
+from argus.life.supervisor._constants import (
     PLAN_ERROR,
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
 )
-from argus_skill.life.supervisor._core import LifeSupervisor
+from argus.life.supervisor._core import LifeSupervisor
 
 
 def _with_mission_quality(text: str) -> str:
@@ -165,7 +165,11 @@ def test_planner_structured_stage_request_advances_before_enqueue(
     pipeline = project_root / ".argus" / "PIPELINE_STATE.json"
     pipeline.parent.mkdir(parents=True)
     pipeline.write_text(
-        json.dumps({"vertical": "research", "current_stage": "plan"}),
+        json.dumps({"vertical": "research", "current_stage": "idea"}),
+        encoding="utf-8",
+    )
+    (project_root / "RESEARCH_NOTES.md").write_text(
+        "# Research notes — Idea stage\n\nThe idea is selected and ready to implement.",
         encoding="utf-8",
     )
     supervisor = _make_supervisor(
@@ -175,9 +179,9 @@ def test_planner_structured_stage_request_advances_before_enqueue(
             [
                 "PROJECT_DONE=false",
                 "REASON=run the real benchmark next",
-                "ADVANCE_TO_STAGE=benchmark",
-                "TASK_KEY=benchmark",
-                "TASK_TITLE=Run real benchmark",
+                "ADVANCE_TO_STAGE=experiment",
+                "TASK_KEY=experiment",
+                "TASK_TITLE=Run decisive experiment",
                 "TASK_OBJECTIVE=Execute the real public benchmark.",
             ]
         ),
@@ -186,9 +190,9 @@ def test_planner_structured_stage_request_advances_before_enqueue(
     supervisor.config.project_state_dir = project_root
 
     assert supervisor._plan_next_work() is True
-    assert json.loads(pipeline.read_text())["current_stage"] == "benchmark"
+    assert json.loads(pipeline.read_text())["current_stage"] == "experiment"
     item = supervisor.memory.backlog.all()[0]
-    assert "stage:benchmark" in item.tags
+    assert "stage:experiment" in item.tags
 
 
 def test_missing_parent_context_ref_is_dropped_without_rejecting_batch(

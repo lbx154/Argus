@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { BookOpen, FileImage, FileText, FolderOpen, RefreshCw, Table2, Watch } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { loadPdfEngine, resetPdfEngine } from '../../lib/pdfEngine';
 import { Badge, EmptyState, Markdown } from '../components/Common';
 import { formatBytes, formatDate } from '../utils';
 import { paperAssets, workspaceApi, type WorkspaceEntry } from '../workspaceApi';
@@ -24,25 +24,26 @@ function PdfCanvasPreview({ src, name }: { src: string; name: string }) {
   const [scale, setScale] = useState(1.25);
   const [error, setError] = useState('');
   const [rendered, setRendered] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   useEffect(() => {
     let alive = true;
     let task: PDFDocumentLoadingTask | null = null;
+    const controller = new AbortController();
     setDocument(null); setPageNumber(1); setError(''); setRendered(false);
     const auth = localStorage.getItem('argus_web_token');
     Promise.all([
-      fetch(src, { headers: auth ? { Authorization: `Bearer ${auth}` } : {} }).then((response) => {
+      fetch(src, { signal: controller.signal, headers: auth ? { Authorization: `Bearer ${auth}` } : {} }).then((response) => {
         if (!response.ok) throw new Error(`PDF request failed (${response.status})`);
         return response.arrayBuffer();
       }),
-      import('pdfjs-dist'),
+      loadPdfEngine(),
     ]).then(([data, pdfjs]) => {
       if (!alive) return;
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
       task = pdfjs.getDocument({ data });
       return task.promise;
     }).then((pdf) => { if (alive && pdf) setDocument(pdf); }).catch((caught) => { if (alive) setError(caught instanceof Error ? caught.message : String(caught)); });
-    return () => { alive = false; void task?.destroy(); };
-  }, [src]);
+    return () => { alive = false; controller.abort(); void task?.destroy().catch(() => {}); };
+  }, [src, loadAttempt]);
   useEffect(() => {
     if (!document || !canvasRef.current) return;
     setRendered(false);
@@ -64,7 +65,7 @@ function PdfCanvasPreview({ src, name }: { src: string; name: string }) {
     }).catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught)); });
     return () => { cancelled = true; renderTask?.cancel(); };
   }, [document, pageNumber, scale]);
-  return <div className="pdf-canvas-viewer"><div className="pdf-canvas-toolbar"><strong>{name}</strong><span>{text('第', 'Page')} {pageNumber} / {document?.numPages ?? '…'}</span><button type="button" disabled={pageNumber <= 1} onClick={() => setPageNumber((value) => value - 1)}>{text('上一页', 'Previous')}</button><button type="button" disabled={!document || pageNumber >= document.numPages} onClick={() => setPageNumber((value) => value + 1)}>{text('下一页', 'Next')}</button><button type="button" onClick={() => setScale((value) => Math.max(.75, value - .15))}>−</button><button type="button" onClick={() => setScale((value) => Math.min(2, value + .15))}>＋</button></div>{error ? <div className="inline-error">{error}</div> : null}<div className="pdf-canvas-scroll"><canvas ref={canvasRef} data-rendered={rendered ? 'true' : 'false'} /></div></div>;
+  return <div className="pdf-canvas-viewer"><div className="pdf-canvas-toolbar"><strong>{name}</strong><span>{text('第', 'Page')} {pageNumber} / {document?.numPages ?? '…'}</span><button type="button" disabled={pageNumber <= 1} onClick={() => setPageNumber((value) => value - 1)}>{text('上一页', 'Previous')}</button><button type="button" disabled={!document || pageNumber >= document.numPages} onClick={() => setPageNumber((value) => value + 1)}>{text('下一页', 'Next')}</button><button type="button" onClick={() => setScale((value) => Math.max(.75, value - .15))}>−</button><button type="button" onClick={() => setScale((value) => Math.min(2, value + .15))}>＋</button></div>{error ? <div role="alert" className="inline-error"><p>{text('PDF 暂时无法预览', 'PDF preview is temporarily unavailable')}</p><button type="button" onClick={() => { resetPdfEngine(); setLoadAttempt((value) => value + 1); }}>{text('重试预览', 'Retry preview')}</button><details><summary>{text('错误详情', 'Error details')}</summary>{error}</details></div> : null}<div className="pdf-canvas-scroll"><canvas ref={canvasRef} data-rendered={rendered ? 'true' : 'false'} /></div></div>;
 }
 
 function SourcePreview({ sid, workspaceId, entry }: { sid: string; workspaceId: string; entry: WorkspaceEntry | null }) {

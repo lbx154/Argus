@@ -9,12 +9,14 @@ then sat in `time.sleep` until it was killed.
 from __future__ import annotations
 
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus_skill.core import process_stop
-from argus_skill.engineer.external_work import (
+from argus.core import process_stop
+from argus.engineer.external_work import (
     EXTERNAL_WORK_PROTOCOL_VERSION,
     wait_for_external_work_cadence,
 )
@@ -74,7 +76,7 @@ def test_cadence_wait_leaves_once_a_stop_is_requested(tmp_path) -> None:
 
 def test_daemon_stop_request_sets_the_process_flag() -> None:
     """The signal handler's cooperative stop is what long waits read."""
-    from argus_skill.daemon import life_worker
+    from argus.daemon import life_worker
 
     source = life_worker.__file__
     with open(source, encoding="utf-8") as handle:
@@ -85,11 +87,41 @@ def test_daemon_stop_request_sets_the_process_flag() -> None:
     assert text.index(marker) < text.index("self._stop.set()")
 
 
+def test_real_stop_wakes_default_external_wait_without_poll_delay(tmp_path, monkeypatch) -> None:
+    registry = tmp_path / ".argus_external_work"
+    registry.mkdir()
+    (registry / "job.json").write_text(json.dumps({
+        "version": EXTERNAL_WORK_PROTOCOL_VERSION, "work_id": "job",
+        "state": "running_healthy", "heartbeat_at": 100,
+        "stale_after_seconds": 60, "poll_after_seconds": 30,
+    }), encoding="utf-8")
+    entered = threading.Event()
+    real_wait = process_stop.wait_for_stop
+
+    def wait(timeout):
+        entered.set()
+        return real_wait(timeout)
+
+    monkeypatch.setattr(process_stop, "wait_for_stop", wait)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(wait_for_external_work_cadence, tmp_path, "job", now=lambda: 100)
+        try:
+            assert entered.wait(2)
+            started = time.monotonic()
+            process_stop.request_stop()
+            reason, waited = future.result(timeout=2)
+            assert reason == "stop_requested"
+            assert waited < 2
+            assert time.monotonic() - started < 2
+        finally:
+            process_stop.request_stop()
+
+
 def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
     """A healthy long job keeps the cadence elapsing. Without a stop check the
     loop never returns, so the mission never ends and the signal never lands."""
-    from argus_skill.engineer import round_waits, runner
-    from argus_skill.engineer.round_state import RoundLoopState
+    from argus.engineer import round_waits, runner
+    from argus.engineer.round_state import RoundLoopState
 
     calls: list[int] = []
 
@@ -137,6 +169,51 @@ def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
         "daemon shutdown requested during external-work wait"
     )
 
+    # This wait ended in the harness after a successful Engineer return. No
+    # backend call failed, so its five-field return has no backend stop_kind.
+    # The supervisor must keep the original task out of the terminal archive.
+    from types import SimpleNamespace
+
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+
+    status, rounds, message, reason, _thread = control.terminal
+
+    class PausedRunner:
+        def execute(self, **_kwargs):
+            return SimpleNamespace(
+                success=False, status=status, rounds=rounds,
+                final_message=message, stop_reason=reason,
+                stop_kind=None, recoverable=False,
+            )
+
+    class Sink:
+        def handle_event(self, _event):
+            pass
+
+    memory = LifeMemory.open(tmp_path / "session")
+    item = memory.backlog.add(BacklogItem.new(
+        title="finish the paper", objective="continue after the existing experiment",
+    ))
+    supervisor = LifeSupervisor(
+        memory=memory, runner=PausedRunner(), sink=Sink(),
+        config=LifeSupervisorConfig(project_worktree=tmp_path),
+    )
+    result = supervisor.tick()
+
+    assert result["status"] == "paused_daemon_shutdown"
+    assert result["recoverable"] is True
+    active = LifeMemory.open(tmp_path / "session").backlog.active()
+    assert len(active) == 1 and active[0].id == item.id
+    assert active[0].status == "paused_daemon_shutdown"
+    assert active[0].outcome["resumable"] is True
+
+    process_stop.clear_stop()  # the successor process starts with a fresh flag
+    resumed = supervisor._resume_automatic_pauses()
+    assert len(resumed) == 1 and resumed[0].id == item.id
+    assert resumed[0].attempt == 2
+    assert resumed[0].status == "pending"
+
 
 def test_a_long_wait_says_how_long_it_has_been_waiting(monkeypatch, tmp_path) -> None:
     """Every cadence tick emitted the same two lines, so an eighteen-hour wait
@@ -144,7 +221,7 @@ def test_a_long_wait_says_how_long_it_has_been_waiting(monkeypatch, tmp_path) ->
     "resumed after 120s" lines and nothing saying how long this had gone on.
     One campaign held four GPUs through such a wait across five rounds and the
     cost was only visible by counting the events."""
-    from argus_skill.engineer import round_signals
+    from argus.engineer import round_signals
 
     monkeypatch.setattr(
         round_signals,

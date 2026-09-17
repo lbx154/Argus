@@ -38,8 +38,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.life.memory import BacklogItem
-from argus_skill.proof_ledger import (
+from argus.life.memory import BacklogItem
+from argus.proof_ledger import (
     ClaimVersion,
     ContextVersion,
     EvidenceRecord,
@@ -52,9 +52,9 @@ from argus_skill.proof_ledger import (
     save_state,
     state_path,
 )
-from argus_skill.verticals._base import load_vertical_contract
-from argus_skill.verticals.math import context_projection
-from argus_skill.verticals.math.context_projection import (
+from argus.verticals._base import load_vertical_contract
+from argus.verticals.math import context_projection
+from argus.verticals.math.context_projection import (
     MISSION_TARGET_FIELDS,
     project_mission_context,
     resolve_target,

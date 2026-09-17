@@ -1,0 +1,1010 @@
+import {
+  ACTIVE,
+  connectMap,
+  latestMissionCompletion,
+  type MapEvent,
+  type MapTask,
+  type MapGraph,
+  type MapLink,
+  type WorkStep,
+} from "./model";
+import { layoutGraph } from "./graphLayout";
+import { completionScope } from "./status";
+import { humanizeHarnessNote, TECHNICAL_MARKER_PREFIX } from "../lib/harnessNotes";
+export { humanizeHarnessNote, TECHNICAL_MARKER } from "../lib/harnessNotes";
+
+export const MAP_FRAME = { width: 1440, height: 1080 };
+export const MAX_STEPS_PER_CARD = 12;
+
+export interface MapCard {
+  id: string;
+  task: MapTask;
+  ordinal: number;
+  part: number;
+  partCount: number;
+  start: number;
+  end: number;
+  totalSteps: number;
+  previousId?: string;
+  nextId?: string;
+  completionScope?: string;
+  historyCount?: number;
+  historyExpanded?: boolean;
+}
+
+export type StepKind = "plan" | "execution" | "review" | "revision" | "result";
+export interface SubmapStep {
+  id: string;
+  kind: StepKind;
+  title: string;
+  summary?: string;
+  detail: string;
+  status: string;
+  ts?: number;
+  round?: number;
+  episode?: number;
+  source: "task" | "event" | "interval" | "team";
+  eventIds: string[];
+  teamId?: string;
+  teamTaskId?: string;
+  teamRole?: string;
+  deps?: string[];
+  updatedAt?: number;
+  revision?: string;
+  completionScope?: string;
+}
+export const STEP_KINDS: StepKind[] = [
+  "plan",
+  "execution",
+  "review",
+  "revision",
+  "result",
+];
+
+function teamTitle(event: MapEvent, zh: boolean): string {
+  const route = event.team_task_id?.match(/route-(\d+)/)?.[1];
+  const label = event.team_role === 'idea-route'
+    ? zh ? '研究路线' : 'Research route'
+    : event.team_role === 'idea-review'
+      ? zh ? '独立复核' : 'Independent review'
+      : event.team_role === 'idea-selector'
+        ? zh ? '方案选择' : 'Idea selection'
+        : '';
+  return label ? `${label}${route ? ` ${route}` : ''}` : event.title || (zh ? '并行子任务' : 'Parallel task');
+}
+
+function teamSummary(event: MapEvent, zh: boolean, waitingForDeps: boolean): string {
+  if (event.pending_question) return zh ? '需要答复，展开查看具体问题' : 'Needs your input; open to read the question';
+  if (event.status === 'failed') return zh ? '本次执行失败，展开查看原因' : 'This attempt failed; open to read the reason';
+  if (event.status === 'blocked') return zh ? '执行受阻，展开查看原因' : 'Work is blocked; open to read the reason';
+  if (event.status === 'done') return event.team_role === 'idea-review'
+    ? zh ? '独立复核已完成，展开查看记录' : 'Independent review completed; open to read the record'
+    : zh ? '子任务执行已完成，展开查看记录' : 'Subtask execution completed; open to read the record';
+  if (event.status === 'pending') return waitingForDeps
+    ? zh ? '等待前置子任务完成后开始' : 'Waiting for prerequisite subtasks to finish'
+    : zh ? '等待分配 Agent 执行' : 'Waiting for an agent to start';
+  if (ACTIVE.has(event.status || '')) return event.team_role === 'idea-route'
+    ? zh ? '正在开展来源研究，整理候选方案' : 'Researching sources and developing a candidate idea'
+    : event.team_role === 'idea-review'
+      ? zh ? '正在独立核对依据、创新性和风险' : 'Independently checking evidence, novelty and risks'
+      : event.team_role === 'idea-selector'
+        ? zh ? '正在对比研究路线及复核意见' : 'Comparing research routes and independent reviews'
+        : zh ? 'Agent 正在执行此子任务' : 'An agent is working on this subtask';
+  return zh ? '展开查看子任务执行记录' : 'Open to read the subtask record';
+}
+
+export const noDetails = (zh: boolean) =>
+  zh ? "这一步还没有留下记录" : "Nothing has been written down for this step yet.";
+
+
+function clipSentence(value: string, limit = 140): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const match = text.match(/^.*?[。！？!?.](?=\s|$)/);
+  const sentence = (match ? match[0] : text).trim();
+  return sentence.length > limit
+    ? `${sentence.slice(0, limit - 1).trimEnd()}…`
+    : sentence;
+}
+
+function titleClause(prose: string): string {
+  const clause = prose
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/[。！？；;：:，,\n]|\.(?=\s|$)|[!?](?=\s|$)/)[0]
+    ?.trim();
+  // Too-short clauses are fragments ("First", "然后"), not titles.
+  return clause && clause.length >= 6 && clause.length <= 40 ? clause : "";
+}
+
+/** Keep scientific prose visible while hiding the runner's control footer. */
+export function readableRecord(value: string | undefined | null): string {
+  return String(value || "")
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        !/^(?:Decision\s*:|(?:MILESTONE_STATUS|NEXT_OWNER|OPERATOR_QUESTION|OPERATOR_OPTIONS)\s*=)/i.test(
+          line.trim(),
+        ),
+    )
+    .map((line) =>
+      line
+        .replace(/^\s*(?:RESULT|SUMMARY)\s*=\s*/i, "")
+        .replace(/^\s*NEXT_ACTION\s*=\s*/i, ""),
+    )
+    .join("\n")
+    .trim();
+}
+
+/** What a structural record means, for the steps that carry no prose of their
+ * own. Only the events whose meaning is fixed by their type get a sentence;
+ * a silent round still says that nothing was written down. */
+function describeRecord(event: MapEvent, status: string, zh: boolean): string {
+  switch (event.type) {
+    case "life.planner.task_added":
+      return zh ? "规划者把这项任务列入了计划。" : "The Planner added this task to the plan.";
+    case "life.mission.started":
+      return zh ? "工程师接手了这项任务，开始动手。" : "The Engineer picked up this task and began working.";
+    case "life.phase.started":
+    case "round.review.started":
+      return event.role === "reviewer"
+        ? zh ? "审阅者打开了工程师的工作，开始核查。" : "The Reviewer opened the Engineer's work to check it."
+        : "";
+    case "life.mission.completed":
+      return completionScope(event, zh) || (status === "done"
+        ? zh ? "任务完成，结果已经记录在案。" : "The task was finished; its result is on record."
+        : status.startsWith("paused")
+          ? zh ? "这项任务的工作暂停了。" : "Work on this task was paused."
+          : zh ? "任务到此结束。" : "The task ended here.");
+    case "life.mission.failed":
+      return zh ? "任务没有达到目标就结束了。" : "The task ended without reaching its goal.";
+    default:
+      return "";
+  }
+}
+
+const STEP_GLYPH = /^(?:[⚙✎↳$…∴▸]|✗ \$)\s*/u;
+const shorten = (value: string, limit: number) =>
+  value.length > limit ? `${value.slice(0, limit - 1).trimEnd()}…` : value;
+
+/** The one argument a reader wants to see for a tool call: a path, a pattern, a URL. */
+function stepArgument(label: string): string {
+  const raw = label.slice(label.indexOf(":") + 1).trim();
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      for (const key of ["path", "file", "file_path", "pattern", "query", "url", "command", "paths"]) {
+        const value = record[key];
+        if (typeof value === "string" && value.trim()) return value.trim();
+        if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+      }
+      const first = Object.values(record).find((value) => typeof value === "string" && value.trim());
+      return typeof first === "string" ? first.trim() : "";
+    }
+  } catch {
+    // Not JSON: the argument is the text itself.
+  }
+  return raw;
+}
+
+type StepVerb = "read" | "search" | "fetch" | "edit" | "run" | "other";
+function stepVerb(step: WorkStep): StepVerb {
+  const name = (step.tool || step.label.replace(STEP_GLYPH, "").split(":")[0] || "").trim().toLowerCase();
+  if (step.kind === "command_execution") return "run";
+  if (step.kind === "file_change") return "edit";
+  if (/^(view|read|cat|open|read_file|str_replace_editor)$/.test(name)) return "read";
+  if (/^(rg|grep|search|find_text|semantic_search|codebase_search)$/.test(name)) return "search";
+  if (/^(glob|find|list|ls|list_dir|find_files)$/.test(name)) return "search";
+  if (/^(web_fetch|fetch|web_search|http_get|browse)$/.test(name)) return "fetch";
+  if (/^(apply_patch|edit|write|create|write_file|edit_file|replace_in_file|str_replace)$/.test(name)) return "edit";
+  if (/^(bash|shell|sh|execute|terminal|run)$/.test(name)) return "run";
+  return "other";
+}
+
+/** One tool call as a short plain phrase — what was done, to what. */
+export function stepPhrase(step: WorkStep, zh: boolean): string {
+  const tool = (step.tool || "").trim();
+  const label = step.label.replace(STEP_GLYPH, "").trim();
+  // The Copilot desktop agent titles each call in plain words; the streaming
+  // runners give a bare tool name plus its arguments.
+  const titled = tool && /\s/.test(tool) && tool.length > 8;
+  const argument = shorten(stepArgument(label), 72);
+  const command = shorten(label, 72);
+  const verb = stepVerb(step);
+  const phrase = titled
+    ? tool
+    : verb === "run"
+      ? zh ? `运行命令 \`${command}\`` : `Ran \`${command}\``
+      : verb === "read"
+        ? zh ? `查看 ${argument || label}` : `Read ${argument || label}`
+        : verb === "search"
+          ? zh ? `查找 ${argument || label}` : `Looked for ${argument || label}`
+          : verb === "fetch"
+            ? zh ? `读取网页 ${argument || label}` : `Fetched ${argument || label}`
+            : verb === "edit"
+              ? zh ? `修改文件 ${argument || label}` : `Edited ${argument || label}`
+              : shorten(label, 80);
+  return step.status === "failed" ? `${phrase}${zh ? "（失败）" : " (failed)"}` : phrase;
+}
+
+/** "查看了 3 个文件，运行了 2 条命令" — the shape of a segment's work at a glance. */
+export function stepsSummary(steps: WorkStep[], overflow: number, zh: boolean): string {
+  const counts = new Map<StepVerb, number>();
+  steps.forEach((step) => counts.set(stepVerb(step), (counts.get(stepVerb(step)) ?? 0) + 1));
+  const parts: string[] = [];
+  const say = (verb: StepVerb, zhWord: string, enOne: string, enMany: string) => {
+    const n = counts.get(verb);
+    if (n) parts.push(zh ? `${zhWord}${n}${verb === "run" ? "条命令" : verb === "fetch" ? "个网页" : "处"}` : `${n} ${n === 1 ? enOne : enMany}`);
+  };
+  say("read", "查看了", "file read", "files read");
+  say("search", "查找了", "search", "searches");
+  say("fetch", "读取了", "page fetched", "pages fetched");
+  say("edit", "修改了", "file edited", "files edited");
+  say("run", "运行了", "command run", "commands run");
+  const other = counts.get("other");
+  if (other) parts.push(zh ? `${other}次其他操作` : `${other} other ${other === 1 ? "action" : "actions"}`);
+  if (overflow > 0) parts.push(zh ? `另有 ${overflow} 步未列出` : `${overflow} more not listed`);
+  return parts.length ? (zh ? `${parts.join("，")}。` : `${parts.join(", ")}.`) : "";
+}
+
+/** A work segment: the agent's own words for what it was doing, then the calls it made. */
+function workSegmentStep(event: MapEvent, zh: boolean): SubmapStep {
+  const steps = event.steps ?? [];
+  const narration = readableRecord(event.text);
+  const missingDetails = event.tool_details_recorded === false;
+  const evidenceNote = missingDetails
+    ? zh ? "执行日志确认发生过工具活动，但这一轮没有记录详细工具步骤。"
+      : "Execution logs confirm tool activity, but detailed tool steps were not recorded for this turn."
+    : "";
+  const single = event.role === "manager";
+  const shape = stepsSummary(steps, event.overflow ?? 0, zh);
+  const title = (missingDetails ? zh ? "已记录的执行" : "Recorded execution" : "")
+    || titleClause(narration)
+    || (single
+      ? zh ? "Argus 动手查证" : "Argus did the work"
+      : steps.length
+        ? zh ? `做了 ${steps.length} 步操作` : `${steps.length} steps of work`
+        : zh ? "说明了接下来要做什么" : "Said what comes next");
+  const lines = steps.map((step) => `· ${stepPhrase(step, zh)}`);
+  if ((event.overflow ?? 0) > 0) lines.push(zh ? `· 另有 ${event.overflow} 步未列出` : `· ${event.overflow} more not listed`);
+  return {
+    id: event.id,
+    // The Reviewer's own reading and checking belongs to the review.
+    kind: event.role === "reviewer" ? "review" : "execution",
+    title,
+    summary: clipSentence(narration) || shape || undefined,
+    detail: [evidenceNote, narration, lines.join("\n")].filter(Boolean).join("\n\n") || noDetails(zh),
+    status: event.status || (steps.some((step) => step.status === "failed") ? "failed" : "recorded"),
+    ts: event.ts,
+    source: event.association === "single_active_window" ? "interval" : "event",
+    eventIds: [event.id],
+  };
+}
+
+/** Where a finished task ended up, when its own record says nothing. */
+function outcomeSentence(status: string, zh: boolean): string {
+  switch (status) {
+    case "done": return zh ? "这项任务已经完成。" : "This task was completed.";
+    case "failed": return zh ? "这项任务没有达到目标。" : "This task did not reach its goal.";
+    case "cancelled":
+    case "aborted": return zh ? "这项任务被取消了。" : "This task was cancelled.";
+    case "skipped": return zh ? "这项任务被跳过了。" : "This task was skipped.";
+    case "superseded": return zh ? "这项任务被一个新的计划取代了。" : "A new plan took the place of this task.";
+    default: return "";
+  }
+}
+
+/** Display observations, including their evidence strength; never fill a missing stage with success. */
+export function buildSubmap(
+  task: MapTask,
+  events: MapEvent[],
+  zh: boolean,
+): SubmapStep[] {
+  const turn = task.kind === "turn";
+  const rows: SubmapStep[] = [
+    {
+      id: `${task.id}:brief`,
+      kind: "plan",
+      title: turn
+        ? zh ? (task.turn_kind === 'qa' ? '你提出的问题' : "你提出的要求") : "What you asked"
+        : zh ? "这项任务要做什么" : "What this task set out to do",
+      detail: task.objective || task.title,
+      status: "recorded",
+      source: "task",
+      eventIds: [],
+    },
+  ];
+  const seen = new Set<string>();
+  let episode = 0;
+  const sorted = events
+    .filter((e) => e.item_id === task.id)
+    .sort((a, b) => a.ts - b.ts || (a.type === 'team.task' && b.type === 'team.task'
+      ? (a.team_task_id || a.id).localeCompare(b.team_task_id || b.id) : 0));
+  const teamEvents = new Map(sorted.filter((e) => e.type === 'team.task').map((e) => [e.id, e]));
+  for (const e of sorted) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+    if (e.type === 'team.task') {
+      const deps = [...new Set(e.deps || [])];
+      const dependencyTitles = deps.map((id) => teamEvents.has(id)
+        ? teamTitle(teamEvents.get(id)!, zh) : (zh ? '其他记录中的子任务' : 'Task outside this view'));
+      const description = readableRecord(e.text);
+      rows.push({
+        id: e.id,
+        kind: e.team_role === 'idea-review' || e.role === 'reviewer' ? 'review'
+          : e.team_role === 'idea-selector' ? 'plan' : 'execution',
+        title: teamTitle(e, zh),
+        summary: teamSummary(e, zh, deps.some((id) => teamEvents.has(id) && teamEvents.get(id)!.status !== 'done')),
+        detail: [
+          description,
+          e.reason && !description.includes(e.reason) ? e.reason : '',
+          e.pending_question ? `${zh ? '需要答复' : 'Needs input'}: ${e.pending_question}` : '',
+          dependencyTitles.length ? `${zh ? '依赖' : 'Depends on'}: ${dependencyTitles.join(' · ')}` : '',
+        ].filter(Boolean).join('\n\n'),
+        status: e.pending_question ? 'question' : e.status || 'unknown',
+        ts: e.ts,
+        source: 'team',
+        eventIds: [e.id],
+        teamId: e.team_id,
+        teamTaskId: e.team_task_id,
+        teamRole: e.team_role,
+        deps,
+        updatedAt: e.updated_ts,
+        revision: e.revision,
+      });
+      continue;
+    }
+    if (e.type === "work.segment") {
+      rows.push(workSegmentStep(e, zh));
+      continue;
+    }
+    if (e.type === "turn.replied") {
+      const answer = readableRecord(e.text);
+      rows.push({
+        id: e.id,
+        kind: "result",
+        title: zh ? "Argus 的回答" : "What Argus answered",
+        summary: clipSentence(answer) || undefined,
+        detail: answer || noDetails(zh),
+        status: e.status || "done",
+        ts: e.ts,
+        source: "event",
+        eventIds: [e.id],
+      });
+      continue;
+    }
+    if (e.type === "life.mission.started") episode++;
+    const kind: StepKind | null =
+      e.type.includes("review") ||
+      (e.type === "life.phase.started" && e.role === "reviewer")
+        ? "review"
+        : e.type === "life.planner.task_added"
+          ? "plan"
+          : e.type === "life.mission.completed" ||
+              e.type === "life.mission.failed"
+            ? "result"
+            : e.type === "round.start" ||
+                e.type === "round.main.completed" ||
+                e.type === "life.mission.started" ||
+                e.type === "life.phase.started"
+              ? "execution"
+              : null;
+    if (!kind) continue;
+    const round = e.round_index;
+    const finished =
+      e.type.endsWith(".completed") || e.type.endsWith(".failed");
+    const reviewSkipped = kind === "review" && e.review_skipped === true;
+    const scope = completionScope(e, zh);
+    const status =
+      (reviewSkipped ? "skipped" : e.status) ||
+      (e.success === false || e.type.endsWith(".failed")
+        ? "failed"
+        : e.success === true
+          ? "done"
+          : finished
+            ? "recorded"
+            : "started");
+    const note = humanizeHarnessNote(e.text || "", zh);
+    const raw = String(e.text || "");
+    const cut = note.receipt ? raw.lastIndexOf(note.receipt) : -1;
+    const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
+    const reviewVerdictTitle =
+      status === "done"
+        ? zh ? "审阅通过" : "The Reviewer was satisfied"
+        : status === "continue"
+          ? zh ? "审阅者要求再改一轮" : "The Reviewer asked for another pass"
+          : ["blocked", "replan", "replan_requested"].includes(status)
+            ? zh ? "审阅者建议调整方向" : "The Reviewer asked to change course"
+            : status === "failed"
+              ? zh ? "审阅未通过" : "The Reviewer did not accept this round"
+              : "";
+    // Harness plumbing never names a step; only research prose does.
+    const interrupted = note.kind === "interrupt";
+    const clause = kind === "execution" && !note.summary ? titleClause(prose) : "";
+    const title = interrupted
+      ? zh ? "这一轮没做完就被停下" : "Stopped before the round could finish"
+      : reviewSkipped
+        ? zh ? "这一轮没有审阅" : "No review this round"
+        : kind === "review"
+          ? finished
+            ? reviewVerdictTitle || (zh ? "审阅意见" : "What the Reviewer said")
+            : zh
+              ? "审阅者开始核查"
+              : "The Reviewer began reading"
+          : kind === "result"
+            ? scope
+              ? zh ? "本次执行已结束" : "This execution ended"
+              : zh ? "最后得到了什么" : "What came out"
+            : kind === "plan"
+              ? zh
+                ? "列入计划"
+                : "Taken into the plan"
+              : clause ||
+                (note.kind === "round"
+                  ? zh
+                    ? "新一轮开始"
+                    : "A new round began"
+                  : e.type === "life.mission.started"
+                    ? zh
+                      ? "开始动手"
+                      : "Work began"
+                    : e.type === "round.main.completed"
+                      ? zh
+                        ? "完成一轮工作"
+                        : "A round of work"
+                      : zh
+                        ? "一次尝试"
+                        : "An attempt at the work");
+    const nextNote = humanizeHarnessNote(e.next_action || "", zh);
+    const described = prose || note.summary ? "" : describeRecord(e, status, zh);
+    rows.push({
+      id: e.id,
+      kind,
+      title,
+      summary: scope || note.summary || clipSentence(prose) || described || undefined,
+      detail: [
+        scope,
+        prose || note.summary || (!scope ? described || noDetails(zh) : ""),
+        scope && e.stage_certification === "intentionally_skipped"
+          ? zh ? "本阶段认证被有意跳过；这不代表最终验收通过。"
+            : "Stage certification was intentionally skipped; this is not final acceptance."
+          : "",
+        reviewSkipped && e.next_action && !nextNote.summary
+          ? `${zh ? "接下来" : "What happens next"}: ${e.next_action}`
+          : "",
+        note.receipt
+          ? `${zh ? "——技术记录：" : "— technical record: "}${note.receipt.replace(TECHNICAL_MARKER_PREFIX, "")}`
+          : "",
+      ].filter(Boolean).join("\n\n"),
+      status: scope && status === "done" ? "recorded" : status,
+      completionScope: scope || undefined,
+      ts: e.ts,
+      round,
+      episode,
+      source: e.association === "single_active_window" ? "interval" : "event",
+      eventIds: [e.id],
+    });
+    if (
+      !reviewSkipped && !interrupted && e.next_action &&
+      ["continue", "blocked", "replan", "replan_requested"].includes(
+        e.status || "",
+      )
+    ) {
+      rows.push({
+        id: `${e.id}:next`,
+        kind: "revision",
+        title: zh ? "审阅者提出的修改" : "What the Reviewer asked to change",
+        detail: nextNote.summary || e.next_action,
+        status: "requested",
+        ts: e.ts,
+        round,
+        episode,
+        source: e.association === "single_active_window" ? "interval" : "event",
+        eventIds: [e.id],
+      });
+    }
+  }
+  if (task.turn_kind === 'qa' && !rows.some(r => r.kind === 'result')) {
+    rows.push({ id: `${task.id}:answer`, kind: 'result',
+      title: ACTIVE.has(task.status) ? (zh ? '正在回答' : 'Answering') : (zh ? '回答状态' : 'Answer status'),
+      detail: task.summary || (task.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : ''),
+      status: task.status, source: 'task', eventIds: [] });
+  }
+  if (task.turn_kind !== 'qa' && !rows.some((r) => r.kind === "execution") && ACTIVE.has(task.status))
+    rows.push({
+      id: `${task.id}:active`,
+      kind: "execution",
+      title: zh ? "正在进行的工作" : "Work under way",
+      detail: task.summary || "",
+      status: task.status,
+      source: "task",
+      eventIds: [],
+    });
+  if (
+    !rows.some((r) => r.kind === "result") &&
+    ["done", "failed", "aborted", "cancelled", "skipped", "superseded"].includes(task.status)
+  )
+    rows.push({
+      id: `${task.id}:outcome`,
+      kind: "result",
+      title: zh ? "任务的最终状态" : "Where this task ended up",
+      detail: task.summary || outcomeSentence(task.status, zh),
+      status: task.status,
+      source: "task",
+      eventIds: [],
+    });
+  // Collapse start/progress/completion into one readable node only within an
+  // explicitly numbered round and the same observed mission episode.
+  const merged: SubmapStep[] = [];
+  const groups = new Map<string, SubmapStep>();
+  for (const row of rows) {
+    const mergeable =
+      row.round != null && ["execution", "review"].includes(row.kind);
+    const key = `${row.episode}:${row.round}:${row.kind}`;
+    const previous = mergeable ? groups.get(key) : undefined;
+    if (previous) {
+      // Titles/summaries are display-only: the latest observation of the merged
+      // round carries the most complete record, so it names the node.
+      previous.title = row.title;
+      // A closing event with empty text must not erase the round's story.
+      previous.summary = row.summary ?? previous.summary;
+      previous.detail = row.detail;
+      previous.status = row.status;
+      previous.eventIds.push(...row.eventIds);
+      if (row.source === "interval") previous.source = "interval";
+      // The round's node tells how the round ended, so it belongs after the
+      // work segments recorded inside that round, not before them.
+      merged.splice(merged.indexOf(previous), 1);
+      merged.push(previous);
+    } else {
+      const copy = { ...row, eventIds: [...row.eventIds] };
+      merged.push(copy);
+      if (mergeable) groups.set(key, copy);
+    }
+  }
+  return merged;
+}
+
+export interface SubmapLink {
+  id: string;
+  source: string;
+  target: string;
+  relation:
+    | "assignment"
+    | "review"
+    | "revision"
+    | "next_attempt"
+    | "outcome"
+    | "record_order"
+    | "snapshot"
+    | "dependency";
+  label: string;
+  explanation: string;
+  contextual: boolean;
+}
+
+export interface SubmapLayout {
+  steps: SubmapStep[];
+  links: SubmapLink[];
+  columns: Array<{
+    id: string;
+    title: string;
+    x: number;
+    y: number;
+  }>;
+  positions: Record<string, { x: number; y: number }>;
+  width: number;
+  height: number;
+}
+
+/** Content bounds are computed before zooming, so disclosure cannot move ports. */
+export function layoutSubmap(
+  task: MapTask,
+  events: MapEvent[],
+  zh: boolean,
+  steps = buildSubmap(task, events, zh),
+  offset = 0,
+): SubmapLayout {
+  // Read downward within a column, then advance right. Equal spacing makes
+  // phase changes legible without leaving empty cells between sparse groups.
+  const pitchX = 340,
+    pitchY = 236;
+  let rows = 1,
+    best = Infinity;
+  for (let n = 1; n <= Math.min(3, steps.length); n++) {
+    const columns = Math.ceil(steps.length / n);
+    const width = Math.max(640, columns * 232 + (columns - 1) * 108 + 96);
+    const height = 408 + (n - 1) * pitchY;
+    const score =
+      Math.abs(Math.log(width / height / 1.6)) +
+      (0.6 * (columns * n - steps.length)) / (columns * n);
+    if (score < best) {
+      best = score;
+      rows = n;
+    }
+  }
+  const count = Math.ceil(steps.length / rows);
+  const width = Math.max(640, count * 232 + (count - 1) * 108 + 96);
+  const height = 408 + (rows - 1) * pitchY;
+  const left = (width - (count * 232 + (count - 1) * 108)) / 2;
+  const positions: SubmapLayout["positions"] = {};
+  const rounds = effectiveRounds(steps);
+  let previousRounds: number[] = [];
+  const columns = Array.from({ length: count }, (_, col) => {
+    const start = col * rows,
+      end = Math.min(start + rows, steps.length),
+      x = left + col * pitchX;
+    const slice = steps.slice(start, end);
+    slice.forEach((step, row) => {
+      positions[step.id] = { x, y: 180 + row * pitchY };
+    });
+    const from = offset + start + 1, to = offset + end;
+    const fallback = from === to
+      ? zh ? `环节 ${from}` : `Step ${from}`
+      : zh ? `环节 ${from}–${to}` : `Steps ${from}–${to}`;
+    const sliceRounds = roundsIn(rounds.slice(start, end));
+    const title = columnTitle(slice, sliceRounds, previousRounds, col === 0 && offset === 0, col === count - 1, zh, fallback);
+    previousRounds = sliceRounds;
+    return { id: `steps:${offset + start}`, title, x, y: 142 };
+  });
+  return {
+    steps,
+    links: submapLinks(steps, zh),
+    columns,
+    positions,
+    width,
+    height,
+  };
+}
+
+/** The round each step belongs to. A step recorded without a round number,
+ * such as a segment of the Engineer's work, belongs to the numbered round
+ * whose record follows it (a round's work is recorded when the round ends),
+ * or failing that to the last round seen. Planning steps and the outcome of
+ * the whole task belong to no round. */
+function effectiveRounds(steps: SubmapStep[]): (number | undefined)[] {
+  const numbered = steps.map((step) => (typeof step.round === "number" ? step.round : undefined));
+  let previous: number | undefined;
+  return steps.map((step, i) => {
+    if (numbered[i] !== undefined) {
+      previous = numbered[i];
+      return numbered[i];
+    }
+    if (step.kind === "result" || step.kind === "plan") return undefined;
+    const next = numbered.slice(i + 1).find((r) => r !== undefined);
+    return next ?? previous;
+  });
+}
+
+function roundsIn(rounds: (number | undefined)[]): number[] {
+  return [...new Set(rounds.filter((r): r is number => typeof r === "number"))].sort((a, b) => a - b);
+}
+
+/** A column is headed by the round of work it holds, so a reader sees the
+ * rhythm of the research (a round of work, its review, the next round) instead
+ * of a running count of cells. Columns before any round are the setting out,
+ * a trailing column without rounds is the outcome. */
+function columnTitle(
+  steps: SubmapStep[],
+  rounds: number[],
+  previousRounds: number[],
+  first: boolean,
+  last: boolean,
+  zh: boolean,
+  fallback: string,
+): string {
+  if (!rounds.length) {
+    if (first && steps.some((s) => s.kind === "plan")) return zh ? "起点" : "Setting out";
+    if (last && steps.some((s) => s.kind === "result")) return zh ? "结果" : "Outcome";
+    return fallback;
+  }
+  const lo = rounds[0], hi = rounds[rounds.length - 1];
+  const continued = rounds.length === 1 && previousRounds.length > 0 &&
+    previousRounds[previousRounds.length - 1] === lo;
+  let label = lo === hi
+    ? zh ? `第 ${lo} 轮` : `Round ${lo}`
+    : zh ? `第 ${lo}–${hi} 轮` : `Rounds ${lo}–${hi}`;
+  if (continued) label = zh ? `${label} · 续` : `${label} · cont.`;
+  // A column that also holds the planning before the first round, or the
+  // outcome after the last, says so.
+  if (first && steps[0].kind === "plan") label = zh ? `起点 · ${label}` : `Setting out · ${label}`;
+  if (last && steps[steps.length - 1].kind === "result") label = zh ? `${label} · 结果` : `${label} · Outcome`;
+  return label;
+}
+
+export function frameForSubmap(layout: Pick<SubmapLayout, "width" | "height">) {
+  const scale = Math.max(
+    600 / layout.height,
+    Math.min(1000 / layout.height, MAP_FRAME.width / layout.width),
+  );
+  return { width: layout.width * scale, height: layout.height * scale, scale };
+}
+
+/** A relationship label states what the record actually supports. */
+export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
+  const team = steps.filter((step) => step.source === 'team');
+  if (team.length) {
+    const ordinary = steps.filter((step) => step.source !== 'team');
+    const byId = new Map(team.map((step) => [step.id, step]));
+    const brief = ordinary.find((step) => step.source === 'task' && step.kind === 'plan');
+    const branches: SubmapLink[] = [];
+    for (const target of team) {
+      for (const dependency of target.deps || []) {
+        const source = byId.get(dependency);
+        if (!source || source.id === target.id || source.teamId !== target.teamId) continue;
+        branches.push({
+          id: `link:${source.id}:${target.id}`,
+          source: source.id,
+          target: target.id,
+          relation: 'dependency',
+          label: zh ? '前置任务' : 'Depends on',
+          explanation: zh ? `${target.title} 的任务记录明确依赖 ${source.title}。`
+            : `${target.title} explicitly depends on ${source.title} in its taskboard.`,
+          contextual: false,
+        });
+      }
+      if (brief && !target.deps?.length) branches.push({
+        id: `link:${brief.id}:${target.id}`,
+        source: brief.id,
+        target: target.id,
+        relation: 'assignment',
+        label: zh ? '任务分支' : 'Branch',
+        explanation: zh ? '该子任务属于当前主任务；此线不表示等待主任务完成。'
+          : 'This worker belongs to the current mission; the link does not require the parent to finish first.',
+        contextual: true,
+      });
+    }
+    // Parallel workers have only their recorded dependencies. Do not connect
+    // neighboring workers into an invented serial execution/review chain.
+    return [...submapLinks(ordinary, zh), ...branches];
+  }
+  return steps.slice(1).map((target, i) => {
+    const source = steps[i];
+    const sameEpisode = source.episode === target.episode;
+    const sameRound =
+      sameEpisode && source.round != null && source.round === target.round;
+    let relation: SubmapLink["relation"] = "record_order";
+    let label = zh ? "接着" : "then";
+    let explanation = zh
+      ? "同一任务的相邻观察，未确认直接因果或执行依赖。"
+      : "Adjacent observations of the same task; no causal dependency is asserted.";
+    if (source.kind === "plan" && ["plan", "execution"].includes(target.kind)) {
+      relation = "assignment";
+      label = zh
+        ? target.kind === "plan"
+          ? "纳入计划"
+          : "着手执行"
+        : target.kind === "plan"
+          ? "planned"
+          : "carried out";
+      explanation = zh
+        ? "同一任务的目标／计划与其执行记录关联。"
+        : "The task brief or plan is linked to execution of that same task.";
+    } else if (
+      source.kind === "execution" &&
+      target.kind === "review" &&
+      sameRound
+    ) {
+      relation = "review";
+      label = zh ? "交付审阅" : "reviewed";
+      explanation = zh
+        ? "同一个任务、同一执行段、同一轮次的执行与审查记录。"
+        : "Execution and review belong to the same task, episode and numbered round.";
+    } else if (
+      source.kind === "review" &&
+      target.kind === "revision" &&
+      target.eventIds.some((id) => source.eventIds.includes(id))
+    ) {
+      relation = "revision";
+      label = zh ? "提出修改" : "asked to change";
+      explanation = zh
+        ? "这条修订建议来自对应的审查记录。"
+        : "This revision was requested in the corresponding review.";
+    } else if (
+      source.kind === "revision" &&
+      target.kind === "execution" &&
+      sameEpisode &&
+      source.round != null &&
+      target.round != null &&
+      target.round > source.round
+    ) {
+      relation = "next_attempt";
+      label = zh ? "下一轮" : "next round";
+      explanation = zh
+        ? "修订建议之后出现了同一任务的下一轮执行；不表示建议的全部内容已被采纳。"
+        : "A later round follows the revision request; this does not certify every requested change was applied.";
+    } else if (target.kind === "result" && target.source === "task") {
+      relation = "snapshot";
+      label = zh ? "最终状态" : "ended as";
+      explanation = zh
+        ? "任务状态记录；部分执行过程可能缺失。"
+        : "Links to the captured state of this task; intermediate records may be missing.";
+    } else if (
+      target.kind === "result" &&
+      ["review", "execution", "revision"].includes(source.kind)
+    ) {
+      relation = "outcome";
+      label = zh ? "得到结果" : "led to";
+      explanation = zh
+        ? "同一任务的后续完成／失败事件，不等同于成功认证。"
+        : "A completion or failure event of this task, not a certification of success.";
+    }
+    const contextual =
+      ["record_order", "snapshot"].includes(relation) ||
+      source.source === "interval" ||
+      target.source === "interval";
+    if (source.source === "interval" || target.source === "interval")
+      explanation += zh
+        ? " 部分旧记录按唯一活动任务区间归属，因此使用虚线。"
+        : " Some legacy observations are associated by the sole active mission window, so this link is dashed.";
+    return {
+      id: `link:${source.id}:${target.id}`,
+      source: source.id,
+      target: target.id,
+      relation,
+      label,
+      explanation,
+      contextual,
+    };
+  });
+}
+
+/** Keep adjacent route/review dependencies together when a card has room. */
+function stepPages(steps: SubmapStep[]): SubmapStep[][] {
+  const pages: SubmapStep[][] = [];
+  let page: SubmapStep[] = [];
+  for (let index = 0; index < steps.length;) {
+    const group = [steps[index++]];
+    while (index < steps.length && group.length < MAX_STEPS_PER_CARD) {
+      const previous = group.at(-1)!;
+      const next = steps[index];
+      if (previous.source !== 'team' || next.source !== 'team'
+        || previous.teamId !== next.teamId || !next.deps?.includes(previous.id)) break;
+      group.push(next);
+      index++;
+    }
+    if (page.length && page.length + group.length > MAX_STEPS_PER_CARD) {
+      pages.push(page);
+      page = [];
+    }
+    page.push(...group);
+  }
+  if (page.length) pages.push(page);
+  return pages;
+}
+export interface FocusNode {
+  id: string;
+  position: { x: number; y: number };
+  hidden?: boolean;
+  width?: number;
+  height?: number;
+}
+
+/** Pure geometry. Empty-space zoom never opens a distant task. */
+export function zoomTarget(
+  nodes: FocusNode[],
+  viewport: { x: number; y: number; zoom: number },
+  point: { x: number; y: number },
+  center: { x: number; y: number },
+): string | null {
+  for (const p of [point, center]) {
+    const world = {
+      x: (p.x - viewport.x) / viewport.zoom,
+      y: (p.y - viewport.y) / viewport.zoom,
+    };
+    const found = nodes.find(
+      (n) =>
+        !n.hidden &&
+        world.x >= n.position.x &&
+        world.x <= n.position.x + (n.width ?? 1152) &&
+        world.y >= n.position.y &&
+        world.y <= n.position.y + (n.height ?? 824),
+    );
+    if (found) return found.id;
+  }
+  return null;
+}
+
+/** Size nested content before placing the outer graph. */
+export function layoutScene(
+  graph: MapGraph,
+  events: MapEvent[],
+  zh: boolean,
+  previous?: {
+    structure: string;
+    positions: Record<string, { x: number; y: number }>;
+  },
+  links = connectMap(graph, [], zh),
+  expandedMissions?: ReadonlySet<string>,
+) {
+  const cards: MapCard[] = [];
+  const layouts: Record<string, SubmapLayout> = {};
+  const continuations: MapLink[] = [];
+  const lastCard = new Map<string, string>();
+  for (const [ordinal, task] of graph.tasks.entries()) {
+    const steps = buildSubmap(task, events, zh);
+    const scope = task.status === "done" ? completionScope(latestMissionCompletion(task, events), zh) : "";
+    const pages = stepPages(steps);
+    const count = pages.length;
+    // A part's ordinal is stable when subsequent events arrive. Original task
+    // and step IDs remain the source of truth for references and model copy.
+    const idFor = (part: number) =>
+      part === 1 ? task.id : JSON.stringify(["part", task.id, part]);
+    let start = 0;
+    for (let part = 1; part <= count; part++) {
+      const slice = pages[part - 1];
+      const id = idFor(part);
+      cards.push({
+        id,
+        task,
+        ordinal: ordinal + 1,
+        part,
+        partCount: count,
+        start: start + 1,
+        end: start + slice.length,
+        totalSteps: steps.length,
+        previousId: part > 1 ? idFor(part - 1) : undefined,
+        nextId: part < count ? idFor(part + 1) : undefined,
+        completionScope: scope || undefined,
+      });
+      layouts[id] = layoutSubmap(task, events, zh, slice, start);
+      if (part > 1) {
+        const boundary = submapLinks([steps[start - 1], slice[0]], zh)[0];
+        continuations.push({
+          id: JSON.stringify(["continuation", task.id, part]),
+          source: idFor(part - 1),
+          target: id,
+          kind: "continuation",
+          label: boundary ? zh ? "继续" : "Continued" : zh ? '更多分支' : 'More branches',
+          evidence: boundary
+            ? `${task.title} · ${boundary.label} · ${steps[start - 1].title} → ${slice[0].title}`
+            : `${task.title} · ${zh ? '同一任务的其他分支，不表示串行依赖。' : 'Other branches of the same mission, without a serial dependency.'}`,
+        });
+      }
+      start += slice.length;
+    }
+    lastCard.set(task.id, idFor(count));
+  }
+  const allCards = cards.slice();
+  const visibleCard = new Map<string, string>();
+  if (expandedMissions) {
+    cards.length = 0;
+    for (const card of allCards) {
+      const expanded = expandedMissions.has(card.task.id);
+      visibleCard.set(card.id, expanded ? card.id : card.task.id);
+      if (!expanded && card.part !== card.partCount) continue;
+      const id = expanded ? card.id : card.task.id;
+      layouts[id] = layouts[card.id];
+      cards.push({
+        ...card, id,
+        historyCount: card.partCount - 1,
+        historyExpanded: expanded,
+      });
+    }
+  }
+  const resolve = (id: string) => visibleCard.get(id) ?? id;
+  const frames = Object.fromEntries(
+    cards.map(({ id }) => [id, frameForSubmap(layouts[id])]),
+  );
+  const displayLinks = [
+    ...links.map((e) => ({
+      ...e,
+      source: resolve(lastCard.get(e.source)!),
+      target: resolve(e.target),
+    })),
+    ...continuations.filter((link) => resolve(link.source) !== resolve(link.target)),
+  ];
+  const ids = cards.map((card) => card.id);
+  const structure = JSON.stringify([
+    ids.map((id) => [id, frames[id].width, frames[id].height]),
+    displayLinks.map((e) => [e.source, e.target, e.kind]),
+  ]);
+  // Streaming prose/status changes do not require another geometry search.
+  const positions =
+    previous?.structure === structure
+      ? previous.positions
+      : layoutGraph(ids, displayLinks, frames);
+  return { cards, allCards, links: displayLinks, layouts, positions, frames, structure };
+}

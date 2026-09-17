@@ -10,7 +10,7 @@ from pathlib import Path
 
 import portalocker
 
-from argus_skill.manager._session_ops import _acquire_session_lock, _ManagerSession
+from argus.manager._session_ops import _acquire_session_lock, _ManagerSession
 
 
 class _CountingRunner:

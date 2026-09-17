@@ -36,8 +36,9 @@ def test_dual_manifests_share_identity_version_and_skills() -> None:
     codex = _json(PLUGIN / ".codex-plugin" / "plugin.json")
     claude = _json(PLUGIN / ".claude-plugin" / "plugin.json")
 
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     assert codex["name"] == claude["name"] == "argus"
-    assert codex["version"] == claude["version"] == "0.1.1"
+    assert codex["version"] == claude["version"] == version
     assert codex["skills"] == claude["skills"] == "./skills/"
     assert codex["mcpServers"] == "./.mcp.json"
     assert claude["mcpServers"] == "./mcp/claude.json"
@@ -70,7 +71,7 @@ def test_host_mcp_wrappers_launch_the_same_bundled_command() -> None:
     )
     assert "ARGUS_PLUGIN_PYTHON" in node_launcher
     assert "venv', 'Scripts', 'python.exe" in node_launcher
-    assert "argus_skill.plugin.mcp_server" in node_launcher
+    assert "argus.plugin.mcp_server" in node_launcher
 
 
 def test_node_launcher_resolves_explicit_python_cross_platform() -> None:
@@ -91,7 +92,7 @@ def test_node_launcher_resolves_explicit_python_cross_platform() -> None:
 
     selected = json.loads(completed.stdout)
     assert Path(selected["command"]).resolve() == Path(sys.executable).resolve()
-    assert selected["args"] == ["-m", "argus_skill.plugin.mcp_server"]
+    assert selected["args"] == ["-m", "argus.plugin.mcp_server"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX signal propagation")
@@ -131,7 +132,7 @@ def test_python_package_installs_plugin_server_entrypoint() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert pyproject["project"]["scripts"]["argus-plugin-server"] == (
-        "argus_skill.plugin.mcp_server:main"
+        "argus.plugin.mcp_server:main"
     )
     assert "mcp>=1.20,<2" in pyproject["project"]["dependencies"]
     assert "pydantic-settings>=2.5.2,<2.15" in pyproject["project"]["dependencies"]
@@ -182,8 +183,9 @@ def test_target_disease_skill_routes_manager_to_medical_vertical() -> None:
         encoding="utf-8"
     )
 
-    assert "built-in `medical` vertical" in skill
-    assert "built-in `medical` domain" not in skill
+    assert "`medical` vertical" in skill
+    assert "argus-verticals" in skill
+    assert "built-in `medical`" not in skill
     assert "`research` workflow with" not in skill
     assert "Call `argus_message` exactly once" in skill
     assert "Do not dispatch while resolving the project" in skill
@@ -227,7 +229,7 @@ def test_one_command_installer_and_short_guide() -> None:
     assert "python3 -m venv" not in windows_installer_text
     assert "Node.js 22.12+" in windows_installer_text
     assert "ARGUS_PLUGIN_PYTHON" in launcher_text
-    assert "argus_skill.plugin.mcp_server" in launcher_text
+    assert "argus.plugin.mcp_server" in launcher_text
     assert "install.sh | sh -s -- codex" in guide_text
     assert "install.sh | sh -s -- claude" in guide_text
     assert "install.sh | sh -s -- all" in guide_text

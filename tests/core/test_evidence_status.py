@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.core.evidence_status import (
+from argus.core.evidence_status import (
     BASE_NON_IDEA_FAILURES,
     EvidenceContract,
     validate_evidence,
@@ -192,6 +192,6 @@ def test_contract_rejects_a_refuting_failure_it_does_not_define() -> None:
 
 
 def test_base_non_idea_failures_are_a_subset_of_base_classes() -> None:
-    from argus_skill.core.evidence_status import BASE_FAILURE_CLASSES
+    from argus.core.evidence_status import BASE_FAILURE_CLASSES
 
     assert BASE_NON_IDEA_FAILURES <= BASE_FAILURE_CLASSES

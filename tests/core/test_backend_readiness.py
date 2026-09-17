@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 
-from argus_skill.core import backend_readiness as readiness
+from argus.core import backend_readiness as readiness
 
 
 def _completed(
@@ -20,7 +20,7 @@ def _completed(
 
 
 def _fake_codex(monkeypatch, version: str, *, auth_returncode: int = 0) -> None:
-    from argus_skill.tools import capability_vault
+    from argus.tools import capability_vault
 
     monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/codex")
     monkeypatch.setattr(
@@ -77,6 +77,40 @@ def test_default_timeout_allows_slow_cli_cold_start(monkeypatch) -> None:
     assert report.ok
     assert seen_timeouts == [readiness.DEFAULT_READINESS_TIMEOUT_S]
     assert readiness.DEFAULT_READINESS_TIMEOUT_S == 30.0
+
+
+def test_explicit_backend_ignores_another_backends_persisted_runner(
+    monkeypatch,
+) -> None:
+    resolved: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        readiness,
+        "read_persisted_knobs",
+        lambda: {
+            "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+            "ARGUS_SKILL_RUNNER_BIN": "/opt/bin/dsh",
+        },
+    )
+
+    def resolve(backend: str, configured: str | None = None) -> str:
+        resolved.append((backend, configured))
+        return "/opt/bin/copilot"
+
+    monkeypatch.setattr(readiness, "resolve_runner_bin", resolve)
+    monkeypatch.setattr(
+        readiness,
+        "_run_text",
+        lambda *_args, **_kwargs: _completed("GitHub Copilot CLI 1.0.82\n"),
+    )
+
+    report = readiness.check_backend_readiness(
+        "copilot",
+        probe_auth=False,
+        env={},
+    )
+
+    assert report.ok
+    assert resolved == [("copilot", None)]
 
 
 def test_version_timeout_retries_once(monkeypatch) -> None:
@@ -174,7 +208,7 @@ def test_auth_failure_uses_exit_status(monkeypatch) -> None:
 def test_codex_custom_provider_can_own_auth_without_openai_login(
     monkeypatch,
 ) -> None:
-    from argus_skill.tools import capability_vault
+    from argus.tools import capability_vault
 
     _fake_codex(monkeypatch, readiness.CODEX_RECOMMENDED_VERSION, auth_returncode=1)
     monkeypatch.setattr(
@@ -342,11 +376,11 @@ def test_subscription_mode_never_loads_model_api_vault(monkeypatch) -> None:
 def test_model_api_mode_requires_configured_routes(monkeypatch) -> None:
     _fake_codex(monkeypatch, "0.144.5")
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.load_model_api_route",
+        "argus.tools.capability_vault.load_model_api_route",
         lambda _name: None,
     )
     monkeypatch.setattr(
-        "argus_skill.tools.capability_vault.default_vault_path",
+        "argus.tools.capability_vault.default_vault_path",
         lambda: "/tmp/model_api.json",
     )
 
@@ -401,6 +435,7 @@ def test_profile_persistence_only_accepts_ready_report(monkeypatch) -> None:
             "ARGUS_SKILL_RUNNER_BACKEND": "copilot",
             "ARGUS_SKILL_BACKEND_AUTH_MODE": "subscription_cli",
             "ARGUS_SKILL_BACKEND_VALIDATED_VERSION": "1.0.74",
+            "ARGUS_SKILL_COPILOT_TRIAL": "0",
         }
     ]
 

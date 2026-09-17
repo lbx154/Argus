@@ -46,7 +46,7 @@ export function NewDaemonModal({
   const armed = Boolean(objective.trim());
 
   return (
-    <Modal open={open} onClose={close} label={t('new.createDaemon')} width="max-w-xl">
+    <Modal open={open} onClose={close} label={t('new.createDaemon')} width="max-w-xl" showClose={false}>
       <form ref={formRef} onSubmit={(event) => void submit(event)}>
         <div className="flex items-start gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0 flex-1">
@@ -107,7 +107,7 @@ export function NewDaemonModal({
           <span className="text-[10px] text-ink-faint">{t('new.shortcut')}</span>
           <div className="flex gap-2">
             <button type="button" onClick={close} disabled={busy} className="rounded border border-line px-3 py-1.5 text-xs text-ink-dim hover:bg-surface disabled:opacity-40">{t('common.cancel')}</button>
-            <button type="submit" disabled={busy} className="rounded border border-blue-deep bg-blue-deep px-3 py-1.5 text-xs font-medium text-ink hover:bg-blue-deep/80 disabled:cursor-wait disabled:opacity-50">
+            <button type="submit" disabled={busy} className="rounded border border-blue/35 bg-blue/8 px-3 py-1.5 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:cursor-wait disabled:opacity-50">
               {busy ? t('new.creating') : armed ? t('new.createAndStart') : t('sidebar.create')}
             </button>
           </div>

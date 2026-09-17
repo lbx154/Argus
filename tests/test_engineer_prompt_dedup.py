@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from argus_skill.roles.prompts.engineer import build_mission_prompt
+import json
+
+import pytest
+
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.roles.prompts.engineer import build_mission_prompt
 
 _GROUNDING = (
     "\n\n## Manager project grounding (advisory evidence)\n"
@@ -75,9 +81,62 @@ def test_direct_team_prompt_uses_one_mission_contract() -> None:
 
     assert prompt.count(marker) == 1
     assert "## Engineer service" in prompt
-    assert "## Engineer receipt" in prompt
+    assert '## Engineer summary' in prompt
     assert "/skills/engineer" in prompt
     assert "## Original operator request" not in prompt
     assert prompt.count("FULL_VERTICAL_BANNER_MUST_NOT_REPEAT") == 1
     assert "## Shared project Wiki" not in prompt
-    assert len(prompt) < 3_500
+    assert len(prompt) < 4_500
+
+
+@pytest.mark.parametrize("compact_team", [False, True])
+@pytest.mark.parametrize("include_static", [False, True])
+def test_reviewer_guidance_survives_every_engineer_prompt_path(
+    compact_team: bool,
+    include_static: bool,
+) -> None:
+    feedback = "Preserve search.py on disk and run it before finishing."
+    operator_context = "Keep the work limited to the requested search."
+    prompt = build_mission_prompt(
+        task="Investigate the conjecture and provide a reproducible script.",
+        skill_text="",
+        next_action=feedback,
+        compact_team=compact_team,
+        include_static=include_static,
+        operator_context=operator_context,
+    )
+
+    assert prompt.count(feedback) == 1
+    assert prompt.count("## Reviewer guidance from prior round") == 1
+    assert prompt.index(feedback) < prompt.index(operator_context)
+
+
+def test_direct_fresh_retry_forwards_reviewer_action_through_skill_loop(tmp_path) -> None:
+    feedback = "Keep the requested search.py file on disk after verification."
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", CannedResponse(message="first result"))
+    backend.queue("reviewer", CannedResponse(message=json.dumps({
+        "status": "continue", "reason": "search.py is missing", "next_action": feedback,
+    })))
+    backend.queue("engineer-r2", CannedResponse(message="corrected result"))
+    backend.queue("reviewer", CannedResponse(message=json.dumps({
+        "status": "done", "reason": "requested files present", "next_action": "",
+    })))
+    loop = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            engineer_model="fixture", reviewer_model="fixture",
+            workflow_mode="direct", active_vertical="software",
+            role_session_policy="fresh", max_rounds=2,
+            require_independent_review=True, require_post_task_learning=False,
+            wiki_enabled=False, auto_init_wiki=False,
+        ),
+    )
+
+    outcome = loop.run("Search the finite range and provide the requested script.", workdir=tmp_path)
+
+    assert outcome.successful
+    second_prompt = next(prompt for label, prompt, _ in backend.history if label == "engineer-r2")
+    assert second_prompt.count(feedback) == 1

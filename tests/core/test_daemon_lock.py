@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from argus_skill.core.daemon_lock import (
+from argus.core.daemon_lock import (
     DaemonAlreadyRunning,
     acquire_global_daemon_lock,
     is_pid_running,

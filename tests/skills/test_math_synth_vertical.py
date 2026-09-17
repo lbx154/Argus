@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS, persist_vertical
-from argus_skill.verticals import builtin_verticals
-from argus_skill.verticals._base import load_vertical_contract
+from argus.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS, persist_vertical
+from argus.verticals import builtin_verticals
+from argus.verticals._base import load_vertical_contract
 
 
 def test_math_synth_is_registered_with_metric_contract(tmp_path) -> None:
@@ -22,7 +22,7 @@ def test_math_synth_is_registered_with_metric_contract(tmp_path) -> None:
 
 
 def test_math_synth_stage_completion_requires_metric_and_report(tmp_path) -> None:
-    from argus_skill.verticals.math_synth import stages
+    from argus.verticals.math_synth import stages
 
     assert "summary.json" in " ".join(stages.stage_completion_issues("measure", tmp_path))
 

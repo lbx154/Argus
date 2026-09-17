@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.store import Skill, SkillStore
+from argus.skills.store import Skill, SkillStore
 
 
 def test_save_requires_explicit_semantic_path(tmp_path: Path) -> None:

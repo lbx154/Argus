@@ -175,7 +175,7 @@ test('replaceable role progress stays live until a later event settles it', () =
     { type: 'round.main.completed', round_index: 1 },
   ] as never));
   assert.equal(settled.live, null);
-  assert.equal(settled.committed.at(-1)?.r.text, 'round 1 completed');
+  assert.equal(settled.committed.at(-1)?.r.text, 'finished round 1 of work');
 });
 
 test('renderEvent surfaces the guardian signals that actually persist to the feed', () => {
@@ -212,7 +212,7 @@ test('provider quota denial is visible in the default feed', () => {
     reason: 'global Codex daily call cap 300 reached',
   });
   assert.equal(rendered?.tone, 'warn');
-  assert.match(rendered?.text ?? '', /codex request blocked/);
+  assert.match(rendered?.text ?? '', /request to codex was held back/);
   assert.match(rendered?.text ?? '', /daily call cap/);
 });
 

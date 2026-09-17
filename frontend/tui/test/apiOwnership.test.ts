@@ -20,7 +20,7 @@ const BASE_RECORD: ApiOwnershipRecord = {
   pid: 4321,
   host: '127.0.0.1',
   port: 8899,
-  backendBin: '/repo/.venv/bin/argus-skill',
+  backendBin: '/repo/.venv/bin/argus',
   startedAt: '2026-07-14T00:00:00Z',
 };
 
@@ -67,7 +67,7 @@ test('accepts only a matching live Argus WebAPI record', async () => {
     pid: 4321,
     host: '127.0.0.1',
     port: 8899,
-    backendBin: '/repo/.venv/bin/argus-skill',
+    backendBin: '/repo/.venv/bin/argus',
     startedAt: '2026-07-14T00:00:00Z',
   };
   await writeFile(ownerFile, JSON.stringify(record));
@@ -92,14 +92,14 @@ test('rejects an unknown or mismatched process', async () => {
     pid: 4321,
     host: '127.0.0.1',
     port: 8899,
-    backendBin: '/repo/.venv/bin/argus-skill',
+    backendBin: '/repo/.venv/bin/argus',
     startedAt: '2026-07-14T00:00:00Z',
   }));
   assert.equal(await readOwnedApi({
     path: ownerFile,
     host: '127.0.0.1',
     port: 8899,
-    backendBin: '/repo/.venv/bin/argus-skill',
+    backendBin: '/repo/.venv/bin/argus',
     inspect: async () => ({
       alive: true,
       argv: ['/usr/bin/python', '-m', 'http.server', '8899'],
@@ -124,7 +124,7 @@ test('accepts a matching macOS ps command line', async () => {
 });
 
 test('accepts a matching macOS command line when the backend path contains spaces', async () => {
-  const record = { ...BASE_RECORD, backendBin: '/Users/Alex Smith/Argus/.venv/bin/argus-skill' };
+  const record = { ...BASE_RECORD, backendBin: '/Users/Alex Smith/Argus/.venv/bin/argus' };
   const ownerFile = await tmpOwner(record);
   const owned = await readOwnedApi({
     path: ownerFile,
@@ -143,7 +143,7 @@ test('accepts a matching macOS command line when the backend path contains space
 test('accepts a quoted case-insensitive Windows console-script command line', async () => {
   const record = {
     ...BASE_RECORD,
-    backendBin: 'G:\\Code Space\\Argus\\.venv\\Scripts\\argus-skill.exe',
+    backendBin: 'G:\\Code Space\\Argus\\.venv\\Scripts\\argus.exe',
   };
   const ownerFile = await tmpOwner(record);
   const owned = await readOwnedApi({
@@ -157,7 +157,7 @@ test('accepts a quoted case-insensitive Windows console-script command line', as
       argv: [],
       commandLine:
         '"G:\\CODE SPACE\\ARGUS\\.venv\\Scripts\\python.exe" '
-        + '"g:\\code space\\argus\\.venv\\scripts\\ARGUS-SKILL.EXE" '
+        + '"g:\\code space\\argus\\.venv\\scripts\\ARGUS.EXE" '
         + `--web --web-host ${record.host} --web-port ${record.port}`,
     }),
   });
@@ -241,7 +241,7 @@ test('rejects backend binary path mismatch', async () => {
     path: ownerFile,
     host: BASE_RECORD.host,
     port: BASE_RECORD.port,
-    backendBin: '/other/.venv/bin/argus-skill',
+    backendBin: '/other/.venv/bin/argus',
     inspect: aliveInspect,
   }), null);
 });
@@ -416,4 +416,100 @@ test('removeOwnershipRecord deletes the file', async () => {
 test('removeOwnershipRecord is a no-op when file does not exist', async () => {
   const root = await mkdtemp(join(tmpdir(), 'argus-owner-missing-'));
   await assert.doesNotReject(() => removeOwnershipRecord(join(root, 'owner.json')));
+});
+
+// ── argus / argus-skill launcher equivalence (2026-09-14 rename, one release) ──
+
+test('sameBackendBin treats sibling argus and argus-skill launchers as one backend', async () => {
+  const { sameBackendBin, backendBinAliases } = await import('../src/apiOwnership.js');
+  assert.equal(sameBackendBin('/repo/.venv/bin/argus-skill', '/repo/.venv/bin/argus', 'linux'), true);
+  assert.equal(sameBackendBin('/repo/.venv/bin/argus', '/repo/.venv/bin/argus', 'linux'), true);
+  assert.equal(sameBackendBin('/other/.venv/bin/argus-skill', '/repo/.venv/bin/argus', 'linux'), false);
+  assert.equal(sameBackendBin('/repo/.venv/bin/argus-doctor', '/repo/.venv/bin/argus', 'linux'), false);
+  assert.equal(sameBackendBin('/repo/.venv/bin/Argus', '/repo/.venv/bin/argus', 'linux'), false);
+  assert.equal(
+    sameBackendBin('C:\\repo\\.venv\\Scripts\\ARGUS-SKILL.EXE', 'c:\\repo\\.venv\\Scripts\\argus.exe', 'win32'),
+    true,
+  );
+  assert.deepEqual(
+    backendBinAliases('/repo/.venv/bin/argus', 'linux'),
+    ['/repo/.venv/bin/argus', '/repo/.venv/bin/argus-skill'],
+  );
+  assert.deepEqual(
+    backendBinAliases('C:\\repo\\.venv\\Scripts\\argus.exe', 'win32'),
+    ['C:\\repo\\.venv\\Scripts\\argus.exe', 'C:\\repo\\.venv\\Scripts\\argus-skill.exe'],
+  );
+  assert.deepEqual(backendBinAliases('argus-skill', 'linux'), ['argus-skill', 'argus']);
+  assert.deepEqual(backendBinAliases('/opt/argus/argus-core', 'linux'), ['/opt/argus/argus-core']);
+});
+
+test('an ownership record written by the pre-rename argus-skill launcher is owned by the sibling argus launcher', async () => {
+  const record = { ...BASE_RECORD, backendBin: '/repo/.venv/bin/argus-skill' };
+  const ownerFile = await tmpOwner(record);
+  const owned = await readOwnedApi({
+    path: ownerFile,
+    host: record.host,
+    port: record.port,
+    backendBin: '/repo/.venv/bin/argus',
+    platform: 'linux',
+    inspect: async () => ({
+      alive: true,
+      argv: ['/repo/.venv/bin/argus-skill', '--web', '--web-port', String(record.port)],
+    }),
+  });
+  assert.equal(owned?.pid, record.pid);
+});
+
+test('a current record is owned while the live backend still runs as argus-skill', async () => {
+  const ownerFile = await tmpOwner(BASE_RECORD);
+  const owned = await readOwnedApi({
+    path: ownerFile,
+    host: BASE_RECORD.host,
+    port: BASE_RECORD.port,
+    backendBin: BASE_RECORD.backendBin,
+    platform: 'linux',
+    inspect: async () => ({
+      alive: true,
+      argv: ['/repo/.venv/bin/argus-skill', '--web', '--web-port', String(BASE_RECORD.port)],
+    }),
+  });
+  assert.equal(owned?.pid, BASE_RECORD.pid);
+});
+
+test('sibling launchers must live in the same directory to count as one backend', async () => {
+  const record = { ...BASE_RECORD, backendBin: '/other/.venv/bin/argus-skill' };
+  const ownerFile = await tmpOwner(record);
+  const owned = await readOwnedApi({
+    path: ownerFile,
+    host: record.host,
+    port: record.port,
+    backendBin: '/repo/.venv/bin/argus',
+    platform: 'linux',
+    inspect: aliveInspect,
+  });
+  assert.equal(owned, null);
+});
+
+test('Windows: a quoted ARGUS-SKILL.EXE command line satisfies an argus.exe record', async () => {
+  const record = {
+    ...BASE_RECORD,
+    backendBin: 'G:\\Code Space\\Argus\\.venv\\Scripts\\argus.exe',
+  };
+  const ownerFile = await tmpOwner(record);
+  const owned = await readOwnedApi({
+    path: ownerFile,
+    host: record.host,
+    port: record.port,
+    backendBin: record.backendBin,
+    platform: 'win32',
+    inspect: async () => ({
+      alive: true,
+      argv: [],
+      commandLine:
+        '"G:\\CODE SPACE\\ARGUS\\.venv\\Scripts\\python.exe" '
+        + '"g:\\code space\\argus\\.venv\\scripts\\ARGUS-SKILL.EXE" '
+        + `--web --web-host ${record.host} --web-port ${record.port}`,
+    }),
+  });
+  assert.equal(owned?.pid, record.pid);
 });

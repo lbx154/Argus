@@ -4,13 +4,13 @@ from typing import Any
 
 import pytest
 
-from argus_skill.life.router import (
+from argus.life.router import (
     _IDENTITY_GUARD,
     build_route_prompt,
     build_simple_prompt,
     classify_route,
 )
-from argus_skill.roles.prompts.manager import build_quick_reply_prompt
+from argus.roles.prompts.manager import build_quick_reply_prompt
 
 
 class _FakeResult:
@@ -73,12 +73,11 @@ def test_route_prompt_has_two_labels_and_safe_default() -> None:
     p = build_route_prompt("do a thing")
     assert "SELF" in p and "TEAM" in p
     assert "do a thing" in p
-    assert "Argus itself" in p
-    assert "Use SELF unless the requested outcome genuinely needs the team" in p
-    assert "code/project modification" in p
-    assert "multiple coordinated artifacts" in p
-    assert "guided reading/tutoring" in p
-    assert "one low-risk summary/note/report artifact" in p
+    assert "Default SELF" in p
+    assert "one agent can verify" in p
+    assert "Simple work uses SELF+vertical" in p
+    assert "stages/reviewer defaults never force TEAM" in p
+    assert "required independent review or high-impact operations" in p
 
 
 def test_backend_exception_is_safe_default() -> None:
@@ -105,7 +104,7 @@ def test_reads_last_of_agent_messages_when_no_last_message() -> None:
 
 def test_build_quick_reply_prompt_names_the_worker_and_guards_identity() -> None:
     out = build_quick_reply_prompt(objective="你好")
-    from argus_skill.core.role_config import runner_backend_label
+    from argus.core.role_config import runner_backend_label
 
     assert "You are Argus Manager" in out
     assert f"{runner_backend_label()} worker" in out
@@ -140,11 +139,11 @@ def test_build_simple_prompt_is_minimal() -> None:
     out = build_simple_prompt(objective="17*23=?")
     assert "17*23" in out
     assert "Argus Manager" in out
-    from argus_skill.core.role_config import runner_backend_label
+    from argus.core.role_config import runner_backend_label
 
     assert f"{runner_backend_label()} worker" in out
     assert "identify only as Argus Manager" in out
-    assert "do not invent extra tasks or artifacts" in out
+    assert 'do not invent extra tasks or outputs' in out
     assert "ask at most one question" in out
     assert "then wait" in out
     assert "time-by-category cross-slices" in out

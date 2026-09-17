@@ -1,4 +1,5 @@
 import type { MissionOutcomeDimensions, MissionView } from '../../../core/src/types';
+import { agentRoleName, isAgentRole } from './agentRoles';
 
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
 
@@ -24,9 +25,10 @@ const STATUS_KEYS: Record<string, string> = {
   continue: 'label.status.needsChanges',
   skipped: 'label.status.skipped',
   paused: 'label.status.paused',
+  paused_cost: 'label.outcome.costUnreconciled',
   stopped: 'label.status.paused',
-  cancelled: 'label.status.paused',
-  aborted: 'label.status.paused',
+  cancelled: 'label.status.cancelled',
+  aborted: 'label.status.cancelled',
   not_started: 'label.status.waiting',
   available: 'label.status.available',
   absent: 'label.status.unavailable',
@@ -36,10 +38,6 @@ const STATUS_KEYS: Record<string, string> = {
 };
 
 const ROLE_KEYS: Record<string, string> = {
-  manager: 'label.role.coordinator',
-  planner: 'label.role.planner',
-  engineer: 'label.role.engineer',
-  reviewer: 'label.role.reviewer',
   system: 'label.role.argus',
   operator: 'label.role.you',
 };
@@ -120,6 +118,7 @@ const CERTIFICATION_KEYS: Record<string, string> = {
 const INTERRUPTION_KEYS: Record<string, string> = {
   budget_exhausted: 'label.outcome.budgetPaused',
   budget_pause: 'label.outcome.budgetPaused',
+  cost_unreconciled: 'label.outcome.costUnreconciled',
   operator_input_required: 'label.outcome.waitingForYou',
   operator_abort: 'label.outcome.stoppedByYou',
   operator_pause: 'label.outcome.pausedByYou',
@@ -144,7 +143,8 @@ export function statusLabel(value: string | null | undefined, t: Translate): str
 }
 
 export function roleLabel(value: string | null | undefined, t: Translate): string {
-  return t(ROLE_KEYS[String(value ?? '').toLowerCase()] ?? 'label.role.argus');
+  const role = String(value ?? '').toLowerCase();
+  return isAgentRole(role) ? agentRoleName(role, t) : t(ROLE_KEYS[role] ?? 'label.role.argus');
 }
 
 export function workKindLabel(value: string | null | undefined, t: Translate): string {

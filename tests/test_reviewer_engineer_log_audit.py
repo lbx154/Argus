@@ -23,14 +23,14 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.engineer.runner import (
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus_skill.reviewer import Reviewer, ReviewerConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.reviewer import Reviewer, ReviewerConfig
+from argus.skills.vertical_select import persist_vertical
 
 _LOG_PATH = "/abs/global/projects/deadbeef/events.jsonl"
 _CALL_ID = "0123456789abcdef"
@@ -50,7 +50,7 @@ def _build(
     if monkeypatch is not None:
         if workflow_mode is not None:
             monkeypatch.setattr(
-                "argus_skill.skills.vertical_select.resolve_evidence_mode",
+                "argus.skills.vertical_select.resolve_evidence_mode",
                 lambda _root: workflow_mode,
             )
         if measured:
@@ -119,7 +119,7 @@ def test_reviewer_rejects_retroactive_audit_reconstruction(monkeypatch) -> None:
 
     assert "operator mutation freeze or append-only requirement" in p
     assert "compare directive order with file-write, install, and command events" in p
-    assert "cannot make an overwritten or reconstructed ledger contemporaneous" in p
+    assert 'cannot make an overwritten or reconstructed record contemporaneous' in p
     assert "unless the cited objective text states it" in p
     assert "missing byte-faithful command" in p
 
@@ -369,7 +369,7 @@ def test_empty_config_path_threads_empty_string(tmp_path: Path) -> None:
 def test_checkpoint_path_is_internal_and_directly_editable(tmp_path: Path) -> None:
     import argparse
 
-    from argus_skill.apps._runtime import _checkpoint_path_for
+    from argus.apps._runtime import _checkpoint_path_for
 
     session_dir = tmp_path / "projects" / "s-1d7da0e9"
     workdir = tmp_path / "some-worktree"
@@ -385,12 +385,12 @@ def test_checkpoint_path_is_internal_and_directly_editable(tmp_path: Path) -> No
 # The reviewer skill exists in the reviewer pool
 # --------------------------------------------------------------------------- #
 def test_engineer_process_audit_skill_exists_in_reviewer_pool() -> None:
-    from argus_skill.skills.builtins import iter_builtin_skill_texts
+    from argus.skills.builtins import iter_builtin_skill_texts
 
     names = {fn for fn, _ in iter_builtin_skill_texts()}
     assert "reviewer/engineer-process-audit.md" in names
 
-    from argus_skill.skills.missions import ReviewerMission
+    from argus.skills.missions import ReviewerMission
 
     # must NOT be hard-excluded, or the matcher could never surface it
     assert "engineer-process-audit.md" not in ReviewerMission.default_exclude

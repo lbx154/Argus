@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import ReviewDecision
-from argus_skill.manager.stage_decider import (
+from argus.core.models import ReviewDecision
+from argus.manager.stage_decider import (
     build_stage_decision_prompt,
     fallback_empty_stage_decision,
     final_stage_completion_decision,
@@ -44,8 +44,23 @@ def test_prompt_uses_minimal_reviewer_verdict() -> None:
         assert removed not in prompt
 
 
+def test_direct_stage_prompt_completes_instead_of_advancing() -> None:
+    prompt = build_stage_decision_prompt(
+        current_stage="idea",
+        next_stage="build",
+        earlier_stages=(),
+        checklist_md="Return one independently reviewed idea.",
+        review=_review(),
+        allow_early_completion=True,
+    )
+
+    assert "COMPLETE at the current stage" in prompt
+    assert "Do not ADVANCE merely because later stages exist" in prompt
+    assert "COMPLETE only at the final stage" not in prompt
+
+
 def test_completion_report_prompt_contains_all_stage_information() -> None:
-    from argus_skill.roles.prompts.manager import (
+    from argus.roles.prompts.manager import (
         build_project_completion_report_prompt,
     )
 
@@ -129,13 +144,17 @@ def test_parse_advance_still_rejects_current_or_earlier_stage() -> None:
         assert decision.diagnostic == "illegal_advance_target"
 
 
-def test_research_survey_can_advance_directly_to_draft(tmp_path) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+def test_research_advances_from_idea_to_experiment(tmp_path) -> None:
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
+    (workdir / "RESEARCH_NOTES.md").write_text(
+        "# Research notes — Idea stage\n\nSelected idea.",
+        encoding="utf-8",
+    )
     persist_vertical(state_root, "research", workflow_mode="staged")
 
     decision = Manager(
@@ -149,9 +168,8 @@ def test_research_survey_can_advance_directly_to_draft(tmp_path) -> None:
         open_ended=False,
         run_exec=lambda _prompt: SimpleNamespace(
             last_agent_message=(
-                '{"action":"advance","target_stage":"draft",'
-                '"reason":"literature synthesis is certified; this survey has no '
-                'experiment, benchmark, run, or empirical analysis"}'
+                '{"action":"advance","target_stage":"experiment",'
+                '"reason":"the selected idea and handoff are complete"}'
             )
         ),
     )
@@ -160,33 +178,31 @@ def test_research_survey_can_advance_directly_to_draft(tmp_path) -> None:
         (state_root / ".argus" / "PIPELINE_STATE.json").read_text()
     )
     assert decision.action == "advance"
-    assert decision.target_stage == "draft"
+    assert decision.target_stage == "experiment"
     assert decision.source == "manager_llm"
-    assert state["current_stage"] == "draft"
-    assert state["stages"]["research"]["status"] == "done"
-    assert state["stage_history"][-1]["skipped_stages"] == [
-        "plan",
-        "benchmark",
-        "run",
-        "analysis",
-    ]
-    for stage in ("plan", "benchmark", "run", "analysis"):
-        assert state["stages"][stage]["status"] == "skipped"
+    assert state["current_stage"] == "experiment"
+    assert state["stages"]["idea"]["status"] == "done"
 
 
-def test_finite_research_can_complete_and_skip_all_later_stages(tmp_path) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+def test_direct_idea_only_research_can_complete_at_idea(tmp_path) -> None:
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "research", workflow_mode="direct")
+    persist_vertical(
+        state_root,
+        "research",
+        workflow_mode="direct",
+        research_target_level="exploratory",
+        research_direction_mode="broad",
+    )
     review = _review()
     review.research_result = {
-        "result_class": "literature_review",
+        "result_class": "new_candidate",
         "correctness_status": "verified",
-        "novelty_status": "known",
+        "novelty_status": "verified_new",
         "significance_status": "exploratory",
         "statement_fidelity_status": "verified",
         "evidence": ["independent review"],
@@ -204,7 +220,7 @@ def test_finite_research_can_complete_and_skip_all_later_stages(tmp_path) -> Non
         open_ended=False,
         run_exec=lambda _prompt: SimpleNamespace(
             last_agent_message=(
-                '{"action":"complete","target_stage":"research",'
+                '{"action":"complete","target_stage":"idea",'
                 '"reason":"the finite reviewed objective is complete"}'
             )
         ),
@@ -214,18 +230,63 @@ def test_finite_research_can_complete_and_skip_all_later_stages(tmp_path) -> Non
         (state_root / ".argus" / "PIPELINE_STATE.json").read_text()
     )
     assert decision.action == "complete"
-    assert decision.source == "manager_llm"
-    assert state["current_stage"] == "research"
-    assert state["stages"]["research"]["status"] == "done"
-    for stage in ORDER[1:]:
-        assert state["stages"][stage]["status"] == "skipped"
+    assert state["current_stage"] == "idea"
+    assert state["stages"]["idea"]["status"] == "done"
+
+
+def test_publishable_idea_only_can_complete_without_paper_artifacts(
+    tmp_path,
+) -> None:
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
+
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    persist_vertical(
+        state_root,
+        "research",
+        workflow_mode="direct",
+        research_target_level="publishable",
+        research_direction_mode="broad",
+    )
+    review = _review()
+    review.research_result = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "verified_new",
+        "significance_status": "publishable",
+        "statement_fidelity_status": "verified",
+        "evidence": ["primary-source novelty review"],
+        "limitations": [],
+    }
+
+    decision = Manager(
+        project_root=state_root,
+        execution_workdir=workdir,
+        runner=object(),
+    ).decide_stage_transition(
+        review=review,
+        project_root=state_root,
+        mission_scope="bounded",
+        open_ended=False,
+        run_exec=lambda _prompt: SimpleNamespace(
+            last_agent_message=(
+                '{"action":"complete","target_stage":"idea",'
+                '"reason":"the requested publication-quality idea is complete"}'
+            )
+        ),
+    )
+
+    assert decision.action == "complete"
+    assert not (workdir / "paper").exists()
 
 
 def test_bounded_stage_mission_cannot_complete_staged_research_project(
     tmp_path,
 ) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
@@ -253,8 +314,8 @@ def test_bounded_stage_mission_cannot_complete_staged_research_project(
     state = json.loads(
         (state_root / ".argus" / "PIPELINE_STATE.json").read_text()
     )
-    assert state["current_stage"] == "research"
-    assert state.get("stages", {}).get("research", {}).get("status") != "done"
+    assert state["current_stage"] == "idea"
+    assert state.get("stages", {}).get("idea", {}).get("status") != "done"
 
 
 def test_parse_rollback_requires_earlier_stage() -> None:
@@ -336,8 +397,8 @@ def test_no_second_machine_value_guard_overrides_manager() -> None:
     """
     import inspect
 
-    from argus_skill.manager import stage_decider
-    from argus_skill.manager._stage_ops import _StageDecisionMixin
+    from argus.manager import stage_decider
+    from argus.manager._stage_ops import _StageDecisionMixin
 
     assert not hasattr(stage_decider, "enforce_scientific_stage_guard")
 
@@ -356,13 +417,13 @@ def test_no_second_machine_value_guard_overrides_manager() -> None:
 def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
     tmp_path,
 ) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "speedrun", workflow_mode="staged")
+    persist_vertical(state_root, "math_synth", workflow_mode="staged")
 
     prompts: list[str] = []
 
@@ -406,7 +467,7 @@ def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
 def test_kernel_direct_vertical_has_no_process_completion_hook(
     tmp_path,
 ) -> None:
-    from argus_skill.verticals._base import (
+    from argus.verticals._base import (
         load_vertical,
         vertical_stage_completion_issues,
     )
@@ -429,10 +490,10 @@ def test_final_stage_completion_requires_manager_decision(
     manager_action: str,
     expected_status: str,
 ) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.skills.stage_machine import completion_contract_fingerprint
-    from argus_skill.skills.vertical_select import persist_vertical
-    from argus_skill.verticals._base import (
+    from argus.manager import Manager
+    from argus.skills.stage_machine import completion_contract_fingerprint
+    from argus.skills.vertical_select import persist_vertical
+    from argus.verticals._base import (
         load_vertical,
         vertical_completion_contract_version,
     )

@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 
-from argus_skill.agent_cli._process_control import (
+from argus.agent_cli._process_control import (
     background_subprocess_kwargs,
     windows_hidden_subprocess_kwargs,
 )

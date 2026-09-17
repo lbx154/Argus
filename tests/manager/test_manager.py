@@ -10,19 +10,19 @@ from contextlib import contextmanager
 
 import pytest
 
-from argus_skill.manager import Division, Manager
-from argus_skill.manager.domain_author import (
+from argus.manager import Division, Manager
+from argus.manager.domain_author import (
     VerticalDecision,
     VerticalDecisionError,
     parse_vertical_decision,
 )
-from argus_skill.roles.prompts.manager import (
+from argus.roles.prompts.manager import (
     build_fast_vertical_decision_prompt,
     build_vertical_decision_prompt,
 )
-from argus_skill.skills.stage_machine import ChecklistItem
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
+from argus.skills.stage_machine import ChecklistItem
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
 
 class _DecisionResult:
@@ -63,6 +63,38 @@ class _SequenceDecisionRunner:
             "run_label": run_label,
         })
         return _DecisionResult(json.dumps(next(self._decisions)))
+
+
+def test_copilot_grounding_and_retry_do_not_require_optional_context_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
+
+    class OlderCliRunner:
+        _backend_name = "copilot"
+
+        def __init__(self):
+            self.calls = []
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.calls.append((run_label, options))
+            # No --context is required for default context. Native older CLI
+            # installations must still reach both grounded provider turns.
+            assert "--context" not in (options.extra_args or [])
+            return _DecisionResult(json.dumps({
+                "choice": "new", "vertical": "custom_runtime", "workflow_mode": "staged",
+                "execution_task": "Build the custom runtime.", "confidence": 0.8,
+                "rationale": "repository-specific capability",
+            }), tool_activity_observed=len(self.calls) == 2)
+
+    runner = OlderCliRunner()
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "Build a project-specific runtime not covered by a built-in capability."
+    )
+    assert decision.vertical == "custom_runtime"
+    assert [label for label, _ in runner.calls] == [
+        "manager-classify-grounded", "manager-classify-grounded-retry",
+    ]
+    assert runner.calls[0][1] is runner.calls[1][1]
 
 
 def test_contextual_route_retries_missing_standalone_execution_task(
@@ -154,6 +186,7 @@ def test_standalone_route_retries_project_domain_in_domain_field(
         "manager-classify-field-retry",
     ]
     assert "project domain" in runner.calls[1]["prompt"]
+    assert "RESEARCH_TARGET_LEVEL" in runner.calls[1]["prompt"]
 
 
 def test_standalone_route_retry_names_the_failed_contract_field(
@@ -309,12 +342,12 @@ def test_divide_existing_research(tmp_path):
     assert division.kind == "research"
 
 
-def test_divide_existing_nanochat_is_optimize(tmp_path):
+def test_divide_existing_math_synth_is_optimize(tmp_path):
     division = Manager(
         project_root=tmp_path,
-        runner=_existing("nanochat"),
-    ).divide("minimize val_bpb on the nanochat train.py")
-    assert division.vertical == "nanochat"
+        runner=_existing("math_synth"),
+    ).divide("maximize the pass@4-minus-pass@1 gap of the synthesized set")
+    assert division.vertical == "math_synth"
     assert division.kind == "optimize"
 
 
@@ -443,33 +476,33 @@ def test_manager_without_backend_cannot_be_bypassed_by_vertical_env(
         Manager(project_root=tmp_path).decide_vertical("prove the lemma")
 
 
-def test_plan_stages_research_is_the_8_stage_pipeline():
+def test_plan_stages_research_is_the_four_stage_pipeline():
     stages = Manager().plan_stages("research")
     assert stages == list(RESEARCH_STAGES)
-    assert stages[0] == "research" and stages[-1] == "submission"
-    assert len(stages) == 8
+    assert stages[0] == "idea" and stages[-1] == "review"
+    assert len(stages) == 4
 
 
 def test_plan_stages_propagates_vertical_load_failure(monkeypatch):
     """A vertical that fails to resolve/import must PROPAGATE, not silently
     substitute the canonical/paper stage list — matches divide()'s and
     LifeSupervisor._resolve_vertical_once's documented FAIL-HARD contract.
-    Silently degrading here would turn e.g. a kernelbench mission into the
+    Silently degrading here would turn e.g. a math_synth mission into the
     paper pipeline with no visible error."""
-    from argus_skill.verticals import _base
+    from argus.verticals import _base
 
     def _boom(name, project_root=None):
         raise RuntimeError("simulated broken vertical import")
 
     monkeypatch.setattr(_base, "load_vertical", _boom)
     with pytest.raises(RuntimeError, match="simulated broken vertical import"):
-        Manager().plan_stages("kernelbench")
+        Manager().plan_stages("math_synth")
 
 
 def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
     """Missing stages fail visibly instead of becoming another vertical."""
-    from argus_skill.core.vertical_contract import VerticalContractError
-    from argus_skill.verticals import _base
+    from argus.core.vertical_contract import VerticalContractError
+    from argus.verticals import _base
 
     class _BareModule:
         pass
@@ -480,13 +513,13 @@ def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
 
 
 def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path):
-    mgr = Manager(project_root=tmp_path, runner=_existing("nanochat"))
-    d = mgr.divide("minimize val_bpb on nanochat train.py")
+    mgr = Manager(project_root=tmp_path, runner=_existing("math_synth"))
+    d = mgr.divide("maximize the pass-gap of the synthesized problem set")
     assert isinstance(d, Division)
-    assert d.vertical == "nanochat" and d.kind == "optimize"
+    assert d.vertical == "math_synth" and d.kind == "optimize"
     # persisted into PIPELINE_STATE.json — the supervisor reads & trusts this
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert state["vertical"] == "nanochat"
+    assert state["vertical"] == "math_synth"
 
 
 def test_math_divide_persists_manager_owned_research_target(
@@ -554,7 +587,7 @@ def test_vertical_commit_persists_generic_research_target_contract(
 ) -> None:
     from types import SimpleNamespace
 
-    from argus_skill.verticals import _base
+    from argus.verticals import _base
 
     monkeypatch.setattr(
         _base,
@@ -577,7 +610,7 @@ def test_vertical_commit_persists_generic_research_target_contract(
     manager = Manager(project_root=tmp_path)
     decision = VerticalDecision(
         choice="existing",
-        vertical="physics",
+        vertical="math",
         execution_task="derive the requested result",
         research_target_level="doctoral",
     )
@@ -590,7 +623,7 @@ def test_vertical_commit_persists_generic_research_target_contract(
     state = json.loads(
         (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
     )
-    assert division.vertical == "physics"
+    assert division.vertical == "math"
     assert state["research_target_level"] == "doctoral"
     assert state["research_target_set_at"] > 0
 
@@ -645,9 +678,149 @@ def test_replacement_intent_forces_immediate_pipeline_reset(tmp_path):
 
     state = json.loads(state_path.read_text())
     assert state["vertical"] == "research"
-    assert state["current_stage"] == "research"
+    assert state["current_stage"] == "idea"
+    assert state["research_intent_generation"] == 2
     assert state["stages"]["review"]["status"] == "pending"
     assert state["stage_history"][-1]["direction"] == "reset"
+
+
+@pytest.mark.parametrize("completed", [False, True])
+def test_new_math_intent_rejects_prior_same_target_certification(
+    tmp_path,
+    monkeypatch,
+    completed: bool,
+) -> None:
+    from argus.life.memory import EventJournal
+    from argus.life.supervisor._planning_cycle_helpers import (
+        _research_project_done_issue,
+    )
+
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.setattr("argus.skills.vertical_select.time.time", lambda: 100.0)
+    persist_vertical(state_root, "math", research_target_level="exploratory")
+    state_path = state_root / ".argus" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_stage"] = "review"
+    state["stages"] = {
+        "scope": {"status": "done"},
+        "solve": {"status": "done"},
+        "review": {"status": "done" if completed else "in_progress"},
+    }
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    certification = {
+        "id": "old-certification",
+        "type": "life.mission.completed",
+        "ts": 200.0,
+        "scope": "final_submission",
+        "final_submission_certified": True,
+    }
+    journal = EventJournal(state_root / "events.jsonl")
+    journal.path.write_text(json.dumps(certification) + "\n", encoding="utf-8")
+    assert _research_project_done_issue(
+        state_root, journal.all(), evidence_root=workdir
+    ) == ""
+
+    monkeypatch.setattr("argus.skills.vertical_select.time.time", lambda: 300.0)
+    Manager(project_root=state_root, execution_workdir=workdir).commit_vertical_decision(
+        "prove a different theorem",
+        VerticalDecision(
+            choice="existing",
+            vertical="math",
+            research_target_level="exploratory",
+        ),
+        force_stage_reset=not completed,
+    )
+
+    assert _research_project_done_issue(
+        state_root, journal.all(), evidence_root=workdir
+    ) == "missing_exploratory_reviewer_certification"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["research_target_set_at"] == 300.0
+    assert state["current_stage"] == "scope"
+
+    certification.update(id="new-certification", ts=400.0)
+    with journal.path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(certification) + "\n")
+    assert _research_project_done_issue(
+        state_root, journal.all(), evidence_root=workdir
+    ) == ""
+
+
+def test_replacement_intent_can_commit_a_supplied_locked_idea(tmp_path) -> None:
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="publishable",
+        research_direction_mode="broad",
+        workflow_mode="staged",
+    )
+    manager = Manager(project_root=tmp_path)
+    decision = VerticalDecision(
+        choice="existing",
+        vertical="research",
+        execution_task="write a paper from the supplied method",
+        workflow_mode="staged",
+        research_target_level="publishable",
+        research_direction_mode="locked",
+    )
+
+    manager.commit_vertical_decision(
+        "replace discovery with the operator's supplied paper idea",
+        decision,
+        force_stage_reset=True,
+    )
+
+    state = json.loads(
+        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
+    )
+    assert state["research_direction_mode"] == "locked"
+    assert state["current_stage"] == "idea"
+
+
+@pytest.mark.parametrize("start_stage", ["paper", "review"])
+def test_completed_paper_artifact_revision_keeps_direction_and_selected_start(
+    tmp_path, monkeypatch, start_stage,
+) -> None:
+    from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+
+    persist_vertical(
+        tmp_path, "research", workflow_mode="staged",
+        research_target_level="publishable", research_direction_mode="broad",
+    )
+    state = read_pipeline_state(tmp_path)
+    state.update(
+        current_stage="review", current_verdict="certified",
+        stages={stage: {"status": "done"} for stage in RESEARCH_STAGES},
+        selected_idea={"route": "previously-reviewed-method"},
+        research_target_set_at=1.0,
+    )
+    write_pipeline_state(tmp_path, state)
+    notes = tmp_path / "RESEARCH_NOTES.md"
+    notes.write_text("Existing scientific result and evidence pointers.")
+    # The completed-paper certificate is an input to this dispatch test;
+    # certificate validation has independent coverage.
+    monkeypatch.setattr(
+        "argus.manager._vertical_ops.vertical_select.vertical_reached_own_terminal_stage",
+        lambda *_args: True,
+    )
+    manager = Manager(project_root=tmp_path)
+    decision = VerticalDecision(
+        choice="existing", vertical="research", workflow_mode="direct",
+        start_stage=start_stage, execution_task="Redraw the existing framework figure",
+        research_target_level="publishable", research_direction_mode="locked",
+    )
+    manager.commit_vertical_decision("Redraw the paper's framework figure", decision)
+
+    state = read_pipeline_state(tmp_path)
+    assert state["current_stage"] == start_stage
+    assert state["current_verdict"] == "in_progress"
+    assert state["research_direction_mode"] == "broad"
+    assert state["selected_idea"] == {"route": "previously-reviewed-method"}
+    assert state["research_target_set_at"] > 1.0
+    assert notes.read_text() == "Existing scientific result and evidence pointers."
+    assert state["stages"]["review"]["status"] != "done"
 
 
 def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
@@ -657,16 +830,16 @@ def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
     before = pipeline_state.read_bytes()
     decision = VerticalDecision(
         choice="existing",
-        vertical="nanochat",
-        execution_task="run nanochat",
+        vertical="math_synth",
+        execution_task="run the synthesis pipeline",
     )
     monkeypatch.setattr(
-        "argus_skill.manager._vertical_ops.vertical_select.reset_stage_for_new_intent",
+        "argus.manager._vertical_ops.vertical_select.reset_stage_for_new_intent",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("reset failed")),
     )
 
     with pytest.raises(RuntimeError, match="reset failed"):
-        manager.commit_vertical_decision("run nanochat", decision)
+        manager.commit_vertical_decision("run the synthesis pipeline", decision)
 
     assert pipeline_state.read_bytes() == before
 
@@ -733,7 +906,7 @@ def test_root_task_id_scopes_manager_front_door_call(tmp_path):
 
 
 def test_root_task_id_scopes_manager_stage_call(tmp_path):
-    from argus_skill.core.models import ReviewDecision
+    from argus.core.models import ReviewDecision
 
     transitions: list[tuple[str, str]] = []
 
@@ -931,9 +1104,9 @@ def test_vertical_decision_always_uses_repository_grounded_route(
     assert runner.calls[0]["options"].force_safe_mode is True
     assert runner.calls[0]["options"].dangerous_yolo is False
     assert "--available-tools=" not in runner.calls[0]["options"].extra_args
-    assert "inspect only when the fit is unclear" in runner.calls[0]["prompt"]
-    assert "Preserve stated paths, commands, order" in runner.calls[0]["prompt"]
-    assert "Omit `execution_task` for a standalone existing route" in (
+    assert 'inspect if the fit is unclear' in runner.calls[0]["prompt"]
+    assert 'Preserve paths, commands, order' in runner.calls[0]["prompt"]
+    assert 'omit it for a standalone existing route' in (
         runner.calls[0]["prompt"]
     )
     assert "at most one targeted" not in runner.calls[0]["prompt"]
@@ -982,11 +1155,81 @@ def test_research_route_prompts_require_the_fields_the_parser_requires() -> None
 
     assert "always choose and output `research_target_level`" in fast
     assert "Always output `research_direction_mode`" in fast
-    assert "For a research-target vertical, always add `research_target_level`" in (
+    assert 'For research-target verticals, add `research_target_level`' in (
         grounded
     )
     assert "Add research target fields only when the operator stated them" not in fast
-    assert "`target_venue` only when the operator stated one" in grounded
+    assert '`target_venue` only if operator-stated' in grounded
+    for prompt in (fast, grounded):
+        assert 'Research figures, plots, diagrams, Figure 1' in prompt
+        assert 'manuscript revisions are `research`' in prompt
+        assert 'If only that part is requested and a full campaign excluded, choose `direct`' in prompt
+        assert "START_STAGE=\n" in prompt
+        assert "START_STAGE=<stage name or empty>" in prompt
+        assert 'applies only to WORKFLOW_MODE=direct' in prompt
+        assert 'choose a stage of that vertical' in prompt
+        assert 'leave empty for its first stage' in prompt
+        assert 'Staged work always begins at its first stage' in prompt
+
+
+@pytest.mark.parametrize("fast", [True, False], ids=["fast", "grounded"])
+def test_direct_research_figure_route_seeds_paper(tmp_path, monkeypatch, fast) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "1" if fast else "0")
+    runner = _DecisionRunner({
+        "choice": "existing",
+        "vertical": "research",
+        "workflow_mode": "direct",
+        "start_stage": "paper",
+        "confidence": 0.99,
+        "research_target_level": "exploratory",
+        "research_direction_mode": "locked",
+    })
+    manager = Manager(project_root=tmp_path, runner=runner)
+    task = "Produce only publication figures for this paper; no full research campaign."
+
+    decision = manager.decide_vertical(task)
+    assert decision.start_stage == "paper"
+    division = manager.commit_vertical_decision(task, decision)
+
+    state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
+    assert division.vertical == "research"
+    assert division.workflow_mode == "direct"
+    assert state["current_stage"] == "paper"
+    assert runner.calls[0]["run_label"] == (
+        "manager-classify-fast" if fast else "manager-classify-grounded"
+    )
+
+
+@pytest.mark.parametrize("ask_on_new_domain", [False, True])
+def test_new_domain_start_stage_survives_commit_and_confirmation(
+    tmp_path, ask_on_new_domain,
+) -> None:
+    task = "Validate the supplied field report."
+    decision = parse_vertical_decision({
+        "choice": "new",
+        "vertical": "field_report",
+        "workflow_mode": "direct",
+        "start_stage": " VaLiDaTe ",
+        "execution_task": task,
+    })
+    assert decision is not None
+    manager = Manager(project_root=tmp_path)
+
+    division = manager.commit_vertical_decision(
+        task, decision, ask_on_new_domain=ask_on_new_domain,
+    )
+    if ask_on_new_domain:
+        division = manager.commit_domain(
+            division.task,
+            division.proposed_domain,
+            execution_task=division.execution_task,
+            workflow_mode=division.workflow_mode,
+            start_stage=division.start_stage,
+        )
+
+    state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
+    assert division.workflow_mode == "direct"
+    assert state["current_stage"] == "validate"
 
 
 def test_fast_route_environment_cannot_restore_tool_free_shortcut(
@@ -1181,7 +1424,6 @@ def test_vertical_decision_rejects_repeated_no_tool_new_vertical_route(
                 json.dumps({
                     "choice": "new",
                     "vertical": "custom_runtime",
-                    "stages": ["measure", "implement", "verify"],
                     "workflow_mode": "staged",
                     "execution_task": "Build the requested custom runtime.",
                     "rationale": "claimed a new project capability without inspection",
@@ -1381,8 +1623,8 @@ def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(
     brand-new project. After the fix, ``divide`` must reset ``current_stage``
     to research's FIRST stage.
     """
-    from argus_skill.skills.stage_machine import current_stage
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.skills.stage_machine import current_stage
+    from argus.verticals._data_domain import write_data_domain
 
     old_stage_order = ("investigate", "configure", "dry_run", "document", "review")
     write_data_domain(
@@ -1407,19 +1649,19 @@ def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(
     assert d.vertical == "research"
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "research"
-    assert state["current_stage"] == "research"  # reset to the NEW vertical's first stage
-    assert current_stage(tmp_path) == "research"
+    assert state["current_stage"] == "idea"
+    assert current_stage(tmp_path) == "idea"
 
 
 def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
     """Regression: a second research task must not immediately become planner done."""
-    from argus_skill.skills.vertical_select import vertical_reached_own_terminal_stage
+    from argus.skills.vertical_select import vertical_reached_own_terminal_stage
 
     (tmp_path / ".argus").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
         json.dumps({
             "vertical": "research",
-            "current_stage": "submission",
+            "current_stage": "review",
             "stages": {stage: {"status": "done"} for stage in RESEARCH_STAGES},
         }),
         encoding="utf-8",
@@ -1433,7 +1675,8 @@ def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
 
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
     assert division.vertical == "research"
-    assert state["current_stage"] == "research"
+    assert state["current_stage"] == "idea"
+    assert state["research_intent_generation"] == 2
     assert vertical_reached_own_terminal_stage(tmp_path, "research") is False
 
 
@@ -1471,7 +1714,7 @@ def test_role_skill_block_can_omit_libraries_for_classification(tmp_path):
         "optimize a CUDA kernel", include_libraries=False
     )
     assert "Skill libraries" not in block
-    assert "Argus Manager Role" not in block
+    assert "The Manager's role" not in block
     assert mgr.mission.calls == 0
 
 

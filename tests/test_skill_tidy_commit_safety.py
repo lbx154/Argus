@@ -7,7 +7,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from argus_skill.manager import source_writeback
+from argus.manager import source_writeback
 
 
 def _git(*args: str, cwd: Path) -> str:

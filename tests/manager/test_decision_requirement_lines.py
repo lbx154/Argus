@@ -23,20 +23,20 @@ Every downstream role was shown a contract with the operator's stated
 requirements silently missing.
 
 The three are read as one ``;``-separated line each, the same convention
-``STAGES`` and ``LIVE_VIEW_PATHS`` already use.
+``LIVE_VIEW_PATHS`` already uses.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from argus_skill.manager.domain_author import (
+from argus.manager.domain_author import (
     _DECISION_KEYS,
     _decision_fields,
     _stated_requirements,
     parse_vertical_decision,
 )
-from argus_skill.roles.prompts.manager import build_vertical_decision_prompt
+from argus.roles.prompts.manager import build_vertical_decision_prompt
 
 KNOWN = ("math", "research", "software")
 
@@ -102,7 +102,6 @@ def test_a_new_domain_decision_carries_them_too() -> None:
     decision = _decide(
         "CHOICE=new\n"
         "VERTICAL=knot_theory\n"
-        "STAGES=survey; construct; verify\n"
         "WORKFLOW_MODE=staged\n"
         "EXECUTION_TASK=Classify the invariants.\n"
         "RATIONALE=No existing vertical covers knot invariants.\n"

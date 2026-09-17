@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.generated';
 import {
   API_PROTOCOL,
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../../core/src/protocol';
+import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.generated';
 
 const currentMeta = {
   service: 'argus-skill-webapi',
@@ -12,19 +12,19 @@ const currentMeta = {
   snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
   capabilities: [...REQUIRED_API_CAPABILITIES],
   runtime: {
-    package_version: '0.1.1',
-    source_root: '/checkout/argus-skill',
-    configured_source_root: '/checkout/argus-skill',
+    package_version: RELEASE_ID.split('+')[0],
+    release_id: RELEASE_ID,
+    manifest_source_digest: RELEASE_SOURCE_DIGEST,
+    runtime_source_digest: RELEASE_SOURCE_DIGEST,
+    release_matches_source: true,
+    source_root: '/checkout/argus',
+    configured_source_root: '/checkout/argus',
     source_root_matches_config: true,
     revision: 'abc123',
     pid: 12,
     python_version: '3.13.0',
     executable: '/venv/bin/python',
     started_at: '2026-07-11T00:00:00Z',
-    release_id: RELEASE_ID,
-    manifest_source_digest: RELEASE_SOURCE_DIGEST,
-    runtime_source_digest: RELEASE_SOURCE_DIGEST,
-    release_matches_source: true,
   },
 };
 
@@ -89,6 +89,32 @@ describe('research workbench API resilience', () => {
 
     await expect(api.projects()).resolves.toEqual({ projects: [] });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { rc: 2, command_status: 'failed' },
+    { rc: 0, command_status: 'rejected' },
+    { rc: 2 },
+  ])('surfaces HTTP 200 executor failures ($command_status, rc=$rc)', async (result) => {
+    const error = 'background executor failed to start: launcher diagnostic';
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => Response.json(
+      path === '/api/meta' ? currentMeta : { ...result, error },
+    )));
+    const { api } = await import('../research-workbench/api');
+
+    await expect(api.startDaemon('s-failed')).rejects.toThrow(error);
+    await expect(api.stopDaemon('s-failed', false)).rejects.toThrow(error);
+  });
+
+  it('preserves successful executor command responses', async () => {
+    const result = { rc: 0, command_status: 'succeeded' };
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => Response.json(
+      path === '/api/meta' ? currentMeta : result,
+    )));
+    const { api } = await import('../research-workbench/api');
+
+    await expect(api.startDaemon('s-ready')).resolves.toEqual(result);
+    await expect(api.stopDaemon('s-ready', false)).resolves.toEqual(result);
   });
 
   it('times out a stalled snapshot and permits the next poll to recover', async () => {

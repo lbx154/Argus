@@ -1,0 +1,68 @@
+name: desktop cache
+
+# Compiled Tauri dependencies for the four desktop targets, kept warm so a
+# tagged release restores them instead of compiling several hundred crates
+# cold (ten minutes on the Intel Mac runner). Runs whenever the crate
+# manifest or lockfile changes on main, twice a week so GitHub does not evict
+# the entries, and by hand after a toolchain bump.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - desktop-tauri/src-tauri/Cargo.toml
+      - desktop-tauri/src-tauri/Cargo.lock
+      - .github/workflows/desktop-cache.yml
+  schedule:
+    - cron: "0 3 * * 1,4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: warm · ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+          - os: macos-15
+            platform: darwin-aarch64
+          - os: macos-15-intel
+            platform: darwin-x86_64
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: desktop-tauri/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri/src-tauri
+          shared-key: desktop-${{ matrix.platform }}
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf
+      - name: Build the desktop UI the crate embeds
+        run: |
+          npm --prefix desktop-tauri ci
+          npm --prefix desktop-tauri run ui:build
+      - name: Compile the desktop crate and its dependencies
+        run: cargo build --release --manifest-path desktop-tauri/src-tauri/Cargo.toml

@@ -1,4 +1,4 @@
-"""``argus-skill --ask "<question>"`` — headless inline answer, nothing queued.
+"""``argus --ask "<question>"`` — headless inline answer, nothing queued.
 
 The CLI answer reuses the Manager quick-reply path (``build_quick_reply_prompt``
 fed through ``run_exec`` via the front-door runner), the same fast path the
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps.cli import main
+from argus.apps.cli import main
 
 
 def _queued_rows(life_root: Path) -> list[str]:
@@ -35,10 +35,10 @@ def test_ask_prints_quick_reply_reply_and_queues_nothing(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Scripted backend: the front-door runner and run_exec are canned."""
-    from argus_skill.core import run_gateway
-    from argus_skill.core.models import RunnerResult
-    from argus_skill.manager import front_door
-    from argus_skill.roles.prompts.manager import build_quick_reply_prompt
+    from argus.core import run_gateway
+    from argus.core.models import RunnerResult
+    from argus.manager import config_intent, front_door
+    from argus.roles.prompts.manager import build_quick_reply_prompt
 
     captured: dict[str, object] = {}
 
@@ -58,6 +58,7 @@ def test_ask_prints_quick_reply_reply_and_queues_nothing(
         return RunnerResult(exit_code=0, agent_messages=["42, obviously."])
 
     monkeypatch.setattr(front_door, "_ensure_manager_runner", fake_ensure)
+    monkeypatch.setattr(config_intent, "_ensure_manager_runner", fake_ensure)
     monkeypatch.setattr(run_gateway, "run_exec", fake_run_exec)
     work = tmp_path / "work"
     work.mkdir()

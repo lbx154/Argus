@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from argus_skill.reviewer import Reviewer, parse_decision_text
+from argus.reviewer import Reviewer, parse_decision_text
 
 
 def _prompt(checkpoint_path: str = "/tmp/project/CHECKPOINT.md") -> str:
@@ -23,18 +23,16 @@ def test_reviewer_is_not_given_checkpoint_bookkeeping():
     p = _prompt()
     assert "/tmp/project/CHECKPOINT.md" not in p
     assert "CHECKPOINT_RECOMMENDED" not in p
-    assert "Do not inspect or edit checkpoint/context-packet/handoff bookkeeping" in p
+    assert 'neither read nor edit checkpoint or context records' in p
 
 
 def test_reviewer_never_acts_as_checkpoint_editor():
     p = _prompt()
-    assert "You do not change the work under review" in p
-    assert "Put the next Engineer instruction only in next_action" in p
-    assert "Inspect claim-critical uncertainty with proportional tools" in p
+    assert 'Leave sources, outputs, and builds unchanged' in p
+    assert 'Give Engineer instructions only in next_action' in p
+    assert 'Check essential uncertainty proportionately' in p
     assert (
-        "Never reward virtue's form in negative results, hedging, limitation lists, "
-        "or repeat runs—only anchored, decision-changing content; positive and "
-        "negative claims share one evidence standard."
+        'Negative results, hedging, limitations, and reruns need grounded consequences; positive and negative claims share one evidence standard.'
     ) in p
     assert "six total read/search tool calls" not in p
 
@@ -52,9 +50,9 @@ def test_the_no_mutation_rule_says_what_it_covers_and_what_it_does_not():
     """
     p = _prompt()
 
-    for forbidden in ("not its sources", "not its artifacts", "not its build"):
+    for forbidden in ("Leave sources", "outputs, and builds unchanged", "builds unchanged"):
         assert forbidden in p, "the prohibition still has to enumerate its scope"
-    assert "Recording your own verdict through a command your vertical gives you" in p
+    assert "you may record your judgment with the vertical's command" in p
     assert "strictly read-only" not in p
 
 

@@ -1,4 +1,4 @@
-"""Regression tests for the ``argus-skill --status`` command."""
+"""Regression tests for the ``argus --status`` command."""
 from __future__ import annotations
 
 import getpass
@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps import cli as cli_mod
-from argus_skill.apps.cli._core import _check_logout_survival, _cmd_status
-from argus_skill.life import BacklogItem, MemoryBundle
+from argus.apps import cli as cli_mod
+from argus.apps.cli._core import _check_logout_survival, _cmd_status
+from argus.life import BacklogItem, MemoryBundle
 
 
 @pytest.fixture()
@@ -34,7 +34,8 @@ def project_with_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
     inbox = project_root / "inbox.jsonl"
     first = json.dumps({"text": "old guidance"}) + "\n"
     second = json.dumps({"text": "fresh guidance"}) + "\n"
-    inbox.write_text(first + second, encoding="utf-8")
+    # The persisted cursor is measured in bytes, not platform-translated text.
+    inbox.write_bytes((first + second).encode("utf-8"))
     (project_root / "inbox.offset").write_text(str(len(first.encode("utf-8"))), encoding="utf-8")
     return home, repo
 
@@ -87,8 +88,10 @@ def test_status_separates_active_queue_from_history(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     life_root, repo = project_with_history
+    # Status reads live settings, not the daemon's launch-time budget snapshot.
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0")
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_daemon_status",
+        "argus.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
             alive=True,
             pid=4321,
@@ -97,8 +100,8 @@ def test_status_separates_active_queue_from_history(
             global_daily_cap_usd=0.0,
         ),
     )
-    monkeypatch.setattr("argus_skill.daemon.life_worker.global_daily_spend", lambda *a, **k: 0.0)
-    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus.daemon.life_worker.global_daily_spend", lambda *a, **k: 0.0)
+    monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
     out = capsys.readouterr().out
@@ -138,7 +141,7 @@ def test_status_projects_latest_persisted_mission_outcome(
         },
     )
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_daemon_status",
+        "argus.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
             alive=False,
             pid=None,
@@ -150,11 +153,11 @@ def test_status_projects_latest_persisted_mission_outcome(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.global_daily_spend",
+        "argus.daemon.life_worker.global_daily_spend",
         lambda *args, **kwargs: 0.0,
     )
     monkeypatch.setattr(
-        "argus_skill.apps.cli._core._check_logout_survival",
+        "argus.apps.cli._core._check_logout_survival",
         lambda status: None,
     )
 
@@ -175,8 +178,8 @@ def test_status_reads_lifecycle_from_canonical_project_state(
 ) -> None:
     from datetime import datetime, timezone
 
-    from argus_skill.life.project_lifecycle import ProjectState, ProjectStatus
-    from argus_skill.life.project_lifecycle_io import write_persisted
+    from argus.life.project_lifecycle import ProjectState, ProjectStatus
+    from argus.life.project_lifecycle_io import write_persisted
 
     life_root, repo = project_with_history
     monkeypatch.delenv("ARGUS_SKILL_WORKDIR", raising=False)
@@ -208,8 +211,9 @@ def test_status_shows_active_work_when_present(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     life_root, repo = project_with_active_and_history
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0")
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_daemon_status",
+        "argus.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
             alive=True,
             pid=4321,
@@ -218,8 +222,8 @@ def test_status_shows_active_work_when_present(
             global_daily_cap_usd=0.0,
         ),
     )
-    monkeypatch.setattr("argus_skill.daemon.life_worker.global_daily_spend", lambda *a, **k: 0.0)
-    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus.daemon.life_worker.global_daily_spend", lambda *a, **k: 0.0)
+    monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
     out = capsys.readouterr().out
@@ -259,7 +263,7 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
     )
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "30.0")
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_daemon_status",
+        "argus.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
             alive=False,
             pid=None,
@@ -268,8 +272,8 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
             global_daily_cap_usd=0.0,
         ),
     )
-    monkeypatch.setattr("argus_skill.daemon.life_worker.global_daily_spend", lambda *a, **k: 5.0)
-    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus.daemon.life_worker.global_daily_spend", lambda *a, **k: 5.0)
+    monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
     out = capsys.readouterr().out
@@ -298,7 +302,7 @@ def test_status_prefers_latest_running_item_and_works_offline(
     mem.backlog.update(newer.id, status="running", started_ts=20.0)
 
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_daemon_status",
+        "argus.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
             alive=False,
             pid=None,
@@ -306,7 +310,7 @@ def test_status_prefers_latest_running_item_and_works_offline(
             backend=None,
         ),
     )
-    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(home)))
     out = capsys.readouterr().out
@@ -407,7 +411,7 @@ def test_status_survival_line_follows_probe_result(
 ) -> None:
     life_root, _repo = project_with_history
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.read_daemon_status",
+        "argus.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
             alive=True,
             pid=4321,
@@ -416,7 +420,7 @@ def test_status_survival_line_follows_probe_result(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.apps.cli._core._check_logout_survival",
+        "argus.apps.cli._core._check_logout_survival",
         lambda status: survival_msg,
     )
 
@@ -488,6 +492,46 @@ def test_status_says_nothing_about_questions_when_there_are_none(
     _cmd_status(Namespace(life_dir=None))
 
     assert "waiting on you" not in capsys.readouterr().out
+
+
+def test_status_confirms_notify_messages_were_injected(
+    project_with_history: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--status must confirm a drained --notify message, not stay silent.
+
+    The drains emit ``life.inbox.drained`` into events.jsonl. The old
+    renderer filtered ``journal.tail()`` for a ``kind == "inbox.injected"``
+    the journal projection never produces, so it always returned [].
+    """
+    life_root, repo = project_with_history
+    bundle = MemoryBundle.for_cwd(repo, global_root=life_root)
+    with (bundle.project.root / "events.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.inbox.drained",
+            "ts": time.time(),
+            "count": 1,
+            "messages": ["focus on the flaky test first"],
+        }) + "\n")
+
+    rc = _cmd_status(Namespace(life_dir=str(life_root)))
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "inbox (last injections):" in out
+    assert "focus on the flaky test first" in out
+
+
+def test_status_inbox_section_is_silent_without_injections(
+    project_with_history: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    life_root, _repo = project_with_history
+
+    rc = _cmd_status(Namespace(life_dir=str(life_root)))
+
+    assert rc == 0
+    assert "inbox (last injections):" not in capsys.readouterr().out
 
 
 def test_status_shows_latest_self_result_without_research_lifecycle(

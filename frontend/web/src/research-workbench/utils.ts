@@ -1,3 +1,5 @@
+import type { Locale } from '../i18n';
+import { plainEventName, plainStatus } from '../lib/plainStatus';
 import type { ArtifactInfo, EventMsg } from './types';
 
 export function cx(...values: Array<string | false | null | undefined>): string {
@@ -68,11 +70,13 @@ export function eventRole(event: EventMsg): string {
   return 'system';
 }
 
-export function eventTitle(event: EventMsg): string {
+export function eventTitle(event: EventMsg, locale?: Locale): string {
   const action = String(event.action_summary ?? '').trim();
-  if (action) return action;
+  if (action) return locale ? plainStatus(action, locale) : action;
   const title = String(event.title ?? '').trim();
-  if (title) return title;
+  if (title) return locale ? plainStatus(title, locale) : title;
+  const named = locale ? plainEventName(String(event.type ?? ''), locale) : null;
+  if (named) return named;
   const kind = String(event.kind ?? '').trim();
   if (kind) return kind.replaceAll('_', ' ');
   const type = String(event.type ?? 'event');

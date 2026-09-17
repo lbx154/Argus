@@ -1,17 +1,18 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
-from argus_skill.skills.builtins import (
+from argus.skills.builtins import (
     iter_vertical_skill_texts,
     seed_builtin_skills,
     seed_vertical_skills,
 )
-from argus_skill.skills.layered import LayeredSkillStore
+from argus.skills.layered import LayeredSkillStore
 
 ROOT = (
     Path(__file__).resolve().parents[2]
-    / "argus_skill"
+    / "argus"
     / "verticals"
     / "research"
     / "skills"
@@ -27,26 +28,25 @@ def test_research_vertical_bundles_visual_router_and_renderer() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
     front, body = _front_and_body(texts["engineer/research-visualization-router.md"])
     assert set(front) == {"name", "description"}
-    assert front["name"] == "Research Visualization Router"
-    assert "FIGURE_PROVENANCE.json" in body
+    assert front["name"] == "Choosing how to draw a research figure"
     assert "image-2" in body
-    assert "ECharts" in body
-    assert "Recharts" in body
     assert "PPT Master" in body
-    assert "Paper Framework Figure Studio" in body
+    assert "Composing a conceptual paper figure" in body
+    assert "manifest" not in body.lower()
+    assert "hash" not in body.lower()
     assert "engineer/paper-framework-figure-studio.md" in texts
     assert "engineer/research_visual_scripts/browser_render.py" in texts
 
 
-def test_router_makes_image2_capability_conditional() -> None:
+def test_router_keeps_image2_optional_and_non_semantic() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
     _front, body = _front_and_body(texts["engineer/research-visualization-router.md"])
     content = body.lower()
     assert "when configured" in content
-    assert "unavailable image route is\nnot a project blocker" in content
-    assert "never fake image-2 provenance" in content
-    assert "--ppt-master-status" in content
-    assert "independent of model api status" in content
+    assert "non-claim-bearing" in content
+    image2 = texts["engineer/paper-illustration-image2.md"].lower()
+    assert "the paper can proceed without it" in image2
+    assert "registration files" in image2
 
 
 def test_router_requires_real_deterministic_figure1_fallback() -> None:
@@ -54,17 +54,23 @@ def test_router_requires_real_deterministic_figure1_fallback() -> None:
     _front, body = _front_and_body(texts["engineer/research-visualization-router.md"])
     content = body.lower()
 
-    assert "figure 1 is a paper deliverable" in content
+    assert "what figure 1 must show" in content
     assert "ppt master" in content
-    assert "browser-rendered html" in content
-    assert "hand-authoring raw svg is not on this table" in content
-    assert "a latex table" in content
+    assert "method d" in content and "method b" in content
+    assert "no separate svg workflow" in content
+    assert "boxed\nparagraph or table" in content
     assert "\\includegraphics" in body
     studio = texts["engineer/paper-framework-figure-studio.md"]
-    assert "S0" in studio and "S7" in studio
-    assert "Renderer-neutral design system" in studio
+    studio_flat = " ".join(studio.split())
+    assert "source, target, direction, boundary port" in studio_flat
+    assert "connectors terminate at explicit node boundaries" in studio_flat
+    assert "no shaft or arrowhead enters an unrelated node" in studio_flat
+    assert "final single- or double-column width" in studio_flat
     assert "PPT Master" in studio
-    assert "image-2 only when configured" in studio
+    assert (
+        "The strict page-by-page visual judgment is made once, in Review"
+        in studio_flat
+    )
 
 
 def test_results_figures_keep_claim_checks_agent_owned_and_risk_based() -> None:
@@ -103,7 +109,7 @@ def test_router_points_at_a_renderer_that_exists() -> None:
     assert "browser_render.py" in router
 
     root = Path(__file__).resolve().parents[2]
-    skills = root / "argus_skill/verticals/research/skills/engineer"
+    skills = root / "argus/verticals/research/skills/engineer"
     assert (skills / "research_visual_scripts/browser_render.py").is_file()
 
 
@@ -123,19 +129,91 @@ def test_figure_spec_renderer_is_reachable() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
     spec = texts["engineer/figure-spec.md"]
 
-    assert "argus_skill/builtin_skills/" not in spec
+    assert "argus/builtin_skills/" not in spec
 
     root = Path(__file__).resolve().parents[2]
-    skills = root / "argus_skill/verticals/research/skills/engineer"
+    skills = root / "argus/verticals/research/skills/engineer"
     assert (skills / "figure_spec_scripts/figure_renderer.py").is_file()
 
 
-def test_figure_one_never_takes_the_flat_route() -> None:
-    """A flat-fill renderer draws the boxes the paper's opening figure is judged
-    on, so Figure 1 must not qualify for the simple-topology row."""
-    router = dict(iter_vertical_skill_texts("research"))[
+def test_figure_one_prioritizes_exact_topology_over_decorative_richness() -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    router = texts[
         "engineer/research-visualization-router.md"
     ].lower()
+    normalized = " ".join(router.split())
 
-    assert "a paper's figure 1 never qualifies as the simple row" in router
-    assert "simple exact topology in a supporting figure" in router
+    assert "exact load-bearing topology" in router
+    assert "topology fidelity takes priority over decorative richness" in normalized
+    assert "polished figure 1 does not need depth, icons" in normalized
+    assert "connector penetration" in router
+    assert "figurespec" in router
+
+
+def test_concept_figures_leave_strict_acceptance_to_review() -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    router = texts["engineer/research-visualization-router.md"]
+    studio = texts["engineer/paper-framework-figure-studio.md"]
+
+    assert "editable native PPTX through PPT Master" in router
+    assert "source and final included" in router
+    assert "not a separate visual check" in router
+    assert "Keep one canonical source for every formal export" in studio
+    assert "Preserve the actual returned image and prompt" in studio
+    assert "The strict page-by-page visual judgment is made once, in Review" in studio
+    assert "visual-review\nfiles" in studio
+
+
+@pytest.mark.parametrize("skill", [
+    "engineer/research-visualization-router.md",
+    "engineer/paper-framework-figure-studio.md",
+    "engineer/research-results-analysis-and-figures.md",
+    "engineer/venue-paper-drafting.md",
+    "research-paper-playbook.md",
+    "research-review-playbook.md",
+])
+def test_concept_figure_consumers_keep_d_default_and_b_fallback(skill: str) -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    content = " ".join(texts[skill].split())
+    assert "Method D" in content
+    assert "Method B" in content
+    assert "fallback" in content
+    assert "paper-framework-figure-studio.md" in content or skill.endswith(
+        "/paper-framework-figure-studio.md"
+    )
+    assert "Use this as the default for a method" not in content
+    assert "TikZ" not in content
+
+
+def test_concept_default_preserves_authority_editability_and_reuse() -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    studio = " ".join(texts["engineer/paper-framework-figure-studio.md"].split())
+    for requirement in (
+        "Method D is the default",
+        "Method B is the fallback",
+        "Inspect suitable published reference figures before generating",
+        "disclosure authorization",
+        "does not authorize spending beyond the task budget",
+        "state the concrete reason",
+        "output format the fallback cannot deliver",
+        "surface the blocker",
+        "Preserve the actual returned image and prompt",
+        "without credentials",
+        "A failed request is not a blueprint",
+        "Do not paste the blueprint as a whole-slide raster",
+        "Method B does not require image-generation credentials",
+        "Method D does not require a particular reconstruction model",
+        "Reuse an existing suitable figure or blueprint",
+        "Quantitative charts",
+        "stay on the SciencePlots/Matplotlib route",
+    ):
+        assert requirement in studio
+    assert "engineer/research-svg-pipeline.md" not in texts
+    assert "direct native PPT design without an image API" in studio
+    assert "Both D and B author the framework in native editable PowerPoint objects" in studio
+    assert "ECharts" in studio
+    assert "TikZ" not in studio
+    assert "academic-vector-figures.md" in studio
+    image = " ".join(texts["engineer/paper-illustration-image2.md"].split())
+    assert "visual design blueprint" in image
+    assert "Do not generate quantitative result plots" in image

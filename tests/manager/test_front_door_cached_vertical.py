@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
-from argus_skill.life import MemoryBundle
-from argus_skill.manager.domain_author import VerticalDecision
-from argus_skill.manager.front_door import prepare_manager_execution_task
+from argus.life import MemoryBundle
+from argus.manager.domain_author import VerticalDecision
+from argus.manager.front_door import prepare_manager_execution_task
 
 
 def test_manager_handoff_always_calls_manager_vertical_classifier(tmp_path) -> None:
@@ -53,7 +53,7 @@ def test_manager_handoff_always_calls_manager_vertical_classifier(tmp_path) -> N
 def test_active_bounded_supplement_preserves_persisted_route_contract(
     tmp_path,
 ) -> None:
-    from argus_skill.daemon.state import write_continuous_config
+    from argus.daemon.state import write_continuous_config
 
     memory = MemoryBundle.for_cwd(
         tmp_path,

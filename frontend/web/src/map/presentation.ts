@@ -1,0 +1,314 @@
+import type { Dataset, MapEvent, MapTask } from "./model";
+import type { SubmapStep } from "./submap";
+import { humanizeHarnessNote, readableRecord } from "./submap";
+import type { ProgressSourceRef } from '../../../core/src/types';
+import { attachProgressSource } from '../research-brief/progressSource';
+
+/** Why a task waits on the reader: its open question, or the reason its last
+ * attempt failed, said the way the cards say it. A record that is only a
+ * technical receipt becomes the colleague's sentence for it; a record that
+ * says nothing is reported as exactly that. */
+export function attentionReason(task: MapTask, events: MapEvent[], zh: boolean): string {
+  if (task.pending_question) return task.pending_question;
+  const failure = events.filter((event) => event.item_id === task.id &&
+    (event.status === "failed" || event.success === false || event.type.endsWith(".failed")))
+    .sort((a, b) => b.ts - a.ts)[0];
+  const raw = failure?.reason || failure?.text || "";
+  const note = humanizeHarnessNote(raw, zh);
+  const cut = note.receipt ? raw.lastIndexOf(note.receipt) : -1;
+  const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
+  return note.summary || prose ||
+    (zh ? "这项任务没有完成，记录里没有写明原因。" : "This task did not finish, and the record does not say why.");
+}
+
+/** Background explanation of recorded work, never an additional research result. */
+export interface ReaderBrief {
+  why: string;
+  concept: { name: string; explanation: string; example: string; connection: string } | null;
+  scope: string;
+  next: string;
+}
+
+/** A sequence of background explanations, separate from the run's evidence. */
+export interface ReaderLearningPath {
+  question: string;
+  steps: Array<{
+    title: string;
+    explanation: string;
+    example: string;
+    check: { question: string; answer: string };
+  }>;
+}
+
+/** The bounded task/event material actually supplied to the explanation models. */
+export interface CardSourceSnapshot {
+  version: 1 | 2;
+  card_key: string;
+  task_id: string;
+  captured_at: number;
+  task: Record<string, unknown>;
+  events: Record<string, unknown>[];
+  source_ids: string[];
+  events_truncated?: boolean;
+  related_tasks?: Array<Record<string, unknown> & { id: string }>;
+  related_tasks_truncated?: boolean;
+}
+
+export interface CardCopy {
+  progress_source?: ProgressSourceRef;
+  copy_revision?: number;
+  version?: number;
+  model_revision?: string;
+  title: string;
+  summary: string;
+  detail: string;
+  /** Optional for existing cached cards created before presentation schema 10. */
+  reader_brief?: ReaderBrief;
+  learning_path?: ReaderLearningPath | null;
+  foundation_ref?: { id: string; path: string; question: string; version: number };
+  /** A teaching-text check is separate from the research task's review. */
+  teaching_review?: {
+    status?: 'accepted' | 'corrected' | 'unavailable';
+    kind: 'model_teaching_review';
+    reason?: string;
+    reviewed_at?: number | null;
+    review_version: number;
+    reading_review?: {
+      status: 'accepted' | 'corrected' | 'unavailable';
+      kind: 'model_readability_review';
+      reason?: string;
+    };
+  };
+  generated_at: number;
+  task_revision?: string;
+  task_content_revision?: string;
+  task_status?: string;
+  event_ids?: string[];
+  event_revisions?: string[];
+  input_revision?: string;
+  source_snapshot?: CardSourceSnapshot;
+}
+export interface MapRelation {
+  source: string;
+  target: string;
+  label: string;
+  evidence: string;
+  kind: "semantic";
+}
+export interface MapCopy {
+  cache_revision?: number;
+  version?: number;
+  model_revision?: string;
+  cards: Record<string, CardCopy>;
+  relations: MapRelation[];
+  available?: boolean;
+  retry_after?: number;
+  generation_error?: { code: string; message: string } | null;
+}
+
+export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, requestedRevision?: string): MapCopy {
+  const settingsChanged = previous?.model_revision && previous.model_revision !== requestedRevision;
+  const cards = { ...previous?.cards };
+  for (const [key, card] of Object.entries(result.cards)) {
+    if (settingsChanged && cards[key]?.model_revision === previous.model_revision) continue;
+    const old = cards[key];
+    if (old?.version && (card.version ?? 0) < old.version) continue;
+    if (old && card.progress_source && old.copy_revision === card.copy_revision && old.generated_at === card.generated_at) {
+      cards[key] = attachProgressSource(old, card, key);
+      continue;
+    }
+    if (!old || (card.copy_revision ?? 0) > (old.copy_revision ?? 0) ||
+      ((card.copy_revision ?? 0) === (old.copy_revision ?? 0) &&
+        (card.generated_at > old.generated_at ||
+          (card.generated_at === old.generated_at && !old.input_revision)))) cards[key] = card;
+    else if (old) cards[key] = attachProgressSource(old, card, key);
+  }
+  const older = (result.cache_revision ?? 0) < (previous?.cache_revision ?? 0);
+  return {
+    ...previous,
+    ...result,
+    cards,
+    ...((previous?.version != null || result.version != null)
+      ? { version: Math.max(previous?.version ?? 0, result.version ?? 0) } : {}),
+    cache_revision: Math.max(result.cache_revision ?? 0, previous?.cache_revision ?? 0),
+    relations: (settingsChanged || older) && previous ? previous.relations : result.relations,
+    available: result.available ?? true,
+    ...(settingsChanged ? { model_revision: previous.model_revision, available: previous.available } : {}),
+  };
+}
+
+function relatedSourcesChanged(saved: CardCopy, data: Dataset): boolean {
+  const snapshot = saved.source_snapshot;
+  if (snapshot?.version !== 2) return false;
+  // Match teaching_context's v2 related-task projection, including Unicode
+  // code-point limits and loss markers. Progress and unprovided fields do not
+  // change these sources; selecting a new neighborhood here would churn copy.
+  const limits = { id: 160, title: 160, objective: 500, status: 80 } as const;
+  const tasks = new Map(data.tasks.map(task => [Array.from(task.id).slice(0, limits.id).join(''), task]));
+  return (snapshot.related_tasks ?? []).some(source => {
+    const task = tasks.get(source.id);
+    if (!task) {
+      // A current-range view can omit an existing neighbor. Infer deletion
+      // only from a full history inventory or an explicit feed removal.
+      return data.removed_task_ids?.some(id => Array.from(id).slice(0, limits.id).join('') === source.id) === true ||
+        data.history_cursor != null || data.tasks_complete === true;
+    }
+    for (const [field, limit] of Object.entries(limits)) {
+      const raw = task[field as keyof typeof limits];
+      const points = typeof raw === 'string' ? Array.from(raw) : undefined;
+      if (source[field] !== points?.slice(0, limit).join('') ||
+        (source[field + '_truncated'] === true) !==
+        (Boolean(points && points.length > limit) || (task as unknown as Record<string, unknown>)[field + '_truncated'] === true)) return true;
+    }
+    const deps = task.deps?.slice(0, 24).filter(dep => typeof dep === 'string')
+      .map(dep => Array.from(dep).slice(0, 160).join(''));
+    return JSON.stringify(source.deps) !== JSON.stringify(deps) ||
+      (source.deps_truncated === true) !== ((task.deps?.length ?? 0) > 24 ||
+        (task as unknown as Record<string, unknown>).deps_truncated === true);
+  });
+}
+
+export function needsCardCopy(
+  card: CardRequest,
+  data: Dataset,
+  copy?: MapCopy,
+  eventIndex?: Map<string, MapEvent>,
+): boolean {
+  const saved = copy?.cards[card.key];
+  const task = data.tasks.find((t) => t.id === card.task_id);
+  if (!saved || !task) return true;
+  if ((saved.version ?? 0) < (copy?.version ?? 0)) return true;
+  if (copy?.model_revision && saved.model_revision !== copy.model_revision) return true;
+  if (relatedSourcesChanged(saved, data)) return true;
+  const dynamic = [task.id, task.id + ":active", task.id + ":outcome"].includes(card.key);
+  if (dynamic || !saved.task_content_revision || !task.content_revision) {
+    if (task.revision && saved.task_revision !== task.revision) return true;
+    if (dynamic && saved.task_status !== task.status) return true;
+  } else if (saved.task_content_revision !== task.content_revision) return true;
+  const ids = saved.event_ids || [];
+  // A full-history summary may contain additional valid evidence when only
+  // current progress is being viewed. Do not rewrite it with a poorer subset.
+  return card.event_ids.some((id) => {
+    const index = ids.indexOf(id);
+    const event = eventIndex ? eventIndex.get(id) : data.events.find((e) => e.id === id);
+    return index < 0 || (saved.event_revisions && event?.revision &&
+      saved.event_revisions[index] !== event.revision);
+  }) || (!dynamic && JSON.stringify(card.event_ids) !== JSON.stringify(ids));
+}
+export interface CardRequest {
+  key: string;
+  task_id: string;
+  kind: string;
+  event_ids: string[];
+}
+export interface CardReference {
+  source: string;
+  task_id: string;
+  task_title: string;
+  part?: number;
+  step_id?: string;
+  step_title?: string;
+  event_ids: string[];
+  team_id?: string;
+  team_task_id?: string;
+  /** Locale at quote time; the server renders its expansion to match. */
+  lang?: string;
+}
+export const referenceText = (ref: CardReference) =>
+  `[[Argus引用 ${JSON.stringify(ref)}]]\n`;
+export function splitDraft(value: string) {
+  const refs: CardReference[] = [];
+  const lines = value.split("\n").filter((line) => {
+    if (line.startsWith("[[Argus引用 ") && line.endsWith("]]")) {
+      try {
+        const ref = JSON.parse(line.slice(10, -2));
+        if (
+          typeof ref.task_id === "string" &&
+          typeof ref.source === "string" &&
+          typeof ref.task_title === "string" &&
+          (ref.part === undefined ||
+            (Number.isInteger(ref.part) && ref.part > 0)) &&
+          (ref.step_title === undefined ||
+            typeof ref.step_title === "string") &&
+          (ref.step_id === undefined || typeof ref.step_id === "string") &&
+          (ref.team_id === undefined || typeof ref.team_id === "string") &&
+          (ref.team_task_id === undefined || typeof ref.team_task_id === "string") &&
+          (ref.lang === undefined || typeof ref.lang === "string") &&
+          Array.isArray(ref.event_ids) &&
+          ref.event_ids.every((id: unknown) => typeof id === "string")
+        ) {
+          refs.push(ref);
+          return false;
+        }
+      } catch {
+        /* Keep malformed text editable. */
+      }
+    }
+    return true;
+  });
+  return { refs, text: lines.join("\n").replace(/^\n+/, "") };
+}
+/** Ids of the latest main/review outcomes of a task, optionally as of a moment. */
+function outcomeIds(data: Dataset, id: string, through = Infinity): string[] {
+  const start = Math.max(
+    -Infinity,
+    ...data.events
+      .filter(
+        (e) =>
+          e.item_id === id &&
+          e.type === "life.mission.started" &&
+          e.ts <= through,
+      )
+      .map((e) => e.ts),
+  );
+  return data.events
+    .filter(
+      (e) =>
+        e.item_id === id &&
+        e.ts >= start &&
+        e.ts <= through &&
+        ["round.main.completed", "round.review.completed"].includes(e.type),
+    )
+    .slice(-2)
+    .map((e) => e.id);
+}
+/** One request per step of a task's sub-map, in reading order. */
+export function stepRequests(data: Dataset, task: MapTask, steps: SubmapStep[]): CardRequest[] {
+  return steps.map((s) => ({
+    key: s.id,
+    task_id: task.id,
+    kind: s.kind,
+    event_ids: [
+      ...new Set([
+        ...(s.kind === "result" ? outcomeIds(data, task.id, s.ts) : []),
+        ...s.eventIds,
+      ]),
+    ].slice(-16),
+  }));
+}
+export function requestsFor(
+  data: Dataset,
+  steps: SubmapStep[],
+  focused: string | null,
+): CardRequest[] {
+  const focusedTask = data.tasks.find((t) => t.id === focused);
+  const sorted = focusedTask
+    ? [focusedTask, ...data.tasks.filter((t) => t.id !== focused)]
+    : data.tasks;
+  const roots = sorted.map((t) => ({
+    key: t.id,
+    task_id: t.id,
+    kind: "task",
+    event_ids: [
+      ...new Set([
+        ...outcomeIds(data, t.id),
+        ...data.events
+          .filter((e) => e.item_id === t.id)
+          .slice(-2)
+          .map((e) => e.id),
+      ]),
+    ],
+  }));
+  const children = focusedTask ? stepRequests(data, focusedTask, steps) : [];
+  return [...roots.slice(0, 1), ...children, ...roots.slice(1)];
+}

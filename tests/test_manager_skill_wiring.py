@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-import argus_skill.builtin_skills as _builtin
-from argus_skill.core.models import RunnerResult
-from argus_skill.manager import Manager
-from argus_skill.skills.role_context import load_builtin_skill_text
-from argus_skill.skills.store import (
+import argus.builtin_skills as _builtin
+from argus.core.models import RunnerResult
+from argus.manager import Manager
+from argus.skills.role_context import load_builtin_skill_text
+from argus.skills.store import (
     _ROLE_SUBDIRS,
     ROLE_CROSS_READ_POOLS,
     ROLE_SKILL_POOLS,
@@ -31,7 +31,7 @@ def test_planner_role_skill_moved_to_planner_dir() -> None:
 def test_planner_role_skill_still_loads_from_new_location() -> None:
     # Bare role filenames resolve across bundled role directories.
     text = load_builtin_skill_text("argus-planner-role.md")
-    assert "Argus Planner Role" in text
+    assert "The Planner's role" in text
 
 
 def test_missing_required_role_skill_fails_loudly() -> None:
@@ -63,10 +63,11 @@ def test_manager_role_skill_file_exists_and_loads() -> None:
     assert (_BUILTIN_ROOT / "manager" / "argus-manager-role.md").is_file()
     text = load_builtin_skill_text("argus-manager-role.md")
     compact = " ".join(text.split())
-    assert "Argus Manager Role" in text
-    assert "evidence-backed ordinary mission in an isolated worktree" in text
-    assert "Reviewer `done`" in text
-    assert "operator-approved deployment boundary" in compact
+    assert "The Manager's role" in text
+    assert "ordinary work supported by evidence and carried out in an isolated worktree" in text
+    assert "Only work the Reviewer finds complete may be considered for deployment" in compact
+    assert "The corresponding Reviewer result is: `done`" in compact
+    assert "deployment requires the operator's approval" in compact
     assert "never automatic" in compact
 
 
@@ -122,7 +123,7 @@ def test_manager_accepts_skill_store_and_is_backward_compatible() -> None:
 def test_manager_decision_prompt_carries_paths_not_skill_body(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.skills.store import Skill, SkillStore
+    from argus.skills.store import Skill, SkillStore
 
     store = SkillStore(tmp_path / "skills")
     store.save(
@@ -145,7 +146,7 @@ def test_manager_decision_prompt_carries_paths_not_skill_body(
     assert str(store.skills_dir.resolve()) in prompt
     assert "Role: manager" in prompt
     assert "DO NOT PRELOAD THIS MANAGER BODY" not in prompt
-    assert "Argus Manager Role" not in prompt
+    assert "The Manager's role" not in prompt
     assert "ARGUS_ROLE_DECISION=" not in prompt
     assert "ACTION=hold" in prompt
     assert "Right-sidebar presentation" not in prompt

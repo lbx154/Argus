@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.life.supervisor import (
+from argus.life.supervisor import (
     _operator_only_blocker_paths_for_project,
     _operator_only_external_blocker_wait_reason_for_project,
 )
@@ -106,7 +106,7 @@ def test_short_circuit_emits_waiting_without_calling_planner(
             "next_owner": "operator",
         },
     )
-    from argus_skill.life.supervisor import LifeSupervisor
+    from argus.life.supervisor import LifeSupervisor
 
     short_circuit = LifeSupervisor._operator_external_blocker_short_circuit_decision(
         project_root=tmp_path,
@@ -125,7 +125,7 @@ def test_short_circuit_returns_none_without_blocker(
     monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    from argus_skill.life.supervisor import LifeSupervisor
+    from argus.life.supervisor import LifeSupervisor
 
     assert LifeSupervisor._operator_external_blocker_short_circuit_decision(
         project_root=tmp_path,
@@ -146,8 +146,8 @@ def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
         },
     )
 
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+    from argus.life.memory import LifeMemory
+    from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
     mem = LifeMemory.open(tmp_path / "life")
     mem.init()
@@ -164,8 +164,8 @@ def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
         def run_exec(self, **_kwargs):  # pragma: no cover - proves no call
             raise AssertionError("planner runner should not be called")
 
-    from argus_skill.life.event_log import JsonlEventSink
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.life.event_log import JsonlEventSink
+    from argus.skills.vertical_select import persist_vertical
 
     sup = LifeSupervisor(
         memory=mem,
@@ -277,8 +277,8 @@ def test_bounded_mission_does_not_short_circuit_on_external_blocker(tmp_path: Pa
         },
     )
 
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+    from argus.life.memory import LifeMemory
+    from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
     mem = LifeMemory.open(tmp_path / "life")
     mem.init()

@@ -1,4 +1,4 @@
-"""Tests for argus_skill.life.project_lifecycle (F5)."""
+"""Tests for argus.life.project_lifecycle (F5)."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from argus_skill.life.project_lifecycle import (
+from argus.life.project_lifecycle import (
     LifecycleEvent,
     ProjectState,
     ProjectStatus,
@@ -345,7 +345,7 @@ def test_old_time_threshold_constants_are_gone() -> None:
     tempo judgments dressed as constants. They must not reappear; the
     only allowed harness-side numeric default is the BUDGET fraction
     (operator-set spending guard, not a quality call)."""
-    import argus_skill.life.project_lifecycle as mod
+    import argus.life.project_lifecycle as mod
     forbidden = [
         "DEFAULT_INCUBATING_MAX_DAYS",
         "DEFAULT_RUNNING_MAX_DAYS",

@@ -4,9 +4,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.engineer.runner import SupervisedConfig
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.engineer.runner import SupervisedConfig
 
 SKILL_MD = (
     "## Title\nDemo skill\n\n"
@@ -87,7 +87,10 @@ def test_backend_retry_also_starts_fresh(tmp_path: Path) -> None:
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue(
         "engineer-r1",
-        CannedResponse(message="", thread_id="poison", fatal_error="502 Bad Gateway"),
+        CannedResponse(
+            message="", thread_id="poison",
+            fatal_error="Process exited with code 2 before turn completion.",
+        ),
     )
     backend.queue("engineer-r2", CannedResponse(message="recovered", thread_id="healthy"))
     backend.queue("reviewer", CannedResponse(message=_review("done")))
@@ -128,7 +131,7 @@ def test_continuation_engineer_round_uses_compact_checkpoint_prompt(tmp_path: Pa
     assert "## Continuation turn" in prompts[1]
     assert "## Current mission task" not in prompts[1]
     assert len(prompts[1]) < len(prompts[0])
-    assert all("## Handoff" in prompt for prompt in prompts)
+    assert all('## Carrying context between rounds' in prompt for prompt in prompts)
 
 
 def test_shared_checkpoint_file_survives_across_missions(tmp_path: Path) -> None:

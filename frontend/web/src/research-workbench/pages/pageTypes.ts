@@ -1,5 +1,6 @@
 import type {
   ArtifactInfo,
+  CounterexampleDashboard,
   EventMsg,
   GitDiffView,
   JournalEntry,
@@ -9,6 +10,10 @@ import type {
   Turn,
 } from '../types';
 
+export type ActiveWorkbenchPageProps = Omit<WorkspacePageProps,
+  'transcript' | 'artifacts' | 'counterexamples' | 'gitDiff' | 'journal'
+> & { active: boolean };
+
 export interface WorkspacePageProps {
   sid: string;
   project: ProjectRow;
@@ -17,6 +22,7 @@ export interface WorkspacePageProps {
   events: EventMsg[];
   transcript: Turn[];
   artifacts: ArtifactInfo[];
+  counterexamples?: CounterexampleDashboard;
   gitDiff?: GitDiffView;
   journal: JournalEntry[];
   connected: boolean;

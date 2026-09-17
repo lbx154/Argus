@@ -25,6 +25,20 @@ import pytest
 
 
 @pytest.fixture
+def platform_process_env() -> dict[str, str]:
+    """Minimal public OS bootstrap values, never an ambient credential copy.
+
+    Node/OpenSSL on Windows fails its CSPRNG initialization without SystemRoot.
+    Explicitly isolated child-env tests must retain this OS prerequisite and
+    the QA runner's temporary directories while still discarding user config.
+    """
+    if os.name != "nt":
+        return {}
+    return {name: os.environ[name] for name in ("SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP")
+            if name in os.environ}
+
+
+@pytest.fixture
 def require_symlink_support(tmp_path: Path) -> None:
     """Skip only when this host cannot create the symlinks a test requires.
 
@@ -67,16 +81,27 @@ def _isolate_argus_state_roots(
     # Argus session, child-env tests inherit the real worker home and stop
     # exercising the "no explicit home was chosen" path. Start from a clean slate;
     # a test that needs a value sets it itself.
-    for name in [k for k in os.environ if k.startswith("ARGUS_SKILL_")]:
+    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_TEAM_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("COPILOT_HOME", raising=False)
+    # The life-worker boot path setdefault()s the workbench host root into
+    # os.environ in-process; a test that booted a worker would otherwise hand
+    # its throwaway root to every later test that resolves trial_home().
+    monkeypatch.delenv("ARGUS_WORKBENCH_HOST_ROOT", raising=False)
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    # Model resolution inspects Codex's provider config to decide whether an
+    # OpenAI model id is valid. Never let a developer's ~/.codex/config.toml
+    # change default-model assertions. CODEX_HOME remains overridable by tests
+    # that deliberately exercise a custom provider.
+    monkeypatch.setenv("CODEX_HOME", str(root / "codex-home"))
 
-    # A test must never mistake the developer's checkout for its loaded source.
-    source = root / "source"
-    source.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("ARGUS_SKILL_SOURCE_ROOT", str(source))
+    # ARGUS_SKILL_SOURCE_ROOT deliberately stays UNSET (the loop above already
+    # dropped any developer-shell value). Setting it now ARMS the source-root
+    # startup preflight, so an ambient throwaway path would make every real
+    # daemon/WebAPI boot in the suite refuse startup; the self-maintenance
+    # machine that once read it as a maintenance source tree is gone. A test
+    # that exercises the preflight sets its own root.
 
 
 
@@ -102,7 +127,7 @@ def _isolate_working_directory(
     lookups, the daemon's own workdir. Under pytest that cwd was the source
     checkout, so a test would silently adopt the repository as its project. The
     visible symptom was log lines like ``no Manager vertical resolved for
-    .../argus-skill; using research only as a compatibility fallback`` during
+    .../argus; using research only as a compatibility fallback`` during
     unrelated tests; the invisible one is any test that writes project state
     into the tree it is testing.
 
@@ -149,7 +174,7 @@ def _no_stop_leaks_between_tests():
     wait deep inside a mission can see a signal. One test setting it once made
     an unrelated external-work test read `stop_requested` instead of the
     outcome that had actually arrived."""
-    from argus_skill.core import process_stop
+    from argus.core import process_stop
 
     process_stop.clear_stop()
     yield

@@ -11,7 +11,7 @@ import stat
 
 import pytest
 
-from argus_skill.verticals.kernel_engineering import environment_audit as audit
+from argus.verticals.kernel_engineering import environment_audit as audit
 
 
 def _make_tool(directory, name: str) -> str:

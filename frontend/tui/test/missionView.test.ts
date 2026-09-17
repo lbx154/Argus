@@ -201,6 +201,7 @@ test('new failure event wins over an older running snapshot', () => {
 test('snapshot refreshes certified achievement counters from current state', () => {
   const current = snapshot();
   current.mission_view = emptyMissionView();
+  current.mission_view.mission.id = 'task-1';
   current.mission_view.mission.started_at = Date.now() / 1000 - 3_600;
   current.mission_view.mission.status = 'working';
   current.mission_view.learned_skills = [{ id: 's1', name: 'skill', status: 'active' }];
@@ -241,7 +242,7 @@ test('mission projector keeps research_incomplete distinct from failure', () => 
     success: false,
   });
   assert.equal(view.mission.status, 'incomplete');
-  assert.equal(view.timeline.at(-1)?.title, 'Mission incomplete');
+  assert.equal(view.timeline.at(-1)?.title, 'The task stopped with work still remaining.');
   assert.equal(view.timeline.at(-1)?.detail, 'research_incomplete');
 });
 
@@ -276,7 +277,7 @@ test('mission projector forces life.mission.failed to failed even with malformed
     outcome_class: 'incomplete',
   });
   assert.equal(view.mission.status, 'failed');
-  assert.equal(view.timeline.at(-1)?.title, 'Mission failed');
+  assert.equal(view.timeline.at(-1)?.title, 'The task could not be completed.');
   assert.equal(view.timeline.at(-1)?.detail, 'Kernel v7');
 });
 
@@ -332,7 +333,7 @@ test('live snapshot preserves authoritative completed pipeline roles', () => {
   });
   Object.assign(live.mission_view.roles.find((role) => role.role === 'reviewer')!, {
     status: 'waiting',
-    label: 'Awaiting engineer handoff',
+    label: 'Waiting for the Engineer to finish',
   });
 
   const view = projectMissionView(live);
@@ -343,7 +344,7 @@ test('live snapshot preserves authoritative completed pipeline roles', () => {
       ['manager', 'done', 'Goal framed'],
       ['planner', 'done', 'Research branch added'],
       ['engineer', 'active', 'editing manuscript'],
-      ['reviewer', 'waiting', 'Awaiting engineer handoff'],
+      ['reviewer', 'waiting', 'Waiting for the Engineer to finish'],
     ],
   );
 });

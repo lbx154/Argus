@@ -1,0 +1,668 @@
+"""Canonical cross-component event names and envelope validation."""
+
+from __future__ import annotations
+
+import json
+import re
+import time
+import uuid
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
+from typing import Any, Mapping
+
+from .json_codec import is_finite_number
+
+EVENT_ENVELOPE_VERSION = 1
+EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
+_PAYLOAD_SCHEMA_PATH = Path(__file__).with_name("event_payload_schemas.json")
+
+
+def _load_payload_schemas() -> tuple[int, dict[str, dict[str, Any]]]:
+    payload = json.loads(_PAYLOAD_SCHEMA_PATH.read_text(encoding="utf-8"))
+    return int(payload["schema_version"]), dict(payload["events"])
+
+
+EVENT_PAYLOAD_SCHEMA_VERSION, EVENT_PAYLOAD_SCHEMAS = _load_payload_schemas()
+
+
+class EventCategory(StrEnum):
+    AGENT_IO = "agent_io"
+    DAEMON = "daemon"
+    IDEA = "idea"
+    LIFECYCLE = "lifecycle"
+    OPERATOR = "operator"
+    PLANNER = "planner"
+    PROVIDER = "provider"
+    PROJECT = "project"
+    RESEARCH = "research"
+    SKILL = "skill"
+    USAGE = "usage"
+    WIKI = "wiki"
+
+
+class EventType(StrEnum):
+    ADVISOR_CONSULTATION_REQUESTED = "advisor.consultation.requested"
+    ADVISOR_CONSULTATION_COMPLETED = "advisor.consultation.completed"
+    ADVISOR_CONSULTATION_FAILED = "advisor.consultation.failed"
+    ADVISOR_CONSULTATION_CANCELLED = "advisor.consultation.cancelled"
+    ADVISOR_CONSULTATION_TIMED_OUT = "advisor.consultation.timed_out"
+    ADVISOR_CONSULTATION_MODEL_MISMATCH = "advisor.consultation.model_mismatch"
+    LIFE_MANAGER_SUPERVISION_ISSUED = "life.manager.supervision.issued"
+    LIFE_MANAGER_SUPERVISION_APPLIED = "life.manager.supervision.applied"
+    LIFE_MANAGER_SUPERVISION_FAILED = "life.manager.supervision.failed"
+    LIFE_PEER_MESSAGE_PROCESSED = "life.peer.message.processed"
+    AGENT_IO_START = "agent.io.start"
+    AGENT_IO_STREAM = "agent.io.stream"
+    AGENT_IO_COMPLETE = "agent.io.complete"
+    AGENT_IO_ERROR = "agent.io.error"
+    USAGE_RECORDED = "usage.recorded"
+    PROVIDER_REQUEST_STARTED = "provider.request.started"
+    PROVIDER_REQUEST_COMPLETED = "provider.request.completed"
+    PROVIDER_REQUEST_DENIED = "provider.request.denied"
+    CODEX_UTIL_COMPLETED = "codex.util.completed"
+    SKILL_COST_COMPLETED = "skill.cost.completed"
+    BUDGET_RESERVATION_CREATED = "budget.reservation.created"
+    BUDGET_RESERVATION_DENIED = "budget.reservation.denied"
+    BUDGET_RESERVATION_SETTLED = "budget.reservation.settled"
+    BUDGET_RESERVATION_RELEASED = "budget.reservation.released"
+    BUDGET_UNPRICED_BLOCKED = "budget.unpriced.blocked"
+    BUDGET_UNPRICED_ACKNOWLEDGED = "budget.unpriced.acknowledged"
+    LOOP_START = "loop.start"
+    LOOP_DONE = "loop.done"
+    ROUND_START = "round.start"
+    ROUND_MAIN_COMPLETED = "round.main.completed"
+    ROUND_REVIEW_STARTED = "round.review.started"
+    ROUND_REVIEW_DEFERRED = "round.review.deferred"
+    ROUND_REVIEW_COMPLETED = "round.review.completed"
+    ROUND_CHECKPOINT_RECORDED = "round.checkpoint.recorded"
+    ROUND_CHECKPOINT_FAILED = "round.checkpoint.failed"
+    ROUND_SECRET_REDACTED = "round.secret_redacted"
+    ROUND_ESCALATED = "round.escalated"
+    ROUND_STALL = "round.stall"
+    ROUND_REVIEWER_BACKEND_FAILURE = "round.reviewer_backend_failure"
+    ROUND_REVIEWER_BACKEND_FAILURE_BACKOFF = "round.reviewer_backend_failure.backoff"
+    ROUND_BACKEND_FAILURE_BACKOFF = "round.backend_failure.backoff"
+    ROUND_BACKEND_FAILURE_HOLD_INTERRUPTED = "round.backend_failure.hold_interrupted"
+    ROUND_WATCHDOG_RETRY = "round.watchdog.retry"
+    ROUND_WATCHDOG_RETRY_EXHAUSTED = "round.watchdog.retry_exhausted"
+    ROUND_MODEL_CONFIGURATION_ERROR = "round.model_configuration_error"
+    ROUND_PROVIDER_TURN_CAP_RESTART = "round.provider_turn_cap.restart"
+    ROUND_PROVIDER_TURN_CAP_REVIEWER_RESTART = "round.provider_turn_cap.reviewer_restart"
+    ROUND_ORPHAN_PROCESS_GROUP = "round.orphan_process_group"
+    ROUND_EXTERNAL_WORK_WAIT_STARTED = "round.external_work_wait.started"
+    ROUND_EXTERNAL_WORK_WAIT_COMPLETED = "round.external_work_wait.completed"
+    ROUND_EXTERNAL_WORK_REVIEW_REQUIRED = "round.external_work_review.required"
+    ROUND_EXTERNAL_WORK_REVIEW_COMPLETED = "round.external_work_review.completed"
+    ROLE_SESSION_TURN = "role.session.turn"
+    ENGINEER_PROGRESS = "engineer.progress"
+    ENGINEER_SKILL_MAINTENANCE_COMPLETED = "engineer.skill_maintenance.completed"
+    LIFE_STATUS = "life.status"
+    LIFE_PHASE_STARTED = "life.phase.started"
+    LIFE_MISSION_STARTED = "life.mission.started"
+    LIFE_MISSION_COMPLETED = "life.mission.completed"
+    LIFE_MISSION_FAILED = "life.mission.failed"
+    LIFE_MISSION_SKIPPED = "life.mission.skipped"
+    LIFE_MISSION_ORPHANED = "life.mission.orphaned"
+    LIFE_MISSION_REQUEUED = "life.mission.requeued"
+    LIFE_MISSION_PROVIDER_CONFIGURATION_DISABLED = "life.mission.provider_configuration_disabled"
+    LIFE_ITERATION_CONTINUED = "life.iteration.continued"
+    LIFE_REVIEW_WAIVED = "life.review.waived"
+    LIFE_POST_MISSION_STOP = "life.post_mission.stop"
+    LIFE_EXECUTION_HOST_BLOCKED = "life.execution_host.blocked"
+    LIFE_AUTH_FAILURE = "life.auth_failure"
+    LIFE_SUPERVISOR_ERROR = "life.supervisor.error"
+    LIFE_LEARNED_VERTICAL_PROMOTED = "life.learned_vertical.promoted"
+    LIFE_LEARNED_VERTICAL_PROMOTION_FAILED = "life.learned_vertical.promotion_failed"
+    LIFE_MANAGER_INTENT_STARTED = "life.manager.intent.started"
+    LIFE_MANAGER_INTENT_COMPLETED = "life.manager.intent.completed"
+    LIFE_MANAGER_INTENT_FAILED = "life.manager.intent.failed"
+    LIFE_MANAGER_INTENT_SUPERSEDED = "life.manager.intent.superseded"
+    LIFE_MANAGER_GOAL_CONTRACT_FAILED = "life.manager.goal_contract.failed"
+    LIFE_MANAGER_STAGE_DECISION = "life.manager.stage_decision"
+    LIFE_MANAGER_PLAN_CHALLENGE_DECIDED = "life.manager.plan_challenge.decided"
+    LIFE_MANAGER_FEEDBACK_PERSISTED = "life.manager.feedback.persisted"
+    LIFE_MANAGER_FEEDBACK_UNRESOLVED = "life.manager.feedback.unresolved"
+    LIFE_MANAGER_FEEDBACK_EXHAUSTED = "life.manager.feedback.exhausted"
+    LIFE_MANAGER_PROJECT_REPORT = "life.manager.project_report"
+    LIFE_MANAGER_PROJECT_REPORT_FAILED = "life.manager.project_report.failed"
+    LIFE_VERTICAL_RESOLVED = "life.vertical.resolved"
+    # Provenance for a role's agent-CLI backend, recorded once per daemon
+    # boot: {role, backend, source}, where source uses the shared
+    # env:<VAR> / persisted:<VAR> / default vocabulary from
+    # core.knobs.resolve_role_backend_with_source. One type per role rather
+    # than a single "life.role.*" type so the catalog stays enumerable and a
+    # consumer can subscribe to just the role it renders.
+    LIFE_MANAGER_BACKEND_RESOLVED = "life.manager.backend_resolved"
+    LIFE_PLANNER_BACKEND_RESOLVED = "life.planner.backend_resolved"
+    LIFE_ENGINEER_BACKEND_RESOLVED = "life.engineer.backend_resolved"
+    LIFE_REVIEWER_BACKEND_RESOLVED = "life.reviewer.backend_resolved"
+    LIFE_CURATOR_BACKEND_RESOLVED = "life.curator.backend_resolved"
+    LIFE_PLANNER_START = "life.planner.start"
+    LIFE_PLANNER_PREVIEW_SKIPPED = "life.planner.preview_skipped"
+    LIFE_PLANNER_NORMALIZED = "life.planner.normalized"
+    LIFE_PLANNER_TASK_ADDED = "life.planner.task_added"
+    LIFE_PLANNER_TASK_SKIPPED = "life.planner.task_skipped"
+    LIFE_PLANNER_VERDICT = "life.planner.verdict"
+    LIFE_PLANNER_WAITING = "life.planner.waiting"
+    LIFE_PLANNER_WAITING_WOKEN = "life.planner.waiting_woken"
+    LIFE_PLANNER_TERMINAL_IDLE = "life.planner.terminal_idle"
+    LIFE_PLANNER_VERIFICATION_PROBE = "life.planner.verification_probe"
+    LIFE_PLANNER_STALL_ESCALATION = "life.planner.stall_escalation"
+    LIFE_PLANNER_DEPENDENCY_DROPPED = "life.planner.dependency_dropped"
+    LIFE_PLANNER_PARALLEL_DROPPED = "life.planner.parallel_dropped"
+    LIFE_PLANNER_ERROR = "life.planner.error"
+    LIFE_PLANNER_DEFERRED = "life.planner.deferred"
+    LIFE_PLANNER_SUPERSEDED = "life.planner.superseded"
+    LIFE_PLANNER_WAIT_OVERRIDDEN = "life.planner.wait_overridden"
+    LIFE_PLANNER_WAITING_CONTRACT_NORMALIZED = "life.planner.waiting_contract.normalized"
+    LIFE_PLANNER_EXTERNAL_POLL_SUPPRESSED = "life.planner.external_poll_suppressed"
+    LIFE_PLANNER_VERDICT_DISCARDED = "life.planner.verdict.discarded"
+    LIFE_PLANNER_FINAL_SUBMISSION_SKIPPED = "life.planner.final_submission_skipped"
+    LIFE_PLANNER_CONTINUATION_REQUIRED = "life.planner.continuation_required"
+    LIFE_PLANNER_COMPLETION_REJECTED = "life.planner.completion_rejected"
+    LIFE_PLANNER_COMPLETION_CIRCUIT_OPENED = "life.planner.completion_circuit_opened"
+    LIFE_PLANNER_COMPLETION_CIRCUIT_HOLDING = "life.planner.completion_circuit_holding"
+    LIFE_PLANNER_COMPLETION_CIRCUIT_NOTIFY_FAILED = "life.planner.completion_circuit.notify_failed"
+    PLAN_DRAFT_START = "plan.draft.start"
+    PLAN_DRAFT_DONE = "plan.draft.done"
+    PLAN_DRAFT_FAILED = "plan.draft.failed"
+    LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED = "life.runtime_failure.circuit_opened"
+    LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED = "life.runtime_failure.circuit_blocked"
+    LIFE_RUNTIME_FAILURE_CANARY_PASSED = "life.runtime_failure.canary_passed"
+    LIFE_PLAN_REVISION_PROPOSED = "life.plan.revision.proposed"
+    LIFE_PLAN_REVISION_REJECTED = "life.plan.revision.rejected"
+    LIFE_PLAN_REVISION_COMMITTED = "life.plan.revision.committed"
+    LIFE_PLAN_NODE_SUPERSEDED = "life.plan.node.superseded"
+    LIFE_PLAN_REVISION_ROLLED_BACK = "life.plan.revision.rolled_back"
+    LIFE_RESEARCH_SECOND_READING = "life.research.second_reading"
+    LIFE_LETTER_WRITTEN = "life.letter.written"
+    LIFE_BUDGET_PAUSE = "life.budget.pause"
+    LIFE_LIFECYCLE_BLOCK = "life.lifecycle.block"
+    LIFE_LIFECYCLE_TRANSITION = "life.lifecycle.transition"
+    LIFE_INBOX_QUEUED = "life.inbox.queued"
+    LIFE_INBOX_DRAINED = "life.inbox.drained"
+    LIFE_OPERATOR_QUESTION_PENDING = "life.operator_question.pending"
+    LIFE_OPERATOR_QUESTION_ANSWERED = "life.operator_question.answered"
+    LIFE_DAEMON_IDLE_TIMEOUT = "life.daemon.idle_timeout"
+    LIFE_DAEMON_READY = "life.daemon.ready"
+    LIFE_DAEMON_DEGRADED = "life.daemon.degraded"
+    PROJECT_COMPLETED = "project.completed"
+    PROJECT_COMPLETION_REFUSED = "project.completion_refused"
+    DAEMON_PARKED = "daemon.parked"
+    DAEMON_COMMAND_SUBMITTED = "daemon.command.submitted"
+    DAEMON_COMMAND_COMPLETED = "daemon.command.completed"
+    DAEMON_COMMAND_REJECTED = "daemon.command.rejected"
+    IDEA_SEARCH_STARTED = "idea.search.started"
+    IDEA_SEARCH_COMPLETED = "idea.search.completed"
+    IDEA_SEARCH_SKIPPED = "idea.search.skipped"
+    IDEA_PORTFOLIO_FORMED = "idea.portfolio.formed"
+    IDEA_PORTFOLIO_NESTED_SKIPPED = "idea.portfolio.nested_skipped"
+    VENUE_RESEARCH_STARTED = "venue.research.started"
+    VENUE_RESEARCH_COMPLETED = "venue.research.completed"
+    RESEARCH_ACHIEVEMENT_CERTIFIED = "research.achievement.certified"
+    SKILL_LIBRARY_AVAILABLE = "skill.library.available"
+    SKILL_CREATED = "skill.created"
+    SKILL_UPDATED = "skill.updated"
+    SKILL_ARCHIVED = "skill.archived"
+    SKILL_TIDIED = "skill.tidied"
+    SKILL_HISTORY_COMPRESSED = "skill.history.compressed"
+    SKILL_EVOLUTION_COMPLETED = "skill.evolution.completed"
+    TEAM_LEARNING_REVIEW_STARTED = "team.learning.review.started"
+    TEAM_LEARNING_REVIEW_SKIPPED = "team.learning.review.skipped"
+    TEAM_LEARNING_REVIEW_COMPLETED = "team.learning.review.completed"
+    TEAM_LEARNING_REVIEW_FAILED = "team.learning.review.failed"
+    TEAM_LEARNING_PROMOTION_QUARANTINED = "team.learning.promotion.quarantined"
+    SELF_LEARNING_REVIEW_STARTED = "self.learning.review.started"
+    SELF_LEARNING_REVIEW_COMPLETED = "self.learning.review.completed"
+    SELF_LEARNING_REVIEW_FAILED = "self.learning.review.failed"
+    DOMAIN_PROMOTION = "domain.promotion"
+    WIKI_INITIALIZED = "wiki.initialized"
+    WIKI_HOOK_WARNING = "wiki.hook.warning"
+    WIKI_CREATED = "wiki.created"
+    WIKI_UPDATED = "wiki.updated"
+    WIKI_RETIRED = "wiki.retired"
+    WIKI_PROMOTION_PROMOTED = "wiki.promotion.promoted"
+    WIKI_PROMOTION_DEMOTED = "wiki.promotion.demoted"
+    WIKI_RETIRED_COMPRESSED = "wiki.retired.compressed"
+    WIKI_EVOLUTION_COMPLETED = "wiki.evolution.completed"
+    OPERATOR_ALERT = "operator_alert"
+    MANAGER_LIVE_VIEW_UPDATED = "manager.live_view.updated"
+    MANAGER_LIVE_VIEW_REJECTED = "manager.live_view.rejected"
+    MANAGER_TURN_STARTED = "manager.turn.started"
+    MANAGER_TURN_CANCELLED = "manager.turn.cancelled"
+    USER_NOTE = "user.note"
+    UI_OPERATOR = "ui.operator"
+    UI_ARGUS = "ui.argus"
+
+
+LEGACY_EVENT_ALIASES: dict[str, EventType] = {
+    "loop.started": EventType.LOOP_START,
+    "loop.completed": EventType.LOOP_DONE,
+    "round.started": EventType.ROUND_START,
+    "mission.started": EventType.LIFE_MISSION_STARTED,
+    "mission.completed": EventType.LIFE_MISSION_COMPLETED,
+    "mission.error": EventType.LIFE_MISSION_FAILED,
+    "life.team.waiting": EventType.LIFE_PLANNER_WAITING,
+}
+
+SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
+    EventType.ADVISOR_CONSULTATION_COMPLETED,
+    EventType.ADVISOR_CONSULTATION_FAILED,
+    EventType.ADVISOR_CONSULTATION_CANCELLED,
+    EventType.ADVISOR_CONSULTATION_TIMED_OUT,
+    EventType.ADVISOR_CONSULTATION_MODEL_MISMATCH,
+    EventType.LIFE_MANAGER_SUPERVISION_APPLIED,
+    EventType.LIFE_MANAGER_SUPERVISION_FAILED,
+    EventType.LIFE_PEER_MESSAGE_PROCESSED,
+    # One line per role per boot, and the exact line an operator needs when a
+    # role turns out to be running on a backend they did not choose. Cheap
+    # enough to keep even in the verdict-only log.
+    EventType.LIFE_MANAGER_BACKEND_RESOLVED,
+    EventType.LIFE_PLANNER_BACKEND_RESOLVED,
+    EventType.LIFE_ENGINEER_BACKEND_RESOLVED,
+    EventType.LIFE_REVIEWER_BACKEND_RESOLVED,
+    EventType.LIFE_CURATOR_BACKEND_RESOLVED,
+    EventType.LOOP_START,
+    EventType.LOOP_DONE,
+    EventType.ROUND_START,
+    EventType.ROUND_MAIN_COMPLETED,
+    EventType.ROUND_REVIEW_DEFERRED,
+    EventType.ROUND_REVIEW_COMPLETED,
+    EventType.ROUND_CHECKPOINT_RECORDED,
+    EventType.ROUND_CHECKPOINT_FAILED,
+    EventType.ROUND_SECRET_REDACTED,
+    EventType.ROUND_ESCALATED,
+    EventType.ROUND_STALL,
+    EventType.ROUND_REVIEWER_BACKEND_FAILURE,
+    EventType.ENGINEER_SKILL_MAINTENANCE_COMPLETED,
+    EventType.SKILL_LIBRARY_AVAILABLE,
+    EventType.SKILL_CREATED,
+    EventType.SKILL_UPDATED,
+    EventType.SKILL_ARCHIVED,
+    EventType.SKILL_TIDIED,
+    EventType.SKILL_HISTORY_COMPRESSED,
+    EventType.SKILL_EVOLUTION_COMPLETED,
+    EventType.WIKI_INITIALIZED,
+    EventType.WIKI_HOOK_WARNING,
+    EventType.WIKI_CREATED,
+    EventType.WIKI_UPDATED,
+    EventType.WIKI_RETIRED,
+    EventType.WIKI_PROMOTION_PROMOTED,
+    EventType.WIKI_PROMOTION_DEMOTED,
+    EventType.WIKI_RETIRED_COMPRESSED,
+    EventType.WIKI_EVOLUTION_COMPLETED,
+    EventType.LIFE_MISSION_STARTED,
+    EventType.LIFE_MISSION_COMPLETED,
+    EventType.LIFE_MANAGER_INTENT_STARTED,
+    EventType.LIFE_MANAGER_INTENT_COMPLETED,
+    EventType.LIFE_MANAGER_INTENT_FAILED,
+    EventType.LIFE_MANAGER_STAGE_DECISION,
+    EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
+    EventType.LIFE_VERTICAL_RESOLVED,
+    EventType.LIFE_PLANNER_START,
+    EventType.LIFE_PLANNER_PREVIEW_SKIPPED,
+    EventType.LIFE_PLANNER_TASK_ADDED,
+    EventType.LIFE_PLANNER_TASK_SKIPPED,
+    EventType.LIFE_PLANNER_DEPENDENCY_DROPPED,
+    EventType.LIFE_PLANNER_PARALLEL_DROPPED,
+    EventType.LIFE_PLANNER_VERDICT,
+    EventType.LIFE_PLANNER_WAITING,
+    EventType.LIFE_PLANNER_WAITING_WOKEN,
+    EventType.LIFE_PLANNER_TERMINAL_IDLE,
+    EventType.LIFE_PLANNER_VERIFICATION_PROBE,
+    EventType.LIFE_PLANNER_STALL_ESCALATION,
+    EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED,
+    EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED,
+    EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,
+    EventType.LIFE_PLAN_REVISION_PROPOSED,
+    EventType.LIFE_PLAN_REVISION_REJECTED,
+    EventType.LIFE_PLAN_REVISION_COMMITTED,
+    EventType.LIFE_PLAN_NODE_SUPERSEDED,
+    EventType.LIFE_RESEARCH_SECOND_READING,
+    EventType.LIFE_LETTER_WRITTEN,
+    EventType.LIFE_BUDGET_PAUSE,
+    EventType.BUDGET_RESERVATION_DENIED,
+    EventType.BUDGET_UNPRICED_BLOCKED,
+    EventType.LIFE_LIFECYCLE_BLOCK,
+    EventType.LIFE_LIFECYCLE_TRANSITION,
+    EventType.PROVIDER_REQUEST_STARTED,
+    EventType.PROVIDER_REQUEST_COMPLETED,
+    EventType.PROVIDER_REQUEST_DENIED,
+    EventType.LIFE_INBOX_QUEUED,
+    EventType.LIFE_INBOX_DRAINED,
+    EventType.LIFE_DAEMON_IDLE_TIMEOUT,
+    EventType.PROJECT_COMPLETED,
+    EventType.PROJECT_COMPLETION_REFUSED,
+    EventType.DAEMON_PARKED,
+    EventType.DAEMON_COMMAND_COMPLETED,
+    EventType.DAEMON_COMMAND_REJECTED,
+    EventType.IDEA_SEARCH_STARTED,
+    EventType.IDEA_SEARCH_COMPLETED,
+    EventType.IDEA_SEARCH_SKIPPED,
+    EventType.VENUE_RESEARCH_STARTED,
+    EventType.VENUE_RESEARCH_COMPLETED,
+    EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
+    EventType.LIFE_MISSION_PROVIDER_CONFIGURATION_DISABLED,
+    EventType.LIFE_ITERATION_CONTINUED,
+    EventType.LIFE_REVIEW_WAIVED,
+    EventType.LIFE_POST_MISSION_STOP,
+    EventType.LIFE_EXECUTION_HOST_BLOCKED,
+    EventType.LIFE_AUTH_FAILURE,
+    EventType.LIFE_SUPERVISOR_ERROR,
+    EventType.LIFE_LEARNED_VERTICAL_PROMOTED,
+    EventType.LIFE_LEARNED_VERTICAL_PROMOTION_FAILED,
+    EventType.LIFE_MANAGER_INTENT_SUPERSEDED,
+    EventType.LIFE_MANAGER_GOAL_CONTRACT_FAILED,
+    EventType.LIFE_MANAGER_FEEDBACK_PERSISTED,
+    EventType.LIFE_MANAGER_FEEDBACK_EXHAUSTED,
+    EventType.LIFE_MANAGER_PROJECT_REPORT_FAILED,
+    EventType.LIFE_PLANNER_DEFERRED,
+    EventType.LIFE_PLANNER_SUPERSEDED,
+    EventType.LIFE_PLANNER_WAIT_OVERRIDDEN,
+    EventType.LIFE_PLANNER_FINAL_SUBMISSION_SKIPPED,
+    EventType.LIFE_PLANNER_CONTINUATION_REQUIRED,
+    EventType.LIFE_PLANNER_COMPLETION_REJECTED,
+    EventType.LIFE_PLANNER_COMPLETION_CIRCUIT_OPENED,
+    EventType.PLAN_DRAFT_DONE,
+    EventType.PLAN_DRAFT_FAILED,
+    EventType.LIFE_PLAN_REVISION_ROLLED_BACK,
+    EventType.ROUND_REVIEWER_BACKEND_FAILURE_BACKOFF,
+    EventType.ROUND_BACKEND_FAILURE_BACKOFF,
+    EventType.ROUND_BACKEND_FAILURE_HOLD_INTERRUPTED,
+    EventType.ROUND_WATCHDOG_RETRY,
+    EventType.ROUND_WATCHDOG_RETRY_EXHAUSTED,
+    EventType.ROUND_MODEL_CONFIGURATION_ERROR,
+    EventType.ROUND_PROVIDER_TURN_CAP_RESTART,
+    EventType.ROUND_PROVIDER_TURN_CAP_REVIEWER_RESTART,
+    EventType.ROUND_ORPHAN_PROCESS_GROUP,
+    EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED,
+    EventType.ROUND_EXTERNAL_WORK_WAIT_COMPLETED,
+    EventType.ROUND_EXTERNAL_WORK_REVIEW_REQUIRED,
+    EventType.ROUND_EXTERNAL_WORK_REVIEW_COMPLETED,
+    EventType.LIFE_DAEMON_DEGRADED,
+    EventType.IDEA_PORTFOLIO_FORMED,
+    EventType.TEAM_LEARNING_REVIEW_STARTED,
+    EventType.TEAM_LEARNING_REVIEW_COMPLETED,
+    EventType.TEAM_LEARNING_REVIEW_FAILED,
+    EventType.TEAM_LEARNING_PROMOTION_QUARANTINED,
+    EventType.DOMAIN_PROMOTION,
+    EventType.MANAGER_LIVE_VIEW_UPDATED,
+    EventType.MANAGER_TURN_STARTED,
+    EventType.MANAGER_TURN_CANCELLED,
+    EventType.USER_NOTE,
+    EventType.UI_OPERATOR,
+    EventType.UI_ARGUS,
+    EventType.OPERATOR_ALERT,
+})
+
+CALL_SCOPED_EVENT_TYPES: frozenset[str] = frozenset({
+    EventType.AGENT_IO_START,
+    EventType.AGENT_IO_COMPLETE,
+    EventType.AGENT_IO_ERROR,
+    EventType.PROVIDER_REQUEST_STARTED,
+    EventType.PROVIDER_REQUEST_COMPLETED,
+    EventType.PROVIDER_REQUEST_DENIED,
+    EventType.USAGE_RECORDED,
+})
+
+@dataclass(frozen=True)
+class EventSpec:
+    type: EventType
+    category: EventCategory
+    signal: bool
+    call_scoped: bool
+    required_fields: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class EventValidation:
+    valid: bool
+    known: bool
+    canonical_type: str
+    errors: tuple[str, ...] = ()
+
+
+def _category(event_type: EventType) -> EventCategory:
+    value = event_type.value
+    if value.startswith("agent.io.") or value.startswith("engineer."):
+        return EventCategory.AGENT_IO
+    if value.startswith("provider."):
+        return EventCategory.PROVIDER
+    if value.startswith("usage.") or value.startswith("codex.util."):
+        return EventCategory.USAGE
+    if value.startswith("life.planner.") or value.startswith("plan."):
+        return EventCategory.PLANNER
+    if value.startswith(("skill.", "team.learning.", "self.learning.")):
+        return EventCategory.SKILL
+    if value.startswith("wiki."):
+        return EventCategory.WIKI
+    if value.startswith("idea."):
+        return EventCategory.IDEA
+    if value.startswith("research.") or value.startswith("venue."):
+        return EventCategory.RESEARCH
+    if value.startswith("project."):
+        return EventCategory.PROJECT
+    if value.startswith("daemon.") or value.startswith("life.daemon."):
+        return EventCategory.DAEMON
+    if value == EventType.OPERATOR_ALERT or value.startswith(("ui.", "user.")):
+        return EventCategory.OPERATOR
+    return EventCategory.LIFECYCLE
+
+
+EVENT_SPECS: dict[EventType, EventSpec] = {
+    event_type: EventSpec(
+        type=event_type,
+        category=_category(event_type),
+        signal=event_type.value in SIGNAL_EVENT_TYPES,
+        call_scoped=event_type.value in CALL_SCOPED_EVENT_TYPES,
+        required_fields=tuple(
+            EVENT_PAYLOAD_SCHEMAS.get(event_type.value, {}).get("required") or ()
+        ),
+    )
+    for event_type in EventType
+}
+
+
+def canonical_event_type(value: Any) -> str:
+    text = str(value or "").strip()
+    alias = LEGACY_EVENT_ALIASES.get(text)
+    return alias.value if alias is not None else text
+
+
+def event_spec(value: Any) -> EventSpec | None:
+    canonical = canonical_event_type(value)
+    try:
+        return EVENT_SPECS[EventType(canonical)]
+    except (ValueError, KeyError):
+        return None
+
+
+def event_payload_schema(value: Any) -> dict[str, Any] | None:
+    return EVENT_PAYLOAD_SCHEMAS.get(canonical_event_type(value))
+
+
+def _matches_json_type(value: Any, expected: str) -> bool:
+    if expected == "null":
+        return value is None
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "object":
+        return isinstance(value, Mapping)
+    if expected == "array":
+        return isinstance(value, list)
+    return True
+
+
+def _validate_payload(event: Mapping[str, Any], schema: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    version = int(schema.get("version") or 1)
+    recorded_version = event.get("payload_schema_version")
+    if recorded_version is not None and recorded_version != version:
+        errors.append(
+            f"payload_schema_version must be {version}; got {recorded_version!r}"
+        )
+    for field, field_schema in (schema.get("properties") or {}).items():
+        if field not in event:
+            continue
+        value = event[field]
+        expected = field_schema.get("type")
+        expected_types = expected if isinstance(expected, list) else [expected]
+        expected_types = [item for item in expected_types if isinstance(item, str)]
+        if expected_types and not any(
+            _matches_json_type(value, item) for item in expected_types
+        ):
+            errors.append(f"field {field} must be {' or '.join(expected_types)}")
+            continue
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and not is_finite_number(value):
+            errors.append(f"field {field} must be finite")
+            continue
+        if "const" in field_schema and value != field_schema["const"]:
+            errors.append(f"field {field} must equal {field_schema['const']!r}")
+        allowed = field_schema.get("enum")
+        if isinstance(allowed, list) and value not in allowed:
+            errors.append(f"field {field} must be one of {allowed!r}")
+        if isinstance(value, str) and "minLength" in field_schema:
+            if len(value) < int(field_schema["minLength"]):
+                errors.append(
+                    f"field {field} must have length >= {field_schema['minLength']}"
+                )
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and "minimum" in field_schema
+            and value < float(field_schema["minimum"])
+        ):
+            errors.append(f"field {field} must be >= {field_schema['minimum']}")
+        if isinstance(value, list) and isinstance(field_schema.get("items"), dict):
+            item_type = field_schema["items"].get("type")
+            if isinstance(item_type, str) and any(
+                not _matches_json_type(item, item_type) for item in value
+            ):
+                errors.append(f"field {field} items must be {item_type}")
+    return errors
+
+
+def validate_event_envelope(
+    event: Mapping[str, Any],
+    *,
+    require_known: bool = False,
+    allow_missing_fields: bool = False,
+) -> EventValidation:
+    """Validate provided fields; legacy replay may omit newer required fields.
+
+    The default remains strict for producers. Compatibility only relaxes absent
+    payload fields, never the event type or the types/values actually supplied.
+    """
+    raw_type = str(event.get("type") or "").strip()
+    canonical = canonical_event_type(raw_type)
+    errors: list[str] = []
+    if not raw_type:
+        errors.append("type is required")
+    elif EVENT_TYPE_RE.fullmatch(raw_type) is None:
+        errors.append(f"invalid event type: {raw_type}")
+    spec = event_spec(raw_type)
+    if require_known and spec is None:
+        errors.append(f"unknown event type: {raw_type}")
+    if spec is not None and not allow_missing_fields:
+        missing = [
+            field
+            for field in spec.required_fields
+            if field not in event or event.get(field) is None
+        ]
+        if missing:
+            errors.append(f"missing required fields: {', '.join(missing)}")
+    payload_schema = event_payload_schema(raw_type)
+    if payload_schema is not None:
+        errors.extend(_validate_payload(event, payload_schema))
+    ts = event.get("ts")
+    if ts is not None and (isinstance(ts, bool) or not isinstance(ts, (int, float))):
+        errors.append("ts must be numeric")
+    elif ts is not None and not is_finite_number(ts):
+        errors.append("ts must be finite")
+    version = event.get("event_schema_version")
+    if version is not None and (
+        isinstance(version, bool)
+        or not isinstance(version, int)
+        or version < 1
+    ):
+        errors.append("event_schema_version must be a positive integer")
+    return EventValidation(
+        valid=not errors,
+        known=spec is not None,
+        canonical_type=canonical,
+        errors=tuple(errors),
+    )
+
+
+def normalize_event_envelope(
+    event: Mapping[str, Any] | Any,
+    *,
+    timestamp: float | None = None,
+) -> dict[str, Any]:
+    out = dict(event) if isinstance(event, Mapping) else {"raw": str(event)}
+    out.pop("event_validation", None)
+    out.pop("canonical_type", None)
+    if canonical_event_type(out.get("type")) == EventType.LIFE_MANAGER_INTENT_COMPLETED:
+        # Daemon-boot handoffs historically predated the shared Manager intent
+        # payload and recorded the same values under intent/execution names.
+        correlation_id = str(
+            out.get("item_id") or out.get("intent_id") or ""
+        ).strip()
+        if not correlation_id:
+            correlation_id = f"legacy-{uuid.uuid4().hex}"
+        if not str(out.get("intent_id") or "").strip():
+            out["intent_id"] = correlation_id
+        if not str(out.get("item_id") or "").strip():
+            out["item_id"] = correlation_id
+        out.setdefault("objective", out.get("execution_task"))
+    out.setdefault("ts", time.time() if timestamp is None else float(timestamp))
+    out.setdefault("event_schema_version", EVENT_ENVELOPE_VERSION)
+    payload_schema = event_payload_schema(out.get("type"))
+    if payload_schema is not None:
+        out.setdefault(
+            "payload_schema_version",
+            int(payload_schema.get("version") or 1),
+        )
+    validation = validate_event_envelope(out)
+    raw_type = str(out.get("type") or "")
+    if validation.canonical_type and validation.canonical_type != raw_type:
+        out.setdefault("canonical_type", validation.canonical_type)
+    if not validation.valid:
+        out["event_validation"] = {
+            "status": "invalid",
+            "errors": list(validation.errors),
+        }
+    return out
+
+
+def new_event(event_type: EventType | str, /, **payload: Any) -> dict[str, Any]:
+    return normalize_event_envelope({**payload, "type": str(event_type)})
+
+
+__all__ = [
+    "CALL_SCOPED_EVENT_TYPES",
+    "EVENT_ENVELOPE_VERSION",
+    "EVENT_PAYLOAD_SCHEMA_VERSION",
+    "EVENT_PAYLOAD_SCHEMAS",
+    "EVENT_SPECS",
+    "EVENT_TYPE_RE",
+    "EventCategory",
+    "EventSpec",
+    "EventType",
+    "EventValidation",
+    "LEGACY_EVENT_ALIASES",
+    "SIGNAL_EVENT_TYPES",
+    "canonical_event_type",
+    "event_payload_schema",
+    "event_spec",
+    "new_event",
+    "normalize_event_envelope",
+    "validate_event_envelope",
+]

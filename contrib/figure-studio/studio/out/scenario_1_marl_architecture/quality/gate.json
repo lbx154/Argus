@@ -1,0 +1,58 @@
+{
+  "gate_version": "2.0",
+  "mode": "contract",
+  "contract": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/contract.json",
+  "pptx": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pptx",
+  "thresholds": {
+    "minimum_font_size_px": 12.0,
+    "minimum_physical_font_pt": 7.0,
+    "preferred_physical_font_pt": 8.0,
+    "bbox_overlap_tolerance_px": 1.0
+  },
+  "summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "files": [
+    {
+      "file": "studio/out/scenario_1_marl_architecture/svg_output/P01.svg",
+      "status": "pass",
+      "canvas": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1280.0,
+        "height": 720.0
+      },
+      "counts": {
+        "nodes": 8,
+        "texts": 15,
+        "edges": 10,
+        "errors": 0,
+        "warnings": 0
+      },
+      "minimum_font_size": 21.0,
+      "minimum_physical_font_pt": 8.278,
+      "expected_labels": {
+        "Decentralized Actors": 1,
+        "Environment": 1,
+        "Agent 1": 1,
+        "Agent 2": 1,
+        "Agent 3": 1,
+        "Agent 4": 1,
+        "Experience Buffer": 1,
+        "Centralized Critic": 1,
+        "Policy Network": 1,
+        "observation": 4,
+        "trajectory": 4,
+        "batch": 1,
+        "value estimate": 1
+      },
+      "issue_counts": {},
+      "issues": [],
+      "warnings": []
+    }
+  ]
+}

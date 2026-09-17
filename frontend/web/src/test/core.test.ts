@@ -38,7 +38,6 @@ import {
 } from '../components/ResearchCanvas';
 import { emptyMissionView } from '../../../core/src/missionView';
 import { MarkdownContent } from '../components/MarkdownContent';
-import { BootSplash, WEB_SPLASH_DURATION_MS } from '../components/BootSplash';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
 import { Sidebar } from '../components/Sidebar';
 import { BackendHandshake } from '../components/BackendHandshake';
@@ -48,8 +47,9 @@ import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
 import { Button } from '../components/primitives';
 import { ArgusMark, Wordmark } from '../components/Wordmark';
-import { ConnectionProblemBanner } from '../components/ConnectionProblemBanner';
+import { ConnectionProblemBanner, pairingTokenFromInput, temporaryPairingLinkFromInput } from '../components/ConnectionProblemBanner';
 import { LocalArgusUnavailableError, PairingRequiredError } from '../api';
+import { isMarkdownArtifact } from '../lib/artifactPresentation';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -63,6 +63,14 @@ const typedUsageEvent: UsageRecordedEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('renders Markdown by kind, MIME type, or filename', () => {
+    expect(isMarkdownArtifact({ kind: 'markdown', name: 'report.bin' })).toBe(true);
+    expect(isMarkdownArtifact({ kind: 'text', mime: 'text/markdown; charset=utf-8', name: 'report.txt' })).toBe(true);
+    expect(isMarkdownArtifact({ kind: 'text', mime: 'text/plain', name: 'REPORT.MD' })).toBe(true);
+    expect(isMarkdownArtifact({ kind: 'text', mime: 'text/plain', path: 'notes/readme.markdown' })).toBe(true);
+    expect(isMarkdownArtifact({ kind: 'text', mime: 'text/plain', name: 'report.txt' })).toBe(false);
+  });
+
   it('renders an actionable pairing message instead of a raw 401 loop', () => {
     const html = renderToStaticMarkup(createElement(ConnectionProblemBanner, {
       error: new PairingRequiredError(),
@@ -71,7 +79,23 @@ describe('shared frontend core', () => {
 
     expect(html).toContain('role="alert"');
     expect(html).toContain('not paired with Argus');
-    expect(html).toContain('reopen the workbench from Argus Desktop');
+    expect(html).toContain('valid pairing link for this Argus site');
+    expect(html).toContain('Pair again');
+  });
+
+  it('accepts a fresh pairing token or extracts one from a pairing link', () => {
+    vi.stubGlobal('window', { location: { href: 'http://127.0.0.1:8765/' } });
+
+    expect(pairingTokenFromInput('fresh-token')).toBe('fresh-token');
+    expect(pairingTokenFromInput('http://127.0.0.1:8765/?token=fresh-link-token')).toBe('fresh-link-token');
+    expect(pairingTokenFromInput('http://127.0.0.1:8765/')).toBe('');
+    expect(pairingTokenFromInput('not a token')).toBe('');
+    const code = 'a'.repeat(32);
+    expect(temporaryPairingLinkFromInput(`http://127.0.0.1:8765/pair/${code}`)).toBe(`http://127.0.0.1:8765/pair/${code}`);
+    expect(temporaryPairingLinkFromInput(`https://other.example/pair/${code}`)).toBe('');
+    expect(temporaryPairingLinkFromInput('http://127.0.0.1:8765/')).toBe('');
+
+    vi.unstubAllGlobals();
   });
 
   it('renders an actionable local-service message instead of Failed to fetch', () => {
@@ -85,25 +109,26 @@ describe('shared frontend core', () => {
     expect(html).toContain('Retry');
   });
 
-  it('uses Rounded 02 geometry with one continuous brand gradient', () => {
+  it('uses theme-aware Rounded 02 eye geometry', () => {
     const lockup = renderToStaticMarkup(createElement(Wordmark, { size: 24 }));
     const mark = renderToStaticMarkup(createElement(ArgusMark, { size: 32 }));
     expect(lockup).toContain('data-logo="rounded-horizontal"');
     expect(mark).toContain('data-logo="rounded-mark"');
-    expect(lockup).toContain('gradientUnits="userSpaceOnUse"');
-    expect(lockup).toContain('x1="180"');
-    expect(lockup).toContain('x2="1280"');
-    expect(lockup).not.toContain('var(--spectral-violet)');
-    expect(lockup).not.toContain('NightPupil');
+    expect(lockup).toContain('fill="rgb(var(--brand-body))"');
+    expect(lockup).not.toContain('linearGradient');
+    expect(mark).toContain('fill="rgb(var(--brand-eye))"');
+    expect(mark).toContain('fill="rgb(var(--brand-pupil))"');
+    expect(mark).toContain('fill="rgb(var(--brand-highlight))"');
+    expect(mark).toContain('argus-mark-eye');
   });
 
   it('defines the public-brand workbench surface contract', () => {
     const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
     for (const token of [
-      '--spectral-blue',
-      '--spectral-violet',
-      '--spectral-rose',
-      '--spectral-gold',
+      '--blue',
+      '--ok',
+      '--warn',
+      '--err',
       '--glass',
       '--glass-raised',
       '--glass-edge',
@@ -125,20 +150,18 @@ describe('shared frontend core', () => {
     ]) {
       expect(css).toContain(selector);
     }
-    expect(css).toContain('@keyframes ambient-drift');
-    expect(css).toContain('[data-page-visible=\"false\"]');
-    expect(css).not.toContain('--spectral-violet: 105 73 205');
-    expect(css).not.toContain('--spectral-rose: 190 67 119');
+    expect(css).not.toContain('@keyframes ambient-drift');
+    expect(css).not.toContain('will-change: transform, opacity');
+    expect(css).not.toContain('--spectral-');
     expect(css).not.toContain('#89dceb');
     expect(css).not.toContain('#cba6f7');
-    expect(css).toContain('.workspace-tab-indicator');
     expect(css).toContain('.role-log-group[data-open=\"true\"]');
   });
 
-  it('keeps light-theme spectral info text at WCAG AA contrast', () => {
+  it('keeps light-theme blue info text at WCAG AA contrast', () => {
     const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
     const root = css.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    const channels = root.match(/--spectral-blue:\s*(\d+)\s+(\d+)\s+(\d+)/);
+    const channels = root.match(/--blue:\s*(\d+)\s+(\d+)\s+(\d+)/);
     expect(channels).not.toBeNull();
     const relativeLuminance = (rgb: number[]) => {
       const linear = rgb.map((channel) => {
@@ -191,10 +214,11 @@ describe('shared frontend core', () => {
     ])).toEqual(first);
   });
 
-  it('closes orphaned provider requests at mission completion', () => {
+  it('closes a task’s orphaned provider request at its own completion', () => {
     const orphaned = {
       type: 'provider.request.started',
       call_id: 'orphaned-manager-call',
+      item_id: 'mission-1',
       run_label: 'manager-classify-grounded',
     };
     expect(activeProviderRequest([
@@ -243,7 +267,7 @@ describe('shared frontend core', () => {
     expect(html).toContain('Decision required');
     expect(html).toContain('Which dataset should the process use?');
     expect(html).toContain('Choose dataset');
-    expect(html).toContain('The Manager applies your choice');
+    expect(html).toContain('Your answer applies to this task.');
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {
@@ -264,9 +288,9 @@ describe('shared frontend core', () => {
     const dark = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'dark' }));
     expect(light).toContain('Settings');
     expect(light).toContain('data-icon="gear"');
-    expect(light).toContain('data-icon="sun"');
+    expect(light).toContain('lucide-sun');
     expect(light).toContain('switch to dark');
-    expect(dark).toContain('data-icon="moon"');
+    expect(dark).toContain('lucide-moon');
     expect(dark).toContain('switch to light');
     expect(`${light}${dark}`).not.toContain('system');
     expect(`${light}${dark}`).not.toContain('desktop');
@@ -427,19 +451,21 @@ describe('shared frontend core', () => {
       success: true,
     })).toMatchObject({
       outcomeClass: 'completed',
-      label: 'Task completed',
+      kind: 'mission_completed',
+      label: 'The task was completed.',
       tone: 'ok',
       missionStatus: 'complete',
+      technical: '',
     });
 
     const cases = [
       [
         { outcome_class: 'completed', status: 'supervisor_error', success: false },
-        { outcomeClass: 'completed', label: 'Task completed', tone: 'ok', missionStatus: 'complete' },
+        { outcomeClass: 'completed', kind: 'mission_completed', label: 'The task was completed.', tone: 'ok', missionStatus: 'complete' },
       ],
       [
         { status: 'done', success: true, final_submission_certified: true },
-        { outcomeClass: 'completed', label: 'Submission certified', tone: 'ok', missionStatus: 'complete' },
+        { outcomeClass: 'completed', kind: 'mission_certified', label: 'The final submission was checked and approved.', tone: 'ok', missionStatus: 'complete' },
       ],
       [
         {
@@ -447,31 +473,37 @@ describe('shared frontend core', () => {
           success: true,
           outcome: { final_submission_certified: true },
         },
-        { outcomeClass: 'completed', label: 'Task completed', tone: 'ok', missionStatus: 'complete' },
+        { outcomeClass: 'completed', kind: 'mission_completed', label: 'The task was completed.', tone: 'ok', missionStatus: 'complete' },
       ],
       [
         { status: 'research_incomplete', success: false },
-        { outcomeClass: 'incomplete', label: 'Mission incomplete', tone: 'warn', missionStatus: 'incomplete' },
+        { outcomeClass: 'incomplete', kind: 'mission_incomplete', label: 'The task stopped with work still remaining.', tone: 'warn', missionStatus: 'incomplete' },
       ],
       [
         { status: 'no_progress', success: false },
-        { outcomeClass: 'stalled', label: 'Mission stalled', tone: 'warn', missionStatus: 'stalled' },
+        { outcomeClass: 'stalled', kind: 'mission_stalled', label: 'The task stopped because recent rounds made no useful progress.', tone: 'warn', missionStatus: 'stalled' },
       ],
       [
         { status: 'blocked', success: false },
-        { outcomeClass: 'blocked', label: 'Mission blocked', tone: 'err', missionStatus: 'blocked' },
+        { outcomeClass: 'blocked', kind: 'mission_blocked', label: 'The task cannot continue until something outside it is resolved.', tone: 'err', missionStatus: 'blocked' },
       ],
       [
         { status: 'supervisor_error', success: false },
-        { outcomeClass: 'failed', label: 'Mission failed', tone: 'err', missionStatus: 'failed' },
+        { outcomeClass: 'failed', kind: 'mission_failed', label: 'The task could not be completed.', tone: 'err', missionStatus: 'failed' },
       ],
       [
+        // An unrecognised status is kept as a technical fact, never written into the sentence.
         { status: 'legacy_weird_status', success: false },
-        { outcomeClass: 'ended', label: 'Mission ended · legacy_weird_status', tone: 'info', missionStatus: 'ended' },
+        { outcomeClass: 'ended', kind: 'mission_ended', label: 'The task ended without a recorded outcome.', tone: 'info', missionStatus: 'ended', technical: 'legacy_weird_status' },
+      ],
+      [
+        // A paused task says why it paused and that it can resume; the raw status stays technical.
+        { status: 'paused_daemon_shutdown', success: false, stop_kind: 'backend_unavailable', resumable: true },
+        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because Argus was stopped; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'paused_daemon_shutdown' },
       ],
       [
         { success: false },
-        { outcomeClass: 'ended', label: 'Mission ended', tone: 'info', missionStatus: 'ended' },
+        { outcomeClass: 'ended', kind: 'mission_ended', label: 'The task ended without a recorded outcome.', tone: 'info', missionStatus: 'ended', technical: '' },
       ],
     ] as const;
 
@@ -513,27 +545,44 @@ describe('shared frontend core', () => {
     expect(formatBytes(12 * 1024 * 1024)).toBe('12 MB');
   });
 
-  it('keeps the opening animation lightweight and bounded', () => {
-    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(200);
+  it('reserves stable shell, scrollbar, and font geometry', () => {
+    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
+    const html = fs.readFileSync(path.resolve('index.html'), 'utf8');
+    const canvas = fs.readFileSync(path.resolve('src/components/ResearchCanvas.tsx'), 'utf8');
+    expect(css).toContain('height: 100dvh');
+    expect(css).toContain('scrollbar-gutter: stable');
+    expect(html.match(/rel="preload"/g)).toHaveLength(2);
+    expect(canvas).not.toContain('key={showLiveProgress');
+    expect(canvas).not.toContain('gsap.fromTo');
   });
 
-  it('uses Rounded 02 SVGs for both boot splash widths', () => {
-    const html = renderToStaticMarkup(
-      createElement(BootSplash, { onDone: () => undefined }),
-    );
-    expect(html).toContain('data-logo="rounded-horizontal"');
-    expect(html).toContain('data-logo="rounded-mark"');
-    expect(html).not.toContain('<pre');
-    expect(html).not.toContain('ARGUS-SKILL');
-  });
-
-  it('favicon uses Rounded 02 geometry with fixed blue-gold gradient', () => {
+  it('favicon uses monochrome Rounded 02 geometry', () => {
     const svg = fs.readFileSync(path.resolve('public/favicon.svg'), 'utf8');
-    expect(svg).toContain('gradientUnits="userSpaceOnUse"');
-    expect(svg).toContain('#075fe4');
-    expect(svg).toContain('#d99a16');
+    expect(svg).toContain('fill="#000"');
+    expect(svg).toContain('fill="#fff"');
+    expect(svg).not.toContain('linearGradient');
     expect(svg).toMatch(/A\s*42\s+42/);
-    expect(svg).not.toContain('<rect');
+    expect(svg).toContain('<rect');
+  });
+
+  it('ships a non-inverted dark-mode favicon and full semantic palette', () => {
+    const svg = fs.readFileSync(path.resolve('public/favicon-dark.svg'), 'utf8');
+    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
+    const html = fs.readFileSync(path.resolve('index.html'), 'utf8');
+    const manifest = fs.readFileSync(path.resolve('public/manifest.webmanifest'), 'utf8');
+    expect(svg).toContain('fill="#d7d9dc"');
+    expect(svg).toContain('fill="#ffffff"');
+    expect(svg).toContain('fill="#202326"');
+    expect(svg).toContain('fill="#080a0b"');
+    expect(css).toContain('--brand-body: 215 217 220');
+    expect(css).toContain('--brand-eye: 255 255 255');
+    expect(css).toContain('--brand-pupil: 32 35 38');
+    expect(css).toContain('--brand-highlight: 255 255 255');
+    expect(html).toContain('href="./favicon-dark.svg" media="(prefers-color-scheme: dark)"');
+    expect(html).toContain('href="./apple-touch-icon-dark.png" media="(prefers-color-scheme: dark)"');
+    expect(manifest).toContain('/icon-dark-192.png');
+    expect(manifest).toContain('/icon-dark-512.png');
+    expect(manifest).toContain('/icon-maskable-dark-512.png');
   });
 
   it('lets the Manager choose the live canvas and prefers its rendered output', () => {
@@ -636,9 +685,81 @@ describe('shared frontend core', () => {
     now.mockRestore();
   });
 
+  it('recovers a historical full handoff even when the snapshot is newer', () => {
+    const view = emptyMissionView();
+    view.mission.id = 'task-long';
+    view.mission.title = 'Write report';
+    view.mission.summary = 'Compact summary ending early';
+    view.mission.status = 'complete';
+    view.last_event_ts = 10;
+    const snapshot = {
+      session: { id: 's', display_name: '', objective: '', created: 1, last_active: 0, cwd: '' },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 3 },
+      roles: [],
+      backlog: [],
+      recent_events: [],
+      continuous: { enabled: false, objective: '' },
+      mission_view: view,
+    };
+    const supersededDraft = '# Superseded draft\n\n' + 'obsolete detail\n'.repeat(400);
+    const fullOutput = '# Complete report\n\n' + 'final detail\n'.repeat(100);
+
+    const result = projectMissionView(snapshot, [
+      { type: 'life.mission.started', ts: 1, item_id: 'task-long' },
+      {
+        type: 'engineer.progress',
+        ts: 2,
+        agent_layer: 'engineer',
+        kind: 'agent_message',
+        text: supersededDraft,
+      },
+      {
+        type: 'engineer.progress',
+        ts: 3,
+        agent_layer: 'engineer',
+        kind: 'agent_message',
+        final_delivery: true,
+        text: `${fullOutput}\nMILESTONE_STATUS=done\nOPERATOR_QUESTION=none`,
+      },
+      { type: 'life.mission.completed', ts: 4, item_id: 'task-long' },
+    ], []);
+
+    expect(result.mission.summary).toBe('Compact summary ending early');
+    expect(result.mission.final_output).toBe(fullOutput.trim());
+  });
+
+  it('does not recover output without a matching mission start boundary', () => {
+    const view = emptyMissionView();
+    view.mission.id = 'task-long';
+    view.mission.status = 'complete';
+    view.last_event_ts = 10;
+    const snapshot = {
+      session: { id: 's', display_name: '', objective: '', created: 1, last_active: 0, cwd: '' },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 3 },
+      roles: [],
+      backlog: [],
+      recent_events: [],
+      continuous: { enabled: false, objective: '' },
+      mission_view: view,
+    };
+
+    const result = projectMissionView(snapshot, [
+      {
+        type: 'engineer.progress',
+        ts: 1,
+        agent_layer: 'engineer',
+        kind: 'agent_message',
+        text: 'Output from a different mission',
+      },
+      { type: 'life.mission.completed', ts: 2, item_id: 'task-long' },
+    ], []);
+
+    expect(result.mission.final_output).toBe('');
+  });
+
   it('renders conversation Markdown without executing raw HTML', () => {
     const html = renderToStaticMarkup(
-      createElement(MarkdownContent, null, '## Result\n\n- **passed**\n\n`score = 1`\n\n```\nraw block\n```\n\n<script>alert(1)</script>'),
+      createElement(MarkdownContent, null, '## Result\n\n- **passed**\n\n\\[x^2\\]\n\nInline \\(y\\). Costs $20 and $30 today. Literal \\\\(not math\\\\).\n\n`score = \\(literal\\)`\n\n    \\(indented code\\)\n\n[artifact](notes/\\(draft\\).md)\n\n[reference][ref]\n\n[ref]: notes/\\(draft\\).md\n\n```\nraw block\n```\n\n<script>alert(1)</script>'),
     );
     expect(html).toContain('<h2');
     expect(html).toContain('<strong');
@@ -648,6 +769,44 @@ describe('shared frontend core', () => {
     expect(html).not.toContain('min-w-max');
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
+    expect(html).toContain('katex-display');
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('Costs $20 and $30 today.');
+    expect(html).toContain('score = \\(literal\\)');
+    expect(html).toContain('\\(indented code\\)');
+    expect(html).toContain('Literal \\(not math\\).');
+    expect(html).toContain('href="notes/(draft).md"');
+    expect(html).not.toContain('notes/$draft$.md');
+  });
+
+  it('keeps Markdown syntax inside TeX atomic', () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownContent, null, String.raw`Inline \(a * b + [x](y)\).`),
+    );
+
+    expect(html).toContain('class="katex"');
+    expect(html).not.toContain('<a ');
+    expect(html).not.toContain('<em>');
+  });
+
+  it('preserves reference targets and malformed fenced code literally', () => {
+    const markdown = [
+      '[paper][ref]',
+      '',
+      '[ref]: notes/\\(draft\\).md "Title \\(literal\\)"',
+      '',
+      '```text',
+      '\\[not_math\\]',
+      '``',
+      '\\(still_code\\)',
+    ].join('\n');
+    const html = renderToStaticMarkup(createElement(MarkdownContent, null, markdown));
+
+    expect(html).toContain('href="notes/(draft).md"');
+    expect(html).toContain('title="Title (literal)"');
+    expect(html).toContain('\\[not_math\\]');
+    expect(html).toContain('\\(still_code\\)');
+    expect(html).not.toContain('class="katex"');
   });
 
   it('turns API JSON detail into a useful operator-facing error', async () => {

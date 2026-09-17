@@ -6,11 +6,11 @@ import json
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.agent_cli.models import AgentRunResult
-from argus_skill.manager import Manager
-from argus_skill.manager._session_ops import _ManagerSession
-from argus_skill.manager.domain_author import VerticalDecisionError
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.agent_cli.models import AgentRunResult
+from argus.manager import Manager
+from argus.manager._session_ops import _ManagerSession
+from argus.manager.domain_author import VerticalDecisionError
 
 _FAST_DECISION = json.dumps(
     {
@@ -144,7 +144,7 @@ def test_adapter_preserves_turn_failed_when_fatal_normalizes_away() -> None:
     )
 
     assert translated.exit_code == 0
-    assert translated.fatal_error == "backend reported a failed turn"
+    assert translated.fatal_error == "Agent CLI exited without completing a model turn."
 
 
 def test_nonzero_exit_fails_and_reports_stderr_diagnostic(tmp_path) -> None:

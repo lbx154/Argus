@@ -9,20 +9,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.daemon.state import write_continuous_config
-from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import (
+from argus.core.event_catalog import EventType
+from argus.core.models import RunnerResult
+from argus.daemon.state import write_continuous_config
+from argus.life.event_log import JsonlEventSink
+from argus.life.memory import (
     BacklogItem,
     GlobalMemory,
     LifeMemory,
     MemoryBundle,
     ProjectMemory,
 )
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_RETRY
-from argus_skill.planner import Planner, PlannerConfig
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_RETRY
+from argus.planner import Planner, PlannerConfig
+from argus.skills.vertical_select import persist_vertical
 
 
 class _MissionRunner:
@@ -134,7 +135,7 @@ def test_planner_require_independent_review_survives_enqueue(
     enqueued with the review:required tag so the mission runs an independent
     Reviewer instead of self-settling with "independent review was not
     required"."""
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     project = tmp_path / "project"
     project.mkdir()
@@ -159,6 +160,93 @@ def test_planner_require_independent_review_survives_enqueue(
     ]
     assert "review:required" in pending[0].tags
     assert PlanningContextMixin._item_requires_independent_review(pending[0]) is True
+
+
+@pytest.mark.parametrize("outcome", ["new_task", "retire_only", "waiting", "done"])
+def test_planner_retires_pending_tasks_without_requiring_new_work(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+    outcome: str,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    planner = _PlannerBackend([])
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+    backlog = supervisor.memory.backlog
+    pending = backlog.add(BacklogItem.new(title="Repair the refuted mechanism", objective="a"))
+    running = backlog.add(BacklogItem.new(title="Work already running", objective="b"))
+    backlog.mark_running(running.id)
+    parked = backlog.add(BacklogItem.new(title="Waiting for a GPU job", objective="d"))
+    backlog.update(
+        parked.id,
+        status="paused_external_work",
+        outcome={"external_wait": {"work_id": "training", "workdir": str(project)}},
+    )
+    done = backlog.add(BacklogItem.new(title="Completed work", objective="c"))
+    backlog.mark_done(done.id)
+    reason = "The experiment refuted this mechanism family."
+    lines = [
+        f"PROJECT_DONE={'true' if outcome == 'done' else 'false'}",
+        "REASON=Close the refuted line of work.",
+        f"RETIRE_TASK={pending.id} | {reason}",
+        f"RETIRE_TASK={running.id} | This work already started.",
+        f"RETIRE_TASK={parked.id} | This work is waiting for a GPU job.",
+        f"RETIRE_TASK={done.id} | This work already finished.",
+        "RETIRE_TASK=unknown | This item no longer exists.",
+    ]
+    if outcome == "new_task":
+        lines.extend([
+            "TASK_KEY=distinct",
+            "TASK_TITLE=Test a distinct mechanism",
+            "TASK_OBJECTIVE=Run an experiment on the untested alternative.",
+        ])
+    elif outcome == "waiting":
+        lines.extend([
+            "WAITING=true",
+            "WAITING_REASON=Await the operator's new evidence.",
+            "BLOCKER_FINGERPRINT=operator-evidence",
+            "RECHECK_CONDITION=The operator supplies new evidence.",
+            "RECHECK_TOKEN=evidence-needed",
+            "OPERATOR_ACTION_REQUIRED=true",
+        ])
+    planner.replies.append("\n".join(lines))
+
+    with caplog.at_level("INFO", logger="argus.life.supervisor._planning_cycle_enqueue"):
+        supervisor._plan_next_work()
+
+    rows = {item.id: item for item in backlog.history()}
+    assert rows[pending.id].status == "superseded"
+    assert rows[pending.id].superseded_reason == reason
+    assert rows[pending.id].superseded_by_plan_id
+    assert rows[running.id].status == "running"
+    assert rows[parked.id].status == "paused_external_work"
+    assert rows[parked.id].outcome["external_wait"]["work_id"] == "training"
+    assert rows[done.id].status == "done"
+    events = [
+        json.loads(line)
+        for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
+    ]
+    retired = [event for event in events if event["type"] == EventType.LIFE_PLAN_NODE_SUPERSEDED]
+    assert len(retired) == 1
+    assert retired[0]["item_id"] == pending.id
+    assert retired[0]["reason"] == reason
+    assert retired[0]["source"] == "planner"
+    assert retired[0]["superseded_by_plan_id"] == rows[pending.id].superseded_by_plan_id
+    skipped = [record for record in caplog.records if "retirement skipped" in record.message]
+    assert len(skipped) == 1
+    assert all(
+        item_id in skipped[0].message
+        for item_id in (running.id, parked.id, done.id, "unknown")
+    )
+    assert f"{pending.id}: {pending.title}" in planner.calls[0]["prompt"]
+    if outcome == "new_task":
+        new_item, = backlog.pending()
+        assert new_item.title == "Test a distinct mechanism"
+        assert rows[pending.id].superseded_by_plan_id == new_item.plan_id
+    else:
+        assert backlog.pending() == []
 
 
 def test_planner_reuses_front_door_route_without_manager_reclassification(
@@ -206,8 +294,12 @@ def test_planner_reuses_front_door_route_without_manager_reclassification(
     assert supervisor.memory.backlog.pending()[0].manager_decision["vertical"] == "software"
 
 
+@pytest.mark.parametrize("existing_status", [
+    "pending", "running", "paused_external_work", "paused_operator", "research_incomplete",
+])
 def test_bounded_manager_direct_task_skips_planner_decomposition(
     tmp_path: Path,
+    existing_status: str,
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -259,6 +351,17 @@ def test_bounded_manager_direct_task_skips_planner_decomposition(
     assert "stage_closing" in pending[0].tags
     assert "review:required" in pending[0].tags
     assert planner.calls == []
+
+    # A later planning pass must not bootstrap the same finite objective again
+    # while its original mission is running or waiting to resume.
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    memory.backlog.update(pending[0].id, status=existing_status)
+    original = memory.backlog.history()
+    state = _PlanCycleState(None)
+    state.manager_intent = supervisor._manager_intent_context()
+    assert supervisor._enqueue_bounded_manager_direct(state) is None
+    assert memory.backlog.history() == original
 
 
 def _kernel_supervisor(
@@ -328,7 +431,7 @@ def test_direct_kernel_workflow_does_not_generate_scope_bundle(
 def test_manager_intent_survives_generation_only_daemon_restart(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     life = tmp_path / "life"
     life.mkdir()
@@ -386,7 +489,7 @@ def test_manager_intent_survives_generation_only_daemon_restart(
 
 
 def test_continuous_reload_updates_lifetime_and_final_gate() -> None:
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     class Harness(PlanningContextMixin):
         config = SimpleNamespace(
@@ -721,7 +824,7 @@ def test_replan_replace_commits_after_version_zero_source_terminalized(
 def test_forbidden_questions_request_revision_within_existing_authority(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     project = tmp_path / "project"
     project.mkdir()
@@ -799,7 +902,7 @@ def test_forbidden_questions_block_out_of_scope_operator_alternative(
     tmp_path: Path,
     alternative: str,
 ) -> None:
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     project = tmp_path / "project"
     project.mkdir()

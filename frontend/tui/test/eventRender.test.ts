@@ -24,7 +24,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       role: 'engineer',
       label: 'Engineer',
       glyph: '🎉',
-      text: 'Task completed · Created RESULT.txt and verified its contents.',
+      text: 'The task was completed. · Created RESULT.txt and verified its contents.',
       tone: 'ok',
       rule: true,
     },
@@ -41,7 +41,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       role: 'engineer',
       label: 'Engineer',
       glyph: '🎉',
-      text: 'Submission certified',
+      text: 'The final submission was checked and approved.',
       tone: 'ok',
       rule: true,
     },
@@ -57,7 +57,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       role: 'engineer',
       label: 'Engineer',
       glyph: '◌',
-      text: 'Mission incomplete',
+      text: 'The task stopped with work still remaining.',
       tone: 'warn',
       rule: true,
     },
@@ -74,7 +74,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       role: 'engineer',
       label: 'Engineer',
       glyph: '⛔',
-      text: 'Mission blocked',
+      text: 'The task cannot continue until something outside it is resolved.',
       tone: 'err',
       rule: true,
     },
@@ -90,7 +90,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       role: 'engineer',
       label: 'Engineer',
       glyph: '■',
-      text: 'Mission ended · legacy_weird_status',
+      text: 'The task ended without a recorded outcome.',
       tone: 'info',
       rule: true,
     },
@@ -128,7 +128,7 @@ test('Manager routing failures lead with structured facts and retain raw error',
 
   assert.match(
     rendered?.text ?? '',
-    /^分流失败 · 契约： research_target_level got "phd", expected exploratory\|publishable\|doctoral \(第2次尝试\)/,
+    /^没能判断这个请求该归谁 · 回答格式： research_target_level got "phd", expected exploratory\|publishable\|doctoral \(第2次尝试\)/,
   );
   assert.match(rendered?.text ?? '', /原始错误: ManagerClassificationContractError/);
   assert.equal(rendered?.expand, true);
@@ -206,22 +206,19 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
   const context = { locale: 'en', showReasoning: true, unknownEventPolicy: 'hide', density: 'full' } as const;
   const oldRendererBugs: Record<string, Partial<ReturnType<typeof semanticProjection>>> = {
     // The old TUI hard-codes Chinese for only three event families instead of honoring one locale policy.
-    'life.manager.intent.started': { text: 'classifying request…' },
-    'life.manager.intent.failed': { text: 'routing failed · backend 401 Missing bearer (attempt 2) · raw: VerticalDecisionError: routing failed' },
+    'life.manager.intent.started': { text: 'Working out how to handle your request…' },
+    'life.manager.intent.failed': { text: 'could not work out where this request belongs · model service 401 Missing bearer (attempt 2) · error text: VerticalDecisionError: routing failed' },
     'life.phase.started': { text: 'entering implementation' },
-    // The old TUI leaks secrets and lags Python follow's complete handoff-field stripping.
+    // The shared renderer explains the selected plan and its recorded rationale.
+    'life.manager.intent.completed': {
+      text: 'The team plans to work in stages\nFinish once this objective is met. the current operation needs attention',
+    },
+    // The old TUI leaks recognized credentials; the semantic core redacts them.
     'engineer.progress.secret-redaction': { text: 'using token <REDACTED:github-token>' },
-    'engineer.progress.handoff-fields': { text: 'Artifact complete.' },
-    // These are semantic distinctions/events that the old whitelist currently loses.
-    'life.planner.task_skipped.review-purchase-deferred': { text: 'review purchase deferred Purchase another paper review' },
-    'life.planner.normalized': { text: 'normalized · removed duplicate planner task' },
+    // A semantic distinction the old whitelist's own task_skipped line loses.
+    'life.planner.task_skipped.review-purchase-deferred': { text: 'put off another paper review Purchase another paper review' },
     // The old renderer leaves a trailing space when this schema has no objective field.
     'life.planner.start': { text: 'planning' },
-    'life.planner.waiting': { role: 'planner', visibility: 'normal' },
-    'life.planner.waiting.waiting-resource': { text: 'waiting · subagent state waiting_resource is a healthy resource wait' },
-    'life.planner.waiting_woken': { role: 'planner', visibility: 'normal' },
-    'life.planner.terminal_idle': { role: 'planner', visibility: 'normal' },
-    'life.planner.verification_probe': { role: 'planner', visibility: 'normal' },
   };
 
   for (const fixture of EVENT_CORPUS.fixtures) {
@@ -262,6 +259,8 @@ test('render-events streams semantic-core corpus events as one plain line per ND
 
   assert.equal(
     rendered,
-    '🧭 [Manager] 判断任务归属…\n• [Argus] [future.event] kept for grep\n\n',
+    '🧭 [Manager] 正在安排处理方式…\n'
+    + '• [Argus] [future.event] kept for grep\n'
+    + '⛔ [监控] 卡住了 — 需要你来处理 · Renderer event detail\n',
   );
 });

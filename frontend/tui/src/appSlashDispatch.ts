@@ -41,6 +41,9 @@ export function dispatchSlashCommand(line: string, deps: SlashDispatchDeps): voi
   ]);
 
   switch (parsed.cmd.name) {
+    case '/crystalpilot':
+      void deps.api.message(line).then(result => deps.setNotice(result.reply || 'CrystalPilot command handled'), err);
+      break;
     case '/help':
       deps.openPanel('help');
       break;

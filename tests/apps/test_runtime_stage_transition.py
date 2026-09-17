@@ -3,7 +3,177 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from argus_skill.apps._runtime_helpers import _should_run_stage_transition
+import pytest
+
+from argus.apps._runtime_helpers import _should_run_stage_transition
+
+
+@pytest.mark.parametrize(("workflow", "action", "stage"), [("staged", "advance", "optimize"), ("direct", "complete", "setup")])
+def test_event_sink_failure_keeps_committed_stage_decision(tmp_path, workflow, action, stage) -> None:
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.core.pipeline_state import read_pipeline_state
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
+
+    state = tmp_path / "state"
+    work = tmp_path / "work"
+    work.mkdir()
+    persist_vertical(state, "math_synth", workflow_mode=workflow)
+    manager = Manager(project_root=state, execution_workdir=work, runner=object())
+
+    class Sink:
+        def handle_event(self, _event):
+            raise OSError("event sink is unavailable")
+
+    result = StageTransitionMixin._decide_stage_transition(
+        SimpleNamespace(manager=manager, _artifact_root=state, _manager_session_root=state),
+        rounds_list=[SimpleNamespace(review=ReviewDecision(status="done", reason="verified", next_action=""))],
+        workdir=work, sink=Sink(), mission_scope="bounded", stage_closing=True,
+    )
+
+    assert result["action"] == action
+    assert result["target_stage"] == stage
+    assert read_pipeline_state(state)["current_stage"] == stage
+
+
+def test_stale_stage_verdict_preserves_new_campaign_wait(tmp_path) -> None:
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.manager._core import StageTransition
+    from argus.manager.control_state import CampaignControlStore
+
+    control = CampaignControlStore(tmp_path)
+    identity = control.campaign_identity(objective="replacement objective", campaign_epoch=2)
+    original_head = control.activate_wait(
+        identity=identity, wait_id="new-wait", blocker_fingerprint="new-blocker", recheck_token="new-evidence"
+    )
+
+    class Manager:
+        def bind_execution_workdir(self, _workdir):
+            return self
+
+        def decide_stage_transition(self, **_kwargs):
+            return StageTransition(
+                "hold", "setup", "campaign changed", current_stage="setup",
+                source="stale_stage_context_hold", diagnostic="stage_context_changed",
+            )
+
+    result = StageTransitionMixin._decide_stage_transition(
+        SimpleNamespace(manager=Manager(), _artifact_root=tmp_path, _manager_session_root=tmp_path),
+        rounds_list=[SimpleNamespace(review=ReviewDecision(status="done", reason="old objective verified", next_action=""))],
+        workdir=tmp_path, sink=SimpleNamespace(handle_event=lambda _event: None),
+        continuous_objective="old objective", mission_scope="bounded", stage_closing=True,
+    )
+
+    assert result["source"] == "stale_stage_context_hold"
+    assert control.read_head() == original_head
+    assert control.read_snapshot()["active_wait"]["wait_id"] == "new-wait"
+
+
+@pytest.mark.parametrize("initial_head", [False, True])
+def test_unchanged_campaign_accepts_committed_stage_projection(tmp_path, initial_head) -> None:
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.daemon.state import write_continuous_config
+    from argus.manager import Manager
+    from argus.manager.control_state import CampaignControlStore
+    from argus.skills.vertical_select import persist_vertical
+
+    state = tmp_path / "state"
+    work = tmp_path / "work"
+    work.mkdir()
+    persist_vertical(state, "math_synth", workflow_mode="staged")
+    write_continuous_config(state, enabled=True, objective="persisted objective")
+    control = CampaignControlStore(state)
+    identity = control.campaign_identity()
+    if initial_head:
+        control.activate_wait(identity=identity, wait_id="old-wait", blocker_fingerprint="old", recheck_token="evidence")
+    manager = Manager(project_root=state, execution_workdir=work, runner=object())
+
+    result = StageTransitionMixin._decide_stage_transition(
+        SimpleNamespace(manager=manager, _artifact_root=state, _manager_session_root=state),
+        rounds_list=[SimpleNamespace(review=ReviewDecision(status="done", reason="verified", next_action=""))],
+        workdir=work, sink=SimpleNamespace(handle_event=lambda _event: None),
+        mission_scope="bounded", stage_closing=True, continuous_objective="persisted objective",
+    )
+
+    head = control.read_head()
+    snapshot = control.read_snapshot(head)
+    assert result["action"] == "advance"
+    assert head.campaign_id == identity.campaign_id
+    assert head.state_revision == (2 if initial_head else 1)
+    assert result["state_revision"] == head.state_revision
+    assert snapshot["active_wait"] is None
+    assert snapshot["stage_projection"]["target_stage"] == "optimize"
+    assert snapshot["terminal_evidence"][0]["reason"] == "verified"
+
+
+@pytest.mark.parametrize("change", ["new_wait", "replacement", "generation_only"])
+def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_path, change) -> None:
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.daemon.state import write_continuous_config
+    from argus.manager._session_ops import manager_pipeline_lock
+    from argus.manager.control_state import CampaignControlStore
+    from argus.skills.stage_machine import advance_stage
+    from argus.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "math_synth", workflow_mode="staged")
+    write_continuous_config(tmp_path, enabled=True, objective="old objective")
+    control = CampaignControlStore(tmp_path)
+    identity = control.campaign_identity()
+    control.activate_wait(identity=identity, wait_id="old-wait", blocker_fingerprint="old", recheck_token="old")
+    changed_head = []
+
+    class CommittedDecision:
+        action = "advance"
+        current_stage = "setup"
+        target_stage = "optimize"
+        source = "manager_llm"
+        diagnostic = "valid_target"
+
+        @property
+        def reason(self):
+            # The Manager has returned; replace the campaign/control state
+            # before the runtime starts publishing that old result.
+            if not changed_head:
+                with manager_pipeline_lock(tmp_path):
+                    if change in {"replacement", "generation_only"}:
+                        write_continuous_config(
+                            tmp_path, enabled=True,
+                            objective="old objective" if change == "generation_only" else "new objective",
+                        )
+                    if change != "generation_only":
+                        control.activate_wait(
+                            identity=control.campaign_identity(), wait_id="new-wait",
+                            blocker_fingerprint="new", recheck_token="new",
+                        )
+                    changed_head.append(control.read_head())
+            return "old objective verified"
+
+    class Manager:
+        def bind_execution_workdir(self, _workdir):
+            return self
+
+        def decide_stage_transition(self, **_kwargs):
+            with manager_pipeline_lock(tmp_path):
+                advance_stage(tmp_path, target_stage="optimize", reason="old setup verified")
+            return CommittedDecision()
+
+    result = StageTransitionMixin._decide_stage_transition(
+        SimpleNamespace(manager=Manager(), _artifact_root=tmp_path, _manager_session_root=tmp_path),
+        rounds_list=[SimpleNamespace(review=ReviewDecision(status="done", reason="old objective verified", next_action=""))],
+        workdir=tmp_path, sink=SimpleNamespace(handle_event=lambda _event: None),
+        mission_scope="bounded", stage_closing=True, continuous_objective="old objective",
+    )
+
+    assert result["action"] == "advance"  # The original stage commit still happened.
+    assert "state_revision" not in result
+    assert control.read_head() == changed_head[0]
+    snapshot = control.read_snapshot()
+    assert snapshot["active_wait"]["wait_id"] == ("old-wait" if change == "generation_only" else "new-wait")
+    assert snapshot["terminal_evidence"] == []
 
 
 def test_non_stage_closing_planner_node_cannot_move_pipeline_stage() -> None:
@@ -90,15 +260,15 @@ def test_withheld_stage_authority_outranks_every_other_eligibility_route() -> No
 def test_stage_closing_runtime_path_uses_deterministic_manager_writer(
     tmp_path,
 ) -> None:
-    from argus_skill.apps._runtime_stage_transition import StageTransitionMixin
-    from argus_skill.core.models import ReviewDecision
-    from argus_skill.manager import Manager
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "speedrun", workflow_mode="staged")
+    persist_vertical(state_root, "math_synth", workflow_mode="staged")
 
     class Sink:
         def __init__(self) -> None:
@@ -141,9 +311,9 @@ def test_stage_closing_runtime_path_uses_deterministic_manager_writer(
 
 
 def test_bounded_direct_runtime_path_retains_manager_adjudication(tmp_path) -> None:
-    from argus_skill.apps._runtime_stage_transition import StageTransitionMixin
-    from argus_skill.core.models import ReviewDecision
-    from argus_skill.manager._core import StageTransition
+    from argus.apps._runtime_stage_transition import StageTransitionMixin
+    from argus.core.models import ReviewDecision
+    from argus.manager._core import StageTransition
 
     class Manager:
         def bind_execution_workdir(self, _workdir):
@@ -198,8 +368,8 @@ def test_teammate_entry_withholds_stage_authority_from_its_mission() -> None:
     """
     import inspect
 
-    from argus_skill.apps._runtime_execute import SkillLoopExecuteMixin
-    from argus_skill.team import teammate_entry
+    from argus.apps._runtime_execute import SkillLoopExecuteMixin
+    from argus.team import teammate_entry
 
     assert "holds_stage_authority" in inspect.signature(
         SkillLoopExecuteMixin.execute

@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _needed_for_live_progress
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import BACKEND_PI
-from argus_skill.core.token_usage import extract_token_usage
+from argus.adapters.agent_cli_backend import _needed_for_live_progress
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import BACKEND_PI
+from argus.core.token_usage import extract_token_usage
 
 
 def _runner() -> AgentCliRunner:
@@ -225,6 +225,21 @@ def test_pi_message_usage_is_summed_without_double_counting_turn_end() -> None:
             "type": "message_end",
             "message": {
                 "role": "assistant",
+                "stopReason": "error",
+                "errorMessage": "rate limited",
+                "usage": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "cost": {"total": 0},
+                },
+            },
+        },
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
                 "model": "gpt-5.6-sol",
                 "usage": {
                     "input": 100,
@@ -262,6 +277,48 @@ def test_pi_message_usage_is_summed_without_double_counting_turn_end() -> None:
     assert usage.output_tokens == 25
     assert usage.reasoning_output_tokens == 9
     assert usage.provider_cost_usd == pytest.approx(0.15)
+
+
+@pytest.mark.parametrize(
+    ("stop_reason", "error_message", "input_tokens", "provider_cost_usd"),
+    [
+        ("stop", "", 0, 0.0),
+        ("pending", "", 0, 0.0),
+        ("error", "failed after consuming input", 1, 0.0),
+        ("error", "cost reported without token counts", 0, 0.02),
+    ],
+)
+def test_pi_preserves_genuine_zero_nonzero_failure_and_cost_only_usage(
+    stop_reason: str,
+    error_message: str,
+    input_tokens: int,
+    provider_cost_usd: float,
+) -> None:
+    message = {
+        "role": "assistant",
+        "stopReason": stop_reason,
+        "usage": {
+            "input": input_tokens,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "cost": {"total": provider_cost_usd},
+        },
+    }
+    if error_message:
+        message["errorMessage"] = error_message
+    usage = extract_token_usage(
+        [
+            {
+                "type": "message_end",
+                "message": message,
+            },
+        ],
+    )
+
+    assert usage.observed is True
+    assert usage.input_tokens == input_tokens
+    assert usage.provider_cost_usd == pytest.approx(provider_cost_usd)
 
 
 def test_pi_tool_and_message_events_count_as_live_progress() -> None:

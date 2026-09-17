@@ -7,7 +7,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from argus_skill.daemon.life_worker import (
+import pytest
+
+from argus.daemon.life_worker import (
     _daemon_log_path,
     _new_boot_id,
     _point_active_daemon_log,
@@ -96,7 +98,7 @@ def test_redirect_std_to_log_captures_stdout_and_stderr(tmp_path: Path):
         f"""
         import sys
         from pathlib import Path
-        from argus_skill.daemon.life_worker import _redirect_std_to_log
+        from argus.daemon.life_worker import _redirect_std_to_log
         _redirect_std_to_log(Path({str(log)!r}), keep_console=False)
         sys.stdout.write("hello-stdout\\n"); sys.stdout.flush()
         sys.stderr.write("hello-stderr\\n"); sys.stderr.flush()
@@ -106,3 +108,52 @@ def test_redirect_std_to_log_captures_stdout_and_stderr(tmp_path: Path):
     content = log.read_text()
     assert "hello-stdout" in content
     assert "hello-stderr" in content
+
+
+@pytest.mark.parametrize(
+    ("encoding", "errors"),
+    [("utf-8", "strict"), ("cp1252", "backslashreplace")],
+)
+def test_foreground_log_tee_preserves_console_encoding(tmp_path: Path, encoding, errors):
+    """A fresh process tests real descriptor redirection without touching pytest's console."""
+    import subprocess
+    import sys
+    import textwrap
+
+    message = "Argus progress: 正在运行 🧪"
+    code = textwrap.dedent(
+        f"""
+        import logging
+        import sys
+        from pathlib import Path
+        from argus.daemon.config import LifeWorkerConfig
+        from argus.daemon.process import run_foreground_process
+
+        sys.stderr.reconfigure(encoding={encoding!r}, errors={errors!r})
+        root = Path({str(tmp_path)!r})
+        class Worker:
+            def run_forever(self):
+                logger = logging.getLogger()
+                for handler in logger.handlers:
+                    handler.setFormatter(logging.Formatter('%(message)s'))
+                logger.warning({message!r})
+                return 0
+
+        config = LifeWorkerConfig(
+            life_dir=root / 'projects' / 'fixture', global_root=root,
+            project_workdir=root, backend='memory',
+        )
+        raise SystemExit(run_foreground_process(config, worker_factory=lambda _config: Worker()))
+        """
+    )
+    env = dict(os.environ, PYTHONUTF8="0", ARGUS_SKILL_HOME=str(tmp_path),
+               ARGUS_SKILL_RUNNER_BACKEND="memory")
+    result = subprocess.run(
+        [sys.executable, "-X", "utf8=0", "-c", code],
+        env=env, capture_output=True, check=True, timeout=20,
+    )
+
+    expected = message.encode(encoding, errors=errors).decode(encoding)
+    assert result.stderr.decode(encoding).splitlines() == [expected]
+    boot_log, = (tmp_path / "projects" / "fixture" / "daemons").glob("boot-*.log")
+    assert "Logging error" not in boot_log.read_text(encoding=encoding)

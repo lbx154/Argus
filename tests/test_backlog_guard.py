@@ -17,8 +17,8 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
-from argus_skill.life.memory import BacklogItem
-from argus_skill.life.supervisor.backlog_guard import (
+from argus.life.memory import BacklogItem
+from argus.life.supervisor.backlog_guard import (
     DECISION_KEY,
     decision_evidence,
     describe_undecided,
@@ -141,8 +141,8 @@ def test_guard_reuses_the_daemon_manager_instead_of_building_a_runner(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.life import MemoryBundle
-    from argus_skill.manager import front_door
+    from argus.life import MemoryBundle
+    from argus.manager import front_door
 
     mem = MemoryBundle.for_cwd(
         tmp_path,
@@ -183,8 +183,8 @@ def test_guard_reuses_the_daemon_manager_instead_of_building_a_runner(
 
 
 def test_guard_uses_injected_supervisor_runner(tmp_path, monkeypatch) -> None:
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.manager import front_door
+    from argus.life.memory import LifeMemory
+    from argus.manager import front_door
 
     memory = LifeMemory.open(tmp_path)
     item = memory.backlog.add(_written_directly())
@@ -217,8 +217,8 @@ def test_guard_uses_injected_supervisor_runner(tmp_path, monkeypatch) -> None:
 
 
 def test_guard_reroutes_unknown_persisted_vertical(tmp_path, monkeypatch) -> None:
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.manager import front_door
+    from argus.life.memory import LifeMemory
+    from argus.manager import front_door
 
     memory = LifeMemory.open(tmp_path)
     item = memory.backlog.add(
@@ -262,7 +262,7 @@ def test_the_backlog_item_carries_the_field() -> None:
 
 
 def test_the_dispatch_helper_can_record_a_decision() -> None:
-    from argus_skill.apps import _life_actions
+    from argus.apps import _life_actions
 
     signature = inspect.signature(_life_actions.add_backlog_item)
 
@@ -270,7 +270,7 @@ def test_the_dispatch_helper_can_record_a_decision() -> None:
 
 
 def test_the_supervisor_routes_before_executing() -> None:
-    from argus_skill.life.supervisor import _mission_execution
+    from argus.life.supervisor import _mission_execution
 
     source = inspect.getsource(_mission_execution)
     claim_at = source.index("claim_next(")
@@ -285,7 +285,7 @@ def test_the_supervisor_routes_before_executing() -> None:
 
 
 def test_status_reports_bypassed_items() -> None:
-    from argus_skill.apps.cli import _core
+    from argus.apps.cli import _core
 
     source = inspect.getsource(_core)
 
@@ -298,8 +298,8 @@ def test_bounded_dispatch_records_manager_decision_on_planner_nodes(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.life import MemoryBundle
-    from argus_skill.manager import dispatch, front_door
+    from argus.life import MemoryBundle
+    from argus.manager import dispatch, front_door
 
     mem = MemoryBundle.for_cwd(
         tmp_path,

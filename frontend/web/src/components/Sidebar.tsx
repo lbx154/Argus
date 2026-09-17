@@ -1,44 +1,35 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { ProjectRow } from '../api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ProjectRow, SkillLibraryItem } from '../api';
+import { SkillLibraryEntry } from './SkillLibrary';
+import { WikiEntry } from './WikiEntry';
+import { PluginLauncher } from './PluginLauncher';
+import { VerticalStoreEntry } from './VerticalStore';
+import { WorkspaceSidePanel } from './WorkspaceShell';
+import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
-import { ago, uptime } from '../lib/format';
+import { formatRelativeTime, uptime } from '../lib/format';
+import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
 import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { DaemonSpendBadge } from './DaemonSpendBadge';
 import {
   faAnglesLeft,
   faAnglesRight,
+  faChevronDown,
   faEllipsis,
+  faFolder,
   faGear,
-  faLanguage,
-  faMoon,
-  faSun,
+  faMicrochip,
+  faPlay,
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 
 type Scope = 'local' | 'all';
 
-type SidebarProjectRow = ProjectRow & {
-  created?: number;
-  created_at?: number;
-  health?: string;
-  status?: string;
-};
-
-function projectNeedsAttention(project: ProjectRow): boolean {
-  const { health, status } = project as SidebarProjectRow;
-  return status === 'failed' || status === 'error' || health === 'red' || health === 'critical';
-}
-
-function projectCost(project: ProjectRow): number {
-  return project.spend_usd ?? project.known_cost_usd ?? 0;
-}
-
-function projectCreatedAt(project: ProjectRow): number {
-  const { created, created_at: createdAt } = project as SidebarProjectRow;
-  return createdAt ?? created ?? 0;
+function projectGroupLabel(path: string): string {
+  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/);
+  return parts.at(-1) || path;
 }
 
 export function recommendedSidebarScope(
@@ -59,11 +50,16 @@ export function recommendedSidebarScope(
 export function Sidebar({
   projects,
   activeId,
+  activeWork,
   localCwd,
   onSelect,
   onPrefetch,
   onManage,
+  onResume,
+  resumingId,
   onOpenPanel,
+  onOpenSkills,
+  onOpenVerticals,
   onNew,
   loading,
   creating = false,
@@ -74,15 +70,19 @@ export function Sidebar({
   onToggleCollapse,
   themeMode,
   onCycleTheme,
-  expandedWidth = 256,
 }: {
   projects: ProjectRow[];
   activeId: string | null;
+  activeWork?: { sessionId: string; status: WorkStatus; connected: boolean };
   localCwd: string;
   onSelect: (id: string) => void;
   onPrefetch?: (id: string) => void;
   onManage: (id: string) => void;
+  onResume?: (id: string) => void;
+  resumingId?: string | null;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
+  onOpenSkills?: (item?: SkillLibraryItem) => void;
+  onOpenVerticals?: () => void;
   onNew: () => void;
   loading: boolean;
   creating?: boolean;
@@ -93,12 +93,12 @@ export function Sidebar({
   onToggleCollapse: () => void;
   themeMode: ThemeMode;
   onCycleTheme: () => void;
-  expandedWidth?: number;
 }) {
-  const { locale, setLocale, t } = useI18n();
+  const { t, locale } = useI18n();
   const [scope, setScope] = useState<Scope>('local');
   const initialScopeResolved = useRef(false);
   const [query, setQuery] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const slim = collapsed && !mobileOpen;
   const normalizedLocalCwd = localCwd.trim();
   const localProjects = useMemo(
@@ -114,15 +114,7 @@ export function Sidebar({
   }, [activeId, loading, normalizedLocalCwd, projects]);
   const scoped = scope === 'local' ? localProjects : projects;
   const rawVisible = query.trim() ? filterProjects(scoped, query) : scoped;
-  const visible = [...rawVisible].sort((a, b) => {
-    const aNeedsAttention = projectNeedsAttention(a);
-    const bNeedsAttention = projectNeedsAttention(b);
-    if (aNeedsAttention !== bNeedsAttention) return aNeedsAttention ? -1 : 1;
-    const aCost = projectCost(a);
-    const bCost = projectCost(b);
-    if (aCost !== bCost) return bCost - aCost;
-    return projectCreatedAt(b) - projectCreatedAt(a);
-  });
+  const visible = rawVisible;
   const grouped = useMemo(() => {
     if (scope === 'local') return visible.length > 0 ? [[normalizedLocalCwd || 'Local', visible] as const] : [];
     const groups = new Map<string, ProjectRow[]>();
@@ -134,17 +126,10 @@ export function Sidebar({
     });
     return [...groups.entries()];
   }, [normalizedLocalCwd, scope, visible]);
-  const themeIcon = themeMode === 'light' ? faSun : faMoon;
-  const nextTheme = themeMode === 'light' ? 'dark' : 'light';
+  const groupIsCollapsed = (path: string) => collapsedGroups.has(path) && !query.trim();
 
   return (
-    <aside
-      data-state={slim ? 'collapsed' : 'expanded'}
-      style={{ '--sidebar-width': `${expandedWidth}px` } as CSSProperties}
-      className={`glass-panel glass-panel--side fixed inset-y-0 left-0 z-50 flex h-full shrink-0 flex-col border-r transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
-        slim ? 'w-14' : 'w-64 lg:w-[var(--sidebar-width)]'
-      } ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}`}
-    >
+    <WorkspaceSidePanel mobileOpen={mobileOpen} collapsed={collapsed}>
       <div className={`chrome-seam-surface flex h-12 shrink-0 items-center border-b border-line/50 ${slim ? 'justify-center' : 'justify-between px-4'}`}>
         {slim ? (
           <Wordmark size={22} compact />
@@ -165,40 +150,32 @@ export function Sidebar({
         </div>
       ) : null}
 
+      {slim ? <PluginLauncher compact /> : null}
+      {slim && onOpenVerticals ? <VerticalStoreEntry compact onOpen={onOpenVerticals} /> : null}
+      {slim && onOpenSkills ? <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} compact /> : null}
+      {slim ? <WikiEntry sid={activeId} compact /> : null}
       {!slim ? (
         <>
-          <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line/50 px-3">
-            {(['local', 'all'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setScope(value)}
-                className={`h-8 rounded-md px-3 text-xs font-medium capitalize transition-colors ${
-                  scope === value ? 'bg-bg text-ink' : 'text-ink-faint hover:text-ink-dim'
-                }`}
-              >
-                {t(`common.${value}`)}
-                <span className="ml-1.5 font-mono text-ink-faint">
-                  {value === 'local' ? localProjects.length : projects.length}
-                </span>
-              </button>
-            ))}
+          <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-5">
+            <span className="text-xs font-medium text-ink-faint">{locale === 'zh-CN' ? '项目' : 'Projects'}</span>
+            {localProjects.length > 0 && localProjects.length < projects.length ? <select aria-label={locale === 'zh-CN' ? '项目范围' : 'Project scope'} value={scope} onChange={event => setScope(event.target.value as Scope)} className="min-w-0 bg-transparent text-xs text-ink-faint">
+              <option value="local">{t('common.local')}</option><option value="all">{t('common.all')}</option>
+            </select> : null}
             <button
               type="button"
               onClick={onNew}
               disabled={creating}
               aria-label={t('sidebar.create')}
               title={t('sidebar.create')}
-              className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-lg text-blue hover:bg-bg disabled:opacity-40"
+              className="ml-auto flex h-8 items-center justify-center rounded-md px-2 text-xs text-ink-dim hover:bg-bg disabled:opacity-40"
             >
-              {creating ? '…' : '+'}
+              {creating ? '…' : locale === 'zh-CN' ? '+ 新建' : '+ New'}
             </button>
           </div>
 
           <div className="px-3 py-2">
             <label className="sr-only" htmlFor="daemon-search">{t('sidebar.find')}</label>
             <div className="flex items-center rounded-md border border-line/60 bg-bg/60 px-2 focus-within:border-blue/60">
-              <span aria-hidden="true" className="mr-1.5 text-xs text-ink-faint">/</span>
               <input
                 id="daemon-search"
                 value={query}
@@ -234,16 +211,38 @@ export function Sidebar({
               </div>
             ) : null}
             {grouped.map(([path, rows]) => (
-              <section key={path} className="mb-4 last:mb-0">
-                <div className="mb-1 truncate px-1 font-mono text-xs text-ink-faint" title={path}>{path}</div>
-                {rows.map((project) => {
+              <section key={path} className="mb-1 last:mb-0">
+                {rows.length > 1 && grouped.length > 1 ? <button
+                  type="button"
+                  aria-expanded={!groupIsCollapsed(path)}
+                  title={path}
+                  onClick={() => setCollapsedGroups((current) => {
+                    const next = new Set(current);
+                    if (next.has(path)) next.delete(path);
+                    else next.add(path);
+                    return next;
+                  })}
+                  className="mb-1 flex h-7 w-full items-center gap-2 rounded-md px-1.5 text-left text-[11px] font-medium text-ink-faint hover:bg-bg/70 hover:text-ink-dim"
+                >
+                  <FontAwesomeIcon icon={faChevronDown} className={`h-2.5 w-2.5 transition-transform ${groupIsCollapsed(path) ? '-rotate-90' : ''}`} />
+                  <FontAwesomeIcon icon={faFolder} className="h-3 w-3" />
+                  <span className="min-w-0 flex-1 truncate">{projectGroupLabel(path)}</span>
+                </button> : null}
+                {rows.length === 1 || grouped.length === 1 || !groupIsCollapsed(path) ? rows.map((project) => {
                   const active = project.id === activeId;
+                  const work = active && activeWork?.sessionId === project.id ? activeWork : undefined;
+                  const workLabel = work ? workStatusLabel(work.status, locale, work.connected) : undefined;
                   const hasHumanLabel = hasHumanProjectLabel(project);
                   const name = hasHumanLabel
                     ? (project.label || project.display_name || '').trim()
-                    : project.objective.trim() || t('sidebar.unnamedSession');
+                    : project.objective.trim() || project.id || t('sidebar.unnamedSession');
                   const incompatible = project.daemon_alive && project.daemon_protocol_compatible === false;
-                  const cost = projectCost(project);
+                  // A release difference does not stop an existing executor.
+                  // Keep actual protocol/capability failures visibly distinct.
+                  const updateAvailable = incompatible
+                    && project.daemon_protocol_error === 'daemon release is incompatible with WebAPI release';
+                  const updateRequired = incompatible && !updateAvailable;
+                  const resumable = !project.daemon_alive && project.last_active > 0 && Boolean(project.workdir?.trim());
                   return (
                     <div
                       key={project.id}
@@ -251,7 +250,7 @@ export function Sidebar({
                       onPointerEnter={() => {
                         if (!active) onPrefetch?.(project.id);
                       }}
-                      className={`session-card group relative mb-1 w-full rounded-md transition-colors duration-150 ease-panel ${
+                      className={`session-card group relative mb-0.5 h-14 w-full rounded-md transition-colors duration-150 ease-panel ${
                         active ? 'text-ink' : 'text-ink-dim hover:text-ink'
                       }`}
                     >
@@ -263,76 +262,92 @@ export function Sidebar({
                           if (!active) onPrefetch?.(project.id);
                         }}
                         aria-current={active ? 'page' : undefined}
-                        title={`${name}${hasHumanLabel ? '' : ` · ${project.id}`}${project.objective && project.objective !== name ? ` — ${project.objective}` : ''}`}
-                        className="w-full min-w-0 px-3 py-2.5 pr-10 text-left"
+                        title={`${name}${!hasHumanLabel && name !== project.id ? ` · ${project.id}` : ''}${project.objective && project.objective !== name ? ` — ${project.objective}` : ''}`}
+                        className={`flex h-14 w-full min-w-0 flex-col justify-center px-2.5 text-left ${resumable ? 'pr-[4.75rem]' : 'pr-10'}`}
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <StatusDot
-                            ok={project.daemon_alive && !incompatible}
-                            title={incompatible ? t('sidebar.updateRequired') : project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')}
+                            ok={project.daemon_alive && !updateRequired}
+                            title={updateRequired ? t('sidebar.updateRequired') : project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')}
                           />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                         </div>
-                        {!hasHumanLabel ? (
-                          <div className="mt-0.5 truncate pl-4 font-mono text-[10px] text-ink-faint">{project.id}</div>
-                        ) : project.objective ? (
-                          <div className="mt-0.5 truncate pl-4 text-xs text-ink-faint">{project.objective}</div>
-                        ) : null}
-                        <div className="mt-1 flex min-w-0 items-center justify-between gap-2 pl-4 text-xs text-ink-faint">
-                          <span className={`min-w-0 truncate ${incompatible ? 'text-warn' : ''}`}>
-                            {incompatible
+                        <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-3.5 text-[11px] text-ink-faint">
+                          <span className={`min-w-0 truncate ${updateRequired ? 'text-warn' : ''}`} title={workLabel}
+                            data-session-work-state={work?.status.state}>
+                            {updateRequired
                               ? t('sidebar.updateRequired')
-                              : project.daemon_alive
+                              : workLabel ?? (project.daemon_alive
                                 ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds) })
-                                : ago(project.last_active)}
+                                : project.last_active > 0
+                                  ? t('sidebar.lastActive', { time: formatRelativeTime(project.last_active, locale) })
+                                  : t('sidebar.stopped'))}
                           </span>
-                          {cost ? (
-                            <DaemonSpendBadge
-                              settledUsd={project.spend_usd}
-                              knownUsd={project.known_cost_usd}
-                              status={project.spend_status}
-                              calls={project.usage_calls}
-                              premiumRequests={project.premium_requests}
-                              live={project.daemon_alive}
-                            />
-                          ) : null}
+                          {updateAvailable && (
+                            <span
+                              title={t('sidebar.updateAvailableHint')}
+                              className="shrink-0 rounded border border-line px-1 text-[10px] leading-4"
+                            >
+                              {t('sidebar.updateAvailable')}
+                            </span>
+                          )}
                         </div>
                       </button>
+                      {resumable && onResume ? (
+                        <button
+                          type="button"
+                          disabled={resumingId != null}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onResume(project.id);
+                          }}
+                          aria-label={t('sidebar.resume')}
+                          title={t('sidebar.resumeHint', { workdir: project.workdir ?? '' })}
+                          className="absolute right-9 top-3 flex h-8 w-8 items-center justify-center rounded-md text-blue opacity-100 hover:bg-blue/10 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                        >
+                          {resumingId === project.id ? '…' : <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        onClick={() => onManage(project.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onManage(project.id);
+                        }}
                         aria-label={t('sidebar.manage', { name })}
                         title={t('sidebar.manageHint')}
-                        className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint opacity-100 transition-opacity hover:bg-panel-raised hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                        className="absolute right-1 top-3 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint opacity-100 transition-opacity hover:bg-panel-raised hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                       >
                         <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" />
                       </button>
                     </div>
                   );
-                })}
+                }) : null}
               </section>
             ))}
           </div>
 
+          {onOpenSkills && <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} />}
+          <WikiEntry sid={activeId} />
+          <details className="sidebar-tools mx-3 mb-2 border-t border-line/60 pt-2">
+            <summary className="cursor-pointer px-2 py-2 text-xs text-ink-dim">{locale === 'zh-CN' ? '工具与资源' : 'Tools and resources'}</summary>
+            <PluginLauncher />
+            {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
+          {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
+            <a href="/invite/compute" className="mx-3 mb-2 flex items-center gap-2 rounded-md border border-line/50 px-3 py-2 text-xs text-blue hover:bg-bg">
+              <FontAwesomeIcon icon={faMicrochip} className="h-3.5 w-3.5" />
+              {t('sidebar.compute')}
+            </a>
+          ) : null}
+          </details>
           <div className="flex min-h-14 items-center justify-between border-t border-line/50 px-4 py-2">
             <button type="button" onClick={() => onOpenPanel('config')} className="icon-control flex h-8 w-8 items-center justify-center" aria-label={t('sidebar.openSettings')} title={t('common.settings')}>
               <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
             </button>
-            <button
-              type="button"
-              onClick={() => setLocale(locale === 'zh-CN' ? 'en' : 'zh-CN')}
-              title={t('language.switchTo', { language: locale === 'zh-CN' ? t('language.english') : t('language.chinese') })}
-              aria-label={t('language.switchTo', { language: locale === 'zh-CN' ? t('language.english') : t('language.chinese') })}
-              className="icon-control flex h-8 w-8 items-center justify-center"
-            >
-              <FontAwesomeIcon icon={faLanguage} className="h-3.5 w-3.5" />
-            </button>
-            <button type="button" onClick={onCycleTheme} title={t('sidebar.theme', { current: themeMode, next: nextTheme })} aria-label={t('sidebar.theme', { current: themeMode, next: nextTheme })} className="icon-control flex h-8 w-8 items-center justify-center">
-              <FontAwesomeIcon icon={themeIcon} className="h-3.5 w-3.5" />
-            </button>
+            <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
           </div>
         </>
       ) : null}
-    </aside>
+    </WorkspaceSidePanel>
   );
 }

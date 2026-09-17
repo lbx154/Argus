@@ -11,13 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.math.objective_mode import (
+from argus.verticals.math.objective_mode import (
     MATH_OBJECTIVE_MODES,
     normalize_mode,
     resolve_objective,
     set_objective,
 )
-from argus_skill.verticals.math.proof_graph import (
+from argus.verticals.math.proof_graph import (
     ProofGraph,
     graph_required_for,
     load_graph,
@@ -253,7 +253,7 @@ def _write_graph(root: Path, payload: dict) -> None:
 
 
 def test_check_passes_on_a_sound_graph(tmp_path: Path, capsys) -> None:
-    from argus_skill.verticals.math import proof_graph_check as cli
+    from argus.verticals.math import proof_graph_check as cli
 
     _write_graph(tmp_path, {
         "goal": "G",
@@ -269,7 +269,7 @@ def test_check_passes_on_a_sound_graph(tmp_path: Path, capsys) -> None:
 
 
 def test_check_fails_on_an_unconfirmed_proof(tmp_path: Path, capsys) -> None:
-    from argus_skill.verticals.math import proof_graph_check as cli
+    from argus.verticals.math import proof_graph_check as cli
 
     _write_graph(tmp_path, {
         "goal": "G",
@@ -282,7 +282,7 @@ def test_check_fails_on_an_unconfirmed_proof(tmp_path: Path, capsys) -> None:
 
 
 def test_gap_prints_what_the_goal_rests_on(tmp_path: Path, capsys) -> None:
-    from argus_skill.verticals.math import proof_graph_check as cli
+    from argus.verticals.math import proof_graph_check as cli
 
     _write_graph(tmp_path, {
         "goal": "G",
@@ -300,14 +300,14 @@ def test_gap_prints_what_the_goal_rests_on(tmp_path: Path, capsys) -> None:
 
 
 def test_a_missing_graph_is_reported(tmp_path: Path, capsys) -> None:
-    from argus_skill.verticals.math import proof_graph_check as cli
+    from argus.verticals.math import proof_graph_check as cli
 
     assert cli.main(["check", "--project-root", str(tmp_path)]) == 2
     assert "no proof graph" in capsys.readouterr().err
 
 
 def test_template_emits_a_usable_starting_graph(capsys) -> None:
-    from argus_skill.verticals.math import proof_graph_check as cli
+    from argus.verticals.math import proof_graph_check as cli
 
     assert cli.main(["template", "--goal", "N_n is irreducible"]) == 0
     payload = json.loads(capsys.readouterr().out)
@@ -318,7 +318,7 @@ def test_template_emits_a_usable_starting_graph(capsys) -> None:
 
 # -- the prompts actually carry the rules ----------------------------------
 
-SKILLS = Path(__file__).resolve().parents[1] / "argus_skill" / "verticals" / "math" / "skills"
+SKILLS = Path(__file__).resolve().parents[1] / "argus" / "verticals" / "math" / "skills"
 
 
 def _flat(path: Path) -> str:
@@ -395,7 +395,7 @@ def test_engineer_permits_the_graph_once_the_route_is_settled() -> None:
 
 def test_unset_objective_blocks_every_stage_including_scope(tmp_path: Path) -> None:
     """The reason this needed a channel at all, asserted rather than assumed."""
-    from argus_skill.verticals.math.stages import STAGE_ORDER, stage_completion_issues
+    from argus.verticals.math.stages import STAGE_ORDER, stage_completion_issues
 
     for stage in STAGE_ORDER:
         issues = stage_completion_issues(stage, project_root=tmp_path)
@@ -404,7 +404,7 @@ def test_unset_objective_blocks_every_stage_including_scope(tmp_path: Path) -> N
 
 
 def test_cli_set_then_show_round_trips_through_pipeline_state(tmp_path: Path) -> None:
-    from argus_skill.verticals.math.objective_mode import main
+    from argus.verticals.math.objective_mode import main
 
     goal = "every finite group of odd order is solvable"
     assert main(["--project-root", str(tmp_path), "set",
@@ -420,13 +420,13 @@ def test_cli_set_then_show_round_trips_through_pipeline_state(tmp_path: Path) ->
 
 def test_cli_reports_an_unchosen_objective_as_a_nonzero_exit(tmp_path: Path) -> None:
     """A setup script tests the status instead of parsing the note out of stdout."""
-    from argus_skill.verticals.math.objective_mode import main
+    from argus.verticals.math.objective_mode import main
 
     assert main(["--project-root", str(tmp_path), "show"]) == 1
 
 
 def test_cli_refuses_targeted_without_the_goal_it_must_close(tmp_path: Path) -> None:
-    from argus_skill.verticals.math.objective_mode import main
+    from argus.verticals.math.objective_mode import main
 
     assert main(["--project-root", str(tmp_path), "set", "--mode", "targeted"]) == 1
     assert not (tmp_path / ".argus" / "PIPELINE_STATE.json").exists()
@@ -474,7 +474,7 @@ def test_a_graph_whose_nodes_are_a_list_is_reported_not_crashed() -> None:
     act on. A shape error that escapes as a traceback from the constructor
     reaches the author as a stack, if at all.
     """
-    from argus_skill.verticals.math.proof_graph import ProofGraph
+    from argus.verticals.math.proof_graph import ProofGraph
 
     graph = ProofGraph({"goal": "m universal iff m | 24", "nodes": [{"id": "n1"}]})
 
@@ -485,7 +485,7 @@ def test_a_graph_whose_nodes_are_a_list_is_reported_not_crashed() -> None:
 
 
 def test_a_well_formed_graph_reports_no_shape_issue() -> None:
-    from argus_skill.verticals.math.proof_graph import ProofGraph
+    from argus.verticals.math.proof_graph import ProofGraph
 
     graph = ProofGraph({"goal": "g", "nodes": {"n1": {"claim": "x"}}})
 
@@ -508,8 +508,8 @@ def test_the_refutation_line_names_a_channel_that_exists() -> None:
     verbatim into "to refuted: mechanical or computational evidence may say
     this is false", which is a role's answer to "how do I kill this claim".
     """
-    from argus_skill.proof_ledger.assessment import PRODUCIBLE_TIERS, REFUTING_TIERS
-    from argus_skill.verticals.math.context_projection import _reachable_tiers
+    from argus.proof_ledger.assessment import PRODUCIBLE_TIERS, REFUTING_TIERS
+    from argus.verticals.math.context_projection import _reachable_tiers
 
     rendered = _reachable_tiers(REFUTING_TIERS)
 
@@ -524,8 +524,8 @@ def test_the_refutation_line_names_a_channel_that_exists() -> None:
 
 
 def test_a_fully_reachable_set_renders_plainly() -> None:
-    from argus_skill.proof_ledger.assessment import KERNEL_TIERS
-    from argus_skill.verticals.math.context_projection import _reachable_tiers
+    from argus.proof_ledger.assessment import KERNEL_TIERS
+    from argus.verticals.math.context_projection import _reachable_tiers
 
     assert _reachable_tiers(KERNEL_TIERS) == "mechanical"
 
@@ -536,8 +536,8 @@ def test_producible_tiers_matches_the_documented_producers() -> None:
     ``PRODUCIBLE_TIERS`` is hand-maintained; this pins it to the module whose
     docstring is the record of which producers exist.
     """
-    from argus_skill.proof_ledger.assessment import PRODUCIBLE_TIERS
-    from argus_skill.proof_ledger.models import EvidenceTier
+    from argus.proof_ledger.assessment import PRODUCIBLE_TIERS
+    from argus.proof_ledger.models import EvidenceTier
 
     assert EvidenceTier.COMPUTATIONAL not in PRODUCIBLE_TIERS
     assert EvidenceTier.MECHANICAL in PRODUCIBLE_TIERS

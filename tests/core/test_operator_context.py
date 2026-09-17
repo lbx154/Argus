@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.operator_context import (
+from argus.core.operator_context import (
     DirectiveRecord,
     OperatorContextStore,
     StaleOperatorContextWrite,
@@ -36,6 +37,197 @@ def test_stale_write_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(StaleOperatorContextWrite, match="expected 0, current 1"):
         store.append(_directive("stale"), expected_revision=0)
+
+
+def test_role_acknowledgement_survives_projection_and_new_input(tmp_path: Path) -> None:
+    store = OperatorContextStore(tmp_path)
+    first = store.append(_directive("first"), expected_revision=0)
+    assert store.acknowledged_revision("planner") == 0
+    store.project("planner", consume_once=False)
+    assert store.acknowledged_revision("planner") == 0
+    store.acknowledge("planner", first.revision)
+    second = store.append(_directive("second"), expected_revision=first.revision)
+    store.project("engineer")
+    store = OperatorContextStore(tmp_path)
+    assert store.acknowledged_revision("planner") == first.revision < second.revision
+    assert store.acknowledged_revision("engineer") == 0
+    store.acknowledge("planner", 0)
+    assert store.acknowledged_revision("planner") == first.revision
+    with pytest.raises(ValueError, match="outside"):
+        store.acknowledge("planner", second.revision + 1)
+
+
+def test_acknowledgement_settles_only_handled_role_once_input(tmp_path: Path) -> None:
+    store = OperatorContextStore(tmp_path)
+    first = append_directive(
+        tmp_path, "first instruction", lifetime="once", expected_revision=0,
+    )
+    second = append_directive(
+        tmp_path, "arrived during planning", lifetime="once",
+        expected_revision=first.revision,
+    )
+    store.acknowledge("planner", first.revision)
+    projection = OperatorContextStore(tmp_path).project("planner", consume_once=False)
+    assert [record.revision for record in projection.directives] == [second.revision]
+    assert store.acknowledged_revision("planner") == first.revision
+
+
+def test_identical_standing_retry_is_idempotent(tmp_path: Path) -> None:
+    store = OperatorContextStore(tmp_path)
+    first = append_directive(
+        tmp_path,
+        "Keep the public API stable.",
+        applies_to_roles=("engineer", "reviewer"),
+        expected_revision=0,
+    )
+    original_ledger = store.ledger_path.read_bytes()
+
+    for _ in range(20):
+        repeated = append_directive(
+            tmp_path,
+            "Keep the public API stable.",
+            applies_to_roles=("reviewer", "engineer"),
+            expected_revision=store.revision,
+        )
+        assert repeated == first
+
+    assert store.revision == 1
+    assert store.ledger_path.read_bytes() == original_ledger
+    with pytest.raises(StaleOperatorContextWrite, match="expected 0, current 1"):
+        append_directive(tmp_path, first.text, expected_revision=0)
+
+
+def test_standing_reassertion_after_update_keeps_new_revision(tmp_path: Path) -> None:
+    store = OperatorContextStore(tmp_path)
+    append_directive(tmp_path, "Use route A.", expected_revision=0)
+    append_directive(tmp_path, "Use route B.", expected_revision=1)
+    latest = append_directive(tmp_path, "Use route A.", expected_revision=2)
+
+    projection = store.project("engineer")
+
+    assert latest.revision == 3
+    assert [record.revision for record in store.records()] == [1, 2, 3]
+    assert [(record.text, record.revision) for record in projection.directives] == [
+        ("Use route A.", 3),
+        ("Use route B.", 2),
+    ]
+
+
+def test_projection_deduplicates_existing_standing_history_without_rewriting(
+    tmp_path: Path,
+) -> None:
+    store = OperatorContextStore(tmp_path)
+    first = _directive("Publish a verified portfolio report.", scope="global")
+    records = [
+        first,
+        replace(_directive("Preserve the public API."), revision=2),
+        replace(first, revision=3, source="scheduled.reminder"),
+    ]
+    store.ledger_path.write_text(
+        "".join(json.dumps(asdict(record)) + "\n" for record in records),
+        encoding="utf-8",
+    )
+    original_ledger = store.ledger_path.read_bytes()
+
+    projection = store.project("engineer")
+    block, revision = build_operator_context_block("engineer", tmp_path)
+
+    assert [record.revision for record in projection.directives] == [2, 3]
+    assert block.count(first.text) == 1
+    assert revision == 3
+    assert store.records() == records
+    assert store.ledger_path.read_bytes() == original_ledger
+
+    # Tombstones still address exact revisions: withdrawing the latest copy
+    # exposes the older active one until that revision is withdrawn as well.
+    append_revoke(tmp_path, 3, reason="withdraw reminder", expected_revision=3)
+    assert [record.revision for record in store.project("engineer").directives] == [2, 1]
+    append_revoke(tmp_path, 1, reason="withdraw directive", expected_revision=4)
+    assert [record.revision for record in store.project("engineer").directives] == [2]
+    renewed = append_directive(
+        tmp_path, first.text, scope="global", expected_revision=5
+    )
+    assert renewed.revision == 6
+    assert [record.revision for record in store.project("engineer").directives] == [2, 6]
+    assert store.ledger_path.read_bytes().startswith(original_ledger)
+
+
+@pytest.mark.parametrize(
+    ("first_options", "second_options"),
+    [
+        ({"scope": "global"}, {"scope": "project"}),
+        ({"scope": "project"}, {"scope": "mission"}),
+        ({"applies_to_roles": "all"}, {"applies_to_roles": ("engineer",)}),
+        (
+            {"applies_to_roles": ("engineer", "planner")},
+            {"applies_to_roles": ("engineer", "reviewer")},
+        ),
+    ],
+)
+def test_standing_identity_preserves_scope_and_role_boundaries(
+    tmp_path: Path, first_options: dict, second_options: dict
+) -> None:
+    append_directive(tmp_path, "Respect this boundary.", expected_revision=0, **first_options)
+    second = append_directive(
+        tmp_path, "Respect this boundary.", expected_revision=1, **second_options
+    )
+
+    assert second.revision == 2
+    assert len(OperatorContextStore(tmp_path).project("engineer").directives) == 2
+
+
+def test_standing_source_updates_retain_audit_and_manager_classification(
+    tmp_path: Path,
+) -> None:
+    append_directive(tmp_path, "Use judgment.", source="operator", expected_revision=0)
+    second = append_directive(
+        tmp_path, "Use judgment.", source="scheduler", expected_revision=1
+    )
+    assert second.revision == 2
+    assert len(OperatorContextStore(tmp_path).project("manager").directives) == 1
+
+    append_directive(
+        tmp_path,
+        "Use judgment.",
+        source="operator.answer.standing_sounding",
+        expected_revision=2,
+    )
+    block, revision = build_operator_context_block("manager", tmp_path)
+
+    assert revision == 3
+    assert block.count("Use judgment.") == 2
+    assert "standing-sounding answer: classify its durable scope" in block
+    assert [record.source for record in OperatorContextStore(tmp_path).records()] == [
+        "operator", "scheduler", "operator.answer.standing_sounding"
+    ]
+
+
+@pytest.mark.parametrize("lifetime", ["once", "bounded_increment"])
+def test_identical_actions_remain_independent_of_standing_dedup(
+    tmp_path: Path, lifetime: str
+) -> None:
+    store = OperatorContextStore(tmp_path)
+    for revision in range(2):
+        append_directive(
+            tmp_path,
+            "Run the measurement.",
+            scope="mission",
+            lifetime=lifetime,
+            mission_id="mission-a",
+            expected_revision=revision,
+        )
+    append_directive(
+        tmp_path, "Run the measurement.", scope="mission", expected_revision=2
+    )
+
+    first = store.project("engineer", mission_id="mission-a")
+    assert [record.revision for record in first.directives] == [3, 2, 1]
+    assert len(store.records()) == 3
+    if lifetime == "once":
+        assert [record.revision for record in store.project("engineer").directives] == [3]
+    else:
+        other_mission = store.project("engineer", mission_id="mission-b")
+        assert [record.revision for record in other_mission.directives] == [3]
 
 
 def test_revoke_tombstones_target_revision(tmp_path: Path) -> None:
@@ -145,12 +337,13 @@ def test_read_adapter_serves_legacy_steering(tmp_path: Path) -> None:
     assert [row["revision"] for row in rows] == [1, 2]
 
 
-def test_pending_answer_survives_failed_interpretation_for_engineer(
+def test_unclassified_pending_message_does_not_become_an_engineer_directive(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.manager import front_door
-    from argus_skill.webapi.manager_pending_question import (
+    from argus.core.transcript import append_turn, read_turns
+    from argus.manager import front_door
+    from argus.webapi.manager_pending_question import (
         _resolve_pending_question_with_manager,
     )
 
@@ -168,6 +361,7 @@ def test_pending_answer_survives_failed_interpretation_for_engineer(
         pending_question="May the technical route proceed?",
     )
     answer = "Always decide reversible infrastructure choices without asking me."
+    append_turn(tmp_path, "operator", answer)
 
     result = _resolve_pending_question_with_manager(
         SimpleNamespace(project_root=tmp_path),
@@ -177,18 +371,18 @@ def test_pending_answer_survives_failed_interpretation_for_engineer(
     )
     block, revision = build_operator_context_block("engineer", tmp_path)
 
-    assert result["answer_preserved"] is True
-    assert revision == 1
-    assert answer in block
-    ledger = (tmp_path / "operator_context.jsonl").read_text(encoding="utf-8")
-    assert ledger.index(answer) >= 0
+    assert result["answer_preserved"] is False
+    assert revision == 0
+    assert answer not in block
+    assert not (tmp_path / "operator_context.jsonl").exists()
+    assert read_turns(tmp_path)[0]["text"] == answer
 
 
 def test_credential_import_keeps_raw_key_out_of_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.tools import capability_vault
+    from argus.tools import capability_vault
 
     vault = tmp_path / "capabilities" / "model_api.json"
     monkeypatch.setattr(

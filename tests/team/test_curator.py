@@ -6,8 +6,10 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.team import completion, leaderboard, pool, registry, roster, task_board
-from argus_skill.team import curator as cur
+import pytest
+
+from argus.team import completion, leaderboard, pool, registry, roster, task_board
+from argus.team import curator as cur
 
 
 def _sleeping_proc(*_args, **_kwargs):
@@ -34,15 +36,19 @@ def _allow_fake_windows_adoption_handle(monkeypatch) -> None:
 
 
 # --- restart durability: adopt orphans the prior daemon left running --------
-def test_pid_is_teammate_verifies_real_cmdline(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "entry_module", ["argus.team.teammate_entry", "argus.team.teammate_entry"],
+)
+def test_pid_is_teammate_verifies_real_cmdline(tmp_path: Path, entry_module: str) -> None:
     import subprocess
     import sys
-    # A live process carrying the exact module/root/member arguments.
+    # A live process carrying the exact module/root/member arguments. Teammates
+    # spawned before the package rename still spell the module ``argus_skill``.
     p = subprocess.Popen([
         sys.executable,
         "-c",
         "import time; time.sleep(30)",
-        "argus_skill.team.teammate_entry",
+        entry_module,
         "--root",
         str(tmp_path),
         "--member-id",
@@ -141,7 +147,7 @@ def test_windows_adoption_opens_handle_before_identity_check(
 def test_windows_terminate_tree_guard_uses_popen_liveness_and_pid(
     monkeypatch,
 ) -> None:
-    from argus_skill.daemon import state as daemon_state
+    from argus.daemon import state as daemon_state
 
     class Proc:
         pid = 5151
@@ -202,7 +208,7 @@ def test_adopt_then_stop_kills_real_orphan(tmp_path: Path) -> None:
         sys.executable,
         "-c",
         "import time; time.sleep(60)",
-        "argus_skill.team.teammate_entry",
+        "argus.team.teammate_entry",
         "--root",
         str(root),
         "--member-id",
@@ -555,7 +561,7 @@ def test_tick_uses_default_width_when_pool_unset(tmp_path: Path) -> None:
     root = tmp_path / "team"
     registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
     task_board.form(root, [{"task_id": f"t::{i}", "objective": "x"} for i in range(5)])
-    c = _fake_curator(tmp_path, default_width=3)
+    c = _fake_curator(tmp_path, default_width=3, max_total_in_flight=3)
     c._tick(now=100.0)  # no pool.json → default width 3
     assert task_board.count_in_flight(root) == 3
 
@@ -645,7 +651,7 @@ def test_tick_publishes_one_manager_summary_when_team_becomes_quiescent(tmp_path
     c._tick(now=100.0)
     c._tick(now=101.0)
 
-    from argus_skill.core.transcript import read_turns
+    from argus.core.transcript import read_turns
 
     turns = read_turns(conversation)
     assert len(prompts) == 1
@@ -699,7 +705,7 @@ def test_new_campaign_generation_publishes_a_new_summary(tmp_path: Path) -> None
     task_board.complete(root, "t::a")
     c._tick(now=20.0)
 
-    from argus_skill.core.transcript import read_turns
+    from argus.core.transcript import read_turns
 
     assert calls and len(calls) == 2
     assert [turn["text"] for turn in read_turns(conversation)] == ["Summary 1", "Summary 2"]
@@ -718,7 +724,7 @@ def test_fallback_summary_redacts_internal_failure_paths(tmp_path: Path) -> None
     c = _fake_curator(tmp_path, conversation_root=conversation)
     c._tick(now=100.0)
 
-    from argus_skill.core.transcript import read_turns
+    from argus.core.transcript import read_turns
 
     (turn,) = read_turns(conversation)
     assert "/tmp/private" not in turn["text"]
@@ -738,7 +744,7 @@ def test_completion_summary_falls_back_when_manager_is_unavailable(tmp_path: Pat
     c = _fake_curator(tmp_path, conversation_root=conversation, completion_fn=fail)
     c._tick(now=100.0)
 
-    from argus_skill.core.transcript import read_turns
+    from argus.core.transcript import read_turns
 
     (turn,) = read_turns(conversation)
     assert "Team completed" in turn["text"]
@@ -787,7 +793,7 @@ def test_failed_dependency_fallback_is_not_called_an_operator_wait(tmp_path: Pat
 
     c._tick(now=100.0)
 
-    from argus_skill.core.transcript import read_turns
+    from argus.core.transcript import read_turns
 
     (turn,) = read_turns(conversation)
     assert "Blocked: dependent" in turn["text"]
@@ -968,3 +974,31 @@ def test_tick_distills_at_bounded_interval(tmp_path: Path) -> None:
     curator._tick(now=1200.0)
 
     assert len(calls) == 2
+
+
+def test_twelve_candidate_tasks_do_not_spawn_twelve_workers_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", raising=False)
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="portfolio", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=12, state="running")
+    task_board.form(root, [{"task_id": f"idea::{i}", "objective": "research candidate"} for i in range(12)])
+    curator = _fake_curator(tmp_path)
+    curator._tick(now=100.0)
+    curator._tick(now=101.0)
+    assert len(curator._children) == 2
+    assert task_board.count_in_flight(root) == 2
+
+
+def test_tick_skips_refill_while_pool_cools_down(tmp_path: Path) -> None:
+    """A refused teammate cools the pool; siblings are not spawned into the same wall."""
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=2, state="running", cooldown_until=200.0)
+    task_board.form(root, [{"task_id": f"t::{i}", "objective": "x"} for i in range(3)])
+    c = _fake_curator(tmp_path)
+    c._tick(now=100.0)
+    assert task_board.count_in_flight(root) == 0
+    assert c.live_owner_ids(root) == set()
+    c._tick(now=200.0)
+    assert task_board.count_in_flight(root) == 2

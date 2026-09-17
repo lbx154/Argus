@@ -1,6 +1,7 @@
 * text=auto eol=lf
 
 *.ico binary
+*.icns binary
 *.jpeg binary
 *.jpg binary
 *.mp4 binary

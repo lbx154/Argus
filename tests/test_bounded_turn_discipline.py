@@ -10,7 +10,7 @@ present in the engineer prompt, for both paper and non-paper missions.
 
 import pytest
 
-from argus_skill.loop import SkillLoop
+from argus.loop import SkillLoop
 
 
 @pytest.fixture(autouse=True)
@@ -38,8 +38,8 @@ def test_checkpoint_handoff_discipline_present_for_paper_mission():
         paper_mission=True,
     )
     assert "## This turn" in out
-    assert "pure reading" in out.lower()
-    assert "CHECKPOINT.md is the only role-maintained cross-round handoff file" in out
+    assert 'reading must yield a written result or measurement' in out.lower()
+    assert "CHECKPOINT.md is the only file you maintain to carry context between rounds" in out
     assert "one coherent, verifiable increment" not in out
 
 
@@ -69,7 +69,7 @@ def test_long_experiment_protocol_is_in_every_engineer_turn():
     )
 
     for out in (full, compact):
-        assert "argus_skill.tools.subagent submit" in out
+        assert "argus.tools.subagent submit" in out
         assert "--mode direct" in out
         assert "--mode supervised" in out
         assert "launch a supervised subagent" not in out
@@ -106,8 +106,8 @@ def test_performance_claims_require_causal_attribution() -> None:
 def test_engineer_does_not_create_extra_handoff_packets():
     out = _prompt("Continue the implementation across rounds.")
 
-    assert "only role-maintained cross-round handoff file" in out
-    assert "do not create handoff or evidence packets" in out
+    assert "only file you maintain to carry context between rounds" in out
+    assert 'do not create separate summaries or collections of evidence' in out
     assert "compile/type-check" not in out
     assert "git ls-files --error-unmatch" not in out
 
@@ -129,4 +129,7 @@ def test_engineer_surfaces_operator_only_blockers_to_host():
 
 
 def test_engineer_fixed_prompt_stays_token_efficient():
-    assert len(_prompt("Refactor the data loader and add unit tests.")) < 2_800
+    # The shared writing voice, durable accelerator admission, and recoverable
+    # background-result contract are intentional fixed costs. Keep only modest
+    # headroom for another static section.
+    assert len(_prompt("Refactor the data loader and add unit tests.")) < 5_400

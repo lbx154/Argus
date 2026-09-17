@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.campaign_workdir import (
+from argus.core.campaign_workdir import (
     active_campaign_workdir,
     adopt_campaign_workdir,
     normalize_task_workdir,
     resolve_task_workdir,
 )
-from argus_skill.skills.vertical_select import persist_vertical, resolve_vertical
+from argus.skills.vertical_select import persist_vertical, resolve_vertical
 
 
 def _git_init(path: Path) -> None:
@@ -167,7 +167,7 @@ def test_adoption_requires_git_toplevel(tmp_path: Path) -> None:
 
 
 def test_web_session_exposes_the_effective_campaign_root(tmp_path: Path) -> None:
-    from argus_skill.webapi.project_state import apply_campaign_workdir
+    from argus.webapi.project_state import apply_campaign_workdir
 
     base = tmp_path / "workspace"
     base.mkdir()

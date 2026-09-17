@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from argus_skill.core.external_completion_gate import external_completion_gate_issue
-from argus_skill.manager.stage_decider import (
+from argus.core.external_completion_gate import external_completion_gate_issue
+from argus.manager.stage_decider import (
     StageDecision,
     external_completion_gate_rework_decision,
     external_completion_gate_stage_guard_decision,
@@ -43,7 +43,7 @@ def test_final_stage_certificate_cannot_override_external_gate() -> None:
         _DoneReview(),
         current_stage="report",
         stage_order=["setup", "report"],
-        vertical="speedrun",
+        vertical="math_synth",
         mission_scope="bounded",
         completion_blocker="external completion gate is not satisfied",
     )
@@ -51,7 +51,7 @@ def test_final_stage_certificate_cannot_override_external_gate() -> None:
         _DoneReview(),
         current_stage="report",
         stage_order=["setup", "report"],
-        vertical="speedrun",
+        vertical="math_synth",
         mission_scope="bounded",
     )
 

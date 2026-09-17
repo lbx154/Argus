@@ -1,9 +1,7 @@
 """Operator-stated message category (auto / chat / task).
 
-``auto`` keeps the front-door classifier in charge. ``chat``/``task`` are the
-operator overruling it, which must skip that model call outright rather than
-run it and discard the answer — the whole point of the override is to not pay
-for, or be misrouted by, a classification the operator already made.
+``auto`` and ``task`` keep the front-door classifier in charge of scope and
+topology. ``chat`` explicitly stays inline and skips classification.
 """
 from __future__ import annotations
 
@@ -13,18 +11,19 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.webapi import manager_dispatch
-from argus_skill.webapi.manager_dispatch import (
+from argus.core.transcript import append_turn
+from argus.webapi import manager_bridge, manager_dispatch, manager_state
+from argus.webapi.manager_dispatch import (
     _classify_operator_turn,
     _ClassifyResult,
     _TurnEmitter,
 )
-from argus_skill.webapi.routes.models import MessageIn
+from argus.webapi.routes.models import MessageIn
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from argus_skill.webapi import server  # noqa: E402
+from argus.webapi import server  # noqa: E402
 
 _SID = "s-override0"
 
@@ -88,7 +87,7 @@ def _classify(
         return classifier_answer
 
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify",
+        "argus.manager.config_intent._front_door_classify",
         _fake_classify,
     )
 
@@ -148,17 +147,112 @@ def test_forced_chat_skips_the_classifier(tmp_path, monkeypatch) -> None:
     assert phases == ["对话模式：Manager 正在准备回复…"]
 
 
-def test_forced_task_skips_the_classifier(tmp_path, monkeypatch) -> None:
+def test_forced_chat_restores_history_without_classification(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    append_turn(life, "operator", "Write the report.")
+    append_turn(life, "argus", "The report is still in progress.")
+    manager_state._STATES.clear()
+    seen: list[str] = []
+
+    def _classify(*args, **kwargs):
+        raise AssertionError("explicit chat must not call the classifier")
+
+    def _triage(mem, body, chat_state, **kwargs):
+        assert kwargs["self_mode"] == "inspect"
+        seen.append(body)
+        return "The report is still in progress."
+
+    monkeypatch.setattr(
+        "argus.manager.config_intent._front_door_classify", _classify,
+    )
+    monkeypatch.setattr(
+        "argus.manager.front_door.manager_triage", _triage,
+    )
+
+    result = manager_bridge.manager_message(
+        _SID, "你写完了？", global_root=tmp_path, route_override="chat",
+    )
+
+    assert result == {"kind": "chat", "reply": "The report is still in progress."}
+    assert len(seen) == 1
+    assert "SESSION HANDOFF" in seen[0]
+    assert "Write the report." in seen[0]
+    assert "The report is still in progress." in seen[0]
+    assert seen[0].count("你写完了？") == 1
+    assert manager_state._STATES[_SID]["startup_handoffs"] == 1
+
+
+@pytest.mark.parametrize("pending_count", [1, 2])
+def test_forced_chat_does_not_interpret_or_resolve_pending_questions(
+    tmp_path: Path, monkeypatch, pending_count: int,
+) -> None:
+    from argus.core.transcript import read_turns
+    from argus.life.memory import BacklogItem, LifeMemory
+
+    life = _make_project(tmp_path)
+    memory = LifeMemory.open(life)
+    for index in range(pending_count):
+        item = BacklogItem.new(title=f"Pending {index}", objective="Run a separate study")
+        item.status = "paused_operator"
+        item.pending_question = f"Choose an execution option for {index}?"
+        memory.backlog.add(item)
+    before = [item.to_jsonable() for item in memory.backlog.history()]
+    manager_state._STATES.clear()
+    calls = []
+
+    def reply(_mem, body, _chat_state, **kwargs):
+        assert kwargs.get("self_mode") == "inspect", "Chat cannot run pending-answer interpretation"
+        calls.append(body)
+        return "Here is the explanation."
+
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", reply)
+    monkeypatch.setattr("argus.manager.config_intent._front_door_classify",
+                        lambda *a, **kw: pytest.fail("An explicit Chat must not be classified again"))
+    result = manager_bridge.manager_message(
+        _SID, "Explain what the rank means.", global_root=tmp_path, route_override="chat",
+    )
+
+    assert result == {"kind": "chat", "reply": "Here is the explanation."}
+    assert len(calls) == 1
+    assert [item.to_jsonable() for item in memory.backlog.history()] == before
+    assert not (life / "operator_context.jsonl").exists()
+    assert not (life / "inbox.jsonl").exists()
+    assert [turn["text"] for turn in read_turns(life) if turn["role"] == "operator"] == ["Explain what the rank means."]
+
+
+def test_forced_chat_does_not_replay_a_matching_recent_research_task(tmp_path, monkeypatch):
+    from argus.life.memory import BacklogItem, LifeMemory
+
+    life = _make_project(tmp_path)
+    text = "Explain the algorithm."
+    memory = LifeMemory.open(life)
+    memory.backlog.add(BacklogItem.new(title="Research task", objective=text))
+    manager_state._STATES.clear()
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", lambda *a, **kw: "An inline explanation.")
+    monkeypatch.setattr("argus.manager.config_intent._front_door_classify",
+                        lambda *a, **kw: pytest.fail("An explicit Chat must not be classified again"))
+
+    result = manager_bridge.manager_message(_SID, text, global_root=tmp_path, route_override="chat")
+
+    assert result == {"kind": "chat", "reply": "An inline explanation."}
+    assert len(memory.backlog.history()) == 1
+
+
+@pytest.mark.parametrize("route", ["simple", "complex"])
+def test_task_mode_keeps_manager_in_charge_of_topology(tmp_path, monkeypatch, route) -> None:
     result, phases, calls = _classify(
         tmp_path,
         route_override="task",
         monkeypatch=monkeypatch,
-        classifier_answer=(None, None, "simple"),
+        classifier_answer=(None, None, route),
     )
 
-    assert calls == [], "the front-door model must not be called at all"
-    assert result.route == "complex"
-    assert phases == ["任务模式：正在准备 Manager 路由…"]
+    assert calls == ["优化推理吞吐"]
+    assert result.route == route
+    assert phases == ["正在理解你的请求…"]
 
 
 def test_forced_turn_still_carries_the_message_and_a_task_id(
@@ -179,7 +273,7 @@ def test_forced_turn_drops_a_previous_turns_frontdoor_leftovers(
 ) -> None:
     """No classifier ran, so last turn's greeting/failure must not decide this one."""
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify",
+        "argus.manager.config_intent._front_door_classify",
         lambda *a, **k: (None, None, "simple"),  # noqa: ARG005
     )
     chat_state = {
@@ -200,7 +294,7 @@ def test_forced_turn_drops_a_previous_turns_frontdoor_leftovers(
         "",
         emitter,
         lambda: False,
-        route_override="task",
+        route_override="chat",
     )
 
     assert isinstance(result, _ClassifyResult)
@@ -212,8 +306,8 @@ def test_forced_turn_drops_a_previous_turns_frontdoor_leftovers(
     assert "_frontdoor_failure" not in chat_state
 
 
-def test_forced_route_mapping_covers_exactly_the_two_overrides() -> None:
-    assert manager_dispatch._FORCED_ROUTES == {"chat": "simple", "task": "complex"}
+def test_only_chat_forces_a_route() -> None:
+    assert manager_dispatch._FORCED_ROUTES == {"chat": "simple"}
 
 
 # --------------------------------------------------------------------------
@@ -238,7 +332,7 @@ def test_endpoint_forwards_the_override(
         return {"kind": "chat", "reply": "ok"}
 
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message", _bridge
+        "argus.webapi.manager_bridge.manager_message", _bridge
     )
 
     response = client.post(
@@ -258,7 +352,7 @@ def test_endpoint_omits_the_override_for_auto(client: TestClient, monkeypatch) -
         return {"kind": "chat", "reply": "ok"}
 
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message", _bridge
+        "argus.webapi.manager_bridge.manager_message", _bridge
     )
 
     response = client.post(
@@ -282,7 +376,7 @@ def test_endpoint_defaults_to_auto_when_the_field_is_absent(
         return {"kind": "chat", "reply": "ok"}
 
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message", _bridge
+        "argus.webapi.manager_bridge.manager_message", _bridge
     )
 
     response = client.post(f"/api/projects/{_SID}/message", json={"text": "你好"})

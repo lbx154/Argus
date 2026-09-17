@@ -20,8 +20,8 @@ from typing import Any
 
 import pytest
 
-from argus_skill.adapters.stream_progress import make_stream_progress_callback
-from argus_skill.life.event_log import JsonlEventSink
+from argus.adapters.stream_progress import make_stream_progress_callback
+from argus.life.event_log import JsonlEventSink
 
 
 class _RecordingSink:
@@ -549,7 +549,7 @@ def _delta_line(content: str, mid: str = "m1") -> str:
 
 
 def test_relay_reuses_callback_so_deltas_accumulate() -> None:
-    from argus_skill.adapters.stream_progress import StreamProgressRelay
+    from argus.adapters.stream_progress import StreamProgressRelay
 
     sink = _RecordingSink()
     relay = StreamProgressRelay(min_delta_interval_s=0, min_delta_chars=0)
@@ -581,7 +581,7 @@ def test_rebuilding_callback_per_line_breaks_accumulation() -> None:
 def test_relay_rebuilds_on_sink_change() -> None:
     # A new mission (new sink) must start a FRESH accumulation buffer, never
     # leaking the previous message's text into the new one.
-    from argus_skill.adapters.stream_progress import StreamProgressRelay
+    from argus.adapters.stream_progress import StreamProgressRelay
 
     relay = StreamProgressRelay()
     sink1 = _RecordingSink()
@@ -685,7 +685,7 @@ def test_skill_maintenance_streams_stay_hidden() -> None:
 
 def test_copilot_tool_lines_are_forwarded_for_live_progress() -> None:
     """The io-log gate must not drop tool events before they reach the parser."""
-    from argus_skill.adapters.agent_cli_backend._io_log import _needed_for_live_progress
+    from argus.adapters.agent_cli_backend._io_log import _needed_for_live_progress
 
     assert _needed_for_live_progress("stdout", _tool_start_line("view", {"path": "/a"}))
     assert _needed_for_live_progress("simple-1.stdout", _tool_complete_line())
@@ -736,3 +736,52 @@ def test_cursor_failed_tool_call_emits_definite_failure() -> None:
     assert len(sink.events) == 2
     assert sink.events[-1]["status"] == "failed"
     assert sink.events[-1]["exit_code"] == 1
+
+
+def _acp_line(event: dict[str, Any]) -> str:
+    return json.dumps(event, ensure_ascii=False)
+
+
+def test_acp_tool_call_and_result_carry_call_id_kind_and_status() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+
+    cb("main.stdout", _acp_line({
+        "type": "tool.call",
+        "data": {"name": "Count README lines", "kind": "execute", "toolCallId": "t1",
+                 "arguments": {"command": "wc -l README.md"}},
+    }))
+    cb("main.stdout", _acp_line({
+        "type": "tool.result",
+        "data": {"content": "Count README lines (completed)", "name": "Count README lines",
+                 "status": "completed", "toolCallId": "t1", "output": "1 README.md"},
+    }))
+
+    progress = [event for event in sink.events if event.get("type") == "engineer.progress"]
+    assert [event["kind"] for event in progress] == ["command_execution", "tool_result"]
+    call, result = progress
+    assert call["text"] == "wc -l README.md"
+    assert call["action_summary"] == "Count README lines"
+    assert (call["tool_name"], call["call_id"], call["tool_kind"], call["status"]) == (
+        "Count README lines", "t1", "execute", "running",
+    )
+    assert (result["call_id"], result["status"], result["tool_name"], result["output_excerpt"]) == (
+        "t1", "completed", "Count README lines", "1 README.md",
+    )
+
+
+def test_acp_non_shell_tool_call_stays_a_tool_use() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+
+    cb("main.stdout", _acp_line({
+        "type": "tool.call",
+        "data": {"name": "Reading state.json", "kind": "read", "toolCallId": "t2",
+                 "arguments": {"path": "state.json"}},
+    }))
+
+    (call,) = [event for event in sink.events if event.get("type") == "engineer.progress"]
+    assert call["kind"] == "tool_use"
+    assert call["text"] == 'Reading state.json: {"path": "state.json"}'
+    assert call["tool_kind"] == "read"
+    assert "action_summary" not in call

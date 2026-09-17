@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.event_catalog import validate_event_envelope
-from argus_skill.life import BacklogItem, MemoryBundle
-from argus_skill.manager import dispatch, front_door
+from argus.core.event_catalog import validate_event_envelope
+from argus.life import BacklogItem, MemoryBundle
+from argus.manager import dispatch, front_door
 
 
 @pytest.fixture()
@@ -43,8 +43,8 @@ def test_bounded_dispatch_persists_nested_workdir(
     memory,
     monkeypatch,
 ):
-    from argus_skill.core.models import RunnerResult
-    from argus_skill.planner.bounded_dag import BoundedDagNode, plan_bounded_dag
+    from argus.core.models import RunnerResult
+    from argus.planner.bounded_dag import BoundedDagNode, plan_bounded_dag
 
     older = memory.backlog.add(
         BacklogItem.new(title="older", objective="older", priority=100)
@@ -102,34 +102,87 @@ def test_bounded_dispatch_persists_nested_workdir(
     assert (alive, pid) == (False, None)
 
 
-def test_direct_workflow_requests_one_real_planner_signed_package(
+def test_direct_workflow_persists_manager_package_without_planner(
     memory,
     monkeypatch,
 ) -> None:
-    captured: dict[str, object] = {}
-    planner_backend = object()
+    class Manager:
+        def decide_vertical(self, body, **kwargs):
+            return SimpleNamespace(
+                execution_task=f"managed: {body}",
+                vertical="software",
+                workflow_mode="direct",
+                require_independent_review=True,
+            )
+
+        def commit_vertical_decision(self, body, decision, **kwargs):
+            return decision
+
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda *_args, **_kwargs: SimpleNamespace(planner_backend=planner_backend),
+        lambda *_args, **_kwargs: SimpleNamespace(manager=Manager()),
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_plan_bounded_execution",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct Manager package must not call Planner")
+        ),
     )
 
-    def plan(backend, objective, **kwargs):
-        captured.update({"backend": backend, "objective": objective, **kwargs})
-        return SimpleNamespace(error="", tasks=(SimpleNamespace(key="k1"),))
-
-    monkeypatch.setattr("argus_skill.planner.bounded_dag.plan_bounded_dag", plan)
-
-    dispatch._plan_bounded_execution(
+    item, alive, pid = dispatch.enqueue_mission(
         memory,
         "one coherent package",
-        {"backend": "memory"},
-        single_package=True,
+        {"backend": "codex"},
+        root_task_id="root-direct-1",
+        context_refs=[{
+            "kind": "attachment",
+            "ref": "brief.md",
+            "why": "operator input",
+        }],
     )
 
-    assert captured["backend"] is planner_backend
-    assert captured["objective"] == "one coherent package"
-    assert captured["single_package"] is True
+    assert item.id == "root-direct-1"
+    assert item.objective == "managed: one coherent package"
+    assert item.original_objective == item.objective
+    assert item.iterate is False
+    assert item.iteration_max_cycles == 1
+    assert item.deps == []
+    assert item.context_refs == [{
+        "kind": "attachment",
+        "ref": "brief.md",
+        "why": "operator input",
+    }]
+    assert "manager_direct" in item.tags
+    assert "planner" not in item.tags
+    assert "review:required" in item.tags
+    assert item.manager_decision == {
+        "vertical": "software",
+        "workflow_mode": "direct",
+        "require_independent_review": True,
+        "routed": True,
+        "route_source": "manager",
+    }
+    assert (alive, pid) == (False, None)
+
+    events = [
+        json.loads(line)
+        for line in (memory.project.root / "events.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    queued = next(
+        event
+        for event in events
+        if event.get("type") == "life.planner.task_added"
+    )
+    assert queued["source"] == "manager_direct"
+    assert not any(
+        event.get("type") == "life.planner.verdict"
+        and event.get("status") == "planned"
+        for event in events
+    )
 
 
 def test_bounded_dispatch_fails_closed_without_planner_backend(memory) -> None:
@@ -145,7 +198,7 @@ def test_bounded_dispatch_fails_closed_without_planner_backend(memory) -> None:
 
 
 def test_manager_workdir_prefers_persisted_session_metadata(tmp_path) -> None:
-    from argus_skill.core.session import SessionMeta, write_session_meta
+    from argus.core.session import SessionMeta, write_session_meta
 
     global_root = tmp_path / "root"
     wrong_worktree = tmp_path / "server-process-cwd"
@@ -174,10 +227,10 @@ def test_bounded_dispatch_uses_nested_node_worktree_as_its_only_contract_root(
     memory,
     monkeypatch,
 ):
-    from argus_skill.core.campaign_workdir import adopt_campaign_workdir
-    from argus_skill.core.pipeline_state import write_pipeline_state
-    from argus_skill.skills.vertical_select import persist_vertical
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.core.campaign_workdir import adopt_campaign_workdir
+    from argus.core.pipeline_state import write_pipeline_state
+    from argus.skills.vertical_select import persist_vertical
+    from argus.verticals._data_domain import write_data_domain
 
     base = memory.project_worktree
     campaign = base / "campaign"
@@ -544,8 +597,8 @@ def test_contextual_continuous_title_uses_manager_execution_task_in_every_status
     memory,
     monkeypatch,
 ):
-    from argus_skill.webapi.manager_session_intent import contextualize_operator_turn
-    from argus_skill.webapi.project_state import compact_backlog_item
+    from argus.webapi.manager_session_intent import contextualize_operator_turn
+    from argus.webapi.project_state import compact_backlog_item
 
     execution_task = "修复上下文化连续任务的标题，并保留目标、依赖与状态行为。"
     routing_body = contextualize_operator_turn(
@@ -603,7 +656,7 @@ def test_contextual_continuous_title_uses_manager_execution_task_in_every_status
 
 
 def test_continuous_replacement_queues_operator_task_after_running_work(memory):
-    from argus_skill.daemon.state import (
+    from argus.daemon.state import (
         read_continuous_state,
         write_continuous_config,
     )
@@ -661,7 +714,7 @@ def test_lifetime_promotion_sets_pending_handoff(memory):
 def test_lifetime_promotion_revalidates_existing_continuous_state(
     memory, monkeypatch,
 ):
-    from argus_skill.daemon.state import write_continuous_config
+    from argus.daemon.state import write_continuous_config
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
     write_continuous_config(
@@ -769,7 +822,7 @@ def test_lifetime_promotion_validates_the_life_backend(memory, monkeypatch):
 def test_lifetime_promotion_validates_the_active_daemon_backend(
     memory, monkeypatch,
 ):
-    from argus_skill.daemon import life_worker
+    from argus.daemon import life_worker
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "0")
@@ -895,7 +948,7 @@ def test_the_operator_mission_gets_an_independent_reviewer(memory):
     ``round_self_review`` settles the mission on the Engineer's own
     MILESTONE_STATUS=DONE and no Reviewer ever runs.
     """
-    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+    from argus.life.supervisor._planning_context import PlanningContextMixin
 
     item, _, _ = dispatch.enqueue_mission(
         memory,
@@ -912,7 +965,7 @@ def test_the_operator_item_keeps_stage_authority_with_the_manager(memory):
     ``skip_stage_transition`` only alongside ``require_independent_review`` on a
     bounded scope, and otherwise falls through to the self-review arm and moves
     the stage anyway."""
-    from argus_skill.apps._runtime_helpers import _should_run_stage_transition
+    from argus.apps._runtime_helpers import _should_run_stage_transition
 
     item, _, _ = dispatch.enqueue_mission(
         memory,
@@ -937,3 +990,51 @@ def test_the_operator_item_keeps_stage_authority_with_the_manager(memory):
         require_independent_review=False,
         review_source="engineer_self_review",
     ) is True
+
+
+def test_new_finite_campaign_persists_real_planner_dependencies(memory, monkeypatch):
+    from argus.daemon.state import read_continuous_state
+    from argus.planner.bounded_dag import BoundedDagNode, BoundedDagPlan
+
+    plan = BoundedDagPlan(tasks=(
+        BoundedDagNode(key='data', deps=(), title='Create city data', objective='Write validated city.json'),
+        BoundedDagNode(key='algorithm', title='Build routes', objective='Read city.json and validate routes', deps=('data',)),
+        BoundedDagNode(key='interface', title='Build interactive map', objective='Read city.json and render the map', deps=('data',)),
+        BoundedDagNode(key='integrate', title='Integrate and deliver', objective='Join routes and map; verify browser behavior', deps=('algorithm', 'interface')),
+    ), reason='The interface and routing consume the same data contract.')
+    monkeypatch.setattr(dispatch, '_plan_bounded_execution', lambda *a, **k: plan)
+    state = {'backend': 'codex', 'config': {'continuous': True}, '_continuous_pending_manager_handoff': True, '_continuous_open_ended': False}
+    prepared = front_door.prepare_manager_execution_task(memory, 'Build a city routing product', state, root_task_id='city-root')
+    prepared.decision.vertical = 'software'
+    item, _, _ = dispatch.enqueue_mission(memory, 'Build a city routing product', state, root_task_id='city-root', prepared_handoff=prepared)
+    tasks = memory.backlog.all()
+    assert len(tasks) == 4
+    by_key = {task.node_key: task for task in tasks}
+    assert item.id == 'city-root' == by_key['data'].id
+    assert by_key['algorithm'].deps == [item.id]
+    assert by_key['interface'].deps == [item.id]
+    assert set(by_key['integrate'].deps) == {by_key['algorithm'].id, by_key['interface'].id}
+    assert all('planner' in task.tags and 'bounded_dag_node' in task.tags for task in tasks)
+    assert all(task.original_objective == 'managed: Build a city routing product' for task in tasks)
+    continuous = read_continuous_state(memory.project.root)
+    assert continuous.enabled and not continuous.open_ended
+    assert continuous.objective == 'managed: Build a city routing product'
+    events = [json.loads(line) for line in (memory.project.root / 'events.jsonl').read_text().splitlines()]
+    assert len([e for e in events if e['type'] == 'life.planner.task_added']) == 4
+    assert state['config']['continuous'] is True
+    assert '_continuous_pending_manager_handoff' not in state
+
+
+def test_failed_new_campaign_plan_does_not_publish_an_atomic_fallback(memory, monkeypatch):
+    from argus.daemon.state import read_continuous_state
+    state = {'backend': 'codex', 'config': {'continuous': True}, '_continuous_pending_manager_handoff': True, '_continuous_open_ended': False}
+    def fail(*args, **kwargs):
+        raise front_door.ManagerHandoffError('Planner unavailable')
+    monkeypatch.setattr(dispatch, '_plan_bounded_execution', fail)
+    prepared = front_door.prepare_manager_execution_task(memory, 'Build dependent modules', state)
+    prepared.decision.vertical = 'software'
+    with pytest.raises(front_door.ManagerHandoffError, match='Planner unavailable'):
+        dispatch.enqueue_mission(memory, 'Build dependent modules', state, prepared_handoff=prepared)
+    assert memory.backlog.all() == []
+    assert not read_continuous_state(memory.project.root).enabled
+    assert state['config']['continuous'] is False

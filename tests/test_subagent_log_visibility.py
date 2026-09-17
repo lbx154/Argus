@@ -13,7 +13,7 @@ import subprocess
 import sys
 import textwrap
 
-from argus_skill.tools.subagent._registry import _child_env
+from argus.tools.subagent._registry import _child_env
 
 
 def test_child_env_unbuffers_stdout() -> None:

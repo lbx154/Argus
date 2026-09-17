@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
 
 import jsonschema
 
-from argus_skill.core.event_catalog import (
+from argus.core.event_catalog import (
     CALL_SCOPED_EVENT_TYPES,
     EVENT_ENVELOPE_VERSION,
     EVENT_PAYLOAD_SCHEMA_VERSION,
     EVENT_PAYLOAD_SCHEMAS,
     EVENT_SPECS,
+    EVENT_TYPE_RE,
+    LEGACY_EVENT_ALIASES,
     SIGNAL_EVENT_TYPES,
     EventType,
     canonical_event_type,
@@ -19,7 +22,7 @@ from argus_skill.core.event_catalog import (
     normalize_event_envelope,
     validate_event_envelope,
 )
-from argus_skill.life.event_log import JsonlEventSink
+from argus.life.event_log import JsonlEventSink
 
 
 def test_catalog_names_are_unique_valid_and_fully_specified() -> None:
@@ -147,6 +150,39 @@ def test_project_completion_events_are_typed_cross_component_signals() -> None:
     assert EventType.PROJECT_COMPLETION_REFUSED.value in SIGNAL_EVENT_TYPES
 
 
+def test_planner_wait_family_events_accept_cycle_zero_from_a_fresh_boot() -> None:
+    # A daemon that resumes a durable wait, or restores an already delivered
+    # terminal conclusion from the outbox, emits these before any planning
+    # cycle has run in the new process. There, cycle == 0 is the honest count
+    # of cycles completed so far -- the same convention life.planner.start
+    # already allows.
+    waiting = normalize_event_envelope({
+        "type": EventType.LIFE_PLANNER_WAITING,
+        "cycle": 0,
+        "reason": "awaiting declared event",
+        "model_call_skipped": True,
+        "wait_mode": "event",
+    })
+    assert "event_validation" not in waiting
+
+    terminal_idle = normalize_event_envelope({
+        "type": EventType.LIFE_PLANNER_TERMINAL_IDLE,
+        "cycle": 0,
+        "reason": "open-ended project_done unchanged since last planner run",
+        "consecutive_idle_cycles": 0,
+        "suggested_sleep_s": 30.0,
+    })
+    assert "event_validation" not in terminal_idle
+
+    # A negative cycle is still a defect, never a boot-time value.
+    negative = validate_event_envelope({
+        "type": "life.planner.waiting",
+        "cycle": -1,
+    })
+    assert negative.valid is False
+    assert "field cycle must be >= 0" in negative.errors
+
+
 def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explicit() -> None:
     unknown = validate_event_envelope({"type": "research.custom_evidence.ready"})
     assert unknown.valid is True
@@ -155,6 +191,17 @@ def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explic
     assert canonical_event_type("life.team.waiting") == "life.planner.waiting"
     aliased = normalize_event_envelope({"type": "mission.started"})
     assert aliased["canonical_type"] == "life.mission.started"
+
+
+def test_legacy_validation_only_relaxes_missing_payload_fields() -> None:
+    legacy = {"type": "round.review.completed", "status": "continue"}
+    assert validate_event_envelope(legacy).valid is False
+    assert validate_event_envelope(legacy, allow_missing_fields=True).valid is True
+    for fields in ({"ts": "unparseable"}, {"round_index": []}, {"status": "invalid-status"}):
+        assert validate_event_envelope(
+            {**legacy, **fields}, allow_missing_fields=True,
+        ).valid is False
+    assert validate_event_envelope({}, allow_missing_fields=True).valid is False
 
 
 def test_event_sink_persists_versioned_envelopes_and_validation_evidence(
@@ -205,7 +252,7 @@ def test_frontend_event_catalog_matches_python_catalog_and_groups() -> None:
 def test_payload_schema_is_standard_json_schema_and_generated_types_are_current() -> None:
     schema_path = (
         Path(__file__).parents[2]
-        / "argus_skill"
+        / "argus"
         / "core"
         / "event_payload_schemas.json"
     )
@@ -232,7 +279,7 @@ def test_payload_schema_is_standard_json_schema_and_generated_types_are_current(
 
 
 def test_generated_event_renderer_corpus_and_coverage_are_current() -> None:
-    from argus_skill.release_tools import generate_event_fixtures
+    from argus.release_tools import generate_event_fixtures
 
     corpus = json.loads(generate_event_fixtures.CORPUS_PATH.read_text(encoding="utf-8"))
     report = json.loads(generate_event_fixtures.COVERAGE_PATH.read_text(encoding="utf-8"))
@@ -253,7 +300,7 @@ def test_generated_event_renderer_corpus_and_coverage_are_current() -> None:
 
 
 def test_resource_status_schema_and_generated_contracts_are_current() -> None:
-    from argus_skill.release_tools import generate_resource_status
+    from argus.release_tools import generate_resource_status
 
     schema = json.loads(generate_resource_status.SCHEMA_PATH.read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator.check_schema(schema)
@@ -262,4 +309,118 @@ def test_resource_status_schema_and_generated_contracts_are_current() -> None:
     )
     assert generate_resource_status.PYTHON_OUTPUT_PATH.read_text(encoding="utf-8") == (
         generate_resource_status.render_python()
+    )
+
+
+def test_resource_status_generator_writes_reproducible_lf_bytes(tmp_path, monkeypatch) -> None:
+    import sys
+
+    from argus.release_tools import generate_resource_status
+
+    typescript = tmp_path / "resource_status.generated.ts"
+    python = tmp_path / "status_schema_generated.py"
+    monkeypatch.setattr(generate_resource_status, "OUTPUT_PATH", typescript)
+    monkeypatch.setattr(generate_resource_status, "PYTHON_OUTPUT_PATH", python)
+    monkeypatch.setattr(sys, "argv", ["generate_resource_status"])
+    assert generate_resource_status.main() == 0
+    assert typescript.read_bytes() == generate_resource_status.render().encode("utf-8")
+    assert python.read_bytes() == generate_resource_status.render_python().encode("utf-8")
+    assert b"\r\n" not in python.read_bytes()
+
+
+# Modules whose dotted ``type`` strings are not events.jsonl rows: each writes
+# its own ledger or speaks another protocol, so the event catalog does not own
+# that vocabulary.
+_NON_EVENT_MODULES = frozenset({
+    # ACP-to-CLI stream lines (session.start, tool.call, tool.result,
+    # watchdog.*) that adapters/stream_progress.py parses as runner output.
+    "agent_cli/copilot_acp.py",
+    # repairs/history.jsonl, the doctor's own audit ledger.
+    "maintenance/repair.py",
+    # The Copilot guard's usage ledger.
+    "provider_integrations/copilot_guard.py",
+    # Map observation nodes projected from events for the web map.
+    "webapi/map_team.py",
+    "webapi/map_view.py",
+})
+
+
+def _type_literals(node: ast.expr) -> list[str] | None:
+    """Every string a ``type`` expression can evaluate to; None when dynamic."""
+    if isinstance(node, ast.Constant):
+        return [node.value] if isinstance(node.value, str) else []
+    if isinstance(node, ast.IfExp):
+        body = _type_literals(node.body)
+        orelse = _type_literals(node.orelse)
+        return None if body is None or orelse is None else body + orelse
+    if (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "EventType"
+    ):
+        return [EventType[node.attr].value]
+    return None
+
+
+def _call_name(node: ast.Call) -> str:
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    return ""
+
+
+def test_every_emitted_event_type_literal_is_in_the_catalog() -> None:
+    """The catalog is the vocabulary: no emitter may invent a dotted type.
+
+    Scans ``{"type": ...}`` literals, ``type=`` / ``event_type=`` keywords and
+    the positional type argument of ``emit`` helpers. Legacy aliases count as
+    catalogued because ``canonical_event_type`` resolves them.
+    """
+    root = Path(__file__).parents[2] / "argus"
+    known = {event.value for event in EventType} | set(LEGACY_EVENT_ALIASES)
+    unknown: list[str] = []
+    dynamic: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
+        if path.name == "event_catalog.py" or relative in _NON_EVENT_MODULES:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            strict: list[ast.expr] = []
+            loose: list[ast.expr] = []
+            if isinstance(node, ast.Dict):
+                strict.extend(
+                    value
+                    for key, value in zip(node.keys, node.values)
+                    if isinstance(key, ast.Constant) and key.value == "type"
+                )
+            elif isinstance(node, ast.Call):
+                strict.extend(
+                    keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg in {"type", "event_type"}
+                )
+                if _call_name(node) in {"emit", "_emit"}:
+                    loose.extend(
+                        arg for arg in node.args if isinstance(arg, ast.Constant)
+                    )
+            for value in strict:
+                if isinstance(value, ast.JoinedStr):
+                    dynamic.append(f"{relative}:{value.lineno}")
+            for value in strict + loose:
+                for literal in _type_literals(value) or []:
+                    if "." not in literal or EVENT_TYPE_RE.fullmatch(literal) is None:
+                        continue
+                    if literal not in known:
+                        unknown.append(f"{relative}:{value.lineno}:{literal}")
+
+    assert unknown == [], (
+        "event types emitted outside the catalog; add them to EventType, "
+        "event_payload_schemas.json, eventCatalog.ts and the renderers:\n"
+        + "\n".join(unknown)
+    )
+    assert dynamic == [], (
+        "event types built from f-strings cannot be checked against the "
+        "catalog; pick the member per branch instead:\n" + "\n".join(dynamic)
     )

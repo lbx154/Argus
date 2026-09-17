@@ -1,12 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
-import type { DeliveryReceipt, GitDiffView, MissionView } from '../../../core/src/types';
+import { AgentActivity } from './AgentActivity';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  DeliveryReceipt,
+  GitDiffView,
+  MissionTimelineItem,
+  MissionView,
+  EventMsg,
+} from '../../../core/src/types';
 import {
   displayObjective,
   formatMissionElapsed,
 } from '../../../core/src/missionView';
 import { theme } from '../lib/theme';
-import { formatRelativeTime } from '../lib/format';
+import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
+import { errorText } from '../lib/format';
+import { plainDetail, plainStatus, plainStopSentence } from '../lib/plainStatus';
 import { MarkdownContent } from './MarkdownContent';
+import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { useI18n } from '../i18n';
 import { api, type ArtifactInfo, type Snapshot } from '../api';
 import {
@@ -15,13 +25,19 @@ import {
   statusLabel,
 } from '../lib/enumLabels';
 
-const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
 const ACTIVE_WORK_STATUSES = ['active', 'running', 'in_progress', 'claimed'];
 const TERMINAL_MISSION_STATUSES = ['complete', 'completed', 'done', 'success', 'incomplete', 'stalled', 'blocked', 'ended'];
 const MILLISECONDS_PER_DAY = 86_400_000;
+const EVENT_DETAIL_PREVIEW_LENGTH = 300;
 
 function missionRoleLabel(role: string, t: (key: string) => string) {
-  return ROLE_ORDER.includes(role) ? t(`role.${role}`) : roleLabel(role, t);
+  return roleLabel(role, t);
+}
+
+function isFailedMissionEvent(item: MissionTimelineItem) {
+  const finalTypePart = item.type.toLowerCase().split(/[._-]/).at(-1);
+  return ['failed', 'failure', 'error'].includes(finalTypePart ?? '')
+    || (item.tone === 'error' && /\bfailed\b/i.test(item.title));
 }
 
 export function formatMissionEventTime(ts: number, locale: string, now = new Date()) {
@@ -50,37 +66,56 @@ export function formatMissionEventTime(ts: number, locale: string, now = new Dat
   return `${calendarDate} ${time}`;
 }
 
-function RoleWorkDetail({ detail }: { detail: string }) {
+function DetailDisclosure({
+  detail,
+  technical,
+  previewLength,
+  textClassName,
+}: {
+  detail: string;
+  /** Counters and receipts kept out of the page; shown on hover. */
+  technical?: string;
+  previewLength?: number;
+  textClassName: string;
+}) {
   const { t } = useI18n();
   const detailRef = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
-  const [canExpand, setCanExpand] = useState(false);
+  const [measuredOverflow, setMeasuredOverflow] = useState(false);
+  const canExpand = previewLength == null
+    ? measuredOverflow
+    : detail.length > previewLength;
 
   useEffect(() => {
-    if (expanded) return;
+    if (previewLength != null || expanded) return;
     const element = detailRef.current;
     if (!element) return;
-    const measure = () => setCanExpand(element.scrollHeight > element.clientHeight);
+    const measure = () => setMeasuredOverflow(element.scrollHeight > element.clientHeight);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [detail, expanded]);
+  }, [detail, expanded, previewLength]);
+
+  const visibleDetail = !expanded && previewLength != null && canExpand
+    ? `${detail.slice(0, previewLength)}…`
+    : detail;
 
   return (
     <div className="mt-2">
       <p
         ref={detailRef}
-        className={`${expanded ? '' : 'line-clamp-3'} whitespace-pre-wrap break-words text-[11px] leading-5 text-ink-dim`}
+        title={technical || undefined}
+        className={`${previewLength == null && !expanded ? 'line-clamp-3' : ''} whitespace-pre-wrap break-words ${textClassName}`}
       >
-        {detail}
+        {visibleDetail}
       </p>
       {canExpand ? (
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
-          className="mt-1 text-[11px] text-blue-sky hover:text-ink"
+          className="mt-1 text-xs text-blue-sky hover:text-ink"
         >
           {t(expanded ? 'mission.showLess' : 'mission.showMore')}
         </button>
@@ -130,11 +165,11 @@ function Achievement({ view }: { view: MissionView }) {
   if (!achievement) return null;
   return (
     <section className="border-b border-ok/35 bg-ok/5 px-5 py-4 animate-appear">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ok">{t('mission.achievement')}</div>
+      <div className="text-xs font-medium text-ok">{t('mission.achievement')}</div>
       <div className="mt-2 text-sm font-semibold text-ink">{achievement.title}</div>
       {achievement.summary ? <div className="mt-1 text-xs text-ink-dim">{achievement.summary}</div> : null}
       <div className="mt-2 text-xs"><span className="text-ink-faint">{t('mission.elapsed')} </span><span className="font-mono text-ink">{formatMissionElapsed(achievement.elapsed_seconds ?? 0)}</span></div>
-      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-ink-dim">
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-dim">
         <span>{t('mission.rejectedAttempts', { count: achievement.rejected_attempts ?? 0 })}</span>
         <span>{t('mission.skillsLearned', { count: achievement.skills_learned ?? 0 })}</span>
         <span>{t('mission.artifacts', { count: achievement.artifacts ?? 0 })}</span>
@@ -151,6 +186,10 @@ export function MissionControl({
   onOpenArtifact,
   onOpenDelivery,
   gitDiff,
+  onNotify,
+  onAsk,
+  connected = true,
+  events = [],
 }: {
   view: MissionView;
   sid?: string;
@@ -159,63 +198,144 @@ export function MissionControl({
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
   gitDiff?: GitDiffView;
+  onNotify?: (tone: 'success' | 'error', message: string) => void;
+  onAsk?: (draft: string) => void;
+  connected?: boolean;
+  events?: EventMsg[];
 }) {
   const { locale, t } = useI18n();
+  // Role work reaches AgentActivity with its reasons already in plain words;
+  // that component is shared with the map and only displays what it is given.
+  const plainView = useMemo<MissionView>(() => ({
+    ...view,
+    role_work: view.role_work.map((item) => ({ ...item, detail: plainDetail(item.detail, locale).text })),
+  }), [locale, view]);
   const roleMap = new Map(view.roles.map((role) => [role.role, role]));
+  // A session that has only talked to Argus has no team at work; four idle
+  // role tiles would only say so four times.
+  const teamEngaged = Boolean(snapshot?.daemon.alive) || view.dag.length > 0 || view.roles.some((role) => !['', 'idle', 'waiting'].includes(role.status));
   const activeNode = view.dag.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
   const dagView = compactMissionDag(view);
   const dag = dagView.nodes;
   const objective = displayObjective(
     view.mission.objective || view.mission.title || t('mission.waiting'),
   );
+  const finalOutput = view.mission.final_output?.trim() || '';
+  const hasFullOutput = Boolean(
+    finalOutput && finalOutput !== view.mission.summary.trim(),
+  );
   const [replayIndex, setReplayIndex] = useState(Math.max(0, view.timeline.length - 1));
   const [selectedRole, setSelectedRole] = useState(view.active_role || 'planner');
   const [selectedTaskId, setSelectedTaskId] = useState(activeNode?.id || '');
   const [resumeBusy, setResumeBusy] = useState(false);
   const delivery = view.delivery;
+  // The delivery card used to restate the mission summary word for word
+  // right under it; when the two say the same thing, show one card.
+  const deliveryRepeatsSummary = (() => {
+    if (!delivery) return false;
+    const squeeze = (value: string) => value.replace(/\s+/g, '').slice(0, 80);
+    const said = squeeze(view.mission.summary || '');
+    const delivered = squeeze(delivery.summary || delivery.title || '');
+    return Boolean(said && delivered) && (said.startsWith(delivered) || delivered.startsWith(said));
+  })();
   const artifactByPath = new Map(artifacts.map((artifact) => [artifact.path, artifact]));
+  const activeSkills = view.learned_skills.filter((skill) => skill.status === 'active');
+  const retainedWikiPages = view.learned_wiki_pages.filter((page) => page.status !== 'retired');
+  const hasSavedKnowledge = Boolean(
+    view.storage.project_skill_dir
+    || view.storage.global_skill_dir
+    || view.storage.wiki_paths.length
+    || view.storage.skill_history_compressed
+    || view.storage.wiki_retired_compressed,
+  );
+  const hasCapabilities = Boolean(activeSkills.length || retainedWikiPages.length || hasSavedKnowledge);
+  const missionStatus = view.mission.status.toLowerCase();
+  const runtime = snapshot ? currentWorkStatus(snapshot, view, events) : null;
+  const missionRunning = runtime ? runtime.state === 'running' : ['working', 'grounding', 'framed'].includes(missionStatus);
   const healthNeedsAttention = ['degraded', 'red', 'critical'].includes(view.health?.toLowerCase() ?? '');
   const missionFailed = ['failed', 'error'].includes(view.mission.status.toLowerCase());
-  const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed');
-  const missionPaused = ['hold', 'paused'].includes(view.stage.id.toLowerCase());
-  const needsAttention = healthNeedsAttention || missionFailed || stepFailed || missionPaused;
+  // Historical failures remain in the route; they do not replace the status
+  // of a different task that is currently running or being reviewed.
+  const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed'
+    && (node.id === view.mission.id || (!view.mission.id && !missionRunning && !activeNode)));
+  const missionPaused = runtime?.state === 'paused' || ['hold', 'paused'].includes(view.stage.id.toLowerCase());
+  const deliveryFailed = view.outcome.execution_status?.toLowerCase() === 'failed'
+    && view.stage.id.toLowerCase() === 'delivery';
+  const needsAttention = healthNeedsAttention || deliveryFailed || missionFailed || stepFailed || missionPaused;
   const attentionKey = healthNeedsAttention
     ? 'mission.attentionHealth'
-    : missionFailed
-      ? 'mission.attentionFailed'
+    : deliveryFailed
+      ? 'mission.deliveryFailed'
+      : missionFailed
+        ? 'mission.attentionFailed'
         : stepFailed
           ? 'mission.attentionStepFailed'
           : 'mission.attentionPaused';
   const activeWork = view.role_work
-    .filter((item) => ACTIVE_WORK_STATUSES.includes(item.status.toLowerCase()))
+    .filter((item) => ACTIVE_WORK_STATUSES.includes(item.status.toLowerCase())
+      && (!view.mission.id || (item.item_id || item.mission_id) === view.mission.id))
     .sort((left, right) => right.ts - left.ts);
   const currentWork = activeWork.find((item) => item.role === view.active_role) ?? activeWork[0];
-  const missionStatus = view.mission.status.toLowerCase();
-  const missionRunning = ['working', 'grounding', 'framed'].includes(missionStatus);
   const missionDone = TERMINAL_MISSION_STATUSES.includes(missionStatus);
   const outcome = outcomeLabels(view.outcome, t)[0] ?? statusLabel(view.mission.status, t);
-  const statusNarrative = needsAttention
+  const statusNarrative = !connected ? (locale === 'zh-CN' ? '实时连接已断开，以下是已收到的记录。' : 'Live connection lost; these are the records already received.')
+    : runtime?.state === 'paused' ? workStatusLabel(runtime, locale)
+    : runtime?.state === 'unknown' ? workStatusLabel(runtime, locale)
+    : needsAttention
     ? t(attentionKey)
     : missionDone
-      ? t('mission.statusDone', {
-          outcome,
-          elapsed: formatMissionElapsed(view.mission.elapsed_seconds),
-        })
+      ? [
+          t('mission.statusDone', {
+            outcome,
+            elapsed: formatMissionElapsed(view.mission.elapsed_seconds),
+          }),
+          runtime?.state === 'waiting' ? workStatusLabel(runtime, locale) : '',
+        ].filter(Boolean).join(' ')
+      : runtime ? workStatusLabel(runtime, locale)
       : missionRunning && currentWork
         ? t('mission.statusActive', {
             role: roleLabel(view.active_role || currentWork.role, t),
             work: currentWork.title,
           })
         : t('mission.statusWaiting');
-  const statusTone = healthNeedsAttention || missionFailed || stepFailed
+  const statusTone = !connected ? 'waiting' : healthNeedsAttention || deliveryFailed || missionFailed || stepFailed
     ? 'error'
-    : missionPaused
+    : missionPaused || runtime?.state === 'waiting'
       ? 'waiting'
       : missionDone
         ? 'done'
         : missionRunning && currentWork
           ? 'active'
           : 'waiting';
+  const executionStatus = String(view.outcome.execution_status || '').toLowerCase();
+  const stoppedShort = missionDone && !['completed', 'done', 'success'].includes(executionStatus);
+  const acceptedReview = missionDone && !stoppedShort
+    && view.outcome.review_status === 'done' && view.review.status === 'done'
+    ? plainDetail(view.review.reason, locale).text.trim() : '';
+  const summary = acceptedReview || view.mission.summary;
+  // When the work stopped short, the story needs one plain reason and one
+  // sentence about what happens next. The reviewer's note is the best reason
+  // when there is one; otherwise the kind of interruption has to do.
+  // The backend records why a round produced no judgment on the timeline row
+  // itself; the reviewer's raw reason is the fallback for older snapshots.
+  const causedRow = [...view.timeline].reverse().find((item) => item.cause && item.detail
+    && (!view.mission.id || item.item_id === view.mission.id)
+    && (!view.mission.started_at || item.ts >= view.mission.started_at));
+  const reviewNote = causedRow
+    ? plainDetail(causedRow.detail, locale, { cause: causedRow.cause, technical: causedRow.technical, language: view.language })
+    : ['skipped', 'blocked', 'rejected', 'continue'].includes(String(view.review.status || '').toLowerCase())
+      ? plainDetail(view.review.reason, locale)
+      : null;
+  const interruption = String(view.outcome.interruption_kind || '').toLowerCase();
+  const explainStop = needsAttention || stoppedShort;
+  const stopReason = explainStop
+    ? reviewNote?.text || (interruption && interruption !== 'none' ? plainStopSentence(interruption, locale) : '')
+    : '';
+  const nextStep = runtime?.reason === 'operator_input'
+    ? t('mission.nextAfterReply')
+    : explainStop && view.outcome.resumable
+      ? t(snapshot?.daemon.alive ? 'mission.nextResumeLive' : 'mission.nextResume')
+      : '';
   useEffect(() => setReplayIndex(Math.max(0, view.timeline.length - 1)), [view.timeline.length]);
   useEffect(() => {
     if (activeNode?.id) setSelectedTaskId(activeNode.id);
@@ -225,27 +345,47 @@ export function MissionControl({
     setResumeBusy(true);
     try {
       await api.setContinuous(sid, true, snapshot?.continuous?.objective ?? '');
-    } catch {
-      // ignore
+      onNotify?.('success', t('sidebar.resumeSuccess'));
+    } catch (error) {
+      onNotify?.('error', t('sidebar.resumeFailed', { error: errorText(error) }));
     } finally {
       setResumeBusy(false);
     }
   };
   const replayRows = view.timeline.slice(0, replayIndex + 1).slice(-12).reverse();
   const selectedTask = view.dag.find((node) => node.id === selectedTaskId);
-  const selectedRoleWork = view.role_work
-    .filter((item) => item.role === selectedRole)
-    .filter((item) => !selectedTaskId || !item.item_id || item.item_id === selectedTaskId)
-    .slice(-40)
-    .reverse();
+  const noTaskYet = snapshot && connected && snapshot.daemon.read_status !== 'error'
+    && !teamEngaged && !needsAttention && ['', 'idle', 'waiting'].includes(missionStatus)
+    && !snapshot.backlog.length && !view.role_work.length && !view.timeline.length
+    && !view.mission.summary && !hasFullOutput && !delivery && !view.artifacts.length
+    && !hasCapabilities && !artifacts.some(artifact => artifact.exists)
+    && !(gitDiff?.available && (gitDiff.status || gitDiff.diff));
+  if (noTaskYet) {
+    const zh = locale === 'zh-CN';
+    const savedObjective = snapshot.session.objective?.trim();
+    return <section className="min-h-0 flex-1 overflow-y-auto bg-panel px-5 py-8 scroll-thin" aria-label={t('mission.control')} data-testid="project-ready">
+      <div className="mx-auto max-w-2xl">
+        <h1 className="text-lg font-semibold text-ink">{zh ? '还没有安排执行任务' : 'No work has been assigned yet'}</h1>
+        {savedObjective ? <div className="mt-3 text-sm leading-relaxed text-ink-dim"><MarkdownContent>{savedObjective}</MarkdownContent></div> : null}
+        <p className="mt-3 text-sm leading-relaxed text-ink-dim">{zh
+          ? '在下方告诉 Manager 你想完成什么，也可以直接询问这个项目的进展。'
+          : 'Tell the Manager what you want to accomplish below, or ask about this project’s progress.'}</p>
+        {onAsk ? <button type="button" className="mt-4 rounded-lg border border-line px-3 py-2 text-sm text-ink hover:border-blue" onClick={() => onAsk(zh
+          ? '这个项目目前做到了哪一步？有哪些结果，下一步是什么？'
+          : 'Where does this project stand? What results do we have, and what comes next?')}>
+          {zh ? '问 Manager 项目现状' : 'Ask the Manager about this project'}
+        </button> : null}
+      </div>
+    </section>;
+  }
   return (
-    <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label={t('mission.control')}>
-      <header className="border-b border-line/60 px-5 py-5">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">{t('mobile.mission')}</div>
+    <section className="mission-overview min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label={t('mission.control')}>
+      <div className="mx-auto w-full max-w-[960px]">
+      <header className="px-5 pb-6 pt-7 sm:px-8">
         <div
           role="heading"
           aria-level={1}
-          className="mt-1 line-clamp-4 max-w-4xl text-lg font-semibold leading-snug text-ink"
+          className="mt-1 line-clamp-4 max-w-4xl text-xl font-semibold leading-snug text-ink"
           title={objective}
         >
           <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{objective}</MarkdownContent>
@@ -268,23 +408,64 @@ export function MissionControl({
           {view.frontier.change ? (
             <div className="mission-status-line__subtitle">{view.frontier.change}</div>
           ) : null}
+          {stopReason ? (
+            <p className="mt-1.5 pl-[1.125rem] text-sm leading-relaxed text-ink-dim" title={reviewNote?.technical || undefined}>{stopReason}</p>
+          ) : null}
+          {nextStep ? (
+            <p className="mt-1 pl-[1.125rem] text-sm leading-relaxed text-ink-dim">{nextStep}</p>
+          ) : null}
         </div>
-        {view.mission.summary ? (
-          <div className="mt-3 rounded border border-ok/25 bg-ok/5 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ok">
-              {t('mission.summary')}
+        {missionRunning && currentWork?.detail ? <div className="mt-4 text-sm text-ink-dim">
+          <DetailDisclosure detail={plainDetail(currentWork.detail, locale).text} previewLength={EVENT_DETAIL_PREVIEW_LENGTH} textClassName="leading-6" />
+        </div> : null}
+        {summary || hasFullOutput ? (
+          <div className="mt-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-0 flex-1 text-sm font-semibold text-ink">
+                {acceptedReview ? (locale === 'zh-CN' ? '验收结果' : 'Review result') : delivery && deliveryRepeatsSummary
+                  ? t(delivery.kind === 'submission_certified' ? 'mission.deliveryCertified' : 'mission.taskCompleted')
+                  : t(stoppedShort ? 'mission.lastProgress' : 'mission.summary')}
+              </div>
+              {delivery && deliveryRepeatsSummary && onOpenDelivery ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenDelivery(delivery)}
+                  title={delivery.primary_target
+                    ? artifactByPath.get(delivery.primary_target.path)?.storage_path || delivery.primary_target.path
+                    : delivery.title}
+                  className="shrink-0 rounded-md bg-ink px-3 py-2 text-sm font-medium text-surface hover:opacity-80"
+                >
+                  {t(delivery.primary_target ? 'mission.openResult' : 'mission.viewTask')}
+                </button>
+              ) : null}
             </div>
-            <div className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-ink-dim">
+            <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-ink-dim" data-testid="mission-result-summary">
               <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>
-                {view.mission.summary}
+                {summary}
               </MarkdownContent>
             </div>
+            {acceptedReview && view.mission.summary && acceptedReview !== view.mission.summary ? <details className="mt-3 text-xs text-ink-faint">
+              <summary className="cursor-pointer">{locale === 'zh-CN' ? '执行者记录' : 'Execution note'}</summary>
+              <div className="mt-2 text-sm leading-6"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{view.mission.summary}</MarkdownContent></div>
+            </details> : null}
+            {hasFullOutput ? (
+              <details className="mt-2 border-t border-ok/20 pt-2 text-xs text-ink-dim">
+                <summary className="cursor-pointer font-medium text-ok hover:text-ink">
+                  {t('mission.showFullOutput')}
+                </summary>
+                <div className="mt-3 break-words text-sm leading-relaxed text-ink">
+                  <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>
+                    {finalOutput}
+                  </MarkdownContent>
+                </div>
+              </details>
+            ) : null}
           </div>
         ) : null}
-        {delivery ? (
+        {delivery && !deliveryRepeatsSummary ? (
           <div className="mt-3 flex flex-wrap items-center gap-3 rounded border border-ok/30 bg-ok/5 px-3 py-2">
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ok">
+              <div className="text-xs font-medium text-ok">
                 {t(delivery.kind === 'submission_certified' ? 'mission.deliveryCertified' : 'mission.taskCompleted')}
               </div>
               <div className="mt-1 truncate text-xs text-ink-dim" title={delivery.summary || delivery.title}>
@@ -298,7 +479,7 @@ export function MissionControl({
                 title={delivery.primary_target
                   ? artifactByPath.get(delivery.primary_target.path)?.storage_path || delivery.primary_target.path
                   : delivery.title}
-                className="shrink-0 rounded border border-ok/40 px-2 py-1 font-mono text-[10px] text-ok hover:border-ok"
+                className="shrink-0 rounded border border-ok/40 px-2 py-1 font-mono text-xs text-ok hover:border-ok"
               >
                 {t(delivery.primary_target ? 'mission.openResult' : 'mission.viewTask')}
               </button>
@@ -307,12 +488,28 @@ export function MissionControl({
         ) : null}
       </header>
 
+      {view.artifacts.length ? (
+        <section className="px-5 pb-6 sm:px-8" aria-label={locale === 'zh-CN' ? '成果文件' : 'Result files'}>
+          <h2 className="mb-3 text-sm font-semibold text-ink">{locale === 'zh-CN' ? '成果文件' : 'Result files'}</h2>
+          <div className="flex flex-wrap gap-2">
+            {view.artifacts.slice(-8).map((artifact) => {
+              const path = String(artifact.path || '');
+              const info = artifactByPath.get(path);
+              return <button key={String(artifact.id || path)} type="button"
+                disabled={!path || !onOpenArtifact || info?.exists === false}
+                onClick={() => path && onOpenArtifact?.(path)} title={info?.storage_path || path}
+                className="rounded-md border border-line px-3 py-2 text-sm text-ink-dim hover:border-ink-faint hover:text-ink disabled:opacity-50">
+                {String(artifact.title || path.split('/').at(-1) || t('research.artifact'))}
+              </button>;
+            })}
+          </div>
+        </section>
+      ) : null}
+
       {snapshot?.continuous?.done_at && (
-        <div className="mb-3 flex items-center gap-3 rounded-lg border-l-2 border-blue bg-blue/5 px-3 py-2">
-          <span className="text-base">↩</span>
+        <div className="mx-5 mb-6 flex items-center gap-3 border-t border-line/60 py-3 sm:mx-8">
           <span className="min-w-0 flex-1 truncate text-sm text-ink-dim">
             {t('mission.continuousDone')}
-            {snapshot.continuous.objective ? ` · ${snapshot.continuous.objective}` : ''}
           </span>
           <button
             type="button"
@@ -325,95 +522,67 @@ export function MissionControl({
         </div>
       )}
 
+      <details className="mission-detail-records mx-5 mb-8 border-t border-line sm:mx-8">
+        <summary className="cursor-pointer py-4 text-sm text-ink-dim">{locale === 'zh-CN' ? '执行过程与记录' : 'Execution details and records'}{view.dag.length ? ` · ${view.dag.length}` : ''}</summary>
       <Achievement view={view} />
 
-      <section className="border-b border-line/60 px-5 py-4">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">{t('mission.team')}</div>
+      {teamEngaged ? <section className="border-b border-line/60 px-5 py-4" aria-label={t('mission.team')}>
+        <div className="text-xs font-medium text-ink-faint">{t('mission.team')}</div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {ROLE_ORDER.map((name) => {
             const role = roleMap.get(name);
             const active = role?.status === 'active';
             const rejected = role?.status === 'rejected' || role?.status === 'error';
             const color = theme.role[name] ?? theme.inkFaint;
+            const roleState = role?.label ? plainStatus(role.label, locale, { kind: role.kind, language: view.language }) : '';
             return (
               <button
                 key={name}
                 type="button"
                 onClick={() => setSelectedRole(name)}
-                className={`min-w-0 border-l-2 pl-3 text-left ${selectedRole === name ? 'bg-white/[0.03]' : ''}`}
-                style={{ borderColor: active || role?.status === 'done' ? color : 'rgb(var(--line))' }}
+                aria-pressed={selectedRole === name}
+                className="min-w-0 rounded-r-md border-l-2 py-2 pl-3 text-left transition-colors hover:bg-bg/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
+                style={{
+                  borderColor: selectedRole === name || active || role?.status === 'done' ? color : 'rgb(var(--line))',
+                  backgroundColor: selectedRole === name ? `color-mix(in srgb, ${color} 8%, transparent)` : undefined,
+                }}
               >
                 <div className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${active ? 'animate-pulse motion-reduce:animate-none' : ''}`} style={{ background: rejected ? theme.error : active || role?.status === 'done' ? color : theme.inkFaint }} />
+                  <span data-role-dot={name} aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${active ? 'animate-pulse motion-reduce:animate-none' : ''}`} style={{ background: color }} />
                   <span className="text-xs font-semibold" style={{ color }}>{roleLabel(name, t)}</span>
                 </div>
-                <div className={`mt-1 truncate text-xs ${rejected ? 'text-err' : 'text-ink-dim'}`}>{role?.label || t('mission.waitingShort')}</div>
+                <div className={`mt-1 line-clamp-2 text-sm leading-5 ${rejected ? 'text-err' : 'text-ink-dim'}`} title={roleState || undefined}>{roleState || t('mission.waitingShort')}</div>
               </button>
             );
           })}
         </div>
-      </section>
+      </section> : null}
 
-      <section className="border-b border-line/60 px-5 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
-            {t('mission.roleWork')} · <span className="text-blue-sky">{roleLabel(selectedRole, t)}</span>
+      {teamEngaged ? <details className="border-b border-line/60 px-5 py-4" open={Boolean(snapshot?.daemon.alive)}>
+        <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 list-none">
+          <div className="text-xs font-medium text-ink-faint">
+            {t('mission.roleWork')} · <span style={{ color: theme.role[selectedRole] ?? theme.inkDim }}>{roleLabel(selectedRole, t)}</span>
           </div>
           {selectedTask ? (
-            <button type="button" onClick={() => setSelectedTaskId('')} className="text-[10px] text-ink-faint hover:text-ink">
+            <button type="button" onClick={() => setSelectedTaskId('')} className="text-xs text-ink-faint hover:text-ink">
               {t('mission.filteredBy', { task: selectedTask.title || selectedTask.objective || t('task.untitled') })}
             </button>
-          ) : <span className="text-[10px] text-ink-faint">{t('mission.allVisible')}</span>}
-        </div>
-        <div className="mt-3 grid gap-2 lg:grid-cols-2">
-          {selectedRoleWork.map((item) => {
-            const status = item.status.toLowerCase();
-            const active = status === 'active';
-            const done = status === 'done';
-            const failed = ['failed', 'error'].includes(status);
-            const badgeLabel = done
-              ? t('mission.done')
-              : statusLabel(active ? 'active' : failed ? 'failed' : item.status, t);
-            const isoTimestamp = new Date(item.ts * 1000).toISOString();
-            return (
-              <article key={item.id} className="min-w-0 rounded border border-line/60 bg-bg/35 px-3 py-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="truncate text-xs font-medium text-ink">{item.title}</span>
-                  <time
-                    dateTime={isoTimestamp}
-                    title={isoTimestamp}
-                    className="shrink-0 text-[11px] text-ink-dim"
-                  >
-                    {formatRelativeTime(item.ts, locale)}
-                  </time>
-                </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-ink-faint">
-                  <span className={`rounded-full border px-2 py-0.5 font-medium ${active ? 'border-blue/30 bg-blue/10 text-blue-sky' : done ? 'border-ok/30 bg-ok/10 text-ok' : failed ? 'border-err/30 bg-err/10 text-err' : 'border-line bg-white/[0.03] text-ink-dim'}`}>
-                    {badgeLabel}
-                  </span>
-                  {item.round_index != null ? <span>{t('mission.roundNumber', { count: item.round_index })}</span> : null}
-                </div>
-                {item.detail ? <RoleWorkDetail detail={item.detail} /> : null}
-              </article>
-            );
-          })}
-          {!selectedRoleWork.length ? (
-            <div className="col-span-full py-8 text-center text-xs text-ink-faint">
-              {t('mission.noRoleWork', { role: roleLabel(selectedRole, t) })}
-            </div>
-          ) : null}
-        </div>
-      </section>
+          ) : <span className="text-xs text-ink-faint">{t('mission.allVisible')}</span>}
+        </summary>
+        <div className="mt-3"><AgentActivity view={plainView} roles={snapshot?.roles} events={snapshot?.recent_events}
+          taskId={selectedTaskId || undefined} selectedRole={selectedRole} showTabs={false}
+          paused={snapshot ? !snapshot.daemon.alive : false} /></div>
+      </details> : null}
 
       <div className="grid min-h-[320px] border-b border-line/60 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
         <section className="min-w-0 border-b border-line/60 px-5 py-4 lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">{t('mission.researchDag')}</div>
-            {activeNode ? <span className="max-w-48 truncate text-[10px] text-blue-sky">{t('mission.active')} · {activeNode.title}</span> : null}
+            <div className="text-xs font-medium text-ink-faint">{t('mission.researchDag')}</div>
+            {activeNode ? <span className="max-w-48 truncate text-xs text-blue-sky">{t('mission.active')} · {activeNode.title}</span> : null}
           </div>
           <div className="mt-3 space-y-0">
             {dagView.hidden.length ? (
-              <div className="mb-3 rounded border border-line/60 bg-bg/50 px-3 py-2 text-[10px] text-ink-faint">
+              <div className="mb-3 rounded border border-line/60 bg-bg/50 px-3 py-2 text-xs text-ink-faint">
                 {t('mission.hiddenTasks', {
                   count: dagView.hidden.length,
                   failed: dagView.hidden.filter((node) => ['failed', 'blocked'].includes(node.status)).length,
@@ -435,8 +604,8 @@ export function MissionControl({
                   {index < dag.length - 1 ? <span className="absolute left-[5px] top-3 h-full w-px bg-line" /> : null}
                   <span className={`relative z-10 mt-1 h-3 w-3 shrink-0 rounded-full border-2 border-panel ${active ? 'animate-pulse bg-blue motion-reduce:animate-none' : done ? 'bg-ok' : failed ? 'bg-err' : 'bg-ink-faint'}`} />
                   <div className="min-w-0 flex-1">
-                    <div className={`truncate text-xs font-medium ${active ? 'text-blue-sky' : 'text-ink'}`}>{node.title || node.objective || t('task.untitled')}</div>
-                    <div className="mt-0.5 flex gap-2 text-[10px] text-ink-faint"><span>{statusLabel(node.status, t)}</span>{node.deps.length ? <span>{t('mission.startsAfter', { count: node.deps.length })}</span> : null}</div>
+                    <div className={`truncate text-sm font-medium ${active ? 'text-blue-sky' : 'text-ink'}`}>{node.title || node.objective || t('task.untitled')}</div>
+                    <div className="mt-0.5 flex gap-2 text-xs text-ink-faint"><span>{statusLabel(node.status, t)}</span>{node.deps.length ? <span>{t('mission.startsAfter', { count: node.deps.length })}</span> : null}</div>
                   </div>
                 </button>
               );
@@ -444,42 +613,42 @@ export function MissionControl({
           </div>
           {selectedTask ? (
             <div className="mt-3 rounded border border-blue/25 bg-blue/5 px-3 py-3">
-              <div className="text-xs font-semibold text-blue-sky">{selectedTask.title || selectedTask.objective || t('task.untitled')}</div>
-              {selectedTask.objective ? <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.objective}</p> : null}
+              <div className="text-sm font-semibold text-blue-sky">{selectedTask.title || selectedTask.objective || t('task.untitled')}</div>
+              {selectedTask.objective ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-dim">{selectedTask.objective}</p> : null}
               {selectedTask.plan_hypothesis ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.workingHypothesis')}</div>
-                  <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.plan_hypothesis}</p>
+                  <div className="text-xs text-ink-faint">{t('mission.workingHypothesis')}</div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-dim">{selectedTask.plan_hypothesis}</p>
                 </div>
               ) : null}
               {selectedTask.goal_contribution ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.goalContribution')}</div>
-                  <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.goal_contribution}</p>
+                  <div className="text-xs text-ink-faint">{t('mission.goalContribution')}</div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-dim">{selectedTask.goal_contribution}</p>
                 </div>
               ) : null}
               {selectedTask.expected_regressions ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.temporaryRegressions')}</div>
-                  <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.expected_regressions}</p>
+                  <div className="text-xs text-ink-faint">{t('mission.temporaryRegressions')}</div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-dim">{selectedTask.expected_regressions}</p>
                 </div>
               ) : null}
               {selectedTask.decision_rule ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.decisionRule')}</div>
-                  <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.decision_rule}</p>
+                  <div className="text-xs text-ink-faint">{t('mission.decisionRule')}</div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-dim">{selectedTask.decision_rule}</p>
                 </div>
               ) : null}
               {selectedTask.acceptance_check ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.acceptance')}</div>
-                  <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.acceptance_check}</p>
+                  <div className="text-xs text-ink-faint">{t('mission.acceptance')}</div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-dim">{selectedTask.acceptance_check}</p>
                 </div>
               ) : null}
               {selectedTask.non_goals?.length ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.nonGoals')}</div>
-                  <ul className="mt-1 list-disc space-y-1 pl-4 text-[11px] text-ink-dim">
+                  <div className="text-xs text-ink-faint">{t('mission.nonGoals')}</div>
+                  <ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-ink-dim">
                     {selectedTask.non_goals.map((goal) => <li key={goal}>{goal}</li>)}
                   </ul>
                 </div>
@@ -489,45 +658,48 @@ export function MissionControl({
         </section>
 
         <section className="min-w-0 px-5 py-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">{t('mission.capabilities')}</div>
-          {view.learned_skills.length ? (
+          <div className="text-xs font-medium text-ink-faint">{t('mission.capabilities')}</div>
+          {activeSkills.length ? (
             <div className="mt-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-ok">{t('mission.capabilitiesUnlocked')}</div>
+              <div className="text-xs text-ok">{t('mission.capabilitiesUnlocked')}</div>
               <div className="mt-2 space-y-2">
-                {view.learned_skills.filter((skill) => skill.status === 'active').slice(-8).map((skill) => (
+                {activeSkills.slice(-8).map((skill) => (
                   <details key={String(skill.id)} className="rounded border border-ok/35 bg-ok/5 px-2 py-1.5">
-                    <summary className="cursor-pointer text-[10px] text-ok">{String(skill.name || t('mission.learnedCapability'))}</summary>
-                    {skill.mission_title ? <div className="mt-2 text-[9px] text-ink-faint">{t('mission.learnedDuring', { mission: skill.mission_title })}</div> : null}
+                    <summary className="cursor-pointer text-xs text-ok">{String(skill.name || t('mission.learnedCapability'))}</summary>
+                    {skill.mission_title ? <div className="mt-2 text-xs text-ink-faint">{t('mission.learnedDuring', { mission: skill.mission_title })}</div> : null}
                     {skill.content ? (
-                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border-t border-ok/20 pt-2 font-mono text-[10px] leading-5 text-ink-dim scroll-thin">
-                        {skill.content}{skill.content_truncated ? '\n… content truncated' : ''}
+                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border-t border-ok/20 pt-2 font-mono text-xs leading-5 text-ink-dim scroll-thin">
+                        {skill.content}{skill.content_truncated ? `\n… ${t('mission.contentTruncated')}` : ''}
                       </pre>
-                    ) : <div className="mt-2 text-[10px] text-ink-faint">{t('mission.skillUnavailable')}</div>}
+                    ) : <div className="mt-2 text-xs text-ink-faint">{t('mission.skillUnavailable')}</div>}
                   </details>
                 ))}
               </div>
             </div>
           ) : null}
-          {view.learned_wiki_pages.some((page) => page.status !== 'retired') ? (
+          {retainedWikiPages.length ? (
             <div className="mt-4 border-t border-line/50 pt-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-blue-sky">{t('mission.knowledgeRetained')}</div>
+              <div className="text-xs text-blue-sky">{t('mission.knowledgeRetained')}</div>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {view.learned_wiki_pages.filter((page) => page.status !== 'retired').slice(-6).map((page) => <span key={String(page.id)} className="rounded border border-blue/35 bg-blue/5 px-2 py-1 text-[10px] text-blue-sky">{String(page.title || page.id)}</span>)}
+                {retainedWikiPages.slice(-6).map((page) => <span key={String(page.id)} className="rounded border border-blue/35 bg-blue/5 px-2 py-1 text-xs text-blue-sky">{String(page.title || page.id)}</span>)}
               </div>
             </div>
           ) : null}
-          {(view.storage.project_skill_dir || view.storage.global_skill_dir || view.storage.wiki_paths.length || view.storage.skill_history_compressed || view.storage.wiki_retired_compressed) ? (
+          {hasSavedKnowledge ? (
             <div className="mt-4 border-t border-line/50 pt-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.selfEvolution')}</div>
-              <div className="mt-2 text-[10px] text-ink-dim">{t('mission.knowledgeSaved')}</div>
+              <div className="text-xs text-ink-faint">{t('mission.selfEvolution')}</div>
+              <div className="mt-2 text-sm text-ink-dim">{t('mission.knowledgeSaved')}</div>
             </div>
+          ) : null}
+          {!hasCapabilities ? (
+            <div className="py-10 text-center text-xs text-ink-faint">{t('mission.noCapabilities')}</div>
           ) : null}
         </section>
       </div>
 
       <section className="px-5 py-4">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">{t('mission.replay')}</div>
+          <div className="text-xs font-medium text-ink-faint">{t('mission.replay')}</div>
           {view.timeline.length > 1 ? (
             <input
               type="range"
@@ -540,7 +712,7 @@ export function MissionControl({
             />
           ) : null}
           {replayRows.length ? (
-            <span className="text-[10px] text-ink-faint">
+            <span className="text-xs text-ink-faint">
               {t(replayRows.length === 1 ? 'mission.showingLatestEvent' : 'mission.showingLastEvents', { count: replayRows.length })}
             </span>
           ) : null}
@@ -549,63 +721,60 @@ export function MissionControl({
           {replayRows.map((item) => {
             const date = new Date(item.ts * 1000);
             const color = theme.role[item.role] ?? theme.inkFaint;
+            const title = isFailedMissionEvent(item) && !item.kind
+              ? t('mission.roleFailed', { role: missionRoleLabel(item.role, t) })
+              : plainStatus(item.title, locale, { kind: item.kind, language: view.language });
+            // The closing event repeats the mission summary shown above; the
+            // card is the one place for it.
+            const detail = plainDetail(
+              item.detail.trim() === view.mission.summary.trim() ? '' : item.detail,
+              locale,
+              { cause: item.cause, technical: item.technical, language: view.language },
+            );
             return (
-              <article key={item.id} className="rounded border border-line/60 bg-bg/35 px-3 py-2.5 text-xs">
+              <article key={item.id} className="rounded border border-line/60 bg-bg/35 px-3 py-2.5 text-sm">
                 <div className="flex items-start gap-2">
                   <span
                     aria-hidden="true"
                     className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.tone === 'error' ? 'bg-err' : item.tone === 'success' || item.tone === 'metric' || item.tone === 'skill' ? 'bg-ok' : 'bg-blue'}`}
                   />
                   <span
-                    className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium"
+                    className="shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium"
                     style={{ borderColor: color, color }}
                   >
                     {missionRoleLabel(item.role, t)}
                   </span>
-                  <span className="min-w-0 flex-1 break-words font-medium leading-5 text-ink">{item.title}</span>
+                  <span className="min-w-0 flex-1 break-words font-medium leading-5 text-ink">{title}</span>
                   <time
                     dateTime={date.toISOString()}
                     title={date.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
-                    className="shrink-0 font-mono text-[10px] text-ink-faint"
+                    className="shrink-0 font-mono text-xs text-ink-faint"
                   >
                     {formatMissionEventTime(item.ts, locale)}
                   </time>
                 </div>
-                {item.detail ? (
-                  <p className="mt-2 whitespace-pre-wrap break-words leading-5 text-ink-dim">{item.detail}</p>
+                {detail.text ? (
+                  <DetailDisclosure
+                    detail={detail.text}
+                    technical={detail.technical}
+                    previewLength={EVENT_DETAIL_PREVIEW_LENGTH}
+                    textClassName="leading-5 text-ink-dim"
+                  />
                 ) : null}
               </article>
             );
           })}
           {!view.timeline.length ? <div className="py-10 text-center text-xs text-ink-faint">{t('mission.waitingEvents')}</div> : null}
         </div>
-        {view.artifacts.length ? (
-          <div className="mt-5 flex flex-wrap gap-2 border-t border-line/50 pt-4">
-            {view.artifacts.slice(-8).map((artifact) => {
-              const path = String(artifact.path || '');
-              const info = artifactByPath.get(path);
-              return (
-                <button
-                  key={String(artifact.id || path)}
-                  type="button"
-                  disabled={!path || !onOpenArtifact || info?.exists === false}
-                  onClick={() => path && onOpenArtifact?.(path)}
-                  title={info?.storage_path || path}
-                  className="rounded border border-line px-2 py-1 font-mono text-[10px] text-blue-sky hover:border-blue-sky/50 disabled:text-ink-faint"
-                >
-                  {String(artifact.title || t('research.artifact'))}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
         {gitDiff?.available && (gitDiff.status || gitDiff.diff) ? (
-          <div className="mt-5 border-t border-line/50 pt-4 text-[10px] text-ink-faint">
+          <div className="mt-5 border-t border-line/50 pt-4 text-xs text-ink-faint">
             <span className="font-semibold uppercase tracking-[0.14em]">{t('mission.projectFilesChanged')}</span>
             <span> · {t('mission.reviewInIde')}</span>
           </div>
         ) : null}
       </section>
+      </details>
+      </div>
     </section>
   );
 }

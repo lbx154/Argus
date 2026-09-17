@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.verticals.research.venue_research import (
+from argus.verticals.research.venue_research import (
     _build_prompt,
     needs_venue_research,
 )

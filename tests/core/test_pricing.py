@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.core.pricing import (
+from argus.core.pricing import (
     model_price_for,
     quote_token_usage,
     usd_for_tokens,

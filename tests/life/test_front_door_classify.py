@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.life.router import (
+from argus.life.router import (
     ConfigIntent,
     build_front_door_prompt,
     classify_front_door,
 )
-from argus_skill.roles.prompts.planner import build_continuous_prompt
+from argus.roles.prompts.planner import build_continuous_prompt
+from argus.roles.prompts.voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
 
 
 class _FakeResult:
@@ -66,6 +67,12 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> Non
         ).split()
     )
 
+    # Cost budget for the highest-frequency model call: ~750 input tokens per
+    # classify call. The classifier reads one message and emits labels plus at
+    # most a line or two of prose, so it carries RESEARCHER_VOICE_BRIEF (one
+    # sentence) rather than the full RESEARCHER_VOICE paragraph; the REPLY
+    # definition itself bans protocol labels in prose. Trim the prompt before
+    # raising this.
     assert len(prompt) <= 3_000
     assert "live research" in prompt
     assert all(
@@ -81,15 +88,16 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> Non
     assert "VERTICAL:" not in prompt
     assert "TARGET:" not in prompt
     assert "explicit continue/resume after a pause is not a control token" in prompt
-    assert "resumed paused tasks with those effects are TEAM" in prompt
+    assert "resumes are TEAM" in prompt
     assert "WORKFLOW:" not in prompt
     assert "FAST_REPLY:" not in prompt
     assert "ACTIVE_MISSION: YES" in prompt
-    assert "Questions, requests for an explanation/status/capability check" in prompt
-    assert "Ambiguity defaults to no control" in prompt
+    assert "Questions, explanations, criticism and suggestions are NONE" in prompt
+    assert "Ambiguity is NONE" in prompt
+    assert all(mode in prompt for mode in ("PROJECTSTATUS", "ARGUSSTATUS", "HOSTSTATUS"))
     assert "FORBID only for an explicit command" in prompt
     assert "ALLOW only when explicitly re-enabled" in prompt
-    assert "conversation, status, bounded inspection" in prompt
+    assert "conversation, status, a quick inspection" in prompt
     assert "finite local task" in prompt
     assert "IMPLEMENT" in prompt
     assert "DEBUG" in prompt
@@ -103,11 +111,25 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> Non
         phrase in policy
         for phrase, policy in (
             ("casual unscoped work absent ongoing intent", prompt),
-            ("materially complete round", standing),
-            ("sentence stating its expected value and reason", standing),
+            ('completed rounds', standing),
+            ("Justify a new round's value in one sentence", standing),
             ("behavior reachable through a real entry point", standing),
         )
     )
+
+
+def test_front_door_prompt_carries_the_brief_voice_not_the_full_paragraph() -> None:
+    # The classifier's only person-facing prose is REPLY, STEER_DIRECTIVE, and
+    # NAME, so it carries the one-sentence writing standard; the full paragraph
+    # stays with the roles that write whole documents. The ban on protocol
+    # labels in prose lives in the REPLY definition and must survive the swap.
+    prompt = build_front_door_prompt("项目现在进展如何？", active_mission=False)
+
+    assert RESEARCHER_VOICE not in prompt
+    assert RESEARCHER_VOICE_BRIEF in prompt
+    assert "complete human-facing answer" in prompt
+    assert "never expose route, control, lifetime, or role-protocol labels" in prompt
+    assert "ACTIVE_MISSION: NO" in prompt
 
 
 def test_front_door_uses_process_decision_without_final_message() -> None:
@@ -139,6 +161,16 @@ def test_front_door_uses_process_decision_without_final_message() -> None:
 
     assert decision == (None, None, "simple")
     assert replies == ["hello"]
+
+
+def test_classifier_without_reply_consumer_requests_only_routing():
+    def run(prompt):
+        assert "REPLY must be NONE" in prompt
+        assert "REPLY: NONE" in prompt
+        assert "REPLY: the full answer" not in prompt
+        return _FakeResult("ROUTE=SELF\nSELF_MODE=REPLY\nREPLY=NONE\nGREETING=NONE")
+
+    assert classify_front_door("Explain how SFT data is constructed.", run_exec=run) == (None, None, "simple")
 
 
 def test_name_axis_reports_concise_title_without_changing_route_contract() -> None:
@@ -194,6 +226,9 @@ def test_front_door_defaults_self_turn_to_inspection() -> None:
         ("DEBUG", "debug"),
         ("REVIEW", "review"),
         ("SYNTHESIZE", "synthesize"),
+        ("PROJECTSTATUS", "project_status"),
+        ("ARGUSSTATUS", "argus_status"),
+        ("HOSTSTATUS", "host_status"),
     ],
 )
 def test_front_door_selects_local_worker_mode(token: str, mode: str) -> None:
@@ -638,7 +673,7 @@ def test_nonzero_exit_is_safe_default() -> None:
     assert failures == ["Forced restart after hard idle timeout (120s)"]
 
 
-def test_oversized_fast_reply_emits_delivery_diagnostic() -> None:
+def test_oversized_fast_reply_is_delivered() -> None:
     replies: list[str] = []
     diagnostics: list[str] = []
     oversized = "x" * 1601
@@ -654,13 +689,11 @@ def test_oversized_fast_reply_emits_delivery_diagnostic() -> None:
     )
 
     assert (intent, control, route) == (None, None, "simple")
-    assert replies == []
-    assert diagnostics == [
-        "reply exceeded 1600 chars; not delivered (length=1601)"
-    ]
+    assert replies == [oversized]
+    assert diagnostics == []
 
 
-def test_oversized_steer_directive_emits_delivery_diagnostic() -> None:
+def test_oversized_steer_directive_is_delivered() -> None:
     directives: list[str] = []
     diagnostics: list[str] = []
     oversized = "x" * 1601
@@ -678,10 +711,51 @@ def test_oversized_steer_directive_emits_delivery_diagnostic() -> None:
     )
 
     assert (intent, control, route) == (None, "steer", "simple")
-    assert directives == []
-    assert diagnostics == [
-        "steer_directive exceeded 1600 chars; not delivered (length=1601)"
-    ]
+    assert directives == [oversized]
+    assert diagnostics == []
+
+
+def test_sink_exception_records_routing_diagnostic() -> None:
+    diagnostics: list[str] = []
+
+    def _boom_reply(_reply: str) -> None:
+        raise RuntimeError("reply pipe closed")
+
+    def _boom_steer(_directive: str) -> None:
+        raise RuntimeError("steer pipe closed")
+
+    intent, control, route = classify_front_door(
+        "say hello",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
+            "SELF_MODE: REPLY\nREPLY: hello"
+        ),
+        reply_sink=_boom_reply,
+        failure_sink=diagnostics.append,
+    )
+    assert (intent, control, route) == (None, None, "simple")
+    assert any(
+        "reply sink failed" in entry and "reply pipe closed" in entry
+        for entry in diagnostics
+    )
+
+    diagnostics.clear()
+    intent, control, route = classify_front_door(
+        "change the active mission",
+        run_exec=_exec_sequence(
+            "CONFIG: NONE\nCONTROL: STEER\nROUTE: SELF\n"
+            "STEER_DIRECTIVE: focus on the docs",
+            "STEER",
+        ),
+        steering_sink=_boom_steer,
+        failure_sink=diagnostics.append,
+        active_mission=True,
+    )
+    assert (intent, control, route) == (None, "steer", "simple")
+    assert any(
+        "steering sink failed" in entry and "steer pipe closed" in entry
+        for entry in diagnostics
+    )
 
 
 def test_invalid_route_token_preserves_parsed_control() -> None:

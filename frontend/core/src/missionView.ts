@@ -1,5 +1,10 @@
 import { canonicalEventType, EVENT_TYPES } from './eventCatalog.js';
-import { eventKey, isReasoning, isStructuredAgentPayload } from './events.js';
+import {
+  eventKey,
+  isReasoning,
+  isStructuredAgentPayload,
+  visibleAgentText,
+} from './events.js';
 import {
   missionOutcomeDimensions,
   missionOutcomePresentation,
@@ -48,13 +53,15 @@ function copyView(view: MissionView): MissionView {
 
 export function emptyMissionView(): MissionView {
   return {
-    schema_version: 6,
+    schema_version: 7,
     bootstrapped: false,
+    language: '',
     mission: {
       id: '',
       title: '',
       objective: '',
       summary: '',
+      final_output: '',
       status: 'idle',
       started_at: null,
       completed_at: null,
@@ -218,14 +225,25 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     view.mission.id = S(event, 'item_id') || S(event, 'intent_id');
     view.mission.title = S(event, 'objective').slice(0, 240);
     view.mission.objective = S(event, 'objective');
+    view.mission.summary = '';
+    view.mission.final_output = '';
+    view.mission.started_at = null;
+    view.mission.completed_at = null;
     view.mission.status = 'grounding';
     setRole(view, 'manager', 'active', 'Grounding project', ts);
     addTimeline(view, event, 'manager', 'Project grounding started', S(event, 'objective'));
     addRoleWork(view, event, 'manager', 'grounding', 'Grounding project', S(event, 'objective'), 'active');
   } else if (type === EVENT_TYPES.LIFE_MANAGER_INTENT_COMPLETED) {
+    // Historical intent events may store model routing context in objective;
+    // execution_task is the Manager's committed handoff for the current goal.
+    const objective = S(event, 'execution_task') || S(event, 'objective');
     view.mission.id = S(event, 'item_id');
-    view.mission.title = S(event, 'objective').slice(0, 240);
-    view.mission.objective = S(event, 'objective');
+    view.mission.title = objective.slice(0, 240);
+    view.mission.objective = objective;
+    view.mission.summary = '';
+    view.mission.final_output = '';
+    view.mission.started_at = null;
+    view.mission.completed_at = null;
     view.mission.status = 'framed';
     view.routing.route = S(event, 'route') || view.routing.route || 'team';
     view.routing.vertical = S(event, 'vertical') || view.routing.vertical;
@@ -331,11 +349,12 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       title: S(event, 'title'),
       objective: S(event, 'objective'),
       summary: '',
+      final_output: '',
       status: 'working',
       started_at: ts,
       completed_at: null,
     };
-    setRole(view, 'reviewer', 'waiting', 'Awaiting engineer handoff', ts);
+    setRole(view, 'reviewer', 'waiting', 'Waiting for the Engineer to finish', ts);
     setRole(view, 'engineer', 'active', 'Starting mission', ts);
     addTimeline(view, event, 'engineer', 'Mission started', S(event, 'title'), 'info');
     addRoleWork(view, event, 'engineer', 'task', S(event, 'title') || 'Mission started', S(event, 'objective'), 'active');
@@ -349,6 +368,17 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     const kind = S(event, 'kind');
     const label = PROGRESS_LABELS[kind] ?? 'Working';
     setRole(view, role, 'active', label, ts);
+    if (
+      role === 'engineer'
+      && ['assistant_message', 'agent_message', 'message'].includes(kind)
+      && event.final_delivery === true
+      && view.mission.started_at != null
+      && view.mission.completed_at == null
+      && ts >= view.mission.started_at
+      && (!event.item_id || S(event, 'item_id') === view.mission.id)
+    ) {
+      view.mission.final_output = visibleAgentText(event.text);
+    }
     const detail = S(event, 'action_summary') || S(event, 'text');
     if (detail && !isReasoning(event) && !isStructuredAgentPayload(event)) {
       addRoleWork(view, event, role, kind || 'progress', label, detail, 'active');
@@ -357,17 +387,18 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       addTimeline(view, event, role, label, S(event, 'action_summary') || S(event, 'text'));
     }
   } else if (type === EVENT_TYPES.ROUND_MAIN_COMPLETED) {
-    setRole(view, 'engineer', 'done', 'Engineer handoff ready', ts);
+    setRole(view, 'engineer', 'done', 'Work ready for review', ts);
     addRoleWork(
       view,
       event,
       'engineer',
       'handoff',
-      'Engineer handoff ready',
+      'Work ready for review',
       S(event, 'text') || S(event, 'summary'),
       'done',
     );
   } else if (type === EVENT_TYPES.ROUND_REVIEW_STARTED) {
+    view.review = { status: '', reason: '', rejected_attempts: view.review.rejected_attempts };
     setRole(view, 'reviewer', 'active', 'Reviewing benchmark evidence', ts);
     addRoleWork(view, event, 'reviewer', 'review', 'Review started', '', 'active');
   } else if (type === EVENT_TYPES.ROUND_REVIEW_DEFERRED) {
@@ -376,7 +407,8 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     setRole(view, 'reviewer', 'waiting', 'Review deferred for one round', ts);
     addTimeline(view, event, 'engineer', 'Continued before review', nextStep, 'info');
   } else if (type === EVENT_TYPES.ROUND_REVIEW_COMPLETED) {
-    const status = S(event, 'status');
+    const reviewSkipped = event.review_skipped === true;
+    const status = reviewSkipped ? 'skipped' : S(event, 'status');
     const reason = S(event, 'reason');
     view.review = {
       status,
@@ -391,15 +423,16 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
         updated_at: ts,
       };
     }
-    setRole(view, 'reviewer', status === 'done' ? 'done' : 'rejected', status === 'done' ? 'Accepted evidence' : 'Requested another attempt', ts);
-    addTimeline(view, event, 'reviewer', status === 'done' ? 'Evidence accepted' : 'Attempt rejected', reason, status === 'done' ? 'success' : 'error');
+    const reviewTitle = reviewSkipped ? 'No review this round' : status === 'done' ? 'Evidence accepted' : 'Attempt rejected';
+    setRole(view, 'reviewer', reviewSkipped ? 'waiting' : status === 'done' ? 'done' : 'rejected', reviewSkipped ? reviewTitle : status === 'done' ? 'Accepted evidence' : 'Requested another attempt', ts);
+    addTimeline(view, event, 'reviewer', reviewTitle, reason, reviewSkipped ? 'info' : status === 'done' ? 'success' : 'error');
     const nextAction = S(event, 'next_action');
     addRoleWork(
       view,
       event,
       'reviewer',
-      'verdict',
-      status === 'done' ? 'Evidence accepted' : 'Attempt rejected',
+      reviewSkipped ? 'review' : 'verdict',
+      reviewTitle,
       nextAction ? `${reason}\n\nNext action: ${nextAction}` : reason,
       status,
     );
@@ -516,10 +549,18 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     const presentation = type === EVENT_TYPES.LIFE_MISSION_FAILED
       ? missionOutcomePresentation({ ...event, outcome_class: 'failed', status: S(event, 'status') || 'failed', success: false })
       : missionOutcomePresentation(event);
+    const finalOutput = 'final_output' in event
+      ? S(event, 'final_output')
+      : S(event, 'item_id') === view.mission.id
+        && view.mission.started_at != null
+        && (view.mission.completed_at == null || view.mission.completed_at === ts)
+        ? view.mission.final_output || ''
+        : '';
     view.mission.id = S(event, 'item_id') || view.mission.id;
     view.mission.title = S(event, 'title') || view.mission.title;
     view.mission.objective = S(event, 'objective') || view.mission.objective;
     view.mission.summary = S(event, 'summary');
+    view.mission.final_output = finalOutput;
     view.mission.status = presentation.missionStatus;
     view.mission.completed_at = ts;
     const delivery = event.delivery;
@@ -593,6 +634,16 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
     else if (!view.mission.title) view.mission.title = objective.split('\n')[0].slice(0, 240);
   }
   if (active) {
+    if (
+      active.id !== view.mission.id
+      || (active.started_ts != null && active.started_ts !== view.mission.started_at)
+      || view.mission.completed_at != null
+    ) {
+      view.mission.summary = '';
+      view.mission.final_output = '';
+      view.mission.started_at = active.started_ts ?? null;
+      view.mission.completed_at = null;
+    }
     view.mission.id = active.id;
     view.mission.status = 'working';
     view.mission.started_at = view.mission.started_at ?? active.started_ts ?? null;
@@ -718,12 +769,33 @@ export function projectMissionView(
   // are authoritative and must not be overwritten by an older backlog/role
   // projection that happened to arrive in the same refresh.
   const missionContext = mergeSnapshot(view, snapshot, artifacts);
-  events
+  const orderedEvents = [...events]
+    .sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0));
+  orderedEvents
     .filter((event) => event.ts == null || Number(event.ts) > seedTs)
-    .sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0))
     .forEach((event) => reduceMissionViewEvent(view, event));
+  if (!view.mission.final_output) {
+    view.mission.final_output = recoverMissionFinalOutput(orderedEvents, view.mission);
+  }
   finalizeSnapshot(view, snapshot, artifacts, missionContext);
   return view;
+}
+
+/** Recover full handoffs produced before ``life.mission.completed`` gained a
+ * dedicated ``final_output`` field.  The compact snapshot can be newer than
+ * the REST event window, so inspect that window explicitly instead of relying
+ * on the incremental reducer to replay older rows. */
+function recoverMissionFinalOutput(events: EventMsg[], mission: MissionView['mission']): string {
+  if (!mission.id || ['working', 'queued', 'grounding', 'framed'].includes(mission.status)) return '';
+  const recovered = events.reduce(reduceMissionViewEvent, emptyMissionView()).mission;
+  if (
+    recovered.id !== mission.id
+    || recovered.started_at == null
+    || recovered.completed_at == null
+    || (mission.started_at != null && recovered.started_at !== mission.started_at)
+    || (mission.completed_at != null && recovered.completed_at !== mission.completed_at)
+  ) return '';
+  return recovered.final_output || '';
 }
 
 /**

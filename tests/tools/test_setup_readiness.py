@@ -7,15 +7,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps.cli import _core as cli_core
-from argus_skill.apps.cli import main as cli_main
-from argus_skill.core.backend_readiness import (
+from argus.apps.cli import _core as cli_core
+from argus.apps.cli import main as cli_main
+from argus.core.backend_readiness import (
     SETUP_EXIT_USAGE,
     BackendProfile,
     BackendReadiness,
     ReadinessProblem,
 )
-from argus_skill.tools import setup
+from argus.tools import setup
 
 
 def test_setup_banner_highlights_agent_assisted_installation(capsys) -> None:
@@ -24,7 +24,7 @@ def test_setup_banner_highlights_agent_assisted_installation(capsys) -> None:
     output = capsys.readouterr().out
     assert "★ Recommended / 推荐" in output
     assert "current Code Agent" in output
-    assert "https://github.com/lbx154/Argus/blob/main/docs/agent-install.md" in output
+    assert "https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md" in output
 
 
 def test_setup_banner_uses_bold_yellow_highlight_on_tty(monkeypatch) -> None:
@@ -58,7 +58,7 @@ def test_interactive_setup_requires_choice_when_multiple_backends_exist(
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs",
+        "argus.core.knob_store.read_persisted_knobs",
         lambda: {},
     )
     monkeypatch.setattr("builtins.input", lambda _prompt="": "")
@@ -103,7 +103,7 @@ def test_noninteractive_setup_validates_then_persists_without_global_mutation(
         lambda _report, **_kwargs: calls.append("persist") or True,
     )
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        "argus.agent_cli.runner_backend.resolve_runner_bin",
         lambda name, _configured=None: "/usr/bin/copilot" if name == "copilot" else None,
     )
 
@@ -130,7 +130,7 @@ def test_missing_pi_is_installed_automatically(monkeypatch) -> None:
         return True
 
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        "argus.agent_cli.runner_backend.resolve_runner_bin",
         resolve,
     )
     monkeypatch.setattr(setup, "_install_pi_cli", install)
@@ -142,7 +142,7 @@ def test_setup_uses_explicit_custom_runner_path(monkeypatch) -> None:
     custom = "/opt/agents/claude-custom"
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BIN", custom)
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs",
+        "argus.core.knob_store.read_persisted_knobs",
         lambda: {
             "ARGUS_SKILL_RUNNER_BACKEND": "codex",
             "ARGUS_SKILL_RUNNER_BIN": "/opt/agents/codex-old",
@@ -155,7 +155,7 @@ def test_setup_uses_explicit_custom_runner_path(monkeypatch) -> None:
         return configured
 
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        "argus.agent_cli.runner_backend.resolve_runner_bin",
         resolve,
     )
 
@@ -232,7 +232,7 @@ def test_noninteractive_api_url_configures_pi_without_backend_flag(
 
 def test_setup_smoke_uses_real_agent_turn(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        "argus.agent_cli.runner_backend.resolve_runner_bin",
         lambda backend, _configured=None: (
             "/usr/bin/claude" if backend == "claude" else None
         ),
@@ -244,7 +244,7 @@ def test_setup_smoke_uses_real_agent_turn(monkeypatch, capsys) -> None:
         return SimpleNamespace(ok=True, output="ARGUS_SETUP_OK", error="")
 
     monkeypatch.setattr(
-        "argus_skill.core.agent_probe.run_read_only_agent_prompt",
+        "argus.core.agent_probe.run_read_only_agent_prompt",
         probe,
     )
 
@@ -267,13 +267,13 @@ def test_setup_smoke_uses_effective_backend_model(monkeypatch) -> None:
 
 def test_setup_smoke_failure_is_actionable(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        "argus.agent_cli.runner_backend.resolve_runner_bin",
         lambda backend, _configured=None: (
             "/usr/bin/claude" if backend == "claude" else None
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.core.agent_probe.run_read_only_agent_prompt",
+        "argus.core.agent_probe.run_read_only_agent_prompt",
         lambda **_kwargs: SimpleNamespace(
             ok=False,
             output="",
@@ -299,6 +299,54 @@ def test_pi_provider_rejects_non_http_url(tmp_path: Path, monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="absolute http"):
         setup._save_pi_provider("api.example.com/v1", "secret", "model-x")
+
+
+@pytest.mark.parametrize("directory", ["default", "absolute", "home-relative"])
+def test_pi_provider_uses_the_selected_agent_directory(
+    tmp_path: Path, monkeypatch, directory: str,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    if directory == "default":
+        monkeypatch.delenv("PI_CODING_AGENT_DIR", raising=False)
+        expected = tmp_path / ".pi" / "agent" / "models.json"
+    else:
+        configured = str(tmp_path / "custom-pi") if directory == "absolute" else "~/custom-pi"
+        monkeypatch.setenv("PI_CODING_AGENT_DIR", configured)
+        expected = tmp_path / "custom-pi" / "models.json"
+    expected.parent.mkdir(parents=True)
+    expected.write_text(
+        json.dumps({"providers": {"existing": {"baseUrl": "https://existing.example"}}}),
+        encoding="utf-8",
+    )
+
+    path = setup._save_pi_provider("https://api.example.com/v1", "test-key", "model-x")
+
+    assert path == expected
+    providers = json.loads(path.read_text(encoding="utf-8"))["providers"]
+    assert providers["argus"]["models"] == [{"id": "model-x"}]
+    assert providers["existing"] == {"baseUrl": "https://existing.example"}
+    if directory != "default":
+        assert not (tmp_path / ".pi" / "agent" / "models.json").exists()
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"api_key": "test-key"}, {"api_model": "model-x"}, {"api_url": " "}],
+)
+def test_noninteractive_pi_api_options_require_a_url(
+    monkeypatch, capsys, options: dict[str, str],
+) -> None:
+    monkeypatch.setattr(setup, "_configure_runner_backend", lambda backend: backend)
+    monkeypatch.setattr(
+        setup,
+        "check_backend_readiness",
+        lambda *_args, **_kwargs: pytest.fail("Invalid API input must not probe a backend"),
+    )
+
+    assert setup.run_setup(backend="pi", non_interactive=True, **options) == SETUP_EXIT_USAGE
+    assert "--api-url is required" in capsys.readouterr().err
 
 
 def test_cli_forwards_noninteractive_setup_contract(monkeypatch) -> None:
@@ -349,11 +397,11 @@ def test_daemon_readiness_failure_prevents_spawn(monkeypatch, capsys) -> None:
         ],
     )
     monkeypatch.setattr(
-        "argus_skill.core.backend_readiness.check_backend_readiness",
+        "argus.core.backend_readiness.check_backend_readiness",
         lambda *_args, **_kwargs: report,
     )
     monkeypatch.setattr(
-        "argus_skill.daemon.life_worker.run_foreground",
+        "argus.daemon.life_worker.run_foreground",
         lambda _cfg: (_ for _ in ()).throw(
             AssertionError("worker must not spawn before readiness")
         ),

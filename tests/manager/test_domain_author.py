@@ -3,35 +3,37 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
-from argus_skill.manager.domain_author import (
+import pytest
+
+from argus.domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
+from argus.manager.domain_author import (
     DomainProposal,
     build_vertical_decision_prompt,
     parse_domain_proposal,
     parse_fast_vertical_decision,
     parse_vertical_decision,
 )
-from argus_skill.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
+from argus.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
+from argus.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
 
 
-def test_parse_happy_path():
+def test_parse_domain_proposal_uses_runtime_owned_stages():
     raw = json.dumps({
         "name": "robotics_sim",
-        "stages": ["scope", "simulate", "measure", "report"],
         "rationale": "novel control domain",
         "confidence": 0.8,
     })
     p = parse_domain_proposal(raw, known_verticals=VERTICALS)
     assert isinstance(p, DomainProposal)
     assert p.name == "robotics_sim"
-    assert p.stages == ["scope", "simulate", "measure", "report"]
+    assert p.stages == list(CANDIDATE_DOMAIN_STAGES)
 
 
-def test_parse_accepts_an_already_structured_manager_payload():
+def test_parse_ignores_legacy_stages_in_structured_manager_payload():
     proposal = parse_domain_proposal(
         {
             "name": "robotics_sim",
-            "stages": ["scope", "simulate"],
+            "stages": ["scope", "simulate", "review"],
             "rationale": "structured process decision",
         },
         known_verticals=VERTICALS,
@@ -39,14 +41,13 @@ def test_parse_accepts_an_already_structured_manager_payload():
 
     assert proposal is not None
     assert proposal.name == "robotics_sim"
-    assert proposal.stages == ["scope", "simulate"]
+    assert proposal.stages == list(CANDIDATE_DOMAIN_STAGES)
 
 
-def test_parse_sluggifies_name_and_stages():
-    raw = json.dumps({"name": "Robotics Sim!", "stages": ["Scope Phase", "Sim-Run"]})
+def test_parse_sluggifies_name():
+    raw = json.dumps({"name": "Robotics Sim!"})
     p = parse_domain_proposal(raw, known_verticals=VERTICALS)
     assert p.name == "robotics_sim"
-    assert p.stages == ["scope_phase", "sim_run"]
 
 
 def test_parse_fail_closed_on_bad_json():
@@ -54,16 +55,9 @@ def test_parse_fail_closed_on_bad_json():
     assert parse_domain_proposal("{}", known_verticals=VERTICALS) is None
 
 
-def test_parse_rejects_too_few_or_too_many_stages():
-    assert parse_domain_proposal(json.dumps({"name": "x", "stages": ["only_one"]}),
-                                 known_verticals=VERTICALS) is None
-    big = {"name": "x", "stages": [f"s{i}" for i in range(20)]}
-    assert parse_domain_proposal(json.dumps(big), known_verticals=VERTICALS) is None
-
-
 def test_parse_dedupes_name_against_known_and_existing():
     # Collision with a preset vertical → suffixed, not rejected.
-    raw = json.dumps({"name": "research", "stages": ["a", "b"]})
+    raw = json.dumps({"name": "research"})
     p = parse_domain_proposal(raw, known_verticals=VERTICALS, existing_data_domains=["research_2"])
     assert p is not None and p.name not in ("research", "research_2")
 
@@ -93,7 +87,7 @@ def test_vertical_prompts_do_not_treat_one_paper_reading_as_research_pipeline():
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "This is a read-only routing decision" in grounded
+    assert 'Decide by reading only' in grounded
 
 
 def test_serious_survey_is_staged_without_implied_publication() -> None:
@@ -104,10 +98,65 @@ def test_serious_survey_is_staged_without_implied_publication() -> None:
     )
 
     assert "papers and surveys are `research`" in prompt
-    assert "publishable only when publication-level original work is requested" in prompt
-    assert "always add `research_target_level`" in prompt
+    assert 'publishable for requested original work at publication level' in prompt
+    assert 'add `research_target_level`' in prompt
     assert "`research_direction_mode`" in prompt
     assert "Never infer a venue" in prompt
+
+
+def test_research_routing_distinguishes_idea_only_from_paper_production() -> None:
+    prompt = build_vertical_decision_prompt(
+        "Use Argus to propose one strong idea.",
+        verticals_with_purpose=VERTICAL_PURPOSES,
+        research_target_verticals=("research",),
+    )
+
+    assert 'supplied idea or hypothesis requested as a full paper' in prompt
+    assert "choose staged research with direction locked" in prompt
+    assert 'For proposing, comparing, or reviewing ideas' in prompt
+    assert "choose direct research" in prompt
+    assert 'never expands an idea-only request into a paper' in prompt
+    assert 'Research figures, plots, diagrams, Figure 1' in prompt
+    assert 'manuscript revisions are `research`' in prompt
+    assert 'produce that part without adding a manuscript, experiments, or literature review' in prompt
+    assert "START_STAGE=<stage name or empty>" in prompt
+    assert '`paper` for figures, drafts, sections, or revisions' in prompt
+
+
+@pytest.mark.parametrize("parse", [parse_fast_vertical_decision, parse_vertical_decision])
+@pytest.mark.parametrize(
+    ("vertical", "workflow_mode", "start_stage", "expected"),
+    [
+        ("research", "direct", "paper", "paper"),
+        ("research", "staged", "paper", ""),
+        ("research", "direct", "  DrAfT  ", "paper"),
+        ("research", "direct", "not_a_stage", ""),
+        ("research", "direct", "", ""),
+        ("research", "direct", None, ""),
+        ("research", "direct", "idea", "idea"),
+        ("research", "direct", "experiment", "experiment"),
+        ("software", "direct", "paper", ""),
+    ],
+)
+def test_vertical_parsers_accept_start_stage_only_in_direct_vertical(
+    parse, vertical, workflow_mode, start_stage, expected,
+) -> None:
+    lines = [
+        "CHOICE=existing",
+        f"VERTICAL={vertical}",
+        f"WORKFLOW_MODE={workflow_mode}",
+        "CONFIDENCE=0.99",
+        "RESEARCH_TARGET_LEVEL=exploratory",
+        "RESEARCH_DIRECTION_MODE=locked",
+        "EXECUTION_TASK=Produce only the requested deliverable.",
+    ]
+    if start_stage is not None:
+        lines.append(f"  start_Stage = {start_stage}  ")
+
+    decision = parse("\n".join(lines), known_verticals=VERTICALS)
+
+    assert decision is not None
+    assert decision.start_stage == expected
 
 
 def test_vertical_prompt_composes_chemistry_with_research() -> None:
@@ -128,10 +177,10 @@ def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> N
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "capability VERTICAL" in prompt
+    assert 'Choose VERTICAL' in prompt
     assert "WORKFLOW_MODE=direct" in prompt
     assert "REQUIRE_INDEPENDENT_REVIEW=true" in prompt
-    assert "independent review on by default" in prompt
+    assert 'Independent review defaults on' in prompt
     assert "software" in prompt
 
 
@@ -159,8 +208,9 @@ def test_new_domain_starts_with_real_work_not_process_ceremony() -> None:
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "not a one-off task list" in prompt
-    assert "action stages" in prompt
+    assert 'Host manages candidate development' in prompt
+    assert "do not propose or revise stage names" in prompt
+    assert "STAGES" not in prompt
 
 
 def test_vertical_prompt_preserves_explicit_operator_actions() -> None:
@@ -169,8 +219,8 @@ def test_vertical_prompt_preserves_explicit_operator_actions() -> None:
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "Preserve stated paths, commands, order, and stopping conditions" in prompt
-    assert "requested action, not incidental words" in prompt
+    assert 'Preserve paths, commands, order, and stopping conditions' in prompt
+    assert 'requested action, not words' in prompt
     assert "Repository work is usually `software`" in prompt
 
 
@@ -181,7 +231,7 @@ def test_vertical_prompts_do_not_use_software_as_performance_catch_all() -> None
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "Use `new` only when none fits" in grounded
+    assert 'Use `new` only if none fits' in grounded
     assert "Pick the closest existing capability" in grounded
     assert "inference/serving" in VERTICAL_PURPOSES["kernel_engineering"]
     assert "inference serving" in grounded
@@ -438,7 +488,7 @@ def test_vertical_parser_preserves_operator_locked_research_hypothesis() -> None
     assert decision.research_direction_mode == "locked"
 
 
-def test_vertical_parser_does_not_trust_fresh_model_locked_claim() -> None:
+def test_vertical_parser_preserves_fresh_locked_paper_direction() -> None:
     decision = parse_vertical_decision(
         json.dumps({
             "choice": "existing",
@@ -453,7 +503,7 @@ def test_vertical_parser_does_not_trust_fresh_model_locked_claim() -> None:
     )
 
     assert decision is not None
-    assert decision.research_direction_mode == "broad"
+    assert decision.research_direction_mode == "locked"
 
 
 def test_vertical_parser_rejects_downgrading_persisted_broad_research() -> None:
@@ -472,6 +522,50 @@ def test_vertical_parser_rejects_downgrading_persisted_broad_research() -> None:
         persisted_workflow_mode="staged",
         persisted_research_target_level="publishable",
         persisted_research_direction_mode="broad",
+    )
+
+    assert decision is None
+
+
+def test_new_operator_intent_can_lock_a_prior_broad_direction() -> None:
+    decision = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "name": "research",
+            "workflow_mode": "staged",
+            "research_target_level": "publishable",
+            "research_direction_mode": "locked",
+            "execution_task": "write a paper from the operator's supplied idea",
+        }),
+        known_verticals=VERTICALS,
+        research_target_verticals=("research",),
+        persisted_vertical="research",
+        persisted_workflow_mode="staged",
+        persisted_research_target_level="publishable",
+        persisted_research_direction_mode="broad",
+        allow_persisted_change=True,
+    )
+
+    assert decision is not None
+    assert decision.research_direction_mode == "locked"
+
+
+def test_supplemental_task_cannot_broaden_a_locked_direction() -> None:
+    decision = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "name": "research",
+            "workflow_mode": "staged",
+            "research_target_level": "publishable",
+            "research_direction_mode": "broad",
+            "execution_task": "continue the supplied paper idea",
+        }),
+        known_verticals=VERTICALS,
+        research_target_verticals=("research",),
+        persisted_vertical="research",
+        persisted_workflow_mode="staged",
+        persisted_research_target_level="publishable",
+        persisted_research_direction_mode="locked",
     )
 
     assert decision is None
@@ -515,7 +609,7 @@ def test_fast_vertical_parser_rejects_explicit_workflow_conflict_with_persisted(
     assert route is None
 
 
-def test_vertical_parser_accepts_in_place_data_domain_adaptation() -> None:
+def test_vertical_parser_ignores_existing_domain_stage_adaptation() -> None:
     decision = parse_vertical_decision(
         json.dumps({
             "choice": "existing",
@@ -539,14 +633,7 @@ def test_vertical_parser_accepts_in_place_data_domain_adaptation() -> None:
     assert decision is not None
     assert decision.choice == "existing"
     assert decision.vertical == "regulated_localization"
-    assert decision.adapted_stages == (
-        "terminology_lock",
-        "translation",
-        "regulatory_review",
-        "layout_qa",
-        "linguistic_qa",
-        "release",
-    )
+    assert decision.adapted_stages == ()
 
 
 def test_fast_vertical_parser_sends_new_or_uncertain_work_to_grounding() -> None:
@@ -569,11 +656,11 @@ def test_grounded_vertical_prompt_preserves_manager_agency_and_planner_boundary(
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "inspect only when the fit is unclear" in prompt
+    assert 'inspect if the fit is unclear' in prompt
     assert "no task work or Live View" in prompt
     assert "presentations" not in prompt
-    assert "Omit `execution_task` for a standalone existing route" in prompt
-    assert "include it only when bounded context must be rewritten" in prompt
+    assert 'omit it for a standalone existing route' in prompt
+    assert "Include `execution_task` only to make the instructions standalone" in prompt
 
 
 def test_read_only_repository_audit_avoids_maintenance_meta_review() -> None:
@@ -626,7 +713,7 @@ def test_a_string_of_earlier_stages_is_not_rendered_letter_by_letter() -> None:
     """
     from types import SimpleNamespace
 
-    from argus_skill.roles.prompts.manager import build_stage_decision_prompt
+    from argus.roles.prompts.manager import build_stage_decision_prompt
 
     review = SimpleNamespace(
         status="done", reason="r", next_action="", operator_question="", checklist=[]

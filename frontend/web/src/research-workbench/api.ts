@@ -1,5 +1,6 @@
 import type {
   ArtifactInfo,
+  CounterexampleDashboard,
   EventMsg,
   GitDiffView,
   JournalEntry,
@@ -10,7 +11,8 @@ import type {
   StatusView,
   Turn,
 } from './types';
-import { authHeaders, authToken, compatibleApiMeta, requestWithTimeout } from '../api';
+import { authHeaders, authToken, compatibleApiMeta, requestWithTimeout, requireDaemonCommand } from '../api';
+import type { TimelineEntry, TimelineInput, TimelineReport } from './timeline/types';
 
 const LOCAL_READ_TIMEOUT_MS = 12_000;
 
@@ -98,6 +100,15 @@ function dispatchFrame(frame: Record<string, unknown>, handlers: MessageStreamHa
 }
 
 export const api = {
+  timelineExample: () => request<TimelineInput>('/api/research/timeline/example'),
+  timelineEstimate: (input: TimelineInput, signal?: AbortSignal) => request<TimelineReport>(
+    '/api/research/timeline/estimate', { method: 'POST', body: JSON.stringify(input), signal },
+  ),
+  timelineLatest: (sid: string) => request<{ latest: TimelineEntry | null }>(projectPath(sid, '/research/timeline')),
+  timelineSave: (sid: string, input: TimelineInput, expectedVersion: number, reason: string) => request<TimelineEntry>(
+    projectPath(sid, '/research/timeline'),
+    { method: 'POST', body: JSON.stringify({ input, expected_version: expectedVersion, reason }) },
+  ),
   projects: (signal?: AbortSignal) => request<ProjectIndex>('/api/projects', { signal }),
 
   snapshot: (sid: string, signal?: AbortSignal) =>
@@ -124,6 +135,9 @@ export const api = {
   artifacts: (sid: string, signal?: AbortSignal) =>
     request<{ artifacts: ArtifactInfo[] }>(projectPath(sid, '/artifacts'), { signal })
       .then((value) => value.artifacts),
+
+  counterexamples: (sid: string, signal?: AbortSignal) =>
+    request<CounterexampleDashboard>(projectPath(sid, '/counterexamples'), { signal }),
 
   artifact: (sid: string, path: string, signal?: AbortSignal) =>
     request<ArtifactInfo>(projectPath(sid, `/artifact?${new URLSearchParams({ path })}`), { signal }),
@@ -197,7 +211,7 @@ export const api = {
     request<Record<string, unknown>>(projectPath(sid, '/daemon/start'), {
       method: 'POST',
       body: JSON.stringify({ command_id: commandId(), expected_revision: expectedRevision }),
-    }),
+    }).then(requireDaemonCommand),
 
   stopDaemon: (sid: string, drain: boolean, expectedRevision?: number) =>
     request<Record<string, unknown>>(projectPath(sid, '/daemon/stop'), {
@@ -207,7 +221,7 @@ export const api = {
         command_id: commandId(),
         expected_revision: expectedRevision,
       }),
-    }),
+    }).then(requireDaemonCommand),
 
   async messageStream(
     sid: string,

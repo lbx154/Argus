@@ -1,42 +1,70 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
-import type { ArtifactInfo, EventMsg } from '../api';
-import type { DeliveryReceipt } from '../../../core/src/types';
-import { renderEvent, toneColor, isReasoning, eventKey, mergeFragment, type Rendered } from '../lib/eventRender';
-import { eventMatchesView, fragmentMode, type EventViewFilter } from '../../../core/src/events';
-import { theme } from '../lib/theme';
-import { clockOf } from '../lib/format';
-import { PanelHeader, EmptyHint } from './primitives';
+import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
+import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
+import { redactSecrets, type RenderedLine } from '../../../core/src/eventRender';
+import { isReasoning, type EventViewFilter } from '../../../core/src/events';
+import {
+  foldFeedRows,
+  groupSummary,
+  renderFeedRows,
+  rowPreview,
+  type FeedGroup,
+  type FeedRow,
+  type FeedRowInput,
+  type StepStatus,
+} from '../lib/feedSteps';
+import { theme, toneColor } from '../lib/theme';
+import { clockOf, dateOf } from '../lib/format';
+import { PanelHeader, EmptyHint, RawDisclosure } from './primitives';
 import { MarkdownContent } from './MarkdownContent';
 import { ArgusMark } from './Wordmark';
 import { useI18n } from '../i18n';
 import { CopyButton } from './CopyButton';
 import { roleLabel } from '../lib/enumLabels';
+import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
+import { TurnSteps } from './TurnSteps';
+import { turnStepsFrom } from '../../../core/src/phaseTrail';
+import { plainDetail, plainTaskReport } from '../lib/plainStatus';
+import { activeProviderRequest, currentWorkStatus, eventTaskId } from '../lib/workStatus';
+import { readableRecord } from '../map/submap';
+import { WorkStatusBar } from './WorkStatusBar';
+export { activeProviderRequest } from '../lib/workStatus';
+import { splitDraft } from '../map/presentation';
+import type { ConversationHistoryStatus } from '../useConversationHistory';
 
-type ActivityRow = { ev: EventMsg; r: Rendered; key: string };
+type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
-const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'] as const;
 const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
 
-export function activeProviderRequest(events: EventMsg[]): EventMsg | null {
-  const active = new Map<string, EventMsg>();
-  events.forEach((event) => {
-    const type = String(event.type ?? '');
-    if (type === 'life.mission.completed' || type === 'mission.completed') {
-      active.clear();
-      return;
-    }
-    const callId = String(event.call_id ?? '');
-    if (!callId) return;
-    if (type === 'provider.request.started') active.set(callId, event);
-    else if (type === 'provider.request.completed' || type === 'provider.request.denied') active.delete(callId);
-  });
-  return Array.from(active.values()).at(-1) ?? null;
-}
-
-function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: boolean; last: boolean }) {
+function EventRow({
+  ev,
+  r,
+  first,
+  last,
+  latest,
+  repeat = 1,
+  status = '',
+  result,
+}: {
+  ev: EventMsg;
+  r: RenderedLine;
+  first: boolean;
+  last: boolean;
+  /** The newest event behind this row — its clock is the one shown. */
+  latest?: EventMsg;
+  /** How many identical rows this one stands for. */
+  repeat?: number;
+  status?: StepStatus;
+  result?: FeedRowInput;
+}) {
+  const { locale, t } = useI18n();
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
+  const report = ['agent_message', 'assistant_message', 'message'].includes(String(ev.kind || '')) ? readableRecord(r.text) : r.text;
+  const plain = plainDetail(report, locale);
+  const resultText = result ? plainDetail(result.r.text, locale).text : '';
+  const tooltip = [plain.technical, resultText ? `${t('stream.stepResult')}: ${resultText}` : ''].filter(Boolean).join('\n');
   return (
     <div
       className={`event-activity-row group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-60' : ''}`}
@@ -60,15 +88,145 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
             {r.label}
           </span>
           <span className="text-xs" style={{ color }}>{r.glyph}</span>
+          {repeat > 1 ? (
+            <span
+              className="rounded bg-line/60 px-1 font-mono text-[10px] tabular-nums text-ink-dim"
+              title={t('stream.repeated', { count: repeat })}
+              data-repeat={repeat}
+            >
+              ×{repeat}
+            </span>
+          ) : null}
+          {status === 'failed' ? <span className="text-xs text-err">{t('stream.stepFailed')}</span> : null}
           <time className="ml-auto font-mono text-xs tabular-nums text-ink-faint opacity-0 transition-opacity group-hover:opacity-100">
-            {clockOf(ev)}
+            {clockOf(latest ?? ev)}
           </time>
         </div>
-        <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }}>
-          {r.text}
+        <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }} title={tooltip || undefined}>
+          {plain.text}
         </div>
       </div>
     </div>
+  );
+}
+
+/** Consecutive calls of one tool as one line — "Read 5 files: …" — that opens to its steps. */
+function FeedGroupRow({
+  group,
+  first,
+  last,
+  open,
+  onToggle,
+}: {
+  group: FeedGroup;
+  first: boolean;
+  last: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { locale, t } = useI18n();
+  const roleHue = theme.role[group.r.role] ?? theme.inkFaint;
+  const color = toneColor(group.r.tone);
+  const summary = groupSummary(group, t, locale);
+  return (
+    <div
+      className={`event-activity-row group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''}`}
+      data-feed-group={group.action}
+      data-open={open ? 'true' : 'false'}
+    >
+      <div className="relative flex justify-center">
+        {!first ? <span className="absolute -top-2.5 h-4 w-px bg-line/60" /> : null}
+        {!last ? <span className="absolute -bottom-2.5 top-2 w-px bg-line/60" /> : null}
+        <span
+          className="relative z-10 mt-1.5 h-2 w-2 rounded-full border-2 border-panel"
+          style={{ backgroundColor: roleHue, boxShadow: `0 0 0 1px ${roleHue}55` }}
+        />
+      </div>
+      <div className="min-w-0">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          title={t(open ? 'stream.fold.collapse' : 'stream.fold.expand')}
+          className="block w-full rounded text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-blue-sky"
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className="truncate text-xs font-semibold uppercase tracking-[0.06em]"
+              style={{ color: roleHue }}
+              title={group.r.label}
+            >
+              {group.r.label}
+            </span>
+            <span className="text-xs" style={{ color }}>{group.r.glyph}</span>
+            <span className="font-mono text-[10px] tabular-nums text-ink-faint">{group.calls}</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="m6 3.5 4.5 4.5L6 12.5" />
+            </svg>
+            <time className="ml-auto font-mono text-xs tabular-nums text-ink-faint opacity-0 transition-opacity group-hover:opacity-100">
+              {clockOf(group.latest)}
+            </time>
+          </div>
+          <div className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5" style={{ color }}>
+            {summary}
+          </div>
+        </button>
+        {open ? (
+          <div className="mt-1 border-l border-line/50">
+            {group.steps.map((step, index) => (
+              <EventRow
+                key={step.key}
+                ev={step.ev}
+                r={step.r}
+                first={index === 0}
+                last={index === group.steps.length - 1}
+                latest={step.latest}
+                repeat={step.repeat}
+                status={step.status}
+                result={step.result}
+              />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** The folded rows of one list, with each group's open state kept while the feed grows. */
+function FeedRows({ rows }: { rows: FeedRow[] }) {
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
+  const toggle = (key: string) => setOpenGroups((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  });
+  return (
+    <>
+      {rows.map((row, index) => row.kind === 'group' ? (
+        <FeedGroupRow
+          key={row.key}
+          group={row}
+          first={index === 0}
+          last={index === rows.length - 1}
+          open={openGroups.has(row.key)}
+          onToggle={() => toggle(row.key)}
+        />
+      ) : (
+        <EventRow
+          key={row.key}
+          ev={row.ev}
+          r={row.r}
+          first={index === 0}
+          last={index === rows.length - 1}
+          latest={row.latest}
+          repeat={row.repeat}
+          status={row.status}
+          result={row.result}
+        />
+      ))}
+    </>
   );
 }
 
@@ -79,12 +237,22 @@ function ConversationRow({
   onOpenArtifact,
 }: {
   ev: EventMsg;
-  r: Rendered;
+  r: RenderedLine;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const operator = String(ev.type) === 'ui.operator';
+  const taskReceipt = !operator && ev.mission_result === true;
+  // Preserve the full recorded message, including research/control-like lines.
+  // Reuse the core's existing secret handling without its prose/whitespace filter.
+  const reportText = taskReceipt ? redactSecrets(typeof ev.text === 'string' ? ev.text : r.text).text : r.text;
+  const report = taskReceipt ? plainTaskReport(reportText, locale) : null;
+  const recordedAt = taskReceipt ? dateOf(ev) : null;
+  const draft = operator ? splitDraft(r.text) : null;
+  const references = draft?.refs ?? [];
+  const text = draft && references.length ? draft.text : r.text;
+  const steps = operator ? [] : turnStepsFrom(ev.steps);
   const responseLatencyMs = Number(ev.response_latency_ms ?? 0);
   const responseLatency = !operator && responseLatencyMs >= 100
     ? ` · ${(responseLatencyMs / 1_000).toFixed(1)}s`
@@ -107,7 +275,9 @@ function ConversationRow({
     );
   });
   return (
-    <article ref={rowRef} className="conversation-row group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
+    <article ref={rowRef} data-task-receipt={taskReceipt || undefined}
+      data-task-receipt-id={taskReceipt ? String(ev.message_id || ev.event_id || '') : undefined}
+      className="conversation-row group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
       {operator ? (
         <div className="flex items-end justify-end gap-2">
           <CopyButton
@@ -118,26 +288,58 @@ function ConversationRow({
           />
           <time className="shrink-0 pb-1 font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}</time>
           <div className="max-w-[calc(100%_-_3rem)] rounded-[18px] bg-conversation-user px-4 py-2.5 text-[15px] leading-relaxed text-ink ring-1 ring-line/35 sm:max-w-[82%]">
-            <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent>
+            {references.length ? <div className="mb-2 space-y-2">
+              {references.map((reference, index) => <blockquote
+                key={`${reference.source}:${reference.task_id}:${reference.step_id}:${index}`}
+                aria-label={locale === 'zh-CN' ? '引用' : 'Reference'}
+                className="border-l-2 border-blue/40 pl-3 text-sm text-ink-dim"
+              >
+                <div className="text-xs text-ink-faint">{locale === 'zh-CN' ? '引用' : 'Reference'}{reference.part ? ` · ${locale === 'zh-CN' ? `第 ${reference.part} 部分` : `Part ${reference.part}`}` : ''}</div>
+                <div className="font-medium">{reference.task_title || reference.step_title || reference.task_id}</div>
+                {reference.task_title && reference.step_title && reference.step_title !== reference.task_title
+                  ? <div>{reference.step_title}</div> : null}
+              </blockquote>)}
+            </div> : null}
+            {text ? <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{text}</MarkdownContent> : null}
           </div>
         </div>
       ) : (
         <div className="flex gap-3">
           <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center">
-            <ArgusMark size={26} className="text-blue" />
+            <ArgusMark size={26} className="text-ink" />
           </span>
           <div className="relative min-w-0 flex-1 text-[15px] leading-relaxed text-ink">
-            <div className="mb-1 flex items-center gap-2">
+            {/* Offset the feed's pt-1.5 so scrolled text cannot peek above a pinned receipt header. */}
+            <div
+              data-task-receipt-header={taskReceipt || undefined}
+              className={taskReceipt
+                ? 'sticky -top-1.5 z-10 mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 bg-panel py-1'
+                : 'mb-1 flex items-center gap-2'}
+            >
               <span className="text-xs font-semibold text-blue">Argus</span>
+              {taskReceipt ? <span className="text-[11px] text-ink-dim">
+                {locale === 'zh-CN' ? '任务回报 · 当时记录' : 'Task report · Recorded then'}
+              </span> : null}
               <CopyButton
-                text={r.text}
-                label={t('copy.message')}
+                text={reportText}
+                label={report ? (locale === 'zh-CN' ? '复制原始回报' : 'Copy original report') : t('copy.message')}
                 copiedLabel={t('copy.copied')}
                 className="ml-auto opacity-60 sm:opacity-0 sm:group-hover:opacity-100"
               />
-              <time className="font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}{responseLatency}</time>
+              <time
+                className={`font-mono text-[10px] tabular-nums text-ink-faint ${taskReceipt ? 'basis-full sm:basis-auto' : ''}`}
+                dateTime={recordedAt?.toISOString()}
+                title={recordedAt?.toLocaleString(locale, { dateStyle: 'full', timeStyle: 'long' })}
+              >{recordedAt ? recordedAt.toLocaleString(locale, {
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+              }) : clockOf(ev)}{responseLatency}</time>
             </div>
-            <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent>
+            {steps.length ? <TurnSteps steps={steps} live={ev.live === true} /> : null}
+            {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{report?.text ?? reportText}</MarkdownContent></div> : null}
+            {report ? <RawDisclosure className="task-receipt-original" label={locale === 'zh-CN' ? '查看原始回报（含技术记录）' : 'View original report (including technical records)'}>
+              <pre data-task-receipt-original className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs text-ink-dim">{reportText}</pre>
+            </RawDisclosure> : null}
           </div>
         </div>
       )}
@@ -158,14 +360,26 @@ function RoleLogGroup({
   active: boolean;
   onToggle: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const color = theme.role[role];
   const logScroller = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  const savedScrollTop = useRef(0);
+  const [readingHistory, setReadingHistory] = useState(false);
   const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
+  const folded = useMemo(() => foldFeedRows(rows, locale), [rows, locale]);
+  const preview = folded.length ? rowPreview(folded[folded.length - 1], t, locale) : '';
+  useEffect(() => {
+    if (open && !following.current && logScroller.current) {
+      logScroller.current.scrollTop = savedScrollTop.current;
+    }
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const frame = window.requestAnimationFrame(() => {
-      if (logScroller.current && logScroller.current.scrollHeight > logScroller.current.clientHeight) {
+      // Read the ref in the frame too: the user may scroll up after a new
+      // event scheduled this follow, before the browser paints it.
+      if (following.current && logScroller.current) {
         logScroller.current.scrollTop = logScroller.current.scrollHeight;
       }
     });
@@ -185,30 +399,48 @@ function RoleLogGroup({
         className="group flex h-11 w-full items-center gap-2 px-4 text-left transition-colors hover:bg-bg/60"
       >
         <span
-          className={`h-2 w-2 rounded-full ${active ? 'animate-pulse' : 'opacity-55'}`}
+          data-role-dot={role}
+          aria-hidden="true"
+          className={`h-2 w-2 shrink-0 rounded-full ${active ? 'animate-pulse motion-reduce:animate-none' : ''}`}
           style={{ background: color }}
         />
         <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>
-        <span className="font-mono text-xs text-ink-faint">{rows.length}</span>
-        {rows.length > 0 ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{rows[rows.length - 1].r.text}</span> : <span className="flex-1" />}
+        <span className="font-mono text-xs text-ink-faint">{folded.length}</span>
+        {preview ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{preview}</span> : <span className="flex-1" />}
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
       </button>
-      <div className={`grid transition-[grid-template-rows] duration-panel ease-panel ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-        <div className="min-h-0 overflow-hidden">
-          <div ref={logScroller} className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
-            {rows.length > 0 ? rows.map(({ ev, r, key }, index) => (
-              <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === rows.length - 1} />
-            )) : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
+      {open ? (
+        <div className="grid grid-rows-[1fr]">
+          <div className="relative min-h-0 overflow-hidden">
+            <div ref={logScroller}
+              onScroll={(event) => {
+                const element = event.currentTarget;
+                savedScrollTop.current = element.scrollTop;
+                following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 2;
+                setReadingHistory(!following.current);
+              }}
+              className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
+              {folded.length > 0 ? <FeedRows rows={folded} /> : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
+            </div>
+            {readingHistory ? <button
+              type="button"
+              onClick={() => {
+                following.current = true;
+                setReadingHistory(false);
+                if (logScroller.current) logScroller.current.scrollTop = logScroller.current.scrollHeight;
+              }}
+              className="absolute bottom-2 right-3 rounded-full border border-line/60 bg-panel px-3 py-1 text-xs text-ink-dim shadow-glow hover:text-ink"
+            >↓ {t('stream.jumpToLatest')}</button> : null}
           </div>
         </div>
-      </div>
+      ) : null}
     </section>
   );
 }
 
-function partitionRoleRows(rows: ActivityRow[]) {
+export function partitionRoleRows(rows: ActivityRow[]) {
   const roleRows: Record<typeof ROLE_ORDER[number], ActivityRow[]> = {
     manager: [],
     planner: [],
@@ -229,17 +461,50 @@ function partitionRoleRows(rows: ActivityRow[]) {
   return { roleRows, systemRows, lastRole };
 }
 
-function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean }) {
-  const { t } = useI18n();
+function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
+  const { t, locale } = useI18n();
+  const [open, setOpen] = useState(false);
+  const folded = useMemo(() => foldFeedRows(rows, locale), [rows, locale]);
+  return (
+    <section className="border-b border-line/50" data-system-open={open ? 'true' : 'false'}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex h-10 w-full items-center gap-2 px-4 text-left text-xs text-ink-faint hover:bg-bg/60"
+      >
+        <span>{t('stream.system')}</span>
+        <span className="font-mono">{folded.length}</span>
+        <span className="flex-1" />
+        <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <path d="m6 3.5 4.5 4.5L6 12.5" />
+        </svg>
+      </button>
+      {open ? (
+        <div className="border-t border-line/40">
+          <FeedRows rows={folded} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function RoleLogCollection({ rows, live, followLatest, activeRole, activeTaskId }: {
+  rows: ActivityRow[];
+  live: boolean;
+  followLatest: boolean;
+  activeRole?: string;
+  activeTaskId?: string;
+}) {
   const { roleRows, systemRows, lastRole } = useMemo(() => partitionRoleRows(rows), [rows]);
   const [openRoles, setOpenRoles] = useState<Set<string>>(
-    () => new Set(live && lastRole ? [lastRole] : []),
+    () => new Set(followLatest && lastRole ? [lastRole] : []),
   );
   const userToggledRole = useRef(false);
   useEffect(() => {
-    if (!live || !lastRole || userToggledRole.current) return;
+    if (!followLatest || !lastRole || userToggledRole.current) return;
     setOpenRoles(new Set([lastRole]));
-  }, [lastRole, live]);
+  }, [lastRole, followLatest]);
 
   return (
     <div className="bg-bg/25">
@@ -249,7 +514,8 @@ function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean 
           role={role}
           rows={roleRows[role]}
           open={openRoles.has(role)}
-          active={lastRole === role}
+          active={live && (activeRole ?? lastRole) === role
+            && (!activeTaskId || roleRows[role].some(row => eventTaskId(row.ev) === activeTaskId))}
           onToggle={() => {
             userToggledRole.current = true;
             setOpenRoles((current) => {
@@ -261,29 +527,29 @@ function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean 
           }}
         />
       ))}
-      {systemRows.length > 0 ? (
-        <details className="border-b border-line/50">
-          <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-4 text-xs text-ink-faint hover:bg-bg/60">
-            <span>{t('stream.system')}</span>
-            <span className="font-mono">{systemRows.length}</span>
-          </summary>
-          <div className="border-t border-line/40">
-            {systemRows.map(({ ev, r, key }, index) => (
-              <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === systemRows.length - 1} />
-            ))}
-          </div>
-        </details>
-      ) : null}
+      {systemRows.length > 0 ? <SystemLogGroup rows={systemRows} /> : null}
     </div>
   );
 }
 
-function deliveryFromEvent(event: EventMsg): DeliveryReceipt | null {
+export function deliveryFromEvent(event: EventMsg): DeliveryReceipt | null {
   const delivery = event.delivery;
   if (!delivery || typeof delivery !== 'object' || Array.isArray(delivery)) return null;
   const candidate = delivery as Partial<DeliveryReceipt>;
   if (typeof candidate.delivery_id !== 'string' || !candidate.delivery_id.trim()) return null;
   return candidate as DeliveryReceipt;
+}
+
+export function latestConversationDelivery(
+  events: EventMsg[],
+): DeliveryReceipt | null | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.type === 'ui.operator') return null;
+    const delivery = deliveryFromEvent(event);
+    if (delivery) return delivery;
+  }
+  return undefined;
 }
 
 function DeliveryCard({
@@ -303,7 +569,6 @@ function DeliveryCard({
           {t(certified ? 'mission.deliveryCertified' : 'mission.taskCompleted')}
         </div>
         <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
-        {delivery.summary ? <p className="mt-1 text-xs leading-5 text-ink-dim">{delivery.summary}</p> : null}
         {onOpen ? (
           <button
             type="button"
@@ -320,13 +585,11 @@ function DeliveryCard({
 
 function ConversationThread({
   group,
-  latest,
   artifacts,
   onOpenArtifact,
   onOpenDelivery,
 }: {
   group: ConversationGroup;
-  latest: boolean;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
@@ -336,16 +599,19 @@ function ConversationThread({
   const replyParts = group.rows
     .filter((row) => row.ev.type === 'ui.argus')
     .map((row) => {
+      // Historical reports keep their complete event text for the original view
+      // and copy action, including whitespace and any embedded runtime notice.
+      if (row.ev.mission_result === true) return { reply: row, messages: [] };
       const messages = row.r.text.match(RUNTIME_INFO_PATTERN) ?? [];
       const text = row.r.text.replace(RUNTIME_INFO_PATTERN, '').trim();
+      const working = Array.isArray(row.ev.steps) && row.ev.steps.length > 0;
       return {
-        reply: text && !isSystemMessage(row) ? { ...row, r: { ...row.r, text } } : null,
+        reply: (text || working) && !isSystemMessage(row) ? { ...row, r: { ...row.r, text } } : null,
         messages: isSystemMessage(row) && messages.length === 0 ? [row.r.text] : messages,
       };
     });
   const replies = replyParts.flatMap((part) => part.reply ? [part.reply] : []);
   const systemMessages = replyParts.flatMap((part) => part.messages);
-  const operational = group.rows.filter(({ ev }) => ev.type !== 'ui.argus');
   const deliveries = (() => {
     const seen = new Set<string>();
     return group.rows.flatMap((row) => {
@@ -381,11 +647,6 @@ function ConversationThread({
       {deliveries.map((delivery) => (
         <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />
       ))}
-      {operational.length > 0 ? (
-        <div className="mx-auto w-full max-w-full border-t border-line/40 lg:max-w-[61.8vw]">
-          <RoleLogCollection rows={operational} live={latest} />
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -403,35 +664,55 @@ export function EventStream({
   showReasoning,
   onToggleReasoning,
   embedded = false,
+  showHeader = true,
   filter = 'all',
   query = '',
   skipFirst = 0,
   artifacts,
   onOpenArtifact,
   onOpenDelivery,
+  snapshot,
+  missionView,
+  historyStatus = 'ready',
+  historyRefreshing = false,
+  onRetryHistory,
 }: {
   events: EventMsg[];
   connected: boolean;
   showReasoning: boolean;
   onToggleReasoning: () => void;
   embedded?: boolean;
+  showHeader?: boolean;
   filter?: EventViewFilter;
   query?: string;
   skipFirst?: number;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
+  snapshot?: Snapshot;
+  missionView?: MissionView | null;
+  historyStatus?: ConversationHistoryStatus;
+  historyRefreshing?: boolean;
+  onRetryHistory?: () => void;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
+  const followingRef = useRef(true);
+  const lastScrollTop = useRef(0);
   const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   // Rendering a long Markdown/event history is interruptible, so incoming
   // provider fragments never take priority over typing or scrolling.
   const deferredEvents = useDeferredValue(events);
+  const work = useMemo(
+    () => snapshot ? currentWorkStatus(snapshot, missionView, deferredEvents) : null,
+    [deferredEvents, missionView, snapshot],
+  );
+  const live = connected && (!snapshot || work?.state === 'running');
   const activeProvider = useMemo(
-    () => activeProviderRequest(deferredEvents),
-    [deferredEvents],
+    () => snapshot || !connected ? null : activeProviderRequest(deferredEvents),
+    [connected, deferredEvents, snapshot],
   );
   useEffect(() => {
     if (!activeProvider) return;
@@ -443,70 +724,44 @@ export function EventStream({
     ? Math.max(0, Math.floor((activityTick - Number(activeProvider.ts ?? 0) * 1_000) / 1_000))
     : 0;
 
-  // render + whitelist + COALESCE streaming message fragments once per change.
-  // engineer.progress message events stream in fragments sharing a message_id
-  // (replace=True); the REPL collapses them to one line — we keep the longest
-  // fragment at its first position so a streaming reply is ONE growing row, not
-  // a char-by-char flood.
+  // render + whitelist + COALESCE streaming message fragments once per change
+  // (see renderFeedRows). Folding into steps happens per displayed list, in the
+  // role and system groups, where "consecutive" means what the reader sees.
   const baseRows = useMemo(() => {
-    const out: { ev: EventMsg; r: Rendered; key: string }[] = [];
-    const msgRow = new Map<string, number>(); // message_id → index in out
-    let hiddenReasoning = 0;
     const displayEvents = skipFirst > 0
       ? deferredEvents.slice(skipFirst)
       : deferredEvents;
-    displayEvents.forEach((ev, i) => {
-      const r = renderEvent(ev, locale);
-      if (!r) return; // non-whitelisted → hidden
-      if (r.reasoning && !showReasoning) {
-        hiddenReasoning++;
-        return;
-      }
-      if (!eventMatchesView(ev, r, filter, query)) return;
-      const rec = ev as Record<string, unknown>;
-      const mid = String(rec.message_id ?? '');
-      const isMsg =
-        !!mid &&
-        String(rec.type) === 'engineer.progress' &&
-        ['assistant_message', 'agent_message', 'message'].includes(String(rec.kind));
-      if (isMsg && msgRow.has(mid)) {
-        const idx = msgRow.get(mid)!;
-        // grow the streaming message (merge blocks) instead of dropping shorter
-        // fragments — a multi-block reply must not look truncated.
-        out[idx] = {
-          ...out[idx],
-          ev: { ...out[idx].ev, ...ev },
-          r: {
-            ...out[idx].r,
-            ...r,
-            text: mergeFragment(out[idx].r.text, r.text, fragmentMode(ev)),
-          },
-        };
-        return;
-      }
-      const entry = { ev, r, key: eventKey(ev, i) };
-      if (isMsg) msgRow.set(mid, out.length);
-      out.push(entry);
-    });
-    return { list: out, hiddenReasoning };
+    return renderFeedRows(displayEvents, { locale, showReasoning, filter, query });
   }, [deferredEvents, showReasoning, filter, query, skipFirst, locale]);
 
   const rows = baseRows;
   const conversations = useMemo(() => {
     const groups: ConversationGroup[] = [];
-    const earlier: ActivityRow[] = [];
+    const earlierReplies: ActivityRow[] = [];
+    const projectWork: ActivityRow[] = [];
     let current: ConversationGroup | null = null;
     rows.list.forEach((row) => {
       if (row.ev.type === 'ui.operator') {
         current = { key: row.key, operator: row, rows: [] };
         groups.push(current);
-      } else if (current) {
-        current.rows.push(row);
+      } else if (row.ev.type === 'ui.argus') {
+        if (current) current.rows.push(row);
+        else earlierReplies.push(row);
       } else {
-        earlier.push(row);
+        // Autonomous work keeps its own history when another user message
+        // arrives. Chronology alone cannot attach task A's work to question B.
+        projectWork.push(row);
       }
     });
-    return { groups, earlier };
+    const seenDeliveries = new Set(rows.list.filter(row => row.ev.type === 'ui.argus')
+      .map(row => deliveryFromEvent(row.ev)?.delivery_id).filter(Boolean));
+    const projectDeliveries = projectWork.flatMap(row => {
+      const delivery = deliveryFromEvent(row.ev);
+      if (!delivery || seenDeliveries.has(delivery.delivery_id)) return [];
+      seenDeliveries.add(delivery.delivery_id);
+      return [delivery];
+    });
+    return { groups, earlierReplies, projectWork, projectDeliveries };
   }, [rows.list]);
 
   const reasoningTotal = useMemo(
@@ -521,7 +776,10 @@ export function EventStream({
   useEffect(() => {
     if (!following) return;
     const frame = window.requestAnimationFrame(() => {
-      if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+      if (followingRef.current && scroller.current) {
+        scroller.current.scrollTop = scroller.current.scrollHeight;
+        lastScrollTop.current = scroller.current.scrollTop;
+      }
     });
     return () => window.cancelAnimationFrame(frame);
   }, [rows.list.length, tailContentLength, following]);
@@ -529,24 +787,65 @@ export function EventStream({
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    const onScroll = () => setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+    const onScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      // Scroll anchoring can move down during layout growth before the resize
+      // callback catches up. Only an upward movement leaves an active follow;
+      // reaching the bottom resumes it, including after a viewport clamp.
+      followingRef.current = atBottom || (followingRef.current && el.scrollTop >= lastScrollTop.current - 1);
+      lastScrollTop.current = el.scrollTop;
+      setFollowing(followingRef.current);
+    };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    let frame: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (!followingRef.current) return;
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        // Reflow can move the bottom without adding an event. A reader who
+        // scrolled into history while this frame was queued still takes priority.
+        if (followingRef.current) {
+          el.scrollTop = el.scrollHeight;
+          lastScrollTop.current = el.scrollTop;
+        }
+      });
+    });
+    observer.observe(el);
+    if (content.current) observer.observe(content.current);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      observer.disconnect();
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   const jump = () => {
+    followingRef.current = true;
     setFollowing(true);
-    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' });
+    if (scroller.current) {
+      scroller.current.scrollTo({ top: scroller.current.scrollHeight, behavior: 'auto' });
+      lastScrollTop.current = scroller.current.scrollTop;
+    }
+  };
+  const viewProjectWork = () => {
+    followingRef.current = false;
+    setFollowing(false);
+    // Project work is the first section; scroll only this feed, not the page.
+    scroller.current?.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   return (
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
-      <PanelHeader
+      {showHeader && <PanelHeader
         title={t('panel.activity')}
         right={
           <div className="flex items-center gap-3">
+            {conversations.projectWork.length > 0 ? <button type="button" onClick={viewProjectWork} className="rounded px-1.5 py-0.5 text-xs text-blue-sky hover:bg-bg">
+              {locale === 'zh-CN' ? '查看工作进展' : 'View work progress'}
+            </button> : null}
             <button
               onClick={onToggleReasoning}
               className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
@@ -561,8 +860,8 @@ export function EventStream({
             </span>
           </div>
         }
-      />
-      {activeProvider ? (
+      />}
+      {snapshot ? <WorkStatusBar snapshot={snapshot} view={missionView} events={deferredEvents} connected={connected} compact /> : activeProvider ? (
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-blue-deep/5 px-4 text-xs text-ink-dim">
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue-sky" />
           <span className="truncate">
@@ -573,28 +872,35 @@ export function EventStream({
           </span>
         </div>
       ) : null}
-      <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin">
+      {historyStatus !== 'ready' ? <div className="flex shrink-0 items-center gap-3 px-4 py-3 text-sm text-ink-faint"
+          role={historyStatus === 'error' ? 'alert' : 'status'} data-conversation-history={historyStatus}>
+          <span>{t(historyStatus === 'error' ? 'stream.historyError' : 'stream.historyLoading')}</span>
+          {historyStatus === 'error' && onRetryHistory ? <button type="button" onClick={onRetryHistory}
+            disabled={historyRefreshing} className="shrink-0 rounded px-2 py-1 text-blue-sky hover:bg-bg disabled:opacity-50">
+            {t('stream.historyRetry')}
+          </button> : null}
+      </div> : null}
+      <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin" aria-busy={historyStatus === 'loading'}>
+        <div ref={content} className="flow-root" data-event-stream-content>
         {rows.list.length === 0 ? (
-          <EmptyHint>{t('stream.ready')}</EmptyHint>
+          historyStatus === 'ready' ? <EmptyHint>{t('stream.ready')}</EmptyHint> : null
         ) : (
           <>
-            {conversations.earlier.length > 0 ? (
-              <section className="mx-auto w-full max-w-full border-b border-line/60 lg:max-w-[61.8vw]">
+            {conversations.projectWork.length > 0 ? (
+              <section key="project-work" data-project-work className="mx-auto w-full max-w-full border-b border-line/60 lg:max-w-[61.8vw]">
                 <div className="flex h-10 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-                  {t('stream.autonomous')}
-                  <span className="font-mono font-normal tracking-normal">{conversations.earlier.length}</span>
+                  {locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
+                  <span className="font-mono font-normal tracking-normal">{conversations.projectWork.length}</span>
                 </div>
-                <RoleLogCollection
-                  rows={conversations.earlier}
-                  live={conversations.groups.length === 0}
-                />
+                <RoleLogCollection rows={conversations.projectWork} live={live} followLatest activeRole={work?.role} activeTaskId={work?.taskId} />
+                {conversations.projectDeliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />)}
               </section>
             ) : null}
-            {conversations.groups.map((group, index) => (
+            {conversations.earlierReplies.map(row => <ConversationRow key={row.key} ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />)}
+            {conversations.groups.map((group) => (
               <ConversationThread
                 key={group.key}
                 group={group}
-                latest={index === conversations.groups.length - 1}
                 artifacts={artifacts}
                 onOpenArtifact={onOpenArtifact}
                 onOpenDelivery={onOpenDelivery}
@@ -602,6 +908,7 @@ export function EventStream({
             ))}
           </>
         )}
+        </div>
       </div>
       {!following && (
         <button

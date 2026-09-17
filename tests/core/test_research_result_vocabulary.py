@@ -26,12 +26,13 @@ field and the value it rejected instead of the whole block.
 
 from __future__ import annotations
 
+import logging
 import pathlib
 import tempfile
 
 import pytest
 
-from argus_skill.core.research_contract import (
+from argus.core.research_contract import (
     RESULT_FIELD_CHOICES,
     normalize_research_result,
     research_completion_issue,
@@ -97,8 +98,8 @@ VALID = {
 
 
 def _research_target_prompt(level: str = "publishable") -> str:
-    from argus_skill.reviewer import Reviewer
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.reviewer import Reviewer
+    from argus.skills.vertical_select import persist_vertical
 
     root = pathlib.Path(tempfile.mkdtemp())
     persist_vertical(root, "research", research_target_level=level)
@@ -202,6 +203,67 @@ def test_an_empty_field_is_reported_as_empty_not_omitted() -> None:
     assert "significance_status=(empty)" in research_result_rejection(payload)
 
 
+def test_reviewed_new_candidate_can_complete_direct_idea_request() -> None:
+    candidate = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "verified_new",
+        "significance_status": "publishable",
+        "statement_fidelity_status": "verified",
+        "evidence": ["primary-source novelty review"],
+        "limitations": [],
+    }
+
+    assert research_completion_issue(
+        candidate,
+        research_target_level="publishable",
+        scope="idea_only",
+    ) == ""
+    assert (
+        research_completion_issue(
+            candidate,
+            research_target_level="publishable",
+        )
+        == "result_class_below_publishable:new_candidate"
+    )
+
+
+def test_publishable_idea_requires_verified_novelty() -> None:
+    candidate = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "unverified",
+        "significance_status": "publishable",
+        "statement_fidelity_status": "verified",
+        "evidence": ["candidate proposal"],
+        "limitations": [],
+    }
+
+    assert research_completion_issue(
+        candidate,
+        research_target_level="publishable",
+        scope="idea_only",
+    ) == "novelty_not_verified_new"
+
+
+def test_exploratory_new_candidate_also_requires_verified_novelty() -> None:
+    candidate = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "known",
+        "significance_status": "exploratory",
+        "statement_fidelity_status": "verified",
+        "evidence": ["closest prior work"],
+        "limitations": [],
+    }
+
+    assert research_completion_issue(
+        candidate,
+        research_target_level="exploratory",
+        scope="idea_only",
+    ) == "novelty_not_verified_new"
+
+
 def test_a_legal_result_has_nothing_to_report() -> None:
     assert research_result_rejection(VALID) == ""
     assert normalize_research_result(VALID) is not None
@@ -224,6 +286,120 @@ def test_the_legacy_field_names_are_read_the_same_way_by_both() -> None:
 
     assert normalize_research_result(legacy) is not None
     assert research_result_rejection(legacy) == ""
+
+
+def test_evidence_beyond_the_twelfth_item_is_kept_verbatim() -> None:
+    """The evidence list is the certified scientific record, not a display.
+
+    ``normalize_research_result`` used to keep only the first 12 items — the
+    thirteenth piece of evidence vanished from the record the completion gate
+    and the settled result are built on, with nothing in the trace saying so.
+    Production history shows the 12-item ceiling was hit three times.
+    """
+    items = [f"evidence item {index}" for index in range(1, 21)]
+
+    result = normalize_research_result(dict(VALID, evidence=items))
+
+    assert result is not None
+    assert result["evidence"] == items
+
+
+def test_a_long_evidence_item_is_not_clipped_at_500_characters() -> None:
+    """A 500-character clip mid-sentence is a silent edit of certified content."""
+    long_item = "x" * 1200 + " end-of-evidence"
+
+    result = normalize_research_result(dict(VALID, evidence=[long_item]))
+
+    assert result is not None
+    assert result["evidence"] == [long_item]
+
+
+def test_limitations_are_kept_whole_the_same_way() -> None:
+    """Limitations share the evidence contract: all items, full length."""
+    items = [f"limitation {index}" for index in range(1, 15)]
+    items.append("y" * 900)
+
+    result = normalize_research_result(dict(VALID, limitations=items))
+
+    assert result is not None
+    assert result["limitations"] == items
+
+
+def test_blank_leading_items_do_not_mask_real_evidence() -> None:
+    """Blank entries must not consume the record before real evidence is seen.
+
+    The old ``[:12]`` slice ran before the empty-string filter, so twelve
+    leading blanks left a payload whose only real evidence sat at position 13
+    normalizing to an empty list — and the completion gate then reported
+    ``missing_research_evidence`` against a result that had evidence.
+    """
+    payload = dict(VALID, evidence=[""] * 12 + ["the actual measurement"])
+
+    result = normalize_research_result(payload)
+
+    assert result is not None
+    assert result["evidence"] == ["the actual measurement"]
+    assert research_completion_issue(
+        payload, research_target_level="exploratory", scope="bounded"
+    ) != "missing_research_evidence"
+
+
+def test_201_evidence_items_are_truncated_with_a_warning(caplog) -> None:
+    """A pathological emission is bounded, and the bound is never silent.
+
+    The guardrail protects the Manager prompt and events lines from a model
+    dumping thousands of rows; anything cut leaves a warning in the trace.
+    """
+    items = [f"evidence item {index}" for index in range(201)]
+
+    with caplog.at_level(
+        logging.WARNING, logger="argus.core.research_contract"
+    ):
+        result = normalize_research_result(dict(VALID, evidence=items))
+
+    assert result is not None
+    assert result["evidence"] == items[:200]
+    assert any(
+        "evidence truncated from 201 to 200 items" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_up_to_200_evidence_items_pass_through_verbatim(caplog) -> None:
+    """At or below the sanity bound nothing is touched and nothing is logged.
+
+    Blank entries are filtered before the count, so they never consume the
+    budget ahead of real content.
+    """
+    items = [f"evidence item {index}" for index in range(200)]
+
+    with caplog.at_level(
+        logging.WARNING, logger="argus.core.research_contract"
+    ):
+        result = normalize_research_result(
+            dict(VALID, evidence=[""] * 5 + items)
+        )
+
+    assert result is not None
+    assert result["evidence"] == items
+    assert not caplog.records
+
+
+def test_a_pathologically_long_item_is_clipped_with_a_warning(caplog) -> None:
+    long_item = "z" * 10_001
+
+    with caplog.at_level(
+        logging.WARNING, logger="argus.core.research_contract"
+    ):
+        result = normalize_research_result(dict(VALID, limitations=[long_item]))
+
+    assert result is not None
+    assert result["limitations"] == ["z" * 10_000]
+    assert any(
+        "limitations item truncated from 10001 to 10000 characters"
+        in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_every_rendered_value_survives_a_round_trip() -> None:

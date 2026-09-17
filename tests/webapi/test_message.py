@@ -20,21 +20,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.session import (
+from argus.core.session import (
     SessionMeta,
     read_session_meta,
     write_session_meta,
 )
-from argus_skill.life.memory import Backlog, BacklogItem, LifeMemory
-from argus_skill.manager import Manager, config_intent, dispatch, front_door
-from argus_skill.manager.domain_author import VerticalDecision
-from argus_skill.webapi import (
+from argus.core.transcript import append_turn
+from argus.life.memory import Backlog, BacklogItem, LifeMemory
+from argus.manager import Manager, config_intent, dispatch, front_door
+from argus.manager.domain_author import VerticalDecision
+from argus.webapi import (
     manager_bridge,
     manager_dispatch,
     manager_state,
     project_state,
     server,
 )
+from argus.webapi.daemon_services import DaemonServices, ProjectDaemonStarter
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -57,12 +59,20 @@ def client(tmp_path: Path) -> TestClient:
     return TestClient(server.create_app(global_root=tmp_path))
 
 
+def _client_with_starter(root: Path, start: ProjectDaemonStarter) -> TestClient:
+    _make_project(root)
+    return TestClient(server.create_app(
+        global_root=root,
+        daemon_services=DaemonServices(read_status=server.read_daemon_status, start=start),
+    ))
+
+
 @pytest.fixture(autouse=True)
 def _identity_manager_handoff(monkeypatch) -> None:
     _install_manager(monkeypatch, lambda text: text)
 
 
-def _install_manager(monkeypatch, execution_for) -> None:
+def _install_manager(monkeypatch, execution_for, *, session_title="") -> None:
     manager_state._STATES.clear()
 
     class _Manager:
@@ -72,7 +82,7 @@ def _install_manager(monkeypatch, execution_for) -> None:
             return None, None, "complex"
 
         def decide_vertical(self, text, **kwargs):
-            return SimpleNamespace(execution_task=execution_for(text))
+            return SimpleNamespace(execution_task=execution_for(text), session_title=session_title)
 
         def commit_vertical_decision(self, text, decision, **kwargs):
             return SimpleNamespace(execution_task=decision.execution_task)
@@ -84,14 +94,57 @@ def _install_manager(monkeypatch, execution_for) -> None:
 
 def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
-        lambda sid, text, *, global_root=None: {"kind": "chat", "reply": "你好呀 👋"},
+        "argus.webapi.manager_bridge.manager_message",
+        lambda sid, text, *, global_root=None, cancelled=None, defer_dispatch_ack=False: {"kind": "chat", "reply": "你好呀 👋"},
     )
     r = client.post("/api/projects/s-msgtest0/message", json={"text": "你好"})
     assert r.status_code == 200
     body = r.json()
     assert body["kind"] == "chat"
     assert body["reply"] == "你好呀 👋"
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_self_steps_reach_the_map_with_or_without_streaming(
+    client: TestClient, tmp_path: Path, monkeypatch, streaming: bool, failed: bool,
+) -> None:
+    from argus.webapi.map_view import read_map
+
+    def classify(_mem, _body, state, **_kwargs):
+        state["_frontdoor_self_mode"] = "implement"
+        return None, None, "simple"
+
+    def triage(_mem, _body, state, *, on_fragment=None, **_kwargs):
+        assert callable(on_fragment)
+        on_fragment("phase", {"kind": "tool_use", "label": "read: input.csv",
+                              "call_id": "read-1", "status": "running"})
+        on_fragment("phase", {"kind": "tool_result", "label": "read complete",
+                              "call_id": "read-1", "status": "completed"})
+        on_fragment("phase", {"kind": "command_execution", "label": "write report",
+                              "call_id": "write-1", "status": "running"})
+        if failed:
+            state["_self_failure"] = "The execution stopped before completion."
+            return state["_self_failure"]
+        on_fragment("phase", {"kind": "tool_result", "label": "write complete",
+                              "call_id": "write-1", "status": "completed"})
+        return "The report was written."
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "manager_triage", triage)
+    suffix = "/message/stream" if streaming else "/message"
+    response = client.post(f"/api/projects/s-msgtest0{suffix}", json={"text": "Write the report."})
+    assert response.status_code == 200
+    life = tmp_path / "projects/s-msgtest0"
+    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
+    reply = next(event for event in reversed(events) if event["type"] == "ui.argus")
+    assert [step["call_id"] for step in reply["steps"]] == ["read-1", "write-1"]
+    assert reply["steps"][0]["status"] == "completed"
+    assert reply["steps"][1]["status"] == ("interrupted" if failed else "completed")
+    data = read_map("s-msgtest0", tmp_path, life)
+    assert len(data["tasks"]) == 1
+    assert data["tasks"][0]["status"] == ("failed" if failed else "done")
+    assert data["events"][-1]["status"] == ("failed" if failed else "done")
 
 
 def test_queued_manager_message_cannot_resurrect_deleted_project(
@@ -130,14 +183,18 @@ def test_queued_manager_message_cannot_resurrect_deleted_project(
     assert not life.exists()
 
 
+@pytest.mark.parametrize("route_override", ["auto", "task"])
+@pytest.mark.parametrize("active_mission", [False, True])
 def test_pure_greeting_uses_one_frontdoor_model_call(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch, route_override, active_mission,
 ) -> None:
     sid = "s-one-call-greeting"
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
+    monkeypatch.setattr(front_door, "mission_is_running", lambda mem: active_mission)
 
     def classify(mem, text, chat_state, **kwargs):
+        assert kwargs["active_mission"] is active_mission
         chat_state["_frontdoor_greeting_reply"] = "你好，我是 Argus Manager。"
         return None, None, "simple"
 
@@ -150,10 +207,14 @@ def test_pure_greeting_uses_one_frontdoor_model_call(
         ),
     )
 
-    result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
+    result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path,
+                                            route_override=route_override)
 
     assert result == {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
     assert LifeMemory.open(life).backlog.all() == []
+    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
+    assert not any(event["type"] in {"life.manager.task.started", "life.planner.task_added",
+                                     "life.manager.intent.started", "wiki.initialized"} for event in events)
 
 
 def test_message_only_fast_reply_uses_only_frontdoor_call(
@@ -277,27 +338,36 @@ def test_profile_skill_upgrades_reply_mode_without_fast_reply(
     assert LifeMemory.open(life).backlog.all() == []
 
 
+@pytest.mark.parametrize("prior_turn_count", [0, 1], ids=["cold", "warm"])
+@pytest.mark.parametrize("fast_reply", ["", "I do not know your name."])
 def test_followup_self_turn_disables_stateless_fast_reply(
     tmp_path: Path,
     monkeypatch,
+    prior_turn_count: int,
+    fast_reply: str,
 ) -> None:
     sid = "s-contextual-self-reply"
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
     state = manager_state._chat_state_for(sid)
-    state["turns"] = 1
+    state["turns"] = prior_turn_count
+    append_turn(life, "operator", "Proceedings of the AMS 是什么期刊？")
+    append_turn(life, "argus", "它是美国数学会的综合性数学期刊。")
+    seen: dict[str, str] = {}
 
     def classify(mem, text, chat_state, **kwargs):
+        seen["classified"] = text
         chat_state["_frontdoor_self_mode"] = "reply"
-        chat_state["_frontdoor_fast_reply"] = "I do not know your name."
+        chat_state["_frontdoor_fast_reply"] = fast_reply
         return None, None, "simple"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: "Your name is Xiaobei.",
-    )
+    def triage(*args, **kwargs):
+        seen["body"] = args[1]
+        seen["self_mode"] = kwargs["self_mode"]
+        return "Your name is Xiaobei."
+
+    monkeypatch.setattr(front_door, "manager_triage", triage)
 
     result = manager_bridge.manager_message(
         sid,
@@ -306,6 +376,12 @@ def test_followup_self_turn_disables_stateless_fast_reply(
     )
 
     assert result == {"kind": "chat", "reply": "Your name is Xiaobei."}
+    assert seen["self_mode"] == "inspect"
+    assert seen["classified"] == "What was my name?"
+    assert "SESSION HANDOFF" in seen["body"]
+    assert "Proceedings of the AMS" in seen["body"]
+    assert "它是美国数学会的综合性数学期刊。" in seen["body"]
+    assert "[CURRENT OPERATOR MESSAGE]\nWhat was my name?" in seen["body"]
     assert LifeMemory.open(life).backlog.all() == []
 
 
@@ -349,7 +425,7 @@ def test_recent_identical_raw_team_request_survives_manager_rewording(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.transcript import append_turn
+    from argus.core.transcript import append_turn
 
     sid = "s-team-reworded-replay"
     life = _make_project(tmp_path, sid)
@@ -389,7 +465,7 @@ def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
     life = _make_project(tmp_path, sid)
     workdir = tmp_path / "workspace"
     workdir.mkdir()
-    from argus_skill.manager.control_state import CampaignControlStore
+    from argus.manager.control_state import CampaignControlStore
 
     (life / "continuous.json").write_text(
         json.dumps({"objective": "repair terminal gate", "generation": 2}),
@@ -474,7 +550,7 @@ def test_validator_authorization_allows_exact_repair_under_watched_parent(
     validator.write_text("def test_contract(): pass\n", encoding="utf-8")
     sibling = workdir / "tests" / "test_science_gate.py"
     sibling.write_text("def test_science(): pass\n", encoding="utf-8")
-    from argus_skill.manager.control_state import CampaignControlStore
+    from argus.manager.control_state import CampaignControlStore
 
     (life / "continuous.json").write_text(
         json.dumps({"objective": "repair terminal gate", "generation": 2}),
@@ -563,25 +639,64 @@ def test_repeated_greeting_calls_frontdoor_every_time_without_cache(
         return None, None, "simple"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("pure greeting must not make a second model call")
-        ),
-    )
+    triage_bodies: list[str] = []
+
+    def triage(mem, body, chat_state, **kwargs):
+        triage_bodies.append(body)
+        return "一切正常，任务仍在推进。"
+
+    monkeypatch.setattr(front_door, "manager_triage", triage)
 
     first = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
     second = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
 
-    expected = {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
-    assert first == expected
-    assert second == expected
+    assert first == {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
+    # A pure greeting stays lightweight even when a handoff exists.
+    assert second == first
+    assert triage_bodies == []
+    # The classifier ran on both turns — greeting replies are never cached.
     assert classify_calls == 2
 
 
+@pytest.mark.parametrize("rotation", [False, True])
+def test_greeting_defers_handoff_until_a_substantive_turn(tmp_path, monkeypatch, rotation):
+    sid = "s-greeting-handoff"
+    life = _make_project(tmp_path, sid)
+    manager_state._STATES.clear()
+    append_turn(life, "operator", "Explain the binary search invariant.")
+    append_turn(life, "argus", "The target remains in the search interval.")
+    state = manager_state._chat_state_for(sid)
+    if rotation:
+        state["turns"] = 100
+        monkeypatch.setattr(manager_dispatch, "_rotate_after", lambda: 100)
+        state.pop("needs_startup_handoff", None)
+    else:
+        state["needs_startup_handoff"] = True
+
+    def classify(mem, text, chat_state, **kwargs):
+        if text == "你好":
+            chat_state["_frontdoor_greeting_reply"] = "你好！"
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    triage_bodies = []
+    monkeypatch.setattr(front_door, "manager_triage",
+                        lambda mem, body, *a, **kw: triage_bodies.append(body) or "Continuing the explanation.")
+    for _ in range(2):
+        result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path, route_override="task")
+        assert result == {"kind": "chat", "reply": "你好！"}
+        assert state["needs_startup_handoff"] is True
+        assert triage_bodies == []
+    manager_bridge.manager_message(sid, "Continue the explanation.", global_root=tmp_path)
+    assert len(triage_bodies) == 1
+    assert "binary search invariant" in triage_bodies[0]
+    assert not state.get("needs_startup_handoff")
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+@pytest.mark.parametrize("route_override", ["auto", "task", "chat"])
 def test_contextual_greeting_calls_real_manager(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch, route_override,
 ) -> None:
     sid = "s-context-greeting"
     _make_project(tmp_path, sid)
@@ -604,6 +719,7 @@ def test_contextual_greeting_calls_real_manager(
         sid,
         "你好，项目现在进展怎么样？",
         global_root=tmp_path,
+        route_override=route_override,
     )
 
     assert triage_calls == ["你好，项目现在进展怎么样？"]
@@ -654,7 +770,7 @@ def test_advertised_what_are_you_doing_query_uses_frontdoor_manager_path(
 def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    from argus_skill.daemon.state import read_continuous_state, write_continuous_config
+    from argus.daemon.state import read_continuous_state, write_continuous_config
 
     sid = "s-natural-pause"
     life = _make_project(tmp_path, sid)
@@ -832,8 +948,9 @@ def test_classifier_explanation_cannot_escape_as_manager_reply(
     }
 
 
+@pytest.mark.parametrize("route_override", ["auto", "task"])
 def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch, route_override,
 ) -> None:
     sid = "s-classify-fail"
     life = _make_project(tmp_path, sid)
@@ -858,12 +975,87 @@ def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
         sid,
         "请介绍当前状态",
         global_root=tmp_path,
+        route_override=route_override,
     )
 
-    assert result["kind"] == "chat"
+    assert result["kind"] == "error"
+    assert result["success"] is False
+    assert result["error_code"] == "classification_failed"
     assert result["reply"].startswith("[not dispatched]")
     assert "Manager backend" in result["reply"]
     assert "argus doctor --deep" in result["reply"]
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+def test_interrupted_solo_work_reports_failure_without_enqueuing(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-solo-failed"
+    life = _make_project(tmp_path, sid)
+    manager_state._STATES.clear()
+
+    def classify(_mem, _text, state, **_kwargs):
+        state["_frontdoor_self_mode"] = "implement"
+        return None, None, "simple"
+
+    class InterruptedRunner:
+        last_thread_id = None
+        last_chat_outcome = SimpleNamespace(
+            success=False,
+            stop_reason="Forced restart after hard idle timeout (120s)",
+        )
+
+        def chat_reply_if_conversational(self, **kwargs):
+            kwargs["sink"].handle_event({
+                "type": "round.main.completed",
+                "last_message": "I am building the real workbook.",
+                "turn_completed": False,
+            })
+            return True
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        front_door, "_ensure_manager_runner", lambda *_args: InterruptedRunner(),
+    )
+    result = manager_bridge.manager_message(sid, "Build the workbook.", global_root=tmp_path)
+
+    assert result["mission_result"] is True
+    assert result["success"] is False
+    assert "hard idle timeout" in result["reply"]
+    assert result["reply"] != "I am building the real workbook."
+    assert "delivery" not in result
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+def test_known_budget_limit_is_reported_without_claiming_manager_backend_is_unavailable(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-accounting-block"
+    life = _make_project(tmp_path, sid)
+    manager_state._STATES.clear()
+
+    def failed_classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_failure"] = (
+            "refused before start: global daily budget exhausted ($0.000000 available)"
+        )
+        return None, None, "complex"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", failed_classify)
+    monkeypatch.setattr(
+        front_door, "manager_triage",
+        lambda *args, **kwargs: pytest.fail("A blocked call must not start another Manager turn"),
+    )
+
+    result = manager_bridge.manager_message(sid, "请继续推进任务", global_root=tmp_path)
+
+    assert result["kind"] == "error"
+    assert result["success"] is False
+    assert result["error_code"] == "classification_failed"
+    assert result["reply"].startswith("[not dispatched]")
+    assert "已达到全局日预算上限" in result["reply"]
+    assert "$0.000000 available" in result["reply"]
+    assert "backend is unavailable" not in result["reply"]
+    assert "argus doctor --deep" not in result["reply"]
     assert LifeMemory.open(life).backlog.all() == []
 
 
@@ -970,21 +1162,22 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert result["continuous"] is True
     assert "我已调整团队方向" in result["reply"]
     assert "已升级为持续任务" in result["reply"]
-    inbox = [
-        json.loads(line)
-        for line in (life / "inbox.jsonl").read_text().splitlines()
-    ]
-    assert "Operator steering (standing)" in inbox[-1]["text"]
-    assert "检索最接近的前人研究" in inbox[-1]["text"]
-    assert "发明新的数学工具" not in inbox[-1]["text"]
-    from argus_skill.manager.directive import load_active_manager_directive
+    from argus.apps._inbox import claim_inbox_message, release_inbox_claim
+
+    claim = claim_inbox_message(life)
+    assert claim is not None
+    assert "Operator steering (standing)" in claim.text
+    assert "检索最接近的前人研究" in claim.text
+    assert "发明新的数学工具" not in claim.text
+    release_inbox_claim(life, claim)
+    from argus.manager.directive import load_active_manager_directive
 
     active = load_active_manager_directive(life)
     assert active is not None
     assert "检索最接近的前人研究" in active.text
     assert "发明新的数学工具" not in active.text
     assert active.operator_question_policy == "forbid"
-    from argus_skill.daemon.state import read_continuous_state
+    from argus.daemon.state import read_continuous_state
 
     continuous = read_continuous_state(life)
     assert continuous.enabled is True
@@ -992,17 +1185,17 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert continuous.objective == active.text
 
 
-def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> None:
+def test_message_task_lazily_spawns_daemon(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
-        lambda sid, text, *, global_root=None: {
+        "argus.webapi.manager_bridge.manager_message",
+        lambda sid, text, *, global_root=None, cancelled=None, defer_dispatch_ack=False: {
             "kind": "task", "reply": None,
             "item": {"id": "x1", "title": "optimize kernel"}, "daemon_alive": False,
         },
     )
     spawned: dict[str, object] = {}
-    monkeypatch.setattr(
-        server, "start_project_daemon",
+    client = _client_with_starter(
+        tmp_path,
         lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             spawned.update(sid=sid, resume_continuous=resume_continuous)
             or {"alive": True, "pid": 4321},
@@ -1271,7 +1464,9 @@ def test_no_dispatch_control_fails_closed_when_inline_reply_fails(
         global_root=tmp_path,
     )
 
-    assert result["kind"] == "chat"
+    assert result["kind"] == "error"
+    assert result["success"] is False
+    assert result["error_code"] == "inline_reply_failed"
     assert result["reply"].startswith("[not dispatched]")
     assert LifeMemory.open(life).backlog.all() == []
 
@@ -1303,7 +1498,9 @@ def test_simple_route_reply_failure_never_falls_through_to_task_dispatch(
         global_root=tmp_path,
     )
 
-    assert result["kind"] == "chat"
+    assert result["kind"] == "error"
+    assert result["success"] is False
+    assert result["error_code"] == "inline_reply_failed"
     assert result["reply"].startswith("[not dispatched]")
     assert LifeMemory.open(life).backlog.all() == []
 
@@ -1543,7 +1740,7 @@ def test_message_empty_400(client: TestClient) -> None:
 
 def test_message_unknown_project_404(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus.webapi.manager_bridge.manager_message",
         lambda sid, text, *, global_root=None: {"kind": "chat", "reply": "x"},
     )
     assert client.post("/api/projects/s-nope/message", json={"text": "hi"}).status_code == 404
@@ -1604,9 +1801,11 @@ def test_explicit_pending_answer_continues_without_a_model_call(
         "paper", "operator-reply", "manager-approved", "review:required",
     ]
     assert continuation.manager_decision == {"routed": True}
-    assert "MANAGER OPERATOR-ANSWER DECISION" in (
-        life / "inbox.jsonl"
-    ).read_text(encoding="utf-8")
+    from argus.apps._inbox import claim_inbox_message, release_inbox_claim
+
+    claim = claim_inbox_message(life)
+    assert claim is not None and "MANAGER OPERATOR-ANSWER DECISION" in claim.text
+    release_inbox_claim(life, claim)
     assert "life.operator_question.answered" in (
         life / "events.jsonl"
     ).read_text(encoding="utf-8")
@@ -1758,6 +1957,38 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
     rows = LifeMemory.open(life).backlog.all()
     assert len(rows) == 1
     assert rows[0].pending_question == "Which GPU may I use?"
+    assert not (life / "operator_context.jsonl").exists()
+    turns = [json.loads(line) for line in (life / "transcript.jsonl").read_text().splitlines()]
+    assert [turn["text"] for turn in turns if turn["role"] == "operator"] == ["What is the status?"]
+
+
+@pytest.mark.parametrize("failure", ["backend", "contract"])
+def test_unclassified_message_stays_in_conversation_without_research_directive(
+    tmp_path: Path, monkeypatch, failure: str,
+) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
+    blocked.status = "paused_operator"
+    blocked.pending_question = "Which GPU may I use?"
+    LifeMemory.open(life).backlog.add(blocked)
+    question = "Explain why the bound in this document matters."
+
+    def interpret(*_args, **_kwargs):
+        if failure == "backend":
+            raise RuntimeError("classification unavailable")
+        return "IS_ANSWER=maybe\nRESOLVED=false\nDECISION=\nREPLY="
+
+    monkeypatch.setattr(front_door, "manager_triage", interpret)
+    result = manager_bridge.manager_message("s-msgtest0", question, global_root=tmp_path)
+
+    assert result["kind"] == "pending_question"
+    assert result.get("error") and result["answer_preserved"] is False
+    assert not (life / "operator_context.jsonl").exists()
+    assert not (life / "inbox.jsonl").exists()
+    rows = LifeMemory.open(life).backlog.all()
+    assert len(rows) == 1 and rows[0].pending_question == blocked.pending_question
+    turns = [json.loads(line) for line in (life / "transcript.jsonl").read_text().splitlines()]
+    assert [turn["text"] for turn in turns if turn["role"] == "operator"] == [question]
 
 
 def test_manager_keeps_pending_question_when_answer_is_insufficient(
@@ -1806,7 +2037,7 @@ def _parse_sse(text: str) -> list[dict]:
 
 
 def test_turn_emitter_reports_the_role_that_owns_a_phase(tmp_path: Path) -> None:
-    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+    from argus.webapi.manager_dispatch import _TurnEmitter
 
     frames: list[tuple[str, dict]] = []
     emitter = _TurnEmitter(
@@ -1829,7 +2060,7 @@ def test_turn_emitter_reports_the_role_that_owns_a_phase(tmp_path: Path) -> None
 
 
 def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
-    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+    from argus.webapi.manager_dispatch import _TurnEmitter
 
     reviewed: list[str] = []
     emitter = _TurnEmitter(
@@ -1843,6 +2074,40 @@ def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
     emitter.respond("queued", {"kind": "task"})
 
     assert reviewed == ["answer"]
+
+
+def test_turn_emitter_persists_solo_delivery_metadata(tmp_path: Path) -> None:
+    from argus.webapi.manager_dispatch import _TurnEmitter
+
+    delivery = {
+        "delivery_id": "delivery:solo:task_completed",
+        "primary_target": {"path": "result.txt"},
+    }
+    emitter = _TurnEmitter(
+        life_dir=tmp_path,
+        turn_id="turn-solo",
+        fragment=lambda *_args: None,
+    )
+
+    emitter.journal_and_respond(
+        "Created result.txt.",
+        {
+            "kind": "chat",
+            "mission_result": True,
+            "success": True,
+            "delivery_id": delivery["delivery_id"],
+            "delivery": delivery,
+        },
+    )
+
+    turn = json.loads(
+        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )
+    event = json.loads(
+        (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )
+    assert turn["delivery"] == delivery
+    assert event["delivery"] == delivery
 
 
 def test_manager_stream_heartbeat_uses_real_silence_and_stops_on_done() -> None:
@@ -1913,7 +2178,7 @@ def test_manager_stream_heartbeat_defaults_to_five_seconds(monkeypatch) -> None:
 
 
 def test_turn_emitter_schedules_learning_only_after_chat_reply(tmp_path) -> None:
-    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+    from argus.webapi.manager_dispatch import _TurnEmitter
 
     learned: list[str] = []
     emitter = _TurnEmitter(
@@ -1933,7 +2198,7 @@ def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) 
     """A streamed chat turn: the endpoint forwards each on_fragment(phase|delta)
     live, then a final ``done`` frame carrying the classification + reply."""
     def _streaming(
-        sid, text, *, global_root=None, on_fragment=None, cancelled=None,
+        sid, text, *, global_root=None, on_fragment=None, cancelled=None, defer_dispatch_ack=False,
     ):
         assert on_fragment is not None  # the stream endpoint MUST pass a sink
         on_fragment("phase", {"role": "manager", "label": "Manager · reading events.jsonl"})
@@ -1941,7 +2206,7 @@ def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) 
         on_fragment("delta", {"text": "需要帮忙吗?", "message_id": "m1"})
         return {"kind": "chat", "reply": "你好\n需要帮忙吗?"}
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _streaming)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", _streaming)
     r = client.post("/api/projects/s-msgtest0/message/stream", json={"text": "你好"})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/event-stream")
@@ -1954,20 +2219,20 @@ def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) 
     assert "需要帮忙" in frames[-1]["result"]["reply"]
 
 
-def test_message_stream_task_spawns_and_reports(client: TestClient, monkeypatch) -> None:
+def test_message_stream_task_spawns_and_reports(tmp_path: Path, monkeypatch) -> None:
     """A streamed TEAM classification lazily spawns the executor (like /message)
     and the done frame carries the enqueued item."""
     def _streaming(
-        sid, text, *, global_root=None, on_fragment=None, cancelled=None,
+        sid, text, *, global_root=None, on_fragment=None, cancelled=None, defer_dispatch_ack=False,
     ):
-        assert cancelled is None
+        assert callable(cancelled) and not cancelled()
         return {"kind": "task", "reply": None,
                 "item": {"id": "x9", "title": "optimize kernel"}, "daemon_alive": False}
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _streaming)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", _streaming)
     spawned: dict[str, object] = {}
-    monkeypatch.setattr(
-        server, "start_project_daemon",
+    client = _client_with_starter(
+        tmp_path,
         lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             spawned.update(sid=sid, resume_continuous=resume_continuous)
             or {"alive": True, "pid": 9876},
@@ -1985,10 +2250,10 @@ def test_message_stream_task_spawns_and_reports(client: TestClient, monkeypatch)
 
 
 def test_message_stream_standing_task_starts_continuous_executor(
-    client: TestClient, monkeypatch,
+    tmp_path: Path, monkeypatch,
 ) -> None:
     def _streaming(
-        sid, text, *, global_root=None, on_fragment=None, cancelled=None,
+        sid, text, *, global_root=None, on_fragment=None, cancelled=None, defer_dispatch_ack=False,
     ):
         return {
             "kind": "task",
@@ -1998,11 +2263,10 @@ def test_message_stream_standing_task_starts_continuous_executor(
             "continuous": True,
         }
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _streaming)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", _streaming)
     spawned: dict[str, object] = {}
-    monkeypatch.setattr(
-        server,
-        "start_project_daemon",
+    client = _client_with_starter(
+        tmp_path,
         lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             spawned.update(sid=sid, resume_continuous=resume_continuous) or {"alive": True},
     )
@@ -2015,10 +2279,10 @@ def test_message_stream_standing_task_starts_continuous_executor(
 
 
 def test_message_stream_keeps_startup_exception_in_diagnostic(
-    client: TestClient, monkeypatch,
+    tmp_path: Path, monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus.webapi.manager_bridge.manager_message",
         lambda sid, text, *, global_root=None, on_fragment=None, **kwargs: {
             "kind": "task",
             "reply": None,
@@ -2026,9 +2290,8 @@ def test_message_stream_keeps_startup_exception_in_diagnostic(
             "daemon_alive": False,
         },
     )
-    monkeypatch.setattr(
-        server,
-        "start_project_daemon",
+    client = _client_with_starter(
+        tmp_path,
         lambda *args, **kwargs: (_ for _ in ()).throw(
             RuntimeError("private startup traceback")
         ),
@@ -2051,7 +2314,7 @@ def test_message_stream_keeps_ack_exception_in_diagnostic(
     client: TestClient, monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus.webapi.manager_bridge.manager_message",
         lambda sid, text, *, global_root=None, on_fragment=None, **kwargs: {
             "kind": "task",
             "reply": None,
@@ -2060,7 +2323,7 @@ def test_message_stream_keeps_ack_exception_in_diagnostic(
         },
     )
     monkeypatch.setattr(
-        "argus_skill.webapi.manager_pending_question.record_task_dispatch_ack",
+        "argus.webapi.manager_pending_question.record_task_dispatch_ack",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             RuntimeError("private transcript path")
         ),
@@ -2081,10 +2344,10 @@ def test_message_stream_keeps_ack_exception_in_diagnostic(
 
 def test_message_stream_error_frame(client: TestClient, monkeypatch) -> None:
     """A triage crash surfaces as an ``error`` frame, not a wedged stream."""
-    def _boom(sid, text, *, global_root=None, on_fragment=None, cancelled=None):
+    def _boom(sid, text, *, global_root=None, on_fragment=None, cancelled=None, defer_dispatch_ack=False):
         raise RuntimeError("kaboom")
 
-    monkeypatch.setattr("argus_skill.webapi.manager_bridge.manager_message", _boom)
+    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", _boom)
     r = client.post("/api/projects/s-msgtest0/message/stream", json={"text": "你好"})
     assert r.status_code == 200
     frames = _parse_sse(r.text)
@@ -2247,6 +2510,7 @@ def test_direct_task_names_an_idle_session_from_its_first_task(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    _install_manager(monkeypatch, lambda text: text, session_title="Local task verification")
     monkeypatch.setattr(
         server,
         "spawn_detached_daemon",
@@ -2266,7 +2530,8 @@ def test_direct_task_names_an_idle_session_from_its_first_task(
     )
     display_name = session["display_name"].strip().casefold()
     assert display_name
-    assert "direct task" in display_name
+    assert display_name == "local task verification"
+    assert session["name_source"] == "agent"
 
 
 def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) -> None:
@@ -2347,7 +2612,7 @@ def test_fresh_idle_daemon_survives_concurrent_startup_gc(tmp_path: Path) -> Non
     """Regression: another user's daemon/REPL startup may run project GC in the
     gap between POST /api/daemons and this TUI's first snapshot. A freshly
     created empty session must survive that sweep."""
-    from argus_skill.core.project_gc import gc_stale_projects
+    from argus.core.project_gc import gc_stale_projects
 
     created = server.create_daemon(global_root=tmp_path)
     sid = created["sid"]
@@ -2441,6 +2706,35 @@ def test_web_daemon_config_migrates_legacy_daemon_workdir(
     assert meta.workdir == str(workspace.resolve())
 
 
+def test_web_daemon_config_repairs_incomplete_session_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "incomplete-workdir"
+    life_dir = tmp_path / "projects" / sid
+    workspace = tmp_path / "workspace"
+    life_dir.mkdir(parents=True)
+    workspace.mkdir()
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=sid, display_name="Named before launch", created=123.0),
+    )
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda _path: SimpleNamespace(project_workdir=str(workspace)),
+    )
+
+    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    meta = read_session_meta(tmp_path, sid)
+
+    assert cfg.project_workdir == workspace.resolve()
+    assert meta is not None
+    assert meta.workdir == str(workspace.resolve())
+    assert meta.display_name == "Named before launch"
+    assert meta.created == 123.0
+
+
 def test_web_daemon_config_refuses_legacy_session_without_workdir(
     tmp_path: Path,
 ) -> None:
@@ -2476,7 +2770,7 @@ def test_web_daemon_config_honors_persisted_runner_backend(
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
     monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs",
+        "argus.core.knob_store.read_persisted_knobs",
         lambda: {"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
     )
 

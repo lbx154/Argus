@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.team import roster as rs
+from argus.team import roster as rs
 
 
 def test_create_and_add_member(tmp_path: Path) -> None:

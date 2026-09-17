@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.token_usage import TokenUsage, extract_token_usage
-from argus_skill.core.usage import (
+from argus.core.token_usage import TokenUsage, extract_token_usage
+from argus.core.usage import (
     UsageLedger,
     UsageRecord,
     build_usage_record,
@@ -19,9 +19,9 @@ from argus_skill.core.usage import (
     project_usage_summary,
     usage_recorded_event,
 )
-from argus_skill.life.supervisor import global_daily_spend
-from argus_skill.life.supervisor._cost import _CostTrackingSink
-from argus_skill.webapi.server import _settled_spend
+from argus.life.supervisor import global_daily_spend
+from argus.life.supervisor._cost import _CostTrackingSink
+from argus.webapi.server import _settled_spend
 
 
 class _Sink:
@@ -48,7 +48,7 @@ def test_usage_process_caches_are_bounded(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core import usage
+    from argus.core import usage
 
     monkeypatch.setattr(usage, "_CALL_ID_CACHE_MAX_PROJECTS", 2)
     monkeypatch.setattr(usage, "_CALL_ID_CACHE_MAX_IDS", 2)
@@ -128,6 +128,194 @@ def test_usage_ledger_is_idempotent_by_call_id(tmp_path: Path) -> None:
     assert ledger.append(record) is False
     assert ledger.summary().call_count == 1
     assert len((project / "usage.jsonl").read_text().splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    ("stop_reason", "error_message"),
+    [
+        ("error", ""),
+        ("aborted", ""),
+        ("pending", "provider unavailable"),
+    ],
+)
+def test_pi_empty_failure_usage_does_not_settle_unknown_cost(
+    tmp_path: Path,
+    stop_reason: str,
+    error_message: str,
+) -> None:
+    events = []
+    if stop_reason == "pending":
+        events.append(
+            {
+                "type": "attempt_error",
+                "error": error_message,
+            }
+        )
+    events.append(
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [],
+                "stopReason": stop_reason,
+                "errorMessage": error_message,
+                "usage": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "totalTokens": 0,
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                        "total": 0,
+                    },
+                },
+            },
+        }
+    )
+    usage = extract_token_usage(events)
+    record = build_usage_record(
+        call_id="retry-exhausted",
+        project_root=tmp_path,
+        mission_id="finance",
+        provider="pi",
+        model="gpt-5.6-sol",
+        run_label="probe",
+        started_at=1.0,
+        completed_at=2.0,
+        status="error",
+        token_usage=usage,
+        provider_cost_usd=usage.provider_cost_usd,
+        error=error_message,
+    )
+
+    assert usage.observed is False
+    assert usage.provider_cost_usd is None
+    assert record.pricing_status == "partial"
+    assert record.cost_usd is None
+
+
+def test_pending_tokens_are_reconciled_and_persisted_when_pricing_becomes_available(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.core.pricing import MODEL_PRICES_USD_PER_MTOK
+
+    model = "test-newly-priced-model"
+    project = tmp_path / "project"
+    ledger = UsageLedger(project, migrate_legacy=False)
+    record = build_usage_record(
+        call_id="pending-price",
+        project_root=project,
+        mission_id=None,
+        provider="codex",
+        model=model,
+        run_label="manager-frontdoor-classify",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        token_usage=_known_usage(input_tokens=1000, output_tokens=200),
+    )
+    ledger.append(record)
+    assert ledger.records()[0].cost_usd is None
+    monkeypatch.setitem(
+        MODEL_PRICES_USD_PER_MTOK, model, MODEL_PRICES_USD_PER_MTOK["gpt-5.5"],
+    )
+
+    resolved = ledger.records()[0]
+    assert resolved.pricing_status == "priced"
+    assert resolved.cost_usd is not None and resolved.cost_usd > 0
+    persisted = json.loads(ledger.path.read_text(encoding="utf-8"))
+    assert persisted["cost_usd"] == resolved.cost_usd
+    assert persisted["call_id"] == record.call_id
+    settled_bytes = ledger.path.read_bytes()
+
+    monkeypatch.setitem(
+        MODEL_PRICES_USD_PER_MTOK, model, MODEL_PRICES_USD_PER_MTOK["gpt-5.6-sol"],
+    )
+    assert UsageLedger(project, migrate_legacy=False).records()[0].cost_usd == resolved.cost_usd
+    assert ledger.path.read_bytes() == settled_bytes
+
+
+@pytest.mark.parametrize(
+    "provider,model,usage,extra",
+    [
+        ("codex", "unknown-model", _known_usage(input_tokens=100, output_tokens=20), {}),
+        ("codex", "", _known_usage(input_tokens=100, output_tokens=20), {}),
+        ("codex", "gpt-5.5", TokenUsage(input_tokens=100, input_tokens_present=True), {}),
+        ("copilot", "gpt-5.5", _known_usage(input_tokens=100, output_tokens=20),
+         {"copilot_token_billing_expected": True}),
+        ("opencode", "gpt-5.5", _known_usage(input_tokens=100, output_tokens=20),
+         {"provider_cost_usd": 0.0123}),
+    ],
+)
+def test_token_reconciliation_does_not_guess_or_overwrite_provider_billing(
+    tmp_path: Path, provider: str, model: str, usage: TokenUsage, extra: dict,
+) -> None:
+    ledger = UsageLedger(tmp_path, migrate_legacy=False)
+    record = build_usage_record(
+        call_id="unchanged",
+        project_root=tmp_path,
+        mission_id=None,
+        provider=provider,
+        model=model,
+        run_label="manager",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        token_usage=usage,
+        **extra,
+    )
+    ledger.append(record)
+    original = ledger.path.read_bytes()
+
+    assert ledger.records() == [record]
+    assert ledger.path.read_bytes() == original
+
+
+def test_usage_reconciliation_uses_a_process_lock_without_fcntl(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.core import usage
+
+    calls = []
+    monkeypatch.setattr(usage, "fcntl", None)
+    monkeypatch.setattr(usage.portalocker, "lock", lambda fd, flags: calls.append(("lock", fd)))
+    monkeypatch.setattr(usage.portalocker, "unlock", lambda fd: calls.append(("unlock", fd)))
+    with UsageLedger(tmp_path, migrate_legacy=False)._locked():
+        assert [name for name, _fd in calls] == ["lock"]
+    assert [name for name, _fd in calls] == ["lock", "unlock"]
+    assert calls[0][1] == calls[1][1]
+
+
+def test_token_reconciliation_keeps_a_provider_settlement_that_arrives_after_the_read(
+    tmp_path: Path,
+) -> None:
+    ledger = UsageLedger(tmp_path, migrate_legacy=False)
+    completed = build_usage_record(
+        call_id="late-provider",
+        project_root=tmp_path,
+        mission_id=None,
+        provider="opencode",
+        model="gpt-5.5",
+        run_label="manager",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        token_usage=_known_usage(input_tokens=100, output_tokens=20),
+        provider_cost_usd=0.0123,
+    )
+    stale = replace(
+        completed, cost_usd=None, pricing_status="unpriced", cost_basis="token",
+    )
+    ledger.append(completed)
+    original = ledger.path.read_bytes()
+
+    assert ledger._reconcile_token_pricing([stale]) == 0
+    assert ledger.path.read_bytes() == original
+    assert ledger.records() == [completed]
 
 
 def test_opencode_provider_reported_cost_is_authoritative(
@@ -240,6 +428,65 @@ def test_stale_resume_error_with_observed_premium_usage_stays_partial() -> None:
     assert record.cost_usd is None
 
 
+@pytest.mark.parametrize(("provider", "error"), [
+    ("copilot", "Error: Access denied by policy settings. Your Copilot CLI policy is disabled."),
+    ("copilot", "Your Copilot subscription does not include this feature"),
+    ("copilot", "Required policies have not been enabled for Copilot CLI"),
+    ("copilot", "Error: Failed to load models (Request ID: request-1)"),
+    ("copilot", "Copilot could not retrieve the list of available models."),
+    ("codex",
+        '{"type":"error","status":400,"error":{"type":"invalid_request_error",'
+        '"message":"The \'gpt-5.4-mini\' model is not supported when using Codex '
+        'with a ChatGPT account."}}',
+    ),
+])
+def test_startup_policy_refusal_is_unbilled_for_new_and_existing_records(
+    tmp_path: Path, provider: str, error: str,
+) -> None:
+    record = build_usage_record(
+        call_id="policy-startup", project_root=tmp_path / "p1", mission_id=None,
+        provider=provider, model="gpt-5.6-sol", run_label="reviewer",
+        started_at=1, completed_at=2, status="error", error=error,
+        copilot_token_billing_expected=True,
+    )
+    assert record.pricing_status == "not_billed"
+    assert record.cost_usd == 0.0
+    # Re-reading a pre-fix persisted row must also release its unresolved cost.
+    old = record.to_jsonable()
+    old.update(cost_usd=None, pricing_status="partial", pricing_tier="copilot_token_pending")
+    repaired = UsageRecord.from_jsonable(old)
+    assert repaired.pricing_status == "not_billed"
+    assert repaired.cost_usd == 0.0
+
+
+@pytest.mark.parametrize("evidence", ["tokens", "aiu", "premium", "provider_cost"])
+@pytest.mark.parametrize("error", [
+    "Error: Access denied by policy settings",
+    "Error: Failed to load models (Request ID: request-1)",
+])
+def test_policy_error_after_metered_work_preserves_billing(
+    tmp_path: Path, evidence: str, error: str
+) -> None:
+    kwargs = {
+        "tokens": {"token_usage": _known_usage(input_tokens=100, output_tokens=20)},
+        "aiu": {"total_nano_aiu": 432_724_659_000},
+        "premium": {"premium_requests": 1.0},
+        "provider_cost": {"provider_cost_usd": 1.25},
+    }[evidence]
+    record = build_usage_record(
+        call_id="policy-after-work", project_root=tmp_path / "p1", mission_id=None,
+        provider="opencode" if evidence == "provider_cost" else "copilot",
+        model="gpt-5.6-sol", run_label="reviewer", started_at=1, completed_at=2,
+        status="error", error=error,
+        **kwargs,
+    )
+    assert record.pricing_status != "not_billed"
+    assert record.cost_usd is None or record.cost_usd > 0
+    reread = UsageRecord.from_jsonable(record.to_jsonable())
+    assert reread.pricing_status == record.pricing_status
+    assert reread.cost_usd == record.cost_usd
+
+
 def test_usage_recorded_event_v2_is_self_contained(tmp_path: Path) -> None:
     project = tmp_path / "projects" / "p1"
     record = build_usage_record(
@@ -329,6 +576,27 @@ def test_copilot_missing_premium_and_token_prices_remains_partial(
     assert record.pricing_status == "partial"
     assert record.cost_basis == "none"
     assert record.cost_usd is None
+
+
+@pytest.mark.parametrize(
+    ("status", "error", "premium_requests", "expected_status"),
+    [
+        ("completed", "", 1.0, "partial"),
+        ("denied", "provider cooldown", None, "not_billed"),
+        ("error", "Error: No session, task, or name matched 'stale-thread'.", None, "not_billed"),
+    ],
+)
+def test_modern_token_billing_distinguishes_missing_usage_from_refusals(
+    tmp_path: Path, status, error, premium_requests, expected_status
+) -> None:
+    record = build_usage_record(
+        call_id="modern", project_root=tmp_path / "p1", mission_id=None,
+        provider="copilot", model="gpt-5.6-sol", run_label="engineer-r1",
+        started_at=1.0, completed_at=2.0, status=status, error=error,
+        premium_requests=premium_requests, copilot_token_billing_expected=True,
+    )
+    assert record.pricing_status == expected_status
+    assert record.cost_usd == (0.0 if expected_status == "not_billed" else None)
 
 
 def test_non_copilot_still_requires_token_pricing(tmp_path: Path) -> None:
@@ -615,6 +883,7 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
         pricing_tier="premium_request_only",
         cost_usd=None,
         cost_basis="none",
+        thread_id="session-1",
     )
     ledger.append(first)
     assert UsageLedger(project).records()[0].cost_usd == pytest.approx(0.08)
@@ -672,7 +941,7 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
     assert denied.input_tokens is None
     assert denied.model_usage == ()
     marker = json.loads(ledger.copilot_reconcile_path.read_text(encoding="utf-8"))
-    assert marker["version"] == 3
+    assert marker["version"] == 5
 
     third = replace(first, call_id="second-completed")
     ledger.append(third)
@@ -688,11 +957,11 @@ def test_copilot_reconcile_does_not_reprice_settled_premium_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.core.usage._copilot_reconcile_enabled_for",
+        "argus.core.usage._copilot_reconcile_enabled_for",
         lambda _project_root: True,
     )
     monkeypatch.setattr(
-        "argus_skill.core.usage.find_copilot_usage_near",
+        "argus.core.usage.find_copilot_usage_near",
         lambda **_kwargs: None,
     )
     project = tmp_path / "projects" / "p1"
@@ -736,6 +1005,40 @@ def test_copilot_reconcile_does_not_reprice_settled_premium_rows(
         "old-rate": pytest.approx(0.04),
         "new-rate": pytest.approx(0.10),
     }
+
+
+def test_partial_token_charge_never_falls_back_to_a_premium_request_estimate(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus.core.usage._copilot_reconcile_enabled_for", lambda _root: True,
+    )
+    monkeypatch.setattr(
+        "argus.core.usage.find_copilot_usage_near", lambda **_kwargs: None,
+    )
+    ledger = UsageLedger(tmp_path, migrate_legacy=False)
+    record = build_usage_record(
+        call_id="partial-token-charge",
+        project_root=tmp_path,
+        mission_id=None,
+        provider="copilot",
+        model="gpt-5.6-sol",
+        run_label="manager",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        premium_requests=1.0,
+        total_nano_aiu=17,
+        thread_id="session-1",
+    )
+    ledger.append(replace(record, cost_usd=None, pricing_status="partial"))
+
+    ledger.ensure_copilot_usage_reconciled()
+
+    pending = ledger.records()[0]
+    assert pending.cost_usd is None
+    assert pending.pricing_status == "partial"
+    assert pending.pricing_tier == "copilot_token_pending"
 
 
 def test_legacy_migration_preserves_unknown_resumed_premium_delta(

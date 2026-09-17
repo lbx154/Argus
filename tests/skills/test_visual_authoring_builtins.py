@@ -2,12 +2,12 @@ from pathlib import Path
 
 import yaml
 
-from argus_skill.skills.builtins import seed_builtin_skills
+from argus.skills.builtins import seed_builtin_skills
 
-ROOT = Path(__file__).resolve().parents[2] / "argus_skill" / "builtin_skills"
+ROOT = Path(__file__).resolve().parents[2] / "argus" / "builtin_skills"
 RESEARCH_ROOT = (
     Path(__file__).resolve().parents[2]
-    / "argus_skill"
+    / "argus"
     / "verticals"
     / "research"
     / "skills"
@@ -57,8 +57,10 @@ def test_presentation_and_figure_descriptions_preserve_routing_guidance() -> Non
     figure, _figure_body = _front_body(
         RESEARCH_ROOT / "engineer" / "figure-spec.md"
     )
-    assert "research-paper conceptual" in presentation["description"]
-    assert "image-2 is unavailable" in presentation["description"]
-    assert "Research Visualization Router" in figure["description"]
+    assert "research figure policy comes from the active research vertical" in presentation["description"]
+    assert "Method D" not in presentation["description"]
+    assert "Choosing how to draw a research figure" in figure["description"]
     assert "PPT Master" in figure["description"]
     assert "update_repo.py" in presentation_body
+    assert '"${ARGUS_SKILL_PYTHON:-python3}"' in presentation_body
+    assert "Do not call bare `python` or `python3`" in presentation_body

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus.life.memory import BacklogItem, LifeMemory
 
 
 def test_backlog_item_new_sets_iteration_defaults():

@@ -26,16 +26,16 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.project import project_fingerprint
-from argus_skill.life import project_lifecycle_io
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.project_lifecycle import (
+from argus.core.project import project_fingerprint
+from argus.life import project_lifecycle_io
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.project_lifecycle import (
     LifecycleEvent,
     ProjectState,
     ProjectStatus,
     infer_observable_status,
 )
-from argus_skill.life.project_lifecycle_io import (
+from argus.life.project_lifecycle_io import (
     LifecycleIOError,
     append_event,
     apply_persisted_to_status,
@@ -288,7 +288,7 @@ def test_cli_archive_writes_persisted_state(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "argus_skill",
+            "argus",
             "--lifecycle-archive",
             "--project-root",
             str(tmp_path),
@@ -310,7 +310,7 @@ def test_cli_resume_refuses_non_quarantined(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "argus_skill",
+            "argus",
             "--lifecycle-resume",
             "--project-root",
             str(tmp_path),
@@ -332,7 +332,7 @@ def test_cli_lifecycle_transition_aborts_when_explicit_session_is_missing(
         [
             sys.executable,
             "-m",
-            "argus_skill",
+            "argus",
             "--lifecycle-archive",
             "--resume",
             "s-missing0",
@@ -351,7 +351,10 @@ def test_cli_lifecycle_transition_aborts_when_explicit_session_is_missing(
     assert not lifecycle_path(tmp_path).exists()
 
 
-def test_cli_resume_after_quarantine_returns_to_running(tmp_path: Path) -> None:
+@pytest.mark.parametrize("pause_status", ["paused_budget", "paused_provider_fence"])
+def test_cli_resume_after_quarantine_returns_to_running(
+    tmp_path: Path, pause_status: str,
+) -> None:
     # Seed evidence so the inferred state on resume is RUNNING.
     bundle = tmp_path / "benchmarks" / "evidence" / "demo"
     bundle.mkdir(parents=True)
@@ -367,13 +370,13 @@ def test_cli_resume_after_quarantine_returns_to_running(tmp_path: Path) -> None:
     write_persisted(lifecycle_root, status=qstatus, history=[])
     memory = LifeMemory.open(lifecycle_root)
     paused_item = memory.backlog.add(BacklogItem.new(title="paused", objective="resume safely"))
-    memory.backlog.update(paused_item.id, status="paused_budget")
+    memory.backlog.update(paused_item.id, status=pause_status)
 
     proc = subprocess.run(
         [
             sys.executable,
             "-m",
-            "argus_skill",
+            "argus",
             "--lifecycle-resume",
             "--project-root",
             str(tmp_path),
@@ -408,7 +411,7 @@ def test_cli_status_shows_persisted_marker(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "argus_skill",
+            "argus",
             "--lifecycle-status",
             "--project-root",
             str(tmp_path),
@@ -429,7 +432,7 @@ def test_cli_mutual_exclusion_blocks_two_lifecycle_flags(tmp_path: Path) -> None
         [
             sys.executable,
             "-m",
-            "argus_skill",
+            "argus",
             "--lifecycle-resume",
             "--lifecycle-archive",
             "--project-root",
@@ -454,7 +457,7 @@ def test_cli_mutual_exclusion_blocks_two_lifecycle_flags(tmp_path: Path) -> None
 # to the L2 reviewer's ``final_submission`` certification instead.
 from types import SimpleNamespace  # noqa: E402
 
-from argus_skill.life.supervisor import LifeSupervisor  # noqa: E402
+from argus.life.supervisor import LifeSupervisor  # noqa: E402
 
 
 class _GateStub:
@@ -637,9 +640,9 @@ def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> Non
 
 
 def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> None:
-    from argus_skill.core.models import RunnerResult
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.planner import PlannerConfig
+    from argus.core.models import RunnerResult
+    from argus.life.memory import LifeMemory
+    from argus.planner import PlannerConfig
 
     class _Budget:
         def remaining_today(self, _journal) -> float:
@@ -683,6 +686,7 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
         continuous_objective="finish draft gate",
         budget=_Budget(),
         final_certification_gate=False,
+        open_ended=False,
     )
     sup.planner_runner = _PlannerRunner()
     sup.skill_store = None
@@ -706,7 +710,7 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
         dangerous_yolo=False,
     )
 
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     # The Manager decides + persists the vertical before planning; seed research
     # so _resolve_vertical_once trusts it (no runner call) and the planner runs.

@@ -3,6 +3,18 @@
 This document describes implemented behavior, role transitions, learning
 visibility, and the reliability scenarios used to verify them.
 
+Research proposal forecasts are available under **More → Workbench → Research timeline**,
+through a CLI, Python API, and authenticated preview/save endpoints. The web
+editor compares proposals, updates schedules as inputs change, and retains
+project forecast revisions across refreshes. Deadline adaptation reorders the
+critical path and chooses declared execution alternatives, recomputing both
+the schedule and uncertainty range with explicit tradeoffs. Relaxing a deadline
+restores preferred approaches and optional tasks where work has not started.
+See [proposal timelines](research-timeline.md)
+for three-point estimates, resource schedules, deadline adaptation, immutable
+revisions, and delay explanations. This is advisory planning; runtime dispatch
+and research verdict ownership are unchanged.
+
 ## 1. Entry routing
 
 Every operator message enters through Manager's front door.
@@ -213,7 +225,7 @@ diagnostic evidence, not a universal latency promise.
 ### Durable long commands and supervisor dialogue
 
 - On POSIX, a command expected to run for more than two minutes is submitted to
-  `argus_skill.tools.subagent`; a provider-native background task or a
+  `argus.tools.subagent`; a provider-native background task or a
   session-owned background shell is never its durable owner.
 - `direct` is the default mode for deterministic commands such as builds,
   evaluations, and test suites. It adds no Supervisor model calls.
@@ -315,6 +327,31 @@ interchangeable.
 - Use: roles read `INDEX.md` for progressive disclosure and edit the relevant
   page and index directly during reviewed work.
 - Scope: project workspace. Wiki facts do not silently become profile Skills.
+- Optional `## Insight`: a separately labeled interpretation, abstraction,
+  transferable lesson, or hypothesis grounded in the factual content. Omit it
+  when evidence is insufficient or it would only repeat the summary. Evidence,
+  scope, transfer, and uncertainty are writing guidance, not new schema fields.
+  Several independently useful insights may use subheadings.
+- Retrieval: search Markdown page bodies as well as the index, and cross-link
+  related accessible pages or projects with `#insight` anchors. Recheck scope
+  before applying an interpretation elsewhere; revise or withdraw it when new
+  evidence changes the conclusion. Descriptions and index entries must preserve
+  its status as an interpretation.
+
+An illustrative section follows; replace its example link and observations with
+the actual evidence available in the project:
+
+```markdown
+## Insight
+
+Interpretation: the boundary failures in [the observed cases](#observations)
+suggest that explicit interface contracts may matter more here than improving
+one component in isolation. This pattern may apply to independently maintained
+agent modules that exchange partially specified messages.
+
+The evidence covers one integration. Transfer to another project remains a
+hypothesis; systems with already-complete contracts may have a different bottleneck.
+```
 
 ### Framework self-maintenance
 
@@ -324,13 +361,15 @@ interchangeable.
 - Execution: the normal Engineer→Reviewer loop runs in an explicit disposable
   worktree. Reviewer `done` makes the change eligible for an ordinary operator
   decision; it does not deploy it.
-- Safety: one synchronous boundary compares the repository CI lanes on public
-  base and candidate, runs the acceptance reproducer, rebuilds the release, and
-  completes both public and private publication routes before permitting a
-  natural-boundary daemon roll. Approval is single-use and process-local.
-- Failure: rejected runs dispose their worktrees and never touch the loaded
-  runtime. A public-success/private-failure receipt records partial publication;
-  it neither rolls the daemon nor force-reverts public main.
+- Adoption: the ordinary adopt decision publishes the frozen reviewed commit to
+  `origin/main` and prepares that exact source checkout for a task-boundary daemon
+  handoff. It does not repeat CI, acceptance tests, dependency installation or
+  release builds, and does not require a private remote. Any affected builds and
+  generated assets belong in the maintenance task before Reviewer completes it.
+- Failure: publication failure retains the same pending decision and authoring
+  evidence for retry. Git refuses divergent remote updates; an already-published
+  candidate can be retried without rewinding a newer main. No extra approval card
+  is generated. The existing daemon standby/rollback lifecycle remains in use.
 - Scope: Argus framework source and runtime release state. It does not learn user
   preferences and does not write SELF Skills or project Wiki pages.
 

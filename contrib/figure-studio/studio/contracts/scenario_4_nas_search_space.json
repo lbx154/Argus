@@ -1,0 +1,31 @@
+{
+  "figure_id": "scenario_4_nas_search_space",
+  "venue": "CVPR",
+  "takeaway": "Each layer selects one operator from a shared candidate set while the highlighted route identifies one plausible optimum.",
+  "final_width_mm": 178,
+  "canvas": {"width": 1280, "height": 720},
+  "layout": {"variant": "search-space-grid", "direction": "LR", "show_title": false},
+  "groups": [],
+  "nodes": [
+    {"id": "input", "label": "Input", "role": "input", "kind": "chip"},
+    {"id": "output", "label": "Output", "role": "output", "kind": "chip"}
+  ],
+  "edges": [],
+  "grid": {
+    "layers": [
+      {"id": "layer-1", "label": "Layer 1"},
+      {"id": "layer-2", "label": "Layer 2"},
+      {"id": "layer-3", "label": "Layer 3"},
+      {"id": "layer-4", "label": "Layer 4"}
+    ],
+    "candidates": ["3x3 Conv", "5x5 Conv", "Max Pool", "Avg Pool", "Skip Connection"],
+    "selected": [
+      {"layer": "layer-1", "candidate": "3x3 Conv"},
+      {"layer": "layer-2", "candidate": "5x5 Conv"},
+      {"layer": "layer-3", "candidate": "Max Pool"},
+      {"layer": "layer-4", "candidate": "Skip Connection"}
+    ]
+  },
+  "legend": "auto",
+  "footnote": "The scenario does not specify an operator sequence; the highlighted route is a plausible optimal path."
+}

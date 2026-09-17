@@ -33,6 +33,7 @@ htmlcov/
 /mission-view.lock
 
 # scratch
+.npm-ci-*.log
 benchmarks/results/
 .tmp_pytest/
 .worktrees/
@@ -41,7 +42,6 @@ tmp-skill-a/
 answer.txt
 /$ARGUS_SKILL_HARBOR_DECISIONS_LOG
 /$ARGUS_SKILL_HARBOR_SKILLS_DIR
-/argus/
 /codex/
 /jobs/
 /experiments/*
@@ -57,14 +57,11 @@ benchmarks/evidence/**/agent/sessions/
 .codex
 .superpowers/
 
-# vendored / scratch directories (not part of argus-skill)
-pyknotid-scratch/
-
 # smoke artifacts
 hello-mission-smoke.txt
 
 # fiction_writing eval run outputs (generated + timestamped; regenerate via run_evals.py)
-argus_skill/verticals/fiction_writing/evaluations/reports/
+argus/verticals/fiction_writing/evaluations/reports/
 
 # per-user secrets / local overrides — API keys, tokens, DB passwords NEVER commit
 *.api-key.local
@@ -131,3 +128,17 @@ docs/Argus_BP*
 # proprietary binary/npm release staging
 /dist-binary/
 /.pyinstaller/
+
+# Optional plugin release assets are published separately.
+/dist-plugins/
+
+# Download caches are not release source.
+/pip/
+# PowerShell may create this metadata cache under an isolated HOME/cwd.
+/Microsoft/Windows/PowerShell/ModuleAnalysisCache
+
+# Private integration evidence, isolated QA homes and local delivery notes.
+/.integration/
+/HANDOFF-*.md
+# First-party adapters are rebuilt from desktop-tauri/scripts/*.rs.
+/argus/_native/

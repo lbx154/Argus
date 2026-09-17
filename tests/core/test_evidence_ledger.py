@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from argus_skill.core.evidence_ledger import EvidenceLedger
+from argus.core.evidence_ledger import EvidenceLedger
 
 
 def _rows(path):

@@ -7,12 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _needed_for_live_progress
-from argus_skill.agent_cli import _sandbox_commands as sandbox_commands
-from argus_skill.agent_cli import agent_cli_runner as runner_mod
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.agent_cli.runner_backend import BACKEND_OPENCODE
-from argus_skill.core.token_usage import extract_token_usage
+from argus.adapters.agent_cli_backend import _needed_for_live_progress
+from argus.agent_cli import _run_exec
+from argus.agent_cli import _sandbox_commands as sandbox_commands
+from argus.agent_cli import agent_cli_runner as runner_mod
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.agent_cli.runner_backend import BACKEND_OPENCODE
+from argus.core.token_usage import extract_token_usage
 
 
 def _runner() -> AgentCliRunner:
@@ -165,8 +166,11 @@ def test_opencode_delivers_plain_prompt_on_stdin() -> None:
 
 
 def test_opencode_event_consumer_tracks_session_text_and_completion() -> None:
+    from argus.agent_cli._event_consumers import _OpenCodeWriteState
+
     runner = _runner()
     messages: list[str] = []
+    write_state = _OpenCodeWriteState()
     state = runner._consume_opencode_event(
         event={
             "type": "text",
@@ -175,6 +179,7 @@ def test_opencode_event_consumer_tracks_session_text_and_completion() -> None:
         },
         thread_id=None,
         agent_messages=messages,
+        write_state=write_state,
         turn_completed=False,
         turn_failed=False,
         fatal_error=None,
@@ -187,6 +192,7 @@ def test_opencode_event_consumer_tracks_session_text_and_completion() -> None:
         },
         thread_id=state[0],
         agent_messages=messages,
+        write_state=write_state,
         turn_completed=state[1],
         turn_failed=state[2],
         fatal_error=state[3],
@@ -197,10 +203,13 @@ def test_opencode_event_consumer_tracks_session_text_and_completion() -> None:
 
 
 def test_opencode_tool_step_is_not_terminal() -> None:
+    from argus.agent_cli._event_consumers import _OpenCodeWriteState
+
     state = _runner()._consume_opencode_event(
         event={"type": "step_finish", "part": {"reason": "tool-calls"}},
         thread_id=None,
         agent_messages=[],
+        write_state=_OpenCodeWriteState(),
         turn_completed=False,
         turn_failed=False,
         fatal_error=None,
@@ -211,10 +220,13 @@ def test_opencode_tool_step_is_not_terminal() -> None:
 
 @pytest.mark.parametrize("reason", ["length", "content-filter", "error", "unknown"])
 def test_opencode_non_success_finish_reasons_fail_closed(reason: str) -> None:
+    from argus.agent_cli._event_consumers import _OpenCodeWriteState
+
     state = _runner()._consume_opencode_event(
         event={"type": "step_finish", "part": {"reason": reason}},
         thread_id=None,
         agent_messages=[],
+        write_state=_OpenCodeWriteState(),
         turn_completed=False,
         turn_failed=False,
         fatal_error=None,
@@ -324,6 +336,11 @@ def test_opencode_recovers_completed_turn_when_json_stream_ends_early(
     }
     process = _FakeProcess([json.dumps(step_start)])
     run_kwargs: dict[str, object] = {}
+    delivered_prompts: list[str] = []
+
+    def fake_spawn(*args, **kwargs):
+        delivered_prompts.append(kwargs["stdin"].read())
+        return process
 
     def fake_run(*args, **kwargs):
         run_kwargs.update(kwargs)
@@ -334,7 +351,7 @@ def test_opencode_recovers_completed_turn_when_json_stream_ends_early(
             stderr="",
         )
 
-    monkeypatch.setattr(runner_mod.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(_run_exec, "spawn_owned_process", fake_spawn)
     monkeypatch.setattr(runner_mod.subprocess, "run", fake_run)
     monkeypatch.setattr(
         AgentCliRunner,
@@ -351,7 +368,7 @@ def test_opencode_recovers_completed_turn_when_json_stream_ends_early(
     )
     usage = extract_token_usage(result.json_events)
 
-    assert process.stdin.text == "Reply with exactly OK.\n"
+    assert delivered_prompts == ["Reply with exactly OK.\n"]
     assert result.thread_id == "ses-123"
     assert result.last_agent_message == "OK"
     assert streamed == ["OK"]
@@ -499,6 +516,8 @@ def test_opencode_recovers_from_database_when_export_is_truncated(
 
 
 def test_opencode_nested_error_is_preserved() -> None:
+    from argus.agent_cli._event_consumers import _OpenCodeWriteState
+
     state = _runner()._consume_opencode_event(
         event={
             "type": "error",
@@ -507,6 +526,7 @@ def test_opencode_nested_error_is_preserved() -> None:
         },
         thread_id=None,
         agent_messages=[],
+        write_state=_OpenCodeWriteState(),
         turn_completed=False,
         turn_failed=False,
         fatal_error=None,

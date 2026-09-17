@@ -11,10 +11,10 @@ from typing import Any
 
 import pytest
 
-import argus_skill.daemon.life_worker as life_worker_mod
-import argus_skill.daemon.state as daemon_state
-from argus_skill.daemon.config import LifeWorkerConfig
-from argus_skill.daemon.life_worker import LifeWorker
+import argus.daemon.life_worker as life_worker_mod
+import argus.daemon.state as daemon_state
+from argus.daemon.config import LifeWorkerConfig
+from argus.daemon.life_worker import LifeWorker
 
 _STARTED = "2026-08-13T08:00:00+00:00"
 
@@ -101,6 +101,7 @@ def test_worker_upgrades_drain_request_to_immediate_interrupt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(daemon_state.time, "time", lambda: 1000.0)
     monkeypatch.setattr(life_worker_mod.signal, "signal", lambda *_args: None)
     monkeypatch.setattr(
         life_worker_mod,

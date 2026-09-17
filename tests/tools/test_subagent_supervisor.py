@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.core.token_usage import sum_token_counts
-from argus_skill.tools import subagent as _sub
-from argus_skill.tools.subagent import (
+from argus.core.models import RunnerResult
+from argus.core.token_usage import sum_token_counts
+from argus.tools import subagent as _sub
+from argus.tools.subagent import (
     _append_discussion,
     _build_report,
     _child_env,
@@ -105,8 +105,8 @@ def test_legacy_hashed_registry_record_is_read_and_migrated(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.core.portable_filename import legacy_hashed_filename_components
-    from argus_skill.tools.subagent import _registry
+    from argus.core.portable_filename import legacy_hashed_filename_components
+    from argus.tools.subagent import _registry
 
     monkeypatch.chdir(tmp_path)
     task_id = "team::task"
@@ -264,6 +264,127 @@ def test_clean_concern_treats_nothing_phrases_as_empty() -> None:
     assert _clean_concern("  clipped_ratio  is  1.0 ") == "clipped_ratio is 1.0"
 
 
+def test_clean_concern_keeps_real_anomaly_after_reassuring_opener() -> None:
+    # A calm opener followed by a substantive anomaly, with NO contrast/alarm
+    # token, must survive verbatim — only a note that IS the reassurance clears.
+    note = (
+        "No anomalies in the harness; training is stable. Reward has stayed "
+        "at 0.0 for the last 4000 steps and entropy is flat at its floor."
+    )
+    assert _clean_concern(note) == note
+
+
+def test_clean_concern_clause_review_clears_pure_reassurance() -> None:
+    # Multi-clause notes clear ONLY when every clause is itself a recognized
+    # reassurance.
+    assert _clean_concern("No anomalies. All good.") == ""
+    assert _clean_concern("no issues; none") == ""
+    # Trailing exclamation marks split into empty clauses, which never veto.
+    assert _clean_concern("No anomalies!!") == ""
+    # A decimal point is NOT a sentence boundary: this is one reassuring clause.
+    assert _clean_concern("No anomalies detected in epoch 1.5") == ""
+
+
+def test_clean_concern_clause_review_keeps_unrecognized_clauses() -> None:
+    # Any clause that is not a recognized reassurance keeps the WHOLE note,
+    # even without a contrast/alarm token (fail-safe toward review).
+    pivot = (
+        "No anomalies in the harness; training is stable. Reward has stayed "
+        "at 0.0 for the last 4000 steps."
+    )
+    assert _clean_concern(pivot) == pivot
+    # A newline is a clause boundary even without terminal punctuation; the
+    # kept note is whitespace-normalized as usual.
+    newline_note = "No anomalies in harness\nreward flat since step 4000"
+    assert _clean_concern(newline_note) == (
+        "No anomalies in harness reward flat since step 4000"
+    )
+
+
+def _do_one_check(monkeypatch, tmp_path, checks):
+    """Drive ``_supervised_do_one_check`` through a scripted check sequence."""
+    results = list(checks)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        _sub._supervised_run,
+        "_supervisor_check_with_usage",
+        lambda *a, **k: results.pop(0),
+    )
+
+    class _Stream:
+        def flush(self) -> None:
+            pass
+
+    return _sub._supervised_run._supervised_do_one_check(
+        task_id="sup-confirm",
+        command="python train.py",
+        description="demo",
+        out=_Stream(),
+        err=_Stream(),
+        check_number=1,
+        model="gpt-5.5",
+        cwd=str(tmp_path),
+        resolved_run_dir=None,
+        start_time=time.time(),
+        stdout_path=tmp_path / "out.log",
+        stderr_path=tmp_path / "err.log",
+        supervisor_log=tmp_path / "supervisor.jsonl",
+        supervisor_thread_id=None,
+        supervisor_usage_totals=(0, 0, 0, 0),
+    )
+
+
+def test_reconfirmed_concern_on_healthy_run_does_not_stop(
+    monkeypatch, tmp_path
+) -> None:
+    # Two rounds of reassurance phrasing that slipped past _clean_concern must
+    # not kill a run the supervisor itself still calls healthy: the confirming
+    # read has to corroborate with degraded health or decide early_stop.
+    def _check(concern: str) -> object:
+        return _sub._supervised_run.SupervisorCheck(
+            decision="continue", health="healthy", concern=concern,
+            thread_id="t1", usage=(1, 0, 1, 0), error=None,
+        )
+
+    (check_number, decision, health, concern, _thread, _totals, stop_now) = (
+        _do_one_check(monkeypatch, tmp_path, [
+            _check("Run looks nominal overall, will keep watching"),
+            _check("Everything still looks nominal overall"),
+        ])
+    )
+
+    assert stop_now is False
+    assert decision == "continue"
+    assert health == "healthy"
+    assert concern == ""  # cleared so status does not show a phantom anomaly
+    assert check_number == 2  # the confirmation re-check did run
+
+
+def test_reconfirmed_concern_with_degraded_health_stops(
+    monkeypatch, tmp_path
+) -> None:
+    # A real anomaly re-affirmed with degraded health stops the run even when
+    # the supervisor never says early_stop outright.
+    def _check(concern: str) -> object:
+        return _sub._supervised_run.SupervisorCheck(
+            decision="continue", health="stuck", concern=concern,
+            thread_id="t1", usage=(1, 0, 1, 0), error=None,
+        )
+
+    (check_number, decision, health, concern, _thread, _totals, stop_now) = (
+        _do_one_check(monkeypatch, tmp_path, [
+            _check("reward flat at 0.0 for the last 4000 steps"),
+            _check("reward is still flat at 0.0; no learning signal"),
+        ])
+    )
+
+    assert stop_now is True
+    assert decision == "early_stop"
+    assert health == "stuck"
+    assert concern == "reward is still flat at 0.0; no learning signal"
+    assert check_number == 2
+
+
 def test_live_codex_boundary_guard_blocks_unfaked_calls() -> None:
     with pytest.raises(AssertionError, match="live subagent backend turn"):
         _sub._llm._run_backend_turn("", "", ".", None, 1, "test")
@@ -295,11 +416,8 @@ def test_supervisor_check_concern_now_means_stop_in_prompt(monkeypatch, tmp_path
     assert "EMPTY" in prompt
 
 
-def test_supervisor_check_injects_rl_collapse_guidance(monkeypatch, tmp_path) -> None:
-    # The supervisor prompt must carry the RL-collapse-diagnosis skill so the
-    # model's stop/continue call is grounded in concrete collapse signatures
-    # (e.g. tail-window reward-variance death) rather than vibes.
-    monkeypatch.chdir(tmp_path)
+def _capture_supervisor_prompt(monkeypatch, tmp_path) -> dict[str, str]:
+    """Install a fake codex that records the supervisor prompt it receives."""
     captured: dict[str, str] = {}
 
     class _Result:
@@ -314,22 +432,128 @@ def test_supervisor_check_injects_rl_collapse_guidance(monkeypatch, tmp_path) ->
     _install_fake_codex(monkeypatch, fake_run)
     out = tmp_path / "stdout.log"
     err = tmp_path / "stderr.log"
-    out.write_text("step 1\n")
+    out.write_text("step 42: loss 0.5\n")
     err.write_text("")
-    _supervisor_check("t", "python train.py", "run", out, err, 60.0, 1, "gpt-5.5", str(tmp_path))
+    captured["stdout_path"] = str(out)
+    captured["stderr_path"] = str(err)
+    return captured
+
+
+def test_supervisor_check_injects_rl_collapse_guidance(monkeypatch, tmp_path) -> None:
+    # For an RL launch, the supervisor prompt must carry the
+    # RL-collapse-diagnosis skill so the model's stop/continue call is grounded
+    # in concrete collapse signatures (e.g. tail-window reward-variance death)
+    # rather than vibes.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    _supervisor_check(
+        "t", "python train.py --num-generations 4", "run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        60.0, 1, "gpt-5.5", str(tmp_path),
+    )
     prompt = captured["prompt"]
     assert "when an RL run has COLLAPSED" in prompt
     # The transient-vs-sustained judgement is the crux of the skill.
     assert "tail-window" in prompt or "tail window" in prompt.lower()
 
 
+def test_supervisor_check_omits_rl_guidance_for_non_rl_run(monkeypatch, tmp_path) -> None:
+    # An eval / SFT / generic launch gains nothing from ~12k characters of
+    # RL-collapse criteria on every check, so the reference stays home.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    _supervisor_check(
+        "t", "python code/eval.py --benchmark math500", "eval run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        60.0, 1, "gpt-5.5", str(tmp_path),
+    )
+    prompt = captured["prompt"]
+    assert "when an RL run has COLLAPSED" not in prompt
+    assert "reward-variance death" not in prompt.lower()
+    # The generic health rules and the concern policy still go out in full.
+    assert "STOPS the run" in prompt
+    assert "Decision rules:" in prompt
+
+
+def test_resumed_thread_check_sends_only_new_signals(monkeypatch, tmp_path) -> None:
+    # On a resumed thread the rules are already in the backend's context, so a
+    # later check sends just the fresh signals plus one line saying the earlier
+    # rules still apply — not the ~20k-character full prompt every 120s.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    decision, health, _concern, thread_id = _supervisor_check(
+        "t", "python train.py --num-generations 4", "run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        180.0, 3, "gpt-5.5", str(tmp_path), None, "t1",
+    )
+    prompt = captured["prompt"]
+    # The fresh signals still go out...
+    assert "step 42: loss 0.5" in prompt
+    assert "=== stdout" in prompt
+    # ...but none of the full rules are re-sent.
+    assert "You are a training/eval supervisor agent" not in prompt
+    assert "when an RL run has COLLAPSED" not in prompt
+    assert "STOPS the run" not in prompt
+    assert "Decision rules:" not in prompt
+    # One line points back at the rules already pinned on the thread.
+    assert "judgment rules from earlier in this conversation still apply" in prompt
+    # The reply still parses and the thread survives for the next check.
+    assert decision == "continue"
+    assert health == "healthy"
+    assert thread_id == "t1"
+
+
+def test_tenth_check_repins_full_rules_on_resumed_thread(monkeypatch, tmp_path) -> None:
+    # Every 10th check re-sends the full rules even on a live thread, so a long
+    # run can never drift arbitrarily far from the current wording.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    _supervisor_check(
+        "t", "python train.py --num-generations 4", "run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        1200.0, 10, "gpt-5.5", str(tmp_path), None, "t1",
+    )
+    prompt = captured["prompt"]
+    assert "You are a training/eval supervisor agent" in prompt
+    assert "STOPS the run" in prompt
+    assert "Decision rules:" in prompt
+    assert "when an RL run has COLLAPSED" in prompt
+
+
+def test_resume_recovery_on_lean_check_drops_thread(monkeypatch, tmp_path) -> None:
+    # If the resumed session is gone, the backend answers on a fresh thread that
+    # never saw the rules. The check must drop that thread so the NEXT check
+    # starts clean and sends the rules in full.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    # The fake backend always reports thread "t1"; resuming "OLD" therefore
+    # looks exactly like a resume that fell back to a fresh conversation.
+    _decision, _health, _concern, thread_id = _supervisor_check(
+        "t", "python train.py --num-generations 4", "run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        180.0, 3, "gpt-5.5", str(tmp_path), None, "OLD",
+    )
+    assert thread_id is None
+
+
 def test_rl_collapse_guidance_loads_and_strips_frontmatter() -> None:
-    from argus_skill.tools.subagent import _rl_collapse_guidance
+    from argus.tools.subagent import _rl_collapse_guidance
 
     guidance = _rl_collapse_guidance()
     assert guidance, "RL collapse guidance should load from the bundled skill"
     assert not guidance.startswith("---"), "YAML frontmatter must be stripped"
-    assert "reward-variance death" in guidance.lower()
+    assert "reward_std" in guidance
+    assert "Standard offline DPO" in guidance
+
+
+def test_rl_collapse_guidance_for_attaches_only_to_rl_commands() -> None:
+    from argus.tools.subagent import _rl_collapse_guidance_for
+
+    assert _rl_collapse_guidance_for("python train.py --num-generations 4")
+    assert _rl_collapse_guidance_for("python t.py --method MGR_RLVR --rollouts 8")
+    assert _rl_collapse_guidance_for("python code/eval.py --benchmark geneval") == ""
+    assert _rl_collapse_guidance_for("python sft_train.py --epochs 3") == ""
+    assert _rl_collapse_guidance_for("") == ""
 
 
 def test_supervisor_verdict_parses_concern_alongside_decision() -> None:
@@ -409,7 +633,7 @@ def test_timeout_report_does_not_misclassify_timeout_as_failure() -> None:
 def test_supervisor_authors_report_grounded_in_diagnosis(monkeypatch) -> None:
     # The summary + next step must be authored from the supervisor's own
     # diagnosis, not a signal-blind summarizer that only sees stdout.
-    from argus_skill.tools import subagent as sub
+    from argus.tools import subagent as sub
 
     captured: dict[str, str] = {}
 
@@ -558,7 +782,7 @@ def test_late_report_does_not_overwrite_reused_task_id(monkeypatch, tmp_path) ->
 def test_verdict_survives_trailing_non_json_chatter() -> None:
     # If codex emits the verdict and then a trailing prose message, the most
     # recent *parseable* verdict must still win (not a no-op continue/unknown).
-    from argus_skill.tools.subagent import _codex_agent_messages
+    from argus.tools.subagent import _codex_agent_messages
 
     stdout = _codex_jsonl(
         '{"decision": "early_stop", "health": "diverging"}',
@@ -607,7 +831,7 @@ def test_child_env_respects_explicit_vllm_and_opt_out(monkeypatch) -> None:
 
 
 def test_run_dir_parsed_from_command_space_and_equals() -> None:
-    cmd = ("python -m argus_skill.tools.gpu_lease run -- env CUDA_VISIBLE_DEVICES=0 "
+    cmd = ("python -m argus.tools.gpu_lease run -- env CUDA_VISIBLE_DEVICES=0 "
            ".venv/bin/python code/run_condition.py --method B0 "
            "--run-dir experiments/runs/full-B0-math500 --use-runwriter")
     assert _run_dir_from_command(cmd) == "experiments/runs/full-B0-math500"
@@ -824,7 +1048,7 @@ def test_queue_fallback_writes_utf8_report(monkeypatch, tmp_path) -> None:
     """
     monkeypatch.setattr(_sub._reporting, "REGISTRY_DIR", tmp_path)
     monkeypatch.setattr(
-        "argus_skill.apps._inbox.queue_inbox_message",
+        "argus.apps._inbox.queue_inbox_message",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("offline")),
     )
     report = "实验报告 🔬 → α"
@@ -876,11 +1100,11 @@ def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_pat
         )
 
     monkeypatch.setattr(
-        "argus_skill.tools.subagent._discuss_run._supervisor_discuss_with_usage",
+        "argus.tools.subagent._discuss_run._supervisor_discuss_with_usage",
         fake_discuss,
     )
-    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
-    from argus_skill.tools.subagent import _run_discussion
+    monkeypatch.setattr("argus.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
+    from argus.tools.subagent import _run_discussion
     _write_task(tid, {"state": "discussing", "task_id": tid})
     _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
 
@@ -977,8 +1201,11 @@ def test_backend_turn_uses_accounted_agent_backend(monkeypatch, tmp_path) -> Non
     assert run_call["options"].working_dir == str(tmp_path)
 
 
-def test_supervisor_backend_inherits_configured_runner(monkeypatch) -> None:
+def test_supervisor_role_backend_does_not_inherit_shared_runner(monkeypatch) -> None:
+    from argus.core import knob_store
+
     constructed: dict[str, object] = {}
+    resolved: list[tuple[str, str | None]] = []
 
     class _Backend:
         def __init__(self, **kwargs) -> None:
@@ -986,20 +1213,28 @@ def test_supervisor_backend_inherits_configured_runner(monkeypatch) -> None:
 
     monkeypatch.setattr(_sub._llm, "_SUPERVISOR_BACKENDS", {})
     monkeypatch.setattr(_sub._llm, "AgentCliBackend", _Backend)
+    monkeypatch.setenv("ARGUS_SKILL_SUPERVISOR_BACKEND", "copilot")
+    monkeypatch.delenv("ARGUS_SKILL_SUPERVISOR_RUNNER_BIN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
     monkeypatch.setattr(
-        _sub._llm,
-        "resolve_role_backend",
-        lambda role: "copilot" if role == "supervisor" else "codex",
+        knob_store,
+        "read_persisted_knobs",
+        lambda: {
+            "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+            "ARGUS_SKILL_RUNNER_BIN": "/opt/dsh",
+        },
     )
-    monkeypatch.setattr(
-        _sub._llm,
-        "resolve_runner_bin_setting",
-        lambda role: "/opt/copilot" if role == "supervisor" else "",
-    )
+
+    def resolve(backend: str, configured: str | None):
+        resolved.append((backend, configured))
+        return backend, configured or "/opt/copilot"
+
     monkeypatch.setattr(
         _sub._llm,
         "resolve_available_runner",
-        lambda backend, configured: (backend, configured),
+        resolve,
     )
 
     backend = _sub._llm._supervisor_backend()
@@ -1007,6 +1242,7 @@ def test_supervisor_backend_inherits_configured_runner(monkeypatch) -> None:
     assert isinstance(backend, _Backend)
     assert constructed["backend"] == "copilot"
     assert constructed["runner_bin"] == "/opt/copilot"
+    assert resolved == [("copilot", None)]
 
 
 def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) -> None:
@@ -1046,7 +1282,7 @@ def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) 
 
     _sub._run_supervised(
         "train-1",
-        "python -c pass",
+        f"{shlex.quote(sys.executable)} -c pass",
         "demo",
         timeout=999,
         monitor_interval=1,
@@ -1212,7 +1448,7 @@ def test_cmd_submit_override_records_and_proceeds(monkeypatch, tmp_path, capsys)
     assert shlex.split(out["check_with"]) == [
         sys.executable,
         "-m",
-        "argus_skill.tools.subagent",
+        "argus.tools.subagent",
         "status",
         "--task-id",
         "new",
@@ -1341,11 +1577,13 @@ class _OSNameProxy:
 
 
 def test_cmd_submit_spawns_windows_worker(monkeypatch, tmp_path, capsys) -> None:
-    from argus_skill.tools.subagent import _cli
+    from argus.tools.subagent import _cli
 
     monkeypatch.chdir(tmp_path)
     workload = tmp_path / "workload"
     workload.mkdir()
+    owner = tmp_path / "projects" / "s-windows"
+    monkeypatch.setenv("ARGUS_SKILL_SESSION_ROOT", str(owner))
     spawned: list[dict] = []
 
     class _Worker:
@@ -1378,6 +1616,31 @@ def test_cmd_submit_spawns_windows_worker(monkeypatch, tmp_path, capsys) -> None
     assert record["state"] == "starting"
     assert record["cwd"] == str(workload)
     assert record["worker_pid"] == 9876
+    assert record["owner_session_root"] == str(owner)
+
+
+@requires_fork
+def test_submit_binds_the_session_even_when_command_cwd_differs(
+    monkeypatch, tmp_path, capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    workload = tmp_path / "workload"
+    workload.mkdir()
+    owner = tmp_path / "projects" / "s-origin"
+    monkeypatch.setenv("ARGUS_SKILL_SESSION_ROOT", str(owner))
+    monkeypatch.setattr(_sub._cli.os, "fork", lambda: 4242)
+
+    assert _sub.cmd_submit(_submit_args(task_id="bound", cwd=str(workload))) == 0
+    capsys.readouterr()
+    record = _sub._read_task("bound")
+    assert record["owner_session_root"] == str(owner)
+    assert record["cwd"] == str(workload)
+
+    # Ordinary standalone CLI use stays on the legacy cwd-derived route.
+    monkeypatch.delenv("ARGUS_SKILL_SESSION_ROOT")
+    assert _sub.cmd_submit(_submit_args(task_id="standalone")) == 0
+    capsys.readouterr()
+    assert "owner_session_root" not in _sub._read_task("standalone")
 
 
 @requires_fork
@@ -1438,7 +1701,7 @@ def test_submit_without_timeout_survives_past_old_default(
     monkeypatch,
     tmp_path,
 ) -> None:
-    from argus_skill.tools.subagent import _direct_run
+    from argus.tools.subagent import _direct_run
 
     monkeypatch.chdir(tmp_path)
     clock = [100.0]
@@ -1503,8 +1766,7 @@ def test_submit_without_timeout_survives_past_old_default(
     running = next(row for row in writes if row.get("state") == "running")
     assert running["timeout_seconds"] is None
     assert running["timeout_defaulted"] is False
-    if os.name == "posix":
-        assert "start_time_ticks" in running["process_identity"]
+    assert running["process_identity"]["pid"] == proc.pid
     assert record is not None and record["state"] == "done"
     assert record["elapsed_seconds"] == 7201.0
     assert alerts == ["COMPLETED"]
@@ -1514,7 +1776,7 @@ def test_launch_durable_command_uses_native_powershell_on_windows(
     monkeypatch,
     tmp_path,
 ) -> None:
-    from argus_skill.tools.subagent import _registry
+    from argus.tools.subagent import _registry
 
     monkeypatch.chdir(tmp_path)
     captured: dict[str, object] = {}
@@ -1562,7 +1824,7 @@ def test_launch_durable_command_uses_native_powershell_on_windows(
 
 
 def test_terminate_proc_uses_windows_tree_before_root_fallback(monkeypatch) -> None:
-    from argus_skill.tools.subagent import _direct_run
+    from argus.tools.subagent import _direct_run
 
     calls: list[int] = []
 
@@ -1669,7 +1931,7 @@ def test_cmd_status_surfaces_open_discussion(monkeypatch, tmp_path, capsys) -> N
     assert shlex.split(out["reply_with"]) == [
         sys.executable,
         "-m",
-        "argus_skill.tools.subagent",
+        "argus.tools.subagent",
         "reply",
         "--task-id",
         "d",
@@ -1753,7 +2015,7 @@ def test_supervisor_discuss_prompt_requires_concrete_fix_resolution(monkeypatch,
 # --- Pre-launch RL config preflight -----------------------------------------
 
 def test_rl_training_gate_matches_rl_launches_only() -> None:
-    from argus_skill.tools.subagent import _looks_like_rl_training
+    from argus.tools.subagent import _looks_like_rl_training
 
     assert _looks_like_rl_training(
         ".venv/bin/python code/train_rl_lora_adapter.py --num-generations 2")
@@ -1765,8 +2027,30 @@ def test_rl_training_gate_matches_rl_launches_only() -> None:
     assert not _looks_like_rl_training("")
 
 
+def test_declared_intent_triggers_rl_supervision_without_a_command_hint(monkeypatch) -> None:
+    """A survey-chosen framework has no recognisable token in its launch line;
+    the submit-time ``--intent`` text is what tells the supervisor to watch."""
+    from argus.tools.subagent import _direct_run
+
+    monkeypatch.delenv(_direct_run.SUBAGENT_INTENT_ENV, raising=False)
+    command = "python -m third_party.candidate.launch --config recipe.yaml"
+    assert not _direct_run._looks_like_rl_training(command)
+    assert _direct_run._looks_like_rl_training(
+        command, intent="stand-up pilot: rl post-training")
+    assert _direct_run._looks_like_rl_training(
+        command, intent="policy-gradient pilot on the allocated device")
+    assert not _direct_run._looks_like_rl_training(
+        command, intent="stand-up pilot: supervised fine-tuning baseline")
+    # The worker receives the intent through the environment set at submit.
+    monkeypatch.setenv(_direct_run.SUBAGENT_INTENT_ENV, "stand-up pilot: rl post-training")
+    assert _direct_run._looks_like_rl_training(command)
+    assert _direct_run._rl_collapse_guidance_for(command)
+    monkeypatch.setenv(_direct_run.SUBAGENT_INTENT_ENV, "data preparation")
+    assert not _direct_run._looks_like_rl_training(command)
+
+
 def test_parse_launch_flags_normalizes_space_and_equals_forms() -> None:
-    from argus_skill.tools.subagent import _parse_launch_flags
+    from argus.tools.subagent import _parse_launch_flags
 
     flags = _parse_launch_flags(
         "python x.py --num-generations 2 --max-completion-length=256 "
@@ -1784,7 +2068,7 @@ def test_preflight_prompt_hard_blocks_only_mechanical_degeneracy(monkeypatch, tm
     # The preflight must instruct the model to block ONLY mechanically-unlearnable
     # configs (e.g. GRPO group<=1) and explicitly NOT block a maybe-short
     # max_completion_length, which is data-dependent and left to the in-flight check.
-    from argus_skill.tools import subagent as sub
+    from argus.tools import subagent as sub
 
     captured: dict[str, str] = {}
 
@@ -1809,7 +2093,7 @@ def test_preflight_prompt_hard_blocks_only_mechanical_degeneracy(monkeypatch, tm
 
 
 def test_preflight_rejects_degenerate_group_with_actionable_fix(monkeypatch, tmp_path) -> None:
-    from argus_skill.tools import subagent as sub
+    from argus.tools import subagent as sub
 
     class _Result:
         stdout = ""
@@ -1832,7 +2116,7 @@ def test_preflight_rejects_degenerate_group_with_actionable_fix(monkeypatch, tmp
 
 def test_preflight_reject_without_actionable_fix_is_noop(monkeypatch, tmp_path) -> None:
     # A vague reject with no concrete fix must NOT wedge a launch.
-    from argus_skill.tools import subagent as sub
+    from argus.tools import subagent as sub
 
     class _Result:
         stdout = ""
@@ -1850,7 +2134,7 @@ def test_preflight_reject_without_actionable_fix_is_noop(monkeypatch, tmp_path) 
 
 
 def test_preflight_fails_soft_on_unparseable_verdict(monkeypatch, tmp_path) -> None:
-    from argus_skill.tools import subagent as sub
+    from argus.tools import subagent as sub
 
     class _Result:
         stdout = ""
@@ -1878,9 +2162,9 @@ def test_preflight_discussion_opening_signals_pre_launch_block(monkeypatch, tmp_
     def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
         return (True, "I'll set num_generations=8.", thread_id, (0, 0, 0, 0))
 
-    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run._supervisor_discuss_with_usage", fake_discuss)
-    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
-    from argus_skill.tools.subagent import _run_discussion
+    monkeypatch.setattr("argus.tools.subagent._discuss_run._supervisor_discuss_with_usage", fake_discuss)
+    monkeypatch.setattr("argus.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
+    from argus.tools.subagent import _run_discussion
     td = {
         "preflight": True,
         "concern": "num_generations=1 -> 8 because a GRPO group of 1 has zero advantage",
@@ -1904,9 +2188,9 @@ def test_nonpreflight_discussion_opening_uses_stopped_wording(monkeypatch, tmp_p
     def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
         return (True, "ack", thread_id, (0, 0, 0, 0))
 
-    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run._supervisor_discuss_with_usage", fake_discuss)
-    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
-    from argus_skill.tools.subagent import _run_discussion
+    monkeypatch.setattr("argus.tools.subagent._discuss_run._supervisor_discuss_with_usage", fake_discuss)
+    monkeypatch.setattr("argus.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
+    from argus.tools.subagent import _run_discussion
     _append_discussion(tid, "engineer", "ack, fixing")
     _write_task(tid, {"state": "discussing", "task_id": tid})
     _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
@@ -1929,7 +2213,7 @@ def test_superseded_discussion_cannot_overwrite_reused_task_id(
         },
     )
     monkeypatch.setattr(
-        "argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL",
+        "argus.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL",
         0,
     )
 
@@ -1954,7 +2238,7 @@ def test_superseded_discussion_cannot_overwrite_reused_task_id(
 def test_preflight_strict_bool_reject_fails_soft(monkeypatch, tmp_path) -> None:
     # A non-bool "reject" (string "false", 1, etc.) is an LLM formatting hiccup
     # and must NEVER hard-block a launch.
-    from argus_skill.tools import subagent as sub
+    from argus.tools import subagent as sub
 
     class _Result:
         stdout = ""
@@ -1980,7 +2264,7 @@ def test_preflight_strict_bool_reject_fails_soft(monkeypatch, tmp_path) -> None:
 def test_preflight_reject_without_flagref_concern_is_noop(monkeypatch, tmp_path) -> None:
     # A non-empty but non-actionable concern (no flag/value reference) must not
     # wedge a launch — the contract requires a concrete flag+value to change.
-    from argus_skill.tools import subagent as sub
+    from argus.tools import subagent as sub
 
     class _Result:
         stdout = ""
@@ -2002,7 +2286,7 @@ def test_preflight_reject_td_omits_run_dir_and_reads_no_stale_metrics(tmp_path) 
     # A preflight reject never launched: _effective_run_dir must NOT recover a
     # run dir from the command's --run-dir (which could hold a prior run's
     # metrics), preserving the no-phantom-run invariant.
-    from argus_skill.tools.subagent import _effective_run_dir
+    from argus.tools.subagent import _effective_run_dir
 
     td = {
         "preflight": True,

@@ -166,7 +166,7 @@ def test_argus_launch_assessment_requires_exact_protocol_and_capabilities(
 def test_cli_plan_is_explicit_isolated_and_dry(tmp_path: Path) -> None:
     campaign = tmp_path / "campaign"
     objective = campaign / "OBJECTIVE.md"
-    adapter = ArgusCliAdapter("argus-skill")
+    adapter = ArgusCliAdapter("argus")
     plan = adapter.build_launch(
         campaign_root=campaign,
         objective_file=objective,
@@ -175,10 +175,23 @@ def test_cli_plan_is_explicit_isolated_and_dry(tmp_path: Path) -> None:
     )
     assert plan.project_root == campaign.resolve() / "workspace"
     assert plan.life_dir == campaign.resolve() / "life"
-    assert plan.argv[:3] == ("argus-skill", "--daemon", "--new")
+    assert plan.argv[:3] == ("argus", "--daemon", "--new")
     assert "--continuous" in plan.argv
     assert "--bounded" in plan.argv
     assert adapter.launch(plan) is plan
+
+
+def test_cli_adapter_defaults_to_argus_and_falls_back_to_the_pre_rename_launcher(monkeypatch) -> None:
+    from foundry.integrations import argus_cli
+
+    monkeypatch.setattr(argus_cli.shutil, "which", lambda name: None)
+    assert ArgusCliAdapter().executable == "argus"
+    monkeypatch.setattr(
+        argus_cli.shutil, "which", lambda name: "/usr/bin/argus-skill" if name == "argus-skill" else None,
+    )
+    assert ArgusCliAdapter().executable == "argus-skill"
+    monkeypatch.setattr(argus_cli.shutil, "which", lambda name: f"/usr/bin/{name}")
+    assert ArgusCliAdapter().executable == "argus"
 
 
 def test_arxiv_atom_parse_and_daily_cache(tmp_path: Path) -> None:

@@ -1,0 +1,234 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from argus.core.models import RunnerResult
+from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.core.venue_review import current_venue_acceptance_issue
+from argus.life.context_packet import (
+    create_mission_context,
+    record_reviewed_handoff,
+    render_mission_brief,
+)
+from argus.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer._prose_decision import decision_from_prose_control
+from argus.skills.vertical_select import persist_vertical
+
+ACCEPTANCE = "作为 ICLR 审稿人，我对当前版本的明确建议是 weak accept。"
+FEEDBACK = (
+    ACCEPTANCE + "配对对照使边界结论有了可信的基础，这轮解释也更清楚了。"
+    "要继续推向更强的论文，建议先做下面的机制对照，修改后再审。"
+    + "在固定信息量下随机打乱分组，比较残差分布并保留原始种子结果。" * 150
+    + "最终验收：跨种子的置信区间需要能区分分组效应与实现开销；若不能区分，应保留负结果并修正解释。"
+)
+
+
+def control(*, revision=True, status="continue", quote=ACCEPTANCE):
+    return {
+        "status": status,
+        "venue_review": {
+            "venue": "ICLR", "recommendation": "weak_accept",
+            "acceptance_clear": True, "rationale": quote, "blocking_issues": [],
+            "revision_required": revision,
+        },
+        "recommendation_quote": quote,
+        "operator_question": "",
+    }
+
+
+@pytest.fixture
+def paper(tmp_path):
+    persist_vertical(tmp_path, "research", target_venue="ICLR")
+    state = read_pipeline_state(tmp_path)
+    state["current_stage"] = "review"
+    write_pipeline_state(tmp_path, state)
+    (tmp_path / "paper").mkdir()
+    (tmp_path / "paper/main.tex").write_text("Current manuscript")
+    (tmp_path / "paper/main.pdf").write_bytes(b"Current PDF")
+    return tmp_path
+
+
+class ProseRunner:
+    backend = "pi"
+
+    def __init__(self, prose, extracted):
+        self.prose = prose
+        self.extracted = extracted
+        self.calls = []
+
+    def run_exec(self, **kwargs):
+        self.calls.append(kwargs)
+        text = json.dumps(self.extracted, ensure_ascii=False) if kwargs["run_label"] == "reviewer_control" else self.prose
+        return RunnerResult(exit_code=0, agent_messages=[text], input_tokens=100, output_tokens=50)
+
+
+def evaluate(paper, runner):
+    return Reviewer(runner).evaluate(
+        objective="精修当前论文，依据最终审稿反馈继续提升。", round_index=1,
+        session_id=None, main_summary="已修订方法解释。", main_error=None,
+        scope="final_submission",
+        config=ReviewerConfig(
+            model="gpt-5.6-sol", active_vertical="research",
+            working_dir=str(paper), vertical_state_root=str(paper),
+        ),
+    )
+
+
+def test_natural_final_feedback_survives_parse_handoff_and_engineer_reentry(paper):
+    runner = ProseRunner(FEEDBACK, control(status="done"))
+    review = evaluate(paper, runner)
+    assert review.status == "continue"
+    assert not review.final_submission_certified
+    assert not review.backend_unavailable
+    assert review.next_action == FEEDBACK
+    assert review.input_tokens == 200 and review.output_tokens == 100
+    assert "improvements" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
+    assert "STATUS=done" not in runner.calls[0]["prompt"]
+    assert "VENUE_REVIEW=" not in runner.calls[0]["prompt"]
+    assert "RESEARCH_RESULT=<JSON>" not in runner.calls[0]["prompt"]
+    assert "REASON=" not in runner.calls[0]["prompt"]
+    assert runner.calls[1]["options"].disable_tools
+    assert runner.calls[1]["options"].force_safe_mode
+    assert runner.calls[1]["resume_thread_id"] is None
+    mission = create_mission_context(
+        life_dir=paper / "state", mission_id="refinement", stage="review",
+        objective="Improve the current paper", scope="final_submission",
+        execution_workdir=str(paper),
+    )
+    handoff = record_reviewed_handoff(
+        mission_context_path=mission, round_index=1, engineer_summary="Revised.",
+        review=review, checkpoint_path=mission.parent / "CHECKPOINT.md",
+    )
+    assert handoff is not None
+    saved = json.loads(handoff.read_text())
+    assert saved["review"]["next_action"] == FEEDBACK
+    assert str(handoff) in render_mission_brief(mission)
+    saved_review = (paper / "paper/REVIEW.md").read_text()
+    assert saved_review.count(FEEDBACK) == 1
+    assert "Final venue acceptance is pending" not in saved_review
+    assert "## Strongest accept case" not in saved_review
+    assert "## Reject-level issues" not in saved_review
+
+
+def test_clear_natural_acceptance_with_only_optional_future_work_can_finish(paper):
+    prose = ACCEPTANCE + "验收所需的修改已经完成。扩大到新的模型家族可以留作后续工作。"
+    review = evaluate(paper, ProseRunner(prose, control(revision=False, status="done")))
+    assert review.final_submission_certified
+    assert review.reason == prose
+    assert review.next_action == ""
+    (paper / "paper/main.pdf").write_bytes(b"Changed after review")
+    assert "changed" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
+
+
+def test_strong_accept_objective_does_not_promote_an_aspirational_rating(paper):
+    state = read_pipeline_state(paper)
+    state["venue_acceptance_minimum"] = "strong_accept"
+    write_pipeline_state(paper, state)
+    prose = ACCEPTANCE + "若新增的独立机制实验成功，未来有望达到 strong accept。"
+    result = evaluate(paper, ProseRunner(prose, control(revision=False, status="done")))
+    assert result.status == "continue"
+    assert not result.final_submission_certified
+    assert result.venue_review["recommendation"] == "weak_accept"
+    assert result.reason == prose
+    assert "实际达到 strong accept" in result.next_action
+
+    (paper / "paper/main.tex").write_text("New mechanism evidence and revised argument.")
+    (paper / "paper/main.pdf").write_bytes(b"Updated paper with the new evidence")
+    quote = "作为 ICLR 审稿人，我对当前版本的明确建议是 strong accept。"
+    new_control = control(revision=False, status="done", quote=quote)
+    new_control["venue_review"]["recommendation"] = "strong_accept"
+    result = evaluate(paper, ProseRunner(quote + "新增机制实验已解决关键贡献问题。", new_control))
+    assert result.final_submission_certified
+    assert result.venue_review["recommendation"] == "strong_accept"
+
+
+def test_reviewer_edits_its_file_each_round_and_acknowledgement_is_not_the_review(paper):
+    from argus.reviewer.review_file import ReviewFileStore
+
+    class WritingReviewer(ProseRunner):
+        backend = "copilot"
+
+        def run_exec(self, **kwargs):
+            if kwargs["run_label"] == "reviewer":
+                self.calls.append(kwargs)
+                ReviewFileStore(**kwargs["options"].review_output).write_review(self.prose)
+                return RunnerResult(exit_code=0, agent_messages=["已更新我的审稿文件。"])
+            return super().run_exec(**kwargs)
+
+    first = "作为 ICLR 审稿人，我建议 weak reject。现有机制对照很有价值，请补充未见种子实验。"
+    extracted = control(status="continue", quote=first)
+    extracted["venue_review"].update(recommendation="weak_reject", acceptance_clear=False)
+    reviewer = WritingReviewer(first, extracted)
+    result = evaluate(paper, reviewer)
+    assert result.status == "continue"
+    assert result.reason == first
+    assert (paper / "paper/REVIEW.md").read_text() == first
+    assert reviewer.calls[1]["options"].review_output is None
+
+    (paper / "paper/main.tex").write_text("Updated evidence and manuscript.")
+    second = ACCEPTANCE + "新增实验已经解决此前的问题，本轮无需继续返修。"
+    reviewer.prose = second
+    reviewer.extracted = control(revision=False, status="done")
+    result = evaluate(paper, reviewer)
+    assert result.final_submission_certified
+    assert (paper / "paper/REVIEW.md").read_text() == second
+    assert result.reason == second
+
+
+def test_natural_rejection_cannot_pass_an_adapter_done(paper):
+    quote = "当前版本在 ICLR 只能判 borderline，还没有达到明确接收的标准。"
+    extracted = control(revision=False, status="done", quote=quote)
+    extracted["venue_review"]["recommendation"] = "borderline"
+    extracted["venue_review"]["acceptance_clear"] = False
+    review = evaluate(paper, ProseRunner(quote, extracted))
+    assert review.status == "continue"
+    assert not review.final_submission_certified
+    assert not review.backend_unavailable
+    assert review.reason == quote
+
+
+def test_acknowledgement_cannot_reuse_a_preexisting_acceptance_report(paper):
+    report = paper / "paper/REVIEW.md"
+    report.write_text(ACCEPTANCE)
+    runner = ProseRunner("已更新我的审稿文件。", control(revision=False, status="done"))
+    runner.backend = "copilot"
+
+    review = evaluate(paper, runner)
+
+    assert review.backend_unavailable
+    assert not review.final_submission_certified
+    assert report.read_text() == ACCEPTANCE
+
+
+def test_scientific_replan_feedback_goes_directly_back_to_engineer_in_review(paper):
+    quote = "作为 ICLR 审稿人，我目前建议 weak reject，需要补充分组对照实验。"
+    feedback = quote + "请更改比较方法，匹配实际验证的 token 数，再测延迟和吞吐；在最终 Review 直接完成。"
+    extracted = control(revision=True, status="replan_requested", quote=quote)
+    extracted["venue_review"].update(recommendation="weak_reject", acceptance_clear=False)
+    review = evaluate(paper, ProseRunner(feedback, extracted))
+    assert review.status == "continue"
+    assert not review.final_submission_certified
+    assert feedback in review.next_action
+    assert review.planner_report.get("plan_signal") != "reconsider"
+    assert not review.operator_question
+    assert read_pipeline_state(paper)["current_stage"] == "review"
+
+
+@pytest.mark.parametrize("bad", [None, control(quote="A fabricated recommendation"), {"status": "done"}])
+def test_unreadable_or_invented_control_retries_reviewer_only(paper, bad):
+    review = evaluate(paper, ProseRunner(FEEDBACK, bad))
+    assert review.backend_unavailable
+    assert not review.final_submission_certified
+    assert "Retry the independent Reviewer" in review.next_action
+    assert not (paper / "paper/REVIEW.md").exists()
+
+
+def test_internal_reader_cannot_invent_an_operator_question_or_blocker():
+    extracted = control()
+    extracted["operator_question"] = "May I lower the venue?"
+    assert decision_from_prose_control(extracted, review_text=FEEDBACK) is None
+    extracted["operator_question"] = ""
+    extracted["venue_review"]["blocking_issues"] = ["Invented scientific defect"]
+    assert decision_from_prose_control(extracted, review_text=FEEDBACK) is None

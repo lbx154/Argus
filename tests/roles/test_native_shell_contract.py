@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.roles.prompts import engineer as engineer_prompts
-from argus_skill.roles.prompts import planner as planner_prompts
-from argus_skill.roles.task_contract import (
+from argus.roles.prompts import engineer as engineer_prompts
+from argus.roles.prompts import planner as planner_prompts
+from argus.roles.task_contract import (
     format_native_shell_command,
     native_shell_contract,
     native_shell_summary,
@@ -105,3 +105,71 @@ def test_formatted_windows_command_runs_under_restricted_policy() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "argus-windows-ok"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native PowerShell 5.1 regression")
+def test_powershell_51_rejects_posix_operator_and_accepts_documented_branch() -> None:
+    def run(command):
+        return subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+            capture_output=True, text=True, encoding="mbcs", check=False, timeout=10,
+        )
+
+    old = run("Write-Output first || Write-Output second")
+    assert old.returncode != 0
+    assert "InvalidEndOfLine" in old.stderr
+    python_exit = format_native_shell_command([sys.executable, "-c", "raise SystemExit(7)"])
+    corrected = run(python_exit + "; if ($LASTEXITCODE -ne 0) { Write-Output recovered; exit 0 }")
+    assert corrected.returncode == 0, corrected.stderr
+    assert corrected.stdout.strip() == "recovered"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Restricted-policy launcher regression")
+def test_npx_cmd_avoids_blocked_powershell_wrapper_without_changing_policy(tmp_path) -> None:
+    # Synthetic shims exercise PowerShell resolution without downloading npm
+    # packages or changing any user/machine execution-policy setting.
+    (tmp_path / "npx.ps1").write_text("Write-Output 'wrong-wrapper'", encoding="utf-8")
+    (tmp_path / "npx.cmd").write_text("@echo off\r\necho cmd-wrapper-ok\r\n", encoding="ascii")
+    environment = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]}
+
+    def run(command):
+        return subprocess.run(
+            [
+                "powershell.exe", "-NoProfile", "-NonInteractive",
+                "-ExecutionPolicy", "Restricted", "-Command", command,
+            ],
+            env=environment, capture_output=True, text=True, encoding="mbcs", check=False, timeout=10,
+        )
+
+    resolved = run("(Get-Command npx).Source")
+    assert resolved.stdout.strip().endswith("npx.ps1")
+    blocked = run("npx")
+    assert blocked.returncode != 0
+    assert "PSSecurityException" in blocked.stderr
+    allowed = run(format_native_shell_command(["npx.cmd"]))
+    assert allowed.returncode == 0, allowed.stderr
+    assert allowed.stdout.strip() == "cmd-wrapper-ok"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native PowerShell expression preflight regression")
+def test_powershell_static_expression_is_not_treated_as_missing_executable(tmp_path) -> None:
+    from argus.tools.subagent._experiment_preflight import experiment_launch_preflight
+
+    marker = tmp_path / "expression-output"
+    path = str(marker).replace("'", "''")
+    command = f"[IO.File]::WriteAllText('{path}','native-expression-ok')"
+    rejected, reason = experiment_launch_preflight(
+        task_id="expression-fixture", command=command, cwd=str(tmp_path), run_dir=None,
+    )
+    assert not rejected, reason
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+        capture_output=True, text=True, check=False, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert marker.read_text() == "native-expression-ok"
+    rejected, reason = experiment_launch_preflight(
+        task_id="missing-fixture", command="argus-intentionally-missing-executable-9741",
+        cwd=str(tmp_path), run_dir=None,
+    )
+    assert rejected and "not available on PATH" in reason

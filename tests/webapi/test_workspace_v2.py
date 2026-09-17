@@ -3,14 +3,15 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from argus_skill.webapi import server
-from argus_skill.webapi.routes.workspace_v2 import _git, _open_confined_file, _workspace_profiles
+from argus.webapi import server
+from argus.webapi.routes.workspace_v2 import _git, _open_confined_file, _workspace_profiles
 
 
 def test_workspace_v2_profiles_tree_file_literature_and_confinement(tmp_path: Path, monkeypatch) -> None:
@@ -106,9 +107,61 @@ def test_workspace_git_disables_repository_fsmonitor(tmp_path: Path) -> None:
     helper.write_text(f"#!/bin/sh\ntouch '{marker}'\n", encoding="utf-8")
     helper.chmod(0o755)
     subprocess.run(["git", "-C", str(workspace), "config", "core.fsmonitor", str(helper)], check=True)
+    (workspace / "probe.txt").write_text("untracked\n", encoding="utf-8")
 
-    _git(workspace, "status", "--short")
+    status = _git(workspace, "status", "--short")
+
+    assert "probe.txt" in status
     assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    ("payload", "exit_code", "max_bytes", "expected"),
+    [
+        ("b''", 0, 4, ""),
+        ("b'abcd'", 0, 4, "abcd"),
+        ("b'abcde'", 0, 4, "abcd\n… output truncated\n"),
+        ("b'x' * (256 * 1024)", 0, 4, "xxxx\n… output truncated\n"),
+        ("b'\\xff'", 0, 4, "\ufffd"),
+        ("b'error'", 1, 8, ""),
+    ],
+)
+def test_workspace_git_portable_pipe_reads_are_bounded_and_reaped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    payload: str,
+    exit_code: int,
+    max_bytes: int,
+    expected: str,
+) -> None:
+    real_popen = subprocess.Popen
+    processes: list[subprocess.Popen[bytes]] = []
+
+    def spawn(_argv, **kwargs):
+        process = real_popen(
+            [
+                sys.executable,
+                "-c",
+                "import sys; "
+                f"sys.stdout.buffer.write({payload}); "
+                f"sys.exit({exit_code})",
+            ],
+            **kwargs,
+        )
+        processes.append(process)
+        return process
+
+    def reject_nonblocking_pipe(*_args):
+        pytest.fail("Windows-compatible Git reads must not use os.set_blocking")
+
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+    monkeypatch.setattr(os, "set_blocking", reject_nonblocking_pipe, raising=False)
+
+    assert _git(tmp_path, "status", max_bytes=max_bytes) == expected
+    assert len(processes) == 1
+    assert processes[0].returncode is not None
+    assert processes[0].stdout is not None
+    assert processes[0].stdout.closed
 
 
 def test_workspace_v2_requires_bearer_token(tmp_path: Path, monkeypatch) -> None:
@@ -177,8 +230,7 @@ def test_final_review_uses_existing_request_id_without_content_hashes(
     created = server.create_daemon(workdir=str(workspace), global_root=state)
     sid = created["sid"]
     monkeypatch.setattr(
-        server,
-        "enqueue_task_command",
+        "argus.webapi.mission_items.enqueue_task_command",
         lambda *args, **kwargs: {"ok": True},
     )
     client = TestClient(server.create_app(global_root=state))

@@ -15,8 +15,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi import manager_bridge, manager_dispatch, manager_state
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi import manager_bridge, manager_dispatch, manager_state
 
 
 def _make_project(root: Path, sid: str = "s-rot00001") -> Path:
@@ -134,7 +134,7 @@ def test_manager_prewarm_uses_manager_backend(
         manager_backend=manager_backend,
     )
     monkeypatch.setattr(
-        "argus_skill.manager.front_door._ensure_manager_runner",
+        "argus.manager.front_door._ensure_manager_runner",
         lambda _state, _memory: runner,
     )
 
@@ -213,17 +213,23 @@ def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeyp
     manager_state._STATES.clear()
 
     seen: list[str] = []
+    modes: list[str] = []
 
-    def _fake_triage(mem, body, chat_state, **_kw):
+    def _fake_triage(mem, body, chat_state, **kwargs):
         seen.append(body)
+        modes.append(kwargs["self_mode"])
         chat_state["last_thread_id"] = "thread-xyz"  # a live session accrues a thread
         return "ok"
 
+    def _classify(mem, body, chat_state, **kwargs):
+        chat_state["_frontdoor_self_mode"] = "reply"
+        return None, "simple"
+
     # Offline: stub the merged front-door classify (no real runner/LLM) + triage.
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify", lambda *a, **k: (None, "simple")
+        "argus.manager.config_intent._front_door_classify", _classify
     )
-    monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", _fake_triage)
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", _fake_triage)
 
     # Turns 1..4 stay on the same session (thread resumed, no handoff).
     for _ in range(4):
@@ -246,6 +252,7 @@ def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeyp
         for event_type in ("ui.operator", "ui.argus")
     ]
     assert all("SESSION HANDOFF" not in b for b in seen)
+    assert modes == ["reply", "inspect", "inspect", "inspect"]
     st = manager_state._STATES["s-rot00001"]
     assert st["last_thread_id"] == "thread-xyz"
 
@@ -253,8 +260,16 @@ def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeyp
     manager_bridge.manager_message("s-rot00001", "still there?", global_root=tmp_path)
     assert "SESSION HANDOFF" in seen[-1]
     assert "s-rot00001" in seen[-1]  # handoff carries the project path
+    assert "checking in" in seen[-1]
+    assert modes[-1] == "inspect"
     assert st["rotations"] == 1
     assert st["turns"] == 1  # counter reset after rotation
+
+    manager_bridge.manager_message("s-rot00001", "next question", global_root=tmp_path)
+    assert "SESSION HANDOFF" not in seen[-1]
+    assert modes[-1] == "inspect"
+    assert st["rotations"] == 1
+    assert st["turns"] == 2
 
 
 def test_rotation_resets_cached_runner_seed(tmp_path: Path, monkeypatch) -> None:
@@ -291,9 +306,9 @@ def test_rotation_resets_cached_runner_seed(tmp_path: Path, monkeypatch) -> None
 
     # Stub BOTH front-door steps so the test is offline (no real runner built).
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify", lambda *a, **k: (None, "simple")
+        "argus.manager.config_intent._front_door_classify", lambda *a, **k: (None, "simple")
     )
-    monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", _fake_triage)
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", _fake_triage)
 
     for _ in range(4):  # turns 1..4 — no rotation yet
         manager_bridge.manager_message(
@@ -337,9 +352,9 @@ def test_manager_stream_announces_classification_before_model_call(
         ]
         return None, "simple"
 
-    monkeypatch.setattr("argus_skill.manager.config_intent._front_door_classify", _classify)
+    monkeypatch.setattr("argus.manager.config_intent._front_door_classify", _classify)
     monkeypatch.setattr(
-        "argus_skill.manager.front_door.manager_triage",
+        "argus.manager.front_door.manager_triage",
         lambda *a, **k: "done",
     )
 
@@ -362,7 +377,7 @@ def test_manager_stream_and_persisted_reply_share_message_id(
     fragments: list[tuple[str, dict]] = []
 
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify",
+        "argus.manager.config_intent._front_door_classify",
         lambda *a, **k: (None, "simple"),
     )
 
@@ -371,7 +386,7 @@ def test_manager_stream_and_persisted_reply_share_message_id(
         on_fragment("delta", {"text": "done", "message_id": "internal-id"})
         return "done"
 
-    monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", _triage)
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", _triage)
 
     result = manager_bridge.manager_message(
         "s-stream001",
@@ -407,17 +422,17 @@ def test_natural_language_abort_is_control_not_backlog_work(
     manager_state._STATES.clear()
 
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify",
+        "argus.manager.config_intent._front_door_classify",
         lambda *a, **k: (None, "abort", "simple"),
     )
     monkeypatch.setattr(
-        "argus_skill.manager.front_door.manager_triage",
+        "argus.manager.front_door.manager_triage",
         lambda *a, **k: (_ for _ in ()).throw(
             AssertionError("abort control must not enter Manager reply work")
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.manager.dispatch.enqueue_mission",
+        "argus.manager.dispatch.enqueue_mission",
         lambda *a, **k: (_ for _ in ()).throw(
             AssertionError("abort control must never enqueue a mission")
         ),
@@ -447,7 +462,7 @@ def test_web_process_restart_seeds_one_startup_handoff(
     monkeypatch,
 ) -> None:
     life = _make_project(tmp_path, "s-restart01")
-    from argus_skill.core.transcript import append_turn
+    from argus.core.transcript import append_turn
 
     append_turn(life, "operator", "old question")
     append_turn(life, "argus", "old answer")
@@ -457,16 +472,18 @@ def test_web_process_restart_seeds_one_startup_handoff(
 
     def _classify(mem, text, chat_state, *, root_task_id=None):
         classified.append(text)
+        chat_state["_frontdoor_self_mode"] = "reply"
         return None, "simple"
 
-    monkeypatch.setattr("argus_skill.manager.config_intent._front_door_classify", _classify)
+    monkeypatch.setattr("argus.manager.config_intent._front_door_classify", _classify)
 
     def _triage(mem, body, chat_state, **_kw):
+        assert _kw["self_mode"] == "inspect"
         seen.append(body)
         chat_state["last_thread_id"] = "warm-thread"
         return "ok"
 
-    monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", _triage)
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", _triage)
 
     manager_bridge.manager_message(
         "s-restart01",
@@ -486,6 +503,8 @@ def test_web_process_restart_seeds_one_startup_handoff(
     )
     assert "SESSION HANDOFF" not in seen[1]
     assert classified == ["new question", "next question"]
+    assert manager_state._STATES["s-restart01"]["startup_handoffs"] == 1
+    assert "needs_startup_handoff" not in manager_state._STATES["s-restart01"]
 
 
 def test_status_question_uses_model_path_and_consumes_pending_handoff(
@@ -513,11 +532,11 @@ def test_status_question_uses_model_path_and_consumes_pending_handoff(
         return "model status reply"
 
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify",
+        "argus.manager.config_intent._front_door_classify",
         _classify,
     )
     monkeypatch.setattr(
-        "argus_skill.manager.front_door.manager_triage",
+        "argus.manager.front_door.manager_triage",
         _triage,
     )
 
@@ -559,9 +578,9 @@ def test_natural_language_config_change_is_applied_inline(tmp_path: Path, monkey
         triaged.append(body)
         return "chatted"
 
-    monkeypatch.setattr("argus_skill.manager.config_intent._front_door_classify", _fake_front_door)
-    monkeypatch.setattr("argus_skill.manager.config_intent._apply_config_intent", _fake_apply)
-    monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", _fake_triage)
+    monkeypatch.setattr("argus.manager.config_intent._front_door_classify", _fake_front_door)
+    monkeypatch.setattr("argus.manager.config_intent._apply_config_intent", _fake_apply)
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", _fake_triage)
 
     r = manager_bridge.manager_message(
         "s-cfg00001", "set the engineer to xhigh", global_root=tmp_path
@@ -574,7 +593,10 @@ def test_natural_language_config_change_is_applied_inline(tmp_path: Path, monkey
     r2 = manager_bridge.manager_message("s-cfg00001", "how's it going?", global_root=tmp_path)
     assert r2["kind"] == "chat"
     assert r2["reply"] == "chatted"
-    assert triaged == ["how's it going?"]
+    # The follow-up turn reaches triage wrapped in prior-turn context; the
+    # current operator message rides at the end of the contextualized body.
+    assert len(triaged) == 1
+    assert triaged[0].endswith("how's it going?")
 
 
 def test_active_mission_config_change_is_still_applied_inline(
@@ -592,7 +614,7 @@ def test_active_mission_config_change_is_still_applied_inline(
 
     intent = object()
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify",
+        "argus.manager.config_intent._front_door_classify",
         lambda *a, **k: (intent, None, "complex"),
     )
 
@@ -603,11 +625,11 @@ def test_active_mission_config_change_is_still_applied_inline(
         return True
 
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._apply_config_intent",
+        "argus.manager.config_intent._apply_config_intent",
         _apply,
     )
     monkeypatch.setattr(
-        "argus_skill.manager.front_door.manager_triage",
+        "argus.manager.front_door.manager_triage",
         lambda *a, **k: (_ for _ in ()).throw(
             AssertionError("config intent must short-circuit triage")
         ),

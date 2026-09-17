@@ -17,11 +17,11 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.life.supervisor._planning_cycle_helpers import goal_gate_task_title
+from argus.life.supervisor._planning_cycle_helpers import goal_gate_task_title
 
 
 def _project(tmp_path: Path, *, vertical: str, stage: str) -> Path:
-    from argus_skill.skills.vertical_select import _state_path, persist_vertical
+    from argus.skills.vertical_select import _state_path, persist_vertical
 
     persist_vertical(tmp_path, vertical)
     path = _state_path(tmp_path)
@@ -64,10 +64,10 @@ def test_a_stage_read_that_raises_falls_back_to_the_generic_title(
     def _boom(_root):
         raise RuntimeError("pipeline state unreadable")
 
-    monkeypatch.setattr("argus_skill.skills.stage_machine.current_stage", _boom)
+    monkeypatch.setattr("argus.skills.stage_machine.current_stage", _boom)
 
     assert goal_gate_task_title(tmp_path) == (
-        "Complete and certify the current Goal Gate"
+        "Finish and certify the current stage"
     )
 
 
@@ -75,11 +75,11 @@ def test_the_planner_uses_it(tmp_path: Path) -> None:
     """Otherwise the helper is a nicer name nothing ever prints."""
     import inspect
 
-    from argus_skill.life.supervisor import _planning_cycle_completion
+    from argus.life.supervisor import _planning_cycle_completion
 
     source = inspect.getsource(_planning_cycle_completion)
     assert "goal_gate_task_title(" in source
-    assert 'title="Complete and certify the current Goal Gate"' not in source
+    assert 'title="Finish and certify the current stage"' not in source
 
 
 def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path) -> None:
@@ -90,12 +90,12 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
     rows therefore need to carry the standing objective in their own
     `original_objective` field.
     """
-    from argus_skill.life.memory import Backlog
-    from argus_skill.life.supervisor._planning_cycle_enqueue import (
+    from argus.life.memory import Backlog
+    from argus.life.supervisor._planning_cycle_enqueue import (
         PlanningCycleEnqueueMixin,
     )
-    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-    from argus_skill.planner import PlannerVerdict, TaskSpec
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus.planner import PlannerVerdict, TaskSpec
 
     class Harness(PlanningCycleEnqueueMixin):
         def __init__(self) -> None:

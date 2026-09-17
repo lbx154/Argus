@@ -21,8 +21,8 @@ projection does not.
 
 from __future__ import annotations
 
-from argus_skill.core.event_catalog import EventType
-from argus_skill.life.memory import EventJournal
+from argus.core.event_catalog import EventType
+from argus.life.memory import EventJournal
 
 
 def _entry(**row):

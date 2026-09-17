@@ -9,9 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.life.memory import BacklogItem
-from argus_skill.life.supervisor._core import LifeSupervisor
-from argus_skill.verticals import _data_domain as dd
+from argus.life.memory import BacklogItem
+from argus.life.supervisor._core import LifeSupervisor
+from argus.verticals import _data_domain as dd
 
 
 def _supervisor(*, effective_gate: bool, tmp_path: Path) -> tuple[LifeSupervisor, list[bool]]:
@@ -101,7 +101,7 @@ def test_non_paper_planner_task_normalizes_final_submission_scope(
         "scope:bounded",
         "bounded_dag_node",
         "review:required",
-        "stage:research",
+        "stage:idea",
     ]
 
 
@@ -115,7 +115,7 @@ def test_paper_planner_task_preserves_final_submission_scope(
         "planner",
         "scope:final_submission",
         "review:required",
-        "stage:research",
+        "stage:idea",
     ]
 
 

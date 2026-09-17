@@ -11,5 +11,5 @@ installation and does not create a virtual environment. The bundled MCP launcher
 uses Node.js to select the platform-appropriate Argus Python.
 
 See [../../docs/plugin.md](../../docs/plugin.md) for Codex-only, Claude-only, and
-usage examples. The built-in `medical` vertical is for research, not diagnosis
-or treatment advice.
+usage examples. The `medical` vertical (from the `argus-verticals` package) is
+for research, not diagnosis or treatment advice.

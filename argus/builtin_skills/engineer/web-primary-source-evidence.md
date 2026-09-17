@@ -1,0 +1,33 @@
+---
+name: "Web Primary-Source Evidence"
+description: "Ground current software, API, product, benchmark, and implementation claims in fetched primary sources."
+---
+
+# Web Primary-Source Evidence
+
+Classify the claim before choosing a source:
+
+- public implementation claims require released code or a reproducible
+  observation;
+- documented behavior may use official technical documentation or changelogs;
+- vendor marketing supports only the attributed statement the vendor made;
+- undisclosed implementation details remain unknown.
+
+Fetch the primary source before citing it. Copy bibliographic facts and short
+supporting excerpts from the source rather than model memory. Record the source
+URL and access date next to the claim in the working paper, the configuration,
+or the research notes, `RESEARCH_NOTES.md`, whichever directly consumes it.
+
+Retain the fetched source text in the project's `.argus/sources/`, not shared
+`/tmp`. The supplied Argus Python can run `-m argus.tools.web_source URL` to
+fetch and cache HTML, text, or PDF. Cite its exact local path beside the URL in
+the existing notes so Reviewer can open the same source directly. For another
+fetch method, retain its actual source text with URL and access date there.
+
+Do not infer an algorithm from a launch page, turn an inference into a public
+fact, or treat repository absence as proof of a hidden implementation. When a
+material source cannot be resolved, keep the uncertainty explicit and raise it
+with the Reviewer.
+
+Do not create a separate source database, evidence report, or duplicate
+provenance file solely to prove that web research occurred.

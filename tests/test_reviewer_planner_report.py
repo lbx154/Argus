@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from argus_skill.core.models import LoopOutcome, RoundRecord
-from argus_skill.reviewer._parsing import parse_decision_text
+import pytest
+
+from argus.core.models import LoopOutcome, RoundRecord
+from argus.reviewer._parsing import decision_from_payload, parse_decision_text
 
 
 def test_named_reviewer_verdict_preserves_planner_report() -> None:
@@ -40,6 +42,60 @@ def test_legacy_json_reviewer_verdict_preserves_planner_report() -> None:
 
     assert decision is not None
     assert decision.planner_report["forward_progress"] is True
+
+
+def _mixed_payload(nested):
+    return {
+        "status": "done",
+        "reason": "The bounded result is correct; the next phase needs a new comparison.",
+        "next_action": "",
+        "planner_report": nested,
+        "forward_progress": True,
+        "plan_signal": "reconsider",
+        "plan_challenge": "The current plan cannot answer the original question.",
+        "plan_alternative": "Run the matched causal comparison.",
+        "authority_impact": "technical",
+    }
+
+
+@pytest.mark.parametrize("nested", [None, {}, {"forward_progress": False}])
+def test_missing_nested_fields_preserve_the_flat_plan_challenge(nested) -> None:
+    decision = decision_from_payload(_mixed_payload(nested))
+
+    assert decision is not None
+    assert decision.planner_report == {
+        "forward_progress": False if nested else True,
+        "plan_signal": "reconsider",
+        "challenge": "The current plan cannot answer the original question.",
+        "alternative": "Run the matched causal comparison.",
+        "authority_impact": "technical",
+    }
+    assert decision.to_event_payload()["plan_challenge"] == (
+        "The current plan cannot answer the original question."
+    )
+
+
+@pytest.mark.parametrize("empty", [None, ""])
+@pytest.mark.parametrize("use_aliases", [False, True])
+def test_explicit_nested_empty_values_do_not_restore_flat_advice(empty, use_aliases) -> None:
+    nested = {
+        "forward_progress": False,
+        "plan_signal": None,
+        "plan_challenge" if use_aliases else "challenge": empty,
+        "plan_alternative" if use_aliases else "alternative": empty,
+        "authority_impact": empty,
+    }
+    decision = decision_from_payload(_mixed_payload(nested))
+
+    assert decision is not None
+    assert decision.planner_report == {"forward_progress": False}
+
+
+def test_nested_none_progress_does_not_restore_flat_true() -> None:
+    decision = decision_from_payload(_mixed_payload({"forward_progress": None}))
+    assert decision is not None
+    assert "forward_progress" not in decision.planner_report
+    assert decision.planner_report["plan_signal"] == "reconsider"
 
 
 def test_loop_outcome_exposes_final_reviewer_planner_report() -> None:

@@ -1,5 +1,5 @@
-import { useRef, type ReactNode } from 'react';
-import { useMagneticMotion } from '../lib/motion';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { useI18n } from '../i18n';
 
 /** A steady status dot. Motion is reserved for real loading operations. */
 export function StatusDot({ ok, pulse = false, title }: { ok: boolean; pulse?: boolean; title?: string }) {
@@ -40,16 +40,11 @@ export function Button({
   disabled,
   title,
   className = '',
-}: {
+  ...buttonProps
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
   children: ReactNode;
-  onClick?: () => void;
   variant?: 'ghost' | 'primary' | 'danger';
-  disabled?: boolean;
-  title?: string;
-  className?: string;
 }) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  useMagneticMotion(buttonRef, variant !== 'danger' && !disabled);
   const styles: Record<string, string> = {
     ghost: 'brand-button-ghost',
     primary: 'brand-button-primary',
@@ -57,7 +52,7 @@ export function Button({
   };
   return (
     <button
-      ref={buttonRef}
+      {...buttonProps}
       type="button"
       title={title}
       disabled={disabled}
@@ -73,7 +68,7 @@ export function Button({
 export function PanelHeader({ title, right }: { title: string; right?: ReactNode }) {
   return (
     <div className="panel-header flex min-h-11 items-center justify-between border-b px-4">
-      <span className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-faint">{title}</span>
+      <span className="text-sm font-medium text-ink-dim">{title}</span>
       {right}
     </div>
   );
@@ -87,4 +82,27 @@ export function Spinner() {
 
 export function EmptyHint({ children }: { children: ReactNode }) {
   return <div className="px-3 py-6 text-center text-xs text-ink-faint">{children}</div>;
+}
+
+/**
+ * Raw text (a log tail, a JSON dump, command output) folded away behind one
+ * line, so the page shows the sentence that matters and the block waits for
+ * whoever wants it. Native `<details>` keeps it keyboard-reachable for free.
+ */
+export function RawDisclosure({
+  label,
+  children,
+  className = '',
+}: {
+  label?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <details className={`raw-disclosure mt-1 text-xs text-ink-faint ${className}`}>
+      <summary className="cursor-pointer select-none hover:text-ink">{label ?? t('common.showRaw')}</summary>
+      {children}
+    </details>
+  );
 }

@@ -2,7 +2,7 @@ import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
 import { Wordmark } from './Wordmark';
 
-type IconName = 'sessions' | 'plus' | 'preview' | 'chat' | 'settings' | 'theme';
+type IconName = 'sessions' | 'plus' | 'preview' | 'chat' | 'settings' | 'theme' | 'store';
 
 function RailIcon({ name }: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -12,6 +12,7 @@ function RailIcon({ name }: { name: IconName }) {
     chat: <path d="M3 3.5h10v7H7l-3.5 2v-2H3z" />,
     settings: <><circle cx="8" cy="8" r="2.25" /><path d="M8 2.25v1.2M8 12.55v1.2M2.25 8h1.2M12.55 8h1.2M3.95 3.95l.85.85M11.2 11.2l.85.85M12.05 3.95l-.85.85M4.8 11.2l-.85.85" /></>,
     theme: <path d="M8 2.25a5.75 5.75 0 1 0 0 11.5V2.25Z" />,
+    store: <><path d="M2.5 6.5 3.5 3h9l1 3.5" /><path d="M3 6.5v6.5h10V6.5" /><path d="M6.5 13V9.5h3V13" /></>,
   };
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.25">

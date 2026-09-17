@@ -21,9 +21,9 @@ disk, and always under the *stronger* of the two bars so nothing is certified
 against a bar looser than the operator would have picked.
 
 Citations:
-- argus_skill/verticals/math/objective_mode.py — ``adopt_operator_objective``
-- argus_skill/core/vertical_contract.py — ``operator_objective_adopter``
-- argus_skill/manager/_vertical_ops.py — ``_adopt_operator_objective``
+- argus/verticals/math/objective_mode.py — ``adopt_operator_objective``
+- argus/core/vertical_contract.py — ``operator_objective_adopter``
+- argus/manager/_vertical_ops.py — ``_adopt_operator_objective``
 """
 
 from __future__ import annotations
@@ -33,12 +33,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.vertical_contract import VerticalContract, VerticalContractError
-from argus_skill.verticals._base import (
+from argus.core.vertical_contract import VerticalContract, VerticalContractError
+from argus.verticals._base import (
     load_vertical,
     vertical_adopt_operator_objective,
 )
-from argus_skill.verticals.math.objective_mode import (
+from argus.verticals.math.objective_mode import (
     SOURCE_KEY,
     SOURCE_OPERATOR,
     SOURCE_TRANSCRIBED,
@@ -127,7 +127,7 @@ def test_adoption_unblocks_the_scope_stage(tmp_path: Path) -> None:
     stalled before it produced anything. The adopted objective clears exactly
     that issue.
     """
-    from argus_skill.verticals.math.stages import stage_completion_issues
+    from argus.verticals.math.stages import stage_completion_issues
 
     root = _project(tmp_path)
     before = stage_completion_issues("scope", root)
@@ -141,7 +141,7 @@ def test_adoption_unblocks_the_scope_stage(tmp_path: Path) -> None:
     assert not any("objective mode" in issue for issue in after), after
 
 
-@pytest.mark.parametrize("vertical", ["research", "speedrun"])
+@pytest.mark.parametrize("vertical", ["research", "math_synth"])
 def test_verticals_without_an_adopter_are_untouched(
     tmp_path: Path, vertical: str
 ) -> None:
@@ -161,8 +161,8 @@ def test_a_non_callable_adopter_is_rejected_by_the_contract() -> None:
     """Same fail-closed shape as the other optional provider hooks."""
     from types import SimpleNamespace
 
-    from argus_skill.core.vertical_contract import vertical_contract
-    from argus_skill.skills.stage_machine import ChecklistItem
+    from argus.core.vertical_contract import vertical_contract
+    from argus.skills.stage_machine import ChecklistItem
 
     provider = SimpleNamespace(
         CHECKLIST_STAGE_ORDER=("scope",),
@@ -195,8 +195,8 @@ def test_the_manager_adopts_on_committing_a_math_vertical(tmp_path: Path) -> Non
     landed — it had no caller, which is the entire defect. This test fails if
     the hook is ever unhooked from the division path.
     """
-    from argus_skill.manager import Manager
-    from argus_skill.manager.domain_author import VerticalDecision
+    from argus.manager import Manager
+    from argus.manager.domain_author import VerticalDecision
 
     manager = Manager(project_root=tmp_path)
     decision = VerticalDecision(
@@ -223,8 +223,8 @@ def test_the_manager_adopts_into_the_execution_workdir_too(tmp_path: Path) -> No
     project root would leave the gate exactly as unsatisfiable as before —
     which is how every recorded testbed run reached its stage gate.
     """
-    from argus_skill.manager import Manager
-    from argus_skill.manager.domain_author import VerticalDecision
+    from argus.manager import Manager
+    from argus.manager.domain_author import VerticalDecision
 
     project_root = tmp_path / "life"
     workdir = tmp_path / "repo"
@@ -242,15 +242,15 @@ def test_the_manager_adopts_into_the_execution_workdir_too(tmp_path: Path) -> No
         assert state["math_objective_mode"] == "targeted", root
         assert state["math_goal"] == REQUEST, root
 
-    from argus_skill.verticals.math.stages import stage_completion_issues
+    from argus.verticals.math.stages import stage_completion_issues
 
     issues = stage_completion_issues("scope", workdir)
     assert not any("objective mode" in issue for issue in issues), issues
 
 
 def test_the_manager_leaves_other_verticals_alone(tmp_path: Path) -> None:
-    from argus_skill.manager import Manager
-    from argus_skill.manager.domain_author import VerticalDecision
+    from argus.manager import Manager
+    from argus.manager.domain_author import VerticalDecision
 
     manager = Manager(project_root=tmp_path)
     decision = VerticalDecision(
@@ -273,9 +273,9 @@ def test_an_adopter_failure_does_not_break_the_division(
     an optional convenience, and a learned data domain has no vertical module
     at all — a lookup failure, not a defect.
     """
-    from argus_skill.manager import Manager, _vertical_ops
-    from argus_skill.manager.domain_author import VerticalDecision
-    from argus_skill.verticals import _base
+    from argus.manager import Manager, _vertical_ops
+    from argus.manager.domain_author import VerticalDecision
+    from argus.verticals import _base
 
     def _boom(*_args: object, **_kwargs: object) -> bool:
         raise RuntimeError("adopter exploded")

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.adapters.agent_cli_backend import AgentCliBackend
-from argus_skill.agent_cli.models import AgentRunResult
-from argus_skill.core.role_decision import (
+from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.agent_cli.models import AgentRunResult
+from argus.core.role_decision import (
     encode_role_decision,
     extract_role_decisions,
 )
-from argus_skill.engineer.round_execution import _engineer_decision_message
+from argus.engineer.round_execution import _engineer_decision_message
 
 
 def test_does_not_extract_decision_from_nested_tool_result() -> None:

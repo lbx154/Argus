@@ -3,6 +3,7 @@ import type { OperatorDecisionCard } from '../../../core/src/decisions';
 import { Modal, ModalHeader } from './Modal';
 import { isImeComposing } from '../lib/ime';
 import { useI18n } from '../i18n';
+import { PendingDecisionContext } from './PendingDecisionContext';
 
 export type PendingReply = OperatorDecisionCard;
 
@@ -12,14 +13,17 @@ export function PendingReplyDialog({
   busy,
   onClose,
   onSubmit,
+  error = '',
 }: {
   reply: PendingReply | null;
   open: boolean;
   busy: boolean;
   onClose: () => void;
   onSubmit: (optionId: string, note: string) => void;
+  error?: string;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const zh = locale === 'zh-CN';
   const defaultOption = useMemo(
     () => reply?.options[0]?.id ?? 'custom',
     [reply],
@@ -36,6 +40,7 @@ export function PendingReplyDialog({
   if (!reply) return null;
 
   const freeform = reply.options.length === 0;
+  const intake = reply.kind === 'domain_intake';
   const selected = reply.options.find((option) => option.id === optionId);
   const canSubmit = freeform
     ? Boolean(note.trim())
@@ -59,8 +64,9 @@ export function PendingReplyDialog({
 
   return (
     <Modal open={open} onClose={busy ? () => undefined : onClose} label={t('decision.operator')} width="max-w-2xl">
-      <ModalHeader title={t('decision.required')} sub={reply.title} />
+      <ModalHeader title={intake ? reply.title : t('decision.required')} sub={!intake && reply.title !== reply.task_title ? reply.title : undefined} />
       <div className="space-y-4 px-5 py-4">
+        <PendingDecisionContext card={reply} />
         {reply.reason ? (
           <section className="rounded-md border border-gold/30 bg-gold/5 p-3">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-gold">{t('decision.whyBlocked')}</div>
@@ -96,6 +102,7 @@ export function PendingReplyDialog({
                 setValidationError('');
               }}
               disabled={busy}
+              aria-pressed={optionId === option.id}
               className={`w-full rounded-md border p-3 text-left ${
                 optionId === option.id ? 'border-blue bg-blue/5' : 'border-line bg-bg/30'
               }`}
@@ -107,7 +114,7 @@ export function PendingReplyDialog({
           </div>
         ) : null}
 
-        {freeform || selected?.requires_note || note ? (
+        {intake || freeform || selected?.requires_note || note ? (
           <textarea
             data-autofocus
             value={note}
@@ -118,19 +125,20 @@ export function PendingReplyDialog({
             onKeyDown={onKeyDown}
             rows={3}
             disabled={busy}
-            placeholder={t('decision.notePlaceholder')}
+            aria-label={intake ? (zh ? '你的回答或补充说明' : 'Your answer or additional details') : t('decision.notePlaceholder')}
+            placeholder={intake ? (selected?.requires_note ? (zh ? '填写你的回答…' : 'Enter your answer…') : (zh ? '补充说明（可选）' : 'Additional details (optional)')) : t('decision.notePlaceholder')}
             className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 text-sm leading-relaxed text-ink outline-none focus:border-blue disabled:opacity-60"
           />
         ) : null}
-        {validationError ? (
-          <p role="alert" className="text-xs text-err">{validationError}</p>
+        {validationError || error ? (
+          <p role="alert" className="text-xs text-err">{validationError || error}</p>
         ) : null}
 
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-ink-faint">{t('decision.resumeHint')}</span>
+          <span className="text-xs text-ink-faint">{intake ? (zh ? '确认后继续这次任务。' : 'Confirm to continue this request.') : t('decision.resumeHint')}</span>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} disabled={busy} className="rounded-md px-3 py-2 text-xs text-ink-dim hover:bg-bg disabled:opacity-50">{t('decision.later')}</button>
-            <button type="button" onClick={submit} disabled={busy} className="rounded-md bg-blue-deep px-3 py-2 text-xs font-medium text-white hover:bg-blue-deep/85 disabled:opacity-50">
+            <button type="button" onClick={submit} disabled={busy} className="rounded-md border border-blue/35 bg-blue/8 px-3 py-2 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-50">
               {busy
                 ? t('decision.applying')
                 : freeform || optionId === 'custom'

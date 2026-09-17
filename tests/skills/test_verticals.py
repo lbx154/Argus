@@ -1,13 +1,13 @@
 """Verticals API + vertical-aware System-(B) stage checklists.
 
-The auto-research loop runs ONE of two *verticals*, selected by a single
+The auto-research loop runs ONE of several *verticals*, selected by a single
 ``vertical`` field in ``.argus/PIPELINE_STATE.json``:
 
-* ``research`` (the default) — the full eight-stage paper pipeline. Its
-  checklist output is byte-identical to the historical hard-coded behaviour.
-* ``speedrun`` — the lean 4-stage (setup/optimize/measure/report)
-  numeric-optimization vertical: lower one number (mean val bpb) under a fixed
-  wall-clock budget, no paper.
+* ``research`` (the default) — the full paper pipeline. Its checklist output is
+  byte-identical to the historical hard-coded behaviour.
+* ``math_synth`` — the lean 4-stage (setup/optimize/measure/report) built-in
+  metric-optimization vertical; it stands in here for every optimize-shaped
+  vertical (the community ``speedrun`` / ``kernelbench`` share its stage order).
 
 These tests pin the vertical-native API (the keyword classifier + old
 paper|optimize "pipeline mode" shims are gone — the Manager AGENT now decides
@@ -17,9 +17,8 @@ the vertical; see tests/manager/):
   explicit non-default env ``ARGUS_SKILL_VERTICAL`` > persisted built-in
   ``vertical`` > RAISE (fail-hard, no default).
 * ``persist_vertical`` / ``require_vertical`` reject unknown verticals (raise).
-* ``format_full_pipeline_checklist`` renders research's 8 stages by default and
-  speedrun's 4 stages under ``ARGUS_SKILL_VERTICAL=speedrun``.
-* the speedrun reviewer banner is the INNOVATION-COACH override.
+* ``format_full_pipeline_checklist`` renders research's stages by default and
+  never lets ``ARGUS_SKILL_VERTICAL`` override the persisted vertical.
 """
 from __future__ import annotations
 
@@ -28,13 +27,13 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_machine import (
+from argus.skills.stage_machine import (
     ChecklistLoadState,
     current_stage,
     format_full_pipeline_checklist,
     resolve_stage_checklist_contract,
 )
-from argus_skill.skills.vertical_select import (
+from argus.skills.vertical_select import (
     VERTICALS,
     UnknownVerticalError,
     VerticalResolutionError,
@@ -46,20 +45,18 @@ from argus_skill.skills.vertical_select import (
     resolve_workflow_mode,
     vertical_reached_own_terminal_stage,
 )
-from argus_skill.verticals._base import (
+from argus.verticals._base import (
     load_vertical,
     vertical_checklist_items,
     vertical_checklist_optional_stages,
     vertical_checklist_stage_order,
 )
-from argus_skill.verticals._data_domain import write_data_domain
-from argus_skill.verticals.speedrun.stages import role_banner as speedrun_role_banner
+from argus.verticals._data_domain import write_data_domain
 
 RESEARCH_STAGES: tuple[str, ...] = (
-    "research", "plan", "benchmark", "run",
-    "analysis", "draft", "review", "submission",
+    "idea", "experiment", "paper", "review",
 )
-SPEEDRUN_STAGES: tuple[str, ...] = ("setup", "optimize", "measure", "report")
+OPTIMIZE_STAGES: tuple[str, ...] = ("setup", "optimize", "measure", "report")
 
 
 @pytest.fixture(autouse=True)
@@ -159,14 +156,14 @@ def test_resolve_raises_on_corrupt_state(tmp_path: Path) -> None:
 
 
 def test_resolve_reads_pipeline_state_vertical(tmp_path: Path) -> None:
-    assert resolve_vertical(_project(tmp_path, "speedrun")) == "speedrun"
+    assert resolve_vertical(_project(tmp_path, "math_synth")) == "math_synth"
 
 
 def test_resolve_env_cannot_override_manager_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _project(tmp_path, "research")
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math_synth")
     assert resolve_vertical(root) == "research"
 
 
@@ -179,37 +176,26 @@ def test_persist_vertical_rejects_unknown_name(tmp_path: Path) -> None:
 
 
 def test_require_vertical_validates_or_raises() -> None:
-    assert require_vertical("kernelbench") == "kernelbench"
+    assert require_vertical("math_synth") == "math_synth"
     assert require_vertical("research") == "research"
     with pytest.raises(UnknownVerticalError):
         require_vertical("bogus")
 
 
-def test_kernelbench_keeps_research_as_valid_benchmark_research_stage(tmp_path: Path) -> None:
-    root = _project(tmp_path, "kernelbench", current="research")
-
-    persist_vertical(root, "kernelbench")
-
-    payload = json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert payload["vertical"] == "kernelbench"
-    assert payload["current_stage"] == "research"
-    assert current_stage(root) == "research"
-
-
 def test_persist_vertical_never_resets_existing_stage(tmp_path: Path) -> None:
     # Stage authority belongs to the reviewer agent, not the harness. A stage
     # that is NOT in the (mis)persisted vertical's order — here a research
-    # ``run`` stage persisted under the speedrun vertical after a
+    # ``run`` stage persisted under the math_synth vertical after a
     # classification false-positive — must be PRESERVED, never clobbered to
     # the vertical's first stage (that would be an unauthorized rollback that
     # destroys real pipeline progress).
     root = _project(tmp_path, "research", current="run")
 
-    persist_vertical(root, "speedrun")
+    persist_vertical(root, "math_synth")
 
     payload = json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert payload["vertical"] == "speedrun"
-    assert payload["current_stage"] == "run"  # preserved, NOT reset to "setup"
+    assert payload["vertical"] == "math_synth"
+    assert payload["current_stage"] == "experiment"
 
 
 def _finished_custom_domain(
@@ -241,7 +227,7 @@ def test_reset_stage_for_new_intent_preserves_inprogress_reclassification(
     tmp_path: Path,
 ) -> None:
     # Mirror scenario (a): reclassifying the SAME evolving, still-in-progress
-    # project (research -> speedrun mid-project, current_stage="run", not the
+    # project (research -> math_synth mid-project, current_stage="run", not the
     # vertical's own terminal/done stage) must be a no-op — stage is real
     # progress and must be PRESERVED, exactly like
     # test_persist_vertical_never_resets_existing_stage above, but exercised
@@ -249,15 +235,15 @@ def test_reset_stage_for_new_intent_preserves_inprogress_reclassification(
     # rather than persist_vertical alone.
     root = _project(tmp_path, "research", current="run")
 
-    persist_vertical(root, "speedrun")
+    persist_vertical(root, "math_synth")
     applied = reset_stage_for_new_intent(
-        root, old_vertical="research", new_vertical="speedrun",
+        root, old_vertical="research", new_vertical="math_synth",
     )
 
     assert applied is False
     payload = json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert payload["vertical"] == "speedrun"
-    assert payload["current_stage"] == "run"  # preserved, untouched
+    assert payload["vertical"] == "math_synth"
+    assert payload["current_stage"] == "experiment"
 
 
 def test_force_replacement_resets_inprogress_pipeline_immediately(
@@ -283,9 +269,9 @@ def test_force_replacement_resets_inprogress_pipeline_immediately(
 
     assert applied is True
     payload = json.loads(state_path.read_text())
-    assert payload["current_stage"] == "research"
-    assert payload["stages"]["research"]["status"] == "in_progress"
-    assert payload["stages"]["plan"]["status"] == "pending"
+    assert payload["current_stage"] == "idea"
+    assert payload["stages"]["idea"]["status"] == "in_progress"
+    assert payload["stages"]["experiment"]["status"] == "pending"
     assert payload["stages"]["review"]["status"] == "pending"
     assert payload["stage_history"][-1]["direction"] == "reset"
 
@@ -325,11 +311,11 @@ def test_reset_stage_for_new_intent_resets_stale_stage_from_finished_prior_verti
     """The exact bug this regression closes: an OLD custom vertical
     (``ops_continuity_runbook``) whose own LAST stage is ``"done"`` happens to
     share its stage NAME ("review") with a stage in a brand-new intent's
-    assigned vertical ("research"'s 8-stage order also has "review"). Before
+    assigned vertical ("research"'s five-stage order also has "review"). Before
     the fix, ``current_stage()`` would silently accept the stale "review" as
     real progress on the new project (a false stage advance with zero
     underlying evidence). After the fix, resolving the new intent must reset
-    ``current_stage`` to the NEW vertical's FIRST stage ("research"), not
+    ``current_stage`` to the NEW vertical's FIRST stage ("idea"), not
     inherit the stale name.
     """
     root = _finished_custom_domain(
@@ -344,7 +330,7 @@ def test_reset_stage_for_new_intent_resets_stale_stage_from_finished_prior_verti
 
     old_vertical = "ops_continuity_runbook"
     new_vertical = "research"  # brand-new, operator-issued intent's vertical
-    assert new_vertical == RESEARCH_STAGES[0]  # sanity: "research" is stage[0]
+    assert RESEARCH_STAGES[0] == "idea"
     assert "review" in RESEARCH_STAGES  # sanity: the exact name collision
 
     # This is what Manager.divide()/commit_domain() do: persist the NEW
@@ -358,18 +344,17 @@ def test_reset_stage_for_new_intent_resets_stale_stage_from_finished_prior_verti
     )
 
     assert applied is True
-    assert current_stage(root) == "research"  # new vertical's FIRST stage
+    assert current_stage(root) == "idea"
 
     payload = json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text())
     assert payload["vertical"] == "research"
-    assert payload["current_stage"] == "research"
+    assert payload["current_stage"] == "idea"
     # Downstream stages downgraded so the planner does not skip back over
     # them; the fully-inherited-but-unrelated "done" statuses from the OLD
     # vertical's stages are no longer read as this project's progress.
     assert payload["stages"]["review"]["status"] == "pending"
-    # Audit trail present (same primitive rollback_stage always uses).
-    assert payload["rollback_history"][-1]["rolled_back_by"] == "manager"
-    assert payload["rollback_history"][-1]["to_stage"] == "research"
+    assert payload["stage_history"][-1]["direction"] == "reset"
+    assert "rollback_history" not in payload
 
 
 def test_reset_stage_for_new_intent_reopens_finished_same_vertical(
@@ -408,56 +393,46 @@ def test_persist_vertical_seeds_first_stage_only_when_missing(tmp_path: Path) ->
     persist_vertical(tmp_path, "research")
 
     payload = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert payload["current_stage"] == "research"  # research vertical's first stage
+    assert payload["current_stage"] == "idea"
 
 
-def test_kernelbench_research_checklist_is_not_paper_literature_gate(tmp_path: Path) -> None:
-    root = _project(tmp_path, "kernelbench", current="research")
-
-    text = format_full_pipeline_checklist(role="reviewer", project_root=root)
-
-    assert "### research" in text
-    assert "SOTA-oriented technique research" in text
-    assert "research.first_score_plan" in text
-    assert "at least 10 recent high-quality papers" not in text
-
-
-def test_kernelbench_stage_completion_requires_scored_kernel_and_report(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("workflow_mode", "start_stage", "expected"),
+    [
+        ("direct", "paper", "paper"),
+        ("direct", " DrAfT ", "paper"),
+        ("direct", "not_a_stage", "idea"),
+        ("direct", "", "idea"),
+        ("staged", "paper", "idea"),
+    ],
+)
+def test_persist_vertical_seeds_requested_direct_stage(
+    tmp_path: Path, workflow_mode: str, start_stage: str, expected: str,
 ) -> None:
-    from argus_skill.verticals.kernelbench.stages import stage_completion_issues
+    persist_vertical(
+        tmp_path, "research", workflow_mode=workflow_mode, start_stage=start_stage,
+    )
 
-    assert "correct=true" in " ".join(stage_completion_issues("measure", tmp_path))
-
-    result = tmp_path / "attempts" / "a1" / "result.csv"
-    result.parent.mkdir(parents=True)
-    result.write_text("correct,sol_pct\ntrue,72.5\n", encoding="utf-8")
-    assert stage_completion_issues("measure", tmp_path) == ()
-
-    assert stage_completion_issues("report", tmp_path)
-    (tmp_path / "RESULTS.md").write_text("# Results\n", encoding="utf-8")
-    assert stage_completion_issues("report", tmp_path) == ()
+    payload = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
+    assert payload["current_stage"] == expected
 
 
-def test_speedrun_stage_completion_requires_scored_run_and_report(tmp_path: Path) -> None:
-    from argus_skill.verticals.speedrun.stages import stage_completion_issues
+@pytest.mark.parametrize("existing_stage", ["experiment", "off_order"])
+def test_persist_start_stage_never_resets_existing_research_stage(
+    tmp_path: Path, existing_stage: str,
+) -> None:
+    root = _project(tmp_path, "research", current=existing_stage)
 
-    assert "results.csv" in " ".join(stage_completion_issues("measure", tmp_path))
+    persist_vertical(root, "research", workflow_mode="direct", start_stage="paper")
 
-    result = tmp_path / "attempts" / "a1" / "results.csv"
-    result.parent.mkdir(parents=True)
-    result.write_text("score\n0.5\n", encoding="utf-8")
-    assert stage_completion_issues("measure", tmp_path) == ()
-
-    assert stage_completion_issues("report", tmp_path)
-    (tmp_path / "RESULTS.md").write_text("# Results\n", encoding="utf-8")
-    assert stage_completion_issues("report", tmp_path) == ()
+    payload = json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text())
+    assert payload["current_stage"] == existing_stage
 
 
 # --- format_full_pipeline_checklist is vertical-aware ----------------------
 
 
-def test_full_pipeline_defaults_to_research_eight_stages(tmp_path: Path) -> None:
+def test_full_pipeline_defaults_to_research_four_stages(tmp_path: Path) -> None:
     root = _project(tmp_path, "research")
     text = format_full_pipeline_checklist(role="reviewer", project_root=root)
     for stage in RESEARCH_STAGES:
@@ -469,62 +444,11 @@ def test_full_pipeline_defaults_to_research_eight_stages(tmp_path: Path) -> None
 def test_full_pipeline_checklist_prefers_persisted_vertical_over_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math_synth")
     root = _project(tmp_path, "research")
     text = format_full_pipeline_checklist(role="reviewer", project_root=root)
     for stage in RESEARCH_STAGES:
         assert f"### {stage}\n" in text
-    for stage in SPEEDRUN_STAGES:
+    for stage in OPTIMIZE_STAGES:
         assert f"### {stage}\n" not in text
-    assert "final submission gate" in text
-
-
-# --- speedrun reviewer banner is the innovation-coach override -------------
-
-
-def test_speedrun_reviewer_banner_is_innovation_coach() -> None:
-    banner = speedrun_role_banner("reviewer")
-    assert "INNOVATION COACH" in banner
-
-
-# --- quant (finance factor-research) vertical ------------------------------
-#
-# ``quant`` is the finance analog of ``research``: a REPORT vertical (it
-# produces a reviewer-certified factor report, not a numeric metric), reusing
-# the same 8 stage ids with finance semantics. These tests pin that it routes,
-# loads, certifies on the full-report gate, and ships its skill files.
-
-QUANT_STAGES: tuple[str, ...] = RESEARCH_STAGES  # same ids, finance semantics
-
-
-def test_quant_vertical_loads_and_exposes_contract() -> None:
-    from argus_skill.verticals._base import load_vertical, vertical_completion_gate
-
-    mod = load_vertical("quant")
-    assert tuple(mod.STAGE_ORDER) == QUANT_STAGES
-    # A factor report is certified on the full-report gate (like research),
-    # NOT a numeric speedrun metric.
-    assert vertical_completion_gate(mod) == "certified"
-
-
-def test_quant_is_a_report_vertical_not_optimize() -> None:
-    # The triage layer must treat quant as a research-shaped REPORT mission, not
-    # an optimize one — it produces a certified report, not a tuned number.
-    from argus_skill.manager import Manager
-
-    assert Manager._kind_for("quant") == "research"
-def test_quant_full_pipeline_checklist_is_finance_not_paper(tmp_path: Path) -> None:
-    root = _project(tmp_path, "quant", current="run")
-
-    text = format_full_pipeline_checklist(role="reviewer", project_root=root)
-
-    # All 8 stages render, with FINANCE checklist items (not the paper floor).
-    for stage in QUANT_STAGES:
-        assert f"### {stage}\n" in text
-    assert "research.hypotheses" in text
-    assert "research.hypothesis_priors" in text
-    assert "economic" in text  # economic-mechanism mandate
-    assert "search ledger" in text  # search-breadth discipline
-    # It is a REPORT vertical (certified gate) -> keeps the submission-gate
-    # header, not the lean "(quant)" optimize header.
     assert "final submission gate" in text

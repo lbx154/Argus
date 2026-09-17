@@ -98,16 +98,20 @@ impl UpdateManager {
         release: &ReleaseContext,
         logger: DesktopLogger,
     ) -> Arc<Self> {
-        let cached = read_cache(&data_dir);
-        let status = cached_available_status(&release.app_version, &cached).unwrap_or_default();
         let update_checks_disabled =
             std::env::var("ARGUS_DESKTOP_DISABLE_UPDATE_CHECK").as_deref() == Ok("1");
+        let enabled = !release.development && !crate::release::preview_mode() && !update_checks_disabled;
+        let status = enabled.then(|| cached_available_status(&release.app_version, &read_cache(&data_dir)))
+            .flatten().unwrap_or_else(|| UpdateStatus {
+                current_version: release.app_version.clone(),
+                ..UpdateStatus::default()
+            });
         Arc::new(Self {
             inner: Arc::new(UpdateManagerInner {
                 app,
                 data_dir,
                 logger,
-                enabled: !release.development && !update_checks_disabled,
+                enabled,
                 status: Mutex::new(status),
                 operation: AsyncMutex::new(()),
             }),
@@ -185,7 +189,7 @@ impl UpdateManager {
                 None,
                 None,
                 None,
-                Some("开发构建不检查发布更新。".to_owned()),
+                Some("当前为预览／开发构建，已禁用发布更新；不会下载或安装正式版本。".to_owned()),
                 manual,
             );
             if manual {
@@ -400,7 +404,7 @@ impl UpdateManager {
     pub async fn install(self: &Arc<Self>) -> Result<(), String> {
         let _operation = self.inner.operation.lock().await;
         if !self.inner.enabled {
-            return Err("开发构建不安装发布更新。".to_owned());
+            return Err("预览／开发构建不安装发布更新。".to_owned());
         }
         let current = self.status().current_version;
         self.set_status(make_status(
@@ -492,8 +496,8 @@ impl UpdateManager {
         let mut downloaded = 0_u64;
         let mut last_progress = Some(0_u8);
         let mut last_progress_emit = Instant::now();
-        let result = update
-            .download_and_install(
+        let verified_download = update
+            .download(
                 move |chunk_length, content_length| {
                     downloaded = downloaded.saturating_add(chunk_length as u64);
                     let progress = content_length
@@ -521,10 +525,22 @@ impl UpdateManager {
                         manager.set_status(status);
                     }
                 },
-            )
-            .await;
+            );
+        let result = crate::update_install::install_verified_update(
+            verified_download,
+            async {
+                #[cfg(windows)]
+                {
+                    // The supervisor already authenticates ownership. Never ask
+                    // NSIS to kill arbitrary processes with the same filename.
+                    let supervisor = Arc::clone(&crate::state(&self.inner.app).supervisor);
+                    supervisor.stop().await;
+                }
+            },
+            |bytes| update.install(bytes),
+        ).await;
         result.map_err(|error| {
-            let detail = format!("更新下载或签名验证失败：{error}");
+            let detail = format!("更新下载、签名验证或安装失败：{error}");
             self.inner.logger.warn(&detail);
             self.set_status(make_status(
                 UpdateState::Error,
@@ -541,11 +557,13 @@ impl UpdateManager {
 
     pub fn dismiss(&self) {
         let status = self.status();
-        let mut cache = self.cache();
-        if let Some(version) = status.available_version.as_ref() {
-            cache.dismissed_version = Some(version.clone());
+        if self.inner.enabled {
+            let mut cache = self.cache();
+            if let Some(version) = status.available_version.as_ref() {
+                cache.dismissed_version = Some(version.clone());
+            }
+            self.save_cache(&cache);
         }
-        self.save_cache(&cache);
         self.set_status(make_status(
             UpdateState::Idle,
             status.current_version,

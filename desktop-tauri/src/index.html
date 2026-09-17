@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-startup-eye-motion="on">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -32,11 +32,20 @@
           </div>
         </div>
       </nav>
-      <span class="desktop-menu-context">本地工作台</span>
+      <span class="desktop-menu-context" id="desktopContext" role="status">本地工作台</span>
     </header>
 
+    <aside id="runtimeNotice" class="runtime-notice" role="status" hidden>
+      <strong>本地运行提示</strong><span id="runtimeNoticeDetail"></span>
+    </aside>
+
     <div class="window-titlebar" aria-hidden="true">
-      <span class="window-titlebar-mark"></span>
+      <svg class="window-titlebar-mark" viewBox="0 0 512 512">
+        <path class="argus-mark-body" d="M352 112q0-30 30-30h28q30 0 30 30v320h-88v-52q-46 62-129 62Q66 442 66 266T228 88q80 0 124 56v-32ZM140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z" fill-rule="evenodd"></path>
+        <path class="argus-mark-eye-white" d="M140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z"></path>
+        <circle class="argus-mark-pupil" cx="244" cy="266" r="42"></circle>
+        <circle class="argus-mark-highlight" cx="262" cy="248" r="12"></circle>
+      </svg>
       <span>Argus</span>
     </div>
 
@@ -60,23 +69,17 @@
     </svg>
 
     <main class="splash" id="splash" aria-live="polite">
-      <div class="backdrop" aria-hidden="true">
-        <span class="grid"></span>
-        <span class="scan"></span>
-        <span class="signal"></span>
-      </div>
-
       <section class="stage">
         <div class="emblem-shell" aria-hidden="true">
-          <span class="halo"></span>
-          <span class="orbit orbit-a"><i></i></span>
-          <span class="orbit orbit-b"><i></i></span>
-          <div class="emblem">
-            <span class="mark"></span>
-          </div>
+          <svg class="argus-splash-mark" viewBox="0 0 512 512">
+            <path class="argus-mark-body" d="M352 112q0-30 30-30h28q30 0 30 30v320h-88v-52q-46 62-129 62Q66 442 66 266T228 88q80 0 124 56v-32ZM140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z" fill-rule="evenodd"></path>
+            <path class="argus-mark-eye-white" d="M140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z"></path>
+            <g class="argus-splash-eye">
+              <circle class="argus-mark-pupil" cx="244" cy="266" r="42"></circle>
+              <circle class="argus-mark-highlight" cx="262" cy="248" r="12"></circle>
+            </g>
+          </svg>
         </div>
-
-        <h1>Argus</h1>
 
         <ol class="steps" id="steps" aria-label="启动进度">
           <li class="step is-active" data-step="env">
@@ -102,6 +105,7 @@
             重试
           </button>
           <button class="setup" id="setup" type="button" hidden>修改设置</button>
+          <button class="setup" id="trialShortcut" type="button">使用内部测试 Key</button>
           <button class="setup" id="diagnostics" type="button" hidden>导出脱敏诊断</button>
         </div>
       </section>
@@ -125,7 +129,7 @@
         <span class="update-notice-kicker" id="updateKicker">软件更新</span>
         <strong id="updateTitle">正在检查更新</strong>
         <p id="updateDetail">只从已配置的 HTTPS 更新源读取签名清单。</p>
-        <p class="update-notice-security" id="updateSecurity">下载前会验证更新包签名</p>
+        <p class="update-notice-security" id="updateSecurity">安装前会验证更新包签名</p>
       </div>
       <div class="update-notice-actions">
         <button class="secondary small" id="updateCheck" type="button">检查更新</button>
@@ -138,7 +142,14 @@
       <div class="wizard-shell">
         <header class="wizard-head">
           <div class="wizard-mark" aria-hidden="true">
-            <span class="wizard-mark-glyph"></span>
+            <svg class="wizard-mark-glyph" viewBox="0 0 512 512">
+              <path class="argus-mark-body" d="M352 112q0-30 30-30h28q30 0 30 30v320h-88v-52q-46 62-129 62Q66 442 66 266T228 88q80 0 124 56v-32ZM140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z" fill-rule="evenodd"></path>
+              <path class="argus-mark-eye-white" d="M140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z"></path>
+              <g class="argus-wizard-eye">
+                <circle class="argus-mark-pupil" cx="244" cy="266" r="42"></circle>
+                <circle class="argus-mark-highlight" cx="262" cy="248" r="12"></circle>
+              </g>
+            </svg>
           </div>
           <div class="wizard-heading">
             <h2 id="wizardTitle">设置 Argus</h2>
@@ -153,16 +164,57 @@
 
         <div class="wizard-body">
           <section class="panel" data-panel="env">
-            <div class="panel-intro">
-              <span class="panel-eyebrow">步骤 1</span>
-              <h3>选择 Agent CLI</h3>
-              <p>选择 Argus 调用的本地智能代理。登录信息仍由对应 CLI 自己安全管理。</p>
+            <div class="entry-modes" role="group" aria-label="选择使用方式">
+              <button id="ownOpen" class="entry-mode" type="button" aria-pressed="true" aria-controls="ownIntro ownContent">
+                <strong>使用自己的账号</strong><span>选择已安装并登录的 Agent CLI</span>
+              </button>
+              <button id="trialOpen" class="entry-mode" type="button" aria-pressed="false" aria-expanded="false" aria-controls="trialPanel">
+                <strong>使用内测 Key</strong><span>受邀试用，自动准备运行环境</span>
+              </button>
             </div>
-            <div class="panel-content panel-content-env">
+            <section id="trialPanel" class="trial-invite" aria-labelledby="trialHeading" hidden>
+              <h3 id="trialHeading">内部试用</h3>
+              <p>如果您拿到了内部测试 Key，可以直接在这里填入使用。</p>
+              <div id="trialAccount" class="trial-account" hidden>
+                <strong>当前使用：服务端托管模型</strong>
+                <p id="trialBalance" role="status">正在同步服务端余额…</p>
+                <p id="trialAttention" role="status" hidden></p>
+                <div class="trial-account-actions">
+                  <button id="trialRefresh" class="ghost small" type="button">刷新余额</button>
+                  <button id="trialResume" class="ghost small" type="button" hidden>核对余额并恢复试用</button>
+                  <button id="trialRestore" class="ghost small" type="button" hidden>切回原账号</button>
+                </div>
+              </div>
+              <form id="trialForm" hidden>
+                <label for="trialKey">内部测试 Key</label>
+                <div class="trial-input-row">
+                  <input id="trialKey" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴 argus_trial_ 开头的 Key" required aria-describedby="trialHelp trialProgress">
+                  <button class="primary" id="trialSubmit" type="submit">开始试用</button>
+                </div>
+                <p id="trialHelp">无需其他 Coding 账号 · 每个 Key 累计 100 万 token · 跨设备共享余额</p>
+                <p id="trialProgress" role="status" aria-live="polite"></p>
+                <div id="trialDownload" hidden>
+                  <progress id="trialDownloadBar" max="100" aria-label="Copilot 下载进度"></progress>
+                  <p id="trialDownloadDetails"></p>
+                </div>
+                <p id="trialNetworkHint" role="status" hidden>下载暂时没有进展。请检查网络或系统代理；下载失败后可手动重试。</p>
+                <details class="trial-details">
+                  <summary>准备过程、额度与隐私说明</summary>
+                  <p>首次需要连接 GitHub 和试用服务。真实模型验证消耗少量额度；余额包含在途预留，中断也可能扣额度。</p>
+                  <p>启用或更换 Key 会重启本地后端，请先暂停正在进行的任务。argus-trial 是通信别名，真实模型由服务端运行配置决定。</p>
+                  <p>请求经过 Cloudflare、Argus 网关和上游服务，并非端到端加密或完全离线。</p>
+                </details>
+              </form>
+            </section>
+            <div id="ownIntro" class="panel-intro">
+              <h3>选择 Agent CLI</h3>
+              <p>使用自己的账号与模型。确认后自动记住，下次直接进入工作台。</p>
+            </div>
+            <div id="ownContent" class="panel-content panel-content-env">
               <fieldset class="runner-kind">
                 <legend>可用代理</legend>
                 <div class="segmented runner-segmented" id="runnerKindSegmented">
-                  <button class="is-selected" type="button" data-kind="codex">Codex CLI</button>
+                  <button type="button" data-kind="codex">Codex CLI</button>
                   <button type="button" data-kind="claude">Claude Code</button>
                   <button type="button" data-kind="copilot">Copilot CLI</button>
                   <button type="button" data-kind="cursor">Cursor CLI</button>
@@ -181,6 +233,7 @@
                     <svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg>
                     <span id="chooseRunnerLabel">选择 Codex CLI</span>
                   </button>
+                  <button class="ghost small" id="refreshRunners" type="button">重新检测</button>
                   <button class="ghost small" id="clearRunner" type="button" hidden>清除手动选择</button>
                 </div>
               </div>
@@ -198,7 +251,7 @@
                 <label for="portInput">本地端口</label>
                 <div class="port-input">
                   <span>127.0.0.1:</span>
-                  <input id="portInput" type="number" min="1024" max="65535" inputmode="numeric" value="8799" />
+                  <input id="portInput" type="number" min="1024" max="65535" inputmode="numeric" value="8799" aria-describedby="portError" />
                 </div>
                 <p class="field-hint">仅供当前电脑上的 Argus 工作台访问。</p>
                 <p class="field-error" id="portError" hidden>端口需在 1024 - 65535 之间</p>
@@ -220,7 +273,7 @@
             <div class="panel-intro">
               <span class="panel-eyebrow">步骤 3</span>
               <h3>确认设置</h3>
-              <p>保存后，Argus 会在需要时安全重启本地服务。</p>
+              <p>保存 CLI 或端口更改后会重启本地服务，可能中断当前工作。请在合适的任务边界操作。</p>
             </div>
             <div class="panel-content panel-content-summary">
               <dl class="summary">
@@ -245,12 +298,13 @@
                 <span class="runtime-icon" aria-hidden="true">
                   <svg class="icon"><use href="#i-check"></use></svg>
                 </span>
-                <span>Argus 内置后端已准备就绪</span>
+                <span>无需另装 Python。检测到 CLI 不代表已经登录，首次任务前请确认 CLI 鉴权。</span>
               </div>
             </div>
           </section>
         </div>
 
+        <p class="wizard-error" id="wizardError" role="alert" tabindex="-1" hidden></p>
         <footer class="wizard-foot">
           <button class="ghost" id="wizardCancel" type="button" hidden>取消并返回工作台</button>
           <button class="ghost" id="wizardBack" type="button" hidden>上一步</button>

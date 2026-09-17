@@ -22,12 +22,12 @@ Observed live across testbed runs 8, 9 and 10 (``s-fed750c2``, ``s-1828745c``,
       tags = ['planner', 'scope:bounded', 'bounded_dag_node', 'stage:scope']
 
 Citations:
-- argus_skill/life/supervisor/_planning_context.py
+- argus/life/supervisor/_planning_context.py
   — ``_final_submission_scope_applies``, ``_planner_task_tags``
-- argus_skill/life/supervisor/_planning_cycle_enqueue.py — canonical scope
-- argus_skill/life/supervisor/_core.py
+- argus/life/supervisor/_planning_cycle_enqueue.py — canonical scope
+- argus/life/supervisor/_core.py
   — ``_maybe_skip_inapplicable_final_submission_item``
-- argus_skill/life/supervisor/_planning_cycle_helpers.py
+- argus/life/supervisor/_planning_cycle_helpers.py
   — ``_research_project_done_issue``
 """
 
@@ -37,19 +37,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life.memory import BacklogItem
-from argus_skill.life.supervisor._constants import (
+from argus.life.memory import BacklogItem
+from argus.life.supervisor._constants import (
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
 )
-from argus_skill.life.supervisor._planning_context import PlanningContextMixin
-from argus_skill.planner import parse_planner_text
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import load_vertical_contract
+from argus.life.supervisor._planning_context import PlanningContextMixin
+from argus.planner import parse_planner_text
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals._base import load_vertical_contract
 
 # The two halves of the contract, and what each vertical declares.
 CERTIFIED_AND_TARGETED = "research"
-TARGETED_ONLY = ("math", "materials")
+TARGETED_ONLY = ("math",)
 NEITHER = "software"
 
 
@@ -135,8 +135,12 @@ def test_structural_final_submission_task_produces_consumable_gate_shape(tmp_pat
     assert harness._planner_scope_from_item(item) == PLANNER_SCOPE_FINAL_SUBMISSION
 
 
-def test_a_certified_vertical_is_unchanged(tmp_path) -> None:
-    harness = _project(tmp_path, CERTIFIED_AND_TARGETED)
+@pytest.mark.parametrize("gate", [False, True])
+def test_a_certified_vertical_is_unchanged(tmp_path, gate: bool) -> None:
+    persist_vertical(
+        tmp_path, CERTIFIED_AND_TARGETED, research_target_level="exploratory"
+    )
+    harness = _Harness(tmp_path, gate=gate)
 
     assert harness._final_submission_scope_applies(tmp_path)
     assert f"scope:{PLANNER_SCOPE_FINAL_SUBMISSION}" in harness._planner_task_tags(

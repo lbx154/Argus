@@ -53,10 +53,19 @@ impl RunnerKind {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AppearanceTheme {
-    #[default]
     System,
+    #[default]
     Light,
     Dark,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnAccountSettings {
+    pub runner_kind: RunnerKind,
+    pub runner_bins: BTreeMap<String, String>,
+    pub runner_configured: bool,
+    pub setup_complete: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -77,6 +86,10 @@ pub struct DesktopSettings {
     #[serde(default)]
     pub setup_complete: bool,
     #[serde(default)]
+    pub trial_mode: bool,
+    #[serde(default)]
+    pub own_account: Option<OwnAccountSettings>,
+    #[serde(default)]
     pub appearance_theme: AppearanceTheme,
 }
 
@@ -85,7 +98,7 @@ fn default_host() -> String {
 }
 
 const fn default_port() -> u16 {
-    8799
+    if crate::release::preview_mode() { 18799 } else { 8799 }
 }
 
 impl Default for DesktopSettings {
@@ -96,10 +109,10 @@ impl Default for DesktopSettings {
             token: String::new(),
             runner_kind: RunnerKind::default(),
             runner_bins: BTreeMap::new(),
-            // The default runner is auto-detected at launch. Setup is an
-            // editable preference panel, not a blocking first-run gate.
-            runner_configured: true,
-            setup_complete: true,
+            runner_configured: false,
+            setup_complete: false,
+            trial_mode: false,
+            own_account: None,
             appearance_theme: AppearanceTheme::default(),
         }
     }
@@ -120,6 +133,8 @@ pub enum BackendState {
 #[serde(rename_all = "camelCase")]
 pub struct BackendStatus {
     pub state: BackendState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -134,6 +149,7 @@ impl Default for BackendStatus {
         Self {
             state: BackendState::Idle,
             message: "尚未启动".to_owned(),
+            warning: None,
             detail: None,
             pid: None,
             url: None,
@@ -176,6 +192,8 @@ pub struct DesktopRuntimeIdentity {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSetup {
     pub complete: bool,
+    pub trial_mode: bool,
+    pub can_restore_own_account: bool,
     pub host: String,
     pub port: u16,
     pub runner_kind: RunnerKind,
@@ -353,9 +371,9 @@ mod tests {
     use super::DesktopSettings;
 
     #[test]
-    fn fresh_desktop_settings_do_not_block_cockpit_startup() {
+    fn fresh_desktop_settings_do_not_claim_a_configured_runner() {
         let settings = DesktopSettings::default();
-        assert!(settings.runner_configured);
-        assert!(settings.setup_complete);
+        assert!(!settings.runner_configured);
+        assert!(!settings.setup_complete);
     }
 }

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.team import _store
+from argus.team import _store
 
 
 def test_atomic_write_then_read_roundtrips(tmp_path: Path) -> None:
@@ -29,7 +29,7 @@ def test_atomic_write_leaves_no_tmp_and_overwrites(tmp_path: Path) -> None:
 def _locked_incr(lock: str, counter: str) -> None:
     from pathlib import Path as P
 
-    from argus_skill.team import _store as s
+    from argus.team import _store as s
     for _ in range(50):
         with s.locked(P(lock)):
             cur = s.read_json(P(counter), default={"n": 0})

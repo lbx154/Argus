@@ -4,17 +4,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.models import RunnerResult
-from argus_skill.tools.image_api import ImageToolError
-from argus_skill.verticals.research import (
+from argus.core.models import RunnerResult
+from argus.tools.image_api import ImageToolError
+from argus.verticals.research import (
     _reviewer_runner_fallback as fallback,
 )
-from argus_skill.verticals.research import academic_language_review as language
-from argus_skill.verticals.research import paper_infrastructure_review as infrastructure
-from argus_skill.verticals.research._reviewer_runner_fallback import (
+from argus.verticals.research import academic_language_review as language
+from argus.verticals.research import paper_infrastructure_review as infrastructure
+from argus.verticals.research._reviewer_runner_fallback import (
     ReviewerRunnerError,
 )
-from argus_skill.verticals.research.venue_profiles import EMNLP_PROFILE
+from tests.skills.researched_venues import EIGHT_PAGE_CONFERENCE
 
 
 def _explicit_env() -> dict[str, str]:
@@ -47,8 +47,8 @@ def test_fallback_uses_canonical_reviewer_config_and_timeout(
         )
         return RunnerResult(exit_code=0, agent_messages=['{"accepted":true}'])
 
-    from argus_skill.adapters import agent_cli_backend
-    from argus_skill.core import run_gateway
+    from argus.adapters import agent_cli_backend
+    from argus.core import run_gateway
 
     monkeypatch.setattr(agent_cli_backend, "AgentCliBackend", _Backend)
     monkeypatch.setattr(run_gateway, "run_exec", _run)
@@ -86,8 +86,8 @@ def test_fallback_uses_canonical_reviewer_config_and_timeout(
 def test_explicit_shared_runner_bin_beats_persisted_role_bin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus_skill.adapters import agent_cli_backend
-    from argus_skill.core import knob_store, run_gateway
+    from argus.adapters import agent_cli_backend
+    from argus.core import knob_store, run_gateway
 
     captured = {}
     monkeypatch.setattr(
@@ -122,6 +122,46 @@ def test_explicit_shared_runner_bin_beats_persisted_role_bin(
     assert captured["runner_bin"] == "/env/shared"
 
 
+def test_reviewer_backend_override_ignores_persisted_shared_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus.adapters import agent_cli_backend
+    from argus.core import knob_store, run_gateway
+
+    captured = {}
+    monkeypatch.setattr(
+        knob_store,
+        "read_persisted_knobs",
+        lambda: {
+            "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+            "ARGUS_SKILL_RUNNER_BIN": "/persisted/dsh",
+        },
+    )
+    monkeypatch.setattr(
+        agent_cli_backend,
+        "AgentCliBackend",
+        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        run_gateway,
+        "run_exec",
+        lambda *args, **kwargs: RunnerResult(
+            exit_code=0,
+            agent_messages=['{"accepted":true}'],
+        ),
+    )
+
+    fallback.run_reviewer_prompt_via_runner(
+        "review this",
+        run_label="research.test_review",
+        env={"ARGUS_SKILL_REVIEWER_BACKEND": "copilot"},
+        timeout=5.0,
+    )
+
+    assert captured["backend"] == "copilot"
+    assert captured["runner_bin"] is None
+
+
 def test_malformed_runner_extra_args_becomes_handled_error() -> None:
     env = _explicit_env()
     env["ARGUS_SKILL_RUNNER_EXTRA_ARGS"] = "'unterminated"
@@ -151,8 +191,8 @@ def test_fallback_rejects_failed_or_empty_runner_results(
     monkeypatch: pytest.MonkeyPatch,
     result: RunnerResult,
 ) -> None:
-    from argus_skill.adapters import agent_cli_backend
-    from argus_skill.core import run_gateway
+    from argus.adapters import agent_cli_backend
+    from argus.core import run_gateway
 
     monkeypatch.setattr(
         agent_cli_backend,
@@ -212,9 +252,8 @@ def test_gate_converts_runner_failure_to_handled_review_error(
     with pytest.raises(error_type, match="runner failed"):
         module._run_model_review(
             root=tmp_path,
-            threshold=4.0,
             env={},
             timeout=7.0,
-            venue=EMNLP_PROFILE,
+            venue=EIGHT_PAGE_CONFERENCE,
             **kwargs,
         )

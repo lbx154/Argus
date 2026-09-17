@@ -1,12 +1,12 @@
-"""Tests for argus_skill.skills.evidence_chain (F4)."""
+"""Tests for argus.skills.evidence_chain (F4)."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.skills.evidence_chain import (
+from argus.skills.evidence_chain import (
     main as evidence_chain_main,
 )
-from argus_skill.skills.evidence_chain import (
+from argus.skills.evidence_chain import (
     validate_evidence_chain,
 )
 

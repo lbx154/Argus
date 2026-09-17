@@ -8,16 +8,22 @@ import {
 } from '../../core/src/events.js';
 import { formatMissionRouting } from '../../core/src/missionView.js';
 import { missionOutcomePresentation } from '../../core/src/missionOutcome.js';
+import {
+  renderLine,
+  type RenderContext,
+  type RenderedLine,
+} from '../../core/src/eventRender/index.js';
 
 export { isReasoning, mergeFragment };
 
 /**
- * Clean, whitelisted event rendering for the terminal — the twin of the web's
- * lib/eventRender.ts and a faithful port of the Python cockpit
- * (cli/event_format.py + apps/cli/_follow.py). The daemon's raw events.jsonl is
- * noisy: raw CLI framing (``agent.io.*``), telemetry, empty progress. The REPL
- * shows a WHITELIST — each meaningful event → role, glyph, one clean line;
- * everything else is HIDDEN. No more ``agent.io.stream`` flooding the feed.
+ * Clean, whitelisted event rendering for the terminal — a port of the Python
+ * cockpit (cli/event_format.py + apps/cli/_follow.py). The daemon's raw
+ * events.jsonl is noisy: raw CLI framing (``agent.io.*``), telemetry, empty
+ * progress. The REPL shows a WHITELIST — each meaningful event → role, glyph,
+ * one clean line; everything the whitelist does not name goes through the
+ * shared renderer (frontend/core/src/eventRender), which the web feed reads
+ * for every event; what neither knows is HIDDEN.
  */
 
 export type Tone = 'bright' | 'dim' | 'accent' | 'ok' | 'warn' | 'err' | 'info';
@@ -69,16 +75,16 @@ function managerFailureText(ev: EventMsg): string {
   const phase = S(ev, 'phase');
   const cause = S(ev, 'cause') || S(ev, 'backend_error');
   const raw = S(ev, 'error');
-  if (!phase || !cause) return `分流失败 ${trunc(raw, 160)}`;
+  if (!phase || !cause) return `没能判断这个请求该归谁 ${trunc(raw, 160)}`;
   const phaseLabel: Record<string, string> = {
-    backend: '后端',
-    parse: '解析',
-    contract: '契约：',
+    backend: '模型服务',
+    parse: '读取回答',
+    contract: '回答格式：',
     timeout: '超时',
   };
   const attempts = Number((ev as Record<string, unknown>).attempts || 0);
   const attempt = attempts > 1 ? ` (第${attempts}次尝试)` : '';
-  const summary = `分流失败 · ${phaseLabel[phase] || phase} ${cause}${attempt}`;
+  const summary = `没能判断这个请求该归谁 · ${phaseLabel[phase] || phase} ${cause}${attempt}`;
   return raw ? `${summary} · 原始错误: ${raw}` : summary;
 }
 
@@ -159,7 +165,7 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     };
   }
 
-  if (t === 'life.manager.intent.started') return { role: 'manager', label: 'Manager', glyph: '🧭', text: '判断任务归属…', tone: 'info' };
+  if (t === 'life.manager.intent.started') return { role: 'manager', label: 'Manager', glyph: '🧭', text: '判断这是什么样的请求…', tone: 'info' };
   if (t === 'life.manager.intent.completed') {
     const routing = formatMissionRouting({
       route: S(ev, 'route') || 'team',
@@ -176,20 +182,30 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     const target = S(ev, 'target_stage') || S(ev, 'stage') || S(ev, 'current_stage');
     return { role: 'manager', label: 'Manager', glyph: '🧭', text: `${S(ev, 'action')}${target ? ` → ${target}` : ''} ${trunc(S(ev, 'reason'), 140)}`, tone: 'info' };
   }
+  if (t === 'life.research.second_reading') {
+    const layer = S(ev, 'agent_layer') || 'manager';
+    const supported = trunc(S(ev, 'supported'), 160);
+    const base = 'reread the evidence and reworked the plan';
+    return { role: layer, label: ROLE_LABEL[layer] || layer, glyph: '📖', text: supported ? `${base} · ${supported}` : base, tone: 'info' };
+  }
+  if (t === 'life.letter.written') {
+    const layer = S(ev, 'agent_layer') || 'manager';
+    return { role: layer, label: ROLE_LABEL[layer] || layer, glyph: '✉', text: 'wrote you a letter', tone: 'accent' };
+  }
 
   if (t === 'life.planner.start') return { role: 'planner', label: 'Planner', glyph: '📋', text: `planning ${trunc(S(ev, 'objective'), 160)}`, tone: 'accent' };
   if (t === 'life.planner.verdict') {
     const done = S(ev, 'status') === 'done' || (ev as Record<string, unknown>).project_done === true;
     return done
-      ? { role: 'planner', label: 'Planner', glyph: '🏁', text: 'project done', tone: 'ok' }
-      : { role: 'planner', label: 'Planner', glyph: '📋', text: `queued ${S(ev, 'queued') || S(ev, 'n') || 'next'} task(s)`, tone: 'accent' };
+      ? { role: 'planner', label: 'Planner', glyph: '🏁', text: 'the project is finished', tone: 'ok' }
+      : { role: 'planner', label: 'Planner', glyph: '📋', text: `lined up ${S(ev, 'queued') || S(ev, 'n') || 'next'} task(s) to do next`, tone: 'accent' };
   }
-  if (t === 'life.planner.task_added') return { role: 'planner', label: 'Planner', glyph: '＋', text: `added ${trunc(S(ev, 'title') || S(ev, 'objective'), 160)}`, tone: 'accent' };
-  if (t === 'life.planner.task_skipped') return { role: 'planner', label: 'Planner', glyph: '⏭', text: `skipped duplicate ${trunc(S(ev, 'title'), 140)}`, tone: 'dim' };
-  if (t === 'life.planner.error') return { role: 'planner', label: 'Planner', glyph: '⚠', text: `planner error ${trunc(S(ev, 'error') || S(ev, 'text'), 160)}`, tone: 'err' };
+  if (t === 'life.planner.task_added') return { role: 'planner', label: 'Planner', glyph: '＋', text: `added a task · ${trunc(S(ev, 'title') || S(ev, 'objective'), 160)}`, tone: 'accent' };
+  if (t === 'life.planner.task_skipped') return { role: 'planner', label: 'Planner', glyph: '⏭', text: `skipped a task already planned ${trunc(S(ev, 'title'), 140)}`, tone: 'dim' };
+  if (t === 'life.planner.error') return { role: 'planner', label: 'Planner', glyph: '⚠', text: `the Planner hit an error ${trunc(S(ev, 'error') || S(ev, 'text'), 160)}`, tone: 'err' };
 
   if (t === 'life.mission.started' || t === 'mission.started')
-    return { role: 'engineer', label: 'Engineer', glyph: '🚀', text: trunc(S(ev, 'title') || S(ev, 'objective') || S(ev, 'text') || 'mission started', 180), tone: 'info', rule: true };
+    return { role: 'engineer', label: 'Engineer', glyph: '🚀', text: trunc(S(ev, 'title') || S(ev, 'objective') || S(ev, 'text') || 'started work on this task', 180), tone: 'info', rule: true };
   if (t === 'round.started' || t === 'round.start')
     return { role: 'engineer', label: 'Engineer', glyph: '──', text: `round ${roundNo(ev)}`, tone: 'dim', rule: true };
   if (t === 'life.phase.started') {
@@ -198,17 +214,17 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     const role = S(ev, 'agent_layer') || 'engineer';
     return { role, label: ROLE_LABEL[role] || role, glyph: '🔄', text: `进入 ${phase}`, tone: 'info' };
   }
-  if (t === 'round.review.started') return { role: 'reviewer', label: 'Reviewer', glyph: '🔄', text: `review round ${roundNo(ev)}`, tone: 'info' };
-  if (t === 'round.review.deferred') return { role: 'engineer', label: 'Engineer', glyph: '↪', text: `continues before review · ${trunc(S(ev, 'next_step'), 180)}`, tone: 'info' };
-  if (t === 'round.main.completed') return { role: 'engineer', label: 'Engineer', glyph: '✅', text: `round ${roundNo(ev)} completed`, tone: 'info' };
+  if (t === 'round.review.started') return { role: 'reviewer', label: 'Reviewer', glyph: '🔄', text: `the Reviewer checks round ${roundNo(ev)}`, tone: 'info' };
+  if (t === 'round.review.deferred') return { role: 'engineer', label: 'Engineer', glyph: '↪', text: `carries on into the next round without a review · ${trunc(S(ev, 'next_step'), 180)}`, tone: 'info' };
+  if (t === 'round.main.completed') return { role: 'engineer', label: 'Engineer', glyph: '✅', text: `finished round ${roundNo(ev)} of work`, tone: 'info' };
   if (t === 'round.review.completed') {
+    if (ev.review_skipped === true)
+      return { role: 'reviewer', label: 'Reviewer', glyph: '↪', text: `no review this round · ${trunc(S(ev, 'reason'), 200)}`, tone: 'info' };
     const st = S(ev, 'status');
     const tone: Tone = st === 'done' ? 'ok' : st === 'blocked' || st === 'no_progress' ? 'err' : 'warn';
     const glyph = st === 'done' ? '✅' : st === 'blocked' || st === 'no_progress' ? '⛔' : '↻';
-    return { role: 'reviewer', label: 'Reviewer', glyph, text: `${st || '?'} · ${trunc(S(ev, 'reason'), 200)}`, tone };
+    return { role: 'reviewer', label: 'Reviewer', glyph, text: `${reviewVerdict(st)} · ${trunc(S(ev, 'reason'), 200)}`, tone };
   }
-  if (t === 'life.iteration.critic') return { role: 'critic', label: 'Critic', glyph: '👔', text: `${S(ev, 'decision') || ''} ${trunc(S(ev, 'reason'), 160)}`, tone: 'info' };
-  if (t === 'life.iteration.continued') return { role: 'critic', label: 'Critic', glyph: '🔁', text: 'queued next iteration', tone: 'dim' };
   if (t === 'life.mission.completed' || t === 'mission.completed' || t === 'loop.completed') {
     const presentation = missionOutcomePresentation(ev);
     const summary = trunc(S(ev, 'summary'), 240);
@@ -222,20 +238,17 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     };
   }
   if (t === 'life.mission.failed' || t === 'mission.error')
-    return { role: 'engineer', label: 'Engineer', glyph: '❌', text: `mission failed ${trunc(S(ev, 'reason') || S(ev, 'error'), 160)}`, tone: 'err', rule: true };
+    return { role: 'engineer', label: 'Engineer', glyph: '❌', text: `this task failed ${trunc(S(ev, 'reason') || S(ev, 'error'), 160)}`, tone: 'err', rule: true };
   if (t === 'loop.start') return { role: 'engineer', label: 'Engineer', glyph: '▶', text: trunc(S(ev, 'text') || S(ev, 'objective'), 16_000), tone: 'info', expand: true };
-  if (t === 'loop.done') return { role: 'engineer', label: 'Engineer', glyph: '🏁', text: `loop done ${trunc(S(ev, 'text'), 140)}`, tone: 'dim' };
+  if (t === 'loop.done') return { role: 'engineer', label: 'Engineer', glyph: '🏁', text: `the run finished ${trunc(S(ev, 'text'), 140)}`, tone: 'dim' };
 
-  if (t === 'life.inbox.queued') return { role: 'system', label: 'You', glyph: '📥', text: `nudge · ${trunc(S(ev, 'text'), 180)}`, tone: 'accent' };
-  if (t === 'final.report.ready' || t === 'pptx.report.ready') return { role: 'system', label: 'Argus', glyph: '📄', text: 'report ready', tone: 'accent' };
-  if (t === 'plan.completed') return { role: 'planner', label: 'Planner', glyph: '📋', text: 'plan completed', tone: 'accent' };
-  if (t === 'daemon.stopping') return { role: 'system', label: 'Daemon', glyph: '🛑', text: 'stopping', tone: 'err' };
+  if (t === 'life.inbox.queued') return { role: 'system', label: 'You', glyph: '📥', text: `you added guidance · ${trunc(S(ev, 'text'), 180)}`, tone: 'accent' };
   if (t === 'daemon.parked') {
     return {
       role: 'system',
       label: 'Argus',
       glyph: 'Ⅱ',
-      text: `session parked · state saved${S(ev, 'replaced_by') ? ` · replaced by ${S(ev, 'replaced_by')}` : ''}`,
+      text: `Argus set this project aside with its state saved${S(ev, 'replaced_by') ? ` · continued as ${S(ev, 'replaced_by')}` : ''}`,
       tone: 'warn',
       rule: true,
     };
@@ -245,7 +258,7 @@ export function renderEvent(ev: EventMsg): Rendered | null {
       role: 'system',
       label: 'Quota',
       glyph: '⏸',
-      text: `${S(ev, 'provider') || 'provider'} request blocked · ${trunc(S(ev, 'reason'), 160)}`,
+      text: `a request to ${S(ev, 'provider') || 'the model service'} was held back · ${trunc(S(ev, 'reason'), 160)}`,
       tone: 'warn',
       rule: true,
     };
@@ -258,38 +271,28 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   // at work. The hundred-eyed watcher voice; anything flagged operator_alert is
   // surfaced loud regardless of type.
   if (t === 'round.reviewer_backend_failure')
-    return { role: 'system', label: 'Watch', glyph: '👁', text: `reviewer backend down — holding, won't continue blind · ${trunc(S(ev, 'text'), 150)}`, tone: 'err', rule: true };
+    return { role: 'system', label: 'Watch', glyph: '👁', text: `the Reviewer's model service is unreachable — waiting rather than going on unchecked · ${trunc(S(ev, 'text'), 150)}`, tone: 'err', rule: true };
   if (t === 'round.stall')
-    return { role: 'system', label: 'Watch', glyph: '👁', text: trunc(S(ev, 'text') || 'no forward progress — watching closely', 170), tone: 'warn' };
+    return { role: 'system', label: 'Watch', glyph: '👁', text: trunc(S(ev, 'text') || 'no progress this round — keeping a close eye on it', 170), tone: 'warn' };
   if (t === 'round.escalated')
-    return { role: 'system', label: 'Watch', glyph: '👁', text: trunc(S(ev, 'text') || 'soft round limit — escalating external blockers', 170), tone: 'warn' };
+    return { role: 'system', label: 'Watch', glyph: '👁', text: trunc(S(ev, 'text') || 'many rounds without a finish — raising what is blocking the work', 170), tone: 'warn' };
   if (t === 'life.planner.stall_escalation')
-    return { role: 'system', label: 'Watch', glyph: '👁', text: `planner stalled — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'warn' };
+    return { role: 'system', label: 'Watch', glyph: '👁', text: `the Planner is stuck — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'warn' };
+  if ((t === 'life.budget.pause' || t === 'budget.reservation.denied') &&
+      (S(ev, 'stop_kind') === 'cost_unreconciled' || S(ev, 'reason').startsWith('unresolved provider cost')))
+    return { role: 'system', label: 'Budget', glyph: '$', text: 'Provider usage awaits reconciliation — not budget exhaustion', tone: 'warn' };
   if (t === 'life.budget.pause')
     return { role: 'system', label: 'Watch', glyph: '⏸', text: `budget cap reached — paused · ${trunc(S(ev, 'text') || S(ev, 'reason'), 140)}`, tone: 'warn' };
   if (t === 'budget.reservation.denied')
     return { role: 'system', label: 'Budget', glyph: '$', text: `budget denied — ${trunc(S(ev, 'reason') || S(ev, 'text'), 160)}`, tone: 'err', rule: true };
   if (t === 'budget.unpriced.blocked')
-    return { role: 'system', label: 'Budget', glyph: '$', text: `budget blocked by unresolved cost — ${trunc(S(ev, 'reason') || S(ev, 'text'), 160)}`, tone: 'err', rule: true };
+    return { role: 'system', label: 'Budget', glyph: '$', text: 'Provider usage awaits reconciliation — not budget exhaustion', tone: 'warn' };
+  if (t === 'budget.unpriced.acknowledged')
+    return { role: 'system', label: 'Budget', glyph: '$', text: 'Single-call cost risk approved; original usage remains pending', tone: 'warn' };
   if (t === 'life.lifecycle.block')
     return { role: 'system', label: 'Watch', glyph: '⛔', text: `blocked — needs you · ${trunc(S(ev, 'text') || S(ev, 'reason'), 150)}`, tone: 'err', rule: true };
   if (t === 'life.daemon.idle_timeout')
-    return { role: 'system', label: 'Watch', glyph: '🟦', text: trunc(S(ev, 'text') || 'idle timeout — standing by', 150), tone: 'dim' };
-  // round.watchdog.* only reach the feed in "full" verbosity — still render them.
-  if (t === 'round.watchdog.restart_requested')
-    return { role: 'system', label: 'Watch', glyph: '🔄', text: `stall caught — restarting the round · ${trunc(S(ev, 'reason'), 170)}`, tone: 'warn' };
-  if (t === 'engineer.failure_nudge')
-    return { role: 'engineer', label: 'Engineer', glyph: '⚠', text: `repeated tool failure — ${trunc(S(ev, 'text') || S(ev, 'reason'), 170)}`, tone: 'warn' };
-  if (t === 'mission.idle')
-    return { role: 'system', label: 'Argus', glyph: '🟦', text: trunc(S(ev, 'text') || 'idle — awaiting the next mission', 160), tone: 'dim' };
-  // Catch-all: any event the daemon flagged for the operator's eyes, surfaced
-  // loud even if its type has no bespoke renderer above (harness marks it, the
-  // cockpit shows it — the guardian never swallows an alert).
-  if ((ev as Record<string, unknown>).operator_alert === true) {
-    const body = trunc(S(ev, 'text') || S(ev, 'reason') || t, 170);
-    if (body) return { role: 'system', label: 'Watch', glyph: '👁', text: body, tone: 'err', rule: true };
-  }
-
+    return { role: 'system', label: 'Watch', glyph: '🟦', text: trunc(S(ev, 'text') || 'nothing to do for a while — standing by', 150), tone: 'dim' };
   // Operator ↔ Manager conversation, injected locally so it flows inline with
   // the mission feed (the Manager reply lives in transcript, not events).
   if (t === 'ui.operator') return { role: 'system', label: 'You', glyph: '›', text: S(ev, 'text'), tone: 'accent', rule: true };
@@ -304,8 +307,44 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     return body ? { role: 'manager', label: 'Steps', glyph: '⋮', text: body, tone: 'dim' } : null;
   }
 
+  // Catalog events this whitelist does not enumerate render through the
+  // shared semantic renderer, so the terminal shows the same line as every
+  // other frontend instead of dropping the event.
+  const shared = renderLine(ev, SHARED_RENDER_CONTEXT);
+  if (shared) return fromSharedLine(shared);
+
+  // Catch-all: any event the daemon flagged for the operator's eyes, surfaced
+  // loud even if its type has no bespoke renderer above (harness marks it, the
+  // cockpit shows it — the guardian never swallows an alert).
+  if ((ev as Record<string, unknown>).operator_alert === true) {
+    const body = trunc(S(ev, 'text') || S(ev, 'reason') || t, 170);
+    if (body) return { role: 'system', label: 'Watch', glyph: '👁', text: body, tone: 'err', rule: true };
+  }
+
   // Everything else (agent.io.*, internal bookkeeping) → hidden.
   return null;
+}
+
+const SHARED_RENDER_CONTEXT: RenderContext = {
+  locale: 'en',
+  showReasoning: true,
+  unknownEventPolicy: 'hide',
+  density: 'full',
+};
+
+/** A shared-renderer line in this file's Rendered shape. The terminal speaks
+ *  as the watcher — every notice is labelled Watch, as the whitelist above does. */
+function fromSharedLine(line: RenderedLine): Rendered {
+  return {
+    role: line.role,
+    label: line.labelKey === 'event.notice' ? 'Watch' : line.label,
+    glyph: line.glyph,
+    text: line.text,
+    tone: line.tone,
+    ...(line.rule ? { rule: true } : {}),
+    ...(line.reasoning ? { reasoning: true } : {}),
+    ...(line.expand ? { expand: true } : {}),
+  };
 }
 
 /** message_id for streaming coalescing (empty when the event is not a stream). */
@@ -335,3 +374,14 @@ export function messageId(ev: EventMsg): string {
  * grow the message: cumulative resend replaces, a duplicate is skipped, a new
  * block is appended. Result: the full reply streams in, nothing lost.
  */
+
+/** The Reviewer's verdict in words a reader outside the project understands. */
+function reviewVerdict(status: string): string {
+  const verdicts: Record<string, string> = {
+    done: 'the Reviewer was satisfied',
+    blocked: 'the Reviewer found the work stuck',
+    no_progress: 'the Reviewer saw no progress',
+  };
+  if (!status) return 'the Reviewer gave no verdict';
+  return verdicts[status] ?? 'the Reviewer asked for another pass';
+}

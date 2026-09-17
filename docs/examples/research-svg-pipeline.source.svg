@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 340">
+  <title>From research evidence to a paper pipeline</title>
+  <desc>The Research Engineer synthesizes the executed code and manuscript into an editable SVG. Browser rendering crops whitespace, verifies Times New Roman and exports a vector figure for the paper. The Engineer revises the source after inspecting the preview.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="7" markerHeight="7" refX="6.5" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0L7 3.5L0 7Z" fill="#344456"/>
+    </marker>
+    <marker id="return" markerWidth="7" markerHeight="7" refX="6.5" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0L7 3.5L0 7Z" fill="#376b94"/>
+    </marker>
+    <style>
+      text { font-family: 'Times New Roman'; font-size: 23px; fill: #223247; }
+      .heading { font-size: 26px; font-weight: bold; }
+      .small { font-size: 22px; }
+      .edge { fill: none; stroke: #344456; stroke-width: 1.7; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <g id="pipeline-content">
+    <rect x="18" y="45" width="180" height="88" rx="8" fill="#f1f3f6" stroke="#aab5c3"/>
+    <text x="108" y="77" text-anchor="middle" class="heading">Executed code</text>
+    <text x="108" y="108" text-anchor="middle">Actual data flow</text>
+    <rect x="18" y="164" width="180" height="88" rx="8" fill="#f1f3f6" stroke="#aab5c3"/>
+    <text x="108" y="197" text-anchor="middle" class="heading">Manuscript</text>
+    <text x="108" y="228" text-anchor="middle" class="small">Method &amp; notation</text>
+    <path class="edge" d="M198 89H221V109H244"/>
+    <path class="edge" d="M198 208H221V189H244"/>
+
+    <rect x="246" y="27" width="340" height="233" rx="10" fill="#eef5fb" stroke="#5c8eaf" stroke-width="1.6"/>
+    <text x="268" y="62" class="heading">Engineer composition</text>
+    <text x="268" y="93">Resolve the mechanism</text>
+    <rect x="268" y="120" width="64" height="47" rx="5" fill="white" stroke="#9dafbe"/>
+    <rect x="360" y="143" width="98" height="58" rx="5" fill="#f6dfc2" stroke="#b58242"/>
+    <rect x="488" y="112" width="73" height="47" rx="5" fill="white" stroke="#9dafbe"/>
+    <text x="300" y="151" text-anchor="middle" class="small">Input</text>
+    <text x="409" y="178" text-anchor="middle" class="small">Method</text>
+    <text x="524" y="143" text-anchor="middle" class="small">Output</text>
+    <path class="edge" d="M332 144H346V171H358"/>
+    <path class="edge" d="M458 171H474V135H486"/>
+    <text x="416" y="238" text-anchor="middle">Editable, staggered SVG</text>
+
+    <path class="edge" d="M586 145H632"/>
+    <rect x="634" y="70" width="211" height="162" rx="8" fill="#f4f6f5" stroke="#9dacaa"/>
+    <text x="739" y="105" text-anchor="middle" class="heading">Browser export</text>
+    <path d="M656 119H823" stroke="#c4cdca"/>
+    <text x="739" y="148" text-anchor="middle">Tight content crop</text>
+    <text x="739" y="179" text-anchor="middle">Times New Roman</text>
+    <text x="739" y="210" text-anchor="middle">SVG · PDF · PNG</text>
+
+    <path class="edge" d="M845 140H868V98H891"/>
+    <rect x="893" y="45" width="187" height="106" rx="8" fill="#f4f6f5" stroke="#9dacaa"/>
+    <text x="986" y="81" text-anchor="middle" class="heading">Paper figure</text>
+    <text x="986" y="113" text-anchor="middle">Vector PDF</text>
+    <text x="986" y="140" text-anchor="middle" class="small">Integrated review</text>
+    <path class="edge" d="M845 187H869V220H891"/>
+    <rect x="893" y="185" width="187" height="68" rx="8" fill="#eef5fb" stroke="#9dafbe"/>
+    <text x="986" y="226" text-anchor="middle">Inspect preview</text>
+    <path d="M986 253V295H416V262" fill="none" stroke="#376b94" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#return)"/>
+    <rect x="621" y="280" width="162" height="28" fill="white"/>
+    <text x="702" y="302" text-anchor="middle" class="small" fill="#376b94">Revise the source</text>
+  </g>
+</svg>

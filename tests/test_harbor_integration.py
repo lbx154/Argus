@@ -13,13 +13,13 @@ from typing import Any
 
 import pytest
 
-from argus_skill.integrations.harbor import (
+from argus.integrations.harbor import (
     ArgusHarborAgent,
     HarborUnavailableError,
     _latest_project_root,
     harbor_available,
 )
-from argus_skill.life.supervisor._planning_cycle_enqueue import (
+from argus.life.supervisor._planning_cycle_enqueue import (
     _independent_review_forced,
     _stage_closing_forced,
 )
@@ -232,8 +232,8 @@ def _load_adapter_with_fake_harbor(monkeypatch: pytest.MonkeyPatch) -> types.Mod
     for name, module in modules.items():
         monkeypatch.setitem(sys.modules, name, module)
 
-    source = Path(__file__).resolve().parents[1] / "argus_skill" / "integrations" / "harbor.py"
-    module_name = "argus_skill.integrations._harbor_contract_test"
+    source = Path(__file__).resolve().parents[1] / "argus" / "integrations" / "harbor.py"
+    module_name = "argus.integrations._harbor_contract_test"
     spec = importlib.util.spec_from_file_location(module_name, source)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -251,7 +251,7 @@ def test_harbor_directly_installs_and_invokes_argus(
     agent = module.ArgusHarborAgent(
         logs_dir=tmp_path,
         model_name="openai/gpt-5.4-mini",
-        argus_package="argus-skill @ https://packages.test/argus.whl",
+        argus_package="argus @ https://packages.test/argus.whl",
         reasoning_effort="high",
         timeout="900",
     )
@@ -299,7 +299,7 @@ def test_harbor_uploads_current_source_wheel_by_default(
 
     def fake_build(_source_root: Path, output_dir: Path) -> Path:
         assert _source_root == source_root
-        wheel = output_dir / "argus_skill-0.1.1-py3-none-any.whl"
+        wheel = output_dir / "argus-0.1.1-py3-none-any.whl"
         wheel.write_bytes(b"wheel")
         return wheel
 
@@ -315,7 +315,7 @@ def test_harbor_uploads_current_source_wheel_by_default(
 
     assert any(target.endswith(".whl") for _source, target in environment.uploads)
     assert any(
-        "pip install /tmp/argus_skill-0.1.1-py3-none-any.whl" in entry["command"]
+        "pip install /tmp/argus-0.1.1-py3-none-any.whl" in entry["command"]
         for entry in environment.commands
     )
 

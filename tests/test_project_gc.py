@@ -1,4 +1,4 @@
-"""Tests for the project garbage collector (argus_skill.core.project_gc).
+"""Tests for the project garbage collector (argus.core.project_gc).
 
 Conservative + reversible: prune ONLY not-live AND stale projects, and
 prune == move to ``projects_trash/`` (never rm). A running daemon/repl is
@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import time
 
-from argus_skill.core.project_gc import gc_stale_projects, retention_days_default
+from argus.core.project_gc import gc_stale_projects, retention_days_default
 
 
 def _make_project(root, name, *, age_days=0.0, lock_pid=None):
@@ -46,7 +46,7 @@ def test_transcript_only_session_is_not_swept_as_empty(tmp_path):
     """A chat-only session (a saved conversation but no events/backlog) must NOT
     be trashed by the empty-sweep — that would delete the conversation history
     that /resume replays."""
-    from argus_skill.core import transcript as T
+    from argus.core import transcript as T
 
     d = tmp_path / "projects" / "chatonly0001"
     d.mkdir(parents=True)

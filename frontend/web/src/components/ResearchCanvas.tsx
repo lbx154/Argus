@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ArtifactInfo, EventMsg } from '../api';
+import { useEffect, useMemo, useState } from 'react';
+import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { api } from '../api';
 import { useArtifact } from '../hooks';
@@ -7,13 +7,20 @@ import { formatBytes } from '../lib/format';
 import { Spinner } from './primitives';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
-import { useGsapMotion } from '../lib/motion';
 import { HtmlPreview } from './HtmlPreview';
 import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
 import { displayObjective, formatMissionElapsed } from '../../../core/src/missionView';
-import { useI18n } from '../i18n';
+import { translate, useI18n, type Locale } from '../i18n';
+import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { PdfPreview } from './PdfPreview';
+import { isMarkdownArtifact } from '../lib/artifactPresentation';
+import { downloadBlob } from '../lib/downloadBlob';
+import { theme } from '../lib/theme';
+import { plainProgress, plainRouteStatus, plainStage, plainStatus } from '../lib/plainStatus';
+import { WorkStatusBar } from './WorkStatusBar';
+import { currentWorkStatus, eventTaskId } from '../lib/workStatus';
+import { readableRecord } from '../map/submap';
 
 export const LIVE_PROGRESS_PATH = '__argus_live_progress__';
 
@@ -94,13 +101,6 @@ export function defaultPreviewPath(
   return selectPreferredPreviewArtifact(artifacts)?.path ?? '';
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  manager: 'Manager',
-  planner: 'Planner',
-  engineer: 'Engineer',
-  reviewer: 'Reviewer',
-};
-
 export interface LiveMissionStatus {
   role: string;
   roleLabel: string;
@@ -122,7 +122,10 @@ function eventRole(event: EventMsg): string {
 export function selectLiveMissionStatus(
   view?: MissionView | null,
   events: EventMsg[] = [],
+  snapshot?: Snapshot,
+  locale: Locale = 'en',
 ): LiveMissionStatus | null {
+  if (snapshot && currentWorkStatus(snapshot, view, events).state !== 'running') return null;
   if (missionIsComplete(view)) return null;
   const role = String(view?.active_role ?? '');
   if (!role) return null;
@@ -130,17 +133,19 @@ export function selectLiveMissionStatus(
   let detail = '';
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
+    if (view?.mission.id && eventTaskId(event) !== view.mission.id) continue;
+    if (view?.mission.started_at && Number(event.ts || 0) < view.mission.started_at) continue;
     if (eventRole(event) !== role) continue;
     const kind = String(event.kind ?? '');
-    if (kind === 'reasoning') continue;
-    const raw = String(event.text ?? event.action_summary ?? '').trim();
+    if (!['agent_message', 'assistant_message', 'message'].includes(kind)) continue;
+    const raw = readableRecord(String(event.text ?? '').trim());
     if (!raw || raw.startsWith('{')) continue;
     detail = raw.split('\n')[0].slice(0, 240);
     break;
   }
   return {
     role,
-    roleLabel: ROLE_LABELS[role] ?? role,
+    roleLabel: isAgentRole(role) ? agentRoleName(role, key => translate(key, {}, locale)) : role,
     label: roleView?.label || 'Working',
     detail,
   };
@@ -164,87 +169,74 @@ export function liveProgressSummary(view: MissionView): {
 
 function LiveProgressPreview({
   view,
-  liveStatus,
   artifacts = [],
   onOpenArtifact,
+  routeVisible,
+  snapshot,
+  connected,
 }: {
   view: MissionView;
-  liveStatus: LiveMissionStatus | null;
   artifacts?: ArtifactInfo[];
   onOpenArtifact: (path: string) => void;
+  routeVisible: boolean;
+  snapshot?: Snapshot;
+  connected: boolean;
 }) {
-  const { t } = useI18n();
-  const summary = liveProgressSummary(view);
+  const { locale, t } = useI18n();
+  const completed = view.dag.filter((node) => ['done', 'completed'].includes(node.status)).length;
   const reviewedArtifacts = [...artifacts]
     .filter((item) => item.exists && item.source !== 'manager_live')
     .sort((left, right) => Number(right.mtime ?? 0) - Number(left.mtime ?? 0))
     .slice(0, 4);
-  const recent = view.timeline.slice(-6).reverse();
-  const delivery = view.delivery;
+  const running = (status: string) => ['running', 'in_progress', 'claimed'].includes(status);
+  const liveExecution = connected && snapshot?.daemon.alive !== false;
   const statusTone = (status: string) => (
     status === 'done' ? 'text-ok'
-    : ['running', 'in_progress', 'claimed'].includes(status) ? 'text-blue-sky'
+    : running(status) ? 'text-blue-sky'
     : ['failed', 'blocked', 'rejected'].includes(status) ? 'text-err'
     : 'text-ink-faint'
   );
 
+  // This panel holds live numbers only. The mission title, the summary and the
+  // event history belong to the mission column, so they are not repeated here.
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-5 text-sm text-ink-dim scroll-thin">
-      {delivery ? (
-        <section className="mb-4 rounded-lg border border-ok/35 bg-ok/10 p-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ok">
-            {delivery.kind === 'submission_certified' ? '交付已认证' : '已完成'}
-          </div>
-          <h3 className="mt-2 text-base font-semibold leading-snug text-ink">{delivery.title}</h3>
-          {delivery.summary ? <p className="mt-2 text-xs leading-5 text-ink-dim">{delivery.summary}</p> : null}
-          {delivery.primary_target ? (
-            <button
-              type="button"
-              onClick={() => onOpenArtifact(delivery.primary_target!.path)}
-              title={artifacts.find((item) => item.path === delivery.primary_target!.path)?.storage_path || delivery.primary_target.path}
-              className="mt-3 rounded border border-ok/40 bg-panel px-2.5 py-1.5 font-mono text-[10px] text-ok hover:border-ok"
-            >
-              打开成果 · {delivery.primary_target.label || delivery.primary_target.path}
-            </button>
-          ) : null}
-        </section>
-      ) : null}
       <section className="rounded-lg border border-blue-deep/30 bg-blue-deep/10 p-4">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-sky">{t('research.currentWork')}</div>
-        <h3 className="mt-2 text-base font-semibold leading-snug text-ink">
-          {summary.title}
-        </h3>
-        {liveStatus?.detail ? <p className="mt-2 leading-6 text-ink-dim">{liveStatus.detail}</p> : null}
-        <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-          <div><span className="text-ink-faint">{t('mission.stage')}</span><div className="mt-1 font-medium capitalize text-blue-sky">{view.stage.label || view.stage.id || '—'}</div></div>
-          <div><span className="text-ink-faint">{t('mission.campaign')}</span><div className="mt-1 font-mono text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</div></div>
-          <div><span className="text-ink-faint">{t('mission.round')}</span><div className="mt-1 font-mono text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</div></div>
-          <div><span className="text-ink-faint">{t('research.dagProgress')}</span><div className="mt-1 font-mono text-ink">{summary.dagProgress}</div></div>
-        </div>
+        <dl className="grid grid-cols-2 gap-3 text-xs">
+          <div><dt className="text-ink-faint">{t('mission.stage')}</dt><dd className="mt-1 text-sm font-medium text-blue-sky">{plainStage(view.stage.id, locale) !== view.stage.id ? plainStage(view.stage.id, locale) : view.stage.label || view.stage.id || '—'}</dd></div>
+          <div><dt className="text-ink-faint">{t('research.totalTime')}</dt><dd className="mt-1 text-sm text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</dd></div>
+          <div><dt className="text-ink-faint">{t('mission.round')}</dt><dd className="mt-1 text-sm text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</dd></div>
+          <div><dt className="text-ink-faint">{t('research.dagProgress')}</dt><dd className="mt-1 text-sm text-ink">{plainProgress(completed, view.dag.length, locale)}</dd></div>
+        </dl>
       </section>
 
-      <section className="mt-5">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{t('mission.researchDag')}</div>
-        <div className="mt-2 space-y-2">
-          {view.dag.map((node) => (
-            <div key={node.id} className="rounded-md border border-line/60 bg-panel px-3 py-2.5">
-              <div className="flex items-start gap-2">
-                <span className={`mt-0.5 shrink-0 font-mono text-xs ${statusTone(node.status)}`}>
-                  {node.status === 'done' ? '✓' : ['running', 'in_progress', 'claimed'].includes(node.status) ? '●' : '○'}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium leading-5 text-ink">{node.title}</div>
-                  <div className={`mt-0.5 font-mono text-[10px] ${statusTone(node.status)}`}>{node.status}</div>
+      {routeVisible && view.dag.length ? (
+        <section className="mt-5">
+          <div className="text-xs font-semibold text-ink-faint">{t('mission.researchDag')}</div>
+          <ul className="mt-2 space-y-2">
+            {view.dag.map((node) => (
+              <li key={node.id} className="rounded-md border border-line/60 bg-panel px-3 py-2.5">
+                <div className="flex items-start gap-2">
+                  <span className={`mt-0.5 shrink-0 text-xs ${statusTone(!liveExecution && running(node.status) ? 'waiting' : node.status)}`} aria-hidden="true">
+                    {node.status === 'done' ? '✓' : liveExecution && running(node.status) ? '●' : '○'}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium leading-5 text-ink"><MarkdownContent>{node.title}</MarkdownContent></div>
+                    <div className={`mt-0.5 text-xs ${statusTone(!liveExecution && running(node.status) ? 'waiting' : node.status)}`}>{!liveExecution && running(node.status)
+                      ? connected ? (locale === 'zh-CN' ? '当前未在运行' : 'Not currently running') : (locale === 'zh-CN' ? '断连前记录：进行中' : 'Last received state: in progress')
+                      : plainRouteStatus(node.status, locale)}</div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {reviewedArtifacts.length ? (
         <section className="mt-5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{t('research.verifiedOutputs')}</div>
+          <div className="text-xs font-semibold text-ink-faint">{locale === 'zh-CN' ? '已生成的文件' : 'Files produced so far'}</div>
+          <p className="mt-1 text-xs text-ink-faint">{locale === 'zh-CN' ? '文件已生成，结论是否成立仍以核验记录为准。' : 'A saved file is not a verification of its conclusions.'}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {reviewedArtifacts.map((item) => (
               <button
@@ -252,24 +244,10 @@ function LiveProgressPreview({
                 type="button"
                 onClick={() => onOpenArtifact(item.path)}
                 title={item.storage_path || item.path}
-                className="rounded border border-line/70 bg-panel px-2.5 py-1.5 font-mono text-[10px] text-blue-sky hover:border-blue/60"
+                className="rounded border border-line/70 bg-panel px-2.5 py-1.5 font-mono text-xs text-blue-sky hover:border-blue/60"
               >
                 {artifactLabel(item)} ↗
               </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {recent.length ? (
-        <section className="mt-5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{t('research.recentMilestones')}</div>
-          <div className="mt-2 space-y-2 border-l border-line/70 pl-3">
-            {recent.map((item) => (
-              <div key={item.id}>
-                <div className="text-xs font-medium text-ink">{item.title}</div>
-                {item.detail ? <div className="mt-0.5 line-clamp-2 text-xs leading-5 text-ink-faint">{item.detail}</div> : null}
-              </div>
             ))}
           </div>
         </section>
@@ -283,6 +261,7 @@ export function ResearchCanvas({
   artifacts,
   error = false,
   onExpand,
+  onOpenFile,
   className = '',
   embedded = false,
   onCollapse,
@@ -290,11 +269,15 @@ export function ResearchCanvas({
   activityEvents = [],
   requestedPath,
   requestedPathToken,
+  routeVisible = true,
+  snapshot,
+  connected = true,
 }: {
   sid: string | null;
   artifacts?: ArtifactInfo[];
   error?: boolean;
   onExpand: (path: string) => void;
+  onOpenFile?: () => void;
   className?: string;
   embedded?: boolean;
   onCollapse?: () => void;
@@ -302,6 +285,10 @@ export function ResearchCanvas({
   activityEvents?: EventMsg[];
   requestedPath?: string | null;
   requestedPathToken?: number;
+  /** The mission column shows the route itself; the panel repeats it only on the other views. */
+  routeVisible?: boolean;
+  snapshot?: Snapshot;
+  connected?: boolean;
 }) {
   const { t, locale } = useI18n();
   const previewArtifacts = useMemo(
@@ -331,6 +318,10 @@ export function ResearchCanvas({
     if (target) setManualPath(target.path);
   }, [previewArtifacts, requestedPath, requestedPathToken]);
 
+  const selectPreviewPath = (path: string) => {
+    setManualPath(path);
+    if (path !== LIVE_PROGRESS_PATH) onOpenFile?.();
+  };
   const effectivePath = manualPath ?? defaultPreviewPath(missionView, artifacts);
   const showLiveProgress = effectivePath === LIVE_PROGRESS_PATH;
   const selected = showLiveProgress
@@ -343,14 +334,14 @@ export function ResearchCanvas({
     selected?.mtime ?? null,
   );
   const info = artifactQ.data;
+  const markdownPreview = info ? isMarkdownArtifact(info) : false;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [downloading, setDownloading] = useState(false);
-  const previewRef = useRef<HTMLDivElement>(null);
   const [downloadError, setDownloadError] = useState('');
   const liveStatus = useMemo(
-    () => selectLiveMissionStatus(missionView, activityEvents),
-    [activityEvents, missionView],
+    () => connected ? selectLiveMissionStatus(missionView, activityEvents, snapshot, locale) : null,
+    [activityEvents, missionView, snapshot, connected, locale],
   );
 
   useEffect(() => {
@@ -397,42 +388,19 @@ export function ResearchCanvas({
     setDownloadError('');
     try {
       const blob = await api.artifactBlob(sid, selected.path, true);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = selected.name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      downloadBlob(blob, selected.name);
     } catch (downloadError) {
       setDownloadError((downloadError as Error).message);
     } finally {
       setDownloading(false);
     }
   };
-  useGsapMotion(previewRef, (gsap, reduceMotion) => {
-    if (!previewRef.current) return;
-    if (reduceMotion) return;
-    gsap.fromTo(
-      previewRef.current,
-      { autoAlpha: 0, y: 6, scale: 0.995 },
-      {
-        autoAlpha: 1,
-        y: 0,
-        scale: 1,
-        duration: 0.3,
-        ease: 'power2.out',
-        clearProps: 'transform,opacity,visibility',
-      },
-    );
-  }, [showLiveProgress, selected?.path, info?.kind]);
 
   return (
     <section className={`glass-panel glass-panel--side flex min-h-0 flex-col overflow-hidden ${embedded ? '' : 'rounded-lg border'} ${className}`} aria-label={t('research.canvas')}>
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line/50 bg-panel px-4">
         <div className="flex min-w-0 shrink-0 items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${showingDelivery ? 'bg-ok' : 'animate-pulse bg-blue'}`} />
+          <span className={`h-2 w-2 rounded-full ${showingDelivery ? 'bg-ok' : liveStatus ? 'animate-pulse bg-blue' : 'bg-ink-faint/60'}`} />
           <h2 className="max-w-24 truncate text-sm font-semibold text-ink sm:max-w-48">{title}</h2>
         </div>
         {missionView || previewArtifacts.length > 0 ? (
@@ -440,14 +408,14 @@ export function ResearchCanvas({
             <span className="sr-only">{t('research.previewArtifact')}</span>
             <select
               value={showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? ''}
-              onChange={(event) => setManualPath(event.target.value)}
+              onChange={(event) => selectPreviewPath(event.target.value)}
               title={showLiveProgress ? t('research.liveProgress') : selected?.storage_path || selected?.path}
               className="h-8 w-full min-w-0 max-w-64 truncate rounded-md border border-line/50 bg-bg px-2 font-mono text-xs text-ink-dim outline-none focus:border-blue/60"
             >
               {missionView ? <option value={LIVE_PROGRESS_PATH}>{t('research.liveProgress')}</option> : null}
               {previewArtifacts.map((item) => (
                 <option key={item.path} value={item.path} disabled={!item.exists} title={item.storage_path || item.path}>
-                  {item.source === 'delivery' ? '交付 · ' : item.source === 'manager_live' ? 'Checkpoint · ' : ''}{artifactLabel(item)}{item.exists ? '' : ' · pending'}
+                  {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : item.source === 'manager_live' ? `${t('research.optionCheckpoint')} · ` : ''}{artifactLabel(item)}{item.exists ? '' : ` · ${t('research.optionPending')}`}
                 </option>
               ))}
             </select>
@@ -489,13 +457,13 @@ export function ResearchCanvas({
         ) : null}
       </header>
 
-      {liveStatus ? (
+      {snapshot ? <WorkStatusBar snapshot={snapshot} view={missionView} events={activityEvents} connected={connected} compact /> : liveStatus ? (
         <div className="shrink-0 border-b border-line/50 bg-blue-deep/10 px-4 py-3">
           <div className="flex items-center gap-2 text-xs">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-blue" />
+            <span data-role-dot={liveStatus.role} className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none" style={{ background: theme.role[liveStatus.role] ?? theme.inkFaint }} aria-hidden="true" />
             <span className="font-semibold text-ink">{liveStatus.roleLabel}</span>
             <span className="text-blue-sky">{t('mission.active')}</span>
-            <span className="truncate text-ink-faint">· {liveStatus.label}</span>
+            <span className="truncate text-ink-faint">· {plainStatus(liveStatus.label, locale, { kind: missionView?.roles.find((role) => role.role === liveStatus.role)?.kind, language: missionView?.language })}</span>
           </div>
           {liveStatus.detail ? (
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-dim">{liveStatus.detail}</p>
@@ -503,9 +471,9 @@ export function ResearchCanvas({
         </div>
       ) : null}
 
-      <div ref={previewRef} key={showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? 'empty'} className="relative flex min-h-0 flex-1 flex-col bg-bg">
+      <div className="relative flex min-h-0 flex-1 flex-col bg-bg">
         {showLiveProgress && missionView ? (
-          <LiveProgressPreview view={missionView} liveStatus={liveStatus} artifacts={artifacts} onOpenArtifact={setManualPath} />
+          <LiveProgressPreview view={missionView} artifacts={artifacts} onOpenArtifact={selectPreviewPath} routeVisible={routeVisible} snapshot={snapshot} connected={connected} />
         ) : null}
         {!showLiveProgress && error ? (
           <div className="m-auto max-w-sm px-6 text-center text-sm text-warn">
@@ -536,15 +504,15 @@ export function ResearchCanvas({
             {t('artifact.unavailable')} · {(artifactQ.error as Error).message}
           </div>
         ) : null}
-        {info?.kind === 'text' ? (
+        {info?.kind === 'text' && !markdownPreview ? (
           <pre className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words p-5 font-mono text-xs leading-6 text-ink-dim scroll-thin">
             {info.preview || '(empty file)'}
             {info.truncated ? '\n\n… live preview truncated · expand to inspect the complete file' : ''}
           </pre>
         ) : null}
-        {info?.kind === 'markdown' ? (
+        {info && markdownPreview ? (
           <div className="min-h-0 flex-1 overflow-auto p-5 text-sm text-ink-dim scroll-thin">
-            <MarkdownContent artifacts={artifacts} onOpenArtifact={setManualPath}>{info.preview || '(empty file)'}</MarkdownContent>
+            <MarkdownContent sid={sid} basePath={info.path} artifacts={artifacts} onOpenArtifact={selectPreviewPath}>{info.preview || '(empty file)'}</MarkdownContent>
           </div>
         ) : null}
         {info?.kind === 'json' ? <JsonPreview value={info.preview || ''} /> : null}
@@ -552,7 +520,7 @@ export function ResearchCanvas({
           <TablePreview value={info.preview || ''} delimiter={info.name.endsWith('.tsv') ? '\t' : ','} />
         ) : null}
         {info?.kind === 'html' && !info.truncated ? (
-          <HtmlPreview html={info.preview || ''} title={`Live HTML preview: ${info.name}`} />
+          <HtmlPreview sid={sid} path={info.path} html={info.preview || ''} title={`Live HTML preview: ${info.name}`} />
         ) : null}
         {info?.kind === 'html' && info.truncated ? (
           <div className="m-auto max-w-sm px-8 text-center text-sm text-warn">
@@ -588,17 +556,11 @@ export function ResearchCanvas({
         {previewError ? <div className="m-auto px-6 text-center text-sm text-err">{previewError}</div> : null}
       </div>
 
-      {showLiveProgress ? (
+      {!showLiveProgress && info ? (
         <footer className="flex h-9 items-center gap-2 border-t border-line px-4 font-mono text-xs text-ink-faint">
-          <span className="min-w-0 flex-1 truncate">{t('research.eventSourced')}</span>
-          <span className="shrink-0 text-ok">{showingDelivery ? deliveryLabel : t('common.live')}</span>
-        </footer>
-      ) : info ? (
-        <footer className="flex h-9 items-center gap-2 border-t border-line px-4 font-mono text-xs text-ink-faint">
-          <span className="min-w-0 flex-1 truncate" title={info.storage_path || info.path}>{info.storage_path || info.path}</span>
+          <span className="min-w-0 flex-1 truncate" title={info.storage_path || info.path}>{info.path}</span>
           {downloadError ? <span className="ml-auto truncate text-err" title={downloadError}>{t('research.downloadFailed')}</span> : null}
-          <span className="shrink-0">{info.kind} · {formatBytes(info.size)}</span>
-          <span className="shrink-0 text-ok">{showingDelivery ? deliveryLabel : t('common.live')}</span>
+          <span className="shrink-0">{formatBytes(info.size)}</span>
         </footer>
       ) : null}
     </section>

@@ -3,17 +3,19 @@ from __future__ import annotations
 import base64
 import io
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
 from pathlib import Path
 from threading import Barrier
+from types import SimpleNamespace
 from typing import Any, cast
 from urllib.error import HTTPError
 
 import pytest
 
-from argus_skill.tools import image_api
-from argus_skill.tools.capability_vault import (
+from argus.tools import image_api
+from argus.tools.capability_vault import (
     ModelApiGrant,
     ModelApiRoute,
     save_model_api_grant,
@@ -67,11 +69,15 @@ def test_atomic_json_writes_use_distinct_temporary_files(
     target = tmp_path / "review.json"
     barrier = Barrier(2)
     temporary_paths: list[Path] = []
+    first_attempts: set[Path] = set()
     real_replace = image_api.os.replace
 
     def synchronized_replace(source: str | Path, destination: str | Path) -> None:
-        temporary_paths.append(Path(source))
-        barrier.wait(timeout=5)
+        source_path = Path(source)
+        temporary_paths.append(source_path)
+        if source_path not in first_attempts:
+            first_attempts.add(source_path)
+            barrier.wait(timeout=5)
         real_replace(source, destination)
 
     monkeypatch.setattr(image_api.os, "replace", synchronized_replace)
@@ -85,6 +91,94 @@ def test_atomic_json_writes_use_distinct_temporary_files(
 
     assert len(set(temporary_paths)) == 2
     assert json.loads(target.read_text(encoding="utf-8"))["value"] in {1, 2}
+
+
+def test_windows_atomic_replace_retries_a_transient_sharing_violation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.tmp"
+    target = tmp_path / "target.json"
+    source.write_text("new", encoding="utf-8")
+    target.write_text("old", encoding="utf-8")
+    real_replace = image_api.os.replace
+    attempts = 0
+    sleeps: list[float] = []
+
+    def sharing_once(src: str | Path, dst: str | Path) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError(13, "sharing violation", str(dst))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(image_api.os, "replace", sharing_once)
+    monkeypatch.setattr(
+        image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append)
+    )
+
+    image_api._atomic_replace(source, target, platform_name="nt")
+
+    assert attempts == 2
+    assert sleeps == [0.01]
+    assert target.read_text(encoding="utf-8") == "new"
+
+
+@pytest.mark.parametrize(("platform_name", "attempt_count"), [("nt", 6), ("posix", 1)])
+def test_atomic_replace_propagates_persistent_permission_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform_name: str,
+    attempt_count: int,
+) -> None:
+    source = tmp_path / "source.tmp"
+    target = tmp_path / "target.json"
+    source.write_text("new", encoding="utf-8")
+    target.write_text("old", encoding="utf-8")
+    attempts = 0
+    sleeps: list[float] = []
+
+    def denied(_source, _destination):
+        nonlocal attempts
+        attempts += 1
+        raise PermissionError("cannot replace")
+
+    monkeypatch.setattr(image_api.os, "replace", denied)
+    monkeypatch.setattr(
+        image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append)
+    )
+
+    with pytest.raises(PermissionError, match="cannot replace"):
+        image_api._atomic_replace(source, target, platform_name=platform_name)
+
+    assert attempts == attempt_count
+    assert len(sleeps) == attempt_count - 1
+    assert target.read_text(encoding="utf-8") == "old"
+    assert source.read_text(encoding="utf-8") == "new"
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_atomic_writes_clean_up_after_replace_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    json_output: bool,
+) -> None:
+    target = tmp_path / "image.json"
+    target.write_bytes(b"old")
+
+    def denied(_source, _destination):
+        raise OSError("cannot replace")
+
+    monkeypatch.setattr(image_api.os, "replace", denied)
+
+    with pytest.raises(OSError, match="cannot replace"):
+        if json_output:
+            image_api._atomic_write_json(target, {"value": "new"})
+        else:
+            image_api._atomic_write(target, b"new", force=True)
+
+    assert target.read_bytes() == b"old"
+    assert list(tmp_path.iterdir()) == [target]
 
 
 def test_generate_image_writes_artifact_and_secret_free_sidecar(
@@ -141,7 +235,11 @@ def test_generate_image_retries_transient_overload(
         return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
 
     monkeypatch.setattr(image_api, "_urlopen", fake_urlopen)
-    monkeypatch.setattr(image_api.time, "sleep", lambda seconds: sleeps.append(seconds))
+    real_sleep = time.sleep
+    monkeypatch.setattr(
+        image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append)
+    )
+    assert time.sleep is real_sleep  # Other runtime threads keep their real clock.
 
     meta = image_api.generate_image(
         prompt="clean academic hierarchy diagram",
@@ -180,7 +278,9 @@ def test_generate_image_caps_retry_after_delay(
         return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
 
     monkeypatch.setattr(image_api, "_urlopen", fake_urlopen)
-    monkeypatch.setattr(image_api.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(
+        image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append)
+    )
 
     image_api.generate_image(
         prompt="clean academic hierarchy diagram",
@@ -296,7 +396,13 @@ def test_review_image_falls_back_to_chat_completions(
     def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
         calls.append(req.full_url)
         if req.full_url.endswith("/responses"):
-            raise HTTPError(req.full_url, 404, "not found", hdrs=cast(Any, None), fp=None)
+            raise HTTPError(
+                req.full_url,
+                404,
+                "not found",
+                hdrs=cast(Any, None),
+                fp=io.BytesIO(b"not found"),
+            )
         assert req.full_url.endswith("/chat/completions")
         return FakeResponse({"choices": [{"message": {"content": "score_1_to_5: 4"}}]})
 

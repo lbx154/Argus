@@ -76,7 +76,7 @@ describe('ChatBox still renders', () => {
     const { ChatBox } = await import('../components/ChatBox');
 
     const html = renderToStaticMarkup(
-      <ChatBox
+      <ChatBox attachments={[]} onAttachmentsChange={() => {}}
         value=""
         onChange={() => {}}
         onSend={async () => true}

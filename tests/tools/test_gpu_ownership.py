@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from argus_skill.tools.gpu_ownership import (
+from argus.tools.gpu_ownership import (
     establish_baseline,
     evaluate_snapshot,
 )

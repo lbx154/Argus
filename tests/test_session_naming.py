@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps.cli._follow import _format_follow_mission_context
-from argus_skill.manager.config_intent import _front_door_classify
-from argus_skill.manager.front_door import (
+from argus.apps.cli._follow import _format_follow_mission_context
+from argus.manager.config_intent import _front_door_classify
+from argus.manager.front_door import (
     _derive_session_name,
     _maybe_name_session,
 )
@@ -35,17 +35,17 @@ def test_maybe_name_session_is_idempotent_and_failsoft():
 
 
 def test_maybe_name_session_names_a_fresh_session(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
-    _maybe_name_session(cs, "optimize the 079 kernel\nmore detail")
-    assert cs["session_named"] is True
-    assert read_session_meta(tmp_path, sid).display_name == "optimize the 079 kernel"
+    _maybe_name_session(cs, "optimize the 079 kernel\nmore detail", suggested_name="Kernel 079 optimization")
+    assert read_session_meta(tmp_path, sid).name_source == "agent"
+    assert read_session_meta(tmp_path, sid).display_name == "Kernel 079 optimization"
 
 
 def test_maybe_name_session_uses_concise_manager_title(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
@@ -58,23 +58,21 @@ def test_maybe_name_session_uses_concise_manager_title(tmp_path):
 
 
 def test_maybe_name_session_never_overwrites_persisted_name(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session, touch_session
+    from argus.core.session import read_session_meta, resolve_session, touch_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     touch_session(tmp_path, sid, display_name="已有名称")
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
     _maybe_name_session(cs, "新任务", suggested_name="新名称")
-    assert cs["session_named"] is True
     assert read_session_meta(tmp_path, sid).display_name == "已有名称"
 
 
 def test_first_team_task_replaces_provisional_greeting_name(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
-    provisional = _maybe_name_session(cs, "你好", suggested_name="问候")
-    cs["_provisional_session_name"] = provisional
+    _maybe_name_session(cs, "你好", suggested_name="问候")
 
     _maybe_name_session(
         cs,
@@ -87,21 +85,16 @@ def test_first_team_task_replaces_provisional_greeting_name(tmp_path):
 
 
 def test_team_task_does_not_replace_manual_name_after_greeting(tmp_path):
-    from argus_skill.core.session import (
+    from argus.core.session import (
         read_session_meta,
         resolve_session,
-        update_session_meta,
     )
+    from argus.webapi.project_crud import update_project
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
-    provisional = _maybe_name_session(cs, "你好", suggested_name="问候")
-    cs["_provisional_session_name"] = provisional
-    update_session_meta(
-        tmp_path,
-        sid,
-        lambda meta: setattr(meta, "display_name", "用户手工名称"),
-    )
+    _maybe_name_session(cs, "你好", suggested_name="问候")
+    update_project(sid, name="用户手工名称", global_root=tmp_path)
 
     _maybe_name_session(
         cs,
@@ -115,7 +108,7 @@ def test_team_task_does_not_replace_manual_name_after_greeting(tmp_path):
 
 @pytest.mark.parametrize("route", ["simple", "complex"])
 def test_front_door_names_first_message_for_every_route(tmp_path, route):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
@@ -139,7 +132,7 @@ def test_front_door_names_first_message_for_every_route(tmp_path, route):
 
 
 def test_pure_greeting_does_not_claim_the_session_name(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
@@ -167,8 +160,8 @@ def test_pure_greeting_does_not_claim_the_session_name(tmp_path):
     assert read_session_meta(tmp_path, sid).display_name == ""
 
 
-def test_front_door_names_first_message_when_classifier_is_unavailable(tmp_path):
-    from argus_skill.core.session import read_session_meta, resolve_session
+def test_front_door_keeps_naming_available_after_classifier_failure(tmp_path):
+    from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
@@ -179,7 +172,9 @@ def test_front_door_names_first_message_when_classifier_is_unavailable(tmp_path)
         ensure_runner=lambda *_: None,
     )
     assert result == (None, None, "complex")
-    assert read_session_meta(tmp_path, sid).display_name == "fallback task title"
+    assert read_session_meta(tmp_path, sid).display_name == ""
+    _maybe_name_session(cs, "fallback task title", suggested_name="Recovered Agent summary")
+    assert read_session_meta(tmp_path, sid).display_name == "Recovered Agent summary"
 
 
 # ---- objective=- root-cause fix ------------------------------------------

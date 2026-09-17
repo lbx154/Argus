@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.manuscript_snapshot import manuscript_snapshot
-from argus_skill.core.models import ReviewDecision
-from argus_skill.manager import Manager
-from argus_skill.skills.vertical_select import persist_vertical
+from argus.core.manuscript_snapshot import manuscript_snapshot
+from argus.core.models import ReviewDecision
+from argus.manager import Manager
+from argus.skills.vertical_select import persist_vertical
 
 
 def _review(**changes) -> ReviewDecision:
@@ -25,7 +25,7 @@ def _manager(tmp_path, *, workflow_mode: str = "staged"):
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir(parents=True)
-    persist_vertical(state_root, "speedrun", workflow_mode=workflow_mode)
+    persist_vertical(state_root, "math_synth", workflow_mode=workflow_mode)
     return (
         Manager(
             project_root=state_root,
@@ -63,6 +63,49 @@ def test_stage_closing_reviewer_done_advances_without_manager_model(tmp_path) ->
     assert decision.source == "manager_deterministic"
     assert decision.diagnostic == "deterministic_reviewer_done"
     assert _state(state_root)["current_stage"] == "optimize"
+
+
+def test_direct_idea_only_research_completes_without_advancing(tmp_path) -> None:
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    persist_vertical(
+        state_root,
+        "research",
+        workflow_mode="direct",
+        research_target_level="exploratory",
+        research_direction_mode="locked",
+    )
+    manager = Manager(
+        project_root=state_root,
+        execution_workdir=workdir,
+        runner=object(),
+    )
+    review = _review()
+    review.research_result = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "verified_new",
+        "significance_status": "exploratory",
+        "statement_fidelity_status": "verified",
+        "evidence": ["independent source review"],
+        "limitations": [],
+    }
+
+    decision = manager.decide_stage_transition(
+        review=review,
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=lambda _prompt: pytest.fail("deterministic completion called model"),
+    )
+
+    assert decision.action == "complete"
+    assert decision.target_stage == "idea"
+    assert _state(state_root)["current_stage"] == "idea"
+    assert _state(state_root)["stages"]["idea"]["status"] == "done"
+    assert not (workdir / "RESEARCH_NOTES.md").exists()
+    assert not (workdir / "HANDOFF.md").exists()
 
 
 def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(
@@ -456,7 +499,7 @@ def test_failed_vertical_completion_preflight_keeps_manager_semantics(
         raise RuntimeError("completion evidence conflicts")
 
     monkeypatch.setattr(
-        "argus_skill.skills.stage_machine._ensure_stage_completion",
+        "argus.skills.stage_machine._ensure_stage_completion",
         fail_completion,
     )
 

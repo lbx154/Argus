@@ -2,12 +2,33 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.core.operator_messages import (
+import pytest
+
+from argus.core.operator_messages import (
+    budget_refusal_reply,
     humanize_runtime_reason,
     publish_operator_message,
     render_operator_update,
 )
-from argus_skill.core.transcript import read_turns
+from argus.core.transcript import read_turns
+
+
+def test_budget_reply_explains_known_limit_without_claiming_backend_failure() -> None:
+    reason = "refused before start: global daily budget exhausted ($0.000000 available)"
+    reply = budget_refusal_reply(reason, language_hint="继续推进任务")
+    assert reply is not None
+    assert "已达到全局日预算上限" in reply
+    assert reason in reply
+    assert "backend is unavailable" not in reply
+    assert "argus doctor --deep" not in reply
+
+
+def test_budget_refusal_reply_distinguishes_exhaustion_and_accounting_failure() -> None:
+    exhausted = budget_refusal_reply("refused before start: global daily budget exhausted")
+    assert exhausted is not None and "global daily budget" in exhausted
+    unavailable = budget_refusal_reply("cost control unavailable: invalid state")
+    assert unavailable is not None and "accounting" in unavailable
+    assert budget_refusal_reply("authentication failed") is None
 
 
 def test_publish_operator_message_is_idempotent_across_transcript_and_event(tmp_path) -> None:
@@ -92,6 +113,56 @@ def test_operator_abort_is_not_rendered_as_a_failure_or_retry() -> None:
     assert "未能完成" not in text
     assert "原因" not in text
     assert "下一步" not in text
+
+
+@pytest.mark.parametrize(
+    ("hint", "resume"),
+    [
+        ("继续论文", "点击“运行”恢复任务；不会自动重试"),
+        ("Continue the paper", "click Run to resume; automatic retries are disabled"),
+    ],
+)
+def test_provider_fence_explains_explicit_recovery(hint: str, resume: str) -> None:
+    text = render_operator_update(
+        title="Research",
+        status="paused_provider_fence",
+        reason="HTTP 402: Insufficient trial tokens for this request.",
+        next_action="Check the trial quota.",
+        language_hint=hint,
+    )
+
+    assert "HTTP 402" in text
+    assert "Check the trial quota." in text
+    assert resume in text
+    assert "Argus 会诊断" not in text
+    assert "Argus will diagnose" not in text
+
+
+@pytest.mark.parametrize(
+    ("title", "hint", "waiting", "continuation"),
+    [
+        ("通信论文", "继续修订论文", "正在等待后台任务完成", "自动继续"),
+        ("communication paper", "Continue revising", "Waiting for background work", "automatically"),
+    ],
+)
+def test_healthy_background_wait_does_not_request_failure_recovery(
+    title: str, hint: str, waiting: str, continuation: str,
+) -> None:
+    text = render_operator_update(
+        title=title,
+        status="paused_external_work",
+        reason="healthy subagent job-1 is still running; released the mission slot",
+        language_hint=hint,
+    )
+
+    assert title in text
+    assert waiting in text
+    assert continuation in text
+    assert "未能完成" not in text
+    assert "Could not complete" not in text
+    assert "diagnose" not in text
+    assert "job-1" not in text
+    assert "mission slot" not in text
 
 
 def test_operator_update_leads_with_result() -> None:

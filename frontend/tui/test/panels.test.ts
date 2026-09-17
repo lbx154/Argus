@@ -26,7 +26,6 @@ import { CostGauge } from '../src/components/CostGauge.js';
 import { MissionCockpit } from '../src/components/MissionCockpit.js';
 import { PendingDecisionPrompt } from '../src/components/PendingDecisionPrompt.js';
 import { emptyMissionView } from '../../core/src/missionView.js';
-import { RELEASE_ARTIFACT_DRIFT_WARNING } from '../../core/src/protocol.js';
 import type { EventMsg, ResourceStatus, Snapshot, StatusView } from '../src/api.js';
 import { SLASH_COMMANDS } from '../src/input/slash.js';
 
@@ -160,12 +159,12 @@ test('connection health remains visible without overflowing a 60-column terminal
 
   const warning = await renderNode(
     React.createElement(Footer, {
-      notice: `warning: ${RELEASE_ARTIFACT_DRIFT_WARNING}`,
+      notice: 'warning: backend code and installed artifacts differ',
       width: 60,
     }),
     60,
   );
-  assert.match(warning, /build_release/);
+  assert.match(warning, /installed artifacts differ/);
 });
 
 test('header uses a neutral lab identity outside research missions', async () => {
@@ -1017,7 +1016,7 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
   );
   assert.match(feed, /Watch/);
   assert.match(feed, /needs credentials/);
-  assert.doesNotMatch(feed, /round 2 completed/);
+  assert.doesNotMatch(feed, /round 2 of work/);
 
   const item = {
     id: 'task-123', title: 'Reproduce benchmark', objective: 'Run five seeds and verify there is no benchmark leakage.',
@@ -1037,4 +1036,23 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
   const backlog = await renderPanel({ kind: 'backlog', selection: 0 }, 60, { snap });
   assert.match(backlog, /› running/);
   assert.doesNotMatch(backlog, /Old result/);
+});
+
+test('workflow choice card shows request, options and optional note in a narrow terminal', async () => {
+  const { operatorDecisionCards } = await import('../../core/src/decisions.js');
+  const [card] = operatorDecisionCards([{ operator_decision: {
+    id: 'intake-1', kind: 'domain_intake', status: 'pending', item_id: '', title: '选择处理方式',
+    task_title: '给我解释日历日期', question: '你希望怎么处理？', options_source: 'workflow',
+    options: [{ id: 'direct', label: '直接做', description: '单个 agent 处理', requires_note: false },
+      { id: 'build', label: '建立专门流程', description: '确认需求并查资料', requires_note: false }],
+  } }], []);
+  const output = await renderNode(React.createElement(PendingDecisionPrompt, {
+    card, selection: 1, note: { value: '注明来源', cursor: 4 }, busy: false, error: '',
+  }), 40);
+  assert.match(output, /选择处理方式/);
+  assert.match(output, /给我解释日历日期/);
+  assert.match(output, /› 2. 建立专门流程/);
+  assert.match(output, /注明来源/);
+  assert.doesNotMatch(output, /ACTION REQUIRED/);
+  assert.ok(output.split('\n').every(line => stringWidth(line) <= 40));
 });

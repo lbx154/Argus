@@ -2,18 +2,35 @@ name: release
 
 # Release version changes are operator-controlled. Do not bump package versions
 # for a bug fix unless the operator explicitly authorizes that release change.
+# v0.1.2 through v0.1.6 were operator-authorized desktop releases.
+# v0.1.7 is a Windows-only release: build it with workflow_dispatch and an
+# explicit windows-x86_64 target, verify its artifacts, then publish them.
+# Excluding its tag prevents a second all-platform/PyPI publication.
 
 on:
   push:
     tags:
       - "v*"
+      - "!v0.1.7"
   workflow_dispatch:
+    inputs:
+      platform:
+        description: "Build one desktop target, or all"
+        type: choice
+        default: all
+        options:
+          - all
+          - windows-x86_64
+          - darwin-aarch64
+          - darwin-x86_64
+          - linux-x86_64
 
 permissions:
   contents: read
 
 jobs:
   python:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all'
     name: build · wheel + sdist
     runs-on: ubuntu-latest
     steps:
@@ -21,9 +38,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: |
+            frontend/web/package-lock.json
+            frontend/tui/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
@@ -31,7 +54,9 @@ jobs:
           npm --prefix frontend/web ci
           npm --prefix frontend/tui ci
       - name: Build release sources
-        run: python -m argus_skill.release_tools.build_release
+        run: |
+          npm --prefix frontend/web run build
+          npm --prefix frontend/tui run build
       - name: Validate tag and package versions
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -69,31 +94,26 @@ jobs:
           PY
       - name: Build distributions
         run: python -m build
-      - name: Clean-install wheel smoke
-        run: |
-          python -m venv /tmp/argus-wheel-smoke
-          /tmp/argus-wheel-smoke/bin/python -m pip install dist/*.whl
-          /tmp/argus-wheel-smoke/bin/argus-skill --version
-          /tmp/argus-wheel-smoke/bin/python - <<'PY'
-          from pathlib import Path
-          import argus_skill
-          root = Path(argus_skill.__file__).parent
-          assert (root / "_frontend/web/dist/index.html").is_file()
-          assert (root / "_frontend/tui/bundle/argus.mjs").is_file()
-          PY
       - uses: actions/upload-artifact@v4
         with:
           name: python-dist
           path: dist/*
 
-  windows:
-    name: build · Windows Tauri installers
-    runs-on: windows-latest
+  desktop:
+    name: build · ${{ matrix.platform }} desktop
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.platform == 'windows-x86_64' && '[{"os":"windows-latest","platform":"windows-x86_64"}]' || inputs.platform == 'darwin-aarch64' && '[{"os":"macos-15","platform":"darwin-aarch64"}]' || inputs.platform == 'darwin-x86_64' && '[{"os":"macos-15-intel","platform":"darwin-x86_64"}]' || inputs.platform == 'linux-x86_64' && '[{"os":"ubuntu-22.04","platform":"linux-x86_64"}]' || '[{"os":"windows-latest","platform":"windows-x86_64"},{"os":"macos-15","platform":"darwin-aarch64"},{"os":"macos-15-intel","platform":"darwin-x86_64"},{"os":"ubuntu-22.04","platform":"linux-x86_64"}]') }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.12.0"
+          node-version: '22.12.0'
           cache: npm
           cache-dependency-path: |
             frontend/web/package-lock.json
@@ -101,64 +121,91 @@ jobs:
             desktop-tauri/package-lock.json
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - uses: dtolnay/rust-toolchain@stable
+      # The Tauri shell pulls in several hundred crates; compiling them cold is
+      # the single longest step on every platform (10 min on the Intel Mac
+      # runner). Keep the compiled dependencies between runs. Only main saves,
+      # so tag builds restore main's cache instead of leaving one-off copies.
+      - uses: Swatinem/rust-cache@v2
         with:
-          target: x86_64-pc-windows-msvc
+          workspaces: desktop-tauri/src-tauri
+          shared-key: desktop-${{ matrix.platform }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf xvfb xauth dbus-x11 libfuse2
       - name: Install build dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e . "pyinstaller>=6.11,<7"
+          python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
           npm --prefix frontend/web ci
           npm --prefix frontend/tui ci
           npm --prefix desktop-tauri ci
-      - name: Build release sources and frozen backend
-        shell: pwsh
+      - name: Build release sources
         run: |
-          python -m argus_skill.release_tools.build_release
           npm --prefix frontend/web run build
-          ./desktop-tauri/scripts/build-backend.ps1 -SkipInstall
-      - name: Build signed Tauri Desktop and stage release artifacts
-        shell: pwsh
+          npm --prefix frontend/tui run build
+      - name: Verify Windows staging and signature boundary
+        if: runner.os == 'Windows'
+        run: npm --prefix desktop-tauri run test:release
+      - name: Build frozen backend
+        run: npm --prefix desktop-tauri run build:backend
+      - name: Build signed desktop updates
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
-            throw "TAURI_SIGNING_PRIVATE_KEY is required: unsigned desktop updates must never be published."
-          }
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
           npm --prefix desktop-tauri run build
-          ./desktop-tauri/scripts/stage-release.ps1
+      - name: Stage Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./desktop-tauri/scripts/stage-release.ps1
+      - name: Stage Mac installer and updater
+        if: runner.os == 'macOS'
+        run: python desktop-tauri/scripts/stage-macos-release.py
+      - name: Stage Linux installer and updater
+        if: runner.os == 'Linux'
+        run: python desktop-tauri/scripts/stage-linux-release.py
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-installers
-          path: |
-            desktop-tauri/release/*.exe
-            desktop-tauri/release/*.sig
-            desktop-tauri/release/latest.json
+          name: desktop-${{ matrix.platform }}
+          path: desktop-tauri/release/*
+          if-no-files-found: error
 
   pypi:
     name: publish · PyPI
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [python, windows]
+    # Disabled with the 2026-09-14 rename: the distribution is now ``argus``,
+    # and that name on PyPI belongs to an unrelated 2019 project. Argus is
+    # installed from Git (README "Install"); re-enable once a PyPI name is
+    # secured and the environment URL below points at it.
+    if: false && startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.1.2' && github.ref != 'refs/tags/v0.1.3' && github.ref != 'refs/tags/v0.1.4' && github.ref != 'refs/tags/v0.1.5' && github.ref != 'refs/tags/v0.1.6'
+    needs: [python, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     environment:
       name: pypi
-      url: https://pypi.org/project/argus-skill/
+      url: https://pypi.org/project/argus/
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: python-dist
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
 
   github:
     name: publish · GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [python, windows]
+    if: startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.1.2' && github.ref != 'refs/tags/v0.1.4'
+    needs: [python, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -169,12 +216,19 @@ jobs:
           path: release-assets
       - uses: actions/download-artifact@v4
         with:
-          name: windows-installers
+          pattern: desktop-*
+          merge-multiple: true
           path: release-assets
       - name: Require signed updater manifest
         run: |
           test -s release-assets/latest.json
           test -n "$(find release-assets -name '*.sig' -print -quit)"
+      - uses: actions/checkout@v4
+        with:
+          path: source
+      - name: Verify merged updater manifest and generate release notes
+        run: python source/desktop-tauri/scripts/prepare-github-release.py release-assets --notes release-body.md
       - uses: softprops/action-gh-release@v2
         with:
           files: release-assets/**/*
+          body_path: release-body.md

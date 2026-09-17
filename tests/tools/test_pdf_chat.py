@@ -1,4 +1,4 @@
-"""Tests for argus_skill.tools.pdf_chat (Step 5 — PDF chat).
+"""Tests for argus.tools.pdf_chat (Step 5 — PDF chat).
 
 Builds a tiny real PDF on the fly with pypdf so the extraction path is
 exercised end-to-end without depending on a fixture file.
@@ -13,7 +13,7 @@ import pytest
 
 pypdf = pytest.importorskip("pypdf")
 
-from argus_skill.tools.pdf_chat import (
+from argus.tools.pdf_chat import (
     open_pdf,
     view_brief,
     view_full,
@@ -216,7 +216,7 @@ def test_missing_local_pdf_raises_filenotfound() -> None:
 
 def test_cli_head_emits_json(tiny_pdf: Path) -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill.tools.pdf_chat", "head", str(tiny_pdf)],
+        [sys.executable, "-m", "argus.tools.pdf_chat", "head", str(tiny_pdf)],
         capture_output=True, text=True, timeout=60,
     )
     assert proc.returncode == 0, proc.stderr
@@ -228,7 +228,7 @@ def test_cli_head_emits_json(tiny_pdf: Path) -> None:
 
 def test_cli_section_subcommand(tiny_pdf: Path) -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill.tools.pdf_chat",
+        [sys.executable, "-m", "argus.tools.pdf_chat",
          "section", str(tiny_pdf), "Conclusion"],
         capture_output=True, text=True, timeout=60,
     )
@@ -243,7 +243,7 @@ def test_cli_section_subcommand(tiny_pdf: Path) -> None:
 
 
 def test_extract_keeps_pdftotext_text_when_pypdf_unavailable(monkeypatch) -> None:
-    from argus_skill.tools import pdf_chat
+    from argus.tools import pdf_chat
 
     monkeypatch.setattr(pdf_chat.shutil, "which", lambda _name: "/usr/bin/pdftotext")
     monkeypatch.setattr(
@@ -261,7 +261,7 @@ def test_extract_keeps_pdftotext_text_when_pypdf_unavailable(monkeypatch) -> Non
 
 
 def test_extract_uses_pypdf_when_it_recovers_headings(monkeypatch) -> None:
-    from argus_skill.tools import pdf_chat
+    from argus.tools import pdf_chat
 
     monkeypatch.setattr(pdf_chat.shutil, "which", lambda _name: "/usr/bin/pdftotext")
     monkeypatch.setattr(
@@ -276,7 +276,7 @@ def test_extract_uses_pypdf_when_it_recovers_headings(monkeypatch) -> None:
 
 
 def test_extract_keeps_pdftotext_when_pypdf_no_better(monkeypatch) -> None:
-    from argus_skill.tools import pdf_chat
+    from argus.tools import pdf_chat
 
     monkeypatch.setattr(pdf_chat.shutil, "which", lambda _name: "/usr/bin/pdftotext")
     monkeypatch.setattr(

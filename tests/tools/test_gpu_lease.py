@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.tools import gpu_lease
+from argus.tools import gpu_lease
 
 
 def _isolate_state(tmp_path: Path, monkeypatch) -> None:
@@ -17,7 +17,7 @@ def test_find_pids_in_matches_substring_and_excludes_self() -> None:
     cmdlines = [
         (10, "/opt/conda/bin/python /home/u/gpu_load.py --util 0.5"),
         (11, "python -c from multiprocessing.spawn import spawn_main"),
-        (12, "python -m argus_skill.tools.gpu_lease claim"),
+        (12, "python -m argus.tools.gpu_lease claim"),
     ]
     assert gpu_lease.find_pids_in(cmdlines, "gpu_load.py", self_pid=99) == [10]
     assert gpu_lease.find_pids_in(cmdlines, "gpu_load.py", self_pid=10) == []

@@ -21,14 +21,14 @@ function ReviewFlow({ mode, reviewerActive, hasReport }: { mode: ReviewMode; rev
     ? [
         [text('Engineer 执行', 'Engineer execution'), text('代码、实验与证据', 'Code, experiments, and evidence'), Code2],
         [text('Reviewer 检查', 'Reviewer check'), text('独立核验当前轮次', 'Independent round verification'), ShieldCheck],
-        [text('形成 Verdict', 'Produce verdict'), 'done / continue / blocked', Scale],
+        [text('得出判断', 'Reach a judgment'), 'done / continue / blocked', Scale],
         [text('回流下一轮', 'Return to next round'), text('修复任务进入 backlog', 'Repair tasks enter the backlog'), RotateCcw],
       ] as const
     : [
-        [text('选择最终稿', 'Select final draft'), text('LaTeX / PDF 与证据包', 'LaTeX / PDF and evidence package'), FileText],
+        [text('选择最终稿', 'Select final draft'), text('LaTeX / PDF 与全部证据', 'LaTeX / PDF and the supporting evidence'), FileText],
         [text('独立最终审稿', 'Independent final review'), text('按目标 venue 全面检查', 'Full target-venue review'), ShieldCheck],
         [text('生成审稿报告', 'Generate review report'), text('评分、问题与置信度', 'Scores, issues, and confidence'), FileSearch2],
-        [text('修改清单', 'Revision checklist'), text('投稿前人工确认', 'Human confirmation before submission'), ListChecks],
+        [text('待修改事项', 'Revisions to make'), text('投稿前人工确认', 'Human confirmation before submission'), ListChecks],
       ] as const;
   return <div className="review-flow">{steps.map(([title, detail, Icon], index) => <div className={(reviewerActive && index === 1) || (hasReport && index >= 2) ? 'is-active' : index === 0 ? 'is-done' : ''} key={title}><span>{index + 1}</span><Icon size={17} /><div><strong>{title}</strong><small>{detail}</small></div>{index < steps.length - 1 ? <b>→</b> : null}</div>)}</div>;
 }
@@ -87,9 +87,9 @@ export function ReviewerPage(props: WorkspacePageProps) {
         <ReviewFlow mode="process" reviewerActive={reviewerRole?.status === 'active'} hasReport={Boolean(verdict?.status)} />
         <div className="process-review-layout">
           <aside className="ros-card review-rounds"><header><div><span>ENGINEER ⇄ REVIEWER</span><h2>{text('过程审稿轮次', 'Process review rounds')}</h2></div></header><div>{processReviews.length ? processReviews.map((item) => <button type="button" className={selected?.id === item.id ? 'is-active' : ''} key={item.id} onClick={() => setSelectedId(item.id)}><span className={`review-state review-state--${statusTone(item.status)}`}><ShieldCheck size={14} /></span><div><strong>{item.title}</strong><small>{formatDate(item.ts, locale)} · {item.status || item.kind}</small></div></button>) : <EmptyState icon={ShieldCheck} title={text('暂无过程审稿', 'No process reviews yet')} />}</div></aside>
-          <main className="ros-card process-report"><header><div><span>ROUND VERDICT</span><h2>{selected?.title || text('选择一轮 Reviewer 反馈', 'Select reviewer feedback')}</h2></div>{selected ? <Badge tone={statusTone(selected.status)}>{selected.status}</Badge> : null}</header>{selected ? <article><div className="process-report__meta"><span>Round {selected.round_index ?? '—'}</span><time>{formatDate(selected.ts, locale)}</time></div><Markdown>{selected.detail || text('该轮没有留下可展示报告。', 'This round has no displayable report.')}</Markdown></article> : <EmptyState icon={FileSearch2} title={text('选择左侧过程审稿', 'Select a process review')} />}</main>
+          <main className="ros-card process-report"><header><div><span>ROUND JUDGMENT</span><h2>{selected?.title || text('选择一轮 Reviewer 反馈', 'Select reviewer feedback')}</h2></div>{selected ? <Badge tone={statusTone(selected.status)}>{selected.status}</Badge> : null}</header>{selected ? <article><div className="process-report__meta"><span>Round {selected.round_index ?? '—'}</span><time>{formatDate(selected.ts, locale)}</time></div><Markdown>{selected.detail || text('该轮没有留下可展示报告。', 'This round has no displayable report.')}</Markdown></article> : <EmptyState icon={FileSearch2} title={text('选择左侧过程审稿', 'Select a process review')} />}</main>
           <aside className="ros-card review-live"><header><div><span>LIVE REVIEW EVENTS</span><h2>{text('Reviewer 实时轨迹', 'Live reviewer activity')}</h2></div><Badge tone={props.connected ? 'live' : 'warn'} dot>{props.connected ? 'Live' : 'Polling'}</Badge></header><EventTimeline events={reviewEvents} limit={24} dense /></aside>
-          <section className="process-verdict-card"><span className={`process-verdict-card__icon process-verdict-card__icon--${statusTone(verdict?.status)}`}>{statusTone(verdict?.status) === 'success' ? <CheckCircle2 size={21} /> : <AlertTriangle size={21} />}</span><div><span>{text('当前过程 Verdict', 'Current process verdict')}</span><strong>{verdict?.status || 'Awaiting review'}</strong><p>{verdict?.reason || text('Reviewer 完成下一轮后会写入判断和行动要求。', 'The Reviewer will record a decision and required actions after the next round.')}</p></div></section>
+          <section className="process-verdict-card"><span className={`process-verdict-card__icon process-verdict-card__icon--${statusTone(verdict?.status)}`}>{statusTone(verdict?.status) === 'success' ? <CheckCircle2 size={21} /> : <AlertTriangle size={21} />}</span><div><span>{text('当前判断', 'Current judgment')}</span><strong>{verdict?.status || 'Awaiting review'}</strong><p>{verdict?.reason || text('Reviewer 完成下一轮后会写入判断和行动要求。', 'The Reviewer will record a decision and required actions after the next round.')}</p></div></section>
         </div>
         </>
       ) : (

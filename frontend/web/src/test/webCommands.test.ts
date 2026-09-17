@@ -12,7 +12,7 @@ describe('web slash dispatch', () => {
   it('routes every canonical command to its stable handler id', async () => {
     // `/ask` is answered by the Manager, not by a local handler; it has its
     // own test below.
-    for (const command of COMMANDS.filter((c) => c.id !== 'ask')) {
+    for (const command of COMMANDS.filter((c) => c.id !== 'ask' && c.id !== 'crystalpilot')) {
       const table = handlers();
       const argument = command.argument === 'required' ? 'value' : '';
       const result = await dispatchWebCommand(
@@ -20,7 +20,7 @@ describe('web slash dispatch', () => {
         table,
       );
       expect(result.kind).toBe('handled');
-      expect(table[command.id as Exclude<CommandId, 'ask'>]).toHaveBeenCalledWith(
+      expect(table[command.id as Exclude<CommandId, 'ask' | 'crystalpilot'>]).toHaveBeenCalledWith(
         argument,
       );
     }
@@ -30,7 +30,7 @@ describe('web slash dispatch', () => {
     // The Manager front door recognises the prefix and answers inline without
     // queuing anything; handling it here would need a second path to the same
     // reply.
-    for (const line of ['/ask why is it slow', '/chat hello']) {
+    for (const line of ['/ask why is it slow', '/chat hello', '/crystalpilot', '/crystalpilot status']) {
       expect((await dispatchWebCommand(line, handlers())).kind).toBe('not-command');
     }
   });

@@ -1,0 +1,218 @@
+[
+  {
+    "case": "cold-clear",
+    "operation": "cold_read",
+    "arm": "baseline",
+    "expected": "pass",
+    "assessment": {
+      "verdict": "pass",
+      "reason": "The fixture is internally consistent and preserves the central result: reducing median latency from 20 ms to 10 ms means half the latency and a 2x speedup. The controls and scope limitation support rather than contradict that conclusion."
+    },
+    "passed": true,
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "prompt_chars": 3278,
+    "usage": {
+      "input_tokens": 642,
+      "input_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 0
+      },
+      "output_tokens": 59,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 701
+    },
+    "seconds": 2.269
+  },
+  {
+    "case": "cold-clear",
+    "operation": "cold_read",
+    "arm": "candidate",
+    "expected": "pass",
+    "assessment": {
+      "verdict": "pass",
+      "reason": "The fixture is internally consistent: reducing median latency from 20 ms to 10 ms means the candidate takes half as long, equivalently a 2\u00d7 speedup. Page 2 supplies the essential controls and appropriately limits the claim to the microbenchmark, with no substantive contradiction or edit-induced loss."
+    },
+    "passed": true,
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "prompt_chars": 2590,
+    "usage": {
+      "input_tokens": 518,
+      "input_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 0
+      },
+      "output_tokens": 73,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 591
+    },
+    "seconds": 1.551
+  },
+  {
+    "case": "cold-contradiction",
+    "operation": "cold_read",
+    "arm": "candidate",
+    "expected": "fail",
+    "assessment": {
+      "verdict": "fail",
+      "reason": "Page 1's headline claim that the candidate is 2\u00d7 faster directly contradicts Table 1 on page 2, where both candidate and baseline have 20 ms latency for the same measurement, workload, and units. Smallest repair: correct either the headline claim or the table so the reported comparison is internally consistent."
+    },
+    "passed": true,
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "prompt_chars": 2455,
+    "usage": {
+      "input_tokens": 491,
+      "input_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 0
+      },
+      "output_tokens": 78,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 569
+    },
+    "seconds": 1.759
+  },
+  {
+    "case": "cold-contradiction",
+    "operation": "cold_read",
+    "arm": "baseline",
+    "expected": "fail",
+    "assessment": {
+      "verdict": "fail",
+      "reason": "The headline claim on page 1 directly contradicts Table 1 on page 2: identical 20 ms latencies do not support a 2\u00d7 speedup under the same measurement, workload, and units. Repair the headline to state equal latency, or correct Table 1 if one value is an edit error."
+    },
+    "passed": true,
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "prompt_chars": 3143,
+    "usage": {
+      "input_tokens": 615,
+      "input_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 0
+      },
+      "output_tokens": 77,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 692
+    },
+    "seconds": 1.628
+  },
+  {
+    "case": "loss-relocation",
+    "operation": "science_loss_check",
+    "arm": "baseline",
+    "expected": "pass",
+    "assessment": {
+      "verdict": "pass",
+      "reason": "No scientific semantic loss or contradiction. The workload A improvement remains in the main text, while the workload B adverse result is preserved with exact values and direction in Appendix Table 2 and is explicitly cross-referenced from the main text."
+    },
+    "passed": true,
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "prompt_chars": 2055,
+    "usage": {
+      "input_tokens": 404,
+      "input_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 0
+      },
+      "output_tokens": 59,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 463
+    },
+    "seconds": 1.753
+  },
+  {
+    "case": "loss-relocation",
+    "operation": "science_loss_check",
+    "arm": "candidate",
+    "expected": "pass",
+    "assessment": {
+      "verdict": "pass",
+      "reason": "No scientific meaning or coverage is lost. The workload A improvement remains in the main text, while the adverse workload B result is preserved through an explicit cross-reference to Appendix Table 2, which gives the exact baseline and candidate values (20 ms to 24 ms) and identifies the change as a slowdown."
+    },
+    "passed": true,
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "prompt_chars": 1367,
+    "usage": {
+      "input_tokens": 280,
+      "input_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 0
+      },
+      "output_tokens": 74,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 354
+    },
+    "seconds": 1.474
+  },
+  {
+    "case": "loss-omission",
+    "operation": "science_loss_check",
+    "arm": "candidate",
+    "expected": "fail",
+    "assessment": {
+      "verdict": "fail",
+      "reason": "The after snapshot omits the adverse workload B result: latency increased from 20 ms to 24 ms. This removes a material limitation and narrows the result matrix to only the favorable workload A outcome, with no remaining carrier for the missing slowdown."
+    },
+    "passed": true,
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "prompt_chars": 1303,
+    "usage": {
+      "input_tokens": 269,
+      "input_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 0
+      },
+      "output_tokens": 63,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 332
+    },
+    "seconds": 1.651
+  },
+  {
+    "case": "loss-omission",
+    "operation": "science_loss_check",
+    "arm": "baseline",
+    "expected": "fail",
+    "assessment": {
+      "verdict": "fail",
+      "reason": "The after snapshot omits the adverse workload B result: latency increased from 20 ms to 24 ms. This is an edit-induced loss of a material limitation and changes the reported result matrix by retaining only the favorable workload A outcome."
+    },
+    "passed": true,
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "prompt_chars": 1991,
+    "usage": {
+      "input_tokens": 393,
+      "input_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 0
+      },
+      "output_tokens": 60,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 453
+    },
+    "seconds": 1.694
+  }
+]

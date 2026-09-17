@@ -1,0 +1,162 @@
+import { useEffect, useMemo } from 'react';
+import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '../api';
+import { readerPreview, type ReaderPreview } from '../map/copyMode';
+import type { MissionView, Snapshot } from '../../../core/src/types';
+import { mergeMapProgress } from '../map/incremental';
+import type { Dataset } from '../map/model';
+import { mergeMapCopy, needsCardCopy, type MapCopy } from '../map/presentation';
+import {
+  briefCopyKey, briefEvidence, briefInputSignature, briefLiveKey, briefRelatedInputSignature, briefRequest, briefSelection,
+  currentBriefData, isReaderBrief, needsBrief, oldBriefService, READER_BRIEF_VERSION,
+} from './model';
+import { beginExplanationProgress, explanationRunStart, useExplanationProgress } from './progress';
+import { useSelectedFoundation } from './foundation';
+
+export interface ResearchBriefOptions {
+  sid: string;
+  snapshot: Snapshot;
+  view: MissionView;
+  active: boolean;
+  readOnly?: boolean;
+  locale: string;
+  /** A reader opened earlier keeps the cache mode selected at that time. */
+  preview?: ReaderPreview;
+  foundationId?: string | null;
+}
+
+export function useResearchBrief({ sid, snapshot, view, active, readOnly = false, locale, preview = readerPreview(), foundationId: pinnedFoundationId }: ResearchBriefOptions) {
+  const client = useQueryClient();
+  const taskId = view.mission.id;
+  const selection = briefSelection(snapshot, view);
+  const liveKey = briefLiveKey(sid, selection);
+  const foundationChoice = useSelectedFoundation(sid, locale);
+  const foundationId = preview === 'question-foundation' ? pinnedFoundationId === undefined ? foundationChoice.id : pinnedFoundationId : null;
+  const foundationRequired = preview === 'question-foundation' && !foundationId;
+  const copyKey = briefCopyKey(sid, locale, preview, foundationId);
+  const enabled = active && !!sid && !!taskId && snapshot.session.id === sid;
+  const live = useQuery({
+    queryKey: liveKey,
+    queryFn: async ({ signal }) => {
+      const previous = client.getQueryData<Dataset>(liveKey);
+      const next = await api.liveMap(sid, signal, previous?.cursor, selection);
+      const current = currentBriefData(next, sid, taskId);
+      return mergeMapProgress(client.getQueryData<Dataset>(liveKey), current);
+    },
+    enabled, refetchInterval: enabled ? 15_000 : false, staleTime: 10_000,
+    retry: false, retryOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false,
+  });
+  const copy = useQuery({
+    queryKey: copyKey,
+    queryFn: async ({ signal }) => {
+      const result = preview === 'question-foundation'
+        ? await api.mapCopy('project', sid, locale, signal, sid, preview, foundationId)
+        : await api.mapCopy('project', sid, locale, signal, sid, preview);
+      const previous = client.getQueryData<MapCopy>(copyKey);
+      return mergeMapCopy(previous, result, previous?.model_revision);
+    },
+    enabled, staleTime: Infinity, gcTime: 2 * 60 * 60 * 1000,
+    retry: false, retryOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false,
+  });
+  const task = live.data?.tasks.find(item => item.id === taskId);
+  const progressStart = explanationRunStart(taskId, task, selection.eventSince);
+  const progress = useExplanationProgress(copyKey, taskId, progressStart);
+  const evidence = useMemo(() => briefEvidence(live.data, task, selection.eventSince), [live.data, task, selection.eventSince]);
+  const inputSignature = briefInputSignature(task, evidence);
+  const card = taskId ? copy.data?.cards[taskId] : undefined;
+  const brief = (card?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(card?.reader_brief)
+    ? card!.reader_brief : undefined;
+  const relatedInput = briefRelatedInputSignature(live.data, card);
+  const needsUpdate = needsBrief(live.data, task, evidence, copy.data) || relatedInput !== null;
+  const legacy = oldBriefService(copy.data);
+  const canGenerate = enabled && !readOnly && !foundationRequired && !!task && copy.data?.available === true
+    && !legacy && !live.isError && !copy.isError;
+  const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince, preview, ...(preview === 'question-foundation' ? [foundationId] : [])] as const;
+  const generationVersion = Math.max(READER_BRIEF_VERSION, copy.data?.version ?? 0);
+  // An earlier success or failure only applies to the draft/review settings used for that attempt.
+  const generationPrefix = [...generationScope, generationVersion, copy.data?.model_revision ?? null, inputSignature] as const;
+  const generationKey = [...generationPrefix, relatedInput] as const;
+  // A task can receive its final review/certification while its first explanation
+  // is still being written. Finish that request before generating the latest
+  // input; intermediate states should not create parallel model calls.
+  const activeGenerations = useIsFetching({ queryKey: generationScope });
+  const previouslyFailed = client.getQueryState(generationKey)?.status === 'error';
+  const generation = useQuery({
+    queryKey: generationKey,
+    queryFn: async () => {
+      if (!task) throw new Error('The current task is not recorded yet.');
+      const requestedRevision = client.getQueryData<MapCopy>(copyKey)?.model_revision;
+      // The request is task/source-scoped. A tab switch may stop observing it,
+      // but completed text still belongs in the shared map cache.
+      const observed = beginExplanationProgress(client, copyKey, [{ key: task.id, startedAt: progressStart }]);
+      let result: MapCopy;
+      try {
+        result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale,
+          ...(foundationId ? { foundation_id: foundationId } : {}) }, undefined, sid, preview, observed.update);
+      } finally {
+        observed.finish();
+      }
+      const returned = result.cards?.[task.id];
+      const valid = (returned?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(returned?.reader_brief);
+      // Coalescing can return a previous valid brief with retry_after. Its
+      // existence alone does not mean the newly requested evidence was read.
+      const current = valid && !result.retry_after && result.available !== false &&
+        (returned?.version ?? 0) >= generationVersion && !!live.data && !needsCardCopy(briefRequest(task, evidence), live.data, result,
+        new Map(evidence.map(event => [event.id, event])));
+      const receipt = { available: current, retryAfter: result.retry_after ?? null, inputSignature };
+      const returnedRelatedInput = briefRelatedInputSignature(live.data, returned);
+      if (returnedRelatedInput !== relatedInput) {
+        // Updating the card stamp must not immediately buy another explanation.
+        // This receipt covers only the cursor captured by this request and its
+        // returned card, never a newer cursor/card from another reader. An
+        // unavailable receipt keeps the existing explicit retry behavior.
+        client.setQueryData([...generationPrefix, returnedRelatedInput], receipt);
+      }
+      client.setQueryData<MapCopy>(copyKey, previous => mergeMapCopy(previous, result, requestedRevision));
+      return receipt;
+    },
+    enabled: canGenerate && needsUpdate && !previouslyFailed && activeGenerations === 0,
+    // One attempt per semantic input, including across unmount/remount. A failed
+    // generation is retried only by the button or by genuinely new evidence.
+    staleTime: Infinity, gcTime: 2 * 60 * 60 * 1000,
+    retry: false, retryOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false,
+  });
+
+  // A successful coalescing response asks us to wait for fresh input; it is
+  // different from a failed generation, which requires an explicit retry.
+  const retryAfter = generation.data?.retryAfter;
+  useEffect(() => {
+    if (!canGenerate || !needsUpdate || generation.isFetching || generation.isError
+      || generation.data?.available !== false || typeof retryAfter !== 'number'
+      || !Number.isFinite(retryAfter) || retryAfter <= 0) return;
+    const timer = setTimeout(() => { void generation.refetch({ cancelRefetch: false }); },
+      Math.max(0, generation.dataUpdatedAt + retryAfter * 1000 - Date.now()));
+    return () => clearTimeout(timer);
+  }, [canGenerate, needsUpdate, generation.isFetching, generation.isError, generation.data?.available,
+    generation.dataUpdatedAt, retryAfter, generation.refetch]);
+
+  const retry = async () => {
+    if (!enabled) return;
+    if (live.isError || copy.isError || !copy.data?.available || legacy || !task) {
+      await Promise.allSettled([live.refetch(), copy.refetch()]);
+    } else if (canGenerate) {
+      await generation.refetch();
+    }
+  };
+  return {
+    foundationId, foundationRequired,
+    task, evidence, loadedEvents: live.data?.events, card, brief, inputSignature,
+    needsUpdate: needsUpdate && generation.data?.available !== true,
+    legacy,
+    loading: enabled && (live.isPending || copy.isPending),
+    generating: progress.active || generation.isFetching || activeGenerations > 0,
+    generationPhase: progress.phase,
+    readError: live.error || copy.error,
+    generationError: needsUpdate && !progress.active ? generation.error : null,
+    generationUnavailable: generation.data?.available === false && needsUpdate && !progress.active,
+    generationAvailable: copy.data?.available === true,
+    teachingUnavailable: !!brief && card?.teaching_review?.status === 'unavailable',
+    readingUnavailable: !!brief && card?.teaching_review?.reading_review?.status === 'unavailable',
+    retry,
+  };
+}

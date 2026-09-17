@@ -19,10 +19,10 @@ from __future__ import annotations
 import json
 import re
 
-from argus_skill.manager.plan_challenge import adjudicate_plan_challenge
-from argus_skill.reviewer import Reviewer
-from argus_skill.reviewer._parsing import _PLAN_SIGNALS, parse_decision_text
-from argus_skill.skills.store import SkillStore
+from argus.manager.plan_challenge import adjudicate_plan_challenge
+from argus.reviewer import Reviewer
+from argus.reviewer._parsing import _PLAN_SIGNALS, parse_decision_text
+from argus.skills.store import SkillStore
 
 _SHOWN_SIGNAL = re.compile(r"(?im)^\s*PLAN_SIGNAL\s*=\s*([a-z_]+)")
 
@@ -57,15 +57,15 @@ def test_the_reviewer_is_told_the_word_that_challenges_the_plan(tmp_path) -> Non
     assert "reconsider" in prompt
     for field in ("plan_challenge", "plan_alternative", "authority_impact"):
         assert field in prompt
-    assert "new evidence lowers the current plan's expected value" in prompt
-    assert "plan_alternative` only when you actually have" in prompt
+    assert 'if evidence lowers expected value' in prompt
+    assert 'Without a known `plan_alternative`, Manager uses `revise`' in prompt
     assert "STATUS=replan_requested" in prompt
 
 
 def test_the_reviewer_is_told_a_team_authored_plan_is_revisable(tmp_path) -> None:
     """Authority, not effort, decides what may be replaced."""
     prompt = _reviewer_prompt(tmp_path)
-    assert "the team authored for itself is a working choice" in prompt
+    assert 'working choices and team plans' in prompt
     assert "manager_contract" in prompt
 
 

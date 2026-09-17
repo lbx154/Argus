@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.engineer.external_work import (
+from argus.engineer.external_work import (
     EXTERNAL_WORK_PROTOCOL_VERSION,
     ExternalWorkState,
     inspect_external_work,
@@ -60,6 +60,41 @@ def test_stale_healthy_record_downgrades_without_becoming_progress(tmp_path: Pat
     assert status is not None
     assert status.state is ExternalWorkState.STALLED
     assert "stale" in status.reason
+
+
+@pytest.mark.parametrize("heartbeat", [float("nan"), float("inf"), float("-inf"), "nan", "1e400", 10 ** 400, True])
+def test_invalid_heartbeat_cannot_keep_a_job_waitable(tmp_path: Path, heartbeat) -> None:
+    _write_external(tmp_path, "invalid", heartbeat_at=heartbeat)
+    _write_external(tmp_path, "healthy", heartbeat_at=100)
+
+    statuses = {status.work_id: status for status in scan_external_work(tmp_path, now=110)}
+
+    assert statuses["invalid"].state is ExternalWorkState.STALLED
+    assert not statuses["invalid"].waitable
+    assert statuses["healthy"].waitable
+    slept = []
+    reason, waited = wait_for_external_work_cadence(
+        tmp_path, "invalid", sleep=slept.append, now=lambda: 110,
+    )
+    assert (reason, waited, slept) == ("stalled", 0.0, [])
+
+
+@pytest.mark.parametrize("duration", [float("nan"), float("inf"), "1e400", 10 ** 400])
+def test_bad_wait_durations_use_finite_defaults(tmp_path: Path, duration) -> None:
+    import math
+
+    _write_external(tmp_path, "job", heartbeat_at="100", stale_after_seconds=duration,
+                    activity_stale_after_seconds=duration, poll_after_seconds=duration,
+                    started_at=duration)
+    status = inspect_external_work(tmp_path, "job", now=110)
+
+    assert status is not None and status.waitable
+    assert all(math.isfinite(value) for value in (
+        status.heartbeat_at, status.stale_after_seconds, status.activity_stale_after_seconds,
+        status.poll_after_seconds, status.started_at,
+    ))
+    assert status.started_at == 0
+    assert inspect_external_work(tmp_path, "job", now=2000).state is ExternalWorkState.STALLED
 
 
 def test_fresh_heartbeat_with_quiet_declared_activity_stays_waitable(
@@ -267,7 +302,7 @@ def test_direct_subagent_stays_waitable_when_launcher_dies_but_child_lives(
 
 
 def test_subagent_live_pid_with_mismatched_identity_is_stalled(tmp_path: Path) -> None:
-    from argus_skill.core.process_identity import capture_process_identity
+    from argus.core.process_identity import capture_process_identity
 
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()
@@ -411,7 +446,7 @@ def test_a_job_that_declares_no_activity_paths_is_still_watched(tmp_path) -> Non
     """
     import time
 
-    from argus_skill.engineer.external_work import _activity_silence_seconds
+    from argus.engineer.external_work import _activity_silence_seconds
 
     now = time.time()
     subagents = tmp_path / ".argus_subagents"

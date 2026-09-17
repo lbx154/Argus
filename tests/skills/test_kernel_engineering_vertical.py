@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.skills.builtins import seed_builtin_skills_for_vertical
-from argus_skill.skills.stage_machine import format_full_pipeline_checklist
-from argus_skill.skills.vertical_select import (
+from argus.skills.builtins import seed_builtin_skills_for_vertical
+from argus.skills.stage_machine import format_full_pipeline_checklist
+from argus.skills.vertical_select import (
     VERTICAL_PURPOSES,
     VERTICALS,
     persist_vertical,
     require_vertical,
 )
-from argus_skill.verticals._base import (
+from argus.verticals._base import (
     load_vertical,
     load_vertical_contract,
     vertical_completion_gate,
@@ -125,7 +125,7 @@ def test_kernel_engineering_vertical_skills_are_packaged(tmp_path: Path) -> None
 def test_kernel_reference_guidance_does_not_gate_exploration() -> None:
     root = (
         Path(__file__).resolve().parents[2]
-        / "argus_skill"
+        / "argus"
         / "verticals"
         / "kernel_engineering"
     )
@@ -140,7 +140,7 @@ def test_kernel_reference_guidance_does_not_gate_exploration() -> None:
 
     assert "do not require a failure" in frontier
     assert "valid result even without implementation" in frontier
-    assert "not a gate on research" in idgl
+    assert "places no bar on research" in idgl
     assert "high-risk exploration" in idgl
     assert "One clean run is enough for exploratory screening" in idgl
     assert "do not require multiple seeds" in measurement

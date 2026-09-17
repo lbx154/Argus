@@ -25,15 +25,19 @@ const debugArgus = debuglog('argus');
 
 /**
  * Make `argus` a true one-command launch: if the backend API isn't up, start
- * `argus-skill --web` ourselves, wait for it, then connect. This is why the
+ * `argus --web` ourselves, wait for it, then connect. This is why the
  * launch command can just be `argus`.
  *
- * Binary resolution (this box has SEVERAL argus-skill installs on PATH, most of
+ * Binary resolution (this box has SEVERAL argus installs on PATH, most of
  * them older checkouts WITHOUT the `--web` flag): prefer ARGUS_SKILL_BIN, then
- * the repo's own `.venv/bin/argus-skill` (the one this frontend ships beside —
- * the base runtime includes the WebAPI used by the cockpit), and only fall back
- * to bare `argus-skill` on PATH.
+ * the repo's own `.venv/bin/argus` (the one this frontend ships beside —
+ * the base runtime includes the WebAPI used by the cockpit), then the repo's
+ * pre-rename `.venv/bin/argus-skill`, and only fall back to bare `argus` on
+ * PATH.
  */
+
+/** Backend launchers, preferred first. `argus-skill` is the pre-rename name, kept one release. */
+export const BACKEND_COMMANDS = ['argus', 'argus-skill'] as const;
 
 export function resolveBin(): string {
   if (process.env.ARGUS_SKILL_BIN) return process.env.ARGUS_SKILL_BIN;
@@ -41,18 +45,28 @@ export function resolveBin(): string {
   // is three levels up.
   const here = dirname(fileURLToPath(import.meta.url));
   const repo = resolve(here, '..', '..', '..');
-  const repoBin = repoBackendPath(repo);
-  if (existsSync(repoBin)) return repoBin;
-  return 'argus-skill';
+  for (const repoBin of repoBackendPaths(repo)) {
+    if (existsSync(repoBin)) return repoBin;
+  }
+  return BACKEND_COMMANDS[0];
 }
 
+/** The repo venv's backend launchers in preference order. */
+export function repoBackendPaths(
+  repo: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  return BACKEND_COMMANDS.map((name) => (platform === 'win32'
+    ? resolve(repo, '.venv', 'Scripts', `${name}.exe`)
+    : resolve(repo, '.venv', 'bin', name)));
+}
+
+/** The preferred repo venv backend launcher (`argus`). */
 export function repoBackendPath(
   repo: string,
   platform: NodeJS.Platform = process.platform,
 ): string {
-  return platform === 'win32'
-    ? resolve(repo, '.venv', 'Scripts', 'argus-skill.exe')
-    : resolve(repo, '.venv', 'bin', 'argus-skill');
+  return repoBackendPaths(repo, platform)[0];
 }
 
 export interface ApiProbeResult {
@@ -621,7 +635,7 @@ export async function ensureApi(opts: {
     return {
       reachable: false,
       spawned: false,
-      message: `no API at ${host}:${port} — start it with:  argus-skill --web --web-port ${port}`,
+      message: `no API at ${host}:${port} — start it with:  argus --web --web-port ${port}`,
     };
   }
 
@@ -646,7 +660,7 @@ export async function ensureApi(opts: {
       spawned: false,
       message:
         `could not launch '${bin} --web' (${(err as Error).message}). ` +
-        `Set ARGUS_SKILL_BIN or start it yourself: argus-skill --web --web-port ${port}`,
+        `Set ARGUS_SKILL_BIN or start it yourself: argus --web --web-port ${port}`,
     };
   }
 

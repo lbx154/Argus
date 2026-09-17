@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus_skill.core import sandbox
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus.core import sandbox
 
 _ENV = "ARGUS_SKILL_ENGINEER_SANDBOX"
 
@@ -79,8 +79,8 @@ def test_writable_roots_excludes_gate_brain_and_package():
     assert home / ".argus-skill" in forbidden
     assert home / ".codex" in forbidden
     # the package root is forbidden
-    import argus_skill
-    package_root = Path(argus_skill.__file__).resolve().parent.parent
+    import argus
+    package_root = Path(argus.__file__).resolve().parent.parent
     assert package_root in forbidden
 
 
@@ -90,6 +90,48 @@ def test_writable_roots_includes_research_caches():
     assert ".kube" in names     # B200 kubectl token cache
     assert ".triton" in names   # Triton JIT/autotune cache
     assert ".nv" in names       # NVIDIA ptxas/nvrtc cache
+
+
+def test_forbidden_roots_include_user_site_and_local_bin():
+    """2026-09-05 escape: with the system site unwritable, pip inside the
+    maintenance worktree silently fell back to a *user* install, rewriting
+    ~/.local/bin/argus and planting an editable .pth in the user
+    site-packages — both auto-load into the next un-sandboxed interpreter.
+    Both roots must be forbidden and never granted via --add-dir. ~/.local/lib
+    covers the user site of EVERY interpreter version — the incident pip ran
+    under the system 3.11, not this venv's 3.12 — while the per-interpreter
+    user site stays forbidden for a PYTHONUSERBASE outside home. (The
+    worktree itself stays writable: it is the -C / bwrap bind root, which
+    forbidden_write_roots never filters.)"""
+    import site
+    home = Path.home()
+    forbidden = {Path(root) for root in sandbox.forbidden_write_roots()}
+    assert home / ".local" / "lib" in forbidden
+    assert home / ".local" / "bin" in forbidden
+    assert Path(site.getusersitepackages()) in forbidden
+    roots = [Path(root) for root in sandbox.writable_roots()]
+    assert not any(root.is_relative_to(home / ".local" / "lib") for root in roots)
+    assert not any(root.is_relative_to(home / ".local" / "bin") for root in roots)
+    assert not any(
+        root.is_relative_to(site.getusersitepackages()) for root in roots
+    )
+
+
+def test_forbidden_user_site_follows_substituted_home(tmp_path, monkeypatch):
+    """site.getusersitepackages() is resolved once against the startup HOME;
+    when a test substitutes Path.home(), the forbidden user-site root must
+    move with the other home-derived roots instead of pointing at the real
+    home."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
+    forbidden = [Path(root) for root in sandbox.forbidden_write_roots()]
+    assert home / ".local" / "lib" in forbidden
+    assert home / ".local" / "bin" in forbidden
+    assert any(
+        root.name == "site-packages" and root.is_relative_to(home)
+        for root in forbidden
+    )
 
 
 def test_writable_roots_never_grants_the_venv():
@@ -289,7 +331,7 @@ def test_build_codex_command_never_rootless_sandbox():
 
 
 def test_chokepoint_skips_non_codex_backend(gate_on):
-    from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE
+    from argus.agent_cli.runner_backend import BACKEND_CLAUDE
     r = AgentCliRunner(agent_bin="claude", backend=BACKEND_CLAUDE)
     o = r._apply_sandbox_policy(RunnerOptions(dangerous_yolo=True, working_dir="/wd"))
     assert o.sandbox_mode is None and o.dangerous_yolo is True
@@ -307,6 +349,34 @@ def test_sandboxed_child_env_scrubs_vcs_creds(monkeypatch):
     assert "COPILOT_GITHUB_TOKEN" not in env
     assert env["PYTHONSAFEPATH"] == "1"
     assert env["PATH"] == "/usr/bin"
+
+
+def test_sandboxed_child_env_pins_pip_user_off(monkeypatch):
+    """pip's silent user-install fallback is the 2026-09-05 escape; PIP_USER=0
+    makes an unwritable-site install fail loudly (Errno 13) instead. An
+    inherited opt-in must not survive."""
+    monkeypatch.setenv("PIP_USER", "1")
+    env = sandbox.sandboxed_child_env()
+    assert env["PIP_USER"] == "0"
+
+
+def test_pip_user_pinned_off_on_the_yolo_inherit_path(gate_off):
+    """The maintenance engineer runs dangerous_yolo by default
+    (apps/_runtime_execute.py): _child_env returns None and the codex child
+    inherits the parent env untouched, so sandboxed_child_env() never runs.
+    PIP_USER=0 therefore rides the parent env via
+    configure_framework_python_env, which the daemon life worker
+    (_rf_bootstrap_environment) and the CLI main both run before spawning any
+    child shell."""
+    from argus.core.runtime_env import configure_framework_python_env
+
+    runner = _codex_runner()
+    options = runner._apply_sandbox_policy(
+        RunnerOptions(dangerous_yolo=True, working_dir="/wd")
+    )
+    assert runner._child_env(options) is None  # yolo child inherits parent env
+    parent = configure_framework_python_env({"PATH": "/usr/bin", "PIP_USER": "1"})
+    assert parent["PIP_USER"] == "0"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="requires POSIX worktree isolation")
@@ -577,7 +647,7 @@ def test_codex_sandbox_args_sandboxed_when_on(gate_on):
 def test_no_hardcoded_bypass_left_in_subagent_spawns():
     """Every codex spawn must route through the gated policy. The only remaining
     literal bypass is the legacy default-OFF fallback in the runner/policy."""
-    import argus_skill.tools.subagent._core as sub
+    import argus.tools.subagent._core as sub
     src = Path(sub.__file__).read_text(encoding="utf-8")
     assert "--dangerously-bypass-approvals-and-sandbox" not in src
 
@@ -593,8 +663,8 @@ def test_no_raw_codex_spawn_bypasses_gate_anywhere():
     ``_apply_sandbox_policy`` gate that used to live inline in
     ``agent_cli_runner.py``; it is the same single chokepoint, just split into
     its own module, so it is allowed alongside the other two."""
-    import argus_skill
-    pkg_root = Path(argus_skill.__file__).resolve().parent
+    import argus
+    pkg_root = Path(argus.__file__).resolve().parent
     allowed = {
         "agent_cli/agent_cli_runner.py",
         "agent_cli/_sandbox_commands.py",
@@ -614,7 +684,7 @@ def test_no_raw_codex_spawn_bypasses_gate_anywhere():
 
 def test_teammate_has_no_harness_forced_research_spawn():
     """Teammates use the normal reviewed mission path, not a second CLI spawn."""
-    import argus_skill.team.teammate_entry as te
+    import argus.team.teammate_entry as te
 
     src = Path(te.__file__).read_text(encoding="utf-8")
     assert "_forced_web_research" not in src

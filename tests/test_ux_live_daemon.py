@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from argus_skill.core.session import (
+from argus.core.session import (
     live_daemon_sessions,
     resolve_session,
 )

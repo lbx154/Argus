@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { MobileTabBar } from '../components/MobileTabBar';
+import { useVisualViewport } from '../useVisualViewport';
 
 describe('MobileTabBar', () => {
-  const markup = (active: 'mission' | 'activity' | 'workbench' | 'preview' = 'activity') =>
+  const markup = (active: 'map' | 'mission' | 'activity' | 'workbench' | 'preview' = 'map') =>
     renderToStaticMarkup(
       <MobileTabBar active={active} onSelect={() => {}} onOpenSessions={() => {}} />,
     );
@@ -11,14 +13,14 @@ describe('MobileTabBar', () => {
   it('offers every destination that is otherwise reachable only on desktop', () => {
     const html = markup();
 
-    for (const label of ['Sessions', 'Mission', 'Activity', 'Workbench', 'Preview']) {
+    for (const label of ['Projects', 'Map', 'Mission', 'Conversation', 'Workbench', 'Files', 'More']) {
       expect(html).toContain(`>${label}<`);
     }
   });
 
-  it('marks the active destination for assistive tech', () => {
+  it.each(['map', 'mission', 'preview'] as const)('marks only the active %s destination for assistive tech', (active) => {
     // The tab that is current carries aria-current; exactly one does.
-    expect(markup('preview').match(/aria-current="page"/g)).toHaveLength(1);
+    expect(markup(active).match(/aria-current="page"/g)).toHaveLength(1);
   });
 
   it('keeps every target at or above the touch-size minimum', () => {
@@ -42,8 +44,56 @@ describe('MobileTabBar', () => {
       <MobileTabBar active="activity" onSelect={() => {}} />,
     );
 
-    expect(html).not.toContain('>Sessions<');
+    expect(html).not.toContain('>Projects<');
     expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(4);
+  });
+});
+
+describe('visible viewport layout', () => {
+  let renderer: ReactTestRenderer | undefined;
+  afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
+
+  it.each([true, false])('compacts and restores the reading/input layout (visualViewport: %s)', (hasViewport) => {
+    const viewportEvents = new Map<string, () => void>();
+    const windowEvents = new Map<string, () => void>();
+    const viewport = { height: 844, offsetTop: 0,
+      addEventListener: (name: string, callback: () => void) => viewportEvents.set(name, callback),
+      removeEventListener: (name: string) => viewportEvents.delete(name) };
+    const properties = new Map<string, string>();
+    const root = { dataset: {} as Record<string, string>, style: {
+      setProperty: (key: string, value: string) => properties.set(key, value),
+      removeProperty: (key: string) => properties.delete(key),
+    } };
+    let frame: FrameRequestCallback | undefined;
+    const browser = { innerWidth: 390, innerHeight: 844, visualViewport: hasViewport ? viewport : undefined,
+      requestAnimationFrame: (callback: FrameRequestCallback) => { frame = callback; return 1; },
+      cancelAnimationFrame: () => { frame = undefined; },
+      addEventListener: (name: string, callback: () => void) => windowEvents.set(name, callback),
+      removeEventListener: (name: string) => windowEvents.delete(name) };
+    vi.stubGlobal('window', browser);
+    vi.stubGlobal('document', { documentElement: root });
+    const flush = () => act(() => { const callback = frame; frame = undefined; callback?.(0); });
+    function Probe() { return <div data-compact={useVisualViewport()} />; }
+    act(() => { renderer = create(<Probe />); });
+    flush();
+    expect(renderer!.root.findByType('div').props['data-compact']).toBe(false);
+    if (hasViewport) viewport.height = 500;
+    else browser.innerHeight = 500;
+    act(() => (hasViewport ? viewportEvents : windowEvents).get('resize')?.());
+    flush();
+    expect(renderer!.root.findByType('div').props['data-compact']).toBe(true);
+    expect(root.dataset.compactViewport).toBe('true');
+    expect(properties.get('--keyboard-inset')).toBe(hasViewport ? '344px' : '0px');
+    viewport.height = 844;
+    browser.innerHeight = 844;
+    act(() => windowEvents.get('resize')?.());
+    flush();
+    expect(renderer!.root.findByType('div').props['data-compact']).toBe(false);
+    expect(properties.get('--keyboard-inset')).toBe('0px');
+    act(() => renderer!.unmount());
+    renderer = undefined;
+    expect(root.dataset.compactViewport).toBeUndefined();
+    expect(properties.has('--keyboard-inset')).toBe(false);
   });
 });
 

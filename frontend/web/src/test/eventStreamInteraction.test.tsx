@@ -1,0 +1,520 @@
+import type { ReactNode } from 'react';
+import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EventMsg, Snapshot } from '../api';
+import { emptyMissionView } from '../../../core/src/missionView';
+import { CopyButton } from '../components/CopyButton';
+import { EventStream } from '../components/EventStream';
+import { referenceText } from '../map/presentation';
+import { CONTINUED_TASK_REPORT, INTERRUPTED_TASK_REPORT } from './taskReportFixtures';
+
+vi.mock('../lib/motion', () => ({ useGsapMotion: () => {} }));
+vi.mock('../components/MarkdownContent', () => ({
+  MarkdownContent: ({ children }: { children: ReactNode }) => <div data-markdown>{children}</div>,
+}));
+
+function scrollNode() {
+  let top = 0;
+  return {
+    clientHeight: 300, clientWidth: 1000, scrollHeight: 900,
+    get scrollTop() { return top; },
+    set scrollTop(value: number) { top = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight)); },
+    scrollTo(options: ScrollToOptions) { this.scrollTop = options.top ?? 0; },
+    addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  };
+}
+
+let renderer: ReactTestRenderer | undefined;
+let frames: Map<number, FrameRequestCallback>;
+let inner: ReturnType<typeof scrollNode>;
+let outer: ReturnType<typeof scrollNode>;
+let content: object;
+let observers: { targets: Set<object>; notify: () => void }[];
+let nextFrame: number;
+
+beforeEach(() => {
+  frames = new Map();
+  nextFrame = 0;
+  inner = scrollNode();
+  outer = scrollNode();
+  content = {};
+  observers = [];
+  vi.stubGlobal('ResizeObserver', class {
+    record: typeof observers[number];
+    constructor(notify: () => void) {
+      this.record = { targets: new Set(), notify };
+      observers.push(this.record);
+    }
+    observe(target: object) { this.record.targets.add(target); }
+    disconnect() { this.record.targets.clear(); }
+  });
+  vi.stubGlobal('window', {
+    requestAnimationFrame: (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame; },
+    cancelAnimationFrame: (id: number) => frames.delete(id),
+    setInterval: vi.fn(() => 1),
+    clearInterval: vi.fn(),
+  });
+});
+afterEach(() => {
+  act(() => renderer?.unmount());
+  renderer = undefined;
+  vi.unstubAllGlobals();
+});
+
+const nodeMock = (element: { props: { className?: string; 'data-event-stream-content'?: boolean } }) => {
+  if (element.props['data-event-stream-content']) return content;
+  const classes = element.props.className ?? '';
+  return classes.includes('max-h-72') ? inner : classes.includes('overflow-y-auto pb-6') ? outer : null;
+};
+const progress = (id: number, text = `Recorded finding ${id}`): EventMsg => ({
+  type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', text,
+  event_id: `progress-${id}`, ts: id,
+});
+const feed = (events: EventMsg[]) => <EventStream events={events} connected showReasoning={false} onToggleReasoning={() => {}} />;
+function mount(events: EventMsg[]) {
+  act(() => { renderer = create(feed(events), { createNodeMock: nodeMock }); });
+}
+function update(events: EventMsg[]) {
+  act(() => renderer!.update(feed(events)));
+}
+function paint() {
+  const pending = [...frames.values()];
+  frames.clear();
+  act(() => pending.forEach(callback => callback(0)));
+}
+function roleGroup() {
+  return renderer!.root.findByProps({ 'data-role': 'engineer' });
+}
+function log() {
+  return roleGroup().find(node => node.type === 'div' && String(node.props.className).includes('max-h-72'));
+}
+function scrollTo(top: number) {
+  inner.scrollTop = top;
+  act(() => log().props.onScroll({ currentTarget: inner }));
+}
+function jumpButtons() {
+  return roleGroup().findAll(node => node.type === 'button' && node.children.includes('Jump to latest'));
+}
+function resize(target: object) {
+  const matching = observers.filter(observer => observer.targets.has(target));
+  expect(matching.length).toBeGreaterThan(0);
+  act(() => matching.forEach(observer => observer.notify()));
+}
+function scrollConversation(top: number) {
+  outer.scrollTop = top;
+  const listener = outer.addEventListener.mock.calls.find(([name]) => name === 'scroll')![1];
+  act(() => listener());
+}
+function visibleText(node: ReactTestInstance): string {
+  return node.children.map(child => typeof child === 'string' ? child : visibleText(child)).join('');
+}
+
+describe('role log scroll following', () => {
+  it('follows new events at the bottom, preserves history during append and streaming growth, and resumes on request', () => {
+    mount([progress(1)]);
+    paint();
+    expect(inner.scrollTop).toBe(600);
+    inner.scrollHeight = 1200;
+    update([progress(1), progress(2)]);
+    paint();
+    expect(inner.scrollTop).toBe(900);
+
+    scrollTo(120);
+    expect(jumpButtons()).toHaveLength(1);
+    inner.scrollHeight = 1500;
+    update([progress(1), progress(2), progress(3)]);
+    paint();
+    expect(inner.scrollTop).toBe(120);
+    inner.scrollHeight = 1800;
+    update([progress(1), progress(2), progress(3, 'The newest finding is still growing in the same event.')]);
+    paint();
+    expect(inner.scrollTop).toBe(120);
+
+    act(() => jumpButtons()[0].props.onClick());
+    expect(inner.scrollTop).toBe(1500);
+    expect(jumpButtons()).toHaveLength(0);
+    inner.scrollHeight = 2000;
+    update([progress(1), progress(2), progress(3), progress(4)]);
+    paint();
+    expect(inner.scrollTop).toBe(1700);
+  });
+
+  it('does not execute a queued follow after the reader scrolls up, and detects manually returning to the bottom', () => {
+    mount([progress(1)]);
+    paint();
+    inner.scrollHeight = 1400;
+    update([progress(1), progress(2)]);
+    scrollTo(80);
+    paint();
+    expect(inner.scrollTop).toBe(80);
+    scrollTo(1100);
+    expect(jumpButtons()).toHaveLength(0);
+    inner.scrollHeight = 1600;
+    update([progress(1), progress(2), progress(3)]);
+    paint();
+    expect(inner.scrollTop).toBe(1300);
+  });
+
+  it('keeps the reading position when the same role log is closed and reopened', () => {
+    mount([progress(1)]);
+    paint();
+    scrollTo(150);
+    act(() => roleGroup().findAllByType('button')[0].props.onClick());
+    expect(roleGroup().props['data-open']).toBe('false');
+    inner.scrollHeight = 1400;
+    inner.scrollTop = 0; // A newly mounted scrolling element starts at the top.
+    update([progress(1), progress(2)]);
+    act(() => roleGroup().findAllByType('button')[0].props.onClick());
+    paint();
+    expect(inner.scrollTop).toBe(150);
+    expect(jumpButtons()).toHaveLength(1);
+  });
+});
+
+describe('conversation scroll following during reflow', () => {
+  const events: EventMsg[] = [{ type: 'ui.argus', text: 'A recorded answer with wrapping text.', ts: 1 }];
+  const resumeButtons = () => renderer!.root.findAllByProps({ 'aria-label': 'Jump to latest' });
+
+  it('keeps following when growing history fires a scroll event without an upward reader movement', () => {
+    mount(events);
+    paint();
+    scrollConversation(600);
+    outer.scrollHeight = 1800;
+    resize(content);
+    // Layout/scroll anchoring can dispatch scroll before the queued resize frame.
+    scrollConversation(600);
+    paint();
+    expect(outer.scrollTop).toBe(1500);
+    expect(resumeButtons()).toHaveLength(0);
+  });
+
+  it('stays at the latest answer after viewport and content size changes without new events', () => {
+    mount(events);
+    paint();
+    expect(outer.scrollTop).toBe(600);
+    outer.clientWidth = 390;
+    outer.clientHeight = 168;
+    outer.scrollHeight = 1800;
+    resize(outer);
+    paint();
+    expect(outer.scrollTop).toBe(1632);
+    expect(resumeButtons()).toHaveLength(0);
+
+    // Markdown or a disclosure can grow while the scroll viewport stays fixed.
+    outer.scrollHeight = 2100;
+    resize(content);
+    paint();
+    expect(outer.scrollTop).toBe(1932);
+    expect(resumeButtons()).toHaveLength(0);
+  });
+
+  it('keeps the manual history position through reflow and resumes resize following on request', () => {
+    mount(events);
+    paint();
+    scrollConversation(120);
+    expect(resumeButtons()).toHaveLength(1);
+    outer.clientWidth = 390;
+    outer.clientHeight = 168;
+    outer.scrollHeight = 1800;
+    resize(outer);
+    resize(content);
+    paint();
+    expect(outer.scrollTop).toBe(120);
+    expect(resumeButtons()).toHaveLength(1);
+
+    act(() => resumeButtons()[0].props.onClick());
+    paint();
+    expect(outer.scrollTop).toBe(1632);
+    expect(resumeButtons()).toHaveLength(0);
+    outer.clientHeight = 300;
+    resize(outer);
+    paint();
+    expect(outer.scrollTop).toBe(1500);
+  });
+
+  it('lets a manual scroll cancel a queued resize follow and cleans up on unmount', () => {
+    mount(events);
+    paint();
+    outer.scrollHeight = 1800;
+    resize(content);
+    scrollConversation(80);
+    paint();
+    expect(outer.scrollTop).toBe(80);
+    expect(resumeButtons()).toHaveLength(1);
+
+    act(() => resumeButtons()[0].props.onClick());
+    paint();
+    resize(outer);
+    expect(frames.size).toBeGreaterThan(0);
+    act(() => renderer!.unmount());
+    renderer = undefined;
+    expect(frames.size).toBe(0);
+    expect(observers.every(observer => observer.targets.size === 0)).toBe(true);
+  });
+});
+
+describe('conversation history readiness', () => {
+  it('distinguishes loading, failed history and a confirmed empty conversation', () => {
+    const retry = vi.fn();
+    const view = (historyStatus: 'loading' | 'error' | 'ready') => <EventStream
+      events={[]} connected showReasoning={false} onToggleReasoning={() => {}}
+      historyStatus={historyStatus} onRetryHistory={retry} />;
+    act(() => { renderer = create(view('loading'), { createNodeMock: nodeMock }); });
+    expect(visibleText(renderer!.root)).toContain('Loading conversation history');
+    expect(visibleText(renderer!.root)).not.toContain('Argus is ready');
+    act(() => renderer!.update(view('error')));
+    expect(visibleText(renderer!.root)).toContain('Could not load conversation history');
+    expect(visibleText(renderer!.root)).not.toContain('Argus is ready');
+    const button = renderer!.root.findAllByType('button').find(node => visibleText(node) === 'Retry')!;
+    act(() => button.props.onClick());
+    expect(retry).toHaveBeenCalledTimes(1);
+    act(() => renderer!.update(view('ready')));
+    expect(visibleText(renderer!.root)).toContain('Argus is ready');
+  });
+
+  it('retains loaded messages when refreshing their history fails', () => {
+    act(() => { renderer = create(<EventStream
+      events={[{ type: 'ui.argus', text: 'A previously loaded answer.', ts: 1 }]}
+      connected showReasoning={false} onToggleReasoning={() => {}} historyStatus="error"
+      onRetryHistory={() => {}} />, { createNodeMock: nodeMock }); });
+    expect(visibleText(renderer!.root)).toContain('A previously loaded answer.');
+    expect(visibleText(renderer!.root)).toContain('Could not load conversation history');
+    expect(visibleText(renderer!.root)).not.toContain('Argus is ready');
+  });
+});
+
+describe('conversation references', () => {
+  it('shows task and step titles separately from the user text and keeps the complete reference available to copy', () => {
+    const reference = { source: 'live:project-a', task_id: 'task-1', task_title: 'Check a special case',
+      step_id: 'step-1', step_title: 'Compare the evidence', part: 2, event_ids: ['event-1', 'event-2'] };
+    const message = referenceText(reference) + 'Please explain this in plain language.';
+    mount([{ type: 'ui.operator', text: message, ts: 1 }]);
+    const quote = renderer!.root.findByType('blockquote');
+    expect(visibleText(quote)).toContain('Check a special case');
+    expect(visibleText(quote)).toContain('Compare the evidence');
+    expect(visibleText(quote)).toContain('Part 2');
+    expect(visibleText(quote)).not.toContain('event-1');
+    expect(renderer!.root.findByProps({ 'data-markdown': true }).children).toEqual(['Please explain this in plain language.']);
+    expect(renderer!.root.findByType(CopyButton).props.text).toBe(message);
+  });
+
+  it.each([
+    '[[Argus引用 broken]]\nDo not lose this text.',
+    '[[Argus引用 {"source":"live:s","task_id":"t","task_title":{},"event_ids":[]}]]\nKeep the example.',
+    '[[Argus引用 null]]\nThis is ordinary malformed text.',
+    '[[Argus引用 {"source":"live:s","task_id":"t","task_title":"Example","event_ids":[3]}]]',
+  ])('preserves malformed reference syntax as normal message text: %s', message => {
+    mount([{ type: 'ui.operator', text: message, ts: 1 }]);
+    expect(renderer!.root.findAllByType('blockquote')).toHaveLength(0);
+    expect(renderer!.root.findByProps({ 'data-markdown': true }).children).toEqual([message]);
+  });
+
+  it('keeps multiple valid references while leaving malformed lines and normal text intact', () => {
+    const first = { source: 'map', task_id: 'task-1', task_title: 'First task', event_ids: [] };
+    const second = { ...first, task_id: 'task-2', task_title: 'Second task' };
+    const body = '[[Argus引用 broken]]\nKeep my normal question.';
+    mount([{ type: 'ui.operator', text: referenceText(first) + referenceText(second) + body, ts: 1 }]);
+    expect(renderer!.root.findAllByType('blockquote').map(visibleText)).toEqual(['ReferenceFirst task', 'ReferenceSecond task']);
+    expect(renderer!.root.findByProps({ 'data-markdown': true }).children).toEqual([body]);
+  });
+});
+
+function runtimeFixture(alive = true) {
+  const now = Date.now() / 1000;
+  const missionView = emptyMissionView();
+  Object.assign(missionView.mission, { id: 'task-a', title: 'Research task A', status: 'working', started_at: now - 20 });
+  missionView.active_role = 'engineer';
+  const snapshot: Snapshot = {
+    session: { id: 'session', display_name: 'Research', objective: '', cwd: '/tmp', last_active: now },
+    daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 30, backend: 'pi', global_daily_cap_usd: null },
+    roles: [{ role: 'engineer', active: true, status: 'running', label: 'Working', age_s: 1, backend: 'pi', backend_label: 'Pi', model: 'model', effort: null }],
+    backlog: [{ id: 'task-a', title: 'Research task A', objective: '', status: 'running', started_ts: now - 20, priority: 1 }],
+    recent_events: [], mission_view: missionView,
+  };
+  const events = [{ ...progress(1), item_id: 'task-a', ts: now - 1 }];
+  return { snapshot, missionView, events };
+}
+
+describe('historical task receipts', () => {
+  it.each([
+    [CONTINUED_TASK_REPORT, 'Recorded then: work continued.'],
+    [INTERRUPTED_TASK_REPORT, 'This task had not completed at that time.'],
+  ])('shows a historical explanation and a collapsed, exact original for a recognized report', (text, expected) => {
+    const value = runtimeFixture();
+    const receipt = { type: 'ui.argus', text, ts: 1789216023.4750645,
+      message_id: 'mission-result-old-task', mission_result: true, item_id: 'old-task', success: false };
+    act(() => { renderer = create(<EventStream {...value} events={[receipt, ...value.events]}
+      connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+    const row = renderer!.root.findByProps({ 'data-task-receipt-id': receipt.message_id });
+    const prose = visibleText(row.findByProps({ 'data-task-receipt-prose': true }));
+    expect(prose).toContain(expected);
+    expect(prose).not.toContain('Technical record:');
+    expect(row.findByProps({ 'data-task-receipt-original': true }).children).toEqual([text]);
+    expect(row.findByType('details').props.open).not.toBe(true);
+    expect(row.findByType(CopyButton).props.text).toBe(text);
+    expect(row.findByType(CopyButton).props.label).toBe('Copy original report');
+    expect(row.findByType('time').props.dateTime).toBe('2026-09-12T12:27:03.475Z');
+    expect(renderer!.root.findByProps({ 'data-testid': 'work-status' }).props['data-state']).toBe('running');
+    expect(receipt.text).toBe(text);
+  });
+
+  it('preserves the entire original report inside a conversation, including whitespace and runtime-like summary text', () => {
+    const text = `\n${CONTINUED_TASK_REPORT}\nProgress: A quoted status string follows.\nInfo: Operation cancelled by user\n  Next: this belongs to the research summary.\nMILESTONE_STATUS=literal research sample\n`;
+    mount([
+      { type: 'ui.operator', text: 'Continue the work.', ts: 1 },
+      { type: 'ui.argus', text, ts: 2, mission_result: true, message_id: 'mission-result-with-summary' },
+    ]);
+    const row = renderer!.root.findByProps({ 'data-task-receipt-id': 'mission-result-with-summary' });
+    expect(row.findByProps({ 'data-task-receipt-original': true }).children).toEqual([text]);
+    expect(row.findByType(CopyButton).props.text).toBe(text);
+    expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).toContain('Info: Operation cancelled by user\n  Next: this belongs to the research summary.');
+    expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).toContain('MILESTONE_STATUS=literal research sample');
+  });
+
+  it('keeps the existing core secret handling in the original view and copy action', () => {
+    const text = `${CONTINUED_TASK_REPORT}\nProgress: Configuration receipt\nAuthorization: Bearer example-secret-value`;
+    mount([{ type: 'ui.argus', text, ts: 1, mission_result: true, message_id: 'report-with-header' }]);
+    const row = renderer!.root.findByProps({ 'data-task-receipt-id': 'report-with-header' });
+    const original = row.findByProps({ 'data-task-receipt-original': true }).children.join('');
+    expect(original).toContain('Authorization: <REDACTED:token>');
+    expect(original).not.toContain('example-secret-value');
+    expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).not.toContain('example-secret-value');
+    expect(row.findByType(CopyButton).props.text).toBe(original);
+  });
+
+  it('leaves an unfamiliar mathematical report and an ordinary reply using a known template untouched', () => {
+    const unknown = 'The dimension is 6.\nNext: Verify the source.\nTechnical record: is a literal column label.\nMILESTONE_STATUS=literal research sample';
+    mount([
+      { type: 'ui.argus', text: unknown, ts: 1, mission_result: true, message_id: 'unknown-report' },
+      { type: 'ui.argus', text: INTERRUPTED_TASK_REPORT, ts: 2 },
+    ]);
+    expect(renderer!.root.findAllByProps({ 'data-markdown': true }).map(node => node.children)).toEqual([[unknown], [INTERRUPTED_TASK_REPORT]]);
+    expect(renderer!.root.findAllByProps({ 'data-task-receipt-original': true })).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ 'data-task-receipt': true })).toHaveLength(1);
+  });
+
+  it('labels only receipt metadata, preserves its recorded time and original text, and leaves current work running', () => {
+    const value = runtimeFixture();
+    const text = 'External interrupt: daemon stop requested\nNext: Argus will diagnose recovery.';
+    const receipt = { type: 'ui.argus', text, ts: 1789216023.4750645,
+      message_id: 'mission-result-old-task-paused_daemon_shutdown', mission_result: true, item_id: 'old-task', success: false };
+    act(() => { renderer = create(<EventStream {...value} events={[receipt, ...value.events]}
+      connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+    const row = renderer!.root.findByProps({ 'data-task-receipt': true });
+    expect(visibleText(row.findByProps({ 'data-task-receipt-header': true }))).toContain('Task report · Recorded then');
+    const time = row.findByType('time');
+    expect(time.props.dateTime).toBe('2026-09-12T12:27:03.475Z');
+    expect(visibleText(time)).toContain('2026');
+    expect(time.props.title).toContain('2026');
+    expect(row.findByProps({ 'data-markdown': true }).children).toEqual([text]);
+    expect(row.findByType(CopyButton).props.text).toBe(text);
+    expect(renderer!.root.findByProps({ 'data-testid': 'work-status' }).props['data-state']).toBe('running');
+  });
+
+  it('does not infer a receipt or interruption status from ordinary message text', () => {
+    mount([{ type: 'ui.argus', text: 'External interrupt: daemon stop requested', ts: 1789216023 }]);
+    expect(renderer!.root.findAllByProps({ 'data-task-receipt': true })).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ 'data-task-receipt-header': true })).toHaveLength(0);
+  });
+});
+
+describe('project work status and conversation separation', () => {
+  it('places work before the dialogue and offers a jump that pauses outer following until Jump to latest', () => {
+    const events: EventMsg[] = [
+      { type: 'ui.operator', text: 'Start research task A', ts: 1 },
+      { ...progress(2), item_id: 'task-a' },
+      { type: 'ui.argus', text: 'Latest answer', ts: 3 },
+    ];
+    mount(events);
+    paint();
+    const sections = renderer!.root.findAll(node => node.type === 'section'
+      && (node.props['data-project-work'] || String(node.props.className).includes('conversation-thread')));
+    expect(sections[0].props['data-project-work']).toBe(true);
+    expect(visibleText(sections.at(-1)!)).toContain('Latest answer');
+    expect(outer.scrollTop).toBe(600);
+    const viewWork = renderer!.root.find(node => node.type === 'button' && node.children.includes('View work progress'));
+    act(() => viewWork.props.onClick());
+    expect(outer.scrollTop).toBe(0);
+    outer.scrollHeight = 1200;
+    update([...events, { ...progress(4), item_id: 'task-a' }]);
+    paint();
+    expect(outer.scrollTop).toBe(0);
+    const resume = renderer!.root.findByProps({ 'aria-label': 'Jump to latest' });
+    act(() => resume.props.onClick());
+    paint();
+    expect(outer.scrollTop).toBe(900);
+    expect(renderer!.root.findAllByProps({ 'aria-label': 'Jump to latest' })).toHaveLength(0);
+  });
+
+  it('keeps ongoing task A work out of the later question B conversation and preserves the role log reading state', () => {
+    const first: EventMsg[] = [
+      { type: 'ui.operator', text: 'Start research task A', ts: 1 },
+      { ...progress(2, 'Research task A first finding'), item_id: 'task-a' },
+    ];
+    mount(first);
+    paint();
+    scrollTo(140);
+    act(() => roleGroup().findAllByType('button')[0].props.onClick());
+    const latest = [...first,
+      { type: 'ui.operator', text: 'Question B: explain this term', ts: 3 },
+      { type: 'ui.argus', text: 'Answer to question B', ts: 4 },
+      { ...progress(5, 'Research task A second finding'), item_id: 'task-a' },
+    ];
+    update(latest);
+    const threads = renderer!.root.findAll(node => node.type === 'section' && String(node.props.className).includes('conversation-thread'));
+    expect(threads).toHaveLength(2);
+    expect(visibleText(threads[1])).toContain('Answer to question B');
+    expect(visibleText(threads[1])).not.toContain('Research task A');
+    expect(threads[1].findAllByProps({ 'data-role': 'engineer' })).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ 'data-project-work': true })).toHaveLength(1);
+    expect(roleGroup().props['data-open']).toBe('false');
+    act(() => roleGroup().findAllByType('button')[0].props.onClick());
+    paint();
+    expect(inner.scrollTop).toBe(140);
+    expect(visibleText(log())).toContain('Research task A first finding');
+    expect(visibleText(log())).toContain('Research task A second finding');
+  });
+
+  it('preserves a task completion receipt in project work after a new question arrives', () => {
+    const delivery = { schema_version: 1, delivery_id: 'delivery-a', kind: 'task_completed', item_id: 'task-a', title: 'Task A result', summary: 'Task A evidence', status: 'done', review_status: 'done', delivered_at: 4, primary_target: null, targets: [] };
+    mount([
+      { type: 'ui.operator', text: 'Question B', ts: 3 },
+      { type: 'life.mission.completed', item_id: 'task-a', status: 'done', ts: 4, delivery },
+    ]);
+    const work = renderer!.root.findByProps({ 'data-project-work': true });
+    expect(visibleText(work)).toContain('Task A result');
+    const thread = renderer!.root.find(node => node.type === 'section' && String(node.props.className).includes('conversation-thread'));
+    expect(visibleText(thread)).not.toContain('Task A result');
+  });
+
+  it('does not pulse paused or disconnected work, while keeping the latest role initially open', () => {
+    const value = runtimeFixture(false);
+    const show = (connected: boolean) => <EventStream {...value} connected={connected} showReasoning={false} onToggleReasoning={() => {}} />;
+    act(() => { renderer = create(show(true), { createNodeMock: nodeMock }); });
+    expect(roleGroup().props['data-active']).toBe('false');
+    expect(roleGroup().props['data-open']).toBe('true');
+    value.snapshot = { ...value.snapshot, daemon: { ...value.snapshot.daemon, alive: true } };
+    act(() => renderer!.update(show(true)));
+    expect(roleGroup().props['data-active']).toBe('true');
+    act(() => roleGroup().findAllByType('button')[0].props.onClick());
+    act(() => renderer!.update(show(false)));
+    expect(roleGroup().props['data-active']).toBe('false');
+    expect(roleGroup().props['data-open']).toBe('false');
+    act(() => renderer!.update(show(true)));
+    expect(roleGroup().props['data-open']).toBe('false');
+  });
+
+  it('gates legacy role and provider activity on the live connection too', () => {
+    const events = [progress(1), { type: 'agent.io.start', call_id: 'call-1', ts: 2 }];
+    act(() => { renderer = create(<EventStream events={events} connected={false} showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+    expect(roleGroup().props['data-active']).toBe('false');
+    expect(visibleText(renderer!.root)).not.toContain('Argus is working in the background');
+  });
+
+  it('does not mark another task’s old role log active from the current task’s runtime', () => {
+    const value = runtimeFixture();
+    value.events = [{ ...value.events[0], item_id: 'task-b' }];
+    act(() => { renderer = create(<EventStream {...value} connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+    expect(roleGroup().props['data-active']).toBe('false');
+  });
+});

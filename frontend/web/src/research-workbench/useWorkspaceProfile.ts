@@ -1,15 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { workspaceApi } from './workspaceApi';
+import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 
-export function useWorkspaceProfile(sid: string, storageScope: string) {
+export function useWorkspaceProfile(sid: string, storageScope: string, enabled = true) {
   const profiles = useQuery({
     queryKey: ['workspace-profiles', sid],
     queryFn: ({ signal }) => workspaceApi.profiles(sid, signal),
     staleTime: 10_000,
+    enabled: Boolean(sid) && enabled,
   });
   const storageKey = `argus-v2-workspace-profile:${storageScope}:${sid}`;
-  const [workspaceId, setWorkspaceIdState] = useState(() => localStorage.getItem(storageKey) || '');
+  const [workspaceId, setWorkspaceIdState] = useState(() => readLocalStorage(storageKey) || '');
   const active = useMemo(() => {
     const rows = profiles.data?.profiles ?? [];
     return rows.find((row) => row.id === workspaceId)
@@ -23,7 +25,7 @@ export function useWorkspaceProfile(sid: string, storageScope: string) {
   }, [active, workspaceId]);
   const setWorkspaceId = (value: string) => {
     setWorkspaceIdState(value);
-    localStorage.setItem(storageKey, value);
+    writeLocalStorage(storageKey, value);
   };
   return { profiles, active, workspaceId: active?.id ?? '', setWorkspaceId };
 }

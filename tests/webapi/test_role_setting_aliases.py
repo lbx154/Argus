@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.webapi.mission_items import _CONFIG_ALIASES
+from argus.webapi.mission_items import _CONFIG_ALIASES
 
 
 def test_role_settings_do_not_alias_the_global_model() -> None:

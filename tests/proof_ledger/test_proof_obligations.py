@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.proof_ledger import (
+from argus.proof_ledger import (
     ClaimStatus,
     ClaimVersion,
     ContextVersion,

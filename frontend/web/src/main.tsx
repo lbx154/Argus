@@ -1,18 +1,32 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import App from './App';
 import { adoptTokenFromUrl } from './api';
-import { BootSplash } from './components/BootSplash';
-import { I18nProvider } from './i18n';
+import { I18nProvider, useI18n } from './i18n';
+import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
+import { PageUpdateNotice } from './components/PageUpdateNotice';
 import { queryRetryPolicy } from './hooks';
+import { installStaleChunkRecovery } from './lib/preloadRecovery';
+import { RELEASE_ID } from '../../core/src/release.generated';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
+import 'katex/dist/katex.min.css';
 import './index.css';
+
+const isAdminData = window.location.pathname === '/admin/data' || window.location.pathname.startsWith('/admin/data/');
+const App = lazy(() => import('./App'));
+const AdminDataApp = lazy(() => import('./admin-data/AdminDataApp'));
+
+// A cockpit left open across an update can still reference a deleted hashed
+// chunk. Reload the no-store shell before React turns that import into a blank UI.
+installStaleChunkRecovery(window, () => window.location.reload(), {
+  buildId: RELEASE_ID,
+  storage: () => window.sessionStorage,
+});
 
 // Runs before the first request so a QR-paired phone is authenticated for
 // every later load, not just the one carrying `?token=`.
-adoptTokenFromUrl();
+if (!isAdminData) adoptTokenFromUrl();
 
 const embeddedDesktop = window.parent !== window;
 document.documentElement.dataset.argusEmbedded = String(embeddedDesktop);
@@ -24,14 +38,15 @@ const queryClient = new QueryClient({
 });
 
 function WebApp() {
-  // Tauri already keeps its native launcher visible until this document has
-  // loaded. Avoid a second full-screen splash in the embedded cockpit; direct
-  // browser/PWA launches retain the remote UI's normal branded transition.
-  const [booting, setBooting] = useState(!embeddedDesktop);
+  const { locale } = useI18n();
   return (
     <>
-      <App />
-      {booting ? <BootSplash onDone={() => setBooting(false)} /> : null}
+      <PageUpdateNotice />
+      <WorkspaceErrorBoundary locale={locale}>
+        <Suspense fallback={<div className="grid min-h-screen place-items-center text-sm text-ink-faint">{locale === 'zh-CN' ? '正在加载工作台…' : 'Loading workbench…'}</div>}>
+          {isAdminData ? <AdminDataApp /> : <App />}
+        </Suspense>
+      </WorkspaceErrorBoundary>
     </>
   );
 }

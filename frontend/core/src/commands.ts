@@ -3,7 +3,7 @@ import { EVENT_VIEW_FILTERS, type EventViewFilter } from './events.js';
 export type CommandKind = 'panel' | 'action' | 'local';
 
 export type CommandId =
-  | 'status' | 'roles' | 'journal' | 'backlog' | 'artifacts' | 'artifact'
+  | 'crystalpilot' | 'status' | 'roles' | 'journal' | 'backlog' | 'artifacts' | 'artifact'
   | 'events' | 'find' | 'cancel' | 'ask' | 'task' | 'plan' | 'rewrite' | 'nudge' | 'abort'
   | 'note' | 'done' | 'skip' | 'stop' | 'item' | 'run' | 'new' | 'daemons'
   | 'resume' | 'attach' | 'rename' | 'doctor' | 'backend' | 'config'
@@ -25,12 +25,13 @@ export const COMMANDS: SlashCommand[] = [
   { id: 'roles', name: '/roles', argument: 'none', desc: 'per-role backend / model / effort + live activity', group: 'Everyday', kind: 'panel' },
   { id: 'journal', name: '/journal', arg: '[N]', argument: 'optional', desc: 'recent journal entries (default 10)', group: 'Everyday', kind: 'panel' },
   { id: 'backlog', name: '/backlog', arg: '[all]', argument: 'optional', desc: 'pending tasks (all = incl. done/skipped)', group: 'Everyday', kind: 'panel' },
-  { id: 'artifacts', name: '/artifacts', argument: 'none', desc: 'reviewer-approved result files (Enter previews)', group: 'Everyday', kind: 'panel' },
-  { id: 'artifact', name: '/artifact', arg: '<path>', argument: 'required', desc: 'preview one approved result file', group: 'Everyday', kind: 'panel' },
+  { id: 'artifacts', name: '/artifacts', argument: 'none', desc: 'result files the Reviewer has checked (Enter previews)', group: 'Everyday', kind: 'panel' },
+  { id: 'artifact', name: '/artifact', arg: '<path>', argument: 'required', desc: 'preview one reviewed result file', group: 'Everyday', kind: 'panel' },
   { id: 'events', name: '/events', arg: '[filter] [query]', argument: 'optional', desc: 'search feed: all / watch / milestones / messages', group: 'Everyday', kind: 'panel' },
   { id: 'find', name: '/find', arg: '<text>', argument: 'required', desc: 'search the current event buffer', group: 'Everyday', kind: 'panel' },
   { id: 'cancel', name: '/cancel', argument: 'none', desc: 'stop waiting for the current Manager reply', group: 'Everyday', kind: 'local' },
   { id: 'ask', name: '/ask', arg: '<question>', argument: 'required', desc: 'answer inline — no task queued, no Planner/Engineer/Reviewer', aliases: ['/chat'], group: 'Everyday', kind: 'action' },
+  { id: 'crystalpilot', name: '/crystalpilot', arg: '[status|off|use <path>]', argument: 'optional', desc: 'enable crystallography tools in this Argus conversation', group: 'Everyday', kind: 'action' },
   { id: 'task', name: '/task', arg: '<text>', argument: 'required', desc: 'queue work directly', aliases: ['/add'], group: 'Task management', kind: 'action' },
   { id: 'plan', name: '/plan', arg: '<objective>', argument: 'required', desc: 'preview a Planner-authored execution plan', group: 'Task management', kind: 'action' },
   { id: 'rewrite', name: '/rewrite', arg: '[text]', argument: 'optional', desc: 'let the Manager rewrite your prompt before sending', aliases: ['/refine'], group: 'Task management', kind: 'action' },

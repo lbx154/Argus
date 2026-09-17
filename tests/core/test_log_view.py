@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from argus_skill.core import log_view as lv
+from argus.core import log_view as lv
 
 # ── gap_str ───────────────────────────────────────────────────────────────
 
@@ -88,13 +88,6 @@ def test_legacy_lifecycle_names_share_the_canonical_grouping_path() -> None:
     assert _adv(state, "mission.started", item_id="m1") == lv.OPEN
     assert _adv(state, "round.started", round_index=1) == lv.MID
     assert _adv(state, "mission.completed", item_id="m1") == lv.CLOSE
-
-
-def test_failure_nudge_uses_round_field() -> None:
-    s = lv.LogState()
-    _adv(s, "life.mission.started", item_id="m1")
-    _adv(s, "engineer.failure_nudge", round=4)
-    assert s.round_index == 4
 
 
 def test_manager_stage_decision_groups_under_mission() -> None:

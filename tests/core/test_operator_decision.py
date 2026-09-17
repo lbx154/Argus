@@ -2,12 +2,62 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.core.operator_decision import (
+from argus.core.operator_decision import (
     build_operator_decision,
     parse_agent_operator_options,
     selected_decision_text,
 )
-from argus_skill.life.memory import Backlog, BacklogItem
+from argus.life.memory import Backlog, BacklogItem
+
+
+def test_new_question_records_asked_at_without_prior_card(monkeypatch) -> None:
+    monkeypatch.setattr("argus.core.operator_decision.time.time", lambda: 200.0)
+
+    card = build_operator_decision(
+        item_id="item", title="Choose", reason="Blocked", question="Use A?",
+    )
+
+    assert card["asked_at"] == 200.0
+
+
+@pytest.mark.parametrize("recorded_time", [100.0, None])
+def test_rebuilding_same_pending_question_preserves_recorded_time(
+    monkeypatch, recorded_time,
+) -> None:
+    previous = {
+        "item_id": "item", "status": "pending", "question": "Use A?",
+    }
+    if recorded_time is not None:
+        previous["asked_at"] = recorded_time
+    monkeypatch.setattr("argus.core.operator_decision.time.time", lambda: 200.0)
+
+    card = build_operator_decision(
+        item_id="item", title="Updated title", reason="Updated reason",
+        question=" Use A? ", previous_decision=previous,
+    )
+
+    assert card.get("asked_at") == recorded_time
+    assert ("asked_at" in card) == (recorded_time is not None)
+
+
+@pytest.mark.parametrize("changed", [
+    {"question": "Use B?"},
+    {"status": "resolved"},
+    {"item_id": "other-item"},
+])
+def test_new_question_does_not_inherit_another_questions_time(monkeypatch, changed) -> None:
+    previous = {
+        "item_id": "item", "status": "pending", "question": "Use A?",
+        "asked_at": 100.0, **changed,
+    }
+    monkeypatch.setattr("argus.core.operator_decision.time.time", lambda: 200.0)
+
+    card = build_operator_decision(
+        item_id="item", title="Choose", reason="Blocked", question="Use A?",
+        previous_decision=previous,
+    )
+
+    assert card["asked_at"] == 200.0
 
 
 def test_card_is_readable_and_uses_item_identity() -> None:

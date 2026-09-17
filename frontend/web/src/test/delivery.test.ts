@@ -14,6 +14,9 @@ import {
   completionNotificationPayload,
   deliveryNotificationPayload,
 } from '../lib/desktopBridge';
+import { latestConversationDelivery } from '../components/EventStream';
+import { DeliveryNotice } from '../components/DeliveryNotice';
+import { mergeConversationEvents } from '../lib/conversationEvents';
 
 const delivery: DeliveryReceipt = {
   schema_version: 1,
@@ -53,6 +56,16 @@ const artifact = (path: string, source: ArtifactInfo['source']): ArtifactInfo =>
 });
 
 describe('completed delivery presentation', () => {
+  it('shows formatted outcome text without raw Markdown or workspace link targets', () => {
+    const markup = renderToStaticMarkup(createElement(DeliveryNotice, {
+      delivery: { ...delivery, summary: '**CNY**: 130.00\n\n[Download summary.csv](sandbox:/private/workspace/summary.csv)' },
+      onOpen: () => undefined, onDismiss: () => undefined,
+    }));
+    expect(markup).toContain('<strong>CNY</strong>');
+    expect(markup).toContain('Download summary.csv');
+    expect(markup).not.toContain('sandbox:/private');
+    expect(markup).not.toContain('**CNY**');
+  });
   it('opens the receipt primary target before a stale live checkpoint', () => {
     const view = emptyMissionView();
     view.delivery = delivery;
@@ -138,4 +151,56 @@ describe('completed delivery presentation', () => {
       path: 'out/final.md',
     });
   });
+
+  it('keeps the latest Solo delivery until the next operator turn', () => {
+    expect(latestConversationDelivery([
+      { type: 'ui.operator', text: 'Create a file', ts: 1 },
+      { type: 'ui.argus', text: 'Done', ts: 2, delivery },
+    ])).toEqual(delivery);
+    expect(latestConversationDelivery([
+      { type: 'ui.argus', text: 'Done', ts: 2, delivery },
+      { type: 'ui.operator', text: 'New question', ts: 3 },
+    ])).toBeNull();
+    expect(latestConversationDelivery([])).toBeUndefined();
+  });
+
+  it('keeps delivery metadata when an optimistic reply is confirmed', () => {
+    const events = mergeConversationEvents(
+      [],
+      [{
+        role: 'argus',
+        text: 'Done',
+        ts: 2,
+        message_id: 'turn-1-argus',
+        delivery_id: delivery.delivery_id,
+        delivery,
+      }],
+      [{
+        type: 'ui.argus',
+        text: 'Done',
+        ts: 1.5,
+        message_id: 'turn-1-argus',
+      }],
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0].delivery).toEqual(delivery);
+  });
+});
+
+it('resolves document-relative model links and confined sandbox links', () => {
+  const files = [
+    { path: 'study/models/model.npz', storage_path: '/workspace/study/models/model.npz' },
+    { path: 'model.npz', storage_path: '/workspace/model.npz' },
+  ];
+  expect(artifactPathFromHref('models/model.npz', files, 'study/README.md')).toBe('study/models/model.npz');
+  expect(artifactPathFromHref('../model.npz', files, 'study/README.md')).toBe('model.npz');
+  expect(artifactPathFromHref('../../model.npz', files, 'study/README.md')).toBeNull();
+  expect(artifactPathFromHref('sandbox:/workspace/study/models/model.npz', files)).toBe('study/models/model.npz');
+  const markup = renderToStaticMarkup(createElement(MarkdownContent, {
+    artifacts: files, basePath: 'study/README.md', onOpenArtifact: () => undefined,
+    children: '[model](models/model.npz) [sandbox](sandbox:/workspace/study/models/model.npz) [unsafe](javascript:alert%281%29)',
+  }));
+  expect(markup.match(/data-artifact-path="study\/models\/model.npz"/g)).toHaveLength(2);
+  expect(markup).not.toContain('href="javascript:');
 });

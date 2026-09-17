@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.life import special_prompts
+from argus.life import special_prompts
 
 
 def test_no_dir_returns_empty(tmp_path: Path, monkeypatch) -> None:

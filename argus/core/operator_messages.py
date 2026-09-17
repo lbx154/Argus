@@ -1,0 +1,239 @@
+"""Durable, idempotent background messages shown in the operator conversation."""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from typing import Any
+
+from ..life.event_log import JsonlEventSink
+from .transcript import append_turn
+
+_CJK_RE = re.compile(r"[\u3400-\u9fff]")
+_TIMEOUT_RE = re.compile(
+    r"(?:timed? out|timeout|exceeded timeout_s)[^0-9]*(\d+(?:\.\d+)?)?",
+    flags=re.IGNORECASE,
+)
+
+
+def uses_cjk(text: str) -> bool:
+    """Return whether *text* indicates a CJK operator-language message."""
+    return bool(_CJK_RE.search(str(text or "")))
+
+
+def budget_refusal_reply(reason: str, *, language_hint: str = "") -> str | None:
+    raw = str(reason or "").strip()
+    lowered = raw.casefold()
+    zh = uses_cjk(language_hint)
+    if "global daily token budget exhausted" in lowered:
+        explanation = (
+            "已达到今日 token 上限，新的模型调用已暂停。已有文件和任务记录会保留；"
+            "可在设置中调整上限，或下一个预算日继续。"
+            if zh else
+            "Today's token limit has been reached. New model calls are paused; files and task records "
+            "are preserved. Adjust the limit in Settings or continue on the next budget day."
+        )
+    elif "global daily budget exhausted" in lowered:
+        explanation = (
+            "暂未执行：已达到全局日预算上限，任务没有入队。"
+            "请等待下一个预算日，或由你明确调整预算；这不是 Agent CLI 登录故障。"
+            if zh else
+            "The global daily budget is exhausted; no task was queued. Wait for the next "
+            "budget day or explicitly adjust the budget. This is not an Agent CLI login failure."
+        )
+    elif "cost control unavailable" in lowered:
+        explanation = (
+            "暂未执行：无法读取或更新费用记账状态，预算保护阻止了新的模型调用。"
+            "请先处理下方的记账错误；不要通过重新登录 CLI 或删除账本绕过它。"
+            if zh else
+            "The request was not started because cost accounting could not be read or "
+            "updated. Resolve the accounting error below; re-authenticating the CLI or "
+            "deleting the ledger is not a remedy."
+        )
+    else:
+        return None
+    return f"[not dispatched] {explanation}\n\n{raw}"
+
+
+def humanize_runtime_reason(reason: str, *, language_hint: str = "") -> str:
+    """Translate common control-plane failures into useful operator prose.
+
+    Keep domain evidence intact; only replace mechanical runtime wording that
+    otherwise leaks implementation details without telling the operator what it
+    means.
+    """
+    raw = str(reason or "").strip()
+    if not raw:
+        return ""
+    zh = uses_cjk(language_hint)
+    lowered = raw.casefold()
+    timeout = _TIMEOUT_RE.search(raw)
+    if timeout:
+        seconds = timeout.group(1)
+        duration = f"{seconds} 秒" if zh and seconds else f"{seconds} seconds" if seconds else "the time limit"
+        return (
+            f"这次运行在 {duration} 内没有完成；这不代表方案错误。Argus 会先检查任务规模，再做最小诊断。"
+            if zh
+            else f"The run did not finish within {duration}; that does not prove the idea is wrong. Argus will check the workload size and run the smallest useful diagnostic first."
+        )
+    if "stale decision" in lowered or "campaign changed since" in lowered:
+        return (
+            "任务状态已在后台更新；Argus 会使用最新状态继续处理你的选择。"
+            if zh
+            else "The task changed in the background. Argus will apply your choice to the latest state."
+        )
+    if "already owned by active session" in lowered or (
+        "workdir" in lowered and "already" in lowered and "session" in lowered
+    ):
+        return (
+            "另一个活动会话正在使用这个工作区；Argus 会复用或等待该会话，不会重复启动。"
+            if zh
+            else "Another active session is using this workspace. Argus will reuse or wait for it instead of starting a duplicate."
+        )
+    if any(token in lowered for token in ("authentication", "credential", "api key", "access token")):
+        return (
+            "继续执行需要你提供或确认访问凭证；Argus 不会读取或展示未授权的密钥。"
+            if zh
+            else "Continuing requires an access credential from you. Argus will not expose or guess credentials."
+        )
+    if "budget" in lowered and any(token in lowered for token in ("exceed", "cap", "limit", "pause")):
+        return (
+            "本次运行已达到预算上限，现有结果已保留；提高预算或缩小任务后可以继续。"
+            if zh
+            else "This run reached its budget limit. Existing work is preserved; increase the budget or narrow the task to continue."
+        )
+    return raw
+
+
+def render_operator_update(
+    *,
+    title: str,
+    status: str,
+    reason: str = "",
+    next_action: str = "",
+    user_action_required: bool = False,
+    language_hint: str = "",
+) -> str:
+    """Render structured runtime state as a short, plain operator update."""
+    subject = str(title or "the current task").strip()
+    state = str(status or "").strip().lower()
+    chinese = uses_cjk(language_hint or subject)
+    why = humanize_runtime_reason(reason, language_hint=subject)
+    # Reviewer/Manager next_action is already the actionable instruction. Do
+    # not replace it with the generic explanation used for a raw error reason.
+    action = str(next_action or "").strip()
+    if state == "paused_provider_fence":
+        first = (
+            f"模型服务限制导致任务暂停：{subject}。"
+            if chinese
+            else f"Work is paused by a model-provider restriction: {subject}."
+        )
+        resume = (
+            "解除限制后，请点击“运行”恢复任务；不会自动重试。"
+            if chinese
+            else "After resolving the restriction, click Run to resume; automatic retries are disabled."
+        )
+        return "\n".join(part for part in (
+            first,
+            ("原因：" if chinese else "Reason: ") + why if why else "",
+            ("处理建议：" if chinese else "Next: ") + action if action else "",
+            resume,
+        ) if part)
+    if state == "paused_external_work":
+        # This is a healthy dependency wait, not a failed mission or a request
+        # for the operator to restart a job. Keep runner IDs and slot details
+        # in the event rather than presenting them as a failure reason.
+        first = (
+            f"正在等待后台任务完成：{subject}。"
+            if chinese
+            else f"Waiting for background work to finish: {subject}."
+        )
+        continuation = action or (
+            "结果就绪后，Argus 会自动继续。"
+            if chinese
+            else "Argus will continue automatically when the results are ready."
+        )
+        return "\n".join((first, continuation))
+    if state in {"done", "completed", "success"}:
+        first = f"已完成：{subject}。" if chinese else f"Completed: {subject}."
+    elif state in {"aborted", "cancelled", "canceled"}:
+        first = f"已取消：{subject}。" if chinese else f"Canceled: {subject}."
+    elif state in {"continue", "running", "in_progress"}:
+        first = f"正在继续：{subject}。" if chinese else f"Still working on {subject}."
+    elif state in {"blocked", "infra_blocked", "paused_operator"}:
+        first = f"暂时无法继续：{subject}。" if chinese else f"Cannot continue yet: {subject}."
+    elif state in {"replan_requested", "revise"}:
+        first = (
+            f"当前方案需要调整：{subject}。"
+            if chinese
+            else f"The current route for {subject} needs to change."
+        )
+    else:
+        first = f"未能完成：{subject}。" if chinese else f"Could not complete {subject}."
+    lines = [first]
+    if why and state not in {"aborted", "cancelled", "canceled"}:
+        lines.append(("原因：" if chinese else "Reason: ") + why)
+    if action:
+        prefix = (
+            "需要你决定："
+            if chinese and user_action_required
+            else "下一步："
+            if chinese
+            else "Your decision: "
+            if user_action_required
+            else "Next: "
+        )
+        lines.append(prefix + action)
+    elif state not in {
+        "done",
+        "completed",
+        "success",
+        "aborted",
+        "cancelled",
+        "canceled",
+    }:
+        lines.append(
+            "需要你决定后才能继续。"
+            if chinese and user_action_required
+            else "下一步：Argus 会诊断原因并选择可恢复的方案。"
+            if chinese
+            else "Your decision is needed before work can continue."
+            if user_action_required
+            else "Next: Argus will diagnose the failure and choose a safe next step."
+        )
+    return "\n".join(lines)
+
+
+def publish_operator_message(
+    life_dir: Path | str,
+    *,
+    text: str,
+    message_id: str,
+    event_fields: dict[str, Any] | None = None,
+) -> bool:
+    """Append one Argus transcript turn and matching live event exactly once."""
+    if not append_turn(
+        life_dir,
+        "argus",
+        text,
+        message_id=message_id,
+        metadata=event_fields,
+    ):
+        return False
+    event = {
+        "type": "ui.argus",
+        "agent_layer": "manager",
+        "message_id": message_id,
+        "text": text,
+    }
+    event.update(event_fields or {})
+    JsonlEventSink(None, life_dir=Path(life_dir)).append(event)
+    return True
+
+
+__all__ = [
+    "budget_refusal_reply",
+    "humanize_runtime_reason",
+    "publish_operator_message",
+    "render_operator_update",
+    "uses_cjk",
+]

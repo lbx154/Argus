@@ -18,7 +18,7 @@ from pathlib import Path
 import portalocker
 import pytest
 
-from argus_skill.core import knob_store
+from argus.core import knob_store
 
 
 def _write_knob_in_spawned_process(home: str, ready, name: str) -> None:
@@ -53,6 +53,28 @@ def test_write_persisted_knob_overwrites_only_that_key() -> None:
         "ARGUS_SKILL_MODEL": "claude-sonnet-5",
         "ARGUS_SKILL_MANAGER_BACKEND": "copilot",
     }
+
+
+def test_backend_switch_clears_its_persisted_runner_bin() -> None:
+    knob_store.write_persisted_knobs(
+        {
+            "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+            "ARGUS_SKILL_RUNNER_BIN": "/opt/bin/dsh",
+            "ARGUS_SKILL_REVIEWER_BACKEND": "dsh",
+            "ARGUS_SKILL_REVIEWER_RUNNER_BIN": "/opt/bin/reviewer-dsh",
+        }
+    )
+
+    knob_store.write_persisted_knobs(
+        {
+            "ARGUS_SKILL_RUNNER_BACKEND": "copilot",
+            "ARGUS_SKILL_REVIEWER_BACKEND": "copilot",
+        }
+    )
+
+    persisted = knob_store.read_persisted_knobs()
+    assert persisted["ARGUS_SKILL_RUNNER_BIN"] == ""
+    assert persisted["ARGUS_SKILL_REVIEWER_RUNNER_BIN"] == ""
 
 
 def test_concurrent_writes_serialize_the_full_read_modify_write(
@@ -101,7 +123,7 @@ def test_concurrent_writes_serialize_the_full_read_modify_write(
 
 
 def test_writer_waits_for_cross_process_lock() -> None:
-    from argus_skill.core.paths import config_path
+    from argus.core.paths import config_path
 
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,7 +152,7 @@ def test_writer_waits_for_cross_process_lock() -> None:
 
 
 def test_write_persisted_knob_is_atomic_no_tmp_file_left_behind():
-    from argus_skill.core.paths import config_path
+    from argus.core.paths import config_path
 
     knob_store.write_persisted_knob("ARGUS_SKILL_MODEL", "gpt-5.5")
     path = config_path()
@@ -148,7 +170,7 @@ def test_read_persisted_knobs_raises_on_malformed_json():
     EVERY persisted switch at once — every role's backend, every route's model,
     the budget cap — leaving only a warning in a log nobody reads.
     """
-    from argus_skill.core.paths import config_path
+    from argus.core.paths import config_path
 
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +183,7 @@ def test_read_persisted_knobs_raises_on_malformed_json():
 def test_read_persisted_knobs_raises_on_non_dict_json():
     """Valid JSON of the wrong shape is the same failure, and used to be even
     quieter: it returned {} without so much as a warning."""
-    from argus_skill.core.paths import config_path
+    from argus.core.paths import config_path
 
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -173,7 +195,7 @@ def test_read_persisted_knobs_raises_on_non_dict_json():
 def test_read_persisted_knobs_returns_empty_when_file_is_absent():
     """The counterpart the raise must not swallow: no file at all is the normal
     "operator has never persisted a switch" state, and still means defaults."""
-    from argus_skill.core.paths import config_path
+    from argus.core.paths import config_path
 
     assert not config_path().exists()
     assert knob_store.read_persisted_knobs() == {}

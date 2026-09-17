@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def test_skill_and_wiki_emitters_use_canonical_event_constants() -> None:
-    root = Path(__file__).parents[2] / "argus_skill"
+    root = Path(__file__).parents[2] / "argus"
     violations: list[str] = []
     for path in root.rglob("*.py"):
         if path.name == "event_catalog.py":

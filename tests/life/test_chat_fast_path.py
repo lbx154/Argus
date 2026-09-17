@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,10 +25,10 @@ from typing import Any, cast
 
 import pytest
 
-from argus_skill.apps._self_reply import build_status_snapshot_reply
-from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import (
+from argus.apps._self_reply import build_status_snapshot_reply
+from argus.core.models import RunnerOptions, RunnerResult
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
@@ -51,6 +52,9 @@ class _FakeBackend:
     classify_answer: str = "SELF"
     stream_message: str | None = None
     backend: str = "pi"
+    started_at: float = 0.0
+    call_id: str = ""
+    tool_activity_observed: bool | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
     classify_calls: list[dict[str, Any]] = field(default_factory=list)
 
@@ -98,6 +102,12 @@ class _FakeBackend:
             output_tokens=self.output_tokens,
             thread_id=self.thread_id,
             fatal_error=self.fatal_error,
+            started_at=self.started_at,
+            call_id=self.call_id,
+            tool_activity_observed=(
+                self.tool_activity_observed if self.tool_activity_observed is not None
+                else run_label.startswith("self-") and bool(self.response_message)
+            ),
         )
 
 
@@ -122,7 +132,7 @@ def _make_runner(backend: _FakeBackend) -> Any:
     bypass it and inject our fake backend / args directly so the
     chat-path can be tested in isolation.
     """
-    from argus_skill.apps._runtime import _SkillLoopRunner
+    from argus.apps._runtime import _SkillLoopRunner
 
     runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
     runner = cast(Any, runner)
@@ -145,17 +155,47 @@ def _make_runner(backend: _FakeBackend) -> Any:
     # The runner now holds the single Manager instance; ``_maybe_chat_outcome``
     # routes the chat-vs-task classification through it. Wire it to the fake
     # backend so the real classifier path is exercised end-to-end.
-    from argus_skill.manager import Manager
+    from argus.manager import Manager
 
     runner.manager = Manager(project_root=Path.cwd(), runner=backend)
     return runner
 
 
+@pytest.mark.parametrize("mode", ["project_status", "argus_status", "host_status"])
+def test_scoped_status_reads_facts_without_another_model_turn(tmp_path, monkeypatch, mode):
+    from argus.daemon.runtime_status import register_web_status
+
+    root = tmp_path / "projects" / "s-current"
+    root.mkdir(parents=True)
+    backend = _FakeBackend(response_message="Incorrect invented status")
+    runner = _make_runner(backend)
+    runner._manager_session_root = root
+    sink = _RecordingSink()
+    close = register_web_status(tmp_path, lambda sid: 1)
+    try:
+        outcome = runner._maybe_chat_outcome(objective="你现在的服务器上在干什么？argus", sink=sink, route="simple", self_mode=mode)
+    finally:
+        close()
+    assert outcome.success and outcome.chat_mode and outcome.rounds == 0
+    assert backend.calls == [] and backend.classify_calls == []
+    reply = next(row["last_message"] for row in sink.events if row["type"] == "round.main.completed")
+    assert "网页服务正在运行" in reply and "Incorrect invented status" not in reply
+    assert not (root / "backlog.jsonl").exists()
+    from argus.core import transcript
+
+    def no_learning_probe(*args, **kwargs):
+        raise AssertionError("Routine status must not trigger a learning review")
+
+    monkeypatch.setattr(transcript, "read_turns", no_learning_probe)
+    runner.manager.memory_maintenance_enabled = True
+    runner._schedule_self_learning_review(objective="服务器状态", reply=reply)
+
+
 def test_execute_config_loads_custom_vertical_from_session_state(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.apps._runtime_helpers import _ExecuteState
-    from argus_skill.verticals._data_domain import write_data_domain
+    from argus.apps._runtime_helpers import _ExecuteState
+    from argus.verticals._data_domain import write_data_domain
 
     state_root = tmp_path / "life"
     workdir = tmp_path / "workspace"
@@ -168,7 +208,7 @@ def test_execute_config_loads_custom_vertical_from_session_state(
         purpose="physical archive restoration",
         require_independent_review=True,
     )
-    from argus_skill.manager.directive import set_active_manager_directive
+    from argus.manager.directive import set_active_manager_directive
 
     set_active_manager_directive(
         state_root,
@@ -180,7 +220,7 @@ def test_execute_config_loads_custom_vertical_from_session_state(
     runner._role_memory_maintenance_enabled = True
     runner._args.project_state_dir = str(state_root)
     runner._args.workdir = str(workdir)
-    from argus_skill.loop import SkillLoopConfig
+    from argus.loop import SkillLoopConfig
 
     runner._SkillLoopConfig = SkillLoopConfig
 
@@ -207,7 +247,7 @@ def test_execute_config_loads_custom_vertical_from_session_state(
         workdir / "research" / "DOMAINS" / "physical_archive_restoration.json"
     ).exists()
 
-    from argus_skill.reviewer import Reviewer
+    from argus.reviewer import Reviewer
 
     prompt = Reviewer(_FakeBackend())._build_prompt(
         objective="Review the condition assessment scaffold.",
@@ -225,8 +265,8 @@ def test_execute_config_loads_custom_vertical_from_session_state(
 
 
 def test_explicit_review_waiver_emits_a_visible_reason(tmp_path, caplog) -> None:
-    from argus_skill.apps._runtime_helpers import _ExecuteState
-    from argus_skill.loop import SkillLoopConfig
+    from argus.apps._runtime_helpers import _ExecuteState
+    from argus.loop import SkillLoopConfig
 
     workdir = tmp_path / "workspace"
     workdir.mkdir()
@@ -238,7 +278,7 @@ def test_explicit_review_waiver_emits_a_visible_reason(tmp_path, caplog) -> None
     runner._SkillLoopConfig = SkillLoopConfig
 
     state = _ExecuteState()
-    with caplog.at_level("WARNING", logger="argus_skill.apps._runtime_execute"):
+    with caplog.at_level("WARNING", logger="argus.apps._runtime_execute"):
         runner._build_execute_config(
             state,
             working_dir_override=str(workdir),
@@ -260,7 +300,7 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
     """English greeting → one Manager turn, no team pipeline."""
     monkeypatch.delenv("ARGUS_SKILL_SELF_REASONING_EFFORT", raising=False)
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.resolve_manager_reply_model",
+        "argus.apps._self_reply.resolve_manager_reply_model",
         lambda **_kwargs: "best-manager",
     )
     backend = _FakeBackend(response_message="Hi! How can I help?")
@@ -282,10 +322,10 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
     assert backend.calls[0]["options"].model == "best-manager"
 
 
-def test_message_only_self_reply_uses_lean_low_cost_route(monkeypatch) -> None:
+def test_message_only_self_reply_uses_manager_model_with_low_effort(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.resolve_manager_classify_model",
-        lambda **_kwargs: "cheap-manager",
+        "argus.apps._self_reply.resolve_manager_reply_model",
+        lambda **_kwargs: "persistent-manager-model",
     )
     backend = _FakeBackend(response_message="exact reply")
     runner = _make_runner(backend)
@@ -298,16 +338,17 @@ def test_message_only_self_reply_uses_lean_low_cost_route(monkeypatch) -> None:
 
     call = backend.calls[-1]
     assert call["run_label"] == "manager-quick-reply"
-    assert call["options"].model == "cheap-manager"
+    assert call["options"].model == "persistent-manager-model"
     assert call["options"].reasoning_effort == "low"
     assert call["options"].dangerous_yolo is False
     assert "reply exactly hello" in call["prompt"]
     assert "Grounding workspace" not in call["prompt"]
+    assert "Current project evidence" in call["prompt"]
 
 
 def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.resolve_role_reasoning_effort",
+        "argus.apps._self_reply.resolve_role_reasoning_effort",
         lambda *_args, **_kwargs: "high",
     )
     backend = _FakeBackend(response_message="done")
@@ -329,11 +370,150 @@ def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
         "--tools",
         "bash",
         "--system-prompt",
-        "Complete the finite local microtask in the current directory. Use one "
-        "shell command to make the requested change and verify it, then report "
-        "briefly and stop.",
+        "Complete the finite local microtask in the current directory. Inspect the relevant "
+        "local inputs in tool output before drafting or extracting facts; do not guess their contents "
+        "or format. Then make the requested change and verify it. Use only necessary "
+        "tool calls, report briefly, and stop.",
     ]
     assert runner.last_thread_id is None
+
+
+@pytest.mark.parametrize("mode", ["micro", "implement", "debug", "review", "synthesize", "inspect", "reply"])
+def test_every_single_worker_mode_receives_selected_vertical(tmp_path, mode):
+    from argus.manager import Manager
+    from argus.skills.layered import LayeredSkillStore
+
+    backend = _FakeBackend(response_message="Verified the requested result.")
+    runner = _make_runner(backend)
+    root = tmp_path / "state"
+    runner._args.workdir = str(tmp_path / "workspace")
+    runner.manager = Manager(root, runner=backend, execution_workdir=runner._args.workdir,
+                            skill_store=LayeredSkillStore(project_dir=root / "skills", global_dir=tmp_path / "skills"),
+                            memory_maintenance_enabled=False)
+    outcome = runner._maybe_chat_outcome(objective="Check this function", sink=_RecordingSink(),
+                                        route="simple", self_mode=mode, skill_vertical="software")
+    assert outcome.success
+    assert len(backend.calls) == 1 and not backend.classify_calls
+    call = backend.calls[0]
+    assert "SOFTWARE VERTICAL" in call["prompt"]
+    assert "Check this function" in call["prompt"]
+    assert str(tmp_path / "skills/_shared_verticals/software/engineer") in call["options"].skill_paths
+    assert call["options"].disable_tools is False
+    assert not (root / "backlog.jsonl").exists()
+
+
+def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from argus.core.session import SessionMeta, write_session_meta
+    from argus.manager import Manager, config_intent, front_door
+    from argus.skills.layered import LayeredSkillStore
+    from argus.webapi import manager_state, server
+
+    class Backend(_FakeBackend):
+        def run_exec(self, **kwargs):
+            if kwargs["run_label"] == "manager-frontdoor-classify":
+                self.classify_calls.append(kwargs)
+                return RunnerResult(exit_code=0, agent_messages=[
+                    "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nSELF_MODE: IMPLEMENT\n"
+                    "INTAKE_TYPE: OBJECTIVE_AMENDMENT\nDOMAIN_ACTION: NONE\nSKILL_VERTICAL: software\n"
+                    "NAME: Correct a function\n",
+                ])
+            return super().run_exec(**kwargs)
+
+    sid = "s-self-vertical"
+    state = tmp_path / "projects" / sid
+    state.mkdir(parents=True)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(workspace), workdir=str(workspace)))
+    backend = Backend(response_message="Fixed and checked the function.")
+    runner = _make_runner(backend)
+    runner._args.workdir = str(workspace)
+    runner._manager_session_root = state
+    runner.manager = Manager(state, runner=backend, execution_workdir=workspace,
+                            learned_vertical_root=tmp_path, memory_maintenance_enabled=False,
+                            skill_store=LayeredSkillStore(project_dir=state / "skills", global_dir=tmp_path / "skills"))
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
+    monkeypatch.setattr(config_intent, "_ensure_manager_runner", lambda *_a: runner)
+    monkeypatch.setattr(manager_state, "schedule_manager_prewarm", lambda *_a, **_kw: None)
+    manager_state._STATES.pop(sid, None)
+    with TestClient(server.create_app(global_root=tmp_path)) as client:
+        result = client.post(f"/api/projects/{sid}/message", json={"text": "Fix this one function"}).json()
+        assert result["kind"] == "chat" and result["success"] is True, result
+        assert "decision_card" not in result
+        atlas = client.get(f"/api/projects/{sid}/map").json()
+        assert any(task["kind"] == "turn" and task["status"] == "done" for task in atlas["tasks"])
+    assert len(backend.classify_calls) == 1 and len(backend.calls) == 1
+    assert "single-agent task: software" in backend.calls[0]["prompt"]
+    assert str(tmp_path / "skills/_shared_verticals/software/engineer") in backend.calls[0]["options"].skill_paths
+    assert not (state / "backlog.jsonl").exists() or not (state / "backlog.jsonl").read_text().strip()
+    manager_state._STATES.pop(sid, None)
+
+
+def test_local_microtask_returns_delivery_for_named_workspace_file(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    (workdir / "result.txt").write_text("done\n", encoding="utf-8")
+    backend = _FakeBackend(
+        response_message="Created `result.txt`. api_key=abcdefghijk",
+        started_at=time.time() - 1,
+        call_id="solo-call-1",
+    )
+    runner = _make_runner(backend)
+    runner._args.workdir = str(workdir)
+
+    outcome = runner._simple_quick_reply(
+        objective="create result.txt",
+        sink=_RecordingSink(),
+        execute_mode="micro",
+        root_task_id="solo-turn-1",
+    )
+
+    assert outcome.delivery is not None
+    assert outcome.delivery["review_status"] == "not_assessed"
+    assert outcome.delivery["title"] == "result.txt"
+    assert outcome.delivery["primary_target"]["path"] == "result.txt"
+    assert outcome.delivery["primary_target"]["source"] == "solo_output"
+    assert outcome.delivery["delivery_id"].startswith("delivery:solo-call-1:")
+    assert "abcdefghijk" not in outcome.delivery["summary"]
+
+
+def test_local_worker_does_not_deliver_an_unchanged_existing_file(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    (workdir / "README.md").write_text("existing\n", encoding="utf-8")
+    backend = _FakeBackend(
+        response_message="Reviewed `README.md`.",
+        started_at=time.time() + 1,
+    )
+    runner = _make_runner(backend)
+    runner._args.workdir = str(workdir)
+
+    outcome = runner._simple_quick_reply(
+        objective="review README.md",
+        sink=_RecordingSink(),
+        execute_mode="review",
+        root_task_id="solo-turn-2",
+    )
+
+    assert outcome.delivery is None
+
+
+def test_text_only_self_reply_has_no_delivery() -> None:
+    runner = _make_runner(_FakeBackend(response_message="Plain answer."))
+
+    outcome = runner._simple_quick_reply(
+        objective="answer briefly",
+        sink=_RecordingSink(),
+        lean=True,
+    )
+
+    assert outcome.delivery is None
 
 
 @pytest.mark.parametrize(
@@ -395,7 +575,7 @@ def test_status_like_self_turn_uses_manager_model(tmp_path: Path) -> None:
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
 def test_status_snapshot_merges_continuous_campaign_state(tmp_path: Path) -> None:
-    from argus_skill.core.mission_view import empty_mission_view
+    from argus.core.mission_view import empty_mission_view
 
     view = empty_mission_view()
     view.update({
@@ -464,12 +644,14 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert "Runtime maintenance must use an isolated worktree" not in backend.calls[0]["prompt"]
 
 
+@pytest.mark.parametrize("layered", [True, False])
 def test_self_learning_review_runs_after_five_operator_turns(
     tmp_path: Path,
     monkeypatch,
+    layered,
 ) -> None:
-    from argus_skill.core.transcript import append_turn
-    from argus_skill.skills.layered import LayeredSkillStore
+    from argus.core.transcript import append_turn
+    from argus.skills.layered import LayeredSkillStore
 
     class _ImmediateThread:
         def __init__(self, *, target, **_kwargs):
@@ -489,6 +671,9 @@ def test_self_learning_review_runs_after_five_operator_turns(
         project_dir=tmp_path / "project-skills",
         global_dir=tmp_path / "profile-skills",
     )
+    if not layered:
+        from argus.skills.store import SkillStore
+        runner.manager.skill_store = SkillStore(tmp_path / "profile-skills")
     runner.manager.memory_maintenance_enabled = True
     for index in range(5):
         append_turn(
@@ -497,7 +682,7 @@ def test_self_learning_review_runs_after_five_operator_turns(
             f"operator turn {index}",
         )
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.threading.Thread",
+        "argus.apps._self_reply.threading.Thread",
         _ImmediateThread,
     )
 
@@ -508,7 +693,8 @@ def test_self_learning_review_runs_after_five_operator_turns(
 
     assert [call["run_label"] for call in backend.calls] == ["self-learning-review"]
     review_call = backend.calls[0]
-    skill_dir = (tmp_path / "profile-skills" / "self").resolve()
+    skill_dir = ((tmp_path / "project-skills" / "self") if layered else (tmp_path / "life/skills/self")).resolve()
+    assert not (tmp_path / "profile-skills/self").exists()
     assert str(skill_dir) in review_call["prompt"]
     assert "canonical user answer is already complete" in review_call["prompt"]
     assert "only directory you may edit" in review_call["prompt"]
@@ -519,8 +705,8 @@ def test_self_learning_review_catches_up_after_missed_cadence(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.transcript import append_turn
-    from argus_skill.skills.layered import LayeredSkillStore
+    from argus.core.transcript import append_turn
+    from argus.skills.layered import LayeredSkillStore
 
     class _ImmediateThread:
         def __init__(self, *, target, **_kwargs):
@@ -544,7 +730,7 @@ def test_self_learning_review_catches_up_after_missed_cadence(
     for index in range(6):
         append_turn(runner._manager_session_root, "operator", f"turn {index}")
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.threading.Thread",
+        "argus.apps._self_reply.threading.Thread",
         _ImmediateThread,
     )
 
@@ -568,8 +754,8 @@ def test_self_learning_review_reports_applied_skill_changes(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.transcript import append_turn
-    from argus_skill.skills.layered import LayeredSkillStore
+    from argus.core.transcript import append_turn
+    from argus.skills.layered import LayeredSkillStore
 
     class _ImmediateThread:
         def __init__(self, *, target, **_kwargs):
@@ -605,11 +791,11 @@ def test_self_learning_review_reports_applied_skill_changes(
         return SimpleNamespace(exit_code=0, fatal_error="")
 
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.threading.Thread",
+        "argus.apps._self_reply.threading.Thread",
         _ImmediateThread,
     )
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.gateway_run_exec",
+        "argus.apps._self_reply.gateway_run_exec",
         _learn,
     )
 
@@ -810,14 +996,14 @@ def test_self_retries_empty_success_then_returns_explicit_error() -> None:
     ],
 )
 def test_self_never_retries_explicit_interrupts(fatal_error: str) -> None:
-    from argus_skill.apps._runtime import _self_retryable_transport_failure
+    from argus.apps._runtime import _self_retryable_transport_failure
 
     result = RunnerResult(exit_code=1, fatal_error=fatal_error)
     assert _self_retryable_transport_failure(result) is False
 
 
 def test_self_does_not_retry_after_tool_activity() -> None:
-    from argus_skill.apps._runtime import _self_retryable_transport_failure
+    from argus.apps._runtime import _self_retryable_transport_failure
 
     result = RunnerResult(
         exit_code=1,
@@ -826,6 +1012,86 @@ def test_self_does_not_retry_after_tool_activity() -> None:
     )
     assert _self_retryable_transport_failure(result) is False
 
+
+
+def test_self_resumes_the_same_thread_once_after_a_watchdog_stall() -> None:
+    """A stalled provider is retried by continuing the thread, not redoing tools.
+
+    Stable web trial project s-701ae84b (2026-09-16): the Manager ran two
+    read-only tool calls, then Gemini streamed nothing for 120s, the watchdog
+    killed the turn and the operator saw "Answer failed" with no retry.
+    """
+
+    class _StallingBackend(_FakeBackend):
+        def run_exec(self, **kwargs: Any) -> RunnerResult:
+            self.calls.append(dict(kwargs))
+            if len(self.calls) == 1:
+                return RunnerResult(
+                    exit_code=1,
+                    thread_id="stalled-session",
+                    fatal_error=(
+                        "Forced restart after hard idle timeout "
+                        "(120s without a model stream event)."
+                    ),
+                    tool_activity_observed=True,
+                    input_tokens=9,
+                )
+            return RunnerResult(
+                exit_code=0,
+                thread_id="stalled-session",
+                agent_messages=["这是继续完成的回答。"],
+                input_tokens=4,
+                output_tokens=6,
+            )
+
+    backend = _StallingBackend()
+    runner = _make_runner(backend)
+    sink = _RecordingSink()
+
+    out = runner._simple_quick_reply(objective="给我写一篇 ICLR 论文的提纲", sink=sink)
+
+    assert out.success is True
+    assert len(backend.calls) == 2
+    assert backend.calls[1]["resume_thread_id"] == "stalled-session"
+    assert "Do not repeat tool calls" in backend.calls[1]["prompt"]
+    retry = next(event for event in sink.events if event.get("kind") == "provider_retry")
+    assert "续接同一会话" in retry["text"]
+    main = next(event for event in sink.events if event.get("type") == "round.main.completed")
+    assert main["attempt_count"] == 2
+
+
+def test_self_does_not_blindly_redo_tools_after_a_stall_without_a_thread() -> None:
+    class _StallingBackend(_FakeBackend):
+        def run_exec(self, **kwargs: Any) -> RunnerResult:
+            self.calls.append(dict(kwargs))
+            return RunnerResult(
+                exit_code=1,
+                thread_id=None,
+                fatal_error="Forced restart after hard idle timeout (120s without a model stream event).",
+                tool_activity_observed=True,
+            )
+
+    backend = _StallingBackend()
+    runner = _make_runner(backend)
+    sink = _RecordingSink()
+
+    out = runner._simple_quick_reply(objective="整理一下工作区", sink=sink)
+
+    assert out.success is False
+    assert len(backend.calls) == 1
+    assert "hard idle timeout" in out.stop_reason
+    assert not any(event.get("kind") == "provider_retry" for event in sink.events)
+
+
+def test_stall_predicate_ignores_answered_turns_and_other_errors() -> None:
+    from argus.apps._runtime import _self_stalled_model_turn
+
+    stalled = RunnerResult(exit_code=1, fatal_error="Forced restart after hard idle timeout (120s without a model stream event).")
+    assert _self_stalled_model_turn(stalled) is True
+    answered = RunnerResult(exit_code=1, fatal_error="Forced restart after hard idle timeout (120s).", agent_messages=["done"])
+    assert _self_stalled_model_turn(answered) is False
+    assert _self_stalled_model_turn(RunnerResult(exit_code=1, fatal_error="ACP prompt timed out after 300s")) is False
+    assert _self_stalled_model_turn(RunnerResult(exit_code=0)) is False
 
 def test_execute_team_answer_uses_full_pipeline() -> None:
     """A TEAM route answer must not short-circuit."""
@@ -961,7 +1227,7 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert "Check the premise" in planned_tasks[0]
     assert any(event.get("type") == "life.planner.start" for event in sink.events)
     assert any(event.get("type") == "life.planner.verdict" for event in sink.events)
-    from argus_skill.skills.layered import LayeredSkillStore
+    from argus.skills.layered import LayeredSkillStore
 
     layered = loop_kwargs[0]["skill_store"]
     assert isinstance(layered, LayeredSkillStore)
@@ -971,7 +1237,7 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert loop_kwargs[0]["config"].auto_init_wiki is True
     assert loop_kwargs[0]["config"].session_id == "mission-tree"
 
-    from argus_skill.apps import _runtime
+    from argus.apps import _runtime
 
     monkeypatch.setattr(
         _runtime,
@@ -1254,3 +1520,43 @@ def test_supervisor_still_runs_critic_for_non_chat_outcome(tmp_path: Path) -> No
     # iteration outcome dict is non-None (recorded the bail). The
     # journal should still mark this complete, not iterated.
     assert result["success"] is True
+
+
+def test_local_execution_retries_plan_once_and_does_not_claim_completion():
+    backend = _FakeBackend(
+        response_message="We need modify project. First inspect files and use tools.",
+        tool_activity_observed=False,
+    )
+    sink = _RecordingSink()
+    outcome = _make_runner(backend)._simple_quick_reply(
+        objective="Create and verify the requested report", sink=sink, execute_mode="implement",
+    )
+    assert len(backend.calls) == 2
+    assert "no tool calls" in backend.calls[1]["prompt"]
+    assert outcome.success is False
+    assert outcome.delivery is None
+    assert "without performing any tool action" in outcome.stop_reason
+
+
+def test_local_execution_recovers_from_plan_before_any_side_effect(tmp_path):
+    class RecoveringBackend(_FakeBackend):
+        def run_exec(self, **kwargs):
+            if self.calls:
+                (tmp_path / "result.txt").write_text("actual output")
+                self.response_message = "Created and checked `result.txt`."
+                self.tool_activity_observed = True
+            return super().run_exec(**kwargs)
+
+    backend = RecoveringBackend(
+        response_message="I will create result.txt.", tool_activity_observed=False,
+        started_at=time.time() - 1, call_id="recovered-action",
+    )
+    runner = _make_runner(backend)
+    runner._args.workdir = str(tmp_path)
+    outcome = runner._simple_quick_reply(
+        objective="Create result.txt", sink=_RecordingSink(), execute_mode="implement",
+    )
+    assert len(backend.calls) == 2
+    assert outcome.success is True
+    assert outcome.delivery["primary_target"]["path"] == "result.txt"
+    assert (tmp_path / "result.txt").read_text() == "actual output"

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._evolution import _cross_project_propagation_enabled
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._evolution import _cross_project_propagation_enabled
 
 
 @dataclass
@@ -50,7 +50,7 @@ def test_cross_project_skill_promotion_honors_persisted_disable(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.core.knob_store import write_persisted_knob
+    from argus.core.knob_store import write_persisted_knob
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("ARGUS_SKILL_CROSS_PROJECT_PROPAGATION", raising=False)
@@ -81,7 +81,7 @@ def test_supervisor_passes_runner_shared_skill_root(tmp_path, monkeypatch) -> No
         return {"to_shared": 0, "errors": 0}
 
     monkeypatch.setattr(
-        "argus_skill.manager.skill_tidy.propagate_after_mission",
+        "argus.manager.skill_tidy.propagate_after_mission",
         _propagate,
     )
 
@@ -114,11 +114,11 @@ def test_failed_mission_still_reaches_team_learning_review(
         return {"to_shared": 0, "errors": 0}
 
     monkeypatch.setattr(
-        "argus_skill.manager.skill_tidy.propagate_after_mission",
+        "argus.manager.skill_tidy.propagate_after_mission",
         _propagate,
     )
     monkeypatch.setattr(
-        "argus_skill.manager.domain_tidy.tidy_domains_after_mission",
+        "argus.manager.domain_tidy.tidy_domains_after_mission",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("failed missions must not promote data domains")
         ),
@@ -158,7 +158,7 @@ def test_reviewer_confirmed_research_result_reaches_fact_judgment(
         return True
 
     monkeypatch.setattr(
-        "argus_skill.manager.reviewed_facts.review_and_append_fact",
+        "argus.manager.reviewed_facts.review_and_append_fact",
         _review,
     )
     result = {"result_class": "verified_new_result", "evidence": ["result.json"]}

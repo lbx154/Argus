@@ -1,4 +1,6 @@
 import './style.css';
+import { visibleEyeCycle } from './startup';
+import { nativePathRequests } from './nativePaths';
 import {
   desktopBridge,
   type AppearanceTheme,
@@ -9,6 +11,7 @@ import {
   type DesktopStatus,
   type PiConfiguration,
   type RunnerKind,
+  type TrialDownloadProgress,
   type UpdateStatus,
 } from './bridge';
 
@@ -53,6 +56,15 @@ const diagnosticsEl = document.getElementById('diagnostics') as HTMLButtonElemen
 const stepsEl = document.getElementById('steps') as HTMLOListElement;
 
 const wizardEl = document.getElementById('wizard') as HTMLElement;
+const wizardError = document.getElementById('wizardError') as HTMLParagraphElement;
+const wizardBody = document.querySelector('.wizard-body') as HTMLElement;
+const refreshRunners = document.getElementById('refreshRunners') as HTMLButtonElement;
+const runtimeNotice = document.getElementById('runtimeNotice') as HTMLElement;
+const runtimeNoticeDetail = document.getElementById('runtimeNoticeDetail') as HTMLElement;
+new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--desktop-notice-height', `${runtimeNotice.hidden ? 0 : runtimeNotice.offsetHeight}px`);
+}).observe(runtimeNotice);
+const desktopContext = document.getElementById('desktopContext') as HTMLElement;
 const wizardCaption = document.getElementById('wizardCaption') as HTMLParagraphElement;
 const stepperEl = document.getElementById('stepper') as HTMLOListElement;
 const panels = Array.from(document.querySelectorAll<HTMLElement>('.panel'));
@@ -75,6 +87,29 @@ const wizardCancel = document.getElementById('wizardCancel') as HTMLButtonElemen
 const wizardBack = document.getElementById('wizardBack') as HTMLButtonElement;
 const wizardNext = document.getElementById('wizardNext') as HTMLButtonElement;
 const wizardFinish = document.getElementById('wizardFinish') as HTMLButtonElement;
+const trialOpen = document.getElementById('trialOpen') as HTMLButtonElement;
+const ownOpen = document.getElementById('ownOpen') as HTMLButtonElement;
+const trialPanel = document.getElementById('trialPanel') as HTMLElement;
+const ownIntro = document.getElementById('ownIntro') as HTMLElement;
+const ownContent = document.getElementById('ownContent') as HTMLElement;
+const trialForm = document.getElementById('trialForm') as HTMLFormElement;
+const trialKey = document.getElementById('trialKey') as HTMLInputElement;
+const trialSubmit = document.getElementById('trialSubmit') as HTMLButtonElement;
+const trialProgress = document.getElementById('trialProgress') as HTMLParagraphElement;
+const trialShortcut = document.getElementById('trialShortcut') as HTMLButtonElement;
+let trialBusy = false;
+let trialMode = false;
+const trialAccount = document.getElementById('trialAccount') as HTMLElement;
+const trialBalance = document.getElementById('trialBalance') as HTMLElement;
+const trialRefresh = document.getElementById('trialRefresh') as HTMLButtonElement;
+const trialRestore = document.getElementById('trialRestore') as HTMLButtonElement;
+const trialResume = document.getElementById('trialResume') as HTMLButtonElement;
+const trialAttention = document.getElementById('trialAttention') as HTMLElement;
+const trialDownload = document.getElementById('trialDownload') as HTMLDivElement;
+const trialDownloadBar = document.getElementById('trialDownloadBar') as HTMLProgressElement;
+const trialDownloadDetails = document.getElementById('trialDownloadDetails') as HTMLParagraphElement;
+const trialNetworkHint = document.getElementById('trialNetworkHint') as HTMLParagraphElement;
+let trialDownloadTimer: ReturnType<typeof setTimeout> | undefined;
 
 const cockpitEl = document.getElementById('cockpit') as HTMLElement;
 const cockpitFrame = document.getElementById('cockpitFrame') as HTMLIFrameElement;
@@ -105,6 +140,7 @@ let applying = false;
 let currentStep = 0;
 let setupRequested = false;
 let runnerKind: RunnerKind = 'codex';
+let runnerSelected = false;
 let runnerBins: Partial<Record<RunnerKind, string>> = {};
 let detectedRunners: Partial<Record<RunnerKind, string>> = {};
 let piConfiguration: PiConfiguration = { configDir: '' };
@@ -116,10 +152,35 @@ let releaseIdentity: DesktopReleaseIdentity = {
 };
 let runtimeIdentity: DesktopRuntimeIdentity = { state: 'idle' };
 let port = 8799;
-let appearanceTheme: AppearanceTheme = 'system';
+let appearanceTheme: AppearanceTheme = 'light';
 let cockpitTheme: 'light' | 'dark' | null = null;
 let updateStatus: UpdateStatus | null = null;
 let splashHideTimer: number | undefined;
+let splashRevealTimer: number | undefined;
+let splashGeneration = 0;
+let coldStart = true;
+let cockpitLoaded = false;
+let returnFocus: HTMLElement | null = null;
+// A DOM paint is not proof that the native window was exposed. Count actual
+// visible frames, including when a second EXE launch reactivates a resident host.
+function newEyeCycle() {
+  return visibleEyeCycle({
+    eye: document.querySelector('.argus-splash-eye') as SVGElement,
+    nativeVisible: () => desktopBridge.isWindowVisible(),
+    enabled: () => !wizardOpen && !splashEl.hidden && document.body.dataset.state !== 'error',
+    motionEnabled: () => true,
+  });
+}
+let eyeCycle = newEyeCycle();
+const pathRequests = nativePathRequests(cockpitFrame, cockpitOrigin);
+
+function cancelSplashTransition(): void {
+  splashGeneration++;
+  if (splashRevealTimer !== undefined) window.clearTimeout(splashRevealTimer);
+  if (splashHideTimer !== undefined) window.clearTimeout(splashHideTimer);
+  splashRevealTimer = undefined;
+  splashHideTimer = undefined;
+}
 
 function resolvedSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -151,7 +212,9 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   applyTheme(resolved);
   void desktopBridge.setWindowTheme(resolved);
 });
-applyTheme();
+// New profiles start light even on a dark OS; saved preferences take over as
+// soon as the native settings arrive. Do not guess the user's first-run theme.
+applyTheme('light');
 document.documentElement.dataset.argusDesktop = 'true';
 document.documentElement.dataset.argusDesktopNativeFrame = 'true';
 
@@ -194,16 +257,18 @@ function updateSteps(status: DesktopStatus): void {
   }
 }
 
-function showLauncher(): void {
-  if (splashHideTimer !== undefined) {
-    window.clearTimeout(splashHideTimer);
-    splashHideTimer = undefined;
-  }
+function showLauncher(preserveCockpit = false): void {
+  cancelSplashTransition();
   splashEl.hidden = false;
-  cockpitMounted = false;
+  if (!preserveCockpit) {
+    cockpitMounted = false;
+    cockpitLoaded = false;
+    cockpitFrame.removeAttribute('src');
+  }
   cockpitOpening = false;
   cockpitEl.hidden = true;
-  cockpitFrame.removeAttribute('src');
+  cockpitEl.inert = true;
+  cockpitEl.classList.add('is-loading');
   splashEl.classList.remove('is-ready');
   cockpitTheme = null;
   if (appearanceTheme === 'system') applyTheme(resolvedSystemTheme());
@@ -226,42 +291,86 @@ function postToCockpit(type: string, payload?: unknown): void {
   cockpitFrame.contentWindow.postMessage({ type, payload }, origin);
 }
 
+function sameCockpitConnection(left: string, right: string): boolean {
+  const normalize = (value: string) => {
+    const url = new URL(value);
+    url.searchParams.delete('desktopTheme');
+    return url.toString();
+  };
+  return normalize(left) === normalize(right);
+}
+
 function mountCockpit(url: string): void {
-  if (splashHideTimer !== undefined) {
-    window.clearTimeout(splashHideTimer);
-    splashHideTimer = undefined;
-  }
+  cancelSplashTransition();
   splashEl.hidden = false;
   cockpitOpening = false;
   wizardPending = false;
   cockpitEl.hidden = false;
-  splashEl.classList.add('is-ready');
 
   // A runner-only settings change restarts the backend at the same URL. Keep
   // the already-mounted React cockpit alive so it can reconnect through its
   // normal WebSocket/query recovery instead of paying for a full WebView reload.
-  if (cockpitMounted && cockpitFrame.src === url) {
-    hideSplashAfterCockpitLoad();
+  if (cockpitMounted && sameCockpitConnection(cockpitFrame.src, url)) {
+    void hideSplashAfterCockpitLoad();
     return;
   }
+  // Load at its real layout size, but do not cover the eye with an opaque iframe
+  // before the document has loaded and the initial visible cycle has finished.
+  cockpitEl.classList.add('is-loading');
+  cockpitEl.inert = true;
+  cockpitLoaded = false;
+  splashEl.classList.remove('is-ready');
   cockpitMounted = true;
   cockpitFrame.src = url;
 }
 
-function hideSplashAfterCockpitLoad(): void {
-  if (!cockpitMounted) return;
-  if (splashHideTimer !== undefined) window.clearTimeout(splashHideTimer);
-  // The launcher has several animated full-viewport layers.  Leaving those
-  // layers alive behind a loaded iframe made WebView2 spend frames on an
-  // invisible surface, unlike the direct browser cockpit.
-  splashHideTimer = window.setTimeout(() => {
-    if (cockpitMounted && !wizardOpen) splashEl.hidden = true;
-    splashHideTimer = undefined;
-  }, 50);
+async function hideSplashAfterCockpitLoad(): Promise<void> {
+  if (!cockpitMounted || !cockpitLoaded) return;
+  cancelSplashTransition();
+  const generation = splashGeneration;
+  if (coldStart) await eyeCycle.finished;
+  const canReveal = () => generation === splashGeneration && cockpitMounted
+    && cockpitLoaded && !wizardOpen && document.body.dataset.state !== 'error';
+  if (!canReveal()) return;
+  splashRevealTimer = window.setTimeout(() => {
+    splashRevealTimer = undefined;
+    if (!canReveal()) return;
+    if (coldStart) performance.mark('argus:cockpit-visible');
+    coldStart = false;
+    cockpitEl.classList.remove('is-loading');
+    cockpitEl.inert = false;
+    splashEl.classList.add('is-ready');
+    // Ready is already the actual backend state; this is only a visual handoff,
+    // not a fabricated progress phase or another service startup delay.
+    splashHideTimer = window.setTimeout(() => {
+      if (canReveal()) splashEl.hidden = true;
+      splashHideTimer = undefined;
+    }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180);
+  }, 0);
+}
+
+function replayLaunchEye(): void {
+  // An explicit second double-click is a launch, unlike a tray restore. Keep
+  // the live iframe, backend, tasks, focus and draft; only replay the visual handoff.
+  if (!cockpitMounted || !cockpitLoaded || wizardOpen || document.body.dataset.state !== 'ready') return;
+  if (!splashEl.hidden) return;
+  cancelSplashTransition();
+  eyeCycle.cancel();
+  coldStart = true;
+  splashEl.hidden = false;
+  splashEl.classList.remove('is-ready');
+  cockpitEl.classList.add('is-loading');
+  cockpitEl.inert = true;
+  statusEl.textContent = '正在返回 Argus 工作台';
+  eyeCycle = newEyeCycle();
+  void hideSplashAfterCockpitLoad();
 }
 
 function render(status: DesktopStatus): void {
+  if (trialBusy) return;
   document.body.dataset.state = status.state;
+  runtimeNotice.hidden = !status.warning;
+  runtimeNoticeDetail.textContent = status.warning || '';
   statusEl.textContent = status.message;
   detailEl.hidden = !(status.state === 'error' && status.detail);
   if (status.detail) detailEl.textContent = status.detail;
@@ -275,36 +384,62 @@ function render(status: DesktopStatus): void {
   else if (status.state === 'starting') width = status.message.includes('启动') ? 68 : 38;
   barEl.style.width = `${width}%`;
 
-  if (status.state === 'error' && cockpitMounted) showLauncher();
-  if (status.state === 'ready') void handleReady();
+  const channel = releaseIdentity.distribution === 'preview' ? 'Preview · 独立数据' : '本地工作台';
+  desktopContext.textContent = status.state === 'ready' ? channel : `${channel} · ${status.message}`;
+  desktopContext.title = status.message;
+  if (status.state === 'error' && !applying && !wizardOpen) showLauncher(true);
+  if (status.state === 'ready' || status.state === 'idle') void handleReady();
 }
 
 function renderIpcFailure(message: string, detail: string): void {
   wizardPending = false;
   cockpitOpening = false;
   applying = false;
-  showLauncher();
+  setupRequested = false;
+  showLauncher(true);
   render({ state: 'error', message, detail });
 }
 
 function applySetup(setup: DesktopSetup): void {
   port = setup.port;
   runnerKind = setup.runnerKind;
+  runnerSelected = setup.runnerConfigured;
   runnerBins = { ...(setup.runnerBins || {}) };
   detectedRunners = { ...(setup.detectedRunners || {}) };
   piConfiguration = { ...(setup.piConfiguration || { configDir: '' }) };
   releaseIdentity = setup.releaseIdentity;
   runtimeIdentity = setup.runtimeIdentity;
+  if (releaseIdentity.distribution === 'preview') desktopContext.textContent = 'Preview · 独立数据';
 }
 
 async function handleReady(): Promise<void> {
-  if (cockpitOpening || cockpitMounted || wizardOpen || applying || wizardPending) return;
+  if (cockpitOpening || (cockpitMounted && !cockpitEl.hidden) || wizardOpen || applying || wizardPending) return;
   if (setupRequested) return;
   cockpitOpening = true;
-  // First-run preferences are optional. Runner discovery and Pi configuration
-  // are settings-only work. Keeping
-  // getSetup() out of this critical path lets the authenticated cockpit start
-  // loading as soon as the backend reports ready.
+  const setup = await capture(() => desktopBridge.getSetup());
+  if (!setup.ok) {
+    renderIpcFailure('无法读取桌面设置', setup.detail);
+    return;
+  }
+  if (wizardOpen || setupRequested) {
+    cockpitOpening = false;
+    return;
+  }
+  applySetup(setup.value);
+  if (!setup.value.complete) {
+    cockpitOpening = false;
+    showWizard(setup.value);
+    return;
+  }
+  const status = await capture(() => desktopBridge.getStatus());
+  if (!status.ok) {
+    renderIpcFailure('无法读取本地服务状态', status.detail);
+    return;
+  }
+  if (status.value.state !== 'ready') {
+    cockpitOpening = false;
+    return;
+  }
   void capture(() => desktopBridge.openCockpit()).then((result) => {
     if (wizardOpen || setupRequested) {
       cockpitOpening = false;
@@ -322,6 +457,17 @@ function runnerDescription(path: string): string {
 }
 
 function renderRunner(): void {
+  if (!runnerSelected) {
+    runnerStatus.dataset.state = 'warn';
+    runnerStatus.textContent = '尚未选择';
+    runnerPath.textContent = '请选择已安装并登录的 Agent CLI；检测到可执行文件不代表已完成登录。';
+    chooseRunnerEl.disabled = true;
+    chooseRunnerLabel.textContent = '请先选择 Agent CLI';
+    clearRunnerEl.hidden = true;
+    wizardNext.disabled = true;
+    return;
+  }
+  chooseRunnerEl.disabled = false;
   const manual = (runnerBins[runnerKind] || '').trim();
   const detected = (detectedRunners[runnerKind] || '').trim();
   if (manual) {
@@ -337,15 +483,19 @@ function renderRunner(): void {
   } else {
     runnerStatus.dataset.state = 'warn';
     runnerStatus.textContent = '未检测到';
-    runnerPath.textContent = `未找到 ${RUNNER_LABELS[runnerKind]}，可手动选择。`;
+    runnerPath.textContent = `未找到 ${RUNNER_LABELS[runnerKind]}。请先安装并登录，或手动选择可执行文件。`;
     clearRunnerEl.hidden = true;
   }
   chooseRunnerLabel.textContent = `选择 ${RUNNER_LABELS[runnerKind]}`;
+  runnerPath.title = runnerPath.textContent || '';
+  wizardNext.disabled = !manual && !detected;
 }
 
 function renderRunnerKind(): void {
   for (const button of runnerKindButtons) {
-    button.classList.toggle('is-selected', button.dataset.kind === runnerKind);
+    const selected = runnerSelected && button.dataset.kind === runnerKind;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
   }
 }
 
@@ -362,7 +512,7 @@ function renderSummary(): void {
   summaryRunner.textContent = path
     ? `${RUNNER_LABELS[runnerKind]} · ${path}${model}`
     : `${RUNNER_LABELS[runnerKind]}（未配置）`;
-  summaryUrl.textContent = `127.0.0.1:${port}`;
+  summaryUrl.textContent = `127.0.0.1:${Number(portInput.value)}`;
   summaryRelease.textContent = `${releaseIdentity.packageVersion} · ${releaseIdentity.distribution}`;
   summaryRuntime.textContent = runtimeIdentity.pid
     ? `${runtimeIdentity.state} · PID ${runtimeIdentity.pid}${runtimeIdentity.url ? ` · ${runtimeIdentity.url}` : ''}`
@@ -382,31 +532,55 @@ function goToStep(step: number): void {
   wizardBack.hidden = step === 0;
   wizardNext.hidden = step === 2;
   wizardFinish.hidden = step !== 2;
+  wizardNext.disabled = step === 0 && (
+    !runnerSelected || !(runnerBins[runnerKind] || detectedRunners[runnerKind])
+  );
   wizardCaption.textContent = STEP_LABELS[step] || '';
   if (step === 2) renderSummary();
+  panels.find((panel) => !panel.hidden)?.querySelector<HTMLElement>('input, button, h3')?.focus();
 }
 
 function showWizard(setup: DesktopSetup): void {
+  coldStart = false; // The visible first-run/settings eye already owns this flow.
+  eyeCycle.cancel();
+  cancelSplashTransition();
+  if (!wizardOpen) returnFocus = document.activeElement as HTMLElement | null;
   wizardOpen = true;
   wizardFinish.disabled = false;
+  wizardFinish.textContent = cockpitMounted ? '保存设置' : '开始使用';
+  wizardError.hidden = true;
+  portError.hidden = true;
   wizardEl.hidden = false;
+  cockpitEl.inert = true;
+  splashEl.inert = true;
+  desktopMenuBar.inert = true;
   splashEl.classList.add('has-wizard');
   document.documentElement.dataset.settingsMode = cockpitMounted ? 'true' : 'false';
   wizardCancel.hidden = !cockpitMounted;
+  wizardEl.dataset.returnAvailable = String(cockpitMounted);
   applySetup(setup);
+  trialKey.value = '';
+  trialMode = !!setup.trialMode;
+  trialAccount.hidden = !trialMode;
+  trialRestore.hidden = !setup.canRestoreOwnAccount;
+  if (trialMode) void refreshTrialBalance();
+  trialProgress.textContent = '';
   portInput.value = String(port);
   renderRunnerKind();
   renderRunner();
-  goToStep(0);
+  selectEntryMode(trialMode ? 'trial' : 'own');
 }
 
 async function reopenWizard(): Promise<void> {
+  if (applying || wizardOpen || wizardPending) return;
   setupRequested = true;
+  wizardPending = true;
   const result = await capture(() => desktopBridge.getSetup());
   if (!result.ok) {
     renderIpcFailure('无法读取桌面设置', result.detail);
     return;
   }
+  wizardPending = false;
   showWizard(result.value);
 }
 
@@ -414,9 +588,15 @@ function closeWizard(): void {
   if (applying) return;
   wizardOpen = false;
   wizardEl.hidden = true;
+  cockpitEl.inert = cockpitEl.classList.contains('is-loading');
+  splashEl.inert = false;
+  desktopMenuBar.inert = false;
   splashEl.classList.remove('has-wizard');
   document.documentElement.dataset.settingsMode = 'false';
   setupRequested = false;
+  trialKey.value = '';
+  returnFocus?.focus();
+  if (cockpitLoaded && !splashEl.hidden) void hideSplashAfterCockpitLoad();
 }
 
 function closeDesktopMenus(): void {
@@ -459,6 +639,7 @@ async function runDesktopMenuAction(action: string): Promise<void> {
     return;
   }
   if (action === 'restart') {
+    if (!window.confirm('重启本地后端会中断当前连接及正在进行的工作。确定重启吗？')) return;
     await desktopBridge.restartBackend();
     return;
   }
@@ -494,7 +675,7 @@ function updateMessage(status: UpdateStatus): {
     return {
       kicker: '发现新版本',
       title: `Argus ${status.availableVersion || '更新'} 已准备好`,
-      detail: `${notes}\n\n请在合适的任务边界查看并安装；安装前会验证更新包签名。`,
+      detail: `${notes}\n\n请在任务边界安装；签名验证通过后会停止当前安装拥有的后端。其他安装和预览不受影响。`,
       showInstall: true,
       showSecurity: true,
     };
@@ -504,7 +685,7 @@ function updateMessage(status: UpdateStatus): {
     return {
       kicker: '正在准备更新',
       title: `正在下载${progress}`,
-      detail: '下载完成后将校验签名，并交给 Windows 安装器完成更新。',
+      detail: '下载并验证签名后才停止当前安装的后端，再交给安装程序；下载或验签失败不会中断任务。',
       showInstall: false,
       showSecurity: true,
     };
@@ -536,6 +717,15 @@ function updateMessage(status: UpdateStatus): {
       showSecurity: false,
     };
   }
+  if (status.state === 'idle' && status.detail) {
+    return {
+      kicker: '预览构建',
+      title: '发布更新已禁用',
+      detail: status.detail,
+      showInstall: false,
+      showSecurity: false,
+    };
+  }
   return {
     kicker: '手动检查更新',
     title: '正在检查更新',
@@ -550,7 +740,7 @@ function renderUpdate(status: UpdateStatus): void {
   const message = updateMessage(status);
   const installing = ['downloading', 'installing'].includes(status.state);
   const manualFeedback = status.userInitiated
-    && ['checking', 'up-to-date', 'error'].includes(status.state);
+    && ['idle', 'checking', 'up-to-date', 'error'].includes(status.state);
   // A background check is deliberately invisible unless it found a real newer
   // package. Manual checks retain visible feedback because the user asked for it.
   const visible = status.state === 'available' || installing || manualFeedback;
@@ -581,6 +771,141 @@ retryEl.addEventListener('click', () => {
 
 setupEl.addEventListener('click', () => void reopenWizard());
 
+async function refreshTrialBalance(): Promise<void> {
+  if (!trialMode || trialRefresh.disabled) return;
+  trialRefresh.disabled = true;
+  const result = await capture(() => desktopBridge.getTrialStatus());
+  trialRefresh.disabled = false;
+  if (!result.ok) { trialBalance.textContent = '余额暂未同步，请检查网络后刷新。'; return; }
+  const balance = result.value;
+  trialResume.hidden = !balance.paused;
+  trialAttention.hidden = !balance.attention;
+  trialAttention.textContent = balance.attention || '';
+  if (typeof balance.tokensRemaining !== 'number' || typeof balance.tokenLimit !== 'number') {
+    trialBalance.textContent = balance.error || '余额暂未同步，请稍后刷新。';
+    return;
+  }
+  const at = balance.checkedAt ? new Date(balance.checkedAt * 1000).toLocaleString() : '';
+  trialBalance.textContent = `${balance.stale ? '上次同步' : '剩余额度'}：${balance.tokensRemaining.toLocaleString()} / ${balance.tokenLimit.toLocaleString()} token${at ? ` · ${at}` : ''}${balance.stale ? '（当前未同步）' : ''}`;
+}
+trialRefresh.addEventListener('click', () => void refreshTrialBalance());
+trialResume.addEventListener('click', async () => {
+  if (applying || !window.confirm('中断的请求可能已经扣除预留额度。查询余额并解除试用暂停？不会自动重放已失败任务。')) return;
+  trialResume.disabled = true;
+  const result = await capture(() => desktopBridge.resumeTrial());
+  trialResume.disabled = false;
+  if (!result.ok || result.value.error) {
+    trialAttention.hidden = false;
+    trialAttention.textContent = result.ok ? result.value.error || '恢复失败。' : '无法连接本地服务。';
+    return;
+  }
+  await refreshTrialBalance();
+});
+trialRestore.addEventListener('click', async () => {
+  if (applying || !window.confirm('切回原账号会重启本地后端，请确认正在进行的任务已暂停。')) return;
+  applying = trialBusy = true;
+  trialRestore.disabled = true;
+  const result = await capture(() => desktopBridge.restoreOwnAccount());
+  applying = trialBusy = false;
+  trialRestore.disabled = false;
+  if (!result.ok || !result.value.ok) {
+    trialBalance.textContent = result.ok ? result.value.error || '切换失败，原设置已保留。' : '无法连接本地设置服务。';
+    return;
+  }
+  trialMode = false;
+  closeWizard();
+  const status = await capture(() => desktopBridge.getStatus());
+  if (status.ok) render(status.value);
+});
+
+function selectEntryMode(mode: 'own' | 'trial', focusInput = false): void {
+  const trial = mode === 'trial';
+  goToStep(0);
+  trialPanel.hidden = !trial;
+  trialForm.hidden = !trial;
+  ownIntro.hidden = trial;
+  ownContent.hidden = trial;
+  wizardEl.classList.toggle('trial-entry-active', trial);
+  stepperEl.hidden = trial;
+  trialOpen.setAttribute('aria-pressed', String(trial));
+  trialOpen.setAttribute('aria-expanded', String(trial));
+  ownOpen.setAttribute('aria-pressed', String(!trial));
+  wizardCaption.textContent = trial ? '内测试用' : '使用自己的账号';
+  wizardBody.scrollTop = 0;
+  if (!trial) { trialKey.value = ''; trialProgress.textContent = ''; resetTrialDownload(); }
+  if (trial && focusInput) trialKey.focus();
+}
+ownOpen.addEventListener('click', () => { if (!applying) selectEntryMode('own'); });
+trialOpen.addEventListener('click', () => { if (!applying) selectEntryMode('trial', true); });
+async function openTrialSettings(): Promise<void> {
+  await reopenWizard();
+  if (wizardOpen && !applying) selectEntryMode('trial', true);
+}
+trialShortcut.addEventListener('click', () => void openTrialSettings());
+function resetTrialDownload(): void {
+  clearTimeout(trialDownloadTimer);
+  trialDownloadTimer = undefined;
+  trialDownload.hidden = true;
+  trialNetworkHint.hidden = true;
+  trialDownloadBar.removeAttribute('value');
+  trialDownloadDetails.textContent = '';
+}
+function renderTrialDownload({ downloaded_bytes: downloaded, total_bytes: total }: TrialDownloadProgress): void {
+  if (!trialBusy || !Number.isFinite(downloaded) || downloaded < 0) return;
+  clearTimeout(trialDownloadTimer);
+  trialNetworkHint.hidden = true;
+  trialDownload.hidden = false;
+  const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+  if (total !== null && Number.isFinite(total) && total > 0) {
+    const percent = Math.min(100, Math.floor(downloaded / total * 100));
+    trialDownloadBar.value = percent;
+    trialDownloadDetails.textContent = `${percent}% · ${megabytes(downloaded)} / ${megabytes(total)}`;
+  } else {
+    trialDownloadBar.removeAttribute('value');
+    trialDownloadDetails.textContent = downloaded > 0 ? `已接收 ${megabytes(downloaded)}` : '正在连接下载服务器…';
+  }
+  trialDownloadTimer = setTimeout(() => { trialNetworkHint.hidden = false; }, 30_000);
+}
+desktopBridge.onTrialDownload?.(renderTrialDownload);
+desktopBridge.onTrialProgress((message) => {
+  if (!trialBusy) return;
+  resetTrialDownload();
+  trialProgress.textContent = message;
+});
+trialForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (applying) return;
+  const key = trialKey.value.trim();
+  if (!/^argus_trial_[a-f0-9]{64}$/.test(key)) {
+    trialProgress.textContent = '请输入完整的内部测试 Key。';
+    trialKey.focus();
+    return;
+  }
+  if (cockpitMounted && !window.confirm('启用或更换试用 Key 会重启本地后端。确认当前任务已暂停并继续？')) return;
+  applying = trialBusy = true;
+  trialKey.value = '';
+  trialKey.disabled = trialSubmit.disabled = true;
+  wizardEl.setAttribute('aria-busy', 'true');
+  trialSubmit.textContent = '正在准备…';
+  trialProgress.textContent = '正在验证 Key…';
+  const result = await capture(() => desktopBridge.completeTrialSetup(key));
+  resetTrialDownload();
+  applying = trialBusy = false;
+  trialKey.disabled = trialSubmit.disabled = false;
+  wizardEl.removeAttribute('aria-busy');
+  trialSubmit.textContent = '开始试用';
+  if (!result.ok || !result.value.ok) {
+    // Never reflect raw IPC errors, which could contain serialized input.
+    trialProgress.textContent = result.ok ? (result.value.error || '配置失败，请重试。') : '无法连接本地安装服务，请重试。';
+    return;
+  }
+  trialMode = true;
+  closeWizard();
+  const status = await capture(() => desktopBridge.getStatus());
+  if (status.ok) render(status.value);
+  else renderIpcFailure('无法读取本地服务状态', status.detail);
+});
+
 diagnosticsEl.addEventListener('click', () => {
   diagnosticsEl.disabled = true;
   void capture(() => desktopBridge.exportDiagnostics()).then((result) => {
@@ -597,8 +922,9 @@ diagnosticsEl.addEventListener('click', () => {
 });
 
 chooseRunnerEl.addEventListener('click', async () => {
+  const selectedKind = runnerKind;
   chooseRunnerEl.disabled = true;
-  const result = await capture(() => desktopBridge.chooseRunner(runnerKind));
+  const result = await capture(() => desktopBridge.chooseRunner(selectedKind));
   chooseRunnerEl.disabled = false;
   if (!result.ok) {
     runnerStatus.dataset.state = 'warn';
@@ -607,7 +933,7 @@ chooseRunnerEl.addEventListener('click', async () => {
     return;
   }
   if (result.value) {
-    runnerBins[runnerKind] = result.value;
+    runnerBins[selectedKind] = result.value;
     renderRunner();
   }
 });
@@ -620,7 +946,10 @@ clearRunnerEl.addEventListener('click', () => {
 for (const button of runnerKindButtons) {
   button.addEventListener('click', () => {
     const kind = button.dataset.kind;
-    if (isRunnerKind(kind)) runnerKind = kind;
+    if (isRunnerKind(kind)) {
+      runnerKind = kind;
+      runnerSelected = true;
+    }
     renderRunnerKind();
     renderRunner();
   });
@@ -628,6 +957,21 @@ for (const button of runnerKindButtons) {
 
 portInput.addEventListener('input', () => {
   portError.hidden = isPortValid();
+  portInput.setAttribute('aria-invalid', String(!isPortValid()));
+});
+
+refreshRunners.addEventListener('click', async () => {
+  refreshRunners.disabled = true;
+  const result = await capture(() => desktopBridge.getSetup());
+  refreshRunners.disabled = false;
+  if (result.ok) {
+    detectedRunners = { ...result.value.detectedRunners };
+    piConfiguration = result.value.piConfiguration;
+    renderRunner();
+  } else {
+    wizardError.textContent = `检测失败：${result.detail}`;
+    wizardError.hidden = false;
+  }
 });
 
 wizardCancel.addEventListener('click', closeWizard);
@@ -636,6 +980,7 @@ wizardBack.addEventListener('click', () => {
 });
 wizardNext.addEventListener('click', () => {
   if (currentStep === 0) {
+    if (!runnerSelected || !(runnerBins[runnerKind] || detectedRunners[runnerKind])) return;
     goToStep(1);
     return;
   }
@@ -650,6 +995,11 @@ wizardNext.addEventListener('click', () => {
 });
 
 wizardFinish.addEventListener('click', async () => {
+  if (applying) return;
+  if (!runnerSelected || !(runnerBins[runnerKind] || detectedRunners[runnerKind])) {
+    goToStep(0);
+    return;
+  }
   if (!isPortValid()) {
     goToStep(1);
     portError.hidden = false;
@@ -657,50 +1007,45 @@ wizardFinish.addEventListener('click', async () => {
     return;
   }
   port = Number(portInput.value);
-  wizardFinish.disabled = true;
   applying = true;
-  setupRequested = false;
-  wizardOpen = false;
-  wizardEl.hidden = true;
-  splashEl.classList.remove('has-wizard');
-  document.documentElement.dataset.settingsMode = 'false';
-  document.body.dataset.state = 'starting';
-  statusEl.textContent = '正在应用设置';
-  detailEl.hidden = true;
-  retryEl.hidden = true;
-  setupEl.hidden = true;
-  diagnosticsEl.hidden = true;
-  barEl.style.width = '72%';
+  wizardError.hidden = true;
+  wizardBody.inert = true;
+  wizardFinish.disabled = true;
+  wizardBack.disabled = true;
+  wizardCancel.disabled = true;
+  wizardFinish.textContent = '正在保存并连接…';
+  wizardEl.setAttribute('aria-busy', 'true');
 
   const invocation = await capture(() => desktopBridge.completeSetup({
     port,
     runnerKind,
     runnerBins,
   }));
+  applying = false;
+  wizardBody.inert = false;
+  wizardFinish.disabled = false;
+  wizardBack.disabled = false;
+  wizardCancel.disabled = false;
+  wizardEl.setAttribute('aria-busy', 'false');
+  wizardFinish.textContent = cockpitMounted ? '保存设置' : '开始使用';
   if (!invocation.ok || !invocation.value.ok) {
-    applying = false;
-    document.body.dataset.state = 'error';
-    statusEl.textContent = '设置保存失败';
-    detailEl.textContent = invocation.ok
-      ? (invocation.value.error || '未知错误')
-      : invocation.detail;
-    detailEl.hidden = false;
-    retryEl.hidden = false;
-    setupEl.hidden = false;
-    diagnosticsEl.hidden = false;
+    // Keep both the draft settings and the mounted cockpit. Validation/IPC
+    // failures must stay visible without destroying an unsent conversation.
+    wizardError.textContent = invocation.ok
+      ? (invocation.value.error || '设置保存失败，请重试。')
+      : `设置保存失败：${invocation.detail}`;
+    wizardError.hidden = false;
+    wizardError.focus();
     return;
   }
-  applying = false;
-  if (cockpitMounted) {
-    const url = await capture(() => desktopBridge.openCockpit());
-    if (url.ok) mountCockpit(url.value);
+  closeWizard();
+  const url = await capture(() => desktopBridge.openCockpit());
+  if (!url.ok) {
+    renderIpcFailure('设置已保存，但工作台尚未连接', url.detail);
+    return;
   }
-  window.setTimeout(() => {
-    void capture(() => desktopBridge.getStatus()).then((status) => {
-      if (status.ok) render(status.value);
-      else renderIpcFailure('无法读取本地服务状态', status.detail);
-    });
-  }, 260);
+  mountCockpit(url.value);
+  cockpitFrame.focus();
 });
 
 updateInstallEl.addEventListener('click', () => {
@@ -752,13 +1097,26 @@ document.addEventListener('pointerdown', (event) => {
 });
 
 window.addEventListener('keydown', (event) => {
+  if (wizardOpen && event.key === 'Tab') {
+    const focusable = Array.from(wizardEl.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]'))
+      .filter((element) => element.getClientRects().length > 0 && !element.closest('[inert]'));
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && (document.activeElement === first || !wizardEl.contains(document.activeElement))) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !wizardEl.contains(document.activeElement))) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
   if (event.key === 'Escape') closeDesktopMenus();
   if (event.ctrlKey && event.key === ',') {
     event.preventDefault();
     closeDesktopMenus();
     void reopenWizard();
   }
-  if (event.ctrlKey && event.key.toLowerCase() === 'n') {
+  if (!wizardOpen && event.ctrlKey && event.key.toLowerCase() === 'n') {
     event.preventDefault();
     closeDesktopMenus();
     postToCockpit('argus:new-chat');
@@ -769,14 +1127,24 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
-cockpitFrame.addEventListener('load', hideSplashAfterCockpitLoad);
+cockpitFrame.addEventListener('load', () => {
+  pathRequests.navigated();
+  if (!cockpitMounted || !cockpitFrame.hasAttribute('src')) return;
+  cockpitLoaded = true;
+  void hideSplashAfterCockpitLoad();
+});
 
 window.addEventListener('message', (event) => {
+  pathRequests.receive(event);
   if (event.source !== cockpitFrame.contentWindow || event.origin !== cockpitOrigin()) return;
   const data = event.data;
   if (!data || typeof data !== 'object') return;
   const type = (data as { type?: unknown }).type;
   const payload = (data as { payload?: unknown }).payload;
+  if (type === 'argus:show-setup') void reopenWizard();
+  if (type === 'argus:show-trial-setup') void openTrialSettings();
+  if (type === 'argus:request-new-chat' && !wizardOpen) postToCockpit('argus:new-chat');
+  if (type === 'argus:cockpit-interaction') closeDesktopMenus();
   if (type === 'argus:notify-delivery' || type === 'argus:notify-completion') {
     void desktopBridge.notifyDelivery(payload as Parameters<typeof desktopBridge.notifyDelivery>[0]);
   }
@@ -785,6 +1153,14 @@ window.addEventListener('message', (event) => {
   }
   if (type === 'argus:large-preview' && typeof payload === 'boolean') {
     void desktopBridge.setLargePreview(payload);
+  }
+  if (type === 'argus:theme-preference' && (payload === 'light' || payload === 'dark' || payload === 'system')) {
+    if (appearanceTheme !== payload) {
+      appearanceTheme = payload;
+      void capture(() => desktopBridge.setAppearance({ theme: payload })).then((result) => {
+        if (!result.ok) window.alert('主题已应用，但未能保存。请检查桌面数据目录权限。');
+      });
+    }
   }
   if (type === 'argus:theme-changed' && (payload === 'light' || payload === 'dark')) {
     // The authenticated cockpit owns the visible theme. Keep both trusted
@@ -795,14 +1171,14 @@ window.addEventListener('message', (event) => {
   }
 });
 
+desktopBridge.onLaunchActivation(replayLaunchEye);
 desktopBridge.onNewChat(() => postToCockpit('argus:new-chat'));
 desktopBridge.onOpenDelivery((payload) => postToCockpit('argus:open-delivery', payload));
 desktopBridge.onShowSetup(() => void reopenWizard());
 desktopBridge.onUpdateStatus(renderUpdate);
 desktopBridge.onStatus(render);
 
-void loadAppearance();
-void capture(() => desktopBridge.getStatus()).then((status) => {
+void loadAppearance().then(() => capture(() => desktopBridge.getStatus())).then((status) => {
   if (status.ok) render(status.value);
   else renderIpcFailure('无法读取本地服务状态', status.detail);
 });

@@ -1,0 +1,440 @@
+"""Engineer prompt operations and structured context requests."""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from ...core.model_visible_text import sanitize_model_visible_text
+from ...core.role_decision import decision_footer_instruction
+from ..task_contract import (
+    EFFECTIVE_TASK_CONTRACT,
+    native_shell_contract,
+    native_shell_summary,
+)
+from .types import RoleName, RolePromptRequest
+from .voice import RESEARCHER_VOICE
+
+MISSION = "mission"
+AUTHOR_DRAFT = "author_draft"
+NARRATIVE_EDIT = "narrative_edit"
+OPERATIONS = frozenset({MISSION, AUTHOR_DRAFT, NARRATIVE_EDIT})
+_MANAGER_GROUNDING_HEADER = "\n\n## Manager project grounding (advisory evidence)\n"
+
+_POSIX_LONG_EXPERIMENT_RULE = (
+    "For commands over two minutes, use Argus's durable runner: "
+    "`\"${ARGUS_SKILL_PYTHON:-python3}\" -m "
+    "argus.tools.subagent submit --task-id <id> --mode direct "
+    "--timeout <seconds> --command '<command>'`. Use `--mode supervised` only for "
+    "semantic monitoring. Never `task(mode=\"background\")` or a session-owned "
+    "background shell. Keep the `state=submitted`, `task_id`, `run_id` and "
+    "`check_with` response; on `state=discussing` answer with `reply_with` "
+    "and do not poll in the foreground."
+)
+_PERFORMANCE_DIAGNOSTIC_RULE = (
+    "Performance root-cause/bottleneck/replacement claims need hot-path/live-resource "
+    "evidence plus timing/profiling or controlled A/B. Correctness smoke tests can "
+    "share hardware, but latency evidence needs an uncontended device or an "
+    "explicitly matched concurrent load. Check actual device identity and other "
+    "processes; free memory or a zero-utilization snapshot does not prove isolation. "
+    "Independent process repetitions can run sequentially on a released device."
+)
+_ACCELERATOR_ADMISSION_RULE = (
+    "For GPU jobs, add `--accelerator cuda` (or `rocm`), `--gpu-count <count>`, "
+    "`--gpu-mem-mib <peak-MiB>`, `--expected-duration <duration>` and "
+    "`--intent '<purpose>'` to submit; add `--checkpointable` only when supported. "
+    "Use the allocator's visibility mask and logical device indices; do not "
+    "override CUDA_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES inside the command. "
+    "The shared ledger coordinates cooperating tasks, not unmanaged external "
+    "processes. `waiting_resource` is a healthy queue; continue independent "
+    "work while it waits. Never put nvidia-smi/GPU polling in the command."
+)
+_DURABLE_WAIT_RULE = (
+    "After submitting a durable job, continue useful work that does not depend on "
+    "its result. If all remaining work needs a healthy running or resource-queued "
+    "job, save the current checkpoint and give a brief progress update whose final "
+    'line is `{"wait_for":"subagent","wait_id":"<task-id>"}`. '
+    "Use the existing task ID, including for a job submitted during this same turn. "
+    "This yields to Argus's background monitor; it is not a completed milestone "
+    "or a handoff for another paper review. Do not append the normal decision "
+    "footer after that wait line, sleep in a foreground polling loop, or relaunch "
+    "the existing job. Argus resumes this Engineer task when the job changes "
+    "state; inspect and validate its outputs before claiming completion."
+)
+
+_WINDOWS_LONG_EXPERIMENT_RULE = (
+    "For commands over two minutes on native Windows, use Windows PowerShell 5.1 syntax "
+    "and Argus's durable runner: "
+    "`& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit "
+    "--task-id '<id>' --mode direct --timeout '<seconds>' --command '<command>'`. "
+    "Use `--mode supervised` only for semantic monitoring. Do not use "
+    "`task(mode=\"background\")` or a session-owned background shell. Keep the "
+    "`state=submitted`, `task_id`, `run_id`, and `check_with` response. On "
+    "`state=discussing`, answer with `reply_with`; do not poll in the foreground."
+)
+
+def _long_experiment_rule() -> str:
+    shell_rule = (
+        _WINDOWS_LONG_EXPERIMENT_RULE
+        if native_shell_contract()
+        else _POSIX_LONG_EXPERIMENT_RULE
+    )
+    return " ".join((shell_rule, _ACCELERATOR_ADMISSION_RULE, _DURABLE_WAIT_RULE))
+
+
+def append_live_guidance(prompt: str, guidance: list[str]) -> str:
+    if not guidance:
+        return prompt
+    return (
+        prompt
+        + "\n\n## LIVE MANAGER / OPERATOR DIRECTIVES — HIGHEST PRIORITY\n"
+        + "These directives may stop, narrow, or correct the current mission. "
+        + "They do not silently broaden the task as assigned or cross its "
+        + "stage. If a directive materially replaces the current "
+        + "objective, preserve state, update CHECKPOINT.md, and request "
+        + "Reviewer/Planner replanning instead of executing the new scope here.\n"
+        + "\n".join(f"- {item}" for item in guidance)
+    )
+
+
+_OPERATOR_CONTEXT_MARKER = "\n\n## OperatorContext\n"
+# ``build_operator_context_block`` closes every block with its revision line,
+# which is how the trailing block is told apart from one the mission text
+# itself quotes.
+_OPERATOR_CONTEXT_END = re.compile(r"(?m)^operator_context_revision=\d+\s*\Z")
+
+
+def assemble_round_prompt(
+    prompt: str,
+    *,
+    role_context: str = "",
+    checkpoint_block: str = "",
+    background_advisory: str = "",
+    external_work_advisory: str = "",
+) -> str:
+    """Append all dynamic Engineer round fragments in one stable order.
+
+    Everything that changes between rounds goes after the prompt the builder
+    produced, ahead only of the trailing OperatorContext block, so the static
+    text stays a byte-identical prefix. The mission text can itself quote an
+    OperatorContext block, so the split point is the LAST marker, and only
+    when what follows it is a complete block; otherwise nothing is split.
+    """
+    stable_prompt, separator, operator_tail = prompt.rpartition(
+        _OPERATOR_CONTEXT_MARKER
+    )
+    if separator and _OPERATOR_CONTEXT_END.search(operator_tail):
+        prompt = stable_prompt
+    else:
+        separator, operator_tail = "", ""
+    tail = [
+        sanitize_model_visible_text(block)
+        for block in (
+            role_context,
+            checkpoint_block,
+            background_advisory,
+            external_work_advisory,
+        )
+        if block
+    ]
+    if separator:
+        tail.append("## OperatorContext\n" + operator_tail)
+    if not tail:
+        return prompt
+    return prompt + "\n\n" + "\n\n".join(tail)
+
+
+def _deduplicated_original_request(original_request: str, task: str) -> str:
+    original = original_request.strip()
+    current = task.strip()
+    if not original or original == current:
+        return ""
+    if (
+        _MANAGER_GROUNDING_HEADER in original
+        and _MANAGER_GROUNDING_HEADER in current
+    ):
+        original_base, original_grounding = original.split(
+            _MANAGER_GROUNDING_HEADER,
+            1,
+        )
+        _current_base, current_grounding = current.split(
+            _MANAGER_GROUNDING_HEADER,
+            1,
+        )
+        if original_grounding.strip() == current_grounding.strip():
+            original = original_base.strip()
+    return "" if original == current else original
+
+
+def _post_task_learning_section(
+    *,
+    require_post_task_learning: bool,
+    project_skill_dir: Path | str | None,
+) -> str:
+    """Render the Engineer's own durable-learning contract.
+
+    The Engineer ends the task with the full execution context, making it the
+    right place to retain a reusable procedure. Roles edit the project Skill
+    layer directly, so the contract names the destination explicitly.
+    """
+    if not require_post_task_learning or project_skill_dir is None:
+        return ""
+    from ...skills.role_memory import role_skill_edit_rules
+
+    rules = role_skill_edit_rules("engineer", project_skill_dir)
+    return (
+        "## Durable learning\n"
+        "You have file and shell tools. After verification, if this task "
+        "produced durable procedures that would change how future tasks are "
+        "done, create or update the applicable Engineer Skills directly in the "
+        "project skill directory before you finish this task.\n"
+        + rules
+        + "\nDo not turn task-specific hypotheses, causal attributions, failed "
+        "attempts, or replacement recommendations into Skills unless phase "
+        "attribution/profiling or a controlled comparison verified the causal rule. "
+        "Keep inconclusive findings out of Skills.\n"
+        "If there is no durable reusable procedure, make no Skill edit."
+    )
+
+
+def build_mission_prompt(
+    *,
+    task: str,
+    skill_text: str,
+    next_action: str | None,
+    original_request: str = "",
+    include_static: bool = True,
+    role_banner: str = "",
+    require_post_task_learning: bool = False,
+    project_root: Path | str | None = None,
+    project_skill_dir: Path | str | None = None,
+    compact_team: bool = False,
+    operator_context: str = "",
+) -> str:
+    """Build the complete per-round Engineer mission prompt."""
+    shell_contract = native_shell_contract()
+    shell_summary = native_shell_summary()
+    from ...tools.web_source import ENGINEER_SOURCE_HANDOFF
+    learning_block = _post_task_learning_section(
+        require_post_task_learning=require_post_task_learning,
+        project_skill_dir=project_skill_dir,
+    )
+    delta_sections: list[str] = []
+    if next_action:
+        delta_sections.append(
+            "## Reviewer guidance from prior round\n"
+            "Build on the verified progress and address the following before declaring done. "
+            "Final paper review can request high-impact improvements even after the minimum "
+            "acceptance bar is met. Implement those changes and validate them, then return "
+            "for independent review. Scientific repairs and new experiments for a final "
+            "paper happen directly in the current Review stage, without rolling back "
+            "or waiting for an earlier-stage mission. For each actionable suggestion, record the actual change "
+            "and decisive evidence in the existing CHECKPOINT.md. If a suggested hypothesis "
+            "fails, retain the result and explain the evidence-backed alternative; the "
+            "Reviewer decides whether that resolves the item.\n\n"
+            + sanitize_model_visible_text(next_action)
+        )
+    # Section order in both shapes below: what is the same for every mission
+    # of this role and vertical first (contract, banner, the rules and the
+    # decision footer), then what is the same across the rounds of one
+    # mission (recalled Skills, the request, the task), then what changes
+    # per round. The provider caches the prompt prefix, so the tail is where
+    # change belongs; the Reviewer prompt has the same shape.
+    if compact_team and include_static:
+        sections = [EFFECTIVE_TASK_CONTRACT]
+        if shell_summary:
+            sections.append(shell_summary)
+        if role_banner.strip():
+            sections.append(
+                "## Active vertical role\n"
+                + sanitize_model_visible_text(role_banner.strip())
+            )
+        sections.append(_PERFORMANCE_DIAGNOSTIC_RULE)
+        sections.append(ENGINEER_SOURCE_HANDOFF)
+        sections.append(_long_experiment_rule())
+        sections.append(
+            "## Engineer service\n"
+            "Manager set the scope and Planner assigned this task. Inspect only what "
+            "the agreed task requires and implement it end to end. Run the named "
+            "feedback-producing check at the size this verification profile needs; "
+            "use changed feedback, never repeat an unchanged check. Do not reopen "
+            "campaign planning, start another Argus service, or create unrelated "
+            "outputs. Within an explore/develop mission, follow feedback into the "
+            "alternative proposal the decision rule authorizes. If a material obstacle "
+            "remains, preserve only the state needed for one next round."
+        )
+        if learning_block:
+            sections.append(learning_block)
+        sections.append(
+            RESEARCHER_VOICE + "\n\n"
+            "## Engineer summary\n"
+            "Return the material result and decisive check; Reviewer judges whether the work holds.\n"
+            + decision_footer_instruction(
+                "MILESTONE_STATUS=done\n"
+                "RESULT=material result and decisive check\n"
+                "NEXT_OWNER=reviewer"
+            )
+        )
+        if skill_text:
+            sections.append(skill_text)
+        sections.append(task)
+        sections.extend(delta_sections)
+        from ...core.operator_context import append_operator_context
+
+        return append_operator_context("\n\n".join(sections), operator_context)
+
+    sections: list[str] = [EFFECTIVE_TASK_CONTRACT]
+    if shell_summary:
+        sections.append(shell_summary)
+    if role_banner.strip():
+        sections.append(
+            "## Active vertical role\n"
+            + sanitize_model_visible_text(role_banner.strip())
+        )
+    sections.append(
+        "## This turn\n"
+        "Own this task end to end: plan and use tools until its check passes or a real "
+        "obstacle remains. Work here; reading must yield a written result or measurement. "
+        "Write only needed code; add no hashes, UUIDs, retries, fallbacks, locks, or "
+        "abstractions unless required. Do not write planning/spec/brief documents, "
+        "initialize Git, branch/worktree, or commit unless required; Planner owns the "
+        "campaign plan. Delegate wide reads, sweeps, and long runs to subagents; take "
+        "back the answer, not the transcript. Budget your context.\n"
+        "Never repeat unchanged checks or reads. Ignore `__pycache__`/`.pyc`; "
+        "Python tests already import code, so avoid compile-only ceremony.\n"
+        "Web UI: test real Chromium and mobile.\n"
+        "Use primary sources when external behavior matters. If repeated attempts fail, "
+        "recheck the underlying assumption instead of making another cosmetic tweak.\n"
+        + ENGINEER_SOURCE_HANDOFF + "\n"
+        + _PERFORMANCE_DIAGNOSTIC_RULE
+        + "\n"
+        + _long_experiment_rule()
+    )
+    if learning_block:
+        sections.append(learning_block)
+    sections.append(
+        "## Carrying context between rounds\n"
+        "CHECKPOINT.md is the only file you maintain to carry context between rounds; do not create "
+        "separate summaries or collections of evidence. Host invokes Reviewer only when required; do not "
+        "spawn a Reviewer subagent. Normally set next_owner=reviewer. Use operator only "
+        "for a real operator decision; include one operator_question and at most five "
+        "operator_options; that parks the task, so record it and yield. Options use "
+        "`id::label::description`, or `id::true::label::description` when a note "
+        "is required.\n\n"
+        + RESEARCHER_VOICE + "\n\n"
+        + decision_footer_instruction(
+            "MILESTONE_STATUS=done\n"
+            "RESULT=one or two operator-facing sentences in the operator's language: "
+            "changes, output file paths, decisive checks, and blockers; omit "
+            "decision or status fields\n"
+            "NEXT_OWNER=reviewer"
+        )
+    )
+    if skill_text:
+        sections.append(skill_text)
+    unique_original_request = _deduplicated_original_request(
+        original_request,
+        task,
+    )
+    if unique_original_request:
+        sections.append(
+            "## Original operator request\n"
+            "Higher-priority live operator instructions may update this; "
+            "lower-authority guidance may not silently change it.\n\n"
+            + unique_original_request
+        )
+    # A Planner's implementation brief carries its own '## Claim', '## Tests
+    # that must pass' headings; one level down they read as parts of this
+    # section instead of siblings of it.
+    sections.append("## Current mission task\n" + re.sub(r"(?m)^(#{2,5})(?=\s)", r"#\1", task))
+    # The Engineer is the role that can most easily satisfy a task while
+    # missing the requirement the task exists to serve — the mission text
+    # describes this increment, not what the operator agreed "done" means.
+    from ...core.project_contract import contract_briefing, load_contract_for_cwd
+
+    contract_block = contract_briefing(
+        load_contract_for_cwd(),
+        authoritative_objective=original_request,
+    )
+    if contract_block:
+        sections.append(contract_block)
+    if project_root is not None:
+        from ...wiki.context import render_knowledge_wiki_block
+
+        knowledge_block = render_knowledge_wiki_block(
+            project_root,
+            role="Engineer",
+        )
+        if knowledge_block:
+            sections.append(sanitize_model_visible_text(knowledge_block))
+    static_text = "\n\n".join(sections)
+    delta_text = "\n\n".join(delta_sections)
+    if include_static:
+        from ...core.operator_context import append_operator_context
+
+        prompt = static_text + ("\n\n" + delta_text if delta_text else "")
+        return append_operator_context(prompt, operator_context)
+    compact = (
+        "## Continuation turn\n"
+        "Read CHECKPOINT.md, then execute the Reviewer next action. Do not repeat an "
+        "unchanged failure; use the most informative decisive diagnostic. The original task "
+        "still applies.\n"
+        + _PERFORMANCE_DIAGNOSTIC_RULE
+        + "\n"
+        + _long_experiment_rule()
+        + "\n\n"
+        "## Carrying context between rounds\n"
+        "Use next_owner=operator only for an operator-owned choice; its question "
+        "parks the task. Include operator_question and operator_options in that "
+        "decision.\n\n"
+        + RESEARCHER_VOICE + "\n\n"
+        + decision_footer_instruction(
+            "MILESTONE_STATUS=done\n"
+            "RESULT=one or two operator-facing sentences in the operator's language: "
+            "changes, output file paths, decisive checks, and blockers; omit "
+            "decision or status fields\n"
+            "NEXT_OWNER=reviewer"
+        )
+    )
+    if shell_contract:
+        compact = shell_contract + "\n\n" + compact
+    if learning_block:
+        compact += "\n\n" + learning_block
+    from ...core.operator_context import append_operator_context
+
+    prompt = compact + ("\n\n" + delta_text if delta_text else "")
+    return append_operator_context(prompt, operator_context)
+
+
+def mission_request(
+    project_root: Path | str,
+    *,
+    vertical: str | None = None,
+    altitude_root: Path | str | None = None,
+    stage: str | None = None,
+    operation: str = MISSION,
+    include_role_context: bool = False,
+) -> RolePromptRequest:
+    return RolePromptRequest(
+        role=RoleName.ENGINEER,
+        operation=operation,
+        project_root=project_root,
+        # Where the work is. The vertical fragment describes the workspace, and
+        # project_root here is the vertical state root, which contains no paper.
+        altitude_root=altitude_root,
+        vertical=vertical,
+        stage=stage,
+        include_role_context=include_role_context,
+    )
+
+
+__all__ = [
+    "AUTHOR_DRAFT",
+    "MISSION",
+    "NARRATIVE_EDIT",
+    "OPERATIONS",
+    "append_live_guidance",
+    "assemble_round_prompt",
+    "build_mission_prompt",
+    "mission_request",
+]

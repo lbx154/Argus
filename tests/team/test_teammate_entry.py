@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
 
-from argus_skill.team import task_board as tb
-from argus_skill.team import teammate_entry as te
+from argus.team import task_board as tb
+from argus.team import teammate_entry as te
 
 
 def _form_claim(root: Path, member: str = "t1::w1", task: str = "t1::a") -> None:
@@ -24,6 +25,8 @@ def test_build_runner_ns_has_required_fields(tmp_path: Path, monkeypatch) -> Non
     ns = te._build_runner_ns(str(tmp_path), max_rounds=7, paper_mission=False)
     assert ns.engineer_model == "m-eng" and ns.reviewer_model == "m-rev"
     assert ns.workdir == str(tmp_path) and ns.max_rounds == 7 and ns.paper_mission is False
+    assert ns.project_state_dir == ""
+    assert ns.checkpoint_path == ""
     # every field _SkillLoopRunner / execute reads must exist
     for f in ("backend", "engineer_reasoning_effort", "skills_dir",
               "plan_mode", "plan_model", "color", "verbose", "quiet"):
@@ -108,6 +111,80 @@ def test_main_passes_task_timeout_to_mission(tmp_path: Path, monkeypatch) -> Non
     assert captured["timeout_s"] == 600.0
 
 
+def test_research_teammate_inherits_paper_mission_context(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus.skills.vertical_select import persist_vertical
+
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    persist_vertical(tmp_path, "research")
+    captured: dict[str, object] = {}
+
+    def run(*_args, **kwargs):
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(te, "run_one_engineer_mission", run)
+
+    assert te.main([
+        "--root",
+        str(root),
+        "--member-id",
+        "t1::w1",
+        "--task-id",
+        "t1::a",
+        "--cwd",
+        str(tmp_path),
+    ]) == 0
+    assert captured["paper_mission"] is True
+
+
+def test_teammate_runtime_uses_isolated_layered_skill_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import argus.apps._runtime as rt
+
+    for role in ("ENGINEER", "REVIEWER"):
+        monkeypatch.setenv(f"ARGUS_SKILL_{role}_MODEL", "m")
+    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
+    captured: dict[str, object] = {}
+
+    class Outcome:
+        success = True
+
+    class Runner:
+        def __init__(self, ns):
+            captured["paper_mission"] = ns.paper_mission
+            captured["project_state_dir"] = ns.project_state_dir
+            captured["project_skills_dir"] = os.environ.get(
+                "ARGUS_SKILL_PROJECT_SKILLS_DIR"
+            )
+
+        def execute(self, **_kwargs):
+            return Outcome()
+
+    monkeypatch.setattr(rt, "_SkillLoopRunner", Runner)
+    life_dir = tmp_path / "life"
+
+    result = te.run_one_engineer_mission(
+        "obj",
+        cwd=str(tmp_path),
+        life_dir=life_dir,
+        paper_mission=True,
+        max_rounds=1,
+    )
+
+    assert result.success is True
+    assert captured == {
+        "paper_mission": True,
+        "project_state_dir": str(tmp_path),
+        "project_skills_dir": str(life_dir / "skills"),
+    }
+
+
 def test_main_inprocess_failure_marks_failed(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / ".argus_team" / "t1"
     _form_claim(root)
@@ -128,7 +205,7 @@ def test_main_no_task_returns_2(tmp_path: Path) -> None:
 def test_run_one_mission_has_no_hard_self_sigkill_timer(tmp_path: Path, monkeypatch) -> None:
     # The teammate no longer SIGKILLs ITSELF on a hard deadline — the Curator owns
     # the process and is the single reaper. So only the SOFT watchdog timer is armed.
-    import argus_skill.apps._runtime as rt
+    import argus.apps._runtime as rt
     for var in ("ENGINEER", "REVIEWER", "AUTHOR"):
         monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")
     monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
@@ -172,7 +249,7 @@ def test_teammate_forces_checkpoint_persist_off(tmp_path: Path, monkeypatch) -> 
     # The reviewer's engineer-log audit greps the latter, so it must be disabled for a
     # teammate (else it audits a co-located daemon's shared log → wrong verdicts). Forcing
     # it off also stops teammates sharing one CHECKPOINT.md.
-    import argus_skill.apps._runtime as rt
+    import argus.apps._runtime as rt
     for var in ("ENGINEER", "REVIEWER"):
         monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")
     monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
@@ -192,6 +269,46 @@ def test_teammate_forces_checkpoint_persist_off(tmp_path: Path, monkeypatch) -> 
     te.run_one_engineer_mission("obj", cwd=str(tmp_path), life_dir=tmp_path / "life",
                                 max_rounds=1, timeout_s=10.0)
     assert os.environ["ARGUS_SKILL_CHECKPOINT_PERSIST"] == "1"
+
+
+def test_each_teammate_carries_its_rounds_in_its_own_note(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Twelve route workers share one project tree. Without a note of their own,
+    # every continuation round read the project-root CHECKPOINT.md another
+    # sibling had just rewritten, and the Reviewer sent the round back for
+    # working on the wrong route.
+    import argus.apps._runtime as rt
+    from argus.apps._runtime_helpers import _checkpoint_path_for
+
+    for var in ("ENGINEER", "REVIEWER"):
+        monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")
+    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
+    monkeypatch.setenv("ARGUS_SKILL_CHECKPOINT_PERSIST", "1")
+    notes: list[Path | None] = []
+
+    class _Outcome:
+        success = True
+
+    class _Runner:
+        def __init__(self, ns):
+            self.ns = ns
+
+        def execute(self, *, objective, sink, prelude_context="", **kwargs):
+            notes.append(_checkpoint_path_for(self.ns, Path(self.ns.workdir)))
+            return _Outcome()
+
+    monkeypatch.setattr(rt, "_SkillLoopRunner", _Runner)
+    for member in ("w1", "w2"):
+        te.run_one_engineer_mission(
+            "obj", cwd=str(tmp_path), life_dir=tmp_path / "life" / member,
+            max_rounds=1, timeout_s=10.0,
+        )
+
+    assert notes == [
+        tmp_path / "life" / "w1" / "CHECKPOINT.md",
+        tmp_path / "life" / "w2" / "CHECKPOINT.md",
+    ]
 
 
 def test_teammate_restores_checkpoint_env_when_setup_fails(
@@ -275,7 +392,7 @@ def test_paper_mission_env_override(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkeypatch) -> None:
-    from argus_skill.team import leaderboard as lb
+    from argus.team import leaderboard as lb
     root = tmp_path / ".argus_team" / "t1"
     tb.form(root, [{"task_id": "t1::a", "objective": "optimize kA", "target": "kA"}])
     assert tb.claim_top(root, "t1::w1", now=1.0)["task_id"] == "t1::a"
@@ -423,7 +540,7 @@ def test_resumed_operator_answer_is_passed_to_new_teammate(
 def test_team_cli_status_and_resume_preserve_wait_state(
     tmp_path: Path, capsys
 ) -> None:
-    from argus_skill.tools import team as team_tool
+    from argus.tools import team as team_tool
 
     root = tmp_path / ".argus_team" / "t1"
     _form_claim(root)
@@ -483,7 +600,7 @@ def test_fatal_mission_still_marks_failed(tmp_path: Path, monkeypatch) -> None:
 def _setup_verify(tmp_path: Path, monkeypatch, signed: dict):
     """Form/claim a task with target kA, write `signed` as result.json, set the
     verify key, and stub the mission. Returns the team root."""
-    from argus_skill.team import result_provenance as rp
+    from argus.team import result_provenance as rp
     root = tmp_path / ".argus_team" / "t1"
     tb.form(root, [{"task_id": "t1::a", "objective": "x", "target": "kA"}])
     assert tb.claim_top(root, "t1::w1", now=1.0)["task_id"] == "t1::a"
@@ -549,7 +666,7 @@ def test_no_verify_key_is_backward_compatible(tmp_path: Path, monkeypatch) -> No
 
 def _math_project(tmp_path: Path, *claim_ids: str) -> Path:
     """A project root the math vertical will actually project from."""
-    from argus_skill.proof_ledger import (
+    from argus.proof_ledger import (
         ClaimVersion,
         ContextVersion,
         MathState,
@@ -656,7 +773,7 @@ def test_teammate_and_supervisor_share_one_prelude_seam() -> None:
     # through the one helper; nothing calls the hook directly.
     import inspect
 
-    from argus_skill.life.supervisor import _mission_execution_runtime
+    from argus.life.supervisor import _mission_execution_runtime
 
     assert "vertical_mission_prelude" in inspect.getsource(_mission_execution_runtime)
     assert "vertical_mission_prelude" in inspect.getsource(te)
@@ -758,3 +875,56 @@ def test_a_per_task_cwd_below_the_project_tree_gets_no_vertical_at_all(
                      acceptance_check="udist-main is a conditional kernel.")
 
     assert seen["prelude"] == ""
+
+
+def test_external_pause_requeues_with_backoff_and_cools_the_pool(tmp_path: Path, monkeypatch) -> None:
+    """Twelve workers, two provider slots (stable web trial, 2026-09-16): a refused
+    worker must not fail its task; it re-queues it and pauses the whole pool."""
+    from argus.team import pool
+
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    monkeypatch.setenv("ARGUS_TEAM_PAUSE_RETRY_SECONDS", "300")
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: te.TeammateMissionResult(
+        False, "infra_blocked",
+        reason=("The work was paused before the Engineer finished this round because the "
+                "model service asked Argus to wait before calling again. Technical record: "
+                "stop_kind=provider_cooldown; error=provider concurrency limit reached (2 active calls)"),
+    ))
+    before = time.time()
+    rc = te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a",
+                  "--cwd", str(tmp_path)])
+    assert rc == 0
+    task = {t["task_id"]: t for t in tb.snapshot(root)}["t1::a"]
+    assert task["state"] == "pending"
+    assert "provider_cooldown" in task["pause_reason"]
+    assert task["retry_after_ts"] >= before + 299
+    assert pool.read(root)["cooldown_until"] >= before + 299
+    assert tb.claim_top(root, "t1::w2", now=time.time()) is None
+    assert tb.claim_top(root, "t1::w2", now=time.time() + 301) is not None
+
+
+def test_budget_pause_uses_the_longer_backoff(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: te.TeammateMissionResult(
+        False, "paused_budget", reason="global daily token budget exhausted", stop_kind="budget_exhausted",
+    ))
+    before = time.time()
+    assert te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a",
+                    "--cwd", str(tmp_path)]) == 0
+    task = {t["task_id"]: t for t in tb.snapshot(root)}["t1::a"]
+    assert task["state"] == "pending" and task["retry_after_ts"] >= before + 899
+
+
+def test_pause_kind_detection_never_masks_a_real_failure() -> None:
+    plain = te.TeammateMissionResult(False, "error", reason="teammate mission did not succeed")
+    assert plain.external_pause_kind == ""
+    stalled = te.TeammateMissionResult(False, "no_progress", reason="Engineer produced no effective output")
+    assert stalled.external_pause_kind == ""
+    infra = te.TeammateMissionResult(False, "infra_blocked", reason="Research infrastructure blocked progress.")
+    assert infra.external_pause_kind == "backend_unavailable"
+    shutdown = te.TeammateMissionResult(False, "blocked", reason="Technical record: stop_kind=daemon_shutdown; error=x")
+    assert shutdown.external_pause_kind == "daemon_shutdown"
+    asked = te.TeammateMissionResult(False, "blocked", reason="stop_kind=provider_cooldown", operator_question="Which dataset?")
+    assert asked.waits_for_operator and asked.external_pause_kind == ""

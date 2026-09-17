@@ -1,0 +1,40 @@
+{
+  "figure_id": "scenario_1_marl_architecture",
+  "venue": "AAAI",
+  "takeaway": "Decentralized agents collect experience while shared memory and a centralized critic coordinate policy learning.",
+  "final_width_mm": 178,
+  "canvas": {"width": 1280, "height": 720},
+  "layout": {"variant": "layered-dag", "direction": "TB", "show_title": false},
+  "groups": [
+    {
+      "id": "decentralized-actors",
+      "label": "Decentralized Actors",
+      "role": "agent",
+      "node_ids": ["agent-1", "agent-2", "agent-3", "agent-4"],
+      "style": "phase"
+    }
+  ],
+  "nodes": [
+    {"id": "environment", "label": "Environment", "role": "input", "kind": "card", "icon": "world"},
+    {"id": "agent-1", "label": "Agent 1", "role": "agent", "kind": "card", "icon": null},
+    {"id": "agent-2", "label": "Agent 2", "role": "agent", "kind": "card", "icon": null},
+    {"id": "agent-3", "label": "Agent 3", "role": "agent", "kind": "card", "icon": null},
+    {"id": "agent-4", "label": "Agent 4", "role": "agent", "kind": "card", "icon": null},
+    {"id": "experience-buffer", "label": "Experience Buffer", "role": "memory", "kind": "store", "icon": "database"},
+    {"id": "centralized-critic", "label": "Centralized Critic", "role": "process", "kind": "card", "icon": "brain"},
+    {"id": "policy-network", "label": "Policy Network", "role": "process", "kind": "card", "icon": "cpu"}
+  ],
+  "edges": [
+    {"id": "observation-1", "from": "environment", "to": "agent-1", "label": "observation", "kind": "data"},
+    {"id": "observation-2", "from": "environment", "to": "agent-2", "label": "observation", "kind": "data"},
+    {"id": "observation-3", "from": "environment", "to": "agent-3", "label": "observation", "kind": "data"},
+    {"id": "observation-4", "from": "environment", "to": "agent-4", "label": "observation", "kind": "data"},
+    {"id": "trajectory-1", "from": "agent-1", "to": "experience-buffer", "label": "trajectory", "kind": "data"},
+    {"id": "trajectory-2", "from": "agent-2", "to": "experience-buffer", "label": "trajectory", "kind": "data"},
+    {"id": "trajectory-3", "from": "agent-3", "to": "experience-buffer", "label": "trajectory", "kind": "data"},
+    {"id": "trajectory-4", "from": "agent-4", "to": "experience-buffer", "label": "trajectory", "kind": "data"},
+    {"id": "batch", "from": "experience-buffer", "to": "centralized-critic", "label": "batch", "kind": "data"},
+    {"id": "value-estimate", "from": "centralized-critic", "to": "policy-network", "label": "value estimate", "kind": "feedback"}
+  ],
+  "legend": "auto"
+}

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.manager.control_state import CampaignControlStore
+from argus.manager.control_state import CampaignControlStore
 
 
 def _store(tmp_path: Path) -> CampaignControlStore:

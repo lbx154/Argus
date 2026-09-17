@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.manager.prompt_rewrite import (
+from argus.manager.prompt_rewrite import (
     parse_rewrite_text,
     rewrite_prompt,
 )
-from argus_skill.roles.prompts.manager import build_prompt_rewrite_prompt
-from argus_skill.webapi.manager_bridge import _rewrite_model_and_effort
+from argus.roles.prompts.manager import build_prompt_rewrite_prompt
+from argus.webapi.manager_bridge import _rewrite_model_and_effort
 
 
 class _Backend:
@@ -75,14 +75,14 @@ def test_empty_or_unusable_reply_yields_no_rewrite() -> None:
     assert parse_rewrite_text('{"unrelated": 1}').rewritten == ""
 
 
-def test_advisory_lists_are_bounded() -> None:
+def test_advisory_lists_pass_through_in_full() -> None:
     parsed = parse_rewrite_text(
         _payload(
             rewritten="do the thing",
             questions=[f"q{i}" for i in range(20)],
         )
     )
-    assert len(parsed.questions) == 6
+    assert len(parsed.questions) == 20
 
 
 # --- the prompt contract ---------------------------------------------------

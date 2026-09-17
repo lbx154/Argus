@@ -1,8 +1,8 @@
 """A Manager may clarify what it meant; it may not quietly move the goalposts.
 
-Operator decision (North-Star §9.3): the Manager clarifies semantic intent on
-its own, but changing a precise constraint — a target number, a baseline, a
-budget, the objective itself — needs the operator to agree.
+The Manager may clarify explicitly manager-owned intent on its own. Changing
+operator-owned requirements needs the operator to agree, independently of
+whether verification uses measurements or qualitative judgment.
 
 The failure this prevents is specific and is the reason a contract exists at
 all: a Manager that cannot meet a number relaxes the number, and the project
@@ -16,7 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.project_contract import (
+from argus.core.project_contract import (
+    AUTHORITY_MANAGER,
+    AUTHORITY_OPERATOR,
     CLAUSE_PRECISE,
     CLAUSE_SEMANTIC,
     ContractError,
@@ -38,21 +40,21 @@ _READABLE = ("semantic", "the write-up should be readable by a systems engineer"
 def _contract():
     return new_contract(
         objective="make the attention kernel faster",
-        clauses=[make_clause(*_SPEEDUP), make_clause(*_READABLE)],
+        clauses=[make_clause(*_SPEEDUP), make_clause(*_READABLE, authority="manager")],
     )
 
 
 # -- what the Manager may do alone -------------------------------------------
 
 
-def test_semantic_clarification_needs_nobody(tmp_path: Path) -> None:
+def test_manager_owned_semantic_clarification_needs_nobody(tmp_path: Path) -> None:
     current = _contract()
 
     updated, revision = revise_contract(
         current=current,
         clauses=[
             make_clause(*_SPEEDUP),
-            make_clause(CLAUSE_SEMANTIC, "the write-up should name its baseline"),
+            make_clause(CLAUSE_SEMANTIC, "the write-up should name its baseline", authority="manager"),
         ],
         by="manager",
     )
@@ -60,6 +62,47 @@ def test_semantic_clarification_needs_nobody(tmp_path: Path) -> None:
     assert updated.revision == 2
     assert revision.added == () and revision.removed == ()
     assert len(updated.semantic()) == 1
+
+
+def test_operator_owned_semantic_boundary_needs_confirmation() -> None:
+    """How a boundary is checked must not decide who may remove it."""
+    privacy = make_clause(
+        CLAUSE_SEMANTIC,
+        "do not send unpublished data to external services",
+        AUTHORITY_OPERATOR,
+    )
+    current = new_contract(objective="analyse the project", clauses=[privacy])
+
+    with pytest.raises(ContractError, match="operator confirmation"):
+        revise_contract(current=current, clauses=[], by="manager")
+
+
+def test_manager_owned_precise_parameter_can_change_without_confirmation() -> None:
+    """A mechanical working parameter is not necessarily an operator boundary."""
+    current = new_contract(
+        objective="analyse the project",
+        clauses=[
+            make_clause(
+                CLAUSE_PRECISE,
+                "inspect the latest 20 records",
+                AUTHORITY_MANAGER,
+            )
+        ],
+    )
+
+    updated, _ = revise_contract(
+        current=current,
+        clauses=[
+            make_clause(
+                CLAUSE_PRECISE,
+                "inspect the latest 30 records",
+                AUTHORITY_MANAGER,
+            )
+        ],
+        by="manager",
+    )
+
+    assert updated.clauses[0].text == "inspect the latest 30 records"
 
 
 def test_recording_an_ambiguity_needs_nobody() -> None:
@@ -82,7 +125,7 @@ def test_relaxing_a_precise_target_is_refused() -> None:
     with pytest.raises(ContractError) as excinfo:
         revise_contract(
             current=_contract(),
-            clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+            clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
             by="manager",
         )
 
@@ -96,7 +139,7 @@ def test_adding_a_precise_constraint_is_refused_too() -> None:
             current=_contract(),
             clauses=[
                 make_clause(*_SPEEDUP),
-                make_clause(*_READABLE),
+                make_clause(*_READABLE, authority="manager"),
                 make_clause(CLAUSE_PRECISE, "must fit in 40GB"),
             ],
             by="manager",
@@ -122,7 +165,7 @@ def test_a_confirmation_covering_the_change_lets_it_through() -> None:
 
     updated, revision = revise_contract(
         current=current,
-        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
         by="manager",
         confirmation=confirmation,
     )
@@ -144,7 +187,7 @@ def test_a_confirmation_does_not_cover_a_change_it_never_named() -> None:
             current=current,
             clauses=[
                 make_clause(*_RELAXED),
-                make_clause(*_READABLE),
+                make_clause(*_READABLE, authority="manager"),
                 make_clause(CLAUSE_PRECISE, "and skip the correctness check"),
             ],
             by="manager",
@@ -160,7 +203,7 @@ def test_a_confirmation_cannot_be_replayed_after_the_contract_moves() -> None:
     confirmation = issue_confirmation(contract=current, covers=changed)
     updated, _ = revise_contract(
         current=current,
-        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
         by="manager",
         confirmation=confirmation,
     )
@@ -168,7 +211,7 @@ def test_a_confirmation_cannot_be_replayed_after_the_contract_moves() -> None:
     with pytest.raises(ContractError) as excinfo:
         revise_contract(
             current=updated,
-            clauses=[make_clause(*_READABLE)],
+            clauses=[make_clause(*_READABLE, authority="manager")],
             by="manager",
             confirmation=confirmation,
         )
@@ -186,7 +229,7 @@ def test_an_expired_confirmation_is_refused() -> None:
     with pytest.raises(ContractError) as excinfo:
         revise_contract(
             current=current,
-            clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+            clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
             by="manager",
             confirmation=confirmation,
             now=2000.0,
@@ -221,6 +264,31 @@ def test_a_saved_contract_round_trips(tmp_path: Path) -> None:
     assert loaded.objective == "make the attention kernel faster"
     assert len(loaded.precise()) == 1
     assert len(loaded.semantic()) == 1
+    assert loaded.precise()[0].authority == AUTHORITY_OPERATOR
+    assert loaded.semantic()[0].authority == AUTHORITY_MANAGER
+
+
+def test_legacy_contract_infers_authority_from_checkability(tmp_path: Path) -> None:
+    (tmp_path / "goal_contract.json").write_text(
+        """
+        {
+          "contract": {
+            "objective": "legacy",
+            "clauses": [
+              {"kind": "precise", "text": "at least 10"},
+              {"kind": "semantic", "text": "keep it readable"}
+            ]
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    loaded = load_contract(tmp_path)
+
+    assert loaded is not None
+    assert loaded.precise()[0].authority == AUTHORITY_OPERATOR
+    assert loaded.semantic()[0].authority == AUTHORITY_MANAGER
 
 
 def test_the_revision_history_is_append_only(tmp_path: Path) -> None:
@@ -250,7 +318,7 @@ def test_a_preserved_precise_clause_is_recorded_as_preserved() -> None:
         current=_contract(),
         clauses=[
             make_clause(*_SPEEDUP),
-            make_clause(CLAUSE_SEMANTIC, "name the baseline"),
+            make_clause(CLAUSE_SEMANTIC, "name the baseline", authority="manager"),
         ],
         by="manager",
     )
@@ -276,7 +344,7 @@ def test_manager_commit_records_the_contract(tmp_path: Path) -> None:
     """Otherwise this whole module is a type nobody constructs."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     division = SimpleNamespace(
         execution_task="make the attention kernel faster",
@@ -308,13 +376,13 @@ def test_a_new_operator_objective_drops_prior_task_constraints(
     """Task-local constraints must not leak into a different operator task."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     current = _contract()
     changed = (make_clause(*_SPEEDUP).id, make_clause(*_RELAXED).id)
     updated, revision = revise_contract(
         current=current,
-        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
         by="manager",
         confirmation=issue_confirmation(contract=current, covers=changed),
     )
@@ -348,7 +416,7 @@ def test_manager_commit_records_constraints_from_the_decision_not_division(
     """The committed Division is routing-only and no longer carries clauses."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     decision = SimpleNamespace(
         execution_task="make the attention kernel faster",
@@ -386,7 +454,7 @@ def test_operator_handoff_revises_an_existing_contract_objective(
     """A new operator task must not leave roles reading the first objective."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     save_contract(
         tmp_path,
@@ -421,7 +489,7 @@ def test_operator_handoff_revises_an_existing_contract_objective(
 def test_new_objective_drops_old_no_code_exclusion(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     save_contract(
         tmp_path,
@@ -482,7 +550,7 @@ def test_the_planner_is_shown_the_constraints_it_is_told_to_honour(
     is why relaxing a target was invisible downstream. This asserts the actual
     clause text now reaches the prompt.
     """
-    from argus_skill.core import project_contract as pc
+    from argus.core import project_contract as pc
 
     save_contract(tmp_path, contract=_contract())
     monkeypatch.setattr(pc, "state_dir_for_cwd", lambda _cwd=None: tmp_path)
@@ -498,7 +566,7 @@ def test_an_objective_only_contract_still_names_the_committed_goal(
     tmp_path: Path,
 ) -> None:
     """Goal Gate tasks need the project objective, not just checklist text."""
-    from argus_skill.core.project_contract import contract_briefing
+    from argus.core.project_contract import contract_briefing
 
     empty = new_contract(objective="do a thing")
 
@@ -511,7 +579,7 @@ def test_open_questions_are_shown_as_questions_not_as_answers(
     tmp_path: Path,
 ) -> None:
     """The Manager records what it could not know; it must not fill it in."""
-    from argus_skill.core.project_contract import contract_briefing
+    from argus.core.project_contract import contract_briefing
 
     contract = new_contract(
         objective="make it faster",
@@ -528,7 +596,7 @@ def test_manager_records_only_operator_stated_constraints(tmp_path: Path) -> Non
     """A constraint nobody asked for becomes a goal nobody agreed to."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     division = SimpleNamespace(
         execution_task="make the attention kernel faster",
@@ -559,12 +627,12 @@ def test_contract_recording_failure_is_visible(tmp_path: Path, monkeypatch) -> N
     """Dispatch may continue, but stale contract authority must leave evidence."""
     from types import SimpleNamespace
 
-    from argus_skill.manager.front_door import PreparedManagerHandoff
+    from argus.manager.front_door import PreparedManagerHandoff
 
     def fail_save(*_args, **_kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr("argus_skill.core.project_contract.save_contract", fail_save)
+    monkeypatch.setattr("argus.core.project_contract.save_contract", fail_save)
     decision = SimpleNamespace(
         execution_task="fix stale contract recording",
         vertical="software",
@@ -594,11 +662,11 @@ def test_the_clause_appears_in_the_real_planner_prompt(
     Sabotaging the call in `roles/prompts/planner.py` turns this red; asserting
     on `contract_briefing` alone would not.
     """
-    from argus_skill.core.project_contract import (
+    from argus.core.project_contract import (
         CLAUSE_PRECISE,
         state_dir_for_cwd,
     )
-    from argus_skill.roles.prompts.planner import build_continuous_prompt
+    from argus.roles.prompts.planner import build_continuous_prompt
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
     workdir = tmp_path / "wd"
@@ -625,11 +693,11 @@ def test_stale_contract_does_not_override_the_live_planner_objective(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Covers the live state where `goal_contract.json` lagged `continuous.json`."""
-    from argus_skill.core.project_contract import (
+    from argus.core.project_contract import (
         CLAUSE_PRECISE,
         state_dir_for_cwd,
     )
-    from argus_skill.roles.prompts.planner import build_continuous_prompt
+    from argus.roles.prompts.planner import build_continuous_prompt
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
     workdir = tmp_path / "wd"
@@ -666,7 +734,7 @@ def test_every_role_that_could_violate_the_contract_can_see_it(
     constraint only the Planner sees is a constraint the closing role never
     checks against.
     """
-    from argus_skill.core.project_contract import (
+    from argus.core.project_contract import (
         CLAUSE_PRECISE,
         state_dir_for_cwd,
     )
@@ -684,7 +752,7 @@ def test_every_role_that_could_violate_the_contract_can_see_it(
     )
 
     if role == "engineer":
-        from argus_skill.roles.prompts.engineer import build_mission_prompt
+        from argus.roles.prompts.engineer import build_mission_prompt
 
         text = build_mission_prompt(
             task="optimise the inner loop",
@@ -694,7 +762,7 @@ def test_every_role_that_could_violate_the_contract_can_see_it(
     else:
         from types import SimpleNamespace
 
-        from argus_skill.roles.prompts.reviewer import render_reviewer_prompt
+        from argus.roles.prompts.reviewer import render_reviewer_prompt
 
         owner = SimpleNamespace(
             skill_store=None,

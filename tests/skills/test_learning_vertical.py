@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.verticals.learning.curation import validate_curation
+from argus.verticals.learning.curation import validate_curation
 
 
 def _write_learning_project(root: Path) -> Path:
@@ -63,6 +63,6 @@ def test_learning_noop_is_explicit_and_exclusive(tmp_path: Path) -> None:
 
 
 def test_learning_stage_contract_runs_typed_validator(tmp_path: Path) -> None:
-    from argus_skill.verticals.learning import stages
+    from argus.verticals.learning import stages
 
     assert "MATERIAL_MANIFEST" in " ".join(stages.stage_completion_issues("ingest", tmp_path))

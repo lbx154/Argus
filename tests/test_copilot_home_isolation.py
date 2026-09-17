@@ -25,7 +25,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.agent_cli.copilot_home import (
+from argus.agent_cli.copilot_home import (
     COPILOT_HOME_ENV,
     apply_copilot_home,
     argus_copilot_home,
@@ -115,23 +115,33 @@ def test_auth_fields_refresh_without_overwriting_argus_state(tmp_path: Path) -> 
         assert (home / "config.json").stat().st_mode & 0o777 == 0o600
 
 
-def test_operator_logout_removes_stale_isolated_auth(tmp_path: Path) -> None:
+@pytest.mark.parametrize("empty_auth_tokens", [False, True])
+def test_operator_logout_removes_stale_isolated_auth(
+    tmp_path: Path, empty_auth_tokens: bool,
+) -> None:
     env = _argus_env(tmp_path)
     personal = Path(env["HOME"]) / ".copilot"
-    personal.joinpath("config.json").write_text('{"firstLaunchAt":"now"}', encoding="utf-8")
+    personal_config = {"firstLaunchAt": "now"}
+    if empty_auth_tokens:
+        personal_config["authTokens"] = {}
+    personal.joinpath("config.json").write_text(json.dumps(personal_config), encoding="utf-8")
     home = argus_copilot_home(env)
     home.mkdir(parents=True)
     home.joinpath("config.json").write_text(
         '{"argusOnly":true,"copilotTokens":{"github.com":"stale"},'
         '"loggedInUsers":[{"login":"old"}],'
-        '"lastLoggedInUser":{"login":"old"}}',
+        '"lastLoggedInUser":{"login":"old"},'
+        '"authTokens":{"old-account":{"token":"fake-stale-token"}}}',
         encoding="utf-8",
     )
 
     prepare_copilot_home(env)
 
     config = _managed_config(home / "config.json")
-    assert config == {"argusOnly": True}
+    expected = {"argusOnly": True}
+    if empty_auth_tokens:
+        expected["authTokens"] = {}
+    assert config == expected
 
 
 def test_an_explicitly_chosen_home_always_wins(tmp_path: Path) -> None:
@@ -169,7 +179,7 @@ def test_an_unusable_location_leaves_the_default_alone(
 
 
 def _child_env_for(backend: str, **option_kwargs):
-    from argus_skill.agent_cli import _prompt_delivery
+    from argus.agent_cli import _prompt_delivery
 
     mixin = next(
         obj
@@ -186,6 +196,47 @@ def _child_env_for(backend: str, **option_kwargs):
         disable_tools=option_kwargs.get("disable_tools", False),
     )
     return mixin._child_env(holder, options)
+
+
+@pytest.mark.parametrize("already_has_auth_tokens", [False, True])
+def test_plain_worker_syncs_current_auth_tokens_without_merging_old_accounts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    already_has_auth_tokens: bool,
+) -> None:
+    env = _argus_env(tmp_path)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv(COPILOT_HOME_ENV, raising=False)
+    personal_path = Path(env["HOME"]) / ".copilot" / "config.json"
+    auth_tokens = {"current-account": {"token": "fake-current-token", "expiresAt": 12345}}
+    source = "// managed\n" + json.dumps({
+        "authTokens": auth_tokens,
+        "trustedFolders": ["/personal-only"],
+    })
+    personal_path.write_text(source, encoding="utf-8")
+    home = argus_copilot_home(env)
+    home.mkdir(parents=True)
+    config_path = home / "config.json"
+    isolated = {"argusOnly": "keep"}
+    if already_has_auth_tokens:
+        isolated["authTokens"] = {
+            "current-account": {"token": "fake-expired-token", "staleMetadata": True},
+            "removed-account": {"token": "fake-removed-token"},
+        }
+    config_path.write_text(json.dumps(isolated), encoding="utf-8")
+
+    child_env = _child_env_for("copilot")
+
+    assert child_env[COPILOT_HOME_ENV] == str(home)
+    assert _managed_config(config_path) == {"argusOnly": "keep", "authTokens": auth_tokens}
+    assert personal_path.read_text(encoding="utf-8") == source
+    assert "fake-current-token" not in caplog.text
+    assert "fake-expired-token" not in caplog.text
+    assert "fake-removed-token" not in caplog.text
+    if os.name != "nt":
+        assert config_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_a_plain_copilot_mission_gets_the_argus_home(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.daemon._life_worker_boot import LifeWorkerBootMixin
+from argus.daemon._life_worker_boot import LifeWorkerBootMixin
 
 
 class _FakeWorker(LifeWorkerBootMixin):

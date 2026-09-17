@@ -1,5 +1,6 @@
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { useI18n } from '../i18n';
+import { MarkdownExcerpt } from './MarkdownExcerpt';
 
 export function DeliveryNotice({
   delivery,
@@ -29,16 +30,16 @@ export function DeliveryNotice({
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ok">{heading}</div>
           <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
-          {delivery.summary ? <p className="mt-1 line-clamp-3 text-xs leading-5 text-ink-dim">{delivery.summary}</p> : null}
+          {delivery.summary ? <div className="mt-1 line-clamp-3 text-xs leading-5 text-ink-dim"><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></div> : null}
           {delivery.review_status && delivery.review_status !== 'not_assessed' ? (
             <div className="mt-2 font-mono text-[10px] text-ink-faint">
-              {zh ? '审核' : 'Review'} · {delivery.review_status}
+              Reviewer · {delivery.review_status}
             </div>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => onOpen(delivery)}
+              onClick={() => { onOpen(delivery); onDismiss(delivery.delivery_id); }}
               className="rounded-md border border-ok/45 bg-ok/10 px-2.5 py-1.5 text-xs font-medium text-ok hover:border-ok hover:bg-ok/15"
             >
               {target ? (zh ? '打开成果' : 'Open result') : (zh ? '查看任务' : 'View task')}

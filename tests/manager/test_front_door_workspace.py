@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.sandbox import forbidden_write_roots
-from argus_skill.core.session import SessionMeta, write_session_meta
-from argus_skill.life import MemoryBundle
-from argus_skill.manager import front_door
+from argus.core.sandbox import forbidden_write_roots
+from argus.core.session import SessionMeta, write_session_meta
+from argus.life import MemoryBundle
+from argus.manager import front_door
 
 
 def test_operator_workspace_handles_missing_session_root(
@@ -50,7 +50,7 @@ def test_manager_runner_uses_persisted_workdir_without_moving_state_root(
         captured["args"] = args
         return sentinel
 
-    monkeypatch.setattr("argus_skill.apps._runtime.build_life_runner", build)
+    monkeypatch.setattr("argus.apps._runtime.build_life_runner", build)
 
     result = front_door._ensure_manager_runner(
         {
@@ -101,7 +101,7 @@ def test_manager_runner_falls_back_when_launch_cwd_is_missing(
         captured["args"] = args
         return object()
 
-    monkeypatch.setattr("argus_skill.apps._runtime.build_life_runner", build)
+    monkeypatch.setattr("argus.apps._runtime.build_life_runner", build)
 
     front_door._ensure_manager_runner(
         {
@@ -138,7 +138,7 @@ def test_manager_runner_rebuilds_when_persisted_workdir_changes(
         built.append(args.workdir)
         return object()
 
-    monkeypatch.setattr("argus_skill.apps._runtime.build_life_runner", build)
+    monkeypatch.setattr("argus.apps._runtime.build_life_runner", build)
     state = {"backend": "codex", "session_id": sid, "global_root": str(root)}
 
     front_door._ensure_manager_runner(state, memory)
@@ -171,7 +171,7 @@ def test_manager_runner_retries_after_transient_build_failure(
             raise RuntimeError("temporary runner startup failure")
         return recovered
 
-    monkeypatch.setattr("argus_skill.apps._runtime.build_life_runner", build)
+    monkeypatch.setattr("argus.apps._runtime.build_life_runner", build)
     state = {"backend": "codex"}
 
     assert front_door._ensure_manager_runner(state, memory) is None
@@ -192,7 +192,7 @@ def test_manager_runner_scopes_acp_to_session_id(tmp_path, monkeypatch) -> None:
         manager_backend=SimpleNamespace(set_acp_scope=manager_scopes.append),
     )
     monkeypatch.setattr(
-        "argus_skill.apps._runtime.build_life_runner",
+        "argus.apps._runtime.build_life_runner",
         lambda args: runner,
     )
 
@@ -262,7 +262,7 @@ def test_unresolvable_workspace_reports_instead_of_building_a_runner(
     def build(args):  # noqa: ARG001 — must never be reached
         raise AssertionError("runner was built against an unresolved workspace")
 
-    monkeypatch.setattr("argus_skill.apps._runtime.build_life_runner", build)
+    monkeypatch.setattr("argus.apps._runtime.build_life_runner", build)
     state = {"backend": "codex"}
 
     assert front_door._ensure_manager_runner(state, memory) is None

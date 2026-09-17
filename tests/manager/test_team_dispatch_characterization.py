@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.life import MemoryBundle
-from argus_skill.manager import dispatch, front_door
+from argus.life import MemoryBundle
+from argus.manager import dispatch, front_door
 
 
 @pytest.fixture()
@@ -84,7 +84,7 @@ def test_standing_dispatch_uses_continuous_handoff(memory, monkeypatch):
 
 
 def test_existing_campaign_is_reused_for_standing_work(memory):
-    from argus_skill.daemon.life_worker import write_continuous_config
+    from argus.daemon.life_worker import write_continuous_config
 
     life_dir = front_door._life_dir_for(memory)
     write_continuous_config(life_dir, enabled=True, objective="existing campaign")
@@ -96,7 +96,7 @@ def test_existing_campaign_is_reused_for_standing_work(memory):
 
 
 def test_bounded_supplement_does_not_replace_existing_campaign(memory):
-    from argus_skill.daemon.life_worker import (
+    from argus.daemon.life_worker import (
         read_continuous_state,
         write_continuous_config,
     )

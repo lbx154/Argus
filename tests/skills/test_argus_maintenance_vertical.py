@@ -3,17 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.manager._core import Manager
-from argus_skill.skills.builtins import seed_builtin_skills_for_vertical
-from argus_skill.skills.vertical_select import (
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.manager._core import Manager
+from argus.skills.builtins import seed_builtin_skills_for_vertical
+from argus.skills.vertical_select import (
     VERTICAL_PURPOSES,
     VERTICALS,
     persist_vertical,
 )
-from argus_skill.verticals._base import load_vertical_contract
-from argus_skill.verticals.argus_maintenance.architecture_audit import scan_repository
+from argus.verticals._base import load_vertical_contract
+from argus.verticals.argus_maintenance.architecture_audit import scan_repository
 
 
 def test_argus_maintenance_contract_is_built_in(tmp_path: Path) -> None:
@@ -29,8 +29,9 @@ def test_argus_maintenance_contract_is_built_in(tmp_path: Path) -> None:
     assert Manager._kind_for("argus_maintenance") == "software"
     assert Manager._kind_for("software") == "software"
     assert Manager._kind_for("research") == "research"
-    assert Manager._kind_for("speedrun") == "optimize"
-    assert Manager._kind_for("chip_design") == "custom"
+    assert Manager._kind_for("math_synth") == "optimize"
+    # A name that is neither built in nor an installed plugin is a data domain.
+    assert Manager._kind_for("ops_continuity_runbook") == "custom"
 
 
 def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(
@@ -79,20 +80,25 @@ def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(
     )
     engineer_dir = (skills / "engineer").resolve()
     reviewer_dir = (skills / "reviewer").resolve()
-    assert engineer_options.skill_paths == [
+    from argus.skills.builtins import builtin_skill_source_path
+
+    bundled = builtin_skill_source_path().resolve()
+    for options in (engineer_options, reviewer_options):
+        assert {str(bundled), str(bundled / "engineer"), str(bundled / "reviewer")} <= set(options.skill_paths)
+    assert [path for path in engineer_options.skill_paths if not Path(path).is_relative_to(bundled)] == [
         str(engineer_dir),
         str(skills.resolve()),
         str(reviewer_dir),
     ]
-    assert reviewer_options.skill_paths == [
+    assert [path for path in reviewer_options.skill_paths if not Path(path).is_relative_to(bundled)] == [
         str(skills.resolve()),
         str(reviewer_dir),
         str(engineer_dir),
     ]
     assert str(skills.resolve()) in engineer_prompt
     assert str(skills.resolve()) in reviewer_prompt
-    assert "inspect the available descriptions" in engineer_prompt
-    assert "inspect the available descriptions" in reviewer_prompt
+    assert "Use native Skill descriptions" in engineer_prompt
+    assert "Use native Skill descriptions" in reviewer_prompt
     assert "Inspect and simplify Argus" not in engineer_prompt
     assert "Review an Argus maintenance patch" not in reviewer_prompt
 
@@ -115,10 +121,10 @@ def test_argus_maintenance_skills_are_packaged(tmp_path: Path) -> None:
 def test_architecture_audit_surfaces_candidates_without_calling_them_defects(
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "argus_skill" / "core" / "sample.py"
+    source = tmp_path / "argus" / "core" / "sample.py"
     source.parent.mkdir(parents=True)
     source.write_text(
-        "from argus_skill.verticals.research.tool import run\n"
+        "from argus.verticals.research.tool import run\n"
         "GPU = 'B200'\n"
         "HOME = '/home/alice/work'\n"
         "DIGEST = '0123456789abcdef0123456789abcdef'\n"
@@ -151,14 +157,14 @@ def test_architecture_audit_surfaces_candidates_without_calling_them_defects(
 
 
 def test_architecture_audit_ignores_managed_worktrees(tmp_path: Path) -> None:
-    source = tmp_path / "argus_skill" / "core" / "root_candidate.py"
+    source = tmp_path / "argus" / "core" / "root_candidate.py"
     source.parent.mkdir(parents=True)
     source.write_text("HOME = '/home/alice/work'\n", encoding="utf-8")
     duplicate = (
         tmp_path
         / ".worktrees"
         / "feature"
-        / "argus_skill"
+        / "argus"
         / "core"
         / "root_candidate.py"
     )
@@ -175,7 +181,7 @@ def test_architecture_audit_ignores_managed_worktrees(tmp_path: Path) -> None:
     assert report["findings"] == [
         {
             "category": "machine_specific_path",
-            "path": "argus_skill/core/root_candidate.py",
+            "path": "argus/core/root_candidate.py",
             "line": 1,
             "evidence": "/home/alice",
         }

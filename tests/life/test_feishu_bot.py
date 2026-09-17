@@ -12,9 +12,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life import feishu_bot
-from argus_skill.life.chat.dedup import EventDedup, sender_allowed
-from argus_skill.life.chat.router import CommandRouter, help_text
+from argus.life import feishu_bot
+from argus.life.chat.dedup import EventDedup, sender_allowed
+from argus.life.chat.router import CommandRouter, help_text
 
 
 @pytest.fixture

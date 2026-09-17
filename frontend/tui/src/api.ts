@@ -43,7 +43,7 @@ export type {
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated.js';
 
 /**
- * Client for the argus-skill webapi (argus_skill/webapi/server.py). ALL network
+ * Client for the argus webapi (argus/webapi/server.py). ALL network
  * logic lives here so the render layer stays a thin, testable shell: events over
  * WebSocket (/stream), snapshots + commands over REST. See M0/M1 endpoints.
  */
@@ -653,6 +653,10 @@ export class ApiClient {
 
   answerPending(itemId: string, text: string): Promise<Record<string, unknown>> {
     return this.post(`/backlog/${encodeURIComponent(itemId)}/answer`, { text });
+  }
+
+  answerDomain(id: string, optionId: string, note: string): Promise<Record<string, unknown>> {
+    return this.post('/message', { text: note || optionId, domain_answer: { id, option_id: optionId, note } });
   }
 
   resolveDecision(

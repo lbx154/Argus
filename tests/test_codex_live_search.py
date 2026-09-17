@@ -20,19 +20,19 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill import SkillLoop, SkillLoopConfig
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
-from argus_skill.agent_cli.agent_cli_runner import RunnerOptions as AcOpts
-from argus_skill.core.models import RunnerOptions as CoreOpts
-from argus_skill.core.vertical_contract import VerticalContractError
-from argus_skill.engineer.runner import (
+from argus import SkillLoop, SkillLoopConfig
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.agent_cli.agent_cli_runner import AgentCliRunner
+from argus.agent_cli.agent_cli_runner import RunnerOptions as AcOpts
+from argus.core.models import RunnerOptions as CoreOpts
+from argus.core.vertical_contract import VerticalContractError
+from argus.engineer.runner import (
     DEFAULT_LIVE_SEARCH_STAGES,
     EngineerConfig,
     _engineer_live_search,
 )
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import load_vertical_contract
+from argus.skills.vertical_select import persist_vertical
+from argus.verticals._base import load_vertical_contract
 
 
 def _cmd(live: bool) -> list[str]:
@@ -111,20 +111,20 @@ def test_replace_of_live_search_field_with_default_marks_it_explicit() -> None:
     assert updated._live_search_stages_explicit is True
 
 
-def test_stage_gate_research_on_others_off():
+def test_stage_gate_on_for_named_stages_off_elsewhere():
     d = tempfile.mkdtemp()
-    os.makedirs(os.path.join(d, "research"), exist_ok=True)
-    stages = frozenset({"research"})
+    os.makedirs(os.path.join(d, ".argus"), exist_ok=True)
+    stages = frozenset({"idea"})
 
     def _set(stage: str) -> None:
-        with open(os.path.join(d, "research", "PIPELINE_STATE.json"), "w") as fh:
+        with open(os.path.join(d, ".argus", "PIPELINE_STATE.json"), "w") as fh:
             json.dump({"current_stage": stage}, fh)
 
-    _set("research")
+    _set("idea")
     assert _engineer_live_search(d, stages) is True
-    _set("plan")
+    _set("experiment")
     assert _engineer_live_search(d, stages) is False
-    _set("run")
+    _set("paper")
     assert _engineer_live_search(d, stages) is False
 
 
@@ -176,11 +176,13 @@ def test_every_math_stage_gets_live_search(tmp_path: Path) -> None:
         ) is True
 
 
-def test_every_research_stage_gets_live_search(tmp_path: Path) -> None:
+def test_research_live_search_covers_working_stages_not_review(tmp_path: Path) -> None:
     contract = load_vertical_contract("research")
-    assert contract.engineer_live_search_stages is None
+    assert contract.engineer_live_search_stages == frozenset(
+        {"idea", "experiment", "paper"}
+    )
     stages = _resolved_stages("research")
-    assert stages == frozenset(contract.stage_order)
+    assert stages == frozenset({"idea", "experiment", "paper"})
 
     persist_vertical(tmp_path, "research")
     state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
@@ -188,12 +190,12 @@ def test_every_research_stage_gets_live_search(tmp_path: Path) -> None:
         payload = json.loads(state_path.read_text(encoding="utf-8"))
         payload["current_stage"] = stage
         state_path.write_text(json.dumps(payload), encoding="utf-8")
-        assert _engineer_live_search(tmp_path, stages) is True
+        assert _engineer_live_search(tmp_path, stages) is (stage != "review")
 
 
 def test_vertical_without_declaration_takes_the_default_path(tmp_path: Path) -> None:
     """Every other in-tree vertical keeps the framework default untouched."""
-    for vertical in ("software", "physics", "speedrun", "argus_maintenance"):
+    for vertical in ("software", "math", "math_synth", "kernel_engineering", "argus_maintenance"):
         contract = load_vertical_contract(vertical)
         assert contract.engineer_live_search_stages is None, vertical
         assert contract.live_search_stages(DEFAULT_LIVE_SEARCH_STAGES) == (
@@ -496,7 +498,7 @@ def test_contract_validation_error_is_not_swallowed(tmp_path: Path) -> None:
     otherwise raise on the very same bad provider before the loop reaches this
     call — which is exactly the inconsistency the propagation protects.
     """
-    from argus_skill.verticals import _base as verticals_base
+    from argus.verticals import _base as verticals_base
 
     loop, _backend = _build_loop(tmp_path, "software")
 

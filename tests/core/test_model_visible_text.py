@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from argus_skill.core.model_visible_text import (
+from argus.core.model_visible_text import (
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_judgment_text,
     sanitize_model_visible_text,
 )
-from argus_skill.reviewer import Reviewer
-from argus_skill.reviewer._parsing import parse_decision_text
-from argus_skill.roles.prompts.engineer import assemble_round_prompt, build_mission_prompt
-from argus_skill.roles.prompts.manager import assemble_manager_prompt, build_quick_reply_prompt
-from argus_skill.roles.prompts.planner import build_bounded_dag_prompt
+from argus.reviewer import Reviewer
+from argus.reviewer._parsing import parse_decision_text
+from argus.roles.prompts.engineer import assemble_round_prompt, build_mission_prompt
+from argus.roles.prompts.manager import assemble_manager_prompt, build_quick_reply_prompt
+from argus.roles.prompts.planner import build_bounded_dag_prompt
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -162,6 +162,6 @@ def test_reviewer_requires_causal_performance_evidence() -> None:
         prior_checkpoint={},
     )
 
-    assert "threshold miss only shows that this run missed its target" in prompt
-    assert "root-cause, dominant/bottleneck-stage" in prompt
+    assert 'a missed threshold describes only that run' in prompt
+    assert 'Root-cause, dominant-stage, bottleneck, or replacement claims' in prompt
     assert "profiling, timing, or a controlled comparison" in prompt

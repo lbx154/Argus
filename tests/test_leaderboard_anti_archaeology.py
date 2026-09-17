@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.team import leaderboard
+from argus.team import leaderboard
 
 
 def _shard(tmp_path, **rec):

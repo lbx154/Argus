@@ -1,0 +1,238 @@
+"""Map records and summaries using the configured research runner."""
+
+from __future__ import annotations
+
+import logging
+from typing import Literal
+
+from fastapi import Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+
+from .. import map_narrative
+from ..map_feed import MapFeed
+from ..map_history import history_info, history_page, indexed_evidence
+from ..map_view import read_map, with_revisions
+from ..reader_application import PROCESS_VERSION as APPLICATION_PROCESS_VERSION
+from ..reader_application import foundation_reference
+
+
+class MapCardIn(BaseModel):
+    key: str = Field(min_length=1, max_length=240)
+    task_id: str = Field(min_length=1, max_length=160)
+    kind: Literal["task", "plan", "execution", "review", "revision", "result"]
+    event_ids: list[str] = Field(default_factory=list, max_length=16)
+
+
+class MapCopyIn(BaseModel):
+    cards: list[MapCardIn] = Field(min_length=1, max_length=16)
+    locale: Literal["zh-CN", "en-US"] = "zh-CN"
+    foundation_id: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+def _copy_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ValueError):
+        logging.getLogger(__name__).warning("Map copy validation failed: %s", exc)
+        return HTTPException(422, "card content could not be prepared")
+    return HTTPException(503, "card text is temporarily unavailable")
+
+
+def register_map_live_routes(app, ctx, read_dataset):
+    feed = MapFeed()
+
+    @app.get("/api/projects/{sid}/map", dependencies=[Depends(ctx.require_auth)])
+    def project_map(
+        sid: str, after: str | None = Query(default=None, max_length=80),
+        since: float | None = Query(default=None, ge=0, allow_inf_nan=False),
+        event_since: float | None = Query(default=None, ge=0, allow_inf_nan=False),
+        start_task: str | None = Query(default=None, max_length=160),
+    ):
+        value = feed.read(sid, ctx.project_root_or_404(sid), ctx.resolve_or_404(sid), after,
+                          include_task_index=since is not None)
+        if since is not None:
+            index = value.pop("task_index")
+            ordered = [task_id for task_id, _ in index]
+            ids = set(ordered[ordered.index(start_task):]) if start_task in ordered else {
+                task_id for task_id, ts in index if ts >= since
+            }
+            value["tasks"] = [t for t in value["tasks"] if t["id"] in ids]
+            value["events"] = [e for e in value["events"] if e["item_id"] in ids
+                               and e["ts"] >= (event_since if event_since is not None else since)]
+        value["generation_available"] = map_narrative.configured()
+        return value
+
+    @app.get("/api/projects/{sid}/map-info", dependencies=[Depends(ctx.require_auth)])
+    def map_info(sid: str):
+        root, life_dir = ctx.project_root_or_404(sid), ctx.resolve_or_404(sid)
+        return history_info(read_map(sid, root, life_dir, include_events=False), life_dir)
+
+    @app.get("/api/projects/{sid}/map-history", dependencies=[Depends(ctx.require_auth)])
+    def map_history(
+        sid: str, after: str | None = Query(default=None, max_length=80),
+        task_after: str | None = Query(default=None, max_length=80),
+    ):
+        root, life_dir = ctx.project_root_or_404(sid), ctx.resolve_or_404(sid)
+        value = feed.read(sid, root, life_dir, include_events=False)
+        result = history_page(root, life_dir, value, after)
+        # Journal pagination and mutable Team observations have independent
+        # cursors. Reuse the live feed for Team changes, without mixing its
+        # recent journal tail back into the history pages.
+        delta = feed.read(
+            sid, root, life_dir,
+            task_after if result["incremental"] else None,
+        )
+        result["events"].extend(event for event in delta["events"] if event["type"] == "team.task")
+        result.update(tasks=delta["tasks"], tasks_complete=not delta["incremental"],
+                      cursor=delta["cursor"], removed_task_ids=delta.get("removed_task_ids", []),
+                      removed_event_ids=delta.get("removed_event_ids", []),
+                      team_events_complete=not delta["incremental"])
+        return result
+
+    def load(source, name, cards=None):
+        if source == "project":
+            root, life_dir = ctx.project_root_or_404(name), ctx.resolve_or_404(name)
+            value = feed.read(name, root, life_dir)
+            if cards:
+                ids = list({key for c in cards for key in (
+                    c.key, c.key.removesuffix(":next"), *c.event_ids,
+                )})
+                saved = indexed_evidence(root, life_dir, ids)
+                value = {**value, "events": list({e["id"]: e for e in [
+                    *saved, *value["events"],
+                ]}.values())}
+            return with_revisions(value)
+        value = read_dataset(name)
+        if value.get("id") != name or value.get("read_only") is not True:
+            raise HTTPException(404, "unknown map")
+        return with_revisions(value)
+
+    def owner(source, name, session_id):
+        if source == "project":
+            if session_id and session_id != name:
+                raise HTTPException(422, "map session does not match")
+            session_id = name
+        if session_id:
+            return ctx.project_root_or_404(session_id), ctx.resolve_or_404(session_id)
+        return ctx.roots[0], None
+
+    def load_foundation(source, name, root, foundation_id, *, required):
+        if source != "project":
+            raise HTTPException(422, "question foundations require a project map")
+        if not foundation_id:
+            if required:
+                raise HTTPException(422, "select a completed question foundation")
+            return None
+        from ..reader_foundation import read_foundation
+
+        foundation = read_foundation(root, name, foundation_id)
+        if foundation is None:
+            if required:
+                raise HTTPException(404, "question foundation not found in this project")
+            return None
+        try:
+            foundation_reference(foundation)
+        except ValueError as exc:
+            if required:
+                raise HTTPException(422, "question foundation is not complete or readable") from exc
+            return None
+        return foundation
+
+    @app.get("/api/map-copy/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
+    def cached_copy(
+        source: Literal["project", "dataset"],
+        name: str,
+        locale: Literal["zh-CN", "en-US"] = "zh-CN",
+        session_id: str | None = None,
+        preview: map_narrative.Preview = False,
+        foundation_id: str | None = Query(default=None, min_length=1, max_length=80),
+    ):
+        value = load(source, name)
+        root, project_root = owner(source, name, session_id)
+        foundation = (load_foundation(source, name, root, foundation_id, required=False)
+                      if preview == "question-foundation" else None)
+        cache = ({"cards": {}, "relations": [], "cache_revision": 0}
+                 if preview == "question-foundation" and foundation is None else map_narrative.read_cache(
+                     root, map_narrative.copy_source(value["id"], locale, preview=preview,
+                                                    **({"foundation_id": foundation["id"]} if foundation else {}))))
+        try:
+            model_revision = map_narrative.resolve_map_model().revision
+        except (OSError, ValueError, RuntimeError):
+            model_revision = ""
+        cards = cache.get("cards", {})
+        if source == "project" and cards:
+            from ..reader_progress import bind_progress_cards
+
+            cards = bind_progress_cards(
+                root, name, map_narrative.copy_source(value["id"], locale, preview=preview,
+                                                     foundation_id=foundation["id"] if foundation else None),
+                cards, locale, evidence=value,
+            )
+        return {
+            "cards": cards,
+            "relations": cache.get("relations", []),
+            "available": project_root is not None and (preview != "question-foundation" or foundation is not None)
+                         and map_narrative.configured(),
+            "version": map_narrative.copy_version(preview=preview),
+            "model_revision": model_revision,
+            "cache_revision": cache.get("cache_revision", 0),
+            **({"foundation_ref": foundation_reference(foundation),
+                "process_version": APPLICATION_PROCESS_VERSION} if foundation else {}),
+            **map_narrative._failure_metadata(cache),
+        }
+
+    @app.post("/api/map-copy/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
+    async def make_copy(
+        source: Literal["project", "dataset"], name: str, body: MapCopyIn,
+        session_id: str | None = None,
+        stream: bool = False,
+        preview: map_narrative.Preview = False,
+        foundation_id: str | None = Query(default=None, min_length=1, max_length=80),
+    ):
+        value = await run_in_threadpool(load, source, name, body.cards)
+        root, project_root = owner(source, name, session_id)
+        if project_root is None:
+            raise HTTPException(422, "select a session for map summaries")
+        foundation = None
+        if preview == "question-foundation":
+            if foundation_id and body.foundation_id and foundation_id != body.foundation_id:
+                raise HTTPException(422, "question foundation references do not match")
+            foundation = await run_in_threadpool(
+                load_foundation, source, name, root, foundation_id or body.foundation_id, required=True,
+            )
+        cards = [c.model_dump() for c in body.cards]
+
+        def generate(on_progress=None):
+            try:
+                result = map_narrative.enrich(
+                    root, value, cards, body.locale, project_root=project_root,
+                    **({"preview": preview} if preview else {}),
+                    **({"on_progress": on_progress} if on_progress is not None else {}),
+                    **({"foundation": foundation} if foundation is not None else {}),
+                )
+                if source == "project" and result.get("cards"):
+                    from ..reader_progress import bind_progress_cards
+
+                    result["cards"] = bind_progress_cards(
+                        root, name, map_narrative.copy_source(value["id"], body.locale, preview=preview,
+                                                             foundation_id=foundation["id"] if foundation else None),
+                        result["cards"], body.locale, evidence=value,
+                    )
+                return result
+            except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
+                raise _copy_error(exc) from exc
+
+        if not stream:
+            return await run_in_threadpool(generate)
+
+        # Keep card/event ownership failures as HTTP errors before committing
+        # the stream. The shared enrichment still owns generation and caching.
+        try:
+            await run_in_threadpool(map_narrative.card_evidence, value, cards)
+        except ValueError as exc:
+            raise _copy_error(exc) from exc
+
+        from .model_stream import model_stream_response
+
+        return model_stream_response(
+            generate, thread_name="map-copy-stream", unavailable_message="card text is temporarily unavailable",
+        )

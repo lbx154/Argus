@@ -21,10 +21,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-BUILTIN_ROOT = Path(__file__).resolve().parents[1] / "argus_skill" / "builtin_skills"
+BUILTIN_ROOT = Path(__file__).resolve().parents[1] / "argus" / "builtin_skills"
 RESEARCH_ROOT = (
     Path(__file__).resolve().parents[1]
-    / "argus_skill"
+    / "argus"
     / "verticals"
     / "research"
     / "skills"
@@ -66,9 +66,9 @@ def test_every_builtin_skill_has_frontmatter() -> None:
 @pytest.mark.parametrize(
     "skill_path,expected_name",
     [
-        ("engineer/citation-audit.md", "Citation Audit"),
-        ("engineer/claims-evidence-audit.md", "Claim Check"),
-        ("engineer/figure-spec.md", "Figure Spec (deterministic SVG)"),
+        ("engineer/citation-check.md", "Checking citations against primary sources"),
+        ("engineer/claims-against-evidence.md", "Reading claims against the evidence"),
+        ("engineer/figure-spec.md", "FigureSpec: drawing exact diagrams from JSON"),
     ],
 )
 def test_aris_adapted_skills_are_present(skill_path: str, expected_name: str) -> None:
@@ -81,12 +81,16 @@ def test_aris_adapted_skills_are_present(skill_path: str, expected_name: str) ->
 
 def test_claim_check_requires_fresh_source_level_verification() -> None:
     text = (
-        RESEARCH_ROOT / "engineer" / "claims-evidence-audit.md"
+        RESEARCH_ROOT / "engineer" / "claims-against-evidence.md"
     ).read_text(encoding="utf-8")
 
     assert "fresh-context" in text
-    assert "MATCH / MISMATCH / MISSING" in text
-    assert "one reviewer thread per claim" in text
+    assert "direct source" in text
+    assert "Group related assertions that share evidence" in text
+    assert "no fixed labels are required" in text
+    assert "do not commission another integrated paper review" in text
+    assert "MATCH / MISMATCH / MISSING" not in text
+    assert "one reviewer thread per claim" not in text
     assert "PAPER_CLAIM_AUDIT" not in text
 
 
@@ -116,13 +120,18 @@ def test_figure_renderer_round_trip_render(tmp_path: Path) -> None:
         json.dumps(
             {
                 "title": "Smoke",
-                "width": 400,
-                "height": 200,
+                "canvas": {"width": 400, "height": 200},
                 "nodes": [
-                    {"id": "a", "label": "A", "x": 100, "y": 100, "shape": "rounded", "color": 0},
-                    {"id": "b", "label": "B", "x": 300, "y": 100, "shape": "rounded", "color": 1},
+                    {"id": "a", "label": "A", "x": 100, "y": 100, "shape": "rounded",
+                     "fill": "#DBEAFE", "stroke": "#2563EB"},
+                    {"id": "b", "label": "B", "x": 300, "y": 100, "shape": "rounded",
+                     "fill": "#D1FAE5", "stroke": "#10B981"},
                 ],
                 "edges": [{"from": "a", "to": "b", "label": "go"}],
+                "groups": [
+                    {"id": "scope", "label": "Scope", "node_ids": ["a", "b"],
+                     "fill": "#F3F4F6", "stroke": "#9CA3AF"}
+                ],
             }
         ),
         encoding="utf-8",
@@ -138,8 +147,10 @@ def test_figure_renderer_round_trip_render(tmp_path: Path) -> None:
     body = out.read_text(encoding="utf-8")
     # Sanity: SVG with both nodes labeled
     assert body.startswith("<svg")
+    assert 'viewBox="0 0 400 200"' in body
     assert ">A<" in body
     assert ">B<" in body
+    assert ">Scope<" in body
 
 
 def test_figure_renderer_is_deterministic(tmp_path: Path) -> None:
@@ -148,8 +159,9 @@ def test_figure_renderer_is_deterministic(tmp_path: Path) -> None:
     renderer = RESEARCH_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
     spec = tmp_path / "spec.json"
     spec.write_text(
-        json.dumps({"title": "Det", "width": 300, "height": 200,
-                    "nodes": [{"id": "x", "label": "X", "x": 100, "y": 100, "color": 0}],
+        json.dumps({"title": "Det", "canvas": {"width": 300, "height": 200},
+                    "nodes": [{"id": "x", "label": "X", "x": 100, "y": 100,
+                               "fill": "#DBEAFE", "stroke": "#2563EB"}],
                     "edges": []}),
         encoding="utf-8",
     )
@@ -172,7 +184,7 @@ def test_seed_builtin_skills_copies_bundled_scripts(tmp_path: Path) -> None:
     figure_renderer.py) alongside the skill markdown. Without this the
     skill prompt would reference a script that's missing in the seeded
     project workspace."""
-    from argus_skill.skills.builtins import seed_vertical_skills
+    from argus.skills.builtins import seed_vertical_skills
 
     seed_vertical_skills(tmp_path, "research")
     renderer = tmp_path / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
@@ -186,27 +198,28 @@ def test_seed_builtin_skills_copies_bundled_scripts(tmp_path: Path) -> None:
     assert renderer.read_text(encoding="utf-8") == in_tree.read_text(encoding="utf-8")
 
 
-def test_plan_review_skill_has_rl_config_sanity_section() -> None:
-    """The plan-review skill must teach the L2 reviewer to reject
-    structurally-unlearnable RL configs at the plan stage (before GPU spend).
+def test_rl_config_sanity_lives_in_collapse_diagnosis_skill() -> None:
+    """Structurally-unlearnable RL configs are still caught before GPU spend.
+
+    The separate plan-review stage skill no longer exists (design and
+    experiment merged into one adaptive stage), so the pre-launch knob-sanity
+    pass lives in the collapse-diagnosis skill's "before launching" use.
     """
 
-    md = RESEARCH_ROOT / "reviewer" / "experiment-plan-review.md"
+    md = RESEARCH_ROOT / "engineer" / "rl-training-collapse-diagnosis.md"
     text = md.read_text(encoding="utf-8")
-    # The scored 6th dimension + its output key.
-    assert "RL training-configuration sanity" in text
-    assert "rl_config_sanity" in text
-    # The hard-blocker auto-fails for at-a-glance rejects.
-    assert "RL post-training auto-fails" in text
+    assert "structurally learnable" in text
     assert "num_generations" in text
     assert "max_completion_length" in text
-    # Concrete length-budget yardsticks so the reviewer can actually JUDGE
-    # "max_len too short" instead of eyeballing it.
-    assert "p95" in text
-    assert "Reference floors" in text
-    assert "auto-reject" in text
-    # Asymmetric-error stance: default to the max the budget allows.
-    assert "as large as the context window" in text
-    assert "floor, not a target" in text
-    # Cross-references the in-flight collapse skill.
-    assert "rl-training-collapse-diagnosis.md" in text
+    # All three uses: pre-launch sanity, live-run watching, post-hoc attribution.
+    assert "BEFORE launching" in text
+
+
+def test_research_review_uses_continuous_result_judgment() -> None:
+    results = (
+        RESEARCH_ROOT / "reviewer" / "experiment-results-review.md"
+    ).read_text(encoding="utf-8")
+
+    assert "hard numeric" in results
+    assert "scientifically" in results
+    assert "meaningful dimension" in results

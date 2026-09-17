@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1190 290">
+  <title>Retrieve, rerank, extract</title>
+  <desc>A query and a three-document corpus enter lexical retrieval. The top two documents are reranked using query-document Jaccard similarity. The first sentence of the highest-ranked document is returned with its source identifier. This is an executable illustrative example, not an evaluated research result.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="7" markerHeight="7" refX="6.5" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0L7 3.5L0 7Z" fill="#44536a"/>
+    </marker>
+    <style>
+      text {font-family:'Times New Roman';font-size:23px;fill:#243448}
+      .heading {font-size:27px;font-weight:bold}
+      .small {font-size:22px}
+      .edge {fill:none;stroke:#44536a;stroke-width:1.8;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <g id="pipeline-content">
+    <rect x="16" y="52" width="173" height="71" rx="9" fill="#eff4f8" stroke="#a1b4c6"/>
+    <text x="102" y="84" text-anchor="middle" class="heading">Query</text>
+    <text x="102" y="111" text-anchor="middle" class="small">Word token set</text>
+    <rect x="33" y="168" width="124" height="65" rx="4" fill="#e7edf2" stroke="#a1b4c6"/>
+    <rect x="25" y="160" width="124" height="65" rx="4" fill="#f4f6f8" stroke="#a1b4c6"/>
+    <rect x="17" y="152" width="124" height="65" rx="4" fill="white" stroke="#a1b4c6"/>
+    <path d="M32 171H120M32 184H110M32 197H116" stroke="#bdc8d3" stroke-width="3"/>
+    <text x="91" y="260" text-anchor="middle">3 documents</text>
+    <path class="edge" d="M189 92H214V151H239"/>
+    <path class="edge" d="M157 197H239"/>
+    <path class="edge" d="M214 92V25H596V92"/>
+    <rect x="314" y="9" width="151" height="31" fill="white"/>
+    <text x="389" y="32" text-anchor="middle" class="small">Query tokens</text>
+
+    <rect x="241" y="103" width="204" height="146" rx="10" fill="#f2f5f7" stroke="#a1b4c6"/>
+    <text x="343" y="140" text-anchor="middle" class="heading">Retrieve</text>
+    <text x="343" y="174" text-anchor="middle">Token overlap</text>
+    <path d="M262 190H424" stroke="#c5cfd8"/>
+    <text x="343" y="225" text-anchor="middle">2 candidates</text>
+
+    <path class="edge" d="M445 177H488"/>
+    <rect x="490" y="94" width="219" height="168" rx="10" fill="#fbeddc" stroke="#c39256" stroke-width="1.5"/>
+    <text x="599" y="130" text-anchor="middle" class="heading">Rerank</text>
+    <text x="599" y="163" text-anchor="middle">Jaccard similarity</text>
+    <rect x="516" y="184" width="167" height="29" rx="4" fill="#eed0a8"/>
+    <rect x="516" y="221" width="167" height="29" rx="4" fill="#f5e0c6"/>
+    <text x="599" y="206" text-anchor="middle" class="small">1. Document 0</text>
+    <text x="599" y="243" text-anchor="middle" class="small">2. Document 1</text>
+
+    <path class="edge" d="M709 178H734V132H759"/>
+    <rect x="761" y="75" width="166" height="116" rx="8" fill="#eff4f8" stroke="#a1b4c6"/>
+    <text x="844" y="111" text-anchor="middle" class="heading">Select top 1</text>
+    <path d="M782 125H906" stroke="#c5cfd8"/>
+    <text x="844" y="164" text-anchor="middle">Document 0</text>
+    <path class="edge" d="M927 135H951V182H975"/>
+
+    <rect x="977" y="121" width="194" height="141" rx="8" fill="#edf4ef" stroke="#9fb6a5"/>
+    <text x="1074" y="157" text-anchor="middle" class="heading">Extract</text>
+    <text x="1074" y="190" text-anchor="middle">First sentence</text>
+    <path d="M998 207H1150" stroke="#c6d4ca"/>
+    <text x="1074" y="242" text-anchor="middle">Excerpt + source</text>
+  </g>
+</svg>

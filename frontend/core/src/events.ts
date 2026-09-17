@@ -54,7 +54,7 @@ export function isStructuredAgentPayload(event: EventMsg): boolean {
   return role === 'reviewer' || role === 'planner';
 }
 
-const AGENT_HANDOFF_LINE = /^(?:MILESTONE_STATUS|OPERATOR_QUESTION|OPERATOR_OPTIONS)\s*=/i;
+const AGENT_HANDOFF_LINE = /^(?:[-*+]\s*)?[`*_]*(?:ARGUS_)?(?:MILESTONE_STATUS|NEXT_OWNER|OPERATOR_QUESTION|OPERATOR_OPTIONS|ROLE_DECISION)[`*_]*\s*[:=]|^(?:final\s+)?decision\s*:\s*$/i;
 
 export function visibleAgentText(value: unknown): string {
   return String(value ?? '')
@@ -110,13 +110,13 @@ export interface EventPresentation {
   reasoning?: boolean;
 }
 
-const MILESTONE_TYPES = new Set([
+const MILESTONE_TYPES = new Set<string>([
   EVENT_TYPES.LIFE_MISSION_STARTED,
   EVENT_TYPES.LIFE_MISSION_COMPLETED,
   EVENT_TYPES.LIFE_MISSION_FAILED,
   EVENT_TYPES.LOOP_START, EVENT_TYPES.LOOP_DONE,
-  EVENT_TYPES.LIFE_PLANNER_VERDICT, 'final.report.ready', 'pptx.report.ready',
-  'plan.completed', EVENT_TYPES.LIFE_BUDGET_PAUSE,
+  EVENT_TYPES.LIFE_PLANNER_VERDICT,
+  EVENT_TYPES.LIFE_BUDGET_PAUSE,
   EVENT_TYPES.LIFE_LIFECYCLE_BLOCK,
 ]);
 

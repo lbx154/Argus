@@ -15,8 +15,8 @@ import time
 
 import pytest
 
-from argus_skill.agent_cli import copilot_acp
-from argus_skill.agent_cli.copilot_acp import CopilotAcpClient
+from argus.agent_cli import copilot_acp
+from argus.agent_cli.copilot_acp import CopilotAcpClient
 
 
 class _Opt:
@@ -337,6 +337,56 @@ def test_content_filter_notice_is_a_permanent_failure_not_agent_output(
     assert blocks == []
 
 
+@pytest.mark.parametrize("receipt_kind", ["current", "stale", "assistant"])
+@pytest.mark.parametrize("preamble", ["", "I will inspect the file first.\n"])
+def test_query_error_requires_current_structured_receipt(tmp_path, monkeypatch, receipt_kind, preamble):
+    """Regression reused from upstream 2906499e; no provider is contacted."""
+    message = "400 Trial provider rejected the request format; retrying unchanged will not help."
+    text = preamble + "Error: " + message
+    events = tmp_path / "session-state/sess-1/events.jsonl"
+    events.parent.mkdir(parents=True)
+    user = {"type": "user.message", "data": {"content": "current question"}}
+    error = {"type": "session.error", "data": {
+        "errorType": "query", "message": message, "statusCode": 400,
+    }}
+    rows = [user, error] if receipt_kind == "current" else (
+        [error, user] if receipt_kind == "stale" else
+        [user, {"type": "assistant.message", "data": {"content": text}}]
+    )
+    events.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+
+    def script(req, proc):
+        if req["method"] == "session/prompt":
+            return [
+                {"jsonrpc": "2.0", "method": "session/update", "params": {
+                    "sessionId": "sess-1", "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    },
+                }},
+                {"jsonrpc": "2.0", "id": req["id"], "result": {"stopReason": "end_turn"}},
+            ]
+        return _happy_script(req, proc)
+
+    proc = _FakeAcpProc(script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+    try:
+        result = client.run_prompt(
+            prompt="current question", resume_thread_id=None,
+            options=_Opt(), run_label="simple-1",
+        )
+        assert result.turn_failed is (receipt_kind == "current")
+        assert result.turn_completed is (receipt_kind != "current")
+        if receipt_kind == "current":
+            assert result.exit_code != 0 and result.stop_kind == "permanent_error"
+            assert result.json_events == []
+            assert result.fatal_error == error["data"]["message"]
+    finally:
+        client.close()
+
+
 def test_acp_warm_reuse_skips_new_handshake(monkeypatch) -> None:
     proc = _FakeAcpProc(_happy_script)
     monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
@@ -602,9 +652,10 @@ def test_acp_tool_updates_are_forwarded_as_progress_events(monkeypatch) -> None:
 
     structured = [json.loads(line) for line in emitted if line.startswith("{")]
     assert result.turn_completed
-    assert [event["type"] for event in structured] == ["tool.call", "tool.result"]
-    assert structured[0]["data"]["name"] == "Reading state.json"
-    assert structured[1]["data"]["content"] == "Reading state.json (completed)"
+    assert [event["type"] for event in structured] == ["session.start", "tool.call", "tool.result"]
+    assert structured[0]["data"]["sessionId"] == result.thread_id
+    assert structured[1]["data"]["name"] == "Reading state.json"
+    assert structured[2]["data"]["content"] == "Reading state.json (completed)"
     assert result.tool_activity_observed is True
 
 
@@ -1239,3 +1290,37 @@ def test_acp_initialization_failure_terminates_spawned_process(monkeypatch) -> N
 
     assert terminated == [200]
     assert client._proc is None
+
+
+def test_acp_tool_result_is_emitted_once_per_call_on_terminal_status() -> None:
+    client = CopilotAcpClient("copilot-bin")
+    emitted: list[str] = []
+    client._active_turn = copilot_acp._Turn("s1", None, emitted.append, allow_persistent=True)
+
+    def update(payload: dict) -> None:
+        client._handle_notification("session/update", {"sessionId": "s1", "update": payload})
+
+    update({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Count README lines",
+            "kind": "execute", "status": "pending", "rawInput": {"command": "wc -l README.md"}})
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress"})
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress",
+            "content": [{"type": "content", "content": {"type": "text", "text": "1 README.md"}}]})
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "1 README.md"}}]})
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"})
+
+    structured = [json.loads(line) for line in emitted if line.startswith("{")]
+    assert [event["type"] for event in structured] == ["tool.call", "tool.result"]
+    assert structured[0]["data"] == {
+        "name": "Count README lines",
+        "arguments": {"command": "wc -l README.md"},
+        "toolCallId": "t1",
+        "kind": "execute",
+    }
+    assert structured[1]["data"] == {
+        "content": "Count README lines (completed)",
+        "name": "Count README lines",
+        "status": "completed",
+        "toolCallId": "t1",
+        "output": "1 README.md",
+    }

@@ -1,0 +1,322 @@
+"""Mission View on-disk state: schema defaults, file locking, and load/bootstrap.
+
+This module owns everything needed to get a ``dict`` mission-view payload off
+disk (or produce an empty/bootstrapped one) without knowing anything about how
+individual events are reduced into that payload.
+"""
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import threading
+import weakref
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
+
+from ..event_catalog import EventType, canonical_event_type
+from ..file_lock import exclusive_file_lock
+from ..json_codec import loads_finite_json
+
+MISSION_VIEW_FILE = "mission-view.json"
+MISSION_VIEW_LOCK_FILE = "mission-view.lock"
+MISSION_VIEW_SCHEMA_VERSION = 7
+MISSION_TIMELINE_LIMIT = 120
+MISSION_ROLE_WORK_LIMIT_PER_ROLE = 40
+MISSION_BOOTSTRAP_MAX_BYTES = 8 * 1024 * 1024
+MISSION_SKILL_CONTENT_MAX_BYTES = 128 * 1024
+
+_ROLE_NAMES = ("manager", "planner", "engineer", "reviewer")
+_PIPELINE_ROLE_NAMES = frozenset({"planner", "engineer", "reviewer"})
+_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
+    weakref.WeakValueDictionary()
+)
+_THREAD_LOCKS_GUARD = threading.Lock()
+
+def empty_mission_view() -> dict[str, Any]:
+    return {
+        "schema_version": MISSION_VIEW_SCHEMA_VERSION,
+        "bootstrapped": False,
+        # "zh" or "en" once the operator's request has been seen; sentences in
+        # the view are written in this language.
+        "language": "",
+        "mission": {
+            "id": "",
+            "title": "",
+            "objective": "",
+            "summary": "",
+            "final_output": "",
+            "status": "idle",
+            "started_at": None,
+            "completed_at": None,
+            "elapsed_seconds": 0.0,
+            "campaign_started_at": None,
+            "campaign_elapsed_seconds": 0.0,
+        },
+        "stage": {"id": "", "label": ""},
+        "routing": {
+            "route": "",
+            "vertical": "",
+            "workflow_mode": "",
+            "lifetime": "",
+            "continuous": False,
+            "open_ended": False,
+        },
+        "round": {"current": 0, "max": 0},
+        "active_role": "",
+        "roles": [
+            {
+                "role": role,
+                "status": "waiting",
+                "kind": "waiting",
+                "label": "Waiting",
+                "updated_at": 0.0,
+            }
+            for role in _ROLE_NAMES
+        ],
+        "role_work": [],
+        "dag": [],
+        "timeline": [],
+        "artifacts": [],
+        "learned_skills": [],
+        "learned_wiki_pages": [],
+        "storage": {
+            "project_skill_dir": "",
+            "global_skill_dir": "",
+            "project_skill_count": 0,
+            "global_skill_count": 0,
+            "skill_history_compressed": 0,
+            "wiki_retired_compressed": 0,
+            "skill_history_bytes_saved": 0,
+            "wiki_retired_bytes_saved": 0,
+            "wiki_paths": [],
+        },
+        "achievement": None,
+        "review": {"status": "", "reason": "", "rejected_attempts": 0},
+        "frontier": {"change": "", "summary": "", "updated_at": 0.0},
+        # One structured receipt links completion, chat, and the right-side
+        # result surface.  It is null until a successful mission settles.
+        "delivery": None,
+        "outcome": {},
+        "last_event_ts": 0.0,
+        "updated_at": 0.0,
+    }
+
+
+@contextmanager
+def _locked(root: Path) -> Iterator[None]:
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = root / MISSION_VIEW_LOCK_FILE
+    key = str(lock_path.resolve())
+    with _THREAD_LOCKS_GUARD:
+        thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
+    with thread_lock:
+        with lock_path.open("a+b") as handle:
+            with exclusive_file_lock(handle, lock_name="Mission View"):
+                yield
+
+
+def _read_unlocked(root: Path) -> dict[str, Any]:
+    try:
+        payload = loads_finite_json((root / MISSION_VIEW_FILE).read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        return empty_mission_view()
+    if not isinstance(payload, dict):
+        return empty_mission_view()
+    schema_version = payload.get("schema_version")
+    if schema_version not in {1, 2, 3, 4, 5, 6, MISSION_VIEW_SCHEMA_VERSION}:
+        return empty_mission_view()
+    if schema_version in {1, 2, 3, 4, 5, 6}:
+        payload["schema_version"] = MISSION_VIEW_SCHEMA_VERSION
+        if schema_version in {3, 6}:
+            # Version 6 wrote English runtime phrases as the labels people
+            # read; rebuilding from the event log gives every row its code
+            # and a sentence in the session's language.
+            payload["bootstrapped"] = False
+        for key in (
+            "hypotheses",
+            "experiments",
+            "metrics",
+            "primary_metric",
+            "decision_context",
+        ):
+            payload.pop(key, None)
+    storage_defaults = {
+        "project_skill_dir": "",
+        "global_skill_dir": "",
+        "project_skill_count": 0,
+        "global_skill_count": 0,
+        "skill_history_compressed": 0,
+        "wiki_retired_compressed": 0,
+        "skill_history_bytes_saved": 0,
+        "wiki_retired_bytes_saved": 0,
+        "wiki_paths": [],
+    }
+    storage = payload.setdefault("storage", {})
+    for key, value in storage_defaults.items():
+        storage.setdefault(key, value)
+    payload.setdefault("language", "")
+    payload.setdefault("learned_wiki_pages", [])
+    payload.setdefault("role_work", [])
+    payload.setdefault("frontier", {"change": "", "summary": "", "updated_at": 0.0})
+    payload.setdefault("delivery", None)
+    payload.setdefault("outcome", {})
+    routing = payload.setdefault("routing", {})
+    for key, value in empty_mission_view()["routing"].items():
+        routing.setdefault(key, value)
+    for skill in payload.setdefault("learned_skills", []):
+        if isinstance(skill, dict):
+            skill.pop("content", None)
+            skill.pop("content_truncated", None)
+    mission = payload.setdefault("mission", {})
+    mission.setdefault("summary", "")
+    if "final_output" not in mission:
+        mission["final_output"] = ""
+        if mission.get("completed_at") is not None and mission.get("id"):
+            from ._snapshot import _bootstrap_view
+
+            recovered = _bootstrap_view(root)["mission"]
+            if (
+                recovered["id"] == mission["id"]
+                and recovered["started_at"] is not None
+                and recovered["completed_at"] == mission["completed_at"]
+                and (
+                    mission.get("started_at") is None
+                    or mission["started_at"] == recovered["started_at"]
+                )
+            ):
+                mission["final_output"] = recovered["final_output"]
+    mission.setdefault("campaign_started_at", None)
+    mission.setdefault("campaign_elapsed_seconds", 0.0)
+    for role in payload.setdefault("roles", []):
+        if (
+            isinstance(role, dict)
+            and role.get("role") == "manager"
+            and role.get("status") == "error"
+            and role.get("label") == "Grounding failed"
+        ):
+            role["label"] = "Manager routing failed"
+    for row in payload.setdefault("timeline", []):
+        if (
+            isinstance(row, dict)
+            and row.get("type") == EventType.LIFE_MANAGER_INTENT_FAILED
+            and row.get("title") == "Grounding failed"
+        ):
+            row["title"] = "Manager routing failed"
+    for row in payload.setdefault("role_work", []):
+        if (
+            isinstance(row, dict)
+            and row.get("role") == "manager"
+            and row.get("status") == "error"
+            and row.get("title") == "Grounding failed"
+        ):
+            row["title"] = "Manager routing failed"
+    achievement = payload.get("achievement")
+    if (
+        isinstance(achievement, dict)
+        and str(achievement.get("id") or "").startswith("derived-")
+    ):
+        payload["achievement"] = None
+    return payload
+
+
+def load_mission_view(root: Path | str) -> dict[str, Any]:
+    from ._replay import load_reconciled_view
+
+    return load_reconciled_view(Path(root).expanduser())
+
+
+def _write_unlocked(root: Path, view: dict[str, Any]) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / MISSION_VIEW_FILE
+    fd, tmp_name = tempfile.mkstemp(prefix=".mission-view-", dir=str(root))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(view, handle, ensure_ascii=False, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, target)
+        from ._replay import sync_directory
+
+        sync_directory(root)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+
+
+_PROJECTED_EVENT_TYPES = frozenset({
+    EventType.LIFE_MANAGER_INTENT_STARTED,
+    EventType.LIFE_MANAGER_INTENT_COMPLETED,
+    EventType.LIFE_MANAGER_INTENT_FAILED,
+    EventType.LIFE_MANAGER_STAGE_DECISION,
+    EventType.LIFE_PLANNER_START,
+    EventType.LIFE_PLANNER_TASK_ADDED,
+    EventType.LIFE_PLANNER_VERDICT,
+    EventType.LIFE_PLANNER_WAITING,
+    EventType.LIFE_PLANNER_TERMINAL_IDLE,
+    EventType.LIFE_PLANNER_ERROR,
+    EventType.LIFE_MISSION_STARTED,
+    EventType.LIFE_MISSION_COMPLETED,
+    EventType.LIFE_MISSION_FAILED,
+    EventType.ROUND_START,
+    EventType.ROUND_MAIN_COMPLETED,
+    EventType.ROUND_REVIEW_STARTED,
+    EventType.ROUND_REVIEW_DEFERRED,
+    EventType.ROUND_REVIEW_COMPLETED,
+    EventType.ENGINEER_PROGRESS,
+    EventType.IDEA_SEARCH_STARTED,
+    EventType.IDEA_SEARCH_COMPLETED,
+    EventType.VENUE_RESEARCH_STARTED,
+    EventType.VENUE_RESEARCH_COMPLETED,
+    EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
+    EventType.SKILL_CREATED,
+    EventType.SKILL_UPDATED,
+    EventType.SKILL_ARCHIVED,
+    EventType.SKILL_TIDIED,
+    EventType.SKILL_EVOLUTION_COMPLETED,
+    EventType.SKILL_HISTORY_COMPRESSED,
+    EventType.WIKI_INITIALIZED,
+    EventType.WIKI_EVOLUTION_COMPLETED,
+    EventType.WIKI_CREATED,
+    EventType.WIKI_UPDATED,
+    EventType.WIKI_RETIRED,
+    EventType.WIKI_PROMOTION_PROMOTED,
+    EventType.WIKI_PROMOTION_DEMOTED,
+    EventType.WIKI_RETIRED_COMPRESSED,
+})
+
+
+def _tail_jsonl(path: Path, max_bytes: int = MISSION_BOOTSTRAP_MAX_BYTES) -> list[dict[str, Any]]:
+    try:
+        with path.open("rb") as handle:
+            size = handle.seek(0, os.SEEK_END)
+            start = max(0, size - max_bytes)
+            handle.seek(start)
+            raw = handle.read()
+    except OSError:
+        return []
+    if start:
+        _discard, separator, raw = raw.partition(b"\n")
+        if not separator:
+            return []
+    rows: list[dict[str, Any]] = []
+    for line in raw.splitlines():
+        try:
+            event = loads_finite_json(line)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        if canonical_event_type(event.get("type")) not in _PROJECTED_EVENT_TYPES:
+            continue
+        rows.append(event)
+    return rows
+
+
+def mission_view_handles_event(event_type: Any) -> bool:
+    return canonical_event_type(event_type) in _PROJECTED_EVENT_TYPES

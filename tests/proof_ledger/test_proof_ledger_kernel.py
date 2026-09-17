@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.proof_ledger import (
+from argus.proof_ledger import (
     CitationStatus,
     ClaimStatus,
     ClaimVersion,
@@ -892,7 +892,7 @@ def test_a_route_that_needs_nothing_proved_is_not_a_route() -> None:
 
 # -- the boundary that lets this package leave ------------------------------
 
-_PACKAGE = Path(__file__).parents[2] / "argus_skill" / "proof_ledger"
+_PACKAGE = Path(__file__).parents[2] / "argus" / "proof_ledger"
 
 
 def _sources() -> list[Path]:
@@ -919,11 +919,11 @@ def test_proof_ledger_imports_nothing_from_argus() -> None:
                 # level > 0 is a relative import; only siblings inside this
                 # package are reachable that way, and those are level 1 with a
                 # module that resolves within it.
-                if node.level > 1 or module.startswith("argus_skill"):
+                if node.level > 1 or module.startswith("argus"):
                     offenders.append(f"{path.name}:{node.lineno} {'.' * node.level}{module}")
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name.split(".")[0] == "argus_skill":
+                    if alias.name.split(".")[0] == "argus":
                         offenders.append(f"{path.name}:{node.lineno} {alias.name}")
     assert offenders == []
 

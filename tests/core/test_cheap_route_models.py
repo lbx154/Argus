@@ -3,16 +3,12 @@ that does not serve the OpenAI catalog.
 
 Four routes — Manager front-door classify, bounded-DAG decomposition, ``/plan``
 preview, and interactive prompt rewrite — want a *small* model rather than the
-role's full-strength one. Each used to decide that with its own copy of
-``backend in {"codex", "copilot", "pi"} -> "gpt-5.4-mini"``. The ``pi`` entry
-was wrong: Pi is a provider-agnostic front whose catalog is whatever the
-operator authenticated, so a Pi deployment on DeepSeek/Anthropic/vLLM asked its
-provider for ``gpt-5.4-mini`` and every one of these four routes hard-failed —
-even after the operator had correctly configured every model knob Argus
-documents.
+role's full-strength one. Pi has a provider-defined catalog, while Codex may
+authenticate through a ChatGPT account with a restricted catalog. Neither may
+receive an assumed cheap OpenAI model id.
 
-These pin the shared helper and all four call sites: codex/copilot keep their
-exact previous ids, everything else falls back to the role model, and an
+These pin the shared helper and all four call sites: Copilot keeps its cheap
+id, Codex and provider-agnostic backends fall back to the role model, and an
 explicit knob always wins.
 """
 from __future__ import annotations
@@ -22,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.core.knobs import resolve_cheap_route_model, resolve_role_model
+from argus.core.knobs import resolve_cheap_route_model, resolve_role_model
 
 
 @pytest.fixture(autouse=True)
@@ -120,7 +116,7 @@ def test_role_model_can_use_the_actual_fallback_backend() -> None:
 
 
 def test_manager_routes_use_the_actual_runtime_backend() -> None:
-    from argus_skill.core.knobs import (
+    from argus.core.knobs import (
         resolve_manager_classify_model,
         resolve_manager_reply_model,
     )
@@ -130,9 +126,32 @@ def test_manager_routes_use_the_actual_runtime_backend() -> None:
     assert resolve_manager_reply_model(backend="claude", env=env) == ""
 
 
+def test_explicit_shared_model_beats_persisted_manager_route_models(
+    monkeypatch,
+) -> None:
+    from argus.core import knob_store
+    from argus.core.knobs import (
+        resolve_manager_classify_model,
+        resolve_manager_reply_model,
+    )
+
+    monkeypatch.setattr(
+        knob_store,
+        "read_persisted_knobs",
+        lambda: {
+            "ARGUS_SKILL_FRONTDOOR_MODEL": "deepseek-official/deepseek-v4-flash",
+            "ARGUS_SKILL_MANAGER_REPLY_MODEL": "deepseek-official/deepseek-v4-flash",
+        },
+    )
+    env = _env("copilot", ARGUS_SKILL_MODEL="gpt-5.6-sol")
+
+    assert resolve_manager_classify_model(backend="copilot", env=env) == "gpt-5.6-sol"
+    assert resolve_manager_reply_model(backend="copilot", env=env) == "gpt-5.6-sol"
+
+
 def test_claude_command_omits_openai_model_when_unconfigured() -> None:
-    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-    from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+    from argus.agent_cli.runner_backend import BACKEND_CLAUDE
 
     model = resolve_role_model(
         "manager",
@@ -151,21 +170,20 @@ def test_claude_command_omits_openai_model_when_unconfigured() -> None:
     assert "gpt-5.5" not in command
 
 
-@pytest.mark.parametrize("backend", ["codex", "copilot"])
-def test_openai_catalog_backends_keep_the_cheap_openai_id(backend: str) -> None:
+def test_copilot_keeps_the_cheap_openai_id() -> None:
     assert (
         resolve_cheap_route_model(
             knob="ARGUS_SKILL_FRONTDOOR_MODEL",
             catalog_default="gpt-5.4-mini",
             role="manager",
             role_env="ARGUS_SKILL_MANAGER_MODEL",
-            env=_env(backend, ARGUS_SKILL_MANAGER_MODEL="gpt-5.5"),
+            env=_env("copilot", ARGUS_SKILL_MANAGER_MODEL="gpt-5.5"),
         )
         == "gpt-5.4-mini"
     )
 
 
-@pytest.mark.parametrize("backend", ["pi", "claude", "opencode", "grok"])
+@pytest.mark.parametrize("backend", ["codex", "pi", "claude", "opencode", "grok"])
 def test_provider_agnostic_backends_fall_back_to_the_role_model(
     backend: str,
 ) -> None:
@@ -222,7 +240,7 @@ def test_auto_sentinels_are_not_treated_as_model_ids(sentinel: str) -> None:
 
 
 def test_front_door_classify_route_uses_the_shared_rule(monkeypatch) -> None:
-    from argus_skill.core.knobs import resolve_manager_classify_model
+    from argus.core.knobs import resolve_manager_classify_model
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "pi")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "deepseek-chat")
@@ -231,11 +249,11 @@ def test_front_door_classify_route_uses_the_shared_rule(monkeypatch) -> None:
     assert resolve_manager_classify_model() == "deepseek-chat"
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
-    assert resolve_manager_classify_model() == "gpt-5.4-mini"
+    assert resolve_manager_classify_model() == "deepseek-chat"
 
 
 def test_bounded_dag_route_uses_the_shared_rule(monkeypatch) -> None:
-    from argus_skill.manager.dispatch import _bounded_dag_model
+    from argus.manager.dispatch import _bounded_dag_model
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "pi")
     monkeypatch.setenv("ARGUS_SKILL_PLAN_MODEL", "deepseek-chat")
@@ -248,7 +266,7 @@ def test_bounded_dag_route_uses_the_shared_rule(monkeypatch) -> None:
 
 
 def test_plan_preview_route_uses_the_shared_rule(monkeypatch) -> None:
-    from argus_skill.webapi.manager_bridge import _plan_preview_model
+    from argus.webapi.manager_bridge import _plan_preview_model
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "pi")
     monkeypatch.setenv("ARGUS_SKILL_PLAN_MODEL", "deepseek-chat")
@@ -257,19 +275,17 @@ def test_plan_preview_route_uses_the_shared_rule(monkeypatch) -> None:
     assert _plan_preview_model() == "deepseek-chat"
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
-    assert _plan_preview_model() == "gpt-5.4-mini"
+    assert _plan_preview_model() == "deepseek-chat"
 
 
-def test_prompt_rewrite_route_keeps_its_own_catalog_default(monkeypatch) -> None:
-    """Rewrite has always used ``gpt-5.5``, not the mini — keep it that way on
-    the OpenAI-catalog backends while still fixing the provider-agnostic ones."""
-    from argus_skill.webapi.manager_bridge import _rewrite_model_and_effort
+def test_prompt_rewrite_route_uses_the_shared_rule(monkeypatch) -> None:
+    from argus.webapi.manager_bridge import _rewrite_model_and_effort
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "gpt-5.6-sol")
     monkeypatch.delenv("ARGUS_SKILL_REWRITE_MODEL", raising=False)
 
-    assert _rewrite_model_and_effort()[0] == "gpt-5.5"
+    assert _rewrite_model_and_effort()[0] == "gpt-5.6-sol"
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "pi")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "deepseek-chat")
@@ -279,7 +295,7 @@ def test_prompt_rewrite_route_keeps_its_own_catalog_default(monkeypatch) -> None
 def test_provider_knobs_normalize_to_a_single_catalog_name() -> None:
     """The cockpit can set these, so a provider/model pair typed into the box
     must be rejected rather than silently producing ``a/b/model``."""
-    from argus_skill.core.knobs import normalize_cockpit_knob_value
+    from argus.core.knobs import normalize_cockpit_knob_value
 
     assert (
         normalize_cockpit_knob_value("ARGUS_SKILL_PI_PROVIDER", " deepseek ")

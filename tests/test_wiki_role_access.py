@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.planner.planner import Planner
-from argus_skill.roles.prompts.engineer import build_mission_prompt
-from argus_skill.roles.prompts.manager import build_simple_prompt
-from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.wiki.bootstrap import init_wiki
+from argus.planner.planner import Planner
+from argus.roles.prompts.engineer import build_mission_prompt
+from argus.roles.prompts.manager import build_simple_prompt
+from argus.skills.vertical_select import persist_vertical
+from argus.wiki.bootstrap import init_wiki
 
 
 def test_manager_engineer_and_planner_share_direct_wiki_contract(
@@ -54,8 +54,8 @@ def test_manager_engineer_and_planner_share_direct_wiki_contract(
     assert "Procedures and checklists belong in Skills" in engineer
     assert "route durable project facts" in engineer
     assert "external algorithm" in planner
-    assert "starting context, not a" in planner
-    assert "fresh paper/source/issue/hardware investigation" in planner
+    assert 'beyond Wiki/Skills' in planner
+    assert 'Consult papers,\n  source, issues, or hardware when consequential' in planner
 
 
 def test_planner_uses_session_state_for_vertical_and_workspace_for_wiki(
@@ -103,4 +103,4 @@ def test_direct_workflow_planner_has_no_stage_gate(tmp_path: Path) -> None:
     assert "## Stage checklist" not in prompt
     assert "Downstream stages (LOCKED" not in prompt
     assert "## Current workflow stage" in prompt
-    assert "semantic context, not a hard gate" in prompt
+    assert 'context, not a hard boundary' in prompt

@@ -1,0 +1,234 @@
+"""Install a real native package, configure its frozen trial, and restart its GUI.
+
+Run only on an isolated release runner. A private smoke key arrives through the
+CI secret environment and is sent to the frozen helper over stdin, never argv.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import secrets
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+import httpx
+
+
+def install(package: Path, directory: Path) -> tuple[Path, Path]:
+    if sys.platform == "win32":
+        subprocess.run([str(package), "/S", f"/D={directory}"], check=True, timeout=180)
+        return directory / "Argus.exe", directory / "argus-backend/argus-backend.exe"
+    if sys.platform == "linux":
+        directory.mkdir(parents=True)
+        appimage = directory / "Argus.AppImage"
+        shutil.copy2(package, appimage)
+        appimage.chmod(0o755)
+        subprocess.run([str(appimage), "--appimage-extract"], cwd=directory,
+                       check=True, stdout=subprocess.DEVNULL, timeout=180)
+        backends = [path for path in (directory / "squashfs-root").rglob("argus-backend")
+                    if path.is_file()]
+        if len(backends) != 1:
+            raise RuntimeError("AppImage must contain exactly one frozen backend")
+        return appimage, backends[0]
+    if sys.platform != "darwin":
+        raise RuntimeError("Unsupported native release platform")
+    mount = directory.parent / "mounted-dmg"
+    mount.mkdir()
+    subprocess.run(["hdiutil", "attach", str(package), "-nobrowse", "-mountpoint", str(mount)],
+                   check=True, stdout=subprocess.DEVNULL, timeout=90)
+    try:
+        subprocess.run(["ditto", str(mount / "Argus.app"), str(directory / "Argus.app")],
+                       check=True, timeout=90)
+    finally:
+        subprocess.run(["hdiutil", "detach", str(mount)], check=True, timeout=90)
+    app = directory / "Argus.app/Contents"
+    subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app.parent)],
+                   check=True, timeout=90)
+    return app / "MacOS/Argus", app / "Resources/argus-backend/argus-backend"
+
+
+def executor_roundtrip(env: dict[str, str], key: str, token: str, port: int):
+    """Exercise the same authenticated API as the workbench Run button."""
+    with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=210, trust_env=False,
+                      headers={"Authorization": "Bearer " + token}) as client:
+        created = client.post("/api/daemons", json={"name": "Native executor startup check"})
+        created.raise_for_status()
+        sid = created.json()["sid"]
+        life = Path(env["ARGUS_SKILL_HOME"]) / "projects" / sid
+        try:
+            started = client.post(f"/api/projects/{sid}/daemon/start", json={})
+            started.raise_for_status()
+            result = started.json()
+            assert result.get("rc") == 0, json.dumps(result).replace(key, "[hidden]").replace(token, "[hidden]")
+            deadline = time.monotonic() + 90
+            logs = ""
+            while time.monotonic() < deadline:
+                logs = "\n".join(path.read_text(encoding="utf-8", errors="replace")
+                                 for path in (life / "daemons").glob("boot-*.log"))
+                assert key not in logs, "Trial key appeared in executor logs"
+                if "daemon: ready (" in logs and "backend=copilot" in logs:
+                    print("Workbench Run API started the installed Copilot executor and reached worker readiness.", flush=True)
+                    return
+                if "daemon refused" in logs or "daemon: fatal error" in logs:
+                    break
+                time.sleep(0.5)
+            raise RuntimeError("Installed executor did not reach readiness: " + logs[-5000:].replace(key, "[hidden]").replace(token, "[hidden]"))
+        finally:
+            client.post(f"/api/projects/{sid}/daemon/stop", json={"force": True})
+
+
+def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str, token: str, *, verify_executor: bool = False):
+    log = directory / "logs/desktop.log"
+    offset = len(log.read_text(encoding="utf-8")) if log.exists() else 0
+    process = subprocess.Popen([str(binary)], cwd=binary.parent, env=env,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               start_new_session=sys.platform != "win32")
+    try:
+        deadline = time.monotonic() + 90
+        stable_since = None
+        while time.monotonic() < deadline:
+            content = log.read_text(encoding="utf-8", errors="replace")[offset:] if log.exists() else ""
+            if key in content:
+                raise RuntimeError("Trial key appeared in desktop logs")
+            if "backend Error:" in content or "runner preflight failed" in content:
+                raise RuntimeError(content[-3000:].replace(key, "[hidden]").replace(token, "[hidden]"))
+            if "backend Ready:" in content and "authenticated cockpit URL issued" in content:
+                stable_since = stable_since or time.monotonic()
+                if time.monotonic() - stable_since > 8:
+                    settings = json.loads((directory / "settings.json").read_text())
+                    with httpx.Client(
+                        headers={"Authorization": "Bearer " + token},
+                        timeout=10, trust_env=False,
+                    ) as client:
+                        response = client.get(f"http://127.0.0.1:{settings['port']}/api/projects")
+                        response.raise_for_status()
+                    print("Installed native GUI opened its authenticated cockpit and stayed ready.", flush=True)
+                    if verify_executor:
+                        executor_roundtrip(env, key, token, settings["port"])
+                    return settings["port"]
+            if process.poll() is not None:
+                raise RuntimeError(f"Desktop exited before ready: {process.returncode}")
+            time.sleep(0.5)
+        raise RuntimeError("Native GUI did not open its authenticated cockpit: " + content[-3000:].replace(key, "[hidden]").replace(token, "[hidden]"))
+    finally:
+        if process.poll() is None:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/pid", str(process.pid), "/t", "/f"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                if sys.platform != "win32":
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=10)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("package", type=Path)
+    args = parser.parse_args()
+    key = os.environ.get("ARGUS_TRIAL_SMOKE_KEY", "").strip()
+    if not key.startswith("argus_trial_") or len(key) != 76:
+        raise RuntimeError("ARGUS_TRIAL_SMOKE_KEY is required for release verification")
+    with httpx.Client(headers={"Authorization": "Bearer " + key, "User-Agent": "Argus/0.1.1"},
+                      timeout=30, trust_env=False) as client:
+        response = client.get("https://argusbot.cn/trial/status")
+        response.raise_for_status()
+        before = response.json()["tokens_used"]
+        with tempfile.TemporaryDirectory(prefix="argus-trial-release-") as temporary:
+            # macOS /var is a symlink to /private/var. Tauri deliberately rejects
+            # an executable launched through any symlink; use the real bundle
+            # path, as Finder does, without disabling that protection.
+            root = Path(temporary).resolve()
+            binary, frozen = install(args.package.resolve(), root / "installed")
+            assert binary.is_file() and frozen.is_file(), "Installed native runtime is missing"
+            env = {k: v for k, v in os.environ.items()
+                   if not k.startswith(("ARGUS_", "COPILOT_", "GH_", "GITHUB_", "PYTHON"))
+                   and "TOKEN" not in k and "API_KEY" not in k}
+            env.update(ARGUS_SKILL_HOME=str(root / "argus-home"), PYTHONUTF8="1",
+                       PYTHONIOENCODING="utf-8", ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE="1",
+                       ARGUS_DESKTOP_DISABLE_UPDATE_CHECK="1")
+            if sys.platform == "win32":
+                env.update(APPDATA=str(root / "appdata"), LOCALAPPDATA=str(root / "localappdata"))
+                env["PATH"] = str(Path(env.get("SystemRoot", r"C:\Windows")) / "System32")
+                desktop = root / "appdata/argus-desktop"
+            elif sys.platform == "darwin":
+                env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+                desktop = Path.home() / "Library/Application Support/argus-desktop"
+            else:
+                env.update(HOME=str(root / "home"), APPIMAGE_EXTRACT_AND_RUN="1")
+                env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+                desktop = root / "home/.local/share/argus-desktop"
+            if desktop.exists():
+                raise RuntimeError("Refusing to overwrite existing desktop state; use a clean release runner")
+            try:
+                run = subprocess.run([str(frozen), "-m", "argus.trial.desktop"],
+                                     input=json.dumps({"api_key": key}) + "\n", capture_output=True,
+                                     text=True, encoding="utf-8", cwd=root, env=env, timeout=600)
+                assert key not in run.stdout + run.stderr, "Trial helper leaked its key"
+                assert run.returncode == 0, run.stdout + run.stderr
+                events = [json.loads(line) for line in run.stdout.splitlines()]
+                assert events[-1]["event"] == "complete", "Trial helper did not complete"
+                runner = events[-1]["runner_bin"]
+                profile = root / "argus-home/copilot-trial.json"
+                assert json.loads(profile.read_text())["api_key"] == key
+                if sys.platform != "win32":
+                    assert profile.stat().st_mode & 0o777 == 0o600
+                print("Installed frozen runtime automatically downloaded Copilot and verified the public trial.", flush=True)
+                desktop.mkdir(parents=True)
+                token = secrets.token_urlsafe(32)
+                with socket.socket() as existing_service:
+                    existing_service.bind(("127.0.0.1", 0))
+                    existing_service.listen(8)
+                    occupied_port = existing_service.getsockname()[1]
+                    (desktop / "settings.json").write_text(json.dumps({
+                        "host": "127.0.0.1", "port": occupied_port, "token": token,
+                        "runnerKind": "copilot", "runnerBins": {"copilot": runner},
+                        "runnerConfigured": True, "setupComplete": True, "trialMode": True,
+                    }), encoding="utf-8")
+                    selected_port = host_roundtrip(
+                        binary, desktop, env, key, token, verify_executor=True,
+                    )
+                    assert selected_port != occupied_port, "Trial did not avoid the occupied port"
+                    assert host_roundtrip(binary, desktop, env, key, token) == selected_port
+                    with socket.create_connection(existing_service.getsockname(), timeout=5):
+                        pass
+                    print("Trial preserved the existing service and reused its saved port on restart.", flush=True)
+                evidence = root / "evidence.txt"
+                evidence.write_text("native-installed-trial-evidence")
+                prompt = f"Read {evidence} and return its exact content followed by NATIVE_TRIAL_OK."
+                script = (
+                    "from argus.core.agent_probe import run_read_only_agent_prompt; "
+                    "from argus.core.knob_store import read_persisted_knobs; "
+                    "from argus.trial import CLIENT_MODEL; "
+                    "k=read_persisted_knobs(); assert k['ARGUS_SKILL_COPILOT_TRIAL']=='1'; "
+                    "assert k['ARGUS_SKILL_MODEL']=='gpt-5.5' and k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
+                    "r=run_read_only_agent_prompt(backend='copilot',executable=k['ARGUS_SKILL_RUNNER_BIN'],"
+                    f"model=CLIENT_MODEL,run_label='native-release-smoke',prompt={prompt!r}); "
+                    "assert r.ok and 'native-installed-trial-evidence' in r.output and 'NATIVE_TRIAL_OK' in r.output; "
+                    "print('Persisted native local-tool round trip passed.')"
+                )
+                run = subprocess.run([str(frozen), "-c", script], cwd=root, env=env,
+                                     capture_output=True, text=True, encoding="utf-8", timeout=180)
+                assert key not in run.stdout + run.stderr, "Native worker leaked its key"
+                assert run.returncode == 0, run.stdout + run.stderr
+                print(run.stdout, flush=True)
+            finally:
+                if desktop.exists():
+                    shutil.rmtree(desktop)
+        after = client.get("https://argusbot.cn/trial/status").json()["tokens_used"]
+        assert after > before
+        print(f"Native installer, automatic trial setup, GUI restart and local tool verified; pool smoke usage increased by {after - before} tokens.")
+
+
+if __name__ == "__main__":
+    main()

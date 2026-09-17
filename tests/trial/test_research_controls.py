@@ -1,0 +1,95 @@
+import json
+
+import pytest
+
+from argus.trial.analytics import Analytics, AnalyticsError
+from argus.trial.research_controls import ResearchControls
+
+
+@pytest.fixture
+def controls(tmp_path):
+    tenants = {}
+    for tenant, sid in (("trial-01", "s-one"), ("trial-02", "s-two")):
+        data = tmp_path / tenant
+        project = data / "home/.argus-skill/projects" / sid
+        project.mkdir(parents=True)
+        (project / "session.json").write_text(json.dumps({"id": sid, "display_name": sid}))
+        tenants[tenant] = {"data_dir": data, "internal_test": True}
+    analytics = Analytics(
+        tmp_path / "research", tenants, tmp_path / "usage.sqlite3",
+        tmp_path / "compute.sqlite3", clock=lambda: 10000000,
+    )
+    analytics.record_consent("trial-01", analytics.notice_version)
+    return ResearchControls(analytics)
+
+
+def test_annotations_are_explicit_and_not_inferred_from_feedback(controls):
+    assert controls.annotation("trial-01", "s-one")["satisfaction"] == "unknown"
+    result = controls.feedback("trial-01", "s-one", {"verdict": "met_need", "note": "Useful"})
+    assert result["inferred_success"] is False
+    assert controls.annotation("trial-01", "s-one")["satisfaction"] == "unknown"
+    saved = controls.annotate("trial-01", "s-one", {
+        "user_goal": "Understand a real result", "first_deviation_event_id": "event:123",
+        "satisfaction": "no", "note": "Missed the requested comparison",
+    })
+    assert saved["satisfaction"] == "no"
+    assert saved["first_deviation_event_id"] == "event:123"
+
+
+def test_cross_tenant_and_unconsented_records_are_denied(controls):
+    with pytest.raises(AnalyticsError):
+        controls.annotation("trial-01", "s-two")
+    with pytest.raises(AnalyticsError) as error:
+        controls.feedback("trial-02", "s-two", {"verdict": "met_need"})
+    assert error.value.status == 403
+
+
+def test_deletion_preserves_runtime_data_and_content_free_audit(controls):
+    controls.annotate("trial-01", "s-one", {"user_goal": "Private user goal"})
+    controls.feedback("trial-01", "s-one", {"verdict": "needs_changes"})
+    result = controls.delete_project("trial-01", "s-one")
+    assert result["deleted"]["research_annotations"] == 1
+    assert result["deleted"]["research_feedback"] == 1
+    assert result["runtime_files_deleted"] is False
+    assert controls.annotation("trial-01", "s-one")["user_goal"] == ""
+    audit = controls.audit_log()["events"]
+    assert audit[0]["action"] == "research.delete"
+    assert "Private user goal" not in json.dumps(audit)
+
+
+def test_controls_obey_research_retention(controls):
+    controls.annotate("trial-01", "s-one", {"user_goal": "A goal"})
+    controls.feedback("trial-01", "s-one", {"verdict": "not_evaluated"})
+    controls.audit("replay.view", tenant_id="trial-01", sid="s-one")
+    controls.analytics.clock = lambda: 10000000 + 31 * 86400
+    assert controls.prune() == {
+        "research_annotations": 1, "research_feedback": 1, "research_audit": 1,
+    }
+
+
+def test_clarification_capture_preserves_real_path_binding_through_input_projection(controls):
+    from argus.trial.interaction_capture import get_interaction
+    from argus.trial.journey_journal import Journal
+
+    Journal(controls.analytics)
+    parent = "42f7f0de-1286-4529-88fc-1f6dc735ea73"
+    body = {"request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f", "question": "Why this step?", "locale": "en-US"}
+    item = controls.capture("trial-01", "s-one", f"/api/projects/s-one/reader-foundation/{parent}/question",
+                            {**body, "parent_id": "untrusted-body-parent", "arbitrary": {"object": True}})
+    result = get_interaction(controls.analytics, "trial-01", item.id, include_trace=False)
+    assert result["input"] == {**body, "parent_id": parent}
+    assert result["path"] == "/api/projects/:sid/reader-foundation/:parent_id/question"
+
+
+def test_progress_capture_preserves_source_identity_without_accepting_client_source_prose(controls):
+    from argus.trial.interaction_capture import get_interaction
+    from argus.trial.journey_journal import Journal
+
+    Journal(controls.analytics)
+    body = {"request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f", "question": "Why this step?", "locale": "en-US"}
+    source_id = "f314da38-60d2-42fd-944d-413d1b5d9a03"
+    item = controls.capture("trial-01", "s-one", "/api/projects/s-one/reader-foundation",
+                            {**body, "progress_source": {"source_id": source_id, "markdown": "Client cannot supply a source"}})
+    result = get_interaction(controls.analytics, "trial-01", item.id, include_trace=False)
+    assert result["input"] == {**body, "progress_source": {"source_id": source_id}}
+    assert result["task_id"] is None and result["task_accepted"] is False

@@ -1,0 +1,21 @@
+.delivery-header { flex-shrink: 0; padding: 20px 24px 12px; background: linear-gradient(115deg, rgb(var(--ok) / .08), transparent 70%); }
+.delivery-heading { display: flex; align-items: center; gap: 12px; }
+.delivery-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: rgb(var(--ok)); background: rgb(var(--ok) / .12); }
+.delivery-heading p { font-size: 10px; letter-spacing: .14em; color: rgb(var(--ink-dim)); }
+.delivery-heading h2 { font-size: 20px; font-weight: 650; margin-top: 2px; }
+.delivery-return { margin-left: auto; align-self: flex-start; border: 1px solid rgb(var(--line)); border-radius: 10px; padding: 10px 12px; font-size: 12px; white-space: nowrap; }
+.delivery-return:hover { background: rgb(var(--surface)); }
+.delivery-task-title { margin-top: 12px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.delivery-task-select { margin-top: 12px; max-width: 100%; font-size: 13px; border-radius: 8px; padding: 5px; background: rgb(var(--panel)); }
+.delivery-facts { display: flex; gap: 16px; margin-top: 8px; color: rgb(var(--ink-dim)); font-size: 11px; }
+.delivery-facts span { display: flex; align-items: center; gap: 5px; }
+.delivery-facts span:first-child { color: rgb(var(--ok)); }
+.delivery-summary { margin-top: 8px; font-size: 12px; color: rgb(var(--ink-dim)); }
+.delivery-summary summary { cursor: pointer; width: fit-content; padding: 3px 0; }
+.delivery-summary p { white-space: pre-wrap; max-height: 16dvh; overflow-y: auto; line-height: 1.7; margin-top: 6px; }
+.delivery-files { flex-shrink: 0; display: flex; gap: 8px; overflow-x: auto; padding: 8px 24px 12px; border-bottom: 1px solid rgb(var(--line)); }
+.delivery-files button { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgb(var(--line)); white-space: nowrap; font-size: 12px; }
+.delivery-files button span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.delivery-files button[aria-pressed=true] { border-color: rgb(var(--blue) / .5); background: rgb(var(--blue) / .08); color: rgb(var(--blue)); }
+.delivery-files small { font-size: 10px; opacity: .8; }
+@media (max-width:640px) { .delivery-header { padding: 14px 14px 8px; } .delivery-heading { gap: 9px; } .delivery-heading h2 { font-size: 18px; } .delivery-return { padding: 10px; font-size: 11px; } .delivery-files { padding: 8px 14px; } .delivery-files button { padding: 9px 11px; } }

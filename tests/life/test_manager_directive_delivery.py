@@ -3,22 +3,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.apps._inbox import queue_inbox_message
-from argus_skill.apps._runtime_execute import _engineer_guidance
-from argus_skill.core.models import ReviewDecision, RunnerResult
-from argus_skill.engineer.round_config import SupervisedConfig
-from argus_skill.engineer.round_reviewer import RoundReviewerMixin
-from argus_skill.engineer.round_state import RoundLoopState
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor._constants import PLAN_ERROR
-from argus_skill.life.supervisor._mission_execution_runtime import (
+from argus.apps._inbox import queue_inbox_message
+from argus.apps._runtime_execute import _engineer_guidance
+from argus.core.models import ReviewDecision, RunnerResult
+from argus.engineer.round_config import SupervisedConfig
+from argus.engineer.round_reviewer import RoundReviewerMixin
+from argus.engineer.round_state import RoundLoopState
+from argus.life.memory import LifeMemory
+from argus.life.supervisor._constants import PLAN_ERROR
+from argus.life.supervisor._mission_execution_runtime import (
     MissionExecutionRuntimeMixin,
 )
-from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-from argus_skill.life.supervisor._planning_cycle_intake import (
+from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus.life.supervisor._planning_cycle_intake import (
     PlanningCycleIntakeMixin,
 )
-from argus_skill.manager.directive import (
+from argus.manager.directive import (
     STEERING_HEADER,
     set_active_manager_directive,
 )
@@ -107,7 +107,7 @@ def test_new_inbox_messages_accumulate_in_standing_engineer_guidance(
 def test_standing_steering_reaches_every_mission_prelude(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    from argus_skill.life.memory import BacklogItem
+    from argus.life.memory import BacklogItem
 
     _set_objective(tmp_path)
     set_active_manager_directive(tmp_path, "preserve the public contract")
@@ -143,7 +143,7 @@ def test_active_directive_reaches_reviewer(tmp_path: Path) -> None:
 
     class Harness(RoundReviewerMixin):
         def __init__(self) -> None:
-            from argus_skill.reviewer import ReviewerConfig
+            from argus.reviewer import ReviewerConfig
 
             self.reviewer = CaptureReviewer()
             self.reviewer_config = ReviewerConfig(model="test")

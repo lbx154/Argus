@@ -14,21 +14,25 @@ actually being spent by a vertical's checklist. Either side could then exhaust
 the other's headroom, and the cheapest way out of a red build was to raise the
 cap — which is how a guard against growth becomes a record of it.
 
-Task-specific content (stage checklist, matched Skills, Wiki, research target,
-objective and operator text) is subtracted out. Those blocks are owned by a
-vertical or by the round and are meant to vary; what must stay compact is the
-role/routing and named-verdict prose this file was written to protect.
+Task-specific content (stage checklist, matched Skills, Wiki, research target)
+is subtracted out. Those blocks are owned by a vertical and are meant to vary;
+what must stay compact is the role/routing and named-verdict prose this file
+was written to protect. The objective, the Planner's guidance, and the operator
+text need no subtraction: they ride in the round delta so the static preamble
+stays byte-identical — and its fingerprint valid — across missions.
 """
 
 from __future__ import annotations
 
 import json
 
-from argus_skill.reviewer import Reviewer
-from argus_skill.roles.prompts import reviewer as reviewer_prompt
-from argus_skill.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
+from argus.reviewer import Reviewer
+from argus.roles.prompts import reviewer as reviewer_prompt
+from argus.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
 
-#: Blocks that belong to a vertical or to the round, not to the fixed contract.
+#: Blocks a vertical owns inside the static preamble, not the fixed contract.
+#: The objective/operator/planner text ("objective_context") is absent here
+#: because it lives in the round delta, outside ``static_total``.
 _TASK_OWNED_BLOCKS = (
     "stage_checklist",
     "matched_skill",
@@ -36,7 +40,6 @@ _TASK_OWNED_BLOCKS = (
     "wiki_curator",
     "research_target",
     "surprise_judgment",
-    "objective_context",
 )
 
 # Measured at 4_546 for the representative build. The margin is for one more
@@ -82,7 +85,7 @@ def _prompt(measured: bool, monkeypatch) -> str:
 
 
 def _persist_research_stage(project_root, stage: str) -> None:
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(project_root, "research")
     state_path = project_root / ".argus" / "PIPELINE_STATE.json"
@@ -116,10 +119,10 @@ def test_windows_fixed_contract_prose_within_budget(monkeypatch):
 def test_reviewer_scopes_product_acceptance_to_the_claim(monkeypatch):
     prompt = _prompt(measured=False, monkeypatch=monkeypatch)
 
-    assert "mission claims a user-facing" in prompt
-    assert "test the safe public entry point" in prompt
-    assert "Internal exploratory changes need no product ceremony" in prompt
-    assert "feedback experiment is the trial" in prompt
+    assert 'Test claimed UI/API/CLI/service flows' in prompt
+    assert 'at a safe public entry point' in prompt
+    assert 'Internal exploration needs its feedback experiment' in prompt
+    assert 'feedback experiment' in prompt
     assert "Never cause external or irreversible effects" in prompt
 
 
@@ -182,8 +185,8 @@ def test_the_verdict_vocabulary_is_stated_once(monkeypatch):
     # policy. Two definitions of the same four words is the redundancy this
     # budget exists to catch, and it cost more than the sentence it funded.
     p = _prompt(measured=False, monkeypatch=monkeypatch)
-    assert p.count("concrete in-scope material gap") == 1
-    assert p.count("wrong target or real boundary change") == 1
+    assert p.count('one material gap in scope') == 1
+    assert p.count('wrong target or scope change') == 1
 
 
 def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
@@ -208,12 +211,12 @@ def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
     assert stats["static_total"]["chars"] + stats["delta_total"]["chars"] == len(prompt)
 
 
-def test_bounded_submission_reviewer_stage_checklist_stays_compact(
+def test_bounded_review_stage_checklist_stays_compact(
     tmp_path,
     monkeypatch,
 ) -> None:
     monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
-    _persist_research_stage(tmp_path, "submission")
+    _persist_research_stage(tmp_path, "review")
     reviewer = Reviewer(runner=None, skill_store=None)
     prompt = reviewer._build_prompt(
         objective="bounded submission package repair",
@@ -231,12 +234,12 @@ def test_bounded_submission_reviewer_stage_checklist_stays_compact(
     stats = reviewer.last_prompt_block_stats["stage_checklist"]
     assert stats["chars"] < 10_000
     assert stats["estimated_tokens"] < 2_500
-    assert "## Stage checklist (submission)" in prompt
+    assert "## Stage checklist (review)" in prompt
     assert "Full pipeline checklist" not in prompt
-    assert "bounded mission" in prompt
-    assert "only the checklist items materially touched by this mission" in prompt
-    assert "submission.upstream" in prompt
-    assert "submission.anonymous" in prompt
+    assert "reviewing one task within a larger project" in prompt
+    assert "only the checklist items materially touched by this task" in prompt
+    assert "review.scope" in prompt
+    assert "review.visual" in prompt
 
 
 def test_reviewer_does_not_duplicate_identical_objective(monkeypatch):
@@ -297,7 +300,7 @@ def test_research_target_context_stays_compact(tmp_path, monkeypatch):
     The margin above is sized for the longest verification-profile line, not
     for another paragraph.
     """
-    from argus_skill.skills.vertical_select import persist_vertical
+    from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(
         tmp_path,
@@ -340,8 +343,8 @@ def test_reviewer_accepts_implementation_grounding_proportionally(
 ) -> None:
     prompt = _prompt(measured=False, monkeypatch=monkeypatch)
 
-    assert "primary-source grounding" in prompt
-    assert "community implementations may suffice for implementation details" in prompt
+    assert 'Use primary sources for external claims' in prompt
+    assert 'community code may ground implementation details' in prompt
     assert "`replan_requested` for a wrong target" in prompt
-    assert "Do not demand work outside the current profile" in prompt
-    assert "feedback-producing experiments or research" in prompt
+    assert 'Stay within this profile; require no future-proofing' in prompt
+    assert 'require experimental or research feedback' in prompt

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.daemon import process
+from argus.daemon import process
 
 
 def _config(tmp_path: Path):
@@ -46,7 +46,7 @@ def test_source_windows_worker_uses_python_module(monkeypatch, tmp_path: Path) -
     monkeypatch.delattr(process.sys, "frozen", raising=False)
 
     command = process._windows_daemon_command(config)
-    assert command[:3] == ["python.exe", "-m", "argus_skill"]
+    assert command[:3] == ["python.exe", "-m", "argus"]
     assert command[-6:] == [
         "--resume",
         "session-1",
@@ -195,7 +195,7 @@ def test_native_windows_worker_accepts_descendant_runtime(
         "import json, os, time\n"
         "from datetime import datetime, timezone\n"
         "from pathlib import Path\n"
-        "from argus_skill.core.daemon_lock import acquire_global_daemon_lock\n"
+        "from argus.core.daemon_lock import acquire_global_daemon_lock\n"
         f"life = Path({str(config.life_dir)!r})\n"
         "lock = acquire_global_daemon_lock(pid_path=life / 'daemon.pid')\n"
         "started = datetime.now(timezone.utc).isoformat()\n"

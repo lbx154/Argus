@@ -12,11 +12,18 @@ import type {
   GitDiffView,
   ProjectRow,
   ProjectCostRow,
+  ProgressSourceRef,
   RequestUsage,
   Role,
   Snapshot,
+  VerticalAction,
+  VerticalManageResult,
+  VerticalOperation,
+  VerticalsPayload,
 } from '../../core/src/types';
-import { ensureResponseOk } from '../../core/src/http';
+import { ApiError, ensureResponseOk } from '../../core/src/http';
+import { readerPreview, type ReaderPreview } from './map/copyMode';
+import { observePageRelease, requireCurrentPage } from './lib/pageUpdate';
 import {
   requireCompatibleApiMeta,
   requireSnapshotContract,
@@ -37,8 +44,144 @@ export type {
   Role,
   Snapshot,
   UsageSummary,
+  VerticalAction,
+  VerticalCatalogStatus,
+  VerticalKind,
+  VerticalManageResult,
+  VerticalOperation,
+  VerticalRow,
+  VerticalsPayload,
 } from '../../core/src/types';
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
+
+/** Advertised by GET /api/meta once the backend serves the vertical store. */
+export const VERTICAL_STORE_CAPABILITY = 'verticals.store.v1';
+
+export type SkillScope = 'global' | 'vertical' | 'project';
+export interface SkillLibraryItem {
+  library: string;
+  scope: SkillScope;
+  vertical: string;
+  source: 'bundled' | 'shared' | 'project' | 'native';
+  path: string;
+  name: string;
+  description: string;
+  role: string;
+  is_default: boolean;
+  updated_at: number | null;
+}
+export interface SkillCatalog {
+  scopes: SkillScope[];
+  items: SkillLibraryItem[];
+  verticals: string[];
+  active_vertical: string;
+  errors: string[];
+}
+export interface SkillDocument {
+  name: string;
+  description: string;
+  content: string;
+  markdown: string;
+  path: string;
+  source: SkillLibraryItem['source'];
+  scope: SkillScope;
+  vertical: string;
+  role: string;
+}
+
+/** One page of the project's shared Wiki, listed newest-first by the host. */
+export interface WikiPageSummary {
+  path: string;
+  title: string;
+  description: string;
+  updated_at: number;
+}
+/** The project Wiki as the host sees it: absent, or INDEX.md plus its pages. */
+export type WikiOverview =
+  | { exists: false }
+  | { exists: true; root: string; index_markdown: string; pages: WikiPageSummary[] };
+/** One Wiki page body; the host caps the Markdown and flags the cut. */
+export interface WikiPageDocument {
+  path: string;
+  title: string;
+  markdown: string;
+  truncated: boolean;
+  updated_at: number;
+}
+
+/** Status the host derived for one method component from the spec tests carrying its marker. */
+export type ResearchMethodComponentStatus = 'proven' | 'contradicted' | 'partial' | 'untested' | 'unchecked';
+/** One spec test joined to a component through its marker; outcome is null until the host has run it. */
+export interface ResearchMethodTest {
+  id: string;
+  kind: string;
+  outcome: string | null;
+}
+/** One component of the hand-written card; component/prescribes/notes are the agent's text, status/tests are derived. */
+export interface ResearchMethodComponent {
+  component: string;
+  prescribes: string;
+  notes: string;
+  status: ResearchMethodComponentStatus;
+  tests: ResearchMethodTest[];
+}
+/** A third_party/ clone or installed package the project's own code imports, found by the host's import scan. */
+export interface ResearchMethodReusedCode {
+  name: string;
+  kind: 'third_party' | 'package';
+  revision_or_version: string;
+  remote: string;
+  modules: string[];
+  imported_from: string[];
+}
+/** A value read from a run config file; `why` is the Engineer's `# why:` comment, `previous` the last snapshot when changed. */
+export interface ResearchMethodHyperparameter {
+  key: string;
+  value: string;
+  file: string;
+  why: string;
+  changed: boolean;
+  previous: string | null;
+}
+/** One git history entry touching the method. */
+export interface ResearchMethodChange {
+  when: string;
+  summary: string;
+  files: string[];
+}
+/** The latest host-run check round joined into the card. */
+export interface ResearchMethodChecks {
+  round_index: number;
+  ran_at: number;
+  exit_code: number | null;
+  counts: Record<string, number>;
+}
+/**
+ * A research project's method card: the hand-written METHOD.md plus what the
+ * host derived from code, tests, config files and git at zero model cost.
+ */
+export type ResearchMethod =
+  | { exists: false; error?: string }
+  | {
+    exists: true;
+    path: string;
+    /** METHOD.md mtime: epoch seconds or an ISO-8601 string; null when it could not be read. */
+    updated_at: number | string | null;
+    title: string;
+    /** First paragraph after the H1. */
+    statement: string;
+    markdown: string;
+    truncated: boolean;
+    components: ResearchMethodComponent[];
+    /** Components that carry test markers but are not named in the card. */
+    unlisted_components?: string[];
+    protocol: string;
+    falsifiers: string;
+    reused_code: ResearchMethodReusedCode[];
+    hyperparameters: ResearchMethodHyperparameter[];
+    change_log: ResearchMethodChange[];
+    checks: ResearchMethodChecks | null;
+  };
 
 export interface JournalEntry {
   id: string;
@@ -94,10 +237,28 @@ export interface ConfigKnob {
 }
 export interface ConfigSnapshot {
   schema_version: number;
+  trial_mode?: boolean;
   generated_at_utc: string;
   roles: ConfigRole[];
   operator_knobs: ConfigKnob[];
   how_to_change: string[];
+}
+export interface AdvisorConfig {
+  schema_version: number;
+  enabled: boolean;
+  backend: string;
+  model: string;
+  effort: string;
+  timeout_seconds: number;
+  max_calls_per_turn: number;
+  max_evidence_bytes: number;
+}
+export interface AdvisorSettings {
+  saved: AdvisorConfig;
+  config: AdvisorConfig;
+  overridden_fields: string[];
+  supported_backends: string[];
+  model_options?: Array<{ backend: string; model: string }>;
 }
 export interface Turn {
   ts: number;
@@ -143,6 +304,15 @@ export interface UploadedAttachment {
 export interface MessageAttachmentRef {
   attachment_id: string;
 }
+export interface ContinuousUpdateResult {
+  ok: boolean;
+  daemon?: {
+    rc?: number;
+    command_status?: string;
+    error?: string;
+    admission_required?: boolean;
+  };
+}
 /** Operator-owned message category; Task skips only the category classifier. */
 export type MessageRouteOverride = 'auto' | 'chat' | 'task';
 export interface AttachmentUploadResponse {
@@ -170,6 +340,27 @@ export interface MetricsSnapshot {
   event_validation_failures?: number;
   cost_control?: Record<string, unknown>;
   [key: string]: unknown;
+}
+export interface SourceUpdateStatus {
+  schema_version: number;
+  state: 'idle' | 'checking' | 'available' | 'current' | 'updating' | 'succeeded' | 'failed';
+  phase: string;
+  running: boolean;
+  source_root: string;
+  upstream: string;
+  current_revision: string;
+  upstream_revision: string;
+  branch: string;
+  dirty: boolean | null;
+  can_update: boolean;
+  update_available: boolean | null;
+  changed: boolean;
+  restart_required: boolean;
+  message: string;
+  error: string;
+  started_at: number | null;
+  checked_at: number | null;
+  updated_at: number;
 }
 
 const TOKEN_KEY = 'argus_web_token';
@@ -236,7 +427,7 @@ const API_LOCAL_READ_TIMEOUT_MS = 12_000;
 
 export class PairingRequiredError extends Error {
   constructor() {
-    super('This browser is not paired with Argus. Reopen it from Argus Desktop or use a fresh pairing link.');
+    super('This browser is not paired with Argus. Open a valid pairing link or enter a pairing token.');
     this.name = 'PairingRequiredError';
   }
 }
@@ -267,14 +458,22 @@ export function isConnectionError(error: unknown): boolean {
 }
 
 async function fetchArgus(path: string, init: RequestInit): Promise<Response> {
+  let response: Response;
   try {
-    return await fetch(path, init);
+    response = await fetch(path, init);
   } catch (error) {
     // React Query cancellation is normal lifecycle control, not a backend
     // outage. Preserve it so unmount/navigation cannot raise a false alarm.
     if (init.signal?.aborted) throw error;
     throw new LocalArgusUnavailableError(String(init.method ?? 'GET'), path);
   }
+  if (response.ok) {
+    observePageRelease(response.headers.get('X-Argus-Release'));
+    // Do not decode a newer snapshot with the old UI schema. Mutation
+    // receipts still belong to their accepted request and must be delivered.
+    if (!init.method || init.method === 'GET') requireCurrentPage();
+  }
+  return response;
 }
 
 export async function requestWithTimeout<T>(
@@ -354,11 +553,12 @@ async function getJson<T>(
   );
 }
 
-async function postJson<T = Record<string, unknown>>(
+async function postResponse(
   path: string,
   body?: unknown,
   signal?: AbortSignal,
-): Promise<T> {
+): Promise<Response> {
+  requireCurrentPage();
   const r = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -366,7 +566,16 @@ async function postJson<T = Record<string, unknown>>(
     signal,
   });
   await ensureResponseOk(r, 'POST', path);
-  return (await r.json()) as T;
+  observePageRelease(r.headers.get('X-Argus-Release'));
+  return r;
+}
+
+async function postJson<T = Record<string, unknown>>(
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  return (await (await postResponse(path, body, signal)).json()) as T;
 }
 
 async function postMultipart<T>(
@@ -374,6 +583,7 @@ async function postMultipart<T>(
   body: FormData,
   signal?: AbortSignal,
 ): Promise<T> {
+  requireCurrentPage();
   const r = await fetch(path, {
     method: 'POST',
     headers: authHeaders(),
@@ -381,10 +591,11 @@ async function postMultipart<T>(
     signal,
   });
   await ensureResponseOk(r, 'POST', path);
+  observePageRelease(r.headers.get('X-Argus-Release'));
   return (await r.json()) as T;
 }
 
-function requireDaemonCommand<T>(result: T): T {
+export function requireDaemonCommand<T>(result: T): T {
   const row = result && typeof result === 'object'
     ? result as Record<string, unknown>
     : {};
@@ -400,12 +611,14 @@ async function mutationJson<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  requireCurrentPage();
   const r = await fetch(path, {
     method,
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   await ensureResponseOk(r, method, path);
+  observePageRelease(r.headers.get('X-Argus-Release'));
   return (await r.json()) as T;
 }
 
@@ -416,7 +629,21 @@ async function getBlob(path: string, signal?: AbortSignal): Promise<Blob> {
 }
 
 const P = (sid: string, path = '') => `/api/projects/${encodeURIComponent(sid)}${path}`;
-const commandId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+
+/** URL of the served, self-sandboxing preview page for an HTML result. A
+ * sandboxed iframe loads it by URL so the delivered site keeps its own styles
+ * and scripts; the token rides in the query only when the app itself holds one,
+ * since an iframe cannot send an auth header (a hosted portal adds it upstream,
+ * and a localhost app needs none). */
+export function previewPageUrl(sid: string, path: string): string {
+  const params = new URLSearchParams({ path });
+  const t = authToken();
+  if (t) params.set('token', t);
+  return P(sid, `/artifact/preview/page?${params.toString()}`);
+}
+export const newRequestId = (): string => globalThis.crypto?.randomUUID?.()
+  ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const commandId = newRequestId;
 let apiMetaPromise: Promise<ApiMeta> | undefined;
 
 function isAbortSignal(value: unknown): value is AbortSignal {
@@ -432,10 +659,12 @@ function messageBody(
   text: string,
   attachments?: MessageAttachmentRef[],
   routeOverride?: MessageRouteOverride,
+  requestId?: string,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { text };
   if (attachments?.length) body.attachments = attachments;
   if (routeOverride && routeOverride !== 'auto') body.route_override = routeOverride;
+  if (requestId) body.request_id = requestId;
   return body;
 }
 
@@ -452,8 +681,10 @@ export function compatibleApiMeta(): Promise<ApiMeta> {
             throw new Error('incompatible Argus API: service does not expose /api/meta');
           }
           await ensureResponseOk(response, 'GET', path);
+          const payload = await response.json();
+          observePageRelease(payload?.runtime?.release_id);
           return requireCompatibleApiMeta(
-            await response.json(),
+            payload,
             (warning) => console.warn(`Argus API compatibility warning: ${warning}`),
           );
         },
@@ -475,17 +706,22 @@ export function compatibleApiMeta(): Promise<ApiMeta> {
   return apiMetaPromise;
 }
 
-/** One decoded SSE frame from the streaming Manager endpoint. */
+/** One decoded SSE frame from a streaming Argus endpoint. */
 export interface SSEFrame {
-  type: string; // phase | delta | done | error
+  type: string; // heartbeat | phase | delta | done | error
   [k: string]: unknown;
 }
+
+export type ExplanationPhase = 'waiting_for_source' | 'planning' | 'writing' | 'reviewing';
+const EXPLANATION_PHASES = new Set<unknown>(['waiting_for_source', 'planning', 'writing', 'reviewing']);
 
 /** The final ``done`` frame payload — same shape as blocking ``message()``. */
 export interface StreamDone {
   kind?: string;
   reply?: string | null;
   item?: BacklogItem | null;
+  /** Tool steps journaled with the reply (see core/phaseTrail TurnStep). */
+  steps?: unknown;
   [k: string]: unknown;
 }
 
@@ -496,10 +732,10 @@ export interface StreamDone {
  */
 export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string } {
   const frames: SSEFrame[] = [];
-  let idx: number;
-  while ((idx = buf.indexOf('\n\n')) >= 0) {
-    const raw = buf.slice(0, idx);
-    buf = buf.slice(idx + 2);
+  let separator: RegExpExecArray | null;
+  while ((separator = /\r?\n\r?\n/.exec(buf))) {
+    const raw = buf.slice(0, separator.index);
+    buf = buf.slice(separator.index + separator[0].length);
     for (const line of raw.split('\n')) {
       const l = line.trim();
       if (l.startsWith('data:')) {
@@ -514,9 +750,107 @@ export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string 
   return { frames, rest: buf };
 }
 
+/** Share Manager/map framing and wait for a terminal result, never a heartbeat. */
+async function readSSE(
+  response: Response,
+  label: string,
+  onFrame?: (frame: SSEFrame) => void,
+  signal?: AbortSignal,
+): Promise<SSEFrame> {
+  if (!response.body) throw new Error(`${label} returned no response body`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let terminal: SSEFrame | undefined;
+  let reachedEOF = false;
+  try {
+    for (;;) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      reachedEOF = done;
+      signal?.throwIfAborted();
+      buffer += done ? decoder.decode() + '\n\n' : decoder.decode(value, { stream: true });
+      const parsed = parseSSEFrames(buffer);
+      buffer = parsed.rest;
+      for (const frame of parsed.frames) {
+        onFrame?.(frame);
+        if (frame.type === 'done' || frame.type === 'error') terminal = frame;
+      }
+      if (done) {
+        if (!terminal) throw new Error(`${label} ended before a terminal event`);
+        return terminal;
+      }
+    }
+  } finally {
+    // Drain normal responses so the portal records complete collection, rather
+    // than interpreting a cancelled body after `done` as a client disconnect.
+    if (!reachedEOF) await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 let activeSnapshotPrewarmSid: string | null = null;
 
+/** An explicitly selected preview uses the normal web request and its own cache. */
+function mapCopyPath(source: string, name: string, values: Record<string, string>, sessionId?: string, preview = readerPreview(), foundationId?: string | null): string {
+  const params = new URLSearchParams(values);
+  if (sessionId) params.set('session_id', sessionId);
+  if (preview === 'source-first') params.set('preview', 'true');
+  if (preview === 'learning-path') params.set('preview', 'learning-path');
+  if (preview === 'question-foundation') {
+    params.set('preview', 'question-foundation');
+    if (foundationId) params.set('foundation_id', foundationId);
+  }
+  return `/api/map-copy/${source}/${encodeURIComponent(name)}?${params}`;
+}
+
+/** Both explanation purposes use the same stream and terminal/EOF semantics. */
+async function explanationResponse<T>(path: string, body: unknown, signal?: AbortSignal, onProgress?: (phase: ExplanationPhase) => void): Promise<T> {
+  const response = await postResponse(path, body, signal);
+  let receivedTerminal = false;
+  const terminal = await readSSE(response, 'Explanation stream', frame => {
+    if (frame.type === 'done' || frame.type === 'error') receivedTerminal = true;
+    if (!receivedTerminal && frame.type === 'progress' && EXPLANATION_PHASES.has(frame.phase))
+      onProgress?.(frame.phase as ExplanationPhase);
+  }, signal);
+  if (terminal.type === 'error') {
+    const detail = terminal.error && typeof terminal.error === 'object' ? terminal.error as Record<string, unknown> : undefined;
+    throw new ApiError(String(detail?.message ?? terminal.error ?? 'Explanation failed'),
+      typeof terminal.status === 'number' ? terminal.status : 0, 'POST', path,
+      typeof detail?.code === 'string' ? detail.code : '');
+  }
+  return terminal.result as T;
+}
+
 export const api = {
+  advisorSettings: (sid: string, signal?: AbortSignal) => getJson<AdvisorSettings>(P(sid, '/advisor/config'), signal),
+  saveAdvisorSettings: (sid: string, config: Partial<Omit<AdvisorConfig, 'schema_version'>>) => postJson<AdvisorSettings>(P(sid, '/advisor/config'), config),
+  liveMap: (sid: string, signal?: AbortSignal, after?: string, selection?: import('./map/incremental').MapSelection) => {
+    const params = new URLSearchParams();
+    if (after) params.set('after', after);
+    if (selection?.mode === 'current') {
+      params.set('since', String(selection.since));
+      params.set('event_since', String(selection.eventSince));
+      if (selection.taskId) params.set('start_task', selection.taskId);
+    }
+    return getJson<import('./map/model').Dataset>(P(sid, '/map') + (params.size ? `?${params}` : ''), signal);
+  },
+  mapInfo: (sid: string, signal?: AbortSignal) => getJson<import('./map/incremental').MapHistoryInfo>(P(sid, '/map-info'), signal),
+  mapHistory: (sid: string, signal?: AbortSignal, after?: string, taskAfter?: string) => {
+    const params = new URLSearchParams();
+    if (after) params.set('after', after);
+    if (taskAfter) params.set('task_after', taskAfter);
+    return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
+  },
+  mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, foundationId?: string | null) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview, foundationId), signal),
+  generateMapCopy: (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string; foundation_id?: string}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, onProgress?: (phase: ExplanationPhase) => void): Promise<import('./map/presentation').MapCopy> =>
+    explanationResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview, body.foundation_id), body, signal, onProgress),
+  generateReaderFoundation: (sid: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US'; source_task_id?: string; progress_source?: Pick<ProgressSourceRef, 'source_id'> }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
+    explanationResponse(P(sid, '/reader-foundation?stream=true'), body, undefined, onProgress),
+  askReaderFoundation: (sid: string, parentId: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US' }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
+    explanationResponse(P(sid, `/reader-foundation/${encodeURIComponent(parentId)}/question?stream=true`), body, undefined, onProgress),
+  mapDatasets: (signal?: AbortSignal) => getJson<{ datasets: import('./map/model').DatasetSummary[] }>('/api/map-datasets', signal),
+  mapDataset: (id: string, signal?: AbortSignal) => getJson<import('./map/model').Dataset>(`/api/map-datasets/${encodeURIComponent(id)}`, signal),
   meta: compatibleApiMeta,
   projectIndex: async () => {
     await compatibleApiMeta();
@@ -627,13 +961,18 @@ export const api = {
       P(sid, `/backlog/${encodeURIComponent(id)}`),
       signal,
     ).then((r) => r.item),
-  artifacts: (sid: string, signal?: AbortSignal) =>
-    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, '/artifacts'), signal)
+  artifacts: (sid: string, signal?: AbortSignal, includeReading = false) =>
+    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, `/artifacts${includeReading ? '?include_reading=true' : ''}`), signal)
       .then((r) => r.artifacts),
   artifact: (sid: string, path: string, signal?: AbortSignal) => {
     const q = new URLSearchParams({ path });
     return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`), signal);
   },
+  artifactPreview: (sid: string, path: string, signal?: AbortSignal) =>
+    getJson<{ html: string; warnings: string[]; file_count: number; served_page?: boolean }>(
+      P(sid, `/artifact/preview?${new URLSearchParams({ path })}`), signal),
+  artifactBundle: (sid: string, path: string, signal?: AbortSignal) =>
+    getBlob(P(sid, `/artifact/bundle?${new URLSearchParams({ path })}`), signal),
   artifactBlob: (
     sid: string,
     path: string,
@@ -648,6 +987,12 @@ export const api = {
     getJson<GitDiffView>(P(sid, '/git-diff'), signal),
   metrics: (signal?: AbortSignal) =>
     getJson<MetricsSnapshot>('/api/metrics', signal),
+  sourceUpdateStatus: (signal?: AbortSignal) =>
+    getJson<SourceUpdateStatus>('/api/runtime/source-update', signal),
+  checkSourceUpdate: () =>
+    postJson<SourceUpdateStatus>('/api/runtime/source-update/check'),
+  applySourceUpdate: () =>
+    postJson<SourceUpdateStatus>('/api/runtime/source-update/apply'),
   resources: (signal?: AbortSignal) =>
     getJson<ResourceStatus>('/api/system/resources', signal),
   trash: (query = '', limit = 100, offset = 0, signal?: AbortSignal) => {
@@ -664,6 +1009,20 @@ export const api = {
   restoreTrash: (trashId: string) =>
     postJson<{ ok: boolean; sid: string }>(`/api/trash/${encodeURIComponent(trashId)}/restore`),
 
+  // Vertical store. Errors keep the service's own sentence in ApiError.detail,
+  // so a 409 such as "used by projects s-…" can be shown on the card as written.
+  verticals: (signal?: AbortSignal) =>
+    getJson<VerticalsPayload>('/api/verticals', signal),
+  refreshVerticalCatalog: () =>
+    postJson<VerticalsPayload>('/api/verticals/catalog/refresh'),
+  manageVertical: (name: string, action: VerticalAction, options: { force?: boolean } = {}) =>
+    postJson<VerticalManageResult>(
+      `/api/verticals/${encodeURIComponent(name)}/manage/${action}`,
+      options.force ? { force: true } : {},
+    ),
+  verticalOperation: (name: string, signal?: AbortSignal) =>
+    getJson<VerticalOperation>(`/api/verticals/${encodeURIComponent(name)}/operation`, signal),
+
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),
   abortMission: (sid: string, reason: string) =>
@@ -671,6 +1030,10 @@ export const api = {
       P(sid, '/mission/abort'),
       { reason },
     ),
+  mapNotes: (sid: string, signal?: AbortSignal) =>
+    getJson<{ notes: import('./map/notes').MapNote[] }>(P(sid, '/map-notes'), signal),
+  addMapNote: (sid: string, body: { node_id: string; text: string; author?: string }) =>
+    postJson<{ note: import('./map/notes').MapNote }>(P(sid, '/map-notes'), body),
   answerPending: (sid: string, itemId: string, text: string) =>
     postJson<{
       answered_item_id: string;
@@ -707,6 +1070,10 @@ export const api = {
     files.forEach((file) => form.append('files', file, file.name));
     return postMultipart<AttachmentUploadResponse>(P(sid, '/attachments'), form, signal);
   },
+  answerDomain: (sid: string, id: string, optionId: string, note: string) =>
+    postJson<{ kind: string; reply?: string; resolved?: boolean; daemon?: { rc?: number; error?: string } }>(
+      P(sid, '/message'), { text: note || optionId, domain_answer: { id, option_id: optionId, note } },
+    ),
   /** The Manager front-door: NL message → chat reply or an enqueued mission. */
   message: (
     sid: string,
@@ -715,17 +1082,27 @@ export const api = {
       signal?: AbortSignal;
       attachments?: MessageAttachmentRef[];
       routeOverride?: MessageRouteOverride;
+      requestId?: string;
     },
   ) => {
     const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
     const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
-    return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'pending_question_choice' | 'error'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
+    const requestId = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.requestId;
+    return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'pending_question_choice' | 'error' | 'cancelled'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
       P(sid, '/message'),
-      messageBody(text, attachments, routeOverride),
+      messageBody(text, attachments, routeOverride, requestId),
       signal,
     );
   },
+  cancelMessage: (sid: string, requestId: string) =>
+    requestWithTimeout(P(sid, '/message/cancel'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ request_id: requestId }),
+    }, 5000, async (response) => {
+      await ensureResponseOk(response, 'POST', P(sid, '/message/cancel'));
+      return await response.json() as { requested: boolean; status: string };
+    }),
   /**
    * Streaming Manager front-door (SSE): ``onPhase`` per real step, ``onDelta``
    * per reply block as it's produced, ``onDone`` with the final classification,
@@ -739,7 +1116,18 @@ export const api = {
       onPhase?: (
         label: string,
         role: string,
-        meta: { heartbeat: boolean; quietS: number; kind: string; detail: string },
+        meta: {
+          heartbeat: boolean;
+          quietS: number;
+          kind: string;
+          detail: string;
+          /** Plain title of the tool call, its runner-side id and how it ended. */
+          tool: string;
+          toolKind: string;
+          callId: string;
+          status: string;
+          output: string;
+        },
       ) => void;
       onDelta?: (block: string, messageId: string, fragmentMode: string) => void;
       onDone?: (result: StreamDone) => void;
@@ -749,20 +1137,14 @@ export const api = {
       signal?: AbortSignal;
       attachments?: MessageAttachmentRef[];
       routeOverride?: MessageRouteOverride;
+      requestId?: string;
     },
   ): Promise<void> => {
     const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
     const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
-    const res = await fetch(P(sid, '/message/stream'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(messageBody(text, attachments, routeOverride)),
-      signal,
-    });
-    await ensureResponseOk(res, 'POST', P(sid, '/message/stream'));
-    if (!res.body) throw new Error('Manager stream returned no response body');
-    let sawTerminal = false;
+    const requestId = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.requestId;
+    const res = await postResponse(P(sid, '/message/stream'), messageBody(text, attachments, routeOverride, requestId), signal);
     const dispatch = (f: SSEFrame) => {
       if (signal?.aborted) return;
       if (f.type === 'phase') {
@@ -775,6 +1157,11 @@ export const api = {
             quietS: Number.isFinite(quietS) ? quietS : 0,
             kind: String(f.kind ?? ''),
             detail: String(f.detail ?? ''),
+            tool: String(f.tool ?? ''),
+            toolKind: String(f.tool_kind ?? ''),
+            callId: String(f.call_id ?? ''),
+            status: String(f.status ?? ''),
+            output: String(f.output ?? ''),
           },
         );
       }
@@ -786,29 +1173,13 @@ export const api = {
         );
       }
       else if (f.type === 'done') {
-        sawTerminal = true;
         handlers.onDone?.((f.result ?? {}) as StreamDone);
       }
       else if (f.type === 'error') {
-        sawTerminal = true;
         handlers.onError?.(new Error(String(f.error ?? 'stream error')));
       }
     };
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const parsed = parseSSEFrames(buf);
-      buf = parsed.rest;
-      parsed.frames.forEach(dispatch);
-    }
-    if (!signal?.aborted) {
-      parseSSEFrames(buf + '\n\n').frames.forEach(dispatch);
-      if (!sawTerminal) throw new Error('Manager stream ended before a terminal event');
-    }
+    await readSSE(res, 'Manager stream', dispatch, signal);
   },
   nudge: (sid: string, text: string) => postJson(P(sid, '/nudge'), { text }),
   note: (sid: string, text: string) => postJson(P(sid, '/note'), { text }),
@@ -833,6 +1204,14 @@ export const api = {
     postJson<{ ok: boolean }>(P(sid, '/reset')),
   skills: (sid: string, args = 'ls') =>
     postJson<{ text: string }>(P(sid, '/skills'), { args }).then((result) => result.text),
+  skillLibrary: (sid: string | null, signal?: AbortSignal) =>
+    getJson<SkillCatalog>(`/api/skill-library${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
+  skillDocument: (sid: string | null, library: string, path: string, signal?: AbortSignal) =>
+    getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
+  researchMethod: (sid: string, signal?: AbortSignal) => getJson<ResearchMethod>(P(sid, '/research/method'), signal),
+  wiki: (sid: string, signal?: AbortSignal) => getJson<WikiOverview>(P(sid, '/wiki'), signal),
+  wikiPage: (sid: string, path: string, signal?: AbortSignal) =>
+    getJson<WikiPageDocument>(P(sid, `/wiki/page?${new URLSearchParams({ path })}`), signal),
   setLaunchCwd: (sid: string, launchCwd: string) =>
     postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   setWorkdir: (sid: string, workdir: string) =>
@@ -844,7 +1223,12 @@ export const api = {
     postJson(P(sid, `/backlog/${encodeURIComponent(id)}/dispose`), { op }),
   stopBacklog: (sid: string, id: string) => postJson(P(sid, `/backlog/${encodeURIComponent(id)}/stop`)),
   setContinuous: (sid: string, enabled: boolean, objective = '') =>
-    postJson(P(sid, '/continuous'), { enabled, objective }),
+    postJson<ContinuousUpdateResult>(P(sid, '/continuous'), { enabled, objective }).then((result) => {
+      if (!enabled) return result;
+      if (!result.daemon) throw new Error('daemon start returned no result');
+      requireDaemonCommand(result.daemon);
+      return result;
+    }),
   startDaemon: (sid: string, expectedRevision?: number) => postJson(P(sid, '/daemon/start'), {
     command_id: commandId(),
     expected_revision: expectedRevision,

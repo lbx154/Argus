@@ -6,14 +6,14 @@ import { visibleBacklogItems } from '../../../core/src/backlog';
 import { priorityLabel, statusLabel } from '../lib/enumLabels';
 
 const STATUS_COLOR: Record<string, string> = {
-  in_progress: '#8fa7b8',
-  running: '#8fa7b8',
-  pending: '#7e7d75',
-  queued: '#7e7d75',
-  done: '#7fa386',
-  completed: '#7fa386',
-  blocked: '#c77b72',
-  failed: '#c77b72',
+  in_progress: 'rgb(var(--blue))',
+  running: 'rgb(var(--blue))',
+  pending: 'rgb(var(--ink-faint))',
+  queued: 'rgb(var(--ink-faint))',
+  done: 'rgb(var(--blue))',
+  completed: 'rgb(var(--blue))',
+  blocked: 'rgb(var(--err))',
+  failed: 'rgb(var(--err))',
 };
 
 /**
@@ -58,7 +58,7 @@ export function BacklogPanel({
           <EmptyHint>{t(showHistory ? 'backlog.noHistory' : 'backlog.empty')}</EmptyHint>
         )}
         {shown.map((it) => {
-          const color = STATUS_COLOR[it.status] ?? '#8a93a6';
+          const color = STATUS_COLOR[it.status] ?? 'rgb(var(--ink-faint))';
           const iterating = it.iterate;
           return (
             <div key={it.id} className="group border-b border-line/60 px-3 py-2 last:border-0">

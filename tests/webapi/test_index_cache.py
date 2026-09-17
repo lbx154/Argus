@@ -28,7 +28,7 @@ import time
 
 import pytest
 
-from argus_skill.webapi.index_cache import (
+from argus.webapi.index_cache import (
     DEFAULT_SNAPSHOT_TTL_SECONDS,
     DEFAULT_TTL_SECONDS,
     SNAPSHOT_TTL_ENV_VAR,
@@ -173,8 +173,9 @@ def test_waiters_see_the_leaders_failure_and_then_recover() -> None:
     assert "wrong" not in outcomes
     # The leader's caller sees the real error rather than a silent empty list.
     assert "raised" in outcomes
-    # Everyone else recovers instead of inheriting a cached failure.
-    assert outcomes.count("ok") >= 1
+    # A later request can recover; callers already in the failed flight do not
+    # silently become another layer of retries. Some threads may start later.
+    assert cache.get("k", flaky) == ["recovered"]
 
 
 def test_invalidate_drops_cached_values() -> None:

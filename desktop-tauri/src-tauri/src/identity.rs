@@ -25,6 +25,58 @@ pub struct ExpectedPriorBackendOwnership {
     pub token_sha256: String,
 }
 
+/// Enable native inspection only for an explicitly isolated preview QA process.
+pub fn preview_qa_enabled(preview: bool, namespace: Option<&str>) -> bool {
+    preview && namespace.is_some_and(|value| (16..=64).contains(&value.len())
+        && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+/// Isolate preview smoke mutexes while retaining real single-instance behavior.
+/// Release builds ignore this test namespace; user-facing preview defaults stay
+/// unchanged. The caller also supplies a fresh AppData/WebView directory.
+pub fn preview_instance_identifier(base: &str, preview: bool, namespace: Option<&str>) -> String {
+    match namespace {
+        Some(value) if preview_qa_enabled(preview, Some(value)) => format!("{base}.test{value}"),
+        _ => base.to_owned(),
+    }
+}
+
+/// A production host may bypass its instance mutex only for a fully isolated
+/// packaged-host test. An ambient flag alone must not duplicate a real profile.
+fn isolated_host_qa_paths(
+    namespace: &str,
+    root: &std::path::Path,
+    temporary: &std::path::Path,
+    homes: &[std::path::PathBuf],
+) -> bool {
+    if !preview_qa_enabled(true, Some(namespace)) || homes.len() != 9 {
+        return false;
+    }
+    if !root.file_name().is_some_and(|name| name.to_string_lossy().starts_with("argus-tauri-host-smoke-")) {
+        return false;
+    }
+    let (Ok(root), Ok(temporary)) = (root.canonicalize(), temporary.canonicalize()) else {
+        return false;
+    };
+    if root == temporary || !root.starts_with(&temporary) || !root.is_dir() {
+        return false;
+    }
+    homes.iter().all(|home| home.canonicalize().is_ok_and(|home| {
+        home != root && home.starts_with(&root) && home.is_dir()
+    }))
+}
+
+pub fn isolated_host_qa_from_env() -> bool {
+    let Some(root) = std::env::var_os("ARGUS_DESKTOP_QA_ROOT") else { return false; };
+    let Ok(namespace) = std::env::var("ARGUS_DESKTOP_TEST_INSTANCE") else { return false; };
+    let names = ["APPDATA", "LOCALAPPDATA", "HOME", "USERPROFILE", "ARGUS_SKILL_HOME",
+                 "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR", "CLAUDE_CONFIG_DIR"];
+    let homes: Option<Vec<_>> = names.iter().map(|name| std::env::var_os(name).map(std::path::PathBuf::from)).collect();
+    homes.is_some_and(|homes| isolated_host_qa_paths(
+        &namespace, &std::path::PathBuf::from(root), &std::env::temp_dir(), &homes,
+    ))
+}
+
 /// Canonicalize Windows comparison spelling without changing the path's target.
 /// Rust's `std::fs::canonicalize` returns the `\\\\?\\` extended form, while
 /// Python's `sys.executable` reports an ordinary drive path. They identify the
@@ -44,8 +96,33 @@ pub fn normalized_windows_path(value: &str) -> String {
     }
 }
 
+/// A path suitable for CLI environment variables and command shims. cmd.exe
+/// does not support the verbatim spelling returned by Rust canonicalization.
+pub fn shell_command_path(path: &std::path::Path) -> String {
+    let value = path.to_string_lossy();
+    if cfg!(windows) {
+        normalized_windows_path(&value)
+    } else {
+        value.into_owned()
+    }
+}
+
 pub fn same_path(left: &str, right: &str) -> bool {
-    normalized_windows_path(left).eq_ignore_ascii_case(&normalized_windows_path(right))
+    #[cfg(windows)]
+    { normalized_windows_path(left).eq_ignore_ascii_case(&normalized_windows_path(right)) }
+    #[cfg(not(windows))]
+    { left == right }
+}
+
+pub fn save_ownership(path: &std::path::Path, ownership: &BackendOwnership) -> anyhow::Result<()> {
+    use std::io::Write;
+    let parent = path.parent().ok_or_else(|| anyhow::anyhow!("ownership directory unavailable"))?;
+    std::fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(&serde_json::to_vec_pretty(ownership)?)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path)?;
+    Ok(())
 }
 
 pub fn backend_launch_claim_matches(
@@ -76,7 +153,8 @@ pub fn backend_ownership_matches(
     probe: &ProbeIdentity,
     expected: &ExpectedBackendIdentity,
 ) -> bool {
-    ownership.schema == 3
+    probe.authenticated
+        && ownership.schema == 3
         && ownership.pid == probe.pid.unwrap_or_default()
         && ownership.root_pid > 0
         && ownership.host == expected.host
@@ -156,6 +234,55 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn command_shims_use_normal_unicode_windows_paths() {
+        let path = std::path::Path::new(r"\\?\D:\体验 preview\argus-backend.exe");
+        assert_eq!(shell_command_path(path), r"D:\体验 preview\argus-backend.exe");
+    }
+
+    #[test]
+    fn test_instance_is_preview_only_and_validated() {
+        let nonce = "a123456789abcdef";
+        assert!(preview_qa_enabled(true, Some(nonce)));
+        assert!(!preview_qa_enabled(false, Some(nonce)));
+        assert!(!preview_qa_enabled(true, None));
+        assert_eq!(preview_instance_identifier("cn.argus.preview", true, Some(nonce)),
+                   "cn.argus.preview.testa123456789abcdef");
+        assert_eq!(preview_instance_identifier("cn.argus", false, Some(nonce)), "cn.argus");
+        for value in ["", "short", "../../another-app", "not a valid namespace"] {
+            assert!(!preview_qa_enabled(true, Some(value)));
+            assert_eq!(preview_instance_identifier("cn.argus", true, Some(value)), "cn.argus");
+        }
+    }
+
+    #[test]
+    fn host_qa_requires_every_home_inside_one_temporary_root() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("argus-tauri-host-smoke-fixture");
+        std::fs::create_dir(&root).unwrap();
+        let mut homes: Vec<_> = (0..9).map(|index| root.join(format!("home-{index}"))).collect();
+        for home in &homes { std::fs::create_dir(home).unwrap(); }
+        let nonce = "a123456789abcdef";
+        assert!(isolated_host_qa_paths(nonce, &root, temporary.path(), &homes));
+        assert!(!isolated_host_qa_paths("invalid", &root, temporary.path(), &homes));
+        assert!(!isolated_host_qa_paths(nonce, &root, temporary.path(), &homes[..8]));
+        homes[0] = temporary.path().to_path_buf();
+        assert!(!isolated_host_qa_paths(nonce, &root, temporary.path(), &homes));
+        homes[0] = root.join("does-not-exist");
+        assert!(!isolated_host_qa_paths(nonce, &root, temporary.path(), &homes));
+    }
+
+    #[test]
+    fn qa_root_cannot_be_a_real_profile_or_the_temp_directory_itself() {
+        let temporary = tempfile::tempdir().unwrap();
+        let home = temporary.path().join("ordinary-profile");
+        std::fs::create_dir(&home).unwrap();
+        let homes = vec![home.clone(); 9];
+        assert!(!isolated_host_qa_paths("a123456789abcdef", &home, temporary.path(), &homes));
+        assert!(!isolated_host_qa_paths("a123456789abcdef", temporary.path(), temporary.path(), &homes));
+    }
+
+    #[test]
     fn exact_owned_backend_matches() {
         let ownership = BackendOwnership {
             schema: 3,
@@ -176,6 +303,17 @@ mod tests {
             token_sha256: ownership.token_sha256.clone(),
         };
         assert!(backend_ownership_matches(&ownership, &probe(), &expected));
+        let mut unauthenticated = probe();
+        unauthenticated.authenticated = false;
+        assert!(!backend_ownership_matches(&ownership, &unauthenticated, &expected));
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("runtime/backend.json");
+        save_ownership(&path, &ownership).unwrap();
+        let stored: BackendOwnership = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(stored.pid, ownership.pid);
+        assert_eq!(stored.started_at, ownership.started_at);
+        save_ownership(&path, &ownership).unwrap();
+        assert!(serde_json::from_slice::<BackendOwnership>(&std::fs::read(&path).unwrap()).is_ok());
         assert!(!backend_ownership_matches(
             &BackendOwnership {
                 pid: 1,

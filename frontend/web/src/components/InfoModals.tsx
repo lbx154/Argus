@@ -1,10 +1,16 @@
-import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { MapModelSettings } from '../map/MapModelSettings';
+import { AdvisorSettings } from './AdvisorSettings';
+import { useDoctor, useConfig, useIdentity, useTranscript, useSnapshot } from '../hooks';
+import { ApiError } from '../../../core/src/http';
 import { Modal, ModalHeader } from './Modal';
-import { Spinner, EmptyHint } from './primitives';
+import { Spinner, EmptyHint, RawDisclosure } from './primitives';
+import { lastMeaningfulLine } from '../lib/rawSummary';
 import { effortColor } from '../lib/theme';
 import { ago } from '../lib/format';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
+import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheck, faChevronDown, faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
 import {
@@ -13,26 +19,27 @@ import {
   type DisplayConfigKnob,
 } from '../lib/configSurface';
 import { roleLabel } from '../lib/enumLabels';
+import { agentRoleDescription, isAgentRole } from '../lib/agentRoles';
 import { useI18n } from '../i18n';
+import { requestFailureText } from '../lib/requestFailure';
+import {
+  BACKEND_OPTIONS,
+  backendLabel,
+  backendOption,
+  configuredBackend,
+  type BackendOption,
+} from '../lib/backend';
 
 const BUDGET_FIELDS = [
   { alias: 'global_daily_cap', env: 'ARGUS_SKILL_GLOBAL_DAILY_CAP_USD', label: 'settings.budget.global', unit: 'settings.unit.usd', step: '0.1' },
+  { alias: 'global_daily_tokens', env: 'ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP', label: 'settings.budget.tokens', unit: 'settings.unit.tokens', step: '1000' },
   { alias: 'codex_daily_requests', env: 'ARGUS_SKILL_CODEX_DAILY_CALL_CAP', label: 'settings.budget.codex', unit: 'settings.unit.calls', step: '1' },
   { alias: 'copilot_daily_requests', env: 'ARGUS_SKILL_COPILOT_DAILY_CALL_CAP', label: 'settings.budget.copilot', unit: 'settings.unit.calls', step: '1' },
   { alias: 'copilot_daily_premium', env: 'ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP', label: 'settings.budget.premium', unit: 'settings.unit.requests', step: '1' },
 ] as const;
 
-const BACKENDS = [
-  { value: 'copilot', label: 'settings.backend.copilot' },
-  { value: 'codex', label: 'settings.backend.codex' },
-  { value: 'claude', label: 'settings.backend.claude' },
-  { value: 'cursor', label: 'settings.backend.cursor' },
-  { value: 'opencode', label: 'settings.backend.opencode' },
-] as const;
-
 const KNOB_TEXT: Record<string, { label: string; doc: string }> = {
   ARGUS_SKILL_MAX_ACTIVE_DAEMONS: { label: 'settings.knob.activeDaemons', doc: 'settings.knob.activeDaemonsDoc' },
-  ARGUS_SKILL_UNPRICED_COST_POLICY: { label: 'settings.knob.unpricedCalls', doc: 'settings.knob.unpricedCallsDoc' },
   ARGUS_SKILL_SAFE_MODE: { label: 'settings.knob.safeMode', doc: 'settings.knob.safeModeDoc' },
   ARGUS_SKILL_ENABLE_TELEGRAM: { label: 'settings.knob.telegram', doc: 'settings.knob.telegramDoc' },
   ARGUS_SKILL_SHOW_REASONING: { label: 'settings.knob.showReasoning', doc: 'settings.knob.showReasoningDoc' },
@@ -42,14 +49,6 @@ const GROUP_TEXT: Record<string, string> = {
   Limits: 'settings.group.limits',
   Safety: 'settings.group.safety',
   Interface: 'settings.group.interface',
-};
-
-const ROLE_DESCRIPTION_TEXT: Record<string, string> = {
-  manager: 'settings.role.managerDoc',
-  planner: 'settings.role.plannerDoc',
-  engineer: 'settings.role.engineerDoc',
-  reviewer: 'settings.role.reviewerDoc',
-  curator: 'settings.role.curatorDoc',
 };
 
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
@@ -67,10 +66,6 @@ function configSourceLabel(source: string, t: Translate): string {
 
 function configValueLabel(knob: DisplayConfigKnob, t: Translate): string {
   const value = knob.value.trim().toLowerCase();
-  if (knob.name === 'ARGUS_SKILL_UNPRICED_COST_POLICY') {
-    if (value === 'block') return t('settings.value.block');
-    if (value === 'allow') return t('settings.value.allow');
-  }
   if (['ARGUS_SKILL_SAFE_MODE', 'ARGUS_SKILL_ENABLE_TELEGRAM', 'ARGUS_SKILL_SHOW_REASONING'].includes(knob.name)) {
     return t(['1', 'true', 'on', 'yes'].includes(value) ? 'settings.value.enabled' : 'settings.value.disabled');
   }
@@ -135,10 +130,16 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
             </div>
           ))}
         </div>}
-        {!isLoading && !isError && data?.log_tail && (
+        {!isLoading && !isError && data?.log_tail?.trim() && (
           <div className="mt-4">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('doctor.daemonLog')}</div>
-            <pre className="max-h-48 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">{data.log_tail}</pre>
+            <p className="text-xs leading-5 text-ink-dim">
+              <span className="text-ink-faint">{t('doctor.lastEntry')} · </span>
+              {lastMeaningfulLine(data.log_tail)}
+            </p>
+            <RawDisclosure>
+              <pre className="mt-1 max-h-48 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">{data.log_tail}</pre>
+            </RawDisclosure>
           </div>
         )}
       </div>
@@ -146,13 +147,24 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
   );
 }
 
-export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
+export function ConfigModal({
+  sid,
+  open,
+  onClose,
+}: {
+  sid: string;
+  open: boolean;
+  onClose: () => void;
+}) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
+  const { data: snapshot } = useSnapshot(open ? sid : null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [quickModelValue, setQuickModelValue] = useState('');
   const [quickConfigBusy, setQuickConfigBusy] = useState(false);
   const [quickConfigMsg, setQuickConfigMsg] = useState('');
+  const [quickConfigError, setQuickConfigError] = useState(false);
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
@@ -171,18 +183,23 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
       BUDGET_FIELDS.map((field) => [field.alias, byName.get(field.env) ?? '']),
     ));
   }, [data, open]);
-  const currentBackend = data?.operator_knobs?.find((knob) => knob.name === 'ARGUS_SKILL_RUNNER_BACKEND')?.value
-    ?? data?.roles?.[0]?.backend
-    ?? '';
-  const setBackend = async (backend: string) => {
+  const refreshSettings = async () => {
+    await refetch();
+    await queryClient.invalidateQueries({ queryKey: ['map-copy'] });
+  };
+  const currentBackend = configuredBackend(data);
+  const setBackend = async (backend: BackendOption) => {
     if (quickConfigBusy) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
+    setQuickConfigError(false);
     try {
       await api.setConfig(sid, 'ARGUS_SKILL_RUNNER_BACKEND', backend);
-      await refetch();
+      await refreshSettings();
+      setQuickConfigMsg(t('settings.backendSwitched', { backend: backendLabel(backend, t) }));
     } catch (error) {
-      setQuickConfigMsg(error instanceof Error ? error.message : String(error));
+      setQuickConfigError(true);
+      setQuickConfigMsg(requestFailureText(error, t).text);
     } finally {
       setQuickConfigBusy(false);
     }
@@ -191,12 +208,14 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
     if (quickConfigBusy) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
+    setQuickConfigError(false);
     try {
       await api.setConfig(sid, 'ARGUS_SKILL_MODEL', quickModelValue.trim() || 'auto');
-      await refetch();
+      await refreshSettings();
       setQuickConfigMsg(t('settings.applied'));
     } catch (error) {
-      setQuickConfigMsg(error instanceof Error ? error.message : String(error));
+      setQuickConfigError(true);
+      setQuickConfigMsg(requestFailureText(error, t).text);
     } finally {
       setQuickConfigBusy(false);
     }
@@ -209,13 +228,20 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
       const values = Object.fromEntries(BUDGET_FIELDS.map((field) => {
         const value = String(budgets[field.alias] ?? '').trim();
         if (!value) throw new Error(t('settings.required', { field: t(field.label) }));
+        const number = Number(value);
+        const integer = field.alias === 'global_daily_tokens' || field.alias.endsWith('_requests');
+        if (!Number.isFinite(number) || number < 0 || (integer && !Number.isInteger(number))) {
+          throw new Error(t('settings.budgetInvalid', { field: t(field.label) }));
+        }
         return [field.alias, value];
       }));
       await api.setBudgets(sid, values);
-      await refetch();
+      await refreshSettings();
       setBudgetResult(t('settings.budgetSaved'));
     } catch (error) {
-      setBudgetResult(error instanceof Error ? error.message : String(error));
+      setBudgetResult(error instanceof ApiError
+        ? requestFailureText(error, t).text
+        : error instanceof Error ? error.message : requestFailureText(error, t).text);
     } finally {
       setBudgetBusy(false);
     }
@@ -227,10 +253,10 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
     setResult('');
     try {
       await api.setConfig(sid, name.trim(), value.trim());
-      await refetch();
+      await refreshSettings();
       setResult(t('settings.applied'));
     } catch (error) {
-      setResult(error instanceof Error ? error.message : String(error));
+      setResult(requestFailureText(error, t).text);
     } finally {
       setBusy(false);
     }
@@ -253,28 +279,28 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
         {!isLoading && !isError && !hasData && <EmptyHint>{t('settings.empty')}</EmptyHint>}
         {!isLoading && !isError && hasData && data && (
           <div className="space-y-4">
-            <section className="rounded-lg border border-line glass-card p-3">
+            {!data.trial_mode && <section className="rounded-lg border border-line glass-card p-3">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.quickConfig')}</div>
-              <div className="flex flex-wrap items-center gap-2">
+              <label className="flex flex-wrap items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.backend')}</span>
-                <div className="flex flex-wrap gap-1">
-                  {BACKENDS.map((backend) => (
-                    <button
-                      key={backend.value}
-                      type="button"
-                      disabled={quickConfigBusy}
-                      onClick={() => void setBackend(backend.value)}
-                      className={`h-7 rounded-md px-2.5 text-xs font-medium transition-colors disabled:opacity-40 ${
-                        currentBackend === backend.value
-                          ? 'bg-blue-deep text-white'
-                          : 'border border-line/70 text-ink-dim hover:border-blue/50'
-                      }`}
-                    >
-                      {t(backend.label)}
-                    </button>
+                <select
+                  value={backendOption(currentBackend)}
+                  disabled={quickConfigBusy}
+                  onChange={(event) => void setBackend(event.target.value as BackendOption)}
+                  className="h-8 min-w-44 rounded border border-line bg-bg px-2 text-xs text-ink outline-none focus:border-blue disabled:opacity-40"
+                >
+                  {!backendOption(currentBackend) ? (
+                    <option value="" disabled>
+                      {currentBackend
+                        ? t('settings.backendUnsupported', { backend: currentBackend })
+                        : t('settings.backendUnavailable')}
+                    </option>
+                  ) : null}
+                  {BACKEND_OPTIONS.map((backend) => (
+                    <option key={backend.value} value={backend.value}>{t(backend.label)}</option>
                   ))}
-                </div>
-              </div>
+                </select>
+              </label>
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.model')}</span>
                 <input
@@ -287,19 +313,44 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
                   {t('settings.applyModel')}
                 </button>
               </div>
-              {quickConfigMsg && <div className="mt-1.5 text-[10px] text-ink-dim">{quickConfigMsg}</div>}
-            </section>
+              {quickConfigMsg && (
+                <div
+                  role={quickConfigError ? 'alert' : 'status'}
+                  className={`mt-1.5 text-[10px] ${quickConfigError ? 'text-err' : 'text-ink-dim'}`}
+                >
+                  {quickConfigMsg}
+                </div>
+              )}
+            </section>}
+
+            {data.trial_mode && <section className="rounded-lg border border-blue/30 bg-blue/5 p-3" aria-label={t('settings.trialAccount')}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">{t('settings.trialAccount')}</h3>
+                  <p className="mt-1 text-xs text-ink-dim">GPT-5.5 · high</p>
+                  <p className="mt-1 text-xs text-ink-faint">{t('settings.trialKeyHint')}</p>
+                </div>
+                {canOpenDesktopSettings() && <button type="button" className="compact-control px-3 py-2" onClick={() => { onClose(); openDesktopTrialSettings(); }}>{t('settings.changeTrialKey')}</button>}
+              </div>
+            </section>}
+
+            <MapModelSettings sid={sid} config={data} onSaved={refreshSettings} />
+            <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />
 
             <section className="rounded-lg border border-gold/40 bg-gold/5 p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-gold">{t('settings.budgetTitle')}</div>
                   <p className="mt-0.5 text-[10px] text-ink-faint">{t('settings.budgetHint')}</p>
+                  {snapshot?.cost_control?.daily_tokens != null && <p className="mt-1 text-xs tabular-nums text-ink-dim">
+                    {t('settings.tokensUsed', { count: snapshot.cost_control.daily_tokens.toLocaleString() })}
+                  </p>}
                 </div>
-                <button type="button" onClick={() => void saveBudgets()} disabled={budgetBusy} title={t('settings.saveBudgets')} aria-label={t('settings.saveBudgets')} className="flex h-9 w-9 items-center justify-center rounded bg-gold text-xs font-semibold text-bg disabled:opacity-40">{budgetBusy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
+                <button type="button" onClick={() => void saveBudgets()} disabled={budgetBusy} title={t('settings.saveBudgets')} aria-label={t('settings.saveBudgets')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-semibold text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-40">{budgetBusy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {BUDGET_FIELDS.map((field) => (
+                {BUDGET_FIELDS.filter((field) => field.alias.startsWith('global_') ||
+                  field.alias.startsWith(`${currentBackend}_`)).map((field) => (
                   <label key={field.alias} className="rounded border border-line/70 bg-bg/60 p-2">
                     <span className="block text-[10px] text-ink-faint">{t(field.label)}</span>
                     <div className="mt-1 flex items-center gap-2">
@@ -347,7 +398,7 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
                     <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                       <input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('settings.namePlaceholder')} className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
                       <input value={value} onChange={(event) => setValue(event.target.value)} placeholder={t('settings.valuePlaceholder')} className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
-                      <button disabled={busy || !name.trim() || !value.trim()} title={t('settings.applyAdvanced')} aria-label={t('settings.applyAdvanced')} className="flex h-9 w-9 items-center justify-center rounded bg-blue-deep text-xs font-medium text-white disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faCheck} />}</button>
+                      <button disabled={busy || !name.trim() || !value.trim()} title={t('settings.applyAdvanced')} aria-label={t('settings.applyAdvanced')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faCheck} />}</button>
                     </div>
                     {result ? <div className="mt-2 text-xs text-ink-dim">{result}</div> : null}
                   </form>
@@ -371,7 +422,7 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
                                 </span>
                               )}
                             </div>
-                            {ROLE_DESCRIPTION_TEXT[role.role] && <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{t(ROLE_DESCRIPTION_TEXT[role.role])}</p>}
+                            {(isAgentRole(role.role) || role.role === 'curator') && <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{isAgentRole(role.role) ? agentRoleDescription(role.role, t) : t('settings.role.curatorDoc')}</p>}
                           </div>
                         ))}
                       </div>
@@ -412,7 +463,7 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
                   )}
 
                   <p className="text-[10px] text-ink-faint">
-                    {t('settings.footer')} <code>argus-skill --config-help</code>.
+                    {t('settings.footer')} <code>argus --config-help</code>.
                   </p>
                 </div>
               )}
@@ -443,7 +494,7 @@ export function IdentityModal({ sid, open, onClose }: { sid: string; open: boole
       await refetch();
       setResult(t('identity.saved'));
     } catch (error) {
-      setResult(error instanceof Error ? error.message : String(error));
+      setResult(requestFailureText(error, t).text);
     } finally {
       setBusy(false);
     }
@@ -458,7 +509,7 @@ export function IdentityModal({ sid, open, onClose }: { sid: string; open: boole
             <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={12} className="w-full resize-y rounded-lg border border-line bg-bg p-3 font-sans text-sm leading-relaxed text-ink outline-none focus:border-blue" placeholder={t('identity.placeholder')} />
             <div className="mt-3 flex items-center justify-between">
               <span className="text-xs text-ink-faint">{result}</span>
-              <button type="button" onClick={() => void save()} disabled={busy || draft === (data ?? '')} title={t('identity.save')} aria-label={t('identity.save')} className="flex h-9 w-9 items-center justify-center rounded bg-blue-deep text-xs font-medium text-white disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
+              <button type="button" onClick={() => void save()} disabled={busy || draft === (data ?? '')} title={t('identity.save')} aria-label={t('identity.save')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
             </div>
           </>
         ) : null}

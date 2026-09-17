@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import inspect
 
-from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer import Reviewer, ReviewerConfig
 
 
 class _DeadResult:

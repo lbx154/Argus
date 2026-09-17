@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.verticals.kernel_engineering.attempt_outcome import (
+from argus.verticals.kernel_engineering.attempt_outcome import (
     main,
     validate_outcome,
 )
