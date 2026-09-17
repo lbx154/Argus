@@ -189,7 +189,7 @@ def test_monitor_preserves_callbacks_and_prioritizes_operator_interrupt() -> Non
 
 
 def test_monitor_only_learns_parent_session_from_stdout_protocol_events() -> None:
-    ctx = SimpleNamespace(resume_thread_id="resumed-parent")
+    ctx = SimpleNamespace(resume_thread_id=None)
     monitor = LiveBudgetMonitor(ctx)
     monitor.observe("engineer-r1.stderr", json.dumps({
         "type": "session.start", "data": {"sessionId": "stderr-session"},
@@ -197,12 +197,32 @@ def test_monitor_only_learns_parent_session_from_stdout_protocol_events() -> Non
     monitor.observe("engineer-r1.stdout", json.dumps({
         "type": "tool.execution_start", "data": {"arguments": {"sessionId": "child-session"}},
     }))
-    assert monitor.session_id == "resumed-parent"
+    assert monitor.session_id is None
 
     monitor.observe("engineer-r1.stdout", json.dumps({
         "type": "session.start", "data": {"sessionId": "fresh-parent"},
     }))
     assert monitor.session_id == "fresh-parent"
+
+
+def test_monitor_keeps_resumed_parent_and_flags_a_conflicting_stdout_session() -> None:
+    # A resumed call already owns its provider-session identity. A stdout
+    # session.start that names a different session is an identity conflict:
+    # the receipts would land under a session this call cannot account for,
+    # so the monitor keeps the resumed identity and fails the cost check.
+    ctx = SimpleNamespace(resume_thread_id="resumed-parent")
+    monitor = LiveBudgetMonitor(ctx)
+    monitor.observe("engineer-r1.stdout", json.dumps({
+        "type": "session.start", "data": {"sessionId": "resumed-parent"},
+    }))
+    assert monitor.session_id == "resumed-parent"
+    assert monitor.reason == ""
+
+    monitor.observe("engineer-r1.stdout", json.dumps({
+        "type": "session.start", "data": {"sessionId": "fresh-parent"},
+    }))
+    assert monitor.session_id == "resumed-parent"
+    assert monitor.check() == "unresolved provider cost: provider_session_identity_conflict"
 
 
 def test_acp_publishes_parent_session_before_prompt_execution(
