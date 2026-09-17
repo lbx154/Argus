@@ -47,6 +47,28 @@ def test_registry_records_team_task_owner(tmp_path, monkeypatch):
     assert updated["owner_team_task_id"] == "team::route-1"
 
 
+def test_registry_records_parent_mission_owner(tmp_path, monkeypatch):
+    monkeypatch.setattr(subagent._registry, "REGISTRY_DIR", tmp_path)
+    monkeypatch.setenv("ARGUS_PLUGIN_PARENT_MISSION_ID", "mission-1")
+
+    subagent._write_task(
+        "owned-job",
+        {"state": "running", "task_id": "owned-job", "pid": 4321},
+    )
+    first = subagent._read_task("owned-job")
+    assert first is not None
+    assert first["owner_mission_id"] == "mission-1"
+
+    monkeypatch.setenv("ARGUS_PLUGIN_PARENT_MISSION_ID", "mission-2")
+    subagent._write_task(
+        "owned-job",
+        {"state": "done", "task_id": "owned-job", "pid": 0},
+    )
+    updated = subagent._read_task("owned-job")
+    assert updated is not None
+    assert updated["owner_mission_id"] == "mission-1"
+
+
 def test_failed_states_exit_nonzero(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(subagent._registry, "REGISTRY_DIR", tmp_path)
     monkeypatch.setattr(subagent._registry, "_is_pid_alive", lambda pid: False)

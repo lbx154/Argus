@@ -31,6 +31,13 @@ log = logging.getLogger(__name__)
 
 _RUNNING_STALL_ERROR = "executor exited without completing the task"
 _RUNNING_STALL_POLL_SECONDS = 1.0
+_SUBAGENT_INFLIGHT_STATES = frozenset({
+    "discussing",
+    "preflight",
+    "running",
+    "starting",
+    "waiting_resource",
+})
 
 
 def _maybe_consolidate(rf_state: Any, config: Any) -> None:
@@ -85,6 +92,124 @@ class LifeWorkerRunMixin:
     # Set by LifeWorker at construction (a LifeWorkerConfig).
     config: Any
 
+    @staticmethod
+    def _owned_subagent(
+        rf_state: _RunForeverState,
+        mission_id: str,
+    ) -> tuple[str, str] | None:
+        def timestamp(value: object) -> float:
+            try:
+                return float(value or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        workdir = getattr(getattr(rf_state, "cfg", None), "project_workdir", None)
+        if not workdir:
+            return None
+        registry = Path(workdir) / ".argus_subagents"
+        if not registry.is_dir():
+            return None
+        owned: list[tuple[float, str, str]] = []
+        for path in registry.glob("*.json"):
+            try:
+                import json
+
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(record, dict):
+                continue
+            if str(record.get("owner_mission_id") or "").strip() != mission_id:
+                continue
+            task_id = str(record.get("task_id") or path.stem).strip()
+            state = str(record.get("state") or "").strip().lower()
+            if not task_id or not state:
+                continue
+            observed_at = max(
+                timestamp(record.get("submitted_at")),
+                timestamp(record.get("started_at")),
+                timestamp(record.get("completed_at")),
+            )
+            owned.append((observed_at, task_id, state))
+        if not owned:
+            return None
+        _timestamp, task_id, state = max(owned)
+        return task_id, state
+
+    def _recover_stalled_external_mission(
+        self,
+        rf_state: _RunForeverState,
+        item: Any,
+        *,
+        now: float,
+    ) -> bool:
+        owned = self._owned_subagent(rf_state, str(item.id))
+        if owned is None:
+            return False
+        task_id, subagent_state = owned
+        workdir = Path(rf_state.cfg.project_workdir)
+        external_wait = {
+            "kind": "subagent",
+            "work_id": task_id,
+            "workdir": str(workdir),
+        }
+        if subagent_state in _SUBAGENT_INFLIGHT_STATES:
+            from ..life.mission_outcome import mission_outcome_dimensions
+
+            outcome = mission_outcome_dimensions(
+                status="paused_external_work",
+                success=False,
+                review_status="",
+                stop_kind=None,
+                resumable=True,
+            )
+            outcome["external_wait"] = external_wait
+            rf_state.mem.backlog.update(
+                item.id,
+                status="paused_external_work",
+                started_ts=None,
+                finished_ts=now,
+                running_owner="",
+                last_error=_RUNNING_STALL_ERROR,
+                outcome=outcome,
+            )
+            rf_state.sink.handle_event({
+                "type": "life.mission.completed",
+                "item_id": item.id,
+                "title": item.title,
+                "success": False,
+                "status": "paused_external_work",
+                "recoverable": True,
+                "external_wait": external_wait,
+                "outcome": outcome,
+            })
+            log.warning(
+                "daemon: parked stalled mission %s on owned subagent %s",
+                item.id,
+                task_id,
+            )
+            return True
+        rf_state.mem.backlog.update(
+            item.id,
+            status="pending",
+            attempt=max(1, int(item.attempt or 1)) + 1,
+            started_ts=None,
+            finished_ts=None,
+            running_owner="",
+            last_error=(
+                f"{_RUNNING_STALL_ERROR}; owned subagent {task_id} "
+                f"is already {subagent_state}"
+            ),
+            outcome={"external_wait": external_wait},
+        )
+        log.warning(
+            "daemon: requeued stalled mission %s after owned subagent %s became %s",
+            item.id,
+            task_id,
+            subagent_state,
+        )
+        return True
+
     def _fail_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
         """Fail durable running claims whose executor thread is no longer alive."""
         from ..core.event_catalog import EventType
@@ -107,6 +232,13 @@ class LifeWorkerRunMixin:
             owner = str(getattr(item, "running_owner", "") or "") or "primary"
             executor_thread = executor_threads.get(owner)
             if executor_thread is None or executor_thread.is_alive():
+                continue
+            if self._recover_stalled_external_mission(
+                rf_state,
+                item,
+                now=now,
+            ):
+                failed.append(item.id)
                 continue
             if rf_state.mem.backlog.mark_failed(
                 item.id,
@@ -136,7 +268,10 @@ class LifeWorkerRunMixin:
             or "primary"
         )
         self._supervisor_execution_threads[worker_id] = threading.current_thread()
-        return supervisor.run()
+        try:
+            return supervisor.run()
+        finally:
+            self._supervisor_execution_threads.pop(worker_id, None)
 
     def _start_running_stall_watcher(self, rf_state: _RunForeverState) -> None:
         def _watch() -> None:

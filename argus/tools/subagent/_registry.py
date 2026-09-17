@@ -293,6 +293,7 @@ def _write_task(
                 "resource_ledger_root",
                 "resource_owner",
                 "owner_team_task_id",
+                "owner_mission_id",
             ])
         preserved_fields = {
             key: existing[key]
@@ -304,6 +305,10 @@ def _write_task(
     data.setdefault(
         "owner_team_task_id",
         os.environ.get(_TEAM_TASK_ENV, "").strip(),
+    )
+    data.setdefault(
+        "owner_mission_id",
+        os.environ.get("ARGUS_PLUGIN_PARENT_MISSION_ID", "").strip(),
     )
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

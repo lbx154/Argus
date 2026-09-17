@@ -22,6 +22,7 @@ from ..core.process_identity import process_identity_is_running
 EXTERNAL_WORK_REGISTRY = ".argus_external_work"
 EXTERNAL_WORK_PROTOCOL_VERSION = 1
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
+_MISSION_ENV = "ARGUS_PLUGIN_PARENT_MISSION_ID"
 _SUBAGENT_INFLIGHT_STATES = frozenset({
     "running", "starting", "preflight", "waiting_resource", "discussing",
 })
@@ -450,6 +451,7 @@ def scan_external_work(
             statuses[status.work_id] = status
     if include_subagents:
         current_team_task_id = os.environ.get(_TEAM_TASK_ENV, "").strip()
+        current_mission_id = os.environ.get(_MISSION_ENV, "").strip()
         for path in _registry_files(workdir, ".argus_subagents"):
             record = _read_record(path)
             if (
@@ -457,6 +459,14 @@ def scan_external_work(
                 and current_team_task_id
                 and str(record.get("owner_team_task_id") or "").strip()
                 != current_team_task_id
+            ):
+                continue
+            if (
+                record is not None
+                and not current_team_task_id
+                and current_mission_id
+                and str(record.get("owner_mission_id") or "").strip()
+                not in {"", current_mission_id}
             ):
                 continue
             status = (
