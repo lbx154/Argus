@@ -20,14 +20,15 @@ from ...core.event_catalog import EventType
 from ...core.runner_errors import is_execution_host_startup_error
 from ...core.stop_kinds import stop_kind_is_recoverable
 from ..memory import BacklogItem
-
-if TYPE_CHECKING:
-    from ..memory import LifeMemory
 from ..mission_outcome import (
     mission_outcome_class,
     mission_outcome_dimensions,
     review_keeps_mission_resumable,
 )
+
+if TYPE_CHECKING:
+    from ._config import _MemoryView, _MissionRunner
+
 from ._constants import (
     PLANNER_RECENT_FAILURE_STATUS,
     PLANNER_SCOPE_BOUNDED,
@@ -80,15 +81,15 @@ class MissionExecutionSettlementMixin:
 
     if TYPE_CHECKING:
         # Provided by LifeSupervisor (_core.py); declared so the type checker
-        # knows the mixin's calls resolve there.
-        memory: LifeMemory
-        runner: Any
+        # knows the mixin's calls resolve there. Same shapes as the sibling
+        # mixins, so the composed class sees one definition.
+        memory: _MemoryView
+        runner: _MissionRunner
+        _emit: Callable[[dict[str, Any]], bool]
 
         def _project_workdir(self) -> Path: ...
 
         def _budget_global_root(self) -> Path: ...
-
-        def _emit(self, event: dict[str, Any]) -> bool: ...
 
     # ------------------------------------------------------------------
     # Phase: restricted validator-repair capability settlement
