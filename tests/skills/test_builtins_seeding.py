@@ -59,7 +59,7 @@ RESEARCH_BASE_SKILLS = {
     "engineer/research-grind.md",
     "engineer/research-timeline.md",
     "engineer/suspect-the-setup.md",
-    "engineer/figure_spec_scripts/paper_chart_style.py",
+    "engineer/figure_spec_scripts/echarts_figure.py",
     "engineer/paper-framework-figure-studio.md",
     "engineer/research-visualization-router.md",
     "engineer/research_visual_scripts/browser_render.py",

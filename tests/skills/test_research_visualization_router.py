@@ -205,7 +205,7 @@ def test_concept_default_preserves_authority_editability_and_reuse() -> None:
         "Method D does not require a particular reconstruction model",
         "Reuse an existing suitable figure or blueprint",
         "Quantitative charts",
-        "stay on the SciencePlots/Matplotlib route",
+        "stay on the built-in chart route",
     ):
         assert requirement in studio
     assert "engineer/research-svg-pipeline.md" not in texts

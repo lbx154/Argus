@@ -453,7 +453,7 @@ decision, then return here. Do not read all the sources in advance.
 | The next experiment or Paper decision is unclear | `reviewer/experiment-results-review.md` | Independently judge what the evidence supports and what remains to learn |
 | Results must become a precise claim | `engineer/result-to-claim.md` | Relate direct evidence to the strongest supported thesis |
 | Confirmed results need tables or figures | `engineer/research-results-analysis-and-figures.md` | Produce claim-bearing paper visuals |
-| Data figures need publication styling | `engineer/paper-chart-styling.md` | Shared style helper: vector PDF, TrueType fonts, colorblind palette, error bars |
+| Data figures need publication styling | `engineer/paper-chart-styling.md` | Built-in chart route: ECharts option to vector PDF, one paper theme, error bars from the data |
 
 Specialist Skills answer one implementation or experiment question. They do not
 define a global plan, stage transition, or parallel report.

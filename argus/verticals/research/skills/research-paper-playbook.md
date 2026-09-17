@@ -102,13 +102,13 @@ do not create a new report or validation-only task.
    for a scientific figure. Produce editable sources, publication-size exports,
    and a readable rendered paper. The method figure is composed through PPT
    Master (Method D, Method B fallback): `paper/figures/<name>.pptx` is the
-   source and `<name>.pdf` its export; matplotlib boxes are not a route for it.
-   Data figures go through the shared
-   `paper_chart_style` helper (`engineer/paper-chart-styling.md`): vector PDF
-   with TrueType fonts, colorblind palette, ours highlighted, sized for the
-   float, legends clear of titles and data at final size, error bars or bands
-   wherever runs were repeated, and honest axes: annotate an exact zero or use
-   a symlog scale instead of plotting a substituted sentinel.
+   source and `<name>.pdf` its export; plotting-script boxes are not a route for it.
+   Data figures go through the built-in
+   chart route (`engineer/paper-chart-styling.md`): an ECharts option rendered
+   to vector PDF with embedded fonts, colorblind palette, ours highlighted,
+   sized for the float, legends clear of titles and data at final size, error
+   bars wherever runs were repeated, and honest axes: annotate an exact zero
+   or use a signed-log scale instead of plotting a substituted sentinel.
    `python -m argus.verticals.research.figure_lint` lists font, raster and
    missing-file defects to fix before inspecting at final size. For the method pipeline, use
    `engineer/paper-framework-figure-studio.md`: design the composition from the
@@ -186,7 +186,7 @@ task, then return here. Do not read all the sources in advance.
 | A passage, section or the abstract needs to read like a strong paper | `engineer/references/paper-writing-craft.md` | Introduction moves, results by claims with takeaways, numbers and precision, confidence without defensive patterns, compression |
 | Strong paper structure or visual calibration is needed | `engineer/paper-exemplar-pdf-learning.md` | Study open-access Oral, Outstanding, or Best Papers |
 | A material citation is uncertain | `engineer/citation-check.md` | Resolve and repair it from primary sources |
-| Data results need paper figures | `engineer/paper-chart-styling.md` | Produce consistent publication-size data charts |
+| Data results need paper figures | `engineer/paper-chart-styling.md` | Publication-size data charts through the built-in ECharts route |
 | A method pipeline or architecture overview is needed | `engineer/paper-framework-figure-studio.md` | Default Method D, Method B fallback; keep editable source and include its vector PDF |
 | A conceptual or method figure is needed | `engineer/research-visualization-router.md` | Select the faithful rendering route |
 | Figure 1 needs an editable composition | `engineer/paper-framework-figure-studio.md` | Build the conceptual figure and final export |

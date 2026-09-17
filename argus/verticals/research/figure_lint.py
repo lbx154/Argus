@@ -28,7 +28,6 @@ import sys
 import zlib
 from pathlib import Path
 
-STYLE_HELPER = "paper_chart_style"
 _INCLUDE_RE = re.compile(r"\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 _INPUT_RE = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]+)\}")
 _GRAPHICSPATH_RE = re.compile(r"\\graphicspath\s*\{((?:\s*\{[^}]*\}\s*)+)\}")
@@ -219,17 +218,6 @@ def _method_figure_issues(project_root: Path) -> list[str]:
     for raw, resolved, _caption in method_figures(paper_root):
         stem = Path(raw).stem.lower()
         shown = raw
-        if resolved is not None and resolved.suffix.lower() == ".pdf":
-            try:
-                producer, _subtypes = _pdf_producer_and_fonts(resolved)
-            except Exception:  # noqa: BLE001 - unreadable PDFs are reported elsewhere
-                producer = ""
-            if "matplotlib" in producer.lower():
-                issues.append(
-                    f"method figure `{shown}` was exported by matplotlib; the method figure is "
-                    "composed through Method D (PPT Master; Method B fallback) per "
-                    "engineer/paper-framework-figure-studio.md, never drawn as matplotlib boxes"
-                )
         matched = any(stem == s or stem in s or s in stem for s in stems) if stem else False
         if not matched and not (len(stems) == 1 and len(method_figures(paper_root)) == 1):
             issues.append(
@@ -316,13 +304,19 @@ def _graphic_issues(raw: str, resolved: Path | None, project_root: Path) -> list
             producer, subtypes = _pdf_producer_and_fonts(resolved)
         except Exception as exc:  # noqa: BLE001 - a broken figure is an issue
             return [f"figure `{shown}` is not a readable PDF: {exc}"]
-        if "matplotlib" in producer.lower() and "/Type3" in subtypes:
-            return [
-                f"figure `{shown}` embeds Type 3 fonts (plain matplotlib defaults); "
-                f"draw data figures through the shared {STYLE_HELPER} helper so text is "
-                "embedded as TrueType at publication size"
-            ]
-        return []
+        found: list[str] = []
+        if "matplotlib" in producer.lower():
+            found.append(
+                f"figure `{shown}` was exported by matplotlib, which is not a figure route in "
+                "this vertical; re-export it through engineer/paper-chart-styling.md "
+                "(echarts_figure.py) or, for a method figure, PPT Master"
+            )
+        if "/Type3" in subtypes:
+            found.append(
+                f"figure `{shown}` embeds Type 3 fonts; the vertical's routes embed text as "
+                "TrueType at publication size"
+            )
+        return found
     if suffix in _RASTER_SUFFIXES:
         software = ""
         if suffix == ".png":
@@ -359,6 +353,14 @@ def _iter_scripts(project_root: Path):
 
 
 def _plot_script_issues(project_root: Path) -> list[str]:
+    """Scripts that draw figures outside the vertical's routes.
+
+    The routes are the browser-rendered ECharts chart (data) and PPT Master
+    (method figures). A script importing matplotlib and saving figures is
+    off-route wherever it lives outside tests/ and third_party/; the
+    box-and-arrow shape of an architecture diagram is named separately so the
+    repair is obvious.
+    """
     issues: list[str] = []
     for script in _iter_scripts(project_root):
         try:
@@ -372,9 +374,6 @@ def _plot_script_issues(project_root: Path) -> list[str]:
         if "matplotlib" not in text and "pyplot" not in text:
             continue
         shown = script.relative_to(project_root.resolve()).as_posix()
-        # A box-and-arrow diagram drawn with patches and a dozen text calls
-        # and no data series is an architecture figure done the wrong way:
-        # one project's mechanism figure had labels overlapping its boxes.
         boxes = len(_BOX_PATCH.findall(text))
         arrows = len(_ARROW_PROPS.findall(text))
         labels = len(_TEXT_CALL.findall(text))
@@ -383,15 +382,12 @@ def _plot_script_issues(project_root: Path) -> list[str]:
                 f"`{shown}` draws a box-and-arrow diagram with matplotlib patches; "
                 "conceptual and architecture figures follow "
                 "engineer/paper-framework-figure-studio.md (reference figures, a design "
-                "blueprint, an editable PPT Master reconstruction), not matplotlib boxes"
+                "blueprint, an editable PPT Master reconstruction), never a plotting script"
             )
-        if STYLE_HELPER in text:
-            continue
         issues.append(
-            f"`{shown}` saves matplotlib figures without the shared {STYLE_HELPER} "
-            "helper; data figures apply set_pub_style/figure_size/highlight_ours from "
-            "engineer/paper-chart-styling.md, and conceptual figures follow the Figure "
-            "Studio workflow rather than matplotlib boxes"
+            f"`{shown}` draws with matplotlib, which is not a figure route in this vertical; "
+            "data charts go through engineer/paper-chart-styling.md (an ECharts option "
+            "rendered to vector by echarts_figure.py) and method figures through PPT Master"
         )
     return issues
 

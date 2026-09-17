@@ -35,7 +35,7 @@ the count.
 
 | Need | Route |
 |---|---|
-| Any paper data/metric/result chart, including uncertainty or ablation | Matplotlib/SciencePlots through Styling data figures for publication |
+| Any paper data/metric/result chart, including uncertainty or ablation | The built-in chart route: an ECharts option rendered to vector by the browser renderer, through Styling data figures for publication (`echarts_figure.py`) |
 | Method pipeline or architecture overview | Composing a conceptual paper figure: default Method D blueprint and editable native PPTX through PPT Master; Method B direct native PPT design is the fallback |
 | Mathematical operators, bounds, or geometric reasoning | Native PPT shapes, equation objects, and mathematical text runs within Method D or B |
 | Other conceptual or teaser figure | Composing a conceptual paper figure: default Method D, with Method B fallback when unavailable or unsuitable |

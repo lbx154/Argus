@@ -46,7 +46,9 @@ def test_missing_and_type3_figures_are_reported(tmp_path: Path) -> None:
     issues = mod.figure_lint_issues(tmp_path)
     assert any("plain.pdf` embeds Type 3 fonts" in issue for issue in issues)
     assert any("`absent` is included by the manuscript but the file is missing" in issue for issue in issues)
-    assert not any("styled" in issue for issue in issues)
+    assert not any("styled" in issue and "Type 3" in issue for issue in issues)
+    # Any export by a plotting library is off-route now, styled or not.
+    assert any("styled.pdf` was exported by matplotlib, which is not a figure route" in issue for issue in issues)
     assert not any("commented_out" in issue for issue in issues)
 
 
@@ -62,7 +64,9 @@ def test_raster_matplotlib_exports_are_reported(tmp_path: Path) -> None:
     assert any("raster export from matplotlib" in issue for issue in issues)
 
 
-def test_plot_scripts_without_the_shared_style_helper_are_reported(tmp_path: Path) -> None:
+def test_plot_scripts_are_off_route_wherever_they_live(tmp_path: Path) -> None:
+    # Every script that saves matplotlib figures outside tests/ and the
+    # interpreter's own directories is off-route; a style import saves nothing.
     _paper(tmp_path, "no figures")
     scripts = tmp_path / "scripts"
     scripts.mkdir()
@@ -71,7 +75,7 @@ def test_plot_scripts_without_the_shared_style_helper_are_reported(tmp_path: Pat
         encoding="utf-8",
     )
     (scripts / "styled.py").write_text(
-        "from paper_chart_style import set_pub_style\nimport matplotlib.pyplot as plt\n"
+        "from some_style import set_pub_style\nimport matplotlib.pyplot as plt\n"
         "set_pub_style()\nplt.savefig('y.pdf')\n",
         encoding="utf-8",
     )
@@ -83,8 +87,10 @@ def test_plot_scripts_without_the_shared_style_helper_are_reported(tmp_path: Pat
     tests_dir.mkdir()
     (tests_dir / "test_plot.py").write_text("import matplotlib\nsavefig(\n", encoding="utf-8")
     issues = mod.figure_lint_issues(tmp_path)
-    assert len(issues) == 1
-    assert "`scripts/plain.py` saves matplotlib figures without the shared paper_chart_style" in issues[0]
+    assert len(issues) == 2
+    assert all("is not a figure route in this vertical" in issue for issue in issues)
+    assert {issue.split("`")[1] for issue in issues} == {"scripts/plain.py", "scripts/styled.py"}
+    assert all("echarts_figure.py" in issue and "PPT Master" in issue for issue in issues)
 
 
 def test_lint_is_silent_without_a_manuscript(tmp_path: Path) -> None:
@@ -156,14 +162,14 @@ def test_method_figure_needs_a_native_ppt_source_and_not_a_matplotlib_export(tmp
 
     issues = mod.figure_lint_issues(tmp_path)
 
-    assert any("method figure `fig1_mechanism` was exported by matplotlib" in i for i in issues)
+    assert any("fig1_mechanism.pdf` was exported by matplotlib, which is not a figure route" in i for i in issues)
     assert any("method figure `fig1_mechanism` has no editable PPT Master source" in i and "fig1_mechanism.pptx" in i for i in issues)
-    assert not any("fig2_results" in i and "method figure" in i for i in issues)
+    assert not any("fig2_results" in i and "has no editable PPT Master source" in i for i in issues)
 
     (tmp_path / "paper" / "figures" / "fig1_mechanism.pptx").write_bytes(b"PK")
     issues = mod.figure_lint_issues(tmp_path)
     assert not any("has no editable PPT Master source" in i for i in issues)
-    assert any("was exported by matplotlib" in i for i in issues)  # the export itself is still wrong
+    assert any("fig1_mechanism.pdf` was exported by matplotlib" in i for i in issues)  # the export itself is still wrong
 
 
 def test_first_figure_is_the_method_figure_when_no_caption_says_so(tmp_path: Path) -> None:
