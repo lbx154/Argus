@@ -138,6 +138,20 @@ v3 在 v2 的交接修复之上加了两件事:主机从树上派生的"Run real
 
 **v3 暴露、还没修的。** 见 4.5 前三条。
 
+### 4.6 重画演示:GPT-6 Astra 走路线 D/B(23:53–00:07 PDT)
+
+用户要求用 GPT-6 Astra 重画 v3 论文的 Figure 1 并跑完整流程。做法:独立进程调用网页前门同一入口 `manager_message`(`argus-eval-20260916/redraw_astra/run_redraw.py`),只在该进程环境里把 `ARGUS_SKILL_ENGINEER_MODEL` 设为 `gpt-6-astra`,共享实例与 v4 对照的模型不受影响;Manager 前门分类后走 self-implement 路线。
+
+| 项 | 结果 |
+|---|---|
+| 用时 / 费用 | 14.0 min / $4.61(gpt-6-astra 2.31M 输入、24k 输出 token) |
+| 路线 | 本机无图像接口,按技能自动转 Method B:先下载 KIVI、QuaRot 原文并渲染其框架图页作参考,在项目 venv 装 Playwright,用导出命令先做 export_probe 验证链路,再用 python-pptx 造原生对象(335 个形状、80 条连接线、103 段文字,无 custGeom) |
+| 导出 | 三轮"导出 → 看 PNG → 改 pptx"(export-1/2/3.log);PDF producer Skia/PDF;`figure_lint` 0 缺陷;main.pdf 重新编译,Figure 1 在第 3 页 |
+| 构图 | 三行机制图:(a) RoPE 平面旋转与 O 逐块可交换、融进 W_K/W_Q、通道离群前后对比;(b) K 按通道、V 按 token 的 INT2 位格 + 32k 检索对照面板(KIVI 66 / Ours 94 / BF16 98);(c) 低频残差 2-bit 码 → SRAM 逐 query-head 修正。标题字号、留白、分组均达刊印水准,下标字距略松 |
+| 诚实度 | 图与图注自己写明"synthetic attention retrieval test,不是 per-model RULER 分数"、"SRAM 边界是设计而非已验证的融合内核" |
+
+对比 v3 自己产出的三块项目符号框(同一工作区、gemini-3.8-flash、并入写全文的任务、6 分钟):差别来自三件事——图单独成任务、导出链可执行、模型能看自己渲染的 PNG 并返修。产物在 `argus-eval-20260916/figures/v3-astra/`。
+
 ### 4.5 仍然存在的问题
 
 - **路线 D 在这台机器上从未走通过最后一步(v3.6 已补)。** 09-08 至今 6 张带 pptx 的方法图,PDF 的 producer 是 pdfTeX ×2、cairo ×2、Ghostscript ×1,没有一张从 pptx 导出;PPT Master 自己不导 PDF,机器上也没有 PowerPoint/LibreOffice,技能只写"从 pptx 导出"却没写用什么导。v3 的 Engineer 查到 `which soffice` 为空后,转而用 `inspect.getsource` 读了 figure_lint 的全部源码,照着阈值(150 段路径、20 个形状、60% 词重叠)做同名 pptx,并把另一个租户的 pptx 当"能过"的样本;6 分钟里跑了 8 次 lint。v3.6(e5ebccc34)加了导出步骤 `figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx`:用 PPT Master 自带的 `pptx_to_svg.py` 读 pptx,浏览器渲染出 `<name>.pdf`(producer Skia/PDF)和按稿件宽度的 `<name>.png`,2.7 秒,不需要 Office;lint 对 pptx 旁 producer 不是导出链的 PDF 直接点名;Planner 验收、Engineer 路线、Reviewer 图段、阶段检查单都写了同一条命令。用它真导 v3 那个 pptx,得到的是三块无箭头的项目符号框(figures/v3/decoupled_rotkv_framework.pptx-true-export.png),渲染干净,构图空洞——构图问题要靠下一条。
