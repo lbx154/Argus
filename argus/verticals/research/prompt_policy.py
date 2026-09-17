@@ -386,30 +386,30 @@ def _method_card_reviewer_block(stage: str) -> str:
         return ""
     return (
         "## Method card first\n"
-        "Start from Claim attainment (the Engineer's per-clause statement with the values "
-        "the host read from the files it points to) and the host log of the Engineer's round; "
+        "Start from Claim attainment (the Engineer's per-clause statement with host-read values) "
+        "and the host log of the Engineer's round; "
         "choose the one link most likely not to hold the claim and read only there. A clause marked not met, partial or untested is a negative result to "
-        "iterate on, never a claim to narrow; a stated value the host resolves differently, "
-        "a headline number from a run shorter than its protocol allows, or a metric named "
-        "differently from the protocol's is where you open the script. Then the review packet "
-        "(anchors, test outcomes, config changes, files changed, Run "
+        "iterate on, never a claim to narrow; results with no statement are a continue with one "
+        "question: which clauses do these numbers meet. A stated value the host resolves differently, "
+        "a run shorter than its protocol allows, or a metric named differently from the protocol's "
+        "is where you open the script; a metric on which every method scores the same separates nothing. Then the review packet "
+        "(anchors, tests, config changes, files changed, Run "
         "reality), METHOD.md, the derived method-card status in Raw verification evidence "
         "(proven, contradicted, partial, untested, unchecked; reused code; hyperparameter "
         "changes), tests/spec, code, and the Engineer's account last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
-        "INSUFFICIENT_EVIDENCE with file:line (reviewer/claim-to-code-trace.md). "
+        "INSUFFICIENT_EVIDENCE with file:line. "
         "Required repairs, returned as continue naming the smallest fix: a component "
         "without a '# @component' anchor or a knockout that fails in its absence, an "
         "untested or contradicted component, a failing or unexplained-skip test, tests "
         "collected last round but missing now, a hyperparameter change without a "
-        "'# why' or a card note, code that contradicts the card. The claim is fixed; "
-        "never accept claim drift: a result that narrows the claim, or a negative "
+        "'# why' or a card note, code that contradicts the card. The claim is fixed: "
+        "a result that narrows it is claim drift, and it or a negative "
         "result with fewer than three diagnosed attempts, is a repair request. A "
         "result produced through a stand-in listed under Run reality is "
-        "NOT_IMPLEMENTED whatever the tests say, unless METHOD.md Deviations names it "
-        "and the paper calls the evaluation simulated. Run reality also dates each "
-        "result file against the last code edit and names functions fed random "
-        "tensors: a one-minute run or random keys is not the protocol's evaluation. "
-        "Settled evidence stays settled: do not re-read "
+        "NOT_IMPLEMENTED whatever the tests say, unless METHOD.md Deviations names it. "
+        "Run reality dates each result file against the last code edit and names functions "
+        "fed random tensors: a one-minute run or random keys is not the protocol's evaluation. "
+        "Do not re-read "
         "what the packet already shows; ask at most two questions, each answered by a "
         "file or a number. A path outside the workspace in the host log (another venv or "
         "project) is a reproducibility question to raise. Do not ask for tools or re-run anything yourself."
@@ -850,10 +850,21 @@ def _attainment_block_for_planner(stage: str, project_root: Path | None) -> str:
     try:
         from .method_card import derive_method_card, render_claim_attainment
 
-        lines = render_claim_attainment(derive_method_card(Path(project_root)))
+        card = derive_method_card(Path(project_root))
+        lines = render_claim_attainment(card)
+        has_results = any(entry.get("files") for entry in card.get("results_footprint") or [])
     except Exception:  # noqa: BLE001 - derived context must never break a prompt
         return ""
-    return "## Claim attainment\n" + "\n".join(lines) if lines else ""
+    if lines:
+        return "## Claim attainment\n" + "\n".join(lines)
+    if has_results:
+        return (
+            "## Claim attainment\n"
+            "Results exist but no claim attainment statement (.argus/claim_attainment.json): "
+            "Experiment stays open, and the next task states which clauses the numbers meet "
+            "(met / not met / partial / untested, with the file and field for each)."
+        )
+    return ""
 
 
 def _derived_method_card_for_reviewer(stage: str, project_root: Path | None) -> str:

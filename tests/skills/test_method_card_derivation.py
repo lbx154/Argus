@@ -644,3 +644,28 @@ def test_results_without_an_attainment_statement_are_named_as_such(tmp_path: Pat
     packet = render_for_reviewer(root)
 
     assert "No claim attainment statement (.argus/claim_attainment.json): results exist but the Engineer has not said which clauses of the claim they meet." in packet
+
+
+def test_result_tables_read_per_method_numbers_and_name_metrics_that_separate_nothing(tmp_path: Path) -> None:
+    from argus.verticals.research import method_card as mc
+
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "run.py").write_text("print(1)\n", encoding="utf-8")
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "pilot.json").write_text(json.dumps({
+        "metadata": {"context_length": 8192, "seeds": [1, 2, 3], "budget_ratio": 0.2},
+        "full_cache": {"ppl": 2.4505, "niah_accuracy": 1.0, "eval_time_seconds": 34.1},
+        "snapkv": {"ppl": 2.4634, "niah_accuracy": 1.0, "eval_time_seconds": 37.0},
+        "ours": {"ppl": 2.5088, "niah_accuracy": 1.0, "eval_time_seconds": 37.5},
+    }), encoding="utf-8")
+    tables = mc.result_tables(tmp_path)
+    assert len(tables) == 1 and tables[0]["methods"] == ["full_cache", "snapkv", "ours"]
+    assert tables[0]["metrics"]["ppl"] == {"full_cache": 2.4505, "snapkv": 2.4634, "ours": 2.5088}
+    assert tables[0]["no_separation"] == ["niah_accuracy"]
+    lines = mc.render_result_tables({"result_tables": tables})
+    assert lines[0] == "Numbers in the newest result files, per method:"
+    assert "ppl: full_cache 2.4505, snapkv 2.4634, ours 2.5088" in lines[1]
+    assert "niah_accuracy: all 3 methods 1 (separates nothing)" in lines[1]
+    (results / "notes.json").write_text(json.dumps({"seed": 1, "note": "x"}), encoding="utf-8")
+    assert all(t["file"] != "results/notes.json" for t in mc.result_tables(tmp_path))

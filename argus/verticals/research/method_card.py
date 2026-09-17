@@ -923,6 +923,100 @@ def render_claim_attainment(card: dict[str, Any], *, limit: int = ATTAINMENT_MAX
     return lines
 
 
+RESULT_TABLE_FILES = 3
+RESULT_TABLE_METRICS = 6
+RESULT_TABLE_METHODS = 6
+RESULT_TABLE_BYTES = 2_000_000
+_META_KEYS = {"metadata", "meta", "config", "args", "settings", "params"}
+
+
+def _numeric(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _method_rows(payload: Any) -> dict[str, dict[str, float]]:
+    """``{method: {metric: value}}`` from a results JSON, or {} when it has no such shape.
+
+    A results file usually keys methods at the top level (``full_cache``,
+    ``snapkv``, ``ours``) with a metrics dict each; sometimes one level down
+    (``results``). Metadata blocks share no metric with the methods and drop out.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    candidates = {
+        str(k): {str(mk): float(mv) for mk, mv in v.items() if _numeric(mv)}
+        for k, v in payload.items()
+        if isinstance(v, dict) and str(k).lower() not in _META_KEYS
+    }
+    candidates = {k: v for k, v in candidates.items() if v}
+    counts: dict[str, int] = {}
+    for metrics in candidates.values():
+        for name in metrics:
+            counts[name] = counts.get(name, 0) + 1
+    shared = {name for name, n in counts.items() if n >= 2}
+    rows = {k: {m: v for m, v in metrics.items() if m in shared} for k, metrics in candidates.items()}
+    rows = {k: v for k, v in rows.items() if v}
+    if len(rows) >= 2:
+        return rows
+    for v in payload.values():
+        if isinstance(v, dict):
+            nested = _method_rows(v)
+            if nested:
+                return nested
+    return {}
+
+
+def result_tables(workdir: Path, footprint: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Per-method numbers from the newest result JSON files, and the metrics that separate nothing.
+
+    The v5 control project's pilot scored three methods 1.0 on retrieval and
+    the Reviewer called the mission done: a metric on which every method is
+    equal measures nothing about the claim, and the host can say so.
+    """
+    workdir = Path(workdir)
+    footprint = footprint if footprint is not None else results_footprint(workdir)
+    files = [item["file"] for entry in footprint for item in (entry.get("newest") or []) if str(item.get("file", "")).endswith(".json")]
+    out: list[dict[str, Any]] = []
+    for rel in files[:RESULT_TABLE_FILES]:
+        path = workdir / rel
+        try:
+            if path.stat().st_size > RESULT_TABLE_BYTES:
+                continue
+            payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, ValueError):
+            continue
+        rows = _method_rows(payload)
+        if not rows:
+            continue
+        methods = list(rows)[:RESULT_TABLE_METHODS]
+        metrics: list[str] = []
+        for method in methods:
+            for name in rows[method]:
+                if name not in metrics:
+                    metrics.append(name)
+        metrics = metrics[:RESULT_TABLE_METRICS]
+        table = {m: {method: rows[method][m] for method in methods if m in rows[method]} for m in metrics}
+        flat = [m for m, values in table.items() if len(values) >= 2 and len({round(v, 6) for v in values.values()}) == 1]
+        out.append({"file": rel, "methods": methods, "metrics": table, "no_separation": flat})
+    return out
+
+
+def render_result_tables(card: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for entry in card.get("result_tables") or []:
+        parts = []
+        for metric, values in entry["metrics"].items():
+            if metric in entry["no_separation"]:
+                value = next(iter(values.values()))
+                parts.append(f"{metric}: all {len(values)} methods {value:g} (separates nothing)")
+            else:
+                parts.append(f"{metric}: " + ", ".join(f"{m} {v:g}" for m, v in values.items()))
+        lines.append(f"- {entry['file']} (host-read): " + "; ".join(parts))
+    if lines:
+        lines.insert(0, "Numbers in the newest result files, per method:")
+    return lines
+
+
 def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
     """Lines shared by the review packet and the task brief: stand-ins and footprint."""
     lines: list[str] = []
@@ -971,6 +1065,7 @@ def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
                 f"- {item['file']} was written {_duration(item['seconds_after_code'])} "
                 f"after the last edit to {item['code_file']}"
             )
+    lines.extend(render_result_tables(card))
     return lines
 
 
@@ -1381,6 +1476,7 @@ def _empty_card() -> dict[str, Any]:
         "checks": None,
         "stand_ins": [],
         "results_footprint": [],
+        "result_tables": [],
         "claim_attainment": [],
     }
 
@@ -1450,6 +1546,7 @@ def derive_method_card(workdir: Path) -> dict[str, Any]:
         ("change_log", lambda: change_log(workdir)),
         ("stand_ins", lambda: stand_ins(workdir)),
         ("results_footprint", lambda: results_footprint(workdir)),
+        ("result_tables", lambda: result_tables(workdir, card.get("results_footprint"))),
         ("claim_attainment", lambda: claim_attainment(workdir)),
     ):
         try:
