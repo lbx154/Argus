@@ -206,6 +206,7 @@ class UsageSummary:
 def _copilot_usage_needs_reconciliation(row: dict[str, Any]) -> bool:
     return (
         str(row.get("provider") or "").strip().lower() == "copilot"
+        and "provider_session_identity_conflict" not in str(row.get("error") or "")
         and str(row.get("status") or "").lower() != "denied"
         and str(row.get("pricing_status") or "").lower() != "not_billed"
         and (
@@ -1394,7 +1395,10 @@ def _exclusive_file_lock(path: Path) -> Iterator[None]:
 
 
 def _legacy_call_threads(project_root: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
+    from .provider_sessions import read_bindings
+
+    out = {d["call_id"]: d["session_id"] for d in read_bindings(project_root)["decisions"]
+           if d["kind"] == "dispatch"}
     for event_path in (
         project_root / "events.jsonl",
         project_root / ".argus" / "events.jsonl",
@@ -1415,6 +1419,8 @@ def _legacy_call_threads(project_root: Path) -> dict[str, str]:
                     call_id = str(row.get("call_id") or "")
                     thread_id = str(row.get("thread_id") or "")
                     if call_id and thread_id:
+                        if call_id in out and out[call_id] != thread_id:
+                            raise ValueError("provider session history conflicts with durable binding")
                         out[call_id] = thread_id
     return out
 

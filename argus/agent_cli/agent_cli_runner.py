@@ -128,6 +128,8 @@ class RunnerOptions:
     # dataclasses.replace. They are never populated from ordinary user options.
     _training_extension: str | None = field(default=None, repr=False, compare=False)
     _training_environment: PrivateRunnerEnvironment | None = field(default=None, repr=False, compare=False)
+    _bind_provider_session: Callable[[str, bool], None] | None = field(default=None, repr=False, compare=False)
+    _provider_session_id: str | None = field(default=None, repr=False, compare=False)
     _output_schema_path: str | None = field(default=None, repr=False, compare=False)
 
 

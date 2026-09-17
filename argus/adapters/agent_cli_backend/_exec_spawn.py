@@ -118,6 +118,19 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     ctx.copilot_token_billing_expected = copilot_store_supports_token_billing(
         copilot_db_path
     )
+    if backend._is_copilot:
+        from dataclasses import replace
+
+        from ...core.provider_sessions import bind_before_dispatch
+
+        def bind_session(identity: str, resumed: bool) -> None:
+            if ctx.usage_project_root is None:
+                raise RuntimeError("durable Copilot accounting requires a project usage root")
+            bind_before_dispatch(ctx.usage_project_root, call_id=ctx.call_id,
+                                 session_id=identity, resumed=resumed)
+            ctx.bound_provider_session_id = identity
+
+        cli_options = replace(cli_options, _bind_provider_session=bind_session)
     try:
         cli_result = AUTHORIZATION_RETRY_OWNER.run_agent_cli(
             backend,
@@ -217,10 +230,11 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     # ------------------------------------------------------------------ #
     # Read Copilot session-store usage and translate result                #
     # ------------------------------------------------------------------ #
-    copilot_usage = read_copilot_usage_since(
+    identity_conflict = "provider_session_identity_conflict" in str(getattr(cli_result, "fatal_error", ""))
+    copilot_usage = None if identity_conflict else read_copilot_usage_since(
         copilot_usage_cursor,
         session_id=(
-            getattr(cli_result, "thread_id", None) or ctx.resume_thread_id
+            getattr(cli_result, "thread_id", None) or ctx.bound_provider_session_id or ctx.resume_thread_id
         ),
     )
     # The first invocation can create the token-usage table after the cursor.
