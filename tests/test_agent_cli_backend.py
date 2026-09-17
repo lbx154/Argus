@@ -120,6 +120,8 @@ class FakeCliRunnerOptions:
     watchdog_soft_idle_seconds: int = 0
     watchdog_stalled_idle_seconds: int = 0
     watchdog_hard_idle_seconds: int = 0
+    _bind_provider_session: Any | None = None
+    _provider_session_id: str | None = None
 
 
 @dataclass
