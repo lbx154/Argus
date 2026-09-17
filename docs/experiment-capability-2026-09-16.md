@@ -106,23 +106,44 @@ v2 项目 `s-e2a29d20`,16:03 创建,16:57 完成(0.92 h),题目换成了 web age
 
 **但 v2 的实验不是真的。** 路线 03 明确写了托管本地开放权重模型(GPU 0–1 上以推理引擎服务 14B 级模型)作为执行策略与内容工作器;Engineer 写的 `runtime.py` 在没有模型函数时退回 mock 解析器,评估器用 `mock_worker_llm` 与合成 DOM,"350 任务 × 3 种子 × 4 方法"的 results/ 在 4.7 分钟内写完;METHOD.md 的 Deviations 写 "none",论文摘要写 "We evaluate PBIS across 350 comprehensive benchmark tasks across WebArena and WorkArena",Reviewer 只在 limitations 里提到"合成 DOM 结构"便给了 accept(8/10)。方法与代码一致、测试全绿、claim 未漂移——机制都按设计工作,却对"实验是否真跑了"一无所知。这是 v3 的目标(第 2 节第 12 条):主机把替身与结果足迹作为事实交给 Engineer 与 Reviewer,并把"替身不算结果"写进三方的规则。
 
-### 4.4 v3(a3bcc4fad…8ac7a1a01,运行中的对照项目 s-793a4918)
+### 4.4 v3(a3bcc4fad…8ac7a1a01;对照项目 s-793a4918,19:37–23:02 PDT,已完成)
 
-v3 在 v2 的交接修复之上加了两件事:主机从树上派生的"Run reality"(替身函数扫描 + results/ 足迹)进 Reviewer 包与任务简报;方法图必须有同名 `.pptx` 且导出确实来自它(figure_lint 比对形状/路径/文字)。截至 22:41 PDT(3.05 h,仍在 experiment 阶段),已经能看到的差别:
+v3 在 v2 的交接修复之上加了两件事:主机从树上派生的"Run reality"(替身函数扫描 + results/ 足迹)进 Reviewer 包与任务简报;方法图必须有同名 `.pptx` 且导出确实来自它(figure_lint 比对形状/路径/文字)。题目是 GQA KV-cache 的 sub-4-bit 量化(Decoupled-RotKV),参考克隆 kivi@876b4d2。
 
-| 项 | 基线 | v2 | v3(进行中) |
-|---|---|---|---|
-| 想法阶段产出 | 一条路线,选择理由被当成"claim" | 同 | 三条有一手文献出处的机制路线,独立评审后选 Decoupled-RotKV;RESEARCH_NOTES 写明资源尺寸 |
-| METHOD.md Deviations | 无 | "none"(实际全是 mock) | 如实写出"单元验证在合成激活分布上跑" |
-| 合成/替身实验的处置 | 被接受为结果 | 被接受为结果(4.7 分钟"基准") | Reviewer 包里出现 `retrieval_pilot.py:18 create_synthetic_retrieval_scenario (the protocol names it)`;Reviewer 把它判为正对照,Planner 下一任务要求"在真实 transformer 权重上评测" |
-| 真实模型 | 否 | 否 | 是:Engineer 在 GPU 2 加载 Qwen2.5-7B-Instruct(14.8 GB,进程 cwd 为本项目 workspace),把 Decoupled-RotKV cache 挂进 transformers 的 DynamicCache |
-| 主机侧 spec 测试 | — | 14 | 8(仍在增长) |
-| 费用(到 experiment 中段) | $21.45 全程 | $6.72 全程 | $4.49 / 32 次调用 |
+| 指标 | 基线 | v1 | v2 | v3 |
+|---|---|---|---|---|
+| 总时长 | 2.97 h | 2.85 h | 0.92 h | 3.43 h(其中 21:17 我在阶段中途重启服务,Engineer 会话被切,重试会话 `find /` 空转 66 分钟) |
+| 调用 / 费用(state 口径) | 140 / $12.02 | 50 / $5.94 | 68 / $6.72 | 54 / $7.79 |
+| 评审判定 | done 6 / continue 4 | done 6 | done 6 | done 6 / continue 0(1 次后端失败跳过) |
+| 组件被证明 / 规格测试 | 0 / 0 | 4 / 14 | 3 / 9 | 3 proven + 1 partial / 9 passed |
+| 想法阶段 | 1 条路线 | — | — | 3 条一手文献路线 + 独立评审后选 route-02,RESEARCH_NOTES 写资源尺寸 |
+| METHOD.md Deviations | 无 | — | "none"(实为全 mock) | 如实写"单元验证在合成激活分布上",但没写检索扫描也是合成的 |
+| 真实模型是否跑过 | 否 | 否 | 否(mock_worker_llm) | **是**:Qwen2.5-7B-Instruct 与 Mistral-7B-Instruct-v0.3 在 GPU 2 上各算 1 段 2048 token 的 Wikitext-2 困惑度 |
+| 主打数字的来源 | 合成 | 真实数据(持平) | 4.7 分钟"350 任务基准" | "32k 检索召回 94.0%,比 KIVI +28":`evaluate_retrieval_at_scale` 在 `torch.randn` 合成 K/V 上做的机制扫描,10 次试验;结果文件把两个模型名写在这些数字上方;summary 在脚本最后一次编辑 57 s 后写出 |
+| 方法图 | matplotlib | matplotlib | matplotlib 三面板 | TikZ standalone(pdfTeX)+ python-pptx 8 个形状的同名 pptx;三块文字框,文字被面板边裁掉(figures/v3/decoupled_rotkv_framework.png) |
+| 数据图 | 6 处 lint 缺陷 | 0 | 0 | 3 张 paper_chart_style,Type 42 字体,0 缺陷,可读(figures/v3/retrieval_scaling.png) |
+| 论文 / 评审结论 | 13 页 | 13 页 | — | 11 页,paper 阶段 10 分钟,review 阶段 3 分钟,Strong Accept |
 
-两处代价:21:17 我在阶段中途重启 8985 服务,Engineer 会话被切断,重试会话里模型去 `find /` 找权重缓存,空转 66 分钟(22:25 杀掉);v3.4(5764039e7)因此在任务简报的 Environment 段加了本机模型缓存清单,并把"运行测试"的具体解释器命令写进简报。**最终结果(paper/review 阶段、方法图 pptx 真源检查、评审返修次数)待项目完成后补到本节末尾。**
+**机制上确实起作用的部分。**
+- 主机派生的 Run reality 第一次进包就起效:21:09 的 Reviewer 包列出 `retrieval_pilot.py:18 create_synthetic_retrieval_scenario (the protocol names it)`,Reviewer 把先导判为正对照,Planner 下一任务写明"在真实 transformer 权重上评测",Engineer 于是真去加载了 7B 权重——四个对照项目里第一次。
+- 想法阶段的三路线 + 独立评审、方法卡 + 主机侧规格测试、参考克隆这几项在 v1–v3 稳定复现;费用比基线低 35%–64%。
+
+**v3 暴露、已在 v3.5(7d3d0f937)修的两处。**
+1. *没名字的替身。* 替身扫描按名字找 mock/synthetic,`evaluate_retrieval_at_scale` 没有这些词;它的输入却是 `torch.randn`,上层 `run_model_eval` 的 docstring 自己写着 "synthetic long-context retrieval"。Reviewer 拿到的是"任务要求真实权重"+"tests 9 passed"+"results 文件列了两个模型",就接受了。v3.5 让 Run reality 多给两条从树上直接读出的事实:每个结果文件"距代码最后编辑 N s 写出",以及"用随机张量喂输入的度量函数(带 docstring 首行)"。在 v3 的树上现在打出来是:
+   - `src/eval/run_model_eval.py:229 evaluate_retrieval_at_scale — used from …:398; builds inputs with torch.randn, torch.randint; docstring: 'Evaluates multi-depth retrieval recall …'`
+   - `src/eval/run_model_eval.py:352 run_model_eval — docstring: 'Executes end-to-end evaluation suite on real models and synthetic long-context retrieval,'`
+   - `results/model_eval_summary.json was written 57 s after the last edit to src/eval/run_model_eval.py`
+   Reviewer 提示只加一句:一分钟的运行或随机 key 不是协议里的评测,不管结果文件上写了什么模型。仍然不是门:一个物理仿真器就该用随机初值,由 Reviewer 判断。
+2. *形式合规的 pptx。* v3 的 Engineer 查了 `ppt_master status`(ready)、`which soffice`(没有),然后用 TikZ 编译了框架图,再用 python-pptx 造了一个同名 pptx。文字相同、形状数在阈值边缘,原有的形状/路径比对没抓到。v3.5 加一条不需要阈值的事实:方法图 PDF 的 producer 是 pdfTeX/XeTeX/matplotlib 等——没有任何 PPTX 导出链会产出这些 producer,所以旁边的 pptx 只是陪衬。v3 的树上现在报 `was produced by pdfTeX-1.40.25, which no PPTX export chain produces`。
+
+**v3 暴露、还没修的。** 见 4.5 前三条。
 
 ### 4.5 仍然存在的问题
 
+- **Reviewer 的看图是走过场。** v3 的 review 阶段 25 秒内读了 11 张整页 PNG,对文字被裁掉的框架图写 "cleanly illustrates",给 Strong Accept。整页缩略图上看不出图内裁切;下一步是主机把每张被 `\includegraphics` 引用的图按稿件宽度单独渲染成 PNG 放进评审包(路径已有:paper/pages/ 的渲染链),并把方法图的 pptx→SVG→PDF 导出链在 skill 里写成一条可执行命令——本机没有 LibreOffice,Engineer 才会拿 TikZ/Ghostscript 凑数。
+- **paper + review 共 13 分钟写完并通过一篇 11 页论文**,6 次评审全 done、0 次 continue。这台评审机没有在任何一轮要求返修;v1 基线还有 4 次 continue。评审太顺不是好信号,应把"评审时长中位数 33 s"和"continue 次数 0"作为能力报告里的负向指标持续看。
+- **跨租户读文件。** v3 的 Engineer 为找 ppt_master 示例,读了 `argus-web-trial-private/tenants/trial-11/.../s-78dd04e4/paper/figures/src/ppt_master/` 下另一个租户的文件。网页试用的 Engineer 工具没有工作区边界;至少应在提示里禁止读 state/workspaces 之外的用户数据,长期要靠沙箱。
+- **结果规模的诚实度还差一层。** 真实模型只算了 1 段 2048 token 的困惑度就写成 "Wikitext-2 perplexity";v3.5 的"距代码最后编辑 N s"能揭示运行太短,但样本数、序列长度、试验次数这些协议规模仍只能靠 Reviewer 读代码对照 METHOD.md。
 - 两个项目的 Engineer 都对全盘跑过 `find /`(找 pytest、找 transformers/模型权重),一次卡了 66 分钟;第三个项目找不到权重就写了 mock。v3.4 在任务简报的环境段加了一行本机模型/数据集缓存清单(HF_HUB_CACHE / HF_HOME / 默认缓存里的仓库名),让 Engineer 不用搜盘、也少了"没有模型就替身"的借口。
 - 评审仍是单轮、无工具的"读证据下判断";主机证据让它有据可依,但它无法自己复现一个数字。这是有意的取舍(token),但应写明。
 - 自进化产出(项目 skill、决策记录)在 v1 里为零。本题不涉及训练基础设施选型,`# why` 与决策记录的触发条件也从未到达 Engineer(见 4.2);v2 之后再看。
