@@ -343,7 +343,10 @@ def build_mission_prompt(
             "lower-authority guidance may not silently change it.\n\n"
             + unique_original_request
         )
-    sections.append("## Current mission task\n" + task)
+    # A Planner's implementation brief carries its own '## Claim', '## Tests
+    # that must pass' headings; one level down they read as parts of this
+    # section instead of siblings of it.
+    sections.append("## Current mission task\n" + re.sub(r"(?m)^(#{2,5})(?=\s)", r"#\1", task))
     # The Engineer is the role that can most easily satisfy a task while
     # missing the requirement the task exists to serve — the mission text
     # describes this increment, not what the operator agreed "done" means.

@@ -485,3 +485,44 @@ def test_review_packet_holds_its_cap_under_many_anchored_components(project: Pat
     assert lines[0].startswith("## Method card")
     assert any(line.startswith("Files changed this round") for line in lines)
     assert sum(1 for line in lines if line.startswith("- ") and "src/" in line and " " in line[2:4]) <= method_card.REVIEWER_CHANGED_FILES + 1
+
+
+def test_stand_ins_in_project_code_are_listed_with_call_sites_and_footprint(tmp_path: Path) -> None:
+    # One project evaluated "350 benchmark tasks" through `mock_worker_llm` in
+    # four minutes. The card lists such names outside tests/ with their call
+    # sites and how long results/ took to write; the Reviewer judges.
+    root = tmp_path / "proj"
+    (root / "src" / "pbis").mkdir(parents=True)
+    (root / "METHOD.md").write_text("# PBIS\n\nPBIS isolates untrusted content.\n\n## Components\n\n| Component | The idea prescribes | Notes |\n|---|---|---|\n| runtime | \"dual privilege\" | |\n", encoding="utf-8")
+    (root / "src" / "pbis" / "evaluator.py").write_text(
+        "def mock_worker_llm(prompt, text):\n    return '{}'\n\n"
+        "class SyntheticDOMGenerator:\n    pass\n\n"
+        "def run():\n    rt = Runtime(worker_llm_fn=mock_worker_llm)\n    gen = SyntheticDOMGenerator()\n"
+        "    # fallback mock parser for spec tests\n    return rt, gen\n",
+        encoding="utf-8",
+    )
+    (root / "tests" / "spec").mkdir(parents=True)
+    (root / "tests" / "spec" / "test_x.py").write_text("def mock_model():\n    pass\n", encoding="utf-8")
+    (root / "results").mkdir()
+    (root / "results" / "summary.json").write_text("{}", encoding="utf-8")
+
+    card = derive_method_card(root)
+
+    names = {e["name"] for e in card["stand_ins"] if e["kind"] == "definition"}
+    assert names == {"mock_worker_llm", "SyntheticDOMGenerator"}
+    mock = next(e for e in card["stand_ins"] if e["name"] == "mock_worker_llm")
+    assert mock["file"] == "src/pbis/evaluator.py" and mock["line"] == 1
+    assert "src/pbis/evaluator.py:8" in mock["used_from"]
+    assert any(e["kind"] == "note" and "fallback mock parser" in e["name"] for e in card["stand_ins"])
+    assert card["results_footprint"][0]["dir"] == "results" and card["results_footprint"][0]["files"] == 1
+
+    packet = render_for_reviewer(root)
+    assert "Run reality (derived from the tree, not from any account):" in packet
+    assert "src/pbis/evaluator.py:1 mock_worker_llm — used from src/pbis/evaluator.py:8" in packet
+    assert "Results footprint: results/ 1 files" in packet
+
+
+def test_projects_without_stand_ins_show_no_run_reality_lines(project: Path) -> None:
+    card = derive_method_card(project)
+    assert [e for e in card["stand_ins"] if e["kind"] == "definition"] == []
+    assert "Possible stand-ins" not in render_for_reviewer(project)

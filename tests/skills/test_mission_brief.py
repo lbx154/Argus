@@ -400,3 +400,20 @@ def test_project_without_a_card_quotes_the_selected_route_itself(tmp_path: Path)
     assert "route-01.md; the selected route, verbatim" in claim
     assert "Every other route was rejected" not in brief
     assert FIXED_CLAIM_SENTENCE in lines
+
+
+def test_run_reality_names_stand_ins_and_the_results_footprint(project: Path, tmp_path: Path) -> None:
+    (project / "src" / "eval.py").write_text(
+        "def mock_worker_llm(p, t):\n    return '{}'\n\ndef run():\n    return mock_worker_llm('a', 'b')\n",
+        encoding="utf-8",
+    )
+    (project / "results").mkdir()
+    (project / "results" / "summary.json").write_text("{}", encoding="utf-8")
+
+    brief = prepare_mission(stage="experiment", project_root=project, state_root=tmp_path, mission=_mission())
+    lines = brief.splitlines()
+
+    assert "### Run reality" in lines
+    assert any(line.startswith("- src/eval.py:1 mock_worker_llm — used from src/eval.py:5") for line in lines)
+    assert any(line.startswith("Results footprint: results/ 1 files") for line in lines)
+    assert lines.index("### Run reality") < lines.index("### This task")

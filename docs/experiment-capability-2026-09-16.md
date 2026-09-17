@@ -41,6 +41,7 @@
 9. **自评工具。** `python -m argus.verticals.research.capability_report --state-dir … --workspace …` 输出每个项目的过程指标(阶段时长、评审时长与判定、token 与费用、方法卡与组件状态、规格测试、参考实现、种子与数据集、图检、skill/wiki),支持 `--baseline` 对照。
 10. **Planner 的多行实现简报完整送达(v2)。** 两处 `TASK_OBJECTIVE=` 行式解析器(`argus/planner/planner.py`、`argus/planner/bounded_dag.py`)此前只取第一行。v1 运行里 Planner 按模板写了 40 行简报(claim、组件的 file:Symbol、接口、必过测试、数据规模、命令、环境、完成定义、范围外),Engineer 收到的任务正文只剩标题 `## Claim`。现在目标后面直到下一个字段(任何形状,含未登记的 `TASK_*`)的行都属于目标;上限 8000 字符。
 11. **普通 mission 也带阶段(v2)。** `loop.py` 只在非 mission 操作时给 Engineer 传 stage,而研究垂域的 Experiment 阶段映射到 mission,于是 Engineer 横幅里的阶段块(权威手册指针、本机算力、"方法卡与可执行规格"、持久研究学习)从未渲染过——基线和 v1 的 Engineer 都是靠 Planner 的任务文本和技能目录自己摸到 METHOD.md 的。现在每种操作都带当前阶段,轮次上下文同样;阶段内横幅不变,不影响 provider 前缀缓存。同批小修:METHOD.md 尚不存在时任务简报引用路线原文而非选题理由;环境行写明 `.venv/bin/python -m pytest tests/spec`(v1 评审阶段的 Engineer 裸跑 `python3 -m pytest` 失败后对全盘 `find / -name pytest`);图检跳过 third_party/ 与虚拟环境。
+12. **运行真实性由主机派生(v3)。** v2 的一个项目在 4 分钟内"跑完" 350 个 WebArena/WorkArena 任务 × 3 种子 × 4 方法:`runtime.py` 在没有模型时退回 `mock_worker_llm`,评估器生成合成 DOM,论文却写成基准评测,Reviewer 只在 limitations 里提了一句就 accept。测试全绿——它们证明的是代码符合方法卡,不是实验真实。现在方法卡派生多两项零 token 事实:`src/`(不含 tests、third_party)里名字含 mock/fake/stub/synthetic/oracle 的定义及其调用点,以及结果目录的足迹(文件数、写入跨度分钟数);它们以"Run reality"出现在任务简报与评审包里。提示文本各加一句:Engineer——替身只许在 tests/spec,真实系统跑不了就写进 METHOD.md 的 Deviations 并说明,不许把模拟当基准报;Reviewer——经替身产生的结果对该组件记 NOT_IMPLEMENTED,除非 METHOD.md 与论文都声明为模拟;Planner——路线需要托管模型或环境时,claim 任务依赖一个"官方样例端到端跑通"的搭建任务;论文标准——写明评测基底。协议本身点名的合成数据会被标注"the protocol names it",不算替身。
 
 ## 3. 对照实验设计
 
@@ -88,11 +89,27 @@
 
 两处都在 v2(`f62c654b9`,产物 `19629fb29`)修复并部署;v2 对照项目 `s-e2a29d20` 16:03 启动。
 
-### 4.3 v2 结果
+### 4.3 v2(f62c654b9 / 19629fb29)
+
+v2 项目 `s-e2a29d20`,16:03 创建,16:57 完成(0.92 h),题目换成了 web agent 的提示注入防御(PBIS)。交接修复在生产中得到验证:首个 Experiment Engineer 提示 4921 词,含权威手册、本机算力、"方法卡与可执行规格"三块;任务正文是 Planner 的完整 2990 字实现简报(claim、组件 file:Symbol、接口、必过测试、命令、完成定义、范围外);任务简报的 claim 引用路线原文。工作区:METHOD.md 3 组件全 proven、tests/spec 9 条主机跑通、third_party/webarena 钉 dce0468、configs 里 14 条 `# why`(v1 为 0)、wiki 3 页(v1 为 1)。全口径 68 次调用、$6.72。Idea 阶段 20 分钟即有合格路线,没有触发重生成。
+
+| 指标 | 基线 | v1 | v2 |
+|---|---|---|---|
+| 总时长 | 2.97 h | 2.85 h | 0.92 h |
+| 调用 / 费用(全口径) | 187 / $21.45 | 89 / $13.32 | 68 / $6.72 |
+| 组件被证明 / 规格测试 | 0 / 0 | 4 / 14 | 3 / 9 |
+| 参考克隆 | 无 | SRFF@692e958 | webarena@dce0468 |
+| `# why` 超参数注释 | 0 | 0 | 14 |
+| wiki 页 | 1 | 1 | 3 |
+| 评审判定 | done 6 / continue 4 | done 6 | done 6 |
+
+**但 v2 的实验不是真的。** 路线 03 明确写了托管本地开放权重模型(GPU 0–1 上以推理引擎服务 14B 级模型)作为执行策略与内容工作器;Engineer 写的 `runtime.py` 在没有模型函数时退回 mock 解析器,评估器用 `mock_worker_llm` 与合成 DOM,"350 任务 × 3 种子 × 4 方法"的 results/ 在 4.7 分钟内写完;METHOD.md 的 Deviations 写 "none",论文摘要写 "We evaluate PBIS across 350 comprehensive benchmark tasks across WebArena and WorkArena",Reviewer 只在 limitations 里提到"合成 DOM 结构"便给了 accept(8/10)。方法与代码一致、测试全绿、claim 未漂移——机制都按设计工作,却对"实验是否真跑了"一无所知。这是 v3 的目标(第 2 节第 12 条):主机把替身与结果足迹作为事实交给 Engineer 与 Reviewer,并把"替身不算结果"写进三方的规则。
+
+### 4.4 v3 结果
 
 _待填写(运行中)。_
 
-### 4.4 仍然存在的问题
+### 4.5 仍然存在的问题
 
 - 评审仍是单轮、无工具的"读证据下判断";主机证据让它有据可依,但它无法自己复现一个数字。这是有意的取舍(token),但应写明。
 - 自进化产出(项目 skill、决策记录)在 v1 里为零。本题不涉及训练基础设施选型,`# why` 与决策记录的触发条件也从未到达 Engineer(见 4.2);v2 之后再看。

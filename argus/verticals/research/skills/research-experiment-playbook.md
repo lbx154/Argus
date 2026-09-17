@@ -367,6 +367,10 @@ losses, or present unfinished development as a negative result. The paper
 argues the claim as stated in `METHOD.md`; a negative or boundary paper exists
 only after the operator has changed that claim.
 
+### Real system, not a stand-in
+
+A claim about a model, an agent, an environment or a dataset is evidence only when that system ran. A mock model, a fake environment, an oracle policy or synthetic data standing where the route names real data belongs in `tests/spec` (knockouts, differential tests) and nowhere in a claim-bearing run. When the real system cannot run on this machine, the honest moves are, in order: stand it up (a local open-weight model behind a serving engine on the idle GPU, the environment's official example end to end — `engineer/framework-stand-up-pilot.md`), shrink the scale while keeping the system real, or name the deviation in METHOD.md and stop the run from being claim-bearing. The host lists possible stand-ins with their call sites and the results footprint (files, minutes written) under "Run reality" in the task brief and the review packet; a 350-task benchmark whose results were written in four minutes is read for what it is.
+
 ## Method card
 
 `METHOD.md` at the project root is the authoritative statement of the

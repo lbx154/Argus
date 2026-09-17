@@ -63,3 +63,7 @@ hard numeric margin, wins on every headline metric, or dominance over every
 strong baseline. Keep uncertainty, relevant losses, and tradeoffs visible;
 otherwise return one concrete Experiment repair through the normal Reviewer
 response.
+
+## Stand-ins
+
+The packet's "Run reality" lines list definitions in the project's own code named mock, fake, stub, synthetic or oracle, with the lines that call them, and how many minutes the results directory was written over. A claim-bearing number produced through such a path is `NOT_IMPLEMENTED` for the component it stands in for, whatever the spec tests say, unless METHOD.md names the deviation and the paper calls the evaluation simulated. Ask for the real system, not for a caveat.

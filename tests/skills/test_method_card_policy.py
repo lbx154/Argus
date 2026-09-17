@@ -148,10 +148,11 @@ def test_prompt_blocks_stay_short() -> None:
         return len(body.split())
 
     # Raised from 130/130/90 for the write-for-review anchors, the review
-    # packet reading order and the implementation brief; trim before raising.
-    assert words("engineer", "## Method card and executable spec", "execute") <= 150
-    assert words("reviewer", "## Method card first", "evaluate") <= 170
-    assert words("planner", "## Method card, reference and spec first", "plan") <= 120
+    # packet reading order and the implementation brief, then to 180/190/145
+    # for the stand-in rule after trimming each block; trim before raising.
+    assert words("engineer", "## Method card and executable spec", "execute") <= 200
+    assert words("reviewer", "## Method card first", "evaluate") <= 195
+    assert words("planner", "## Method card, reference and spec first", "plan") <= 155
 
 
 def test_stage_checklist_and_banners_name_the_card_as_the_named_exception() -> None:
@@ -280,3 +281,17 @@ def test_contract_and_trace_skills_point_to_the_card() -> None:
     assert "do not\ncreate a separate file" not in contract
     assert "Reading order" in trace
     assert "Raw verification evidence" in trace
+
+
+def test_stand_ins_are_named_for_engineer_reviewer_planner_and_paper() -> None:
+    from argus.verticals.research.prompt_policy import _paper_narrative_packaging_block
+
+    engineer = _fragment("engineer", "experiment", operation="execute")
+    reviewer = _fragment("reviewer", "experiment", operation="evaluate")
+    planner = _fragment("planner", "experiment", operation="plan")
+
+    assert "Stand-ins (mock model, fake environment" in engineer
+    assert "never report a simulation as the benchmark" in engineer
+    assert "listed under Run reality is NOT_IMPLEMENTED whatever the tests say" in reviewer
+    assert "a benchmark run through a stand-in is not a result" in planner
+    assert "a simulation is never described as a benchmark" in _paper_narrative_packaging_block()

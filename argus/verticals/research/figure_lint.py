@@ -35,6 +35,10 @@ _GRAPHICSPATH_RE = re.compile(r"\\graphicspath\s*\{((?:\s*\{[^}]*\}\s*)+)\}")
 _COMMENT_RE = re.compile(r"(?<!\\)%.*")
 _GRAPHIC_EXTENSIONS = ("", ".pdf", ".png", ".jpg", ".jpeg", ".eps", ".svg")
 _RASTER_SUFFIXES = {".png", ".jpg", ".jpeg"}
+_BOX_PATCH = re.compile(r"FancyBboxPatch|patches\.Rectangle|Rectangle\(|FancyArrowPatch|ConnectionPatch")
+_TEXT_CALL = re.compile(r"\.(?:text|annotate)\(")
+_ARROW_PROPS = re.compile(r"arrowprops\s*=")
+_DATA_CALL = re.compile(r"\.(?:plot|bar|barh|scatter|errorbar|imshow|hist|boxplot|fill_between|violinplot|pcolormesh|contourf?)\(")
 _SKIPPED_DIRS = {
     # A pinned reference clone is somebody else's plotting code; the lint
     # speaks about this project's figures. One report listed three files
@@ -265,9 +269,22 @@ def _plot_script_issues(project_root: Path) -> list[str]:
             continue
         if "matplotlib" not in text and "pyplot" not in text:
             continue
+        shown = script.relative_to(project_root.resolve()).as_posix()
+        # A box-and-arrow diagram drawn with patches and a dozen text calls
+        # and no data series is an architecture figure done the wrong way:
+        # one project's mechanism figure had labels overlapping its boxes.
+        boxes = len(_BOX_PATCH.findall(text))
+        arrows = len(_ARROW_PROPS.findall(text))
+        labels = len(_TEXT_CALL.findall(text))
+        if boxes >= 1 and boxes + arrows >= 3 and labels >= 6 and not _DATA_CALL.search(text):
+            issues.append(
+                f"`{shown}` draws a box-and-arrow diagram with matplotlib patches; "
+                "conceptual and architecture figures follow "
+                "engineer/paper-framework-figure-studio.md (reference figures, a design "
+                "blueprint, an editable PPT Master reconstruction), not matplotlib boxes"
+            )
         if STYLE_HELPER in text:
             continue
-        shown = script.relative_to(project_root.resolve()).as_posix()
         issues.append(
             f"`{shown}` saves matplotlib figures without the shared {STYLE_HELPER} "
             "helper; data figures apply set_pub_style/figure_size/highlight_ours from "

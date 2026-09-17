@@ -114,3 +114,29 @@ def test_reference_clones_and_virtualenvs_are_not_linted(tmp_path: Path) -> None
 
     assert all("third_party" not in issue and ".venv" not in issue for issue in issues)
     assert any("src/plot.py" in issue for issue in issues)
+
+
+def test_box_and_arrow_diagrams_drawn_in_matplotlib_are_reported(tmp_path: Path) -> None:
+    diagram = tmp_path / "scripts" / "architecture.py"
+    diagram.parent.mkdir()
+    diagram.write_text(
+        "import matplotlib.pyplot as plt\nfrom matplotlib.patches import FancyBboxPatch\n"
+        "fig, ax = plt.subplots()\n"
+        + "".join(f"ax.add_patch(FancyBboxPatch(({i}, 0), 1, 1))\nax.text({i}, 0.5, 'box {i}')\nax.annotate('a', ({i}, 0))\n" for i in range(4))
+        + "fig.savefig('architecture.pdf')\n",
+        encoding="utf-8",
+    )
+    chart = tmp_path / "scripts" / "results.py"
+    chart.write_text(
+        "import matplotlib.pyplot as plt\nfrom matplotlib.patches import Rectangle\n"
+        "fig, ax = plt.subplots()\nax.plot([1, 2], [3, 4])\n"
+        + "".join(f"ax.add_patch(Rectangle(({i}, 0), 1, 1))\nax.text({i}, 0.5, 'x')\nax.annotate('a', ({i}, 0))\n" for i in range(4))
+        + "fig.savefig('results.pdf')\n",
+        encoding="utf-8",
+    )
+    _paper(tmp_path, "text")
+
+    issues = mod.figure_lint_issues(tmp_path)
+
+    assert any("scripts/architecture.py" in i and "box-and-arrow diagram" in i for i in issues)
+    assert not any("scripts/results.py" in i and "box-and-arrow diagram" in i for i in issues)

@@ -550,6 +550,9 @@ def method_card_summary(workspace: Path) -> dict[str, Any]:
         "spec_tests_bound": len(bound_tests),
         "unlisted_components": len(card.get("unlisted_components") or []),
         "reused_code": len(card.get("reused_code") or []),
+        "stand_ins": len(
+            [e for e in (card.get("stand_ins") or []) if e.get("kind") == "definition"]
+        ),
         "hyperparameters": len(card.get("hyperparameters") or []),
         "hyperparameters_with_why": sum(
             1 for entry in (card.get("hyperparameters") or []) if entry.get("why")
@@ -975,6 +978,7 @@ def report_rows(report: dict[str, Any]) -> list[tuple[str, Any]]:
     rows.append(("quoted anchors", card.get("anchors")))
     rows.append(("spec tests bound", card.get("spec_tests_bound")))
     rows.append(("hyperparameters with why", card.get("hyperparameters_with_why")))
+    rows.append(("stand-ins in project code", card.get("stand_ins")))
     spec = report.get("spec_checks") or {}
     rows.append(("tests/spec", spec.get("spec_dir_exists")))
     rows.append(("spec files", spec.get("spec_files")))

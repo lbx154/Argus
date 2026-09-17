@@ -90,6 +90,27 @@ _ANCHOR_REUSES = re.compile(r"#\s*@reuses\s+(?P<what>\S+)\s+(?P<note>.+?)\s*$")
 _DEF_OR_CLASS = re.compile(r"^\s*(?:async\s+)?(?:def|class)\s+(?P<name>\w+)")
 _PORCELAIN_LINE = re.compile(r"^(?P<status>[ MADRCU?!]{2}) (?P<path>.+)$")
 
+# Stand-ins: names in the project's own code (never tests/) that announce a
+# substitute for the system the route names -- a mock model, a fake
+# environment, an oracle policy, synthetic data where the route names real
+# data. One project evaluated "350 WebArena tasks" in four minutes through
+# `mock_worker_llm` and the paper called it a benchmark; the Reviewer had been
+# told the tests passed, which they did. The scan lists candidates with their
+# call sites; whether a candidate is legitimate (a physics simulator *is* the
+# experiment) is the Reviewer's judgement, so this is evidence, not a gate.
+_STAND_IN_NAME = re.compile(
+    r"(?:^|_)(?:mock|fake|stub|dummy|simulat[a-z]*|synthetic|oracle|toy|placeholder)(?:_|$)"
+    r"|(?:Mock|Fake|Stub|Dummy|Simulat[a-z]*|Synthetic|Oracle|Toy|Placeholder)(?:[A-Z_]|$)"
+    r"|^(?:MOCK|FAKE|STUB|DUMMY|SYNTHETIC|ORACLE|PLACEHOLDER)(?:_|$)"
+)
+_STAND_IN_NOTE = re.compile(
+    r"#.*\b(?:mock|stub|fake|stand-in|placeholder|simulated|for spec tests)\b", re.IGNORECASE
+)
+MAX_STAND_INS = 20
+STAND_IN_USES = 5
+RESULT_DIRS = ("results", "outputs", "runs", "artifacts", "logs")
+RESULT_WALK_CAP = 5000
+
 
 # --------------------------------------------------------------------------
 # Markdown parsing
@@ -547,6 +568,153 @@ def reused_code(workdir: Path) -> list[dict[str, Any]]:
     return result
 
 
+def stand_ins(workdir: Path) -> list[dict[str, Any]]:
+    """Possible stand-ins in the project's own code, each with its call sites.
+
+    Definitions (``def``/``class``) whose name says mock, fake, stub, dummy,
+    simulated, synthetic, oracle, toy or placeholder, and comments that say a
+    path is a stand-in. tests/ and third_party/ are not scanned: that is where
+    stand-ins belong.
+    """
+    workdir = Path(workdir)
+    files = _iter_project_files(workdir)
+    if not files:
+        return []
+    texts: dict[Path, list[str]] = {}
+    for path in files:
+        if path.suffix != ".py":
+            continue
+        try:
+            texts[path] = _read_text(path).splitlines()
+        except Exception:  # noqa: BLE001
+            continue
+
+    def _rel(path: Path) -> str:
+        try:
+            return path.relative_to(workdir).as_posix()
+        except ValueError:
+            return path.as_posix()
+
+    definitions: list[dict[str, Any]] = []
+    notes: list[dict[str, Any]] = []
+    for path, lines in texts.items():
+        for index, line in enumerate(lines, start=1):
+            match = _DEF_OR_CLASS.match(line)
+            if match is not None and _STAND_IN_NAME.search(match.group("name")):
+                definitions.append(
+                    {"kind": "definition", "name": match.group("name"), "file": _rel(path), "line": index, "used_from": []}
+                )
+                continue
+            if _STAND_IN_NOTE.search(line):
+                notes.append(
+                    {"kind": "note", "name": line.strip()[:120], "file": _rel(path), "line": index, "used_from": []}
+                )
+    for entry in definitions:
+        pattern = re.compile(r"\b" + re.escape(entry["name"]) + r"\b")
+        for path, lines in texts.items():
+            rel = _rel(path)
+            for index, line in enumerate(lines, start=1):
+                if rel == entry["file"] and index == entry["line"]:
+                    continue
+                if pattern.search(line) and not line.lstrip().startswith("#"):
+                    entry["used_from"].append(f"{rel}:{index}")
+                    if len(entry["used_from"]) >= STAND_IN_USES:
+                        break
+            if len(entry["used_from"]) >= STAND_IN_USES:
+                break
+    definitions.sort(key=lambda e: (-len(e["used_from"]), e["file"], e["line"]))
+    return [*definitions, *notes][:MAX_STAND_INS]
+
+
+def results_footprint(workdir: Path) -> list[dict[str, Any]]:
+    """What the result directories hold and over how many minutes they were written.
+
+    A "350-task, 3-seed benchmark" whose results/ was written in four minutes
+    says something no test can; so does a results/ that is empty.
+    """
+    workdir = Path(workdir)
+    out: list[dict[str, Any]] = []
+    for name in RESULT_DIRS:
+        directory = workdir / name
+        if not directory.is_dir():
+            continue
+        count, total, oldest, newest = 0, 0, None, None
+        for dirpath, dirnames, filenames in os.walk(directory):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for filename in filenames:
+                try:
+                    stat = os.stat(os.path.join(dirpath, filename))
+                except OSError:
+                    continue
+                count += 1
+                total += stat.st_size
+                oldest = stat.st_mtime if oldest is None else min(oldest, stat.st_mtime)
+                newest = stat.st_mtime if newest is None else max(newest, stat.st_mtime)
+                if count >= RESULT_WALK_CAP:
+                    break
+            if count >= RESULT_WALK_CAP:
+                break
+        if count == 0:
+            out.append({"dir": name, "files": 0, "bytes": 0, "span_minutes": 0.0, "newest_age_minutes": None})
+            continue
+        now = time.time()
+        out.append(
+            {
+                "dir": name,
+                "files": count,
+                "bytes": total,
+                "span_minutes": round((newest - oldest) / 60.0, 1),
+                "newest_age_minutes": round((now - newest) / 60.0, 1),
+            }
+        )
+    return out
+
+
+def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
+    """Lines shared by the review packet and the task brief: stand-ins and footprint."""
+    lines: list[str] = []
+    candidates = card.get("stand_ins") or []
+    definitions = [e for e in candidates if e.get("kind") == "definition"]
+    notes = [e for e in candidates if e.get("kind") == "note"]
+    if definitions or notes:
+        lines.append(
+            "Possible stand-ins in the project's own code (mock/fake/stub/synthetic/oracle "
+            "names outside tests; a result produced through one is not evidence for the claim "
+            "unless METHOD.md Deviations names it):"
+        )
+        protocol = str(card.get("protocol") or "").lower()
+        for entry in definitions[:limit]:
+            used = ", ".join(entry.get("used_from") or []) or "no call site found"
+            word = _STAND_IN_NAME.search(entry["name"])
+            # A synthetic dataset the protocol itself names is the experiment,
+            # not a stand-in for it; say so instead of making the Reviewer look.
+            named = (
+                " (the protocol names it)"
+                if word is not None and word.group(0).strip("_").lower().rstrip("abcdefghijklmnopqrstuvwxyz")[:0] == "" and any(
+                    key in protocol for key in ("synthetic", "simulat", "oracle", "toy") if key in word.group(0).lower()
+                )
+                else ""
+            )
+            lines.append(f"- {entry['file']}:{entry['line']} {entry['name']} — used from {used}{named}")
+        for entry in notes[: max(0, limit - min(limit, len(definitions)))][:2]:
+            lines.append(f"- {entry['file']}:{entry['line']} {entry['name']}")
+        if len(definitions) > limit:
+            lines.append(f"- ... {len(definitions) - limit} more")
+    footprint = card.get("results_footprint") or []
+    if footprint:
+        parts = []
+        for entry in footprint[:3]:
+            if not entry.get("files"):
+                parts.append(f"{entry['dir']}/ empty")
+                continue
+            parts.append(
+                f"{entry['dir']}/ {entry['files']} files, {entry['bytes'] // 1024} KB, "
+                f"written over {entry['span_minutes']} min, newest {entry['newest_age_minutes']} min ago"
+            )
+        lines.append("Results footprint: " + "; ".join(parts))
+    return lines
+
+
 # --------------------------------------------------------------------------
 # Code anchors: ``# @component``, ``# @simplified``, ``# @reuses`` comments
 # --------------------------------------------------------------------------
@@ -952,6 +1120,8 @@ def _empty_card() -> dict[str, Any]:
         "hyperparameters": [],
         "change_log": [],
         "checks": None,
+        "stand_ins": [],
+        "results_footprint": [],
     }
 
 
@@ -1018,6 +1188,8 @@ def derive_method_card(workdir: Path) -> dict[str, Any]:
         ("reused_code", lambda: reused_code(workdir)),
         ("hyperparameters", lambda: hyperparameters(workdir, card["protocol"])),
         ("change_log", lambda: change_log(workdir)),
+        ("stand_ins", lambda: stand_ins(workdir)),
+        ("results_footprint", lambda: results_footprint(workdir)),
     ):
         try:
             card[key] = derive()
@@ -1126,6 +1298,10 @@ def render_for_reviewer(workdir: Path) -> str:
     ]
     if unlisted_anchors:
         lines.append("Anchors without a card row: " + ", ".join(unlisted_anchors[:10]))
+    reality = render_run_reality(card)
+    if reality:
+        lines.append("Run reality (derived from the tree, not from any account):")
+        lines.extend(reality)
     changed_now = changed_files(Path(workdir))
     if changed_now:
         lines.append(f"Files changed this round ({len(changed_now)} in git status):")

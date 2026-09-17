@@ -273,6 +273,12 @@ def _claim_section(
     return lines
 
 
+def _reality_section(card: dict[str, Any]) -> list[str]:
+    """Stand-ins and the results footprint, so the Engineer sees what the Reviewer will."""
+    lines = method_card.render_run_reality(card, limit=5)
+    return ["### Run reality", *lines] if lines else []
+
+
 def _components_section(card: dict[str, Any]) -> list[str]:
     components = card.get("components") or []
     if not components:
@@ -572,6 +578,7 @@ def render_task_brief(
         lambda: _claim_section(card, root, state),
         lambda: _components_section(card),
         lambda: _environment_section(root, card),
+        lambda: _reality_section(card),
         lambda: _task_section(mission, state),
         lambda: _since_section(root, card),
     ):
