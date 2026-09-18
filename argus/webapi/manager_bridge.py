@@ -65,13 +65,14 @@ def _schedule_answer_learning(
     """Keep a researched chat answer as a survey page, off the reply's thread.
 
     The answer is already on its way to the operator; nothing here delays it.
-    Returns the started thread, or ``None`` when there was nothing to learn
-    from, learning is switched off, the Manager runner has no backend, or a
+    Whether the exchange taught anything is the model's call, not a rule here.
+    Returns the started thread, or ``None`` when nothing was said, learning is
+    switched off, the Manager runner has no backend, or a
     previous learning pass for this project is still running.
     """
-    from ..life.reflection import answer_is_research, answer_learning_enabled
+    from ..life.reflection import answer_learning_enabled
 
-    if not answer_learning_enabled() or not answer_is_research(operator_text, reply):
+    if not answer_learning_enabled() or not str(reply or "").strip():
         return None
     state = _chat_state_for(sid, manager_activity=False)
     runner = state.get("manager_runner")

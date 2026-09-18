@@ -6,7 +6,7 @@ finished mission and asks a small model to write, at most, one lesson page
 into the vertical's shared Wiki, two fact pages into the project Wiki and one
 procedure into the project Skill layer — or nothing, when nothing durable was
 learned. ``reflect_after_answer`` does the same for a researched chat reply,
-keeping a survey page with its sources and a date to re-verify.
+deciding itself whether the exchange taught anything worth a survey page.
 
 The host owns everything deterministic: which directories the model may write
 into, the snapshot before and after the call, the front matter check, the
@@ -47,28 +47,10 @@ RECEIPT_RELATIVE = Path(".argus") / "REFLECTED.json"
 MISSION_RUN_LABEL = "reflection"
 ANSWER_RUN_LABEL = "answer-learning"
 PROMPT_CHAR_LIMIT = 12_000
-MIN_MISSION_SECONDS = 60.0
 SURVEY_REVERIFY_DAYS = 90
 _MAX_EXISTING_TITLES = 40
 _ON_VALUES = frozenset({"1", "true", "yes", "on"})
 _URL_RE = re.compile(r"https?://[^\s<>()\[\]\"']+")
-_QUESTION_OPENERS = (
-    "现在", "如今", "目前", "最新", "调研", "怎么", "怎样", "如何", "为什么", "为何",
-    "是否", "有没有", "哪些", "哪个", "什么",
-    "how", "what", "why", "which", "when", "where", "who", "is ", "are ", "does ", "do ",
-    "can ", "should ", "compare", "survey", "research", "investigate", "find out",
-)
-
-# "Learn X for me" is a knowledge request even when it is not phrased as a
-# question; the trial host's operator wrote "你学习一下FA…", got a 1,700-character
-# answer, and nothing was kept because the text neither ended in ? nor opened
-# with a question word.
-_LEARNING_INTENT = (
-    "学习", "学一下", "了解", "调研", "研究", "科普", "介绍", "讲讲", "讲一下", "综述", "什么是",
-    "learn", "study", "research", "survey", "explain", "overview", "brief me", "teach me",
-    "what is", "tell me about",
-)
-
 Emit = Callable[[dict[str, Any]], Any] | None
 
 
@@ -582,10 +564,6 @@ def _reflect_after_mission(
         return {"skipped": "mission has no id", "created": [], "updated": []}
     if _already_reflected(life_dir, mission_id):
         return {"skipped": "already reflected on this mission", "created": [], "updated": []}
-    if elapsed_s is not None and float(elapsed_s) < MIN_MISSION_SECONDS:
-        return {"skipped": "mission ran under a minute", "created": [], "updated": []}
-    if rounds is not None and int(rounds) <= 0:
-        return {"skipped": "mission produced no rounds", "created": [], "updated": []}
 
     vertical_root, lesson_scope = _vertical_root(vertical, global_root)
     lesson_dir = vertical_root / "pages" / "lessons"
@@ -733,30 +711,6 @@ def _promote_fact_pages(
 # --------------------------------------------------------------------------- answers
 
 
-def answer_is_research(operator_text: str, reply: str) -> bool:
-    """Whether a chat reply looks like a researched answer worth a survey page.
-
-    True when the reply cites at least two URLs, or when it is long (600+
-    characters) and the operator asked for knowledge — a question (ending in
-    ``?``/``？`` or opening with a question word such as 现在/how/what/why) or a
-    request to learn, survey or explain a subject (学习/了解/调研/learn/explain…).
-    """
-    body = str(reply or "")
-    if len(set(_URL_RE.findall(body))) >= 2:
-        return True
-    if len(body.strip()) < 600:
-        return False
-    asked = " ".join(str(operator_text or "").split())
-    if not asked:
-        return False
-    if asked.endswith(("?", "？")):
-        return True
-    lowered = asked.lower()
-    if any(lowered.startswith(opener) for opener in _QUESTION_OPENERS):
-        return True
-    return any(word in lowered for word in _LEARNING_INTENT)
-
-
 def _existing_surveys(root: Path) -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
     for path in _markdown_files(root / "pages" / "surveys"):
@@ -799,7 +753,12 @@ def build_answer_prompt(
         "## Surveys that already exist (slug — title)\n"
         f"{known}",
         "## What to write\n"
-        f"Write exactly ONE survey page, `{survey_dir}/<slug>.md`, with a short lowercase "
+        "First decide whether this exchange taught anything a later question would "
+        "start from: a fact, a survey of a field, a source worth keeping, a conclusion "
+        "reached. Small talk, status, controls, a card offer or an answer that only "
+        "restates common knowledge teach nothing; then write nothing and finish with "
+        "`WROTE: nothing`. Otherwise write exactly ONE survey page, "
+        f"`{survey_dir}/<slug>.md`, with a short lowercase "
         "hyphenated slug naming the topic. Front matter: `title`, `description`, "
         f"`kind: survey`, `audience: {audience}`, `source: chat/{project_id}`, "
         f"`created: {iso}`, `confidence: high|medium|low`, `reverify_after: {reverify}`. "
@@ -811,7 +770,7 @@ def build_answer_prompt(
         f"`## Update {iso}` section with what is new and refresh its `reverify_after` "
         "only inside that section. The host keeps the earlier text either way.\n\n"
         f"You may write only inside `{survey_dir}`. Finish with one line: "
-        "`WROTE: <path>`.",
+        "`WROTE: <path>` or `WROTE: nothing`.",
     ]
     prompt = "\n\n".join(sections)
     if len(prompt) > PROMPT_CHAR_LIMIT:
@@ -884,8 +843,8 @@ def _reflect_after_answer(
     backend = _backend_for(runner_backend)
     if backend is None:
         return {"skipped": "no model backend", "created": [], "updated": []}
-    if not answer_is_research(operator_text, reply):
-        return {"skipped": "the reply is not a researched answer", "created": [], "updated": []}
+    if not str(reply or "").strip():
+        return {"skipped": "nothing was said", "created": [], "updated": []}
     root, scope = _vertical_root(vertical, global_root)
     survey_dir = root / "pages" / "surveys"
     try:
@@ -967,7 +926,6 @@ __all__ = [
     "PROMPT_CHAR_LIMIT",
     "REFLECTION_KNOB",
     "REFLECTION_MODEL_KNOB",
-    "answer_is_research",
     "answer_learning_enabled",
     "build_answer_prompt",
     "build_reflection_prompt",

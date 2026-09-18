@@ -21,7 +21,6 @@ from argus.core.models import RunnerResult
 from argus.life import reflection
 from argus.life.reflection import (
     PROMPT_CHAR_LIMIT,
-    answer_is_research,
     reflect_after_answer,
     reflect_after_mission,
 )
@@ -190,12 +189,12 @@ def test_reflection_skips_without_a_backend(roots: _Roots) -> None:
     assert result["skipped"] == "no model backend"
 
 
-def test_reflection_skips_short_or_empty_missions(roots: _Roots) -> None:
+def test_short_and_roundless_missions_still_get_the_model_s_judgment(roots: _Roots) -> None:
     backend = _Backend()
 
-    assert "under a minute" in roots.reflect(backend, elapsed_s=12.0)["skipped"]
-    assert "no rounds" in roots.reflect(backend, rounds=0)["skipped"]
-    assert backend.calls == []
+    assert roots.reflect(backend, elapsed_s=12.0)["skipped"] == ""
+    assert roots.reflect(backend, mission_id="m-rounds", rounds=0)["skipped"] == ""
+    assert len(backend.calls) == 2
 
 
 # --------------------------------------------------------------------------- lessons
@@ -398,26 +397,14 @@ def test_a_raising_backend_never_reaches_the_caller(roots: _Roots) -> None:
 # --------------------------------------------------------------------------- answers
 
 
-@pytest.mark.parametrize(
-    ("operator_text", "reply", "expected"),
-    [
-        ("anything", RESEARCH_REPLY, True),  # two URLs
-        ("anything", "one link https://example.org/a " + "x" * 700, False),  # one URL, no question
-        ("现在 torch.compile 覆盖到哪一步了", "x" * 700, True),
-        ("How far does compile coverage go today?", "x" * 700, True),
-        ("调研一下最新的优化器", "x" * 700, True),
-        ("怎么把这个跑起来", "x" * 700, True),
-        ("Make the cache stable.", "x" * 700, False),  # long reply, not a question
-        ("你学习一下FA 就是初创公司融资的相关知识", "x" * 700, True),  # learn X: a knowledge request
-        ("Teach me how term sheets work", "x" * 700, True),
-        ("帮我了解一下向量数据库的现状", "x" * 700, True),
-        ("你学习一下FA", "short", False),  # learning intent, but nothing was said
-        ("Why does it fail?", "short", False),  # a question, but a short reply
-        ("", "x" * 700, False),
-    ],
-)
-def test_answer_is_research_heuristic(operator_text: str, reply: str, expected: bool) -> None:
-    assert answer_is_research(operator_text, reply) is expected
+def test_an_empty_reply_is_the_only_answer_not_handed_to_the_model(roots: _Roots) -> None:
+    backend = _Backend()
+    assert _answer(roots, backend, reply="   ")["skipped"] == "nothing was said"
+    assert backend.calls == []
+    # An ordinary sentence still goes to the model, which decides whether to keep anything.
+    result = _answer(roots, backend, operator_text="ok", reply="Sure, done.")
+    assert result["skipped"] == "" and len(backend.calls) == 1
+    assert "WROTE: nothing" in str(backend.calls[0])
 
 
 def _answer(roots: _Roots, backend: Any, **overrides: Any) -> dict[str, Any]:
@@ -512,13 +499,14 @@ def test_an_appended_update_is_left_as_written(roots: _Roots) -> None:
     assert survey_path.read_text(encoding="utf-8") == appended
 
 
-def test_answer_learning_declines_replies_that_are_not_research(roots: _Roots) -> None:
-    backend = _Backend()
+def test_answer_learning_lets_the_model_decline_and_writes_nothing(roots: _Roots) -> None:
+    backend = _Backend()  # writes no file: the model judged there was nothing to keep
 
     result = _answer(roots, backend, reply="Sure, done.", operator_text="ok")
 
-    assert result["skipped"] == "the reply is not a researched answer"
-    assert backend.calls == []
+    assert result["skipped"] == "" and result["created"] == [] and result["updated"] == []
+    assert len(backend.calls) == 1
+    assert not list((roots.home / "wiki" / "_global" / "pages" / "surveys").glob("*.md"))
 
 
 def test_answer_learning_respects_its_switch(roots: _Roots, monkeypatch: pytest.MonkeyPatch) -> None:

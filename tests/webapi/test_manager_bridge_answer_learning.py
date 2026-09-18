@@ -63,10 +63,10 @@ def test_nothing_is_scheduled_when_the_switch_is_off(
     assert _schedule(home) is None
 
 
-def test_nothing_is_scheduled_for_an_ordinary_reply(home: Path) -> None:
+def test_only_an_empty_reply_is_not_scheduled(home: Path) -> None:
     _prime(SID, backend=object(), workdir=home)
 
-    assert _schedule(home, reply="Sure, done.", operator_text="ok") is None
+    assert _schedule(home, reply="   ", operator_text="ok") is None
 
 
 def test_nothing_is_scheduled_without_a_manager_backend(home: Path) -> None:
