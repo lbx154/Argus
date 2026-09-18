@@ -2662,7 +2662,7 @@
         "page_kind": "page kind",
         "path": "path",
         "payload_schema_version": 1,
-        "scope": "project",
+        "scope": "private",
         "source_project": "source project",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
@@ -2683,6 +2683,7 @@
         "role": "engineer",
         "scope_counts": {
           "global": 1,
+          "private": 1,
           "project": 1,
           "vertical": 1
         },

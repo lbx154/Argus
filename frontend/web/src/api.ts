@@ -113,9 +113,9 @@ export interface WikiPageDocument {
 }
 
 /** Where a knowledge page lives: shared by everyone, by one vertical, or kept by one project. */
-export type WikiScope = 'global' | 'vertical' | 'project';
+export type WikiScope = 'private' | 'global' | 'vertical' | 'project';
 /** What a knowledge page is: a fact, a lesson from reflection, a survey distilled after an answer, a set of principles, or a plain page. */
-export type WikiPageKind = 'fact' | 'lesson' | 'survey' | 'principles' | 'page';
+export type WikiPageKind = 'fact' | 'lesson' | 'survey' | 'principles' | 'note' | 'profile' | 'page';
 /** One knowledge page flattened across libraries, newest first; the host adds scope, vertical and root. */
 export interface WikiLibraryItem {
   scope: WikiScope;
@@ -143,6 +143,8 @@ export interface WikiLibrary {
   pages: WikiPageSummary[];
   /** The library's principles.md, compiled from repeated lessons; null until there is one. */
   principles?: string | null;
+  /** The operator's living profile (private scope only); null until Argus has written one. */
+  profile?: string | null;
 }
 /** Every knowledge library the host can see for the given project, plus the flattened page list. */
 export interface WikiCatalog {

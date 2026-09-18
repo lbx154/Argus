@@ -39,7 +39,7 @@ from .failure_experience_index import (
 
 log = logging.getLogger(__name__)
 _EXCLUDED = {"_archive", "_history", "_retired", "_shared_verticals"}
-_PAGE_KINDS = ("fact", "lesson", "survey", "principles", "page")
+_PAGE_KINDS = ("fact", "lesson", "survey", "principles", "note", "profile", "page")
 _SCOPES = ("project", "vertical", "global")
 _DESCRIPTION_CHARS = 160
 _FRONT_MATTER_CHARS = 4000
@@ -592,6 +592,20 @@ def _resolve_vertical(workspace: Path, life_dir: Path | None = None) -> str:
         return ""
 
 
+def _operator_roots(global_root: Path) -> list[KnowledgeRoot]:
+    """The operator's private profile and notes; private scope, this home only."""
+    from ..core.paths import operator_memory_root
+
+    try:
+        root = operator_memory_root(global_root).absolute()
+    except (OSError, ValueError):
+        return []
+    return [
+        KnowledgeRoot("about the operator", root / "profile.md", root, scope="private", library=root),
+        KnowledgeRoot("notes about the operator", root / "pages", root, scope="private", library=root),
+    ]
+
+
 def _shared_wiki_roots(global_root: Path, vertical: str) -> list[KnowledgeRoot]:
     """The vertical's shared Wiki (pages and principles) and the host-wide shared Wiki."""
     from ..core.paths import global_wiki_root, shared_vertical_wiki_root, shared_wiki_root
@@ -659,6 +673,9 @@ def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
         # so they keep their share of the bounded document budget.
         project_count = sum(1 for root in roots if root.kind == "project Wiki")
         roots[project_count:project_count] = _shared_wiki_roots(global_root, vertical)
+        # What Argus knows about the operator comes first of all: the work
+        # should fit the person before it fits the field.
+        roots[0:0] = _operator_roots(global_root)
         if workspace is not None and vertical and _sibling_wikis_enabled():
             for sid, wiki in _sibling_wiki_roots(global_root, workspace, vertical):
                 roots.append(KnowledgeRoot(

@@ -36,9 +36,9 @@ INDEX_LIMIT = 32 * 1024
 PAGE_LIMIT = 128 * 1024
 PAGE_COUNT_LIMIT = 200
 FEED_LIMIT = 500
-SCOPES = ("global", "vertical", "project")
+SCOPES = ("private", "global", "vertical", "project")
 # What a knowledge page is, as named by its front matter; anything else is a page.
-PAGE_KINDS = ("fact", "lesson", "survey", "principles", "page")
+PAGE_KINDS = ("fact", "lesson", "survey", "principles", "note", "profile", "page")
 _HEADING = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 
 ReuseCounts = dict[tuple[str, str, str], int]
@@ -156,6 +156,18 @@ def _index_markdown(root: Path) -> str:
     return text
 
 
+def _profile_markdown(root: Path) -> str | None:
+    """The operator's living profile without its front matter; None until written."""
+    path = root / "profile.md"
+    try:
+        if not path.is_file():
+            return None
+        text, _ = _read_text(path, PAGE_LIMIT)
+    except OSError:
+        return None
+    return _strip_front_matter(text)
+
+
 def _principles_markdown(root: Path) -> str | None:
     """The library's compiled principles without their front matter; None until there are any."""
     path = root / PRINCIPLES_FILENAME
@@ -229,7 +241,9 @@ def _library(
         "index_markdown": _index_markdown(root),
         "pages": _with_reuse_counts(_page_rows(root), counts, scope=scope, vertical=vertical),
         # Principles are compiled per shared library; a project keeps none of its own.
-        "principles": _principles_markdown(root) if scope != "project" else None,
+        "principles": _principles_markdown(root) if scope not in ("project", "private") else None,
+        # The operator's portrait, private to this home.
+        "profile": _profile_markdown(root) if scope == "private" else None,
     }
 
 
@@ -267,6 +281,9 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
             return root.as_posix()
 
     def shared_root_for(scope: str, vertical: str, global_root: Path) -> Path | None:
+        if scope == "private":
+            root = core_paths.operator_memory_root(global_root)
+            return root if (root / "profile.md").is_file() or _shared_wiki_exists(root) else None
         if scope == "global":
             root = core_paths.global_wiki_root(global_root)
         elif scope == "vertical":
@@ -304,6 +321,11 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
         if _shared_wiki_exists(global_wiki):
             libraries.append(
                 _library("global", "", global_wiki, root_label=str(global_wiki), counts=counts)
+            )
+        operator = core_paths.operator_memory_root(global_root)
+        if (operator / "profile.md").is_file() or _shared_wiki_exists(operator):
+            libraries.insert(
+                0, _library("private", "", operator, root_label=str(operator), counts=counts)
             )
         items = [
             {**page, "scope": library["scope"], "vertical": library["vertical"], "root": library["root"]}
@@ -346,7 +368,7 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
             if shared is None:
                 raise HTTPException(status_code=404, detail="Shared wiki not found")
             root = shared
-            if scope == "global":
+            if scope in ("global", "private"):
                 vertical = ""
         page = _read_page(root, path)
         return {"scope": scope, "vertical": vertical, **page}

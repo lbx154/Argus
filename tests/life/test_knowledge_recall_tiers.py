@@ -110,7 +110,8 @@ def test_roots_include_shared_tiers_principles_and_same_vertical_siblings_only(t
     kinds = root_kinds(recall)
     by_kind = {root.kind: root for root in recall.roots}
 
-    assert kinds[:4] == ["project Wiki", f"{VERTICAL} knowledge", "principles", "shared knowledge"]
+    assert kinds[:2] == ["about the operator", "notes about the operator"]
+    assert kinds[2:6] == ["project Wiki", f"{VERTICAL} knowledge", "principles", "shared knowledge"]
     assert by_kind[f"{VERTICAL} knowledge"].path == vertical_root / "pages"
     assert by_kind[f"{VERTICAL} knowledge"].scope == "vertical"
     assert by_kind["principles"].path == vertical_root / "principles.md"

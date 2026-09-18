@@ -7,17 +7,17 @@ import { KnowledgeFeedList, useKnowledgeFeed } from './KnowledgeFeed';
 import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
 
-const scopes: WikiScope[] = ['global', 'vertical', 'project'];
+const scopes: WikiScope[] = ['private', 'global', 'vertical', 'project'];
 /** Browser tabs: the live feed, every page by recency, lessons, principles, then one tab per level. */
 export type WikiTab = WikiScope | 'feed' | 'recent' | 'lessons' | 'principles';
 const tabs: WikiTab[] = ['feed', 'recent', 'lessons', 'principles', ...scopes];
 export const wikiScopeLabels = {
-  en: { global: 'Global', vertical: 'Vertical', project: 'Project', feed: 'Learning feed', recent: 'Recent', lessons: 'Lessons', principles: 'Principles', index: 'Index' },
-  zh: { global: '全局', vertical: '垂直领域', project: '项目', feed: '学习动态', recent: '最近更新', lessons: '经验教训', principles: '原则', index: '索引' },
+  en: { private: 'About you', global: 'Global', vertical: 'Vertical', project: 'Project', feed: 'Learning feed', recent: 'Recent', lessons: 'Lessons', principles: 'Principles', index: 'Index' },
+  zh: { private: '关于你', global: '全局', vertical: '垂直领域', project: '项目', feed: '学习动态', recent: '最近更新', lessons: '经验教训', principles: '原则', index: '索引' },
 };
 export const wikiKindLabels: Record<'en' | 'zh', Record<WikiPageKind, string>> = {
-  en: { fact: 'Fact', lesson: 'Lesson', survey: 'Survey', principles: 'Principles', page: 'Page' },
-  zh: { fact: '事实', lesson: '教训', survey: '调研', principles: '原则', page: '页面' },
+  en: { fact: 'Fact', lesson: 'Lesson', survey: 'Survey', principles: 'Principles', note: 'Note', profile: 'Profile', page: 'Page' },
+  zh: { fact: '事实', lesson: '教训', survey: '调研', principles: '原则', note: '记录', profile: '画像', page: '页面' },
 };
 /** The page kind the host reported, folded onto the five the browser knows how to label. */
 export const pageKind = (item: Pick<WikiLibraryItem, 'kind'>): WikiPageKind =>
@@ -135,6 +135,7 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
           {scope === 'recent' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '按文件更新时间排列，涵盖所有层级。' : 'All levels, newest file updates first.'}</p>}
           {scope === 'lessons' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '任务结束后 Argus 反思写下的教训，涵盖所有层级。反复出现的教训会被整理成原则。' : 'Lessons Argus wrote down while reflecting after a mission, across all levels. Lessons that keep recurring are compiled into principles.'}</p>}
           {scope === 'principles' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '每个领域从反复出现的教训中整理出的原则，每条都引用它的证据。' : 'Per vertical, the principles compiled from recurring lessons; each cites the lessons behind it.'}</p>}
+          {scope === 'private' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '只有你和为你工作的 Argus 能看到：你的情况、偏好、计划。不会进入共享层，也不会写进任务。' : 'Seen only by you and the Argus working for you: your situation, preferences and plans. Never promoted to a shared level or written into a task.'}</p>}
           {scope === 'global' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '所有项目和任务都能读到。' : 'Readable by every project and task.'}</p>}
           {scope === 'vertical' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '同一领域的项目共享；评审通过的页面由主机复制到这里。' : 'Shared by projects of one vertical; reviewed pages are copied here by the host.'}</p>}
         </div>
@@ -157,6 +158,11 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
           {listsPages && <>
             {catalog.isPending && <p className="p-3 text-sm text-ink-faint">{zh ? '正在加载页面…' : 'Loading pages…'}</p>}
             {catalog.isError && <div role="alert" className="p-3 text-sm text-err">{zh ? '无法加载知识库。' : 'Could not load the knowledge base.'} <button type="button" className="underline" onClick={() => void catalog.refetch()}>{zh ? '重试' : 'Retry'}</button></div>}
+            {scope === 'private' && !query && libraries.filter(library => library.scope === 'private' && library.profile?.trim()).map(library => <section key={libraryKey(library)} className="mx-1 mb-3 rounded-md border border-line/60 p-3" aria-label={zh ? '你的画像' : 'Your profile'} data-wiki-profile>
+              <h3 className="text-sm font-semibold text-ink">{zh ? 'Argus 对你的了解' : 'What Argus knows about you'}</h3>
+              <p className="mt-0.5 break-all text-[11px] text-ink-faint">{library.root}/profile.md</p>
+              <div className="mt-2 text-sm text-ink"><MarkdownContent>{library.profile ?? ''}</MarkdownContent></div>
+            </section>)}
             {indexes.length > 0 && <div className="mx-1 mb-2 flex flex-wrap gap-1.5" aria-label={zh ? '索引文件' : 'Index files'}>
               {indexes.map(library => <button key={libraryKey(library)} type="button" onClick={() => setView({ kind: 'index', scope: library.scope, vertical: library.vertical })}
                 aria-pressed={indexLibrary ? libraryKey(indexLibrary) === libraryKey(library) : false}
@@ -170,6 +176,7 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
                   : scope === 'lessons' ? (zh ? '还没有教训。任务结束后 Argus 会反思，把值得记住的教训写在这里。' : 'No lessons yet. After each mission Argus reflects and writes down what is worth remembering here.')
                     : scope === 'project' ? (zh ? '该项目尚未写下知识页面。工作中沉淀的页面会出现在这里。' : 'This project has no knowledge pages yet. Pages written during work will appear here.')
                       : scope === 'vertical' ? (zh ? '该领域暂无页面。评审通过的项目页面会由主机复制到这里。' : 'No pages for this vertical yet. Reviewed project pages are copied here by the host.')
+                        : scope === 'private' ? (zh ? 'Argus 还没有记下关于你的信息。你在对话和任务里提到的自己的情况、偏好、计划会记在这里，只有你能看到。' : 'Argus has not noted anything about you yet. What you tell it about your situation, preferences and plans is kept here, for your eyes only.')
                         : (zh ? '全局层暂无页面。标记为全局并通过评审的页面会出现在这里。' : 'No global pages yet. Pages marked global that pass review will appear here.')}</p>}
             {items.map(item => <button key={identity(item)} type="button" onClick={() => setView({ kind: 'page', item })} aria-pressed={selected ? identity(selected) === identity(item) : false}
               className={`block w-full rounded-md px-3 py-3 text-left ${selected && identity(selected) === identity(item) ? 'bg-blue/10' : 'hover:bg-bg'}`}>

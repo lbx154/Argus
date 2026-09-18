@@ -434,7 +434,7 @@ def test_survey_page_is_created_indexed_and_recorded(roots: _Roots) -> None:
     call = backend.calls[0]
     assert call["run_label"] == "answer-learning"
     assert call["options"].working_dir == str(global_root)
-    assert call["options"].add_dirs == [str(global_root)]
+    assert call["options"].add_dirs == [str(global_root), str(roots.home / "operator")]
     prompt = call["prompt"]
     assert "现在 torch.compile 覆盖到哪一步了?" in prompt
     assert "- https://example.org/notes" in prompt

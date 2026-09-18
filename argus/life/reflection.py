@@ -108,6 +108,35 @@ def _vertical_root(vertical: str, global_root: Path) -> tuple[Path, str]:
     return core_paths.global_wiki_root(global_root), "global"
 
 
+def _operator_root(global_root: Path) -> Path | None:
+    """The operator's private memory directory, created on first use; None when it cannot be."""
+    try:
+        root = core_paths.operator_memory_root(global_root)
+        (root / "pages").mkdir(parents=True, exist_ok=True)
+        return root
+    except (OSError, ValueError):
+        log.debug("reflection: operator memory is not writable", exc_info=True)
+        return None
+
+
+def _operator_section(root: Path | None) -> str:
+    if root is None:
+        return ""
+    return (
+        "## What is about the operator goes to their private memory, not to a shared page\n"
+        f"Argus keeps what it knows about this operator in `{root}` — read only by Argus "
+        "working for them, never promoted, never shown to another project's people. "
+        "Anything about the operator themselves belongs there and nowhere else: their "
+        "situation, company, holdings, plans, deadlines, preferences, how they like to be "
+        "worked with, what they keep asking about. Update `profile.md` (a living portrait, "
+        "front matter `title`, `description`, `kind: profile`, `audience: private`; body in "
+        "short sections, rewritten in place so it stays current) or write one fact as "
+        f"`{root}/pages/<slug>.md` (front matter `title`, `description`, `kind: note`, "
+        "`audience: private`, `source`, `created`). Shared pages keep the general finding "
+        "— the rule, the practice, the source — with the operator's particulars left out.\n\n"
+    )
+
+
 def _markdown_files(root: Path) -> list[Path]:
     try:
         if not root.is_dir():
@@ -210,7 +239,7 @@ def _under(path: Path, root: Path) -> bool:
 
 def _kind_for(meta: dict[str, str], relative: str, *, default: str) -> str:
     declared = meta.get("kind") or ""
-    if declared in {"fact", "lesson", "survey", "principles", "page"}:
+    if declared in {"fact", "lesson", "survey", "principles", "note", "profile", "page"}:
         return declared
     parts = Path(relative).parts
     if len(parts) > 2 and parts[0] == "pages":
@@ -416,6 +445,7 @@ def build_reflection_prompt(
     skills_dir: Path,
     existing_lessons: list[str],
     today: date | None = None,
+    operator_root: Path | None = None,
 ) -> str:
     """The reflection prompt, bounded to ``PROMPT_CHAR_LIMIT`` characters."""
     day = today or _today()
@@ -438,6 +468,8 @@ def build_reflection_prompt(
     writable = [str(vertical_root), str(skills_dir)]
     if project_wiki is not None:
         writable.insert(1, str(project_wiki))
+    if operator_root is not None:
+        writable.append(str(operator_root))
     sections = [
         "You are Argus, looking back on a task that just finished — the way a careful "
         "person writes a short journal entry after a day's work. You are not redoing the "
@@ -467,7 +499,8 @@ def build_reflection_prompt(
         "above supports. These pages are read by other projects and other people: keep "
         "the operator's own affairs out of them (their names, company, holdings, plans, "
         "figures about them) and keep the general finding.\n\n"
-        "1. At most ONE lesson page, and only when there is a lesson (a failure whose "
+        + _operator_section(operator_root)
+        + "1. At most ONE lesson page, and only when there is a lesson (a failure whose "
         "cause you can name, a surprise, a rule of thumb that would have saved time): "
         f"`{lesson_dir}/{stamp}-<slug>.md`. Front matter: `title`, `description`, "
         f"`kind: lesson`, `audience: {audience}`, `source: {project_id}/{mission_id}`, "
@@ -577,6 +610,7 @@ def _reflect_after_mission(
         log.warning("reflection: could not prepare the knowledge directories", exc_info=True)
         return {"skipped": "knowledge directories are not writable", "created": [], "updated": []}
     project_wiki = _project_wiki_root(workspace, project_id)
+    operator_root = _operator_root(global_root)
 
     prompt = build_reflection_prompt(
         project_id=project_id, vertical=vertical, mission_id=mission_id, title=title,
@@ -584,16 +618,21 @@ def _reflect_after_mission(
         review_reason=review_reason, stop_reason=stop_reason, host_round_log=host_round_log,
         run_reality=run_reality, vertical_root=vertical_root, project_wiki=project_wiki,
         skills_dir=skills_dir, existing_lessons=_existing_titles(vertical_root, "lessons"),
+        operator_root=operator_root,
     )
     roots: list[tuple[Path, str]] = [(vertical_root, lesson_scope), (life_dir / "skills", "project")]
     if project_wiki is not None:
         roots.insert(1, (project_wiki, "project"))
+    if operator_root is not None:
+        roots.append((operator_root, "private"))
     watched = [path for root, _scope in roots for path in _markdown_files(root)]
     before = _snapshot(watched)
 
     add_dirs = [str(vertical_root), str(life_dir / "skills")]
     if project_wiki is not None and not _under(project_wiki, workspace):
         add_dirs.append(str(project_wiki))
+    if operator_root is not None:
+        add_dirs.append(str(operator_root))
     failure = ""
     try:
         result = gateway_run_exec(
@@ -638,6 +677,8 @@ def _reflect_after_mission(
         if root == life_dir / "skills":
             page_kind = "skill"
             relative = "skills/" + relative
+        elif operator_root is not None and root == operator_root:
+            page_kind = "profile" if relative == "profile.md" else _kind_for(meta, relative, default="note")
         elif root == vertical_root:
             page_kind = _kind_for(meta, relative, default="lesson")
             if is_new and page_kind == "lesson":
@@ -733,6 +774,7 @@ def build_answer_prompt(
     root: Path,
     existing: list[tuple[str, str]],
     today: date | None = None,
+    operator_root: Path | None = None,
 ) -> str:
     day = today or _today()
     iso = day.isoformat()
@@ -762,7 +804,7 @@ def build_answer_prompt(
         "`WROTE: nothing`. The page is read by other projects and other people: keep the "
         "operator's own affairs out of it (their names, company, holdings, plans, figures "
         "about them) and keep the general finding — the rule, the practice, the source. "
-        "Otherwise write exactly ONE survey page, "
+        "Otherwise write at most ONE survey page, "
         f"`{survey_dir}/<slug>.md`, with a short lowercase "
         "hyphenated slug naming the topic. Front matter: `title`, `description`, "
         f"`kind: survey`, `audience: {audience}`, `source: chat/{project_id}`, "
@@ -774,8 +816,10 @@ def build_answer_prompt(
         "If a survey above already covers this question, do not rewrite it: append a "
         f"`## Update {iso}` section with what is new and refresh its `reverify_after` "
         "only inside that section. The host keeps the earlier text either way.\n\n"
-        f"You may write only inside `{survey_dir}`. Finish with one line: "
-        "`WROTE: <path>` or `WROTE: nothing`.",
+        + _operator_section(operator_root)
+        + f"You may write only inside `{survey_dir}`"
+        + (f" and `{operator_root}`" if operator_root is not None else "")
+        + ". Finish with one line: `WROTE: <paths>` or `WROTE: nothing`.",
     ]
     prompt = "\n\n".join(sections)
     if len(prompt) > PROMPT_CHAR_LIMIT:
@@ -865,10 +909,12 @@ def _reflect_after_answer(
             earlier_text[path] = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             continue
+    operator_root = _operator_root(global_root)
+    operator_before = _snapshot(_markdown_files(operator_root)) if operator_root is not None else {}
     before = _snapshot(earlier_text)
     prompt = build_answer_prompt(
         project_id=project_id, vertical=vertical, operator_text=operator_text, reply=reply,
-        root=root, existing=existing, today=today,
+        root=root, existing=existing, today=today, operator_root=operator_root,
     )
     failure = ""
     try:
@@ -881,7 +927,7 @@ def _reflect_after_answer(
                 sandbox_mode="workspace-write",
                 skip_git_repo_check=True,
                 working_dir=str(root),
-                add_dirs=[str(root)],
+                add_dirs=[str(root)] + ([str(operator_root)] if operator_root is not None else []),
                 skill_paths=[],
             ),
             run_label=ANSWER_RUN_LABEL,
@@ -918,6 +964,21 @@ def _reflect_after_answer(
             role="answer-learning", page_kind="survey",
             note=("updated: " if not is_new else "") + meta["description"][:300],
         )
+    if operator_root is not None:
+        new_notes, changed_notes = _changed(operator_before, _snapshot(_markdown_files(operator_root)))
+        for path, is_new in [(p, True) for p in new_notes] + [(p, False) for p in changed_notes]:
+            meta = _page_meta(path)
+            if meta is None:
+                continue
+            relative = _relative(path, operator_root)
+            (created if is_new else updated).append(str(path))
+            _record_learned(
+                emit=emit, global_root=global_root, kind="learned", scope="private", vertical="",
+                relative=relative, title=meta["title"], source_project=project_id, mission_id="",
+                role="answer-learning",
+                page_kind="profile" if relative == "profile.md" else _kind_for(meta, relative, default="note"),
+                note=("updated: " if not is_new else "") + meta["description"][:300],
+            )
     if failure:
         log.warning("learning from the answer: model call failed: %s", failure)
     return {

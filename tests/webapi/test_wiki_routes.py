@@ -178,7 +178,7 @@ def test_knowledge_lists_project_vertical_and_global_tiers(tmp_path):
     response = client.get("/api/wiki", params={"sid": "demo"}, headers=HEADERS)
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["scopes"] == ["global", "vertical", "project"]
+    assert body["scopes"] == ["private", "global", "vertical", "project"]
     assert body["active_vertical"] == "research"
     assert body["verticals"] == ["research"]
     assert body["errors"] == []

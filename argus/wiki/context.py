@@ -85,6 +85,73 @@ def render_knowledge_wiki_block(
     )
 
 
+OPERATOR_HEADER = "## What Argus knows about the operator (private)"
+OPERATOR_CHAR_LIMIT = 2500
+
+
+def render_operator_memory_block(global_root: Path | str | None = None, *, limit: int = OPERATOR_CHAR_LIMIT) -> str:
+    """The operator's private profile and the titles of the notes about them.
+
+    Read by the roles that speak for or plan for this operator, so the work
+    fits the person: their situation, preferences and plans. Nothing in it may
+    be copied into a shared page; the block says so. Empty until the profile
+    or a note exists.
+    """
+    try:
+        root = paths.operator_memory_root(global_root)
+    except Exception:  # noqa: BLE001 - no home means no profile
+        return ""
+    profile = ""
+    try:
+        if (root / "profile.md").is_file():
+            profile = _strip_front_matter((root / "profile.md").read_text(encoding="utf-8")).strip()
+    except (OSError, UnicodeError):
+        profile = ""
+    notes: list[str] = []
+    pages = root / "pages"
+    try:
+        if pages.is_dir():
+            for path in sorted(pages.rglob("*.md"))[:40]:
+                if any(part.startswith(".") for part in path.relative_to(root).parts):
+                    continue
+                try:
+                    front = _front_matter_fields(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError):
+                    continue
+                title = front.get("title") or path.stem
+                description = front.get("description") or ""
+                notes.append(f"- `{path}` — {title}" + (f": {description}" if description else ""))
+    except OSError:
+        pass
+    if not profile and not notes:
+        return ""
+    body = profile
+    if notes:
+        body = (body + "\n\n" if body else "") + "Notes about the operator (open before relying on one):\n" + "\n".join(notes)
+    if len(body) > limit:
+        body = body[: limit - 1].rstrip() + "…"
+    return (
+        f"{OPERATOR_HEADER}\n"
+        f"Kept at `{root}`; only Argus working for this operator reads it. Use it to fit the "
+        "work to the person; never copy any of it into a shared page, a Skill or a task text.\n\n"
+        f"{body}"
+    )
+
+
+def _front_matter_fields(text: str) -> dict[str, str]:
+    if not text.startswith("---\n"):
+        return {}
+    front, separator, _content = text[4:].partition("\n---\n")
+    if not separator:
+        return {}
+    fields: dict[str, str] = {}
+    for line in front.splitlines():
+        key, colon, value = line.partition(":")
+        if colon:
+            fields[key.strip()] = value.strip().strip("\"'")
+    return fields
+
+
 PRINCIPLES_HEADER = (
     "## How this vertical works now (principles distilled from earlier missions)"
 )

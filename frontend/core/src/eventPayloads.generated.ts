@@ -922,7 +922,7 @@ export interface KnowledgeLearnedEvent extends EventMsg {
   type: "knowledge.learned";
   payload_schema_version?: 1;
   "kind": "learned" | "promoted";
-  "scope": "project" | "vertical" | "global";
+  "scope": "private" | "project" | "vertical" | "global";
   "vertical"?: string;
   "path": string;
   "title": string;
@@ -937,7 +937,7 @@ export interface KnowledgeRecalledEvent extends EventMsg {
   payload_schema_version?: 1;
   "role": string;
   "paths": Array<string>;
-  "scope_counts"?: { "project"?: number; "vertical"?: number; "global"?: number; };
+  "scope_counts"?: { "project"?: number; "vertical"?: number; "global"?: number; "private"?: number; };
   "objective_excerpt"?: string;
   "mission_id"?: string;
   "text"?: string;

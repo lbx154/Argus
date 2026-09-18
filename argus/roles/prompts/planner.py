@@ -581,9 +581,13 @@ def build_continuous_prompt(
         )
     # What repeated lessons of this vertical have settled into; bounded, and
     # present only once the vertical has compiled principles.
-    from ...wiki.context import render_project_principles
+    from ...wiki.context import render_operator_memory_block, render_project_principles
 
     principles_block = sanitize_model_visible_text(render_project_principles(_proot))
+    # Plans are made for a person; what Argus knows about the operator frames them.
+    operator_block = sanitize_model_visible_text(render_operator_memory_block())
+    if operator_block:
+        principles_block = (operator_block + "\n\n" + principles_block) if principles_block else operator_block
 
     host_policy_block = (
         "## Dynamic host policy\n"

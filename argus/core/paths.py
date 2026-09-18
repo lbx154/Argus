@@ -166,3 +166,14 @@ def global_wiki_root(root: str | Path | None = None) -> Path:
 
 def shared_vertical_wiki_root(vertical: str, root: str | Path | None = None) -> Path:
     return shared_wiki_root(root) / "_shared_verticals" / _safe_component(vertical, label="vertical")
+
+
+def operator_memory_root(root: str | Path | None = None) -> Path:
+    """What Argus knows about the operator: private to this home, never shared.
+
+    ``profile.md`` is a living portrait (who they are, what they are building,
+    how they like to work, current plans); ``pages/**/*.md`` hold single facts.
+    Nothing here is promoted, listed with the shared Wikis, or read by another
+    home; on a multi-tenant host each tenant has its own.
+    """
+    return _root(root) / "operator"

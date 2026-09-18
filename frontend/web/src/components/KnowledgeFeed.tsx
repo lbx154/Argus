@@ -32,8 +32,8 @@ export const knowledgeKindLabels: Record<'en' | 'zh', Record<KnowledgeEventKind,
   zh: { learned: '学到了', recalled: '读取了', promoted: '提升了' },
 };
 const scopeLabels: Record<'en' | 'zh', Record<WikiScope, string>> = {
-  en: { global: 'Global', vertical: 'Vertical', project: 'Project' },
-  zh: { global: '全局', vertical: '垂直领域', project: '项目' },
+  en: { private: 'About you', global: 'Global', vertical: 'Vertical', project: 'Project' },
+  zh: { private: '关于你', global: '全局', vertical: '垂直领域', project: '项目' },
 };
 
 /** One feed row: a single journal line, or several recalls by one role folded together. */
