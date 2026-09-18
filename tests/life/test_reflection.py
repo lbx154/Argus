@@ -796,3 +796,21 @@ def test_reflection_can_run_concurrently_with_other_projects(roots: _Roots) -> N
 
     projects = sorted(record["source_project"] for record in read_knowledge_events(roots.home))
     assert projects == ["s-other", SID]
+
+
+def test_both_prompts_keep_the_operator_s_own_affairs_out_of_shared_pages(tmp_path: Path) -> None:
+    from argus.life.reflection import build_answer_prompt, build_reflection_prompt
+
+    answer = build_answer_prompt(
+        project_id="s-1", vertical="", operator_text="my company is split 65/30/5, should I sign?",
+        reply="x" * 700, root=tmp_path, existing=[],
+    )
+    mission = build_reflection_prompt(
+        project_id="s-1", vertical="research", mission_id="m", title="t", objective="o", acceptance="a",
+        review_status="done", review_reason="", stop_reason="", host_round_log="", run_reality="",
+        vertical_root=tmp_path, project_wiki=None, skills_dir=tmp_path / "skills", existing_lessons=[],
+    )
+    for prompt in (answer, mission):
+        assert "keep the operator's own affairs out" in prompt
+        assert "read by other projects and other people" in prompt
+
