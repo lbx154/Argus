@@ -24,7 +24,7 @@ function WorkspacePreview({ sid, workspaceId, path, active }: { sid: string; wor
   const media = ['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.svg'].includes(extension);
   const file = useQuery({ queryKey: ['workspace-file', sid, workspaceId, path], queryFn: ({ signal }) => workspaceApi.file(sid, workspaceId, path, signal), enabled: Boolean(active && path && workspaceId && !media), refetchInterval: 5_000 });
   const blob = useWorkspaceBlobUrl(media ? sid : '', media ? workspaceId : '', media ? path : '');
-  if (!path) return <EmptyState icon={File} title={text('打开一个文件开始阅读', 'Open a file to start reading')} description={text('左侧文件树直接映射已批准的服务器工作区。', 'The file tree maps the approved server workspace.')} />;
+  if (!path) return <EmptyState icon={File} title={text('打开一个文件开始阅读', 'Open a file to start reading')} description={text('左侧文件树展示所选代码工作区。', 'The file tree shows the selected code workspace.')} />;
   if (media) {
     if (blob.error) return <EmptyState icon={LockKeyhole} title="Preview unavailable" description={blob.error} />;
     if (!blob.url) return <div className="editor-loading">Loading preview…</div>;
@@ -77,7 +77,7 @@ export function IdePage(props: ActiveWorkbenchPageProps) {
 
   return (
     <div className="ros-page ide-v3">
-      <header className="ros-page-header"><div><div className="eyebrow">AI IDE</div><h1>{text('服务器代码工作区', 'Server code workspace')}</h1><p>{text('接近 VS Code 的只读工作台：文件浏览、源码阅读、Git/GitHub 就绪状态和 Argus 终端轨迹。', 'A read-only VS Code-style workspace for files, source, Git/GitHub readiness, and Argus terminal activity.')}</p></div><Badge tone="info"><LockKeyhole size={12} />{text('只读安全模式', 'Read-only safe mode')}</Badge></header>
+      <header className="ros-page-header"><div><div className="eyebrow">AI IDE</div><h1>{text('代码工作区', 'Code workspace')}</h1><p>{text('此视图只用于浏览文件、Git 状态与 Argus 活动；不限制 Agent 本身的文件写入权限。', 'This view only browses files, Git state and Argus activity; it does not restrict the Agent’s file write permissions.')}</p></div><Badge tone="info"><LockKeyhole size={12} />{text('此视图只读', 'This view is read-only')}</Badge></header>
       <div className="ide-context-strip"><Server size={15} /><select aria-label={text('选择已批准工作区', 'Select approved workspace')} value={workspaceId} onChange={(event) => workspace.setWorkspaceId(event.target.value)}>{workspace.profiles.data?.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.label}</option>)}</select><code>{root}</code>{tree.isError ? <Badge tone="danger">{text('连接失败', 'Connection failed')}</Badge> : tree.isFetching ? <Badge tone="live" dot>{text('同步中', 'Syncing')}</Badge> : <Badge tone="success"><CheckCircle2 size={11} />Synced</Badge>}<small>{tree.data?.entries.length ?? 0} entries</small><button type="button" onClick={() => { void tree.refetch(); void git.refetch(); }} aria-label={text('刷新工作区', 'Refresh workspace')}><RefreshCw size={14} /></button></div>
 
       <div className="vscode-shell">
