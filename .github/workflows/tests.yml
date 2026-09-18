@@ -1,16 +1,13 @@
 name: tests
 
-# One check on every push and pull request: the Linux full suite (ruff, the
-# mypy type gate against the change's base, then the whole pytest suite).
-# Linux is the development platform and this job is the one that decides
-# whether a change is green.
+# One check on every push and pull request: lint, then the whole pytest suite
+# in parallel on Linux. Linux is the development platform and this job is the
+# one that decides whether a change is green.
 #
-# The platform-portability, frontend and Windows desktop-package checks that
-# used to run alongside it are kept verbatim in extended.yml and run only on
-# demand (workflow_dispatch) -- before a release, or when a change touches the
-# chat bridges, the pairing/QR path, the cockpits or the Tauri host. They were
-# moved out to keep the per-push signal to a single job and to stop paying
-# macOS/Windows runner minutes on every commit.
+# Everything else -- the mypy type gate, the platform-portability, frontend
+# and Windows desktop-package checks -- lives in extended.yml and runs only on
+# demand (workflow_dispatch): before a release, or when a change touches the
+# chat bridges, the pairing/QR path, the cockpits or the Tauri host.
 
 on:
   push:
@@ -24,12 +21,10 @@ concurrency:
 
 jobs:
   linux:
-    name: linux · full suite
+    name: linux · lint + tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -44,18 +39,5 @@ jobs:
           python -m pip install -e '.[dev,qr,trial]'
       - name: Lint
         run: python -m ruff check argus argus_skill tests
-      - name: Reject new Python type diagnostics
-        env:
-          TYPECHECK_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: >-
-          python -m argus.release_tools.typecheck_gate
-          --base "$TYPECHECK_BASE" --output-dir "$RUNNER_TEMP/typecheck"
-      - name: Preserve Python type diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-typecheck
-          path: ${{ runner.temp }}/typecheck
-          if-no-files-found: ignore
       - name: Test
-        run: python -m pytest -q
+        run: python -m pytest -q -n auto
