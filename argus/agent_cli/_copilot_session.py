@@ -6,6 +6,8 @@ import subprocess
 import uuid
 from dataclasses import replace
 
+from ._process_control import background_subprocess_kwargs
+
 
 class CopilotSessionCompatibilityError(RuntimeError):
     """Known refusal before any provider process or metered work is started."""
@@ -15,12 +17,14 @@ class CopilotSessionArgumentsError(ValueError):
     """Conflicting identity selectors refused before provider dispatch."""
 
 
-def supports_session_id(agent_bin: str) -> bool:
+def supports_session_id(agent_bin: str, *, env: dict[str, str] | None = None) -> bool:
     # Probe the selected loader, not the outer npm package version. No model
     # request or permission flags; failure is explicit compatibility refusal.
     try:
         result = subprocess.run([agent_bin, "--help"], capture_output=True,
-                                text=True, timeout=10, check=False)
+                                text=True, encoding="utf-8", errors="replace",
+                                timeout=10, check=False, env=env,
+                                **background_subprocess_kwargs())
     except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0 and bool(re.search(
@@ -39,8 +43,10 @@ def prepare_session(runner, options, resume_thread_id):
     if resume_thread_id:
         identity = resume_thread_id
     else:
-        if not supports_session_id(runner.agent_bin):
+        executable = runner._resolve_executable(runner.agent_bin)
+        if not supports_session_id(executable, env=runner._child_env(options, executable=executable)):
             raise CopilotSessionCompatibilityError("Copilot compatibility: --session-id support required for durable accounting; no call dispatched")
         identity = str(uuid.uuid4())
-    callback(identity, bool(resume_thread_id))
+    # The caller rechecks interruption after the potentially slow probe, then
+    # commits the binding. Negotiation alone must not record a dispatch.
     return replace(options, _provider_session_id=identity), identity

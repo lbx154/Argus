@@ -167,6 +167,11 @@ class RunExecMixin:
             from ._copilot_session import prepare_session
 
             options, bound_thread_id = prepare_session(self, options, resume_thread_id)
+            if options._bind_provider_session is not None:
+                gated = self._run_exec_start_gate(resume_thread_id=resume_thread_id, options=options)
+                if gated is not None:
+                    return gated
+                options._bind_provider_session(bound_thread_id, bool(resume_thread_id))
         command, process, spawn_failure, prompt_path = self._spawn_turn_process(
             prompt=prompt, resume_thread_id=resume_thread_id, options=options
         )

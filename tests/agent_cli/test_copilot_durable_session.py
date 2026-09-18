@@ -13,7 +13,7 @@ from tests.agent_cli.test_provider_turn_cap import _ExitedFakeProc, _LiveFakePro
 
 def setup_runner(monkeypatch, tmp_path, process, call_id="fixture-call"):
     runner = AgentCliRunner(agent_bin="copilot", backend="copilot")
-    monkeypatch.setattr(_copilot_session, "supports_session_id", lambda _: True)
+    monkeypatch.setattr(_copilot_session, "supports_session_id", lambda _, **kw: True)
     monkeypatch.setattr(runner, "_resolve_executable", lambda value: value)
     monkeypatch.setattr(runner, "_acp_enabled", lambda *_: False)
     def spawn(command, **kwargs):
@@ -68,7 +68,7 @@ def test_conflicting_flags_refused_before_spawn(monkeypatch, tmp_path, flag):
 
 def test_unsupported_cli_fails_closed_without_dispatch(monkeypatch, tmp_path):
     runner, options = setup_runner(monkeypatch, tmp_path, _ExitedFakeProc([]))
-    monkeypatch.setattr(_copilot_session, "supports_session_id", lambda _: False)
+    monkeypatch.setattr(_copilot_session, "supports_session_id", lambda _, **kw: False)
     with pytest.raises(RuntimeError, match="compatibility"):
         runner.run_exec(prompt="fixture", resume_thread_id=None, options=options, run_label="engineer-r1")
     assert not read_bindings(tmp_path)["decisions"]
@@ -189,7 +189,7 @@ def test_backend_unsupported_cli_is_known_predispatch_refusal(monkeypatch, tmp_p
     project = tmp_path / "project"
     backend.set_usage_context(project_root=project, mission_id="fixture-mission")
     monkeypatch.setattr(backend._runner, "_acp_enabled", lambda *_: False)
-    monkeypatch.setattr(_copilot_session, "supports_session_id", lambda _: False)
+    monkeypatch.setattr(_copilot_session, "supports_session_id", lambda _, **kw: False)
     monkeypatch.setattr(_run_exec, "spawn_owned_process", lambda *a, **kw: pytest.fail("must not spawn"))
     result = backend.run_exec(prompt="fixture", run_label="engineer-r1",
                               options=BackendOptions(model="gpt-5.6-sol", working_dir=str(tmp_path)))

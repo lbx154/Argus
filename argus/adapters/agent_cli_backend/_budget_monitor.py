@@ -44,7 +44,7 @@ class LiveBudgetMonitor:
             return
         if not isinstance(event, dict):
             return
-        if event.get("agentId"):
+        if getattr(getattr(self.ctx, "backend", None), "_is_copilot", False) and event.get("agentId"):
             return
         if (getattr(getattr(self.ctx, "backend", None), "_backend_name", "") == "pi"
                 and event.get("type") == "message_end"):
