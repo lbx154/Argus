@@ -64,8 +64,8 @@ def execute(
         from ...trial.attention import reason
         if blocked := reason():
             return RunnerResult(exit_code=1, fatal_error=blocked, stop_kind="permanent_error")
-    from ...core.workbench_plugins import prepare_plugin_run
     from ...core.dispatch_ownership import resolve_dispatch_project
+    from ...core.workbench_plugins import prepare_plugin_run
     from ._exec_finalize import finalize_without_accounting
     # Resolve before plugin setup, log migration, slots, or accounting. No log
     # destination is execution authority. Keep call metadata on rejected binds.
