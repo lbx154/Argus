@@ -210,9 +210,10 @@ export function ConfigModal({
     setQuickConfigMsg('');
     setQuickConfigError(false);
     try {
-      await api.setConfig(sid, 'ARGUS_SKILL_MODEL', quickModelValue.trim() || 'auto');
+      const chosen = quickModelValue.trim() || 'auto';
+      await api.setConfig(sid, 'ARGUS_SKILL_MODEL', chosen, true);
       await refreshSettings();
-      setQuickConfigMsg(t('settings.applied'));
+      setQuickConfigMsg(t('settings.modelAppliedToRoles', { model: chosen }));
     } catch (error) {
       setQuickConfigError(true);
       setQuickConfigMsg(requestFailureText(error, t).text);
@@ -313,6 +314,13 @@ export function ConfigModal({
                   {t('settings.applyModel')}
                 </button>
               </div>
+              {data.roles.some(role => role.model && quickModelValue.trim() && role.model !== quickModelValue.trim()) && (
+                <p className="mt-1.5 text-[10px] text-ink-faint" data-role-models>
+                  {t('settings.rolesRunning')}{' '}
+                  {data.roles.map(role => `${role.role} · ${role.model || 'auto'}`).join('，')}
+                  {' — '}{t('settings.applyUnifies')}
+                </p>
+              )}
               {quickConfigMsg && (
                 <div
                   role={quickConfigError ? 'alert' : 'status'}

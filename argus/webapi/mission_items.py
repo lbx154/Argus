@@ -10,7 +10,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ..apps._inbox import count_pending_inbox_messages, queue_inbox_message
 from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
@@ -440,14 +440,42 @@ _CONFIG_ALIASES = {
 }
 
 
+# The knobs that pin one role (or one host-side task) to its own model. A
+# role knob wins over ARGUS_SKILL_MODEL, so a picker that sets only the shared
+# knob changes nothing on a host whose roles were pinned at setup; the trial
+# host showed "gpt-6-astra" chosen while every role still ran gemini.
+# ARGUS_SKILL_FIGURE_MODEL is a route override and ARGUS_SKILL_MAP_MODEL a
+# host-side draw; both are left alone.
+ROLE_MODEL_KNOBS: tuple[str, ...] = (
+    "ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_MANAGER_REPLY_MODEL", "ARGUS_SKILL_PLAN_MODEL",
+    "ARGUS_SKILL_PLAN_PREVIEW_MODEL", "ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL",
+    "ARGUS_SKILL_SUPERVISOR_MODEL", "ARGUS_SKILL_CURATOR_MODEL", "ARGUS_SKILL_FRONTDOOR_MODEL",
+    "ARGUS_SKILL_REWRITE_MODEL", "ARGUS_SKILL_BOUNDED_DAG_MODEL", "ARGUS_SKILL_REFLECTION_MODEL",
+)
+
+
+def role_model_pins(persisted: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Role knobs that currently pin a model of their own (env first, then persisted)."""
+    from ..core.knob_store import read_persisted_knobs
+
+    store = persisted if persisted is not None else read_persisted_knobs()
+    pins: dict[str, str] = {}
+    for knob in ROLE_MODEL_KNOBS:
+        value = str(os.environ.get(knob) or store.get(knob) or "").strip()
+        if value and value.lower() not in {"auto", "inherit", "default", ""}:
+            pins[knob] = value
+    return pins
+
+
 def set_operator_config(
     name: str,
     value: str,
     *,
     project_state_dir: Path | str | None = None,
     global_root: Path | str | None = None,
+    apply_to_roles: bool = False,
 ) -> dict[str, Any]:
-    from ..core.knob_store import write_persisted_knob
+    from ..core.knob_store import write_persisted_knob, write_persisted_knobs
     from ..core.knobs import cockpit_editable_names, normalize_cockpit_knob_value
 
     raw = (name or "").strip()
@@ -456,6 +484,16 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
+    released: list[str] = []
+    if apply_to_roles and env_name == "ARGUS_SKILL_MODEL":
+        # The shared choice is meant for every role: release the role pins so
+        # they follow it. A pin the operator sets afterwards in the role table
+        # wins again, as before.
+        released = sorted(role_model_pins())
+        if released and not write_persisted_knobs({knob: "" for knob in released}):
+            raise RuntimeError("role model pins could not be released")
+        for knob in released:
+            os.environ.pop(knob, None)
     if project_state_dir is not None:
         from ..core.operator_context import IntakeDecision, persist_intake_decision
 
@@ -478,6 +516,8 @@ def set_operator_config(
     os.environ[env_name] = val
     return {
         "name": env_name, "value": val,
+        "released_role_pins": released,
+        "role_pins": role_model_pins(),
         "restart_required": env_name not in {
             "ARGUS_SKILL_MAP_MODEL", "ARGUS_SKILL_MAP_REASONING_EFFORT",
             "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT",

@@ -1271,8 +1271,8 @@ export const api = {
    */
   rewritePrompt: (sid: string, text: string) =>
     postJson<PromptRewrite>(P(sid, '/prompt/rewrite'), { text }),
-  setConfig: (sid: string, name: string, value: string) =>
-    postJson<Record<string, unknown>>(P(sid, '/config/set'), { name, value }),
+  setConfig: (sid: string, name: string, value: string, applyToRoles = false) =>
+    postJson<Record<string, unknown>>(P(sid, '/config/set'), applyToRoles ? { name, value, apply_to_roles: true } : { name, value }),
   setBudgets: (sid: string, values: Record<string, string>) =>
     postJson<{ values: Record<string, string>; restart_required: boolean }>(
       P(sid, '/config/budget'),
