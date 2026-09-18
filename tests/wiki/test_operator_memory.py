@@ -43,11 +43,13 @@ def _home(tmp_path: Path, monkeypatch) -> Path:
     return home
 
 
-def test_the_block_shows_the_profile_and_note_titles_and_forbids_copying(tmp_path, monkeypatch) -> None:
+def test_the_block_points_at_the_memory_and_never_carries_its_contents(tmp_path, monkeypatch) -> None:
     home = _home(tmp_path, monkeypatch)
     block = render_operator_memory_block(home)
     assert block.startswith("## What Argus knows about the operator (private)")
-    assert "Founding a company" in block and "Cap table as stated" in block
+    assert str(operator_memory_root(home)) in block and "Open it with your file tools" in block
+    # The profile and the notes stay on disk: no situation, no figures, no titles in the prompt.
+    assert "Founding a company" not in block and "Cap table" not in block and "CEO 65" not in block
     assert "never copy any of it into a shared page" in block
     assert render_operator_memory_block(tmp_path / "empty") == ""
 

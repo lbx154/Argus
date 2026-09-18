@@ -86,70 +86,36 @@ def render_knowledge_wiki_block(
 
 
 OPERATOR_HEADER = "## What Argus knows about the operator (private)"
-OPERATOR_CHAR_LIMIT = 2500
 
 
-def render_operator_memory_block(global_root: Path | str | None = None, *, limit: int = OPERATOR_CHAR_LIMIT) -> str:
-    """The operator's private profile and the titles of the notes about them.
+def render_operator_memory_block(global_root: Path | str | None = None) -> str:
+    """Where the operator's private profile and notes are, so a role can open them.
 
-    Read by the roles that speak for or plan for this operator, so the work
-    fits the person: their situation, preferences and plans. Nothing in it may
-    be copied into a shared page; the block says so. Empty until the profile
-    or a note exists.
+    The profile itself is not placed in any prompt: it stays on disk and is
+    read by the role only when the request concerns the operator's own
+    situation, the way the Wiki is read. Recall surfaces a matching page by
+    path and description; this block names the directory and the rule.
+    Empty until a profile or a note exists.
     """
     try:
         root = paths.operator_memory_root(global_root)
     except Exception:  # noqa: BLE001 - no home means no profile
         return ""
-    profile = ""
     try:
-        if (root / "profile.md").is_file():
-            profile = _strip_front_matter((root / "profile.md").read_text(encoding="utf-8")).strip()
-    except (OSError, UnicodeError):
-        profile = ""
-    notes: list[str] = []
-    pages = root / "pages"
-    try:
-        if pages.is_dir():
-            for path in sorted(pages.rglob("*.md"))[:40]:
-                if any(part.startswith(".") for part in path.relative_to(root).parts):
-                    continue
-                try:
-                    front = _front_matter_fields(path.read_text(encoding="utf-8"))
-                except (OSError, UnicodeError):
-                    continue
-                title = front.get("title") or path.stem
-                description = front.get("description") or ""
-                notes.append(f"- `{path}` — {title}" + (f": {description}" if description else ""))
+        has_profile = (root / "profile.md").is_file()
+        has_notes = (root / "pages").is_dir() and any((root / "pages").rglob("*.md"))
     except OSError:
-        pass
-    if not profile and not notes:
         return ""
-    body = profile
-    if notes:
-        body = (body + "\n\n" if body else "") + "Notes about the operator (open before relying on one):\n" + "\n".join(notes)
-    if len(body) > limit:
-        body = body[: limit - 1].rstrip() + "…"
+    if not has_profile and not has_notes:
+        return ""
     return (
         f"{OPERATOR_HEADER}\n"
-        f"Kept at `{root}`; only Argus working for this operator reads it. Use it to fit the "
-        "work to the person; never copy any of it into a shared page, a Skill or a task text.\n\n"
-        f"{body}"
+        f"Kept at `{root}`: `profile.md` (who the operator is, what they are building, how they "
+        "like to be worked with, current plans) and `pages/` (single facts). Open it with your "
+        "file tools when the request turns on the operator's own situation, preferences or "
+        "plans; do not read it for questions that do not. Only Argus working for this operator "
+        "reads it; never copy any of it into a shared page, a Skill or a task text."
     )
-
-
-def _front_matter_fields(text: str) -> dict[str, str]:
-    if not text.startswith("---\n"):
-        return {}
-    front, separator, _content = text[4:].partition("\n---\n")
-    if not separator:
-        return {}
-    fields: dict[str, str] = {}
-    for line in front.splitlines():
-        key, colon, value = line.partition(":")
-        if colon:
-            fields[key.strip()] = value.strip().strip("\"'")
-    return fields
 
 
 PRINCIPLES_HEADER = (
