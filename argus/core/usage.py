@@ -25,6 +25,14 @@ from ..provider_integrations.copilot_usage import (
     copilot_usage_store_signature,
     find_copilot_usage_near,
 )
+from .accounting_integrity import (
+    AccountingIntegrityError,
+    fsync_directory,
+    model_projection,
+    strict_jsonl,
+    validate_model_usage,
+    validate_usage_rows,
+)
 from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
 from .pricing import PricingQuote, PricingStatus, quote_copilot_usage, quote_token_usage
 from .runner_errors import (
@@ -457,7 +465,7 @@ class UsageLedger:
     """Project-local ledger with cross-process idempotent append."""
 
     def __init__(self, project_root: Path | str, *, migrate_legacy: bool = True) -> None:
-        self.project_root = Path(project_root).expanduser()
+        self.project_root = Path(project_root).expanduser().resolve()
         self.path = self.project_root / USAGE_FILE
         self.lock_path = self.project_root / USAGE_LOCK_FILE
         self.migration_path = self.project_root / USAGE_MIGRATION_FILE
@@ -468,13 +476,25 @@ class UsageLedger:
         return bool(self.append_many([record]))
 
     def append_many(self, records: Iterable[UsageRecord]) -> int:
-        pending = [record for record in records if record.call_id]
+        pending = list(records)
         if not pending:
             return 0
+        try:
+            validate_usage_rows([record.to_jsonable() for record in pending])
+        except (ValueError, TypeError) as exc:
+            raise AccountingIntegrityError(self.path, 0, b"", str(exc)) from exc
         self.project_root.mkdir(parents=True, exist_ok=True)
         appended = 0
         with self._locked():
-            known = self._call_ids_unlocked()
+            existing = _read_usage_json_rows(self.path)
+            incoming = [record.to_jsonable() for record in pending]
+            try:
+                validate_usage_rows([*existing, *incoming])
+                if any(row["project_id"] != self.project_root.resolve().name for row in [*existing, *incoming]):
+                    raise ValueError("ledger project identity mismatch")
+            except (ValueError, TypeError) as exc:
+                raise AccountingIntegrityError(self.path, 0, b"", str(exc)) from exc
+            known = {row["call_id"] for row in existing}
             with self.path.open("a", encoding="utf-8") as handle:
                 for record in pending:
                     if record.call_id in known:
@@ -491,10 +511,8 @@ class UsageLedger:
                     known.add(record.call_id)
                     appended += 1
                 handle.flush()
-                try:
-                    os.fsync(handle.fileno())
-                except OSError:
-                    pass
+                os.fsync(handle.fileno())
+            fsync_directory(self.project_root)
             self._cache_call_ids(known)
         return appended
 
@@ -504,40 +522,28 @@ class UsageLedger:
         since: float = 0.0,
         mission_id: str | None = None,
     ) -> list[UsageRecord]:
-        if self._migrate_legacy:
-            self.ensure_legacy_migrated()
-            self.ensure_copilot_usage_reconciled()
         out: list[UsageRecord] = []
         seen: set[str] = set()
-        try:
-            handle = self.path.open("r", encoding="utf-8")
-        except OSError:
-            return out
         startup_receipts = None
-        with handle:
-            for raw in handle:
-                try:
-                    row = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if not isinstance(row, dict):
-                    continue
-                receipt = None
-                if is_local_startup_parser_error(row.get("error")):
-                    if startup_receipts is None:
-                        startup_receipts = _startup_completion_receipts(self.project_root)
-                    receipt = startup_receipts.get(str(row.get("call_id") or ""))
-                record = UsageRecord.from_jsonable(row, startup_receipt=receipt)
-                if not record.call_id or record.call_id in seen:
-                    continue
-                seen.add(record.call_id)
-                if record.completed_at < since:
-                    continue
-                if mission_id is not None and record.mission_id != mission_id:
-                    continue
-                out.append(record)
-        if self._reconcile_token_pricing(out):
-            return self.records(since=since, mission_id=mission_id)
+        # Reads never reconcile or rewrite evidence. Explicit reconciliation is
+        # a separate writer, and validates again under the usage lock.
+        for row in _read_usage_json_rows(self.path):
+            if row["project_id"] != self.project_root.resolve().name:
+                raise AccountingIntegrityError(self.path, 0, b"", "ledger project identity mismatch")
+            receipt = None
+            if is_local_startup_parser_error(row.get("error")):
+                if startup_receipts is None:
+                    startup_receipts = _startup_completion_receipts(self.project_root)
+                receipt = startup_receipts.get(str(row.get("call_id") or ""))
+            record = UsageRecord.from_jsonable(row, startup_receipt=receipt)
+            if record.call_id in seen:
+                continue
+            seen.add(record.call_id)
+            if record.completed_at < since:
+                continue
+            if mission_id is not None and record.mission_id != mission_id:
+                continue
+            out.append(record)
         return out
 
     def _reconcile_token_pricing(self, records: Iterable[UsageRecord]) -> int:
@@ -588,7 +594,20 @@ class UsageLedger:
             ]
         return summarize_usage(records)
 
+    def reconcile(self) -> int:
+        """Explicit writer: validate first, then migrate/reprice losslessly.
+
+        Unlike records/summary, this operation may update accounting evidence.
+        It cannot repair malformed bytes or certify missing provider tails.
+        """
+        _read_usage_json_rows(self.path)
+        updated = self.ensure_legacy_migrated() if self._migrate_legacy else 0
+        updated += self.ensure_copilot_usage_reconciled()
+        updated += self._reconcile_token_pricing(self.records())
+        return updated
+
     def ensure_legacy_migrated(self) -> int:
+        _read_usage_json_rows(self.path)
         if self.migration_path.exists():
             return 0
         records = list(
@@ -610,6 +629,7 @@ class UsageLedger:
         return appended
 
     def ensure_copilot_usage_reconciled(self) -> int:
+        _read_usage_json_rows(self.path)
         if not _copilot_reconcile_enabled_for(self.project_root):
             return 0
         signature = _path_signature(self.path)
@@ -856,19 +876,7 @@ class UsageLedger:
             cached = _CALL_ID_CACHE.get(key)
             if cached is not None and cached[0] == signature:
                 return set(cached[1])
-        ids: set[str] = set()
-        try:
-            handle = self.path.open("r", encoding="utf-8")
-        except OSError:
-            return ids
-        with handle:
-            for raw in handle:
-                try:
-                    row = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if isinstance(row, dict) and row.get("call_id"):
-                    ids.add(str(row["call_id"]))
+        ids = {row["call_id"] for row in _read_usage_json_rows(self.path)}
         self._store_call_id_cache(key, signature, ids)
         return ids
 
@@ -941,31 +949,43 @@ def summarize_usage(records: Iterable[UsageRecord]) -> UsageSummary:
 def _deduplicated_usage_contributions(
     records: Iterable[UsageRecord],
 ) -> list[dict[str, Any]]:
+    records = list(records)
+    try:
+        validate_usage_rows([record.to_jsonable() for record in records])
+    except (ValueError, TypeError) as exc:
+        raise AccountingIntegrityError(Path(USAGE_FILE), 0, b"", str(exc)) from exc
     contributions: list[dict[str, Any]] = []
     seen_copilot_events: set[tuple[str, int]] = set()
     for record in records:
         if not record.model_usage:
-            contributions.append(
-                {
-                    "input_tokens": record.input_tokens,
-                    "cached_input_tokens": record.cached_input_tokens,
-                    "cache_write_tokens": record.cache_write_tokens,
-                    "output_tokens": record.output_tokens,
-                    "reasoning_output_tokens": record.reasoning_output_tokens,
-                    "total_nano_aiu": record.total_nano_aiu,
-                    "cost_usd": record.cost_usd,
-                }
-            )
+            projection = model_projection(record.to_jsonable())
+            if record.cost_usd is None and record.total_nano_aiu is not None:
+                projection["provenance"] = "canonical_aggregate_nano_aiu"
+            contributions.append(projection)
             continue
-        for item in record.model_usage:
-            session_id = _optional_text(item.get("session_id"))
-            usage_event_id = _optional_int(item.get("usage_event_id"))
-            if session_id is not None and usage_event_id is not None:
-                identity = (session_id, usage_event_id)
+        from .accounting_integrity import unique_model_usage
+        unique = unique_model_usage(record.model_usage)
+        for identity, projection in unique:
+            if identity is not None:
                 if identity in seen_copilot_events:
                     continue
                 seen_copilot_events.add(identity)
-            contributions.append(dict(item))
+            contributions.append(projection)
+        # A priced event may have complete money but incomplete token detail.
+        # Retain any call-level token lower bound the detail cannot explain.
+        # This is conservative for overlapping partial telemetry, explicitly
+        # attributed to the call, and cannot double-charge provider money.
+        residual = {"provenance": "call_aggregate_token_lower_bound",
+                    "call_id": record.call_id}
+        for field in ("input_tokens", "cached_input_tokens", "cache_write_tokens",
+                      "output_tokens", "reasoning_output_tokens"):
+            if any(item.get(field) is None for _, item in unique):
+                known = sum(item.get(field) or 0 for _, item in unique)
+                floor = max(0, (getattr(record, field) or 0) - known)
+                if floor:
+                    residual[field] = floor
+        if len(residual) > 2:
+            contributions.append(residual)
     return contributions
 
 
@@ -1041,10 +1061,7 @@ def ensure_project_events_standardized(project_root: Path | str) -> int:
                         identities.add(identity)
                         rows_appended += 1
             handle.flush()
-            try:
-                os.fsync(handle.fileno())
-            except OSError:
-                pass
+            os.fsync(handle.fileno())
         _write_json_atomic(
             marker_path,
             {
@@ -1226,7 +1243,7 @@ def _legacy_aggregate_record(
 ) -> UsageRecord:
     return UsageRecord(
         call_id=call_id,
-        project_id=project_root.name,
+        project_id=project_root.resolve().name,
         mission_id=mission_id,
         provider="legacy",
         model="",
@@ -1431,23 +1448,27 @@ def _copilot_reconcile_enabled_for(project_root: Path) -> bool:
 
 
 def _read_usage_json_rows(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    try:
-        handle = path.open("r", encoding="utf-8")
-    except OSError:
-        return rows
-    with handle:
-        for raw in handle:
-            try:
-                row = json.loads(raw)
-            except (json.JSONDecodeError, ValueError):
-                continue
-            if isinstance(row, dict):
-                rows.append(row)
-    return rows
+    return strict_jsonl(path, require_call_id=True)
 
 
 def _rewrite_usage_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    # Callers hold usage.lock. Refuse a lossy rewrite even for direct callers.
+    previous = {row["call_id"]: row for row in _read_usage_json_rows(path)}
+    rows = [dict(row) for row in rows]
+    try:
+        validate_usage_rows(rows)
+        if not set(previous).issubset({row["call_id"] for row in rows}):
+            raise ValueError("rewrite would remove receipt obligations")
+        for row in rows:
+            old = previous.get(row["call_id"])
+            if old is not None and old != row:
+                # One atomic canonical receipt plus its exact prior versions.
+                # Closed intents can corroborate legitimate explicit repricing.
+                prior = {k: v for k, v in old.items() if k != "accounting_history"}
+                row["accounting_history"] = [*old.get("accounting_history", []), prior]
+        validate_usage_rows(rows)
+    except (ValueError, TypeError) as exc:
+        raise AccountingIntegrityError(path, 0, b"", str(exc)) from exc
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
@@ -1463,11 +1484,9 @@ def _rewrite_usage_rows(path: Path, rows: list[dict[str, Any]]) -> None:
                     + "\n"
                 )
             handle.flush()
-            try:
-                os.fsync(handle.fileno())
-            except OSError:
-                pass
+            os.fsync(handle.fileno())
         os.replace(tmp_name, path)
+        fsync_directory(path.parent)
     finally:
         try:
             os.unlink(tmp_name)
@@ -1503,6 +1522,7 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
             json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
             handle.write("\n")
         os.replace(tmp_name, path)
+        fsync_directory(path.parent)
     finally:
         try:
             os.unlink(tmp_name)
@@ -1544,6 +1564,10 @@ def _normalize_model_usage(value: Any) -> tuple[dict[str, Any], ...]:
             raw_items = list(value)
         except TypeError:
             return ()
+    try:
+        validate_model_usage(raw_items)
+    except (ValueError, TypeError) as exc:
+        raise AccountingIntegrityError(Path(USAGE_FILE), 0, b"", str(exc)) from exc
     items: list[dict[str, Any]] = []
     seen_copilot_events: set[tuple[str, int]] = set()
     for raw in raw_items:

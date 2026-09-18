@@ -152,6 +152,8 @@ class RunExecMixin:
         # through a persistent ``copilot --acp`` process.  The ACP client keeps
         # the classifier and conversation in separate logical sessions.
         if self._acp_enabled(run_label, options):
+            from ..core.no_charge_provenance import possible_provider_attempt
+            possible_provider_attempt()
             acp_result = self._run_exec_acp(
                 prompt=prompt,
                 resume_thread_id=resume_thread_id,
@@ -310,9 +312,10 @@ class RunExecMixin:
                 )
         try:
             with self._prompt_stdin(stdin_prompt) as child_stdin:
+                from ..core.no_charge_provenance import accounted_popen
                 process = spawn_owned_process(
                     command,
-                    popen_factory=subprocess.Popen,
+                    popen_factory=accounted_popen,
                     stdin=child_stdin,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,

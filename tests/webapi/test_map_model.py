@@ -348,7 +348,7 @@ def test_shared_budget_denies_map_before_provider_call(tmp_path, monkeypatch):
 
     monkeypatch.setattr(AgentCliRunner, "run_exec", unexpected)
     UsageLedger(tmp_path / "projects/s-budget").append(UsageRecord.from_jsonable({
-        "call_id": "earlier-research-call", "project_id": "s-budget", "status": "completed",
+        "call_id": "earlier-research-call", "project_id": "s-budget", "provider": "codex", "status": "completed",
         "pricing_status": "priced", "cost_usd": 1, "completed_at": time.time(),
     }))
     with pytest.raises(OSError, match="did not complete"):

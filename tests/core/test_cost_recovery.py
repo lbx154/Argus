@@ -189,7 +189,8 @@ def test_legacy_state_migrates_without_losing_unknown_costs(tmp_path):
     snapshot = costs.cost_control_snapshot(global_root=tmp_path)
     assert snapshot["blocking_unresolved_calls"] == 1
     migrated = json.loads(path.read_text())
-    assert migrated["version"] == 2 and migrated["acknowledgements"] == {}
+    assert migrated["version"] == 1 and "acknowledgements" not in migrated
+    # A snapshot projects legacy state without performing a migration write.
 
 
 def test_unknown_future_state_version_is_not_silently_rewritten(tmp_path):

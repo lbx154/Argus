@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...core.event_catalog import EventType
 from ...core.models import RunnerResult
+from ...core.no_charge_provenance import accounting_scope
 from ...core.runner_errors import (
     is_execution_host_startup_error,
     is_model_catalog_startup_error,
@@ -91,6 +92,7 @@ def log_start_record(backend: Any, ctx: "_ExecContext") -> None:
         backend._log_agent_io(_raw_transcript_path(ctx.log_path), start_row)
 
 
+@accounting_scope
 def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     """Execute the provider subprocess and return a finalised ``RunnerResult``.
 

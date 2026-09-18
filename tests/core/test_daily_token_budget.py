@@ -75,15 +75,17 @@ def test_unknown_final_receipt_preserves_observed_tokens(budget):
     assert cost_control_snapshot(global_root=budget)["daily_tokens"] == 1000
 
 
-def test_daily_token_allowance_resets_at_midnight(budget):
+def test_daily_token_allowance_retains_unsettled_observations_at_midnight(budget):
     call, _ = reserve(budget, "overnight")
     assert call is not None
     from argus.core.cost_control import _local_day_start
     next_day = _local_day_start(time.time()) + 36 * 3600
     call.observe_cost(tokens=1000)
-    assert cost_admission_reason(global_root=budget, now=next_day) == ""
-    assert call.observe_cost(tokens=10, now=next_day) == ""
-    assert cost_control_snapshot(global_root=budget, now=next_day)["daily_tokens"] == 10
+    assert "token budget exhausted" in cost_admission_reason(global_root=budget, now=next_day)
+    # Midnight cannot erase the unsettled lower bound. A real settlement/release
+    # (not PID death) is required before that obligation stops gating dispatch.
+    assert "token budget exhausted" in call.observe_cost(tokens=10, now=next_day)
+    assert cost_control_snapshot(global_root=budget, now=next_day)["daily_tokens"] == 1000
 
 
 @pytest.mark.parametrize("value", ["-1", "1.5", "nan", "inf", "1e6", "junk"])
@@ -130,7 +132,12 @@ def test_denied_receipt_cannot_spend_tokens(budget):
     record = build_usage_record(call_id="denied", project_root=budget / "projects" / "denied",
         mission_id=None, provider="pi", model="gpt-5.6-sol", run_label="manager",
         started_at=time.time(), completed_at=time.time(), status="denied")
-    UsageLedger(budget / "projects" / "denied", migrate_legacy=False).append(replace(record, input_tokens=10000))
+    from argus.core.accounting_integrity import AccountingIntegrityError
+    ledger = UsageLedger(budget / "projects" / "denied", migrate_legacy=False)
+    before = {str(p): p.read_bytes() for p in budget.rglob('*') if p.is_file()}
+    with pytest.raises(AccountingIntegrityError):
+        ledger.append(replace(record, input_tokens=10000))
+    assert {str(p): p.read_bytes() for p in budget.rglob('*') if p.is_file()} == before
     assert cost_admission_reason(global_root=budget) == ""
 
 

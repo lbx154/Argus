@@ -113,7 +113,7 @@ def test_cross_project_admission_releases_only_parser_item(tmp_path):
             global_root=tmp_path)
         assert reservation is not None, reason
         reservation.release(reason="test complete")
-    unknown = {**row(), "call_id": "unknown", "error": "network timeout"}
+    unknown = {**row(), "project_id": p2.name, "call_id": "unknown", "error": "network timeout"}
     (p2 / "usage.jsonl").write_text(json.dumps(unknown) + "\n")
     assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 1
 

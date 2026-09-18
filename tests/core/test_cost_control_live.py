@@ -18,7 +18,7 @@ from argus.core.cost_control import (
     reserve_call_budget,
 )
 from argus.core.token_usage import TokenUsage
-from argus.core.usage import UsageLedger, build_usage_record
+from argus.core.usage import UsageLedger, _rewrite_usage_rows, build_usage_record
 
 
 @pytest.fixture(autouse=True)
@@ -121,7 +121,7 @@ def test_settled_copilot_events_are_deduplicated_across_calls(tmp_path: Path) ->
     assert "($0.000000 available)" in reservation.observe_cost(400)
 
 
-def test_midnight_discards_previous_day_observed_cost(tmp_path: Path) -> None:
+def test_midnight_preserves_unsettled_observed_lower_bound(tmp_path: Path) -> None:
     local = time.localtime()
     midnight = time.mktime((local.tm_year, local.tm_mon, local.tm_mday + 1, 0, 0, 0, 0, 0, -1))
     reservation, reason = _reserve(
@@ -133,9 +133,9 @@ def test_midnight_discards_previous_day_observed_cost(tmp_path: Path) -> None:
     assert reservation.observe_cost(0, now=midnight + 1) == ""
     snapshot = cost_control_snapshot(global_root=tmp_path, now=midnight + 1)
     assert snapshot["active_reservations"] == 1
-    assert snapshot["in_flight_cost_usd"] == 0
+    assert snapshot["in_flight_cost_usd"] == 900
     assert reservation.observe_cost(200, now=midnight + 30) == ""
-    assert cost_control_snapshot(global_root=tmp_path, now=midnight + 30)["in_flight_cost_usd"] == 200
+    assert cost_control_snapshot(global_root=tmp_path, now=midnight + 30)["in_flight_cost_usd"] == 900
 
 
 def test_unpriced_durable_usage_is_nonblocking_and_reconciled(tmp_path: Path) -> None:
@@ -156,10 +156,8 @@ def test_unpriced_durable_usage_is_nonblocking_and_reconciled(tmp_path: Path) ->
     admitted.release(reason="test")
 
     # Simulate durable late provider reconciliation of this exact call.
-    ledger.path.write_text(
-        json.dumps(replace(unknown, cost_usd=25, pricing_status="priced").to_jsonable()) + "\n",
-        encoding="utf-8",
-    )
+    with ledger._locked():
+        _rewrite_usage_rows(ledger.path, [replace(unknown, cost_usd=25, pricing_status="priced").to_jsonable()])
     assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 0
     assert ledger.summary().cost_usd == 25
     admitted, reason = _reserve(tmp_path, project, "after-reconciliation")
@@ -242,11 +240,9 @@ def test_uncertain_settlement_preserves_observed_floor_until_reconciliation(
         assert ledger.records()[0].cost_usd == partial_cost
         assert ledger.records()[0].pricing_status == pricing_status
 
-    ledger.path.write_text(
-        json.dumps(replace(pending, cost_usd=reconciled_cost,
-                           pricing_status="priced").to_jsonable()) + "\n",
-        encoding="utf-8",
-    )
+    with ledger._locked():
+        _rewrite_usage_rows(ledger.path, [replace(pending, cost_usd=reconciled_cost,
+                                               pricing_status="priced").to_jsonable()])
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["active_reservations"] == 0
     assert snapshot["in_flight_cost_usd"] == 0
@@ -338,8 +334,7 @@ def test_legacy_unresolved_flags_never_block_even_during_lock_contention(tmp_pat
         admitted, reason = _reserve(
             tmp_path, project, "during-contention", lock_timeout_seconds=0.01,
         )
-        assert admitted is not None and reason == ""
-        assert admitted.state_tracked is False
+        assert admitted is None and "lock busy" in reason
         snapshot = cost_control_snapshot(global_root=tmp_path, lock_timeout_seconds=0.01)
         assert snapshot["snapshot_stale"] is True
         assert snapshot["unresolved_calls"] == 1
@@ -348,7 +343,7 @@ def test_legacy_unresolved_flags_never_block_even_during_lock_contention(tmp_pat
     cost_control_snapshot(global_root=tmp_path)
     # Historical flags are metadata, not authority over the explicit policy.
     assert json.loads(path.read_text())["unresolved"][0]["blocking"] is True
-    admitted.release(reason="test")
+    assert admitted is None
 
 
 def test_observation_recovers_tracking_after_admission_lock_contention(tmp_path: Path) -> None:
@@ -368,12 +363,13 @@ def test_observation_recovers_tracking_after_admission_lock_contention(tmp_path:
         reservation, reason = _reserve(
             tmp_path, project, "contended", lock_timeout_seconds=0.01
         )
-        assert reservation is not None and reason == ""
-        assert reservation.state_tracked is False
+        assert reservation is None and "lock busy" in reason
     finally:
         release.set()
         holder.join(timeout=1)
 
+    reservation, reason = _reserve(tmp_path, project, "retry-after-contention")
+    assert reservation is not None and reservation.state_tracked
     assert reservation.observe_cost(25) == ""
     reservation.settle_unknown(reason="final usage unavailable")
 
@@ -448,7 +444,7 @@ def test_external_settled_spend_remains_known_after_reconciliation(tmp_path: Pat
 
 @pytest.mark.parametrize("partial_total", [None, 17])
 @pytest.mark.parametrize("legacy_marker", [False, True])
-def test_admission_reconciles_late_copilot_sqlite_usage_without_ui_refresh(
+def test_explicit_reconciliation_of_late_copilot_sqlite_usage_clears_gate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     partial_total: int | None, legacy_marker: bool,
 ) -> None:
@@ -475,6 +471,7 @@ def test_admission_reconciles_late_copilot_sqlite_usage_without_ui_refresh(
             )
         """)
         conn.commit()
+        ledger.reconcile()
         admitted, reason = _reserve(tmp_path, project, "before-usage")
         assert admitted is not None and reason == ""
         admitted.release(reason="test")
@@ -490,6 +487,10 @@ def test_admission_reconciles_late_copilot_sqlite_usage_without_ui_refresh(
         )
         conn.commit()
 
+        before = ledger.path.read_bytes()
+        cost_control_snapshot(global_root=tmp_path)
+        assert ledger.path.read_bytes() == before
+        ledger.reconcile()
         admitted, reason = _reserve(tmp_path, project, "after-usage")
 
     assert admitted is not None and reason == ""

@@ -131,13 +131,9 @@ def test_admission_does_not_wait_for_busy_housekeeping_lock(tmp_path: Path) -> N
         )
         elapsed = time.monotonic() - started
 
-        assert reservation is not None and reason == ""
-        assert reservation.state_tracked is False
+        assert reservation is None and "lock busy" in reason
         assert elapsed < 0.2
-
-        record = _record(project, reservation.call_id)
-        UsageLedger(project, migrate_legacy=False).append(record)
-        assert reservation.settle(record) is True
+        assert not (tmp_path / COST_CONTROL_STATE_FILE).exists()
     finally:
         release.set()
         holder.join(timeout=1)
@@ -175,7 +171,9 @@ def test_settlement_does_not_delay_result_behind_busy_housekeeping_lock(
 
     monkeypatch.setattr(cost_control, "_locked", observed_lock)
     try:
-        assert reservation.settle(record) is True
+        with pytest.raises(cost_control.CostControlLockBusyError):
+            reservation.settle(record)
+        assert reservation._closed is False
         # Keep the real contention, but do not include unrelated Windows I/O
         # and scheduling overhead in a sub-second wall-clock assertion.
         assert observed_timeouts == [0.25]
@@ -184,7 +182,8 @@ def test_settlement_does_not_delay_result_behind_busy_housekeeping_lock(
         release.set()
         holder.join(timeout=1)
 
-    # The durable usage row lets the next read prune the deferred reservation.
+    # Explicit retry completes the durable finalization intent. Status does not.
+    assert reservation.settle(record) is True
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["active_reservations"] == 0
 
@@ -313,6 +312,7 @@ def test_admission_reconciles_known_token_cost_before_deciding_the_budget(
         MODEL_PRICES_USD_PER_MTOK, model, MODEL_PRICES_USD_PER_MTOK["gpt-5.5"],
     )
 
+    ledger.reconcile()  # explicit writer, never hidden in admission/status
     admitted, reason = _reserve(
         tmp_path, project, "after-pricing", global_daily_cap_usd=daily_cap,
     )

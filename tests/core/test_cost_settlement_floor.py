@@ -1,14 +1,13 @@
 """Observed lower bounds must survive partial receipts under both admission policies."""
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import replace
 
 import pytest
 
 from argus.core import cost_control as costs
-from argus.core.usage import UsageLedger, UsageRecord
+from argus.core.usage import UsageLedger, UsageRecord, _rewrite_usage_rows
 
 
 def reservation(root, project, call_id="observed", cap=10):
@@ -56,7 +55,7 @@ def test_floor_survives_finalization_without_double_counting(tmp_path, monkeypat
     above = costs.cost_admission_reason(global_root=tmp_path, cap=max(10, partial or 0) + 1)
     assert ("unresolved provider cost" in above) if policy == "block" else above == ""
     with ledger._locked():
-        ledger.path.write_text(json.dumps(replace(pending, pricing_status="priced", cost_usd=settled).to_jsonable()) + "\n", encoding="utf-8")
+        _rewrite_usage_rows(ledger.path, [replace(pending, pricing_status="priced", cost_usd=settled).to_jsonable()])
     snapshot = costs.cost_control_snapshot(global_root=tmp_path)
     assert snapshot["unresolved_calls"] == snapshot["unacknowledged_observed_cost_usd"] == 0
     assert costs.cost_admission_reason(global_root=tmp_path, cap=settled + 1) == ""
