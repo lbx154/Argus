@@ -660,6 +660,11 @@
   .argus-map {
     padding-bottom: calc(3.25rem + env(safe-area-inset-bottom));
   }
+  /* The workbench shell already reserves the tab bar's height for every panel
+   * that reaches the bottom edge; reserving it again left a blank band. */
+  .mobile-scroll-region .argus-map {
+    padding-bottom: 0;
+  }
   .map-playback input {
     min-width: 30px;
     width: 80px;

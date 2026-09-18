@@ -244,11 +244,14 @@ export function MapCanvas({
     [graph, copy?.relations, zh],
   );
   const sceneCache = useRef<ReturnType<typeof layoutScene> | undefined>(savedView.current.scene);
+  // Before the canvas is measured the window stands in for it, so a phone
+  // lays its cards out once instead of re-placing them after the first frame.
+  const narrow = (camera.canvasSize.width || window.innerWidth) < 640;
   const scene = useMemo(() => {
-    const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions);
+    const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions, narrow);
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
     return sceneCache.current;
-  }, [graph, data.events, zh, links, expandedMissions]);
+  }, [graph, data.events, zh, links, expandedMissions, narrow]);
   // Team fan-out promotion: parallel `team.task` work leaves its owning card
   // as small branch pills and returns to it, instead of hiding as steps.
   // Subtasks that share a state are then folded into one sentence-labelled
