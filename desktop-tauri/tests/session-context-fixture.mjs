@@ -95,6 +95,10 @@ export async function startSessionFixture(options = {}) {
           revision: 'synthetic-fixture', pid: process.pid, python_version: 'not-used', executable: 'deterministic-node-fixture', started_at: '2026-09-17T00:00:00Z',
           release_id: manifest.release_id, manifest_source_digest: manifest.source_digest, runtime_source_digest: null, release_matches_source: null },
       });
+      if (method === 'GET' && options.read) {
+        const extra = await options.read({ url, state, root });
+        if (extra) return json(response, extra.body, extra.status ?? 200);
+      }
       if (method === 'GET' && url.pathname === '/api/projects') return json(response, { projects: rows.filter(row => !state.deleted.has(row.id)), local_cwd: root });
       if (method === 'GET' && url.pathname === '/api/projects/costs') return json(response, { projects: [], generated_at: 1 });
       if (method === 'GET' && url.pathname === '/api/system/resources') return json(response, { schema_version: 1, state: 'ready', cpu: {}, memory: {}, disk: {} });
@@ -103,7 +107,7 @@ export async function startSessionFixture(options = {}) {
       if (method === 'GET' && url.pathname === '/api/plugins') return json(response, { plugins: [] });
       if (method === 'GET' && /^\/api\/map-copy\/dataset\/s-[AB]$/.test(url.pathname)) return json(response, { cards: {}, relations: [], available: false });
       if (method === 'GET') {
-        const extra = knowledgeFixture(url) || await options.read?.({ url, state, root });
+        const extra = knowledgeFixture(url);
         if (extra) return json(response, extra.body, extra.status ?? 200);
       }
       if (!project) {
