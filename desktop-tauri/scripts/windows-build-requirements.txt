@@ -1,8 +1,10 @@
 # Windows build tools only; application/test dependencies remain in uv.lock.
-# Freezer pins match the accepted Windows preview tooling. Build-backend helper
-# pins are the existing uv.lock versions, not upgrades of application packages.
+# Freezer pins match the accepted Windows preview tooling. Support pins match
+# uv.lock; editables pins Hatchling's dynamic editable-build dependency from
+# the accepted public tooling cache, without upgrading application packages.
 # Install with --no-deps, then check the complete environment before building.
 altgraph==0.17.5
+editables==0.6
 hatchling==1.32.0
 packaging==26.3
 pathspec==1.1.1

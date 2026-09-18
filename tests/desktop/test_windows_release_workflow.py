@@ -90,6 +90,8 @@ def test_windows_build_tool_pins_match_existing_locked_support_packages():
         pins[name] = version
     assert pins["pyinstaller"] == "6.22.3"
     assert pins["pyinstaller-hooks-contrib"] == "2026.7"
+    # --no-build-isolation also needs Hatchling's dynamic editable hook input.
+    assert pins["editables"] == "0.6"
     locked = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))["package"]
     for name in ("hatchling", "packaging", "pathspec", "pluggy", "tomlkit", "trove-classifiers"):
         assert pins[name] == next(package["version"] for package in locked if package["name"] == name)
