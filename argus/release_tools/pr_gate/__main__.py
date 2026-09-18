@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -81,7 +82,14 @@ def _emit_result(result: dict[str, Any], output: Path) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
+    arguments = list(argv) if argv is not None else sys.argv[1:]
+    if arguments and arguments[0] in {"check", "verify"}:
+        from argus.release_tools.pr_gate.regression.cli import main as regression_main
+
+        return regression_main(arguments)
+    parser = argparse.ArgumentParser(
+        epilog="Local regression gate: python -m argus.release_tools.pr_gate check | verify",
+    )
     parser.add_argument("--event", type=Path, required=True)
     parser.add_argument(
         "--config",
@@ -89,7 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=Path(__file__).with_name("config.json"),
     )
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
 
     try:
         message, base_sha, head_sha = _pull_request_input(args.event)

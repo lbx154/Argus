@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "created_at", "run_id", "binding", "policy",
+    "snapshots", "execution", "analysis", "explanation", "evidence", "gate", "scope"
+  ],
+  "properties": {
+    "schema_version": {"const": "local-pr-regression/v2"},
+    "created_at": {"type": "string"},
+    "run_id": {"type": "string"},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_base_sha", "merge_base_sha", "base_tree", "candidate_tree", "comparison", "excluded_paths"],
+      "properties": {
+        "target_base_sha": {"$ref": "#/$defs/git_sha"},
+        "merge_base_sha": {"$ref": "#/$defs/git_sha"},
+        "base_tree": {"$ref": "#/$defs/git_sha"},
+        "candidate_tree": {"$ref": "#/$defs/git_sha"},
+        "comparison": {"const": "merge_base_to_staged_source"},
+        "excluded_paths": {"const": ["pr-regression-report.json"]}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "skill_sha256", "implementation_sha256"],
+      "properties": {
+        "version": {"type": "string"},
+        "skill_sha256": {"$ref": "#/$defs/sha256"},
+        "implementation_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "snapshots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pr_number", "base_sha", "candidate_sha"],
+      "properties": {
+        "pr_number": {"const": 0},
+        "base_sha": {"$ref": "#/$defs/git_sha"},
+        "candidate_sha": {"$ref": "#/$defs/git_sha"}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": ["status", "isolation"],
+      "properties": {
+        "status": {"enum": ["completed", "unchanged", "error"]},
+        "isolation": {"enum": ["native", "docker", "none"]},
+        "source_audit": {"type": "boolean"},
+        "error": {"type": "string"}
+      }
+    },
+    "analysis": {"type": ["object", "null"]},
+    "scope": {
+      "type": "object", "additionalProperties": false,
+      "required": ["changed_paths", "unresolved_paths", "issues", "inspected_files"],
+      "properties": {
+        "changed_paths": {"type": "array", "items": {"type": "string"}},
+        "unresolved_paths": {"type": "array", "items": {"type": "string"}},
+        "issues": {"type": "array", "items": {"type": "string"}},
+        "inspected_files": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["reference", "mode", "oid"],
+            "properties": {
+              "reference": {"type": "string"},
+              "mode": {"type": "string"},
+              "oid": {"$ref": "#/$defs/git_sha"}
+            }
+          }
+        }
+      }
+    },
+    "explanation": {"type": "string"},
+    "evidence": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "base64"],
+        "properties": {
+          "path": {"type": "string"},
+          "sha256": {"$ref": "#/$defs/sha256"},
+          "base64": {"type": "string"}
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {"enum": ["PASSED", "BLOCKED", "INCOMPLETE"]},
+        "reason": {"type": "string"}
+      }
+    }
+  },
+  "$defs": {
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
