@@ -3,6 +3,7 @@ import type { WikiLibraryItem } from '../api';
 import { useI18n } from '../i18n';
 import { formatRelativeTime } from '../lib/format';
 import { useSidebarFold } from '../lib/sidebarFold';
+import { libraryVertical } from '../lib/libraryPresentation';
 import { knowledgeKindLabels, latestLearned, resolveKnowledgeItem, useKnowledgeFeed } from './KnowledgeFeed';
 import { recentWikiPages, useWikiLibrary, wikiScopeLabels } from './WikiLibrary';
 
@@ -53,7 +54,7 @@ export function WikiEntry({ sid, onOpen, compact = false, visible = true, defaul
   const recent = recentWikiPages(pages)
     .filter(page => !learnedPage || page.scope !== learnedPage.scope || page.vertical !== learnedPage.vertical || page.path !== learnedPage.path)
     .slice(0, learned ? RECENT_LIMIT - 1 : RECENT_LIMIT);
-  const where = (page: WikiLibraryItem) => page.scope === 'vertical' && page.vertical ? page.vertical : scopeNames[page.scope];
+  const where = (page: WikiLibraryItem) => page.scope === 'vertical' && page.vertical ? libraryVertical(page.vertical, locale) : scopeNames[page.scope];
   const when = (ts: number) => formatRelativeTime(ts, zh ? 'zh-CN' : 'en');
   if (!onOpen) return null;
   const hasRows = learned !== null || recent.length > 0;
@@ -76,7 +77,7 @@ export function WikiEntry({ sid, onOpen, compact = false, visible = true, defaul
       {learned && <button type="button" onClick={() => learnedPage ? onOpen(learnedPage) : onOpen()} data-just-learned
         className="block w-full rounded py-1.5 text-left hover:text-blue" title={learned.path}>
         <span className="flex items-center gap-1 text-xs text-ink"><Sparkles className="h-3 w-3 shrink-0 text-blue" /><span className="truncate">{names.justLearned}{learned.title}</span></span>
-        <span className="block text-[10px] text-ink-faint">{kindNames[learned.kind] ?? learned.kind}{learned.vertical ? ` · ${learned.vertical}` : ''} · {when(learned.ts)}</span>
+        <span className="block text-[10px] text-ink-faint">{kindNames[learned.kind] ?? learned.kind}{learned.vertical ? ` · ${libraryVertical(learned.vertical, locale)}` : ''} · {when(learned.ts)}</span>
       </button>}
       {recent.map(page => <button type="button" key={`${page.scope}/${page.vertical}/${page.path}`} onClick={() => onOpen(page)}
         className="block w-full rounded py-1.5 text-left hover:text-blue" title={page.description || page.path}>
