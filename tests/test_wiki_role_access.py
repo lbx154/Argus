@@ -104,3 +104,11 @@ def test_direct_workflow_planner_has_no_stage_gate(tmp_path: Path) -> None:
     assert "Downstream stages (LOCKED" not in prompt
     assert "## Current workflow stage" in prompt
     assert 'context, not a hard boundary' in prompt
+
+
+def test_the_manager_reads_primary_sources_when_asked_to_learn_a_subject() -> None:
+    from argus.roles.prompts.manager import build_simple_prompt
+
+    prompt = build_simple_prompt(objective="你学习一下FA 就是初创公司融资的相关知识")
+    assert "asks you to learn, survey or explain a subject, read primary sources on the web" in prompt
+    assert "cite their URLs" in prompt and "kept as shared knowledge" in prompt

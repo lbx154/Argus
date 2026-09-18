@@ -408,6 +408,10 @@ def test_a_raising_backend_never_reaches_the_caller(roots: _Roots) -> None:
         ("调研一下最新的优化器", "x" * 700, True),
         ("怎么把这个跑起来", "x" * 700, True),
         ("Make the cache stable.", "x" * 700, False),  # long reply, not a question
+        ("你学习一下FA 就是初创公司融资的相关知识", "x" * 700, True),  # learn X: a knowledge request
+        ("Teach me how term sheets work", "x" * 700, True),
+        ("帮我了解一下向量数据库的现状", "x" * 700, True),
+        ("你学习一下FA", "short", False),  # learning intent, but nothing was said
         ("Why does it fail?", "short", False),  # a question, but a short reply
         ("", "x" * 700, False),
     ],

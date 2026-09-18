@@ -59,6 +59,16 @@ _QUESTION_OPENERS = (
     "can ", "should ", "compare", "survey", "research", "investigate", "find out",
 )
 
+# "Learn X for me" is a knowledge request even when it is not phrased as a
+# question; the trial host's operator wrote "你学习一下FA…", got a 1,700-character
+# answer, and nothing was kept because the text neither ended in ? nor opened
+# with a question word.
+_LEARNING_INTENT = (
+    "学习", "学一下", "了解", "调研", "研究", "科普", "介绍", "讲讲", "讲一下", "综述", "什么是",
+    "learn", "study", "research", "survey", "explain", "overview", "brief me", "teach me",
+    "what is", "tell me about",
+)
+
 Emit = Callable[[dict[str, Any]], Any] | None
 
 
@@ -727,8 +737,9 @@ def answer_is_research(operator_text: str, reply: str) -> bool:
     """Whether a chat reply looks like a researched answer worth a survey page.
 
     True when the reply cites at least two URLs, or when it is long (600+
-    characters) and the operator asked a question — a text ending in ``?``/``？``
-    or opening with a question word such as 现在/how/what/why/调研/怎么.
+    characters) and the operator asked for knowledge — a question (ending in
+    ``?``/``？`` or opening with a question word such as 现在/how/what/why) or a
+    request to learn, survey or explain a subject (学习/了解/调研/learn/explain…).
     """
     body = str(reply or "")
     if len(set(_URL_RE.findall(body))) >= 2:
@@ -741,7 +752,9 @@ def answer_is_research(operator_text: str, reply: str) -> bool:
     if asked.endswith(("?", "？")):
         return True
     lowered = asked.lower()
-    return any(lowered.startswith(opener) for opener in _QUESTION_OPENERS)
+    if any(lowered.startswith(opener) for opener in _QUESTION_OPENERS):
+        return True
+    return any(word in lowered for word in _LEARNING_INTENT)
 
 
 def _existing_surveys(root: Path) -> list[tuple[str, str]]:
