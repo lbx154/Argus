@@ -30,7 +30,7 @@ def load_config(path: Path) -> dict[str, dict[str, Any]]:
         if not isinstance(settings.get("error_message"), str) or not settings["error_message"]:
             raise ValueError(f"{name}.error_message must be a non-empty string")
         threshold = settings.get("threshold")
-        if settings["enabled"] and not settings["uses_llm"]:
+        if settings["enabled"]:
             if not isinstance(threshold, (int, float)) or not 0 <= threshold <= 1:
                 raise ValueError(f"{name}.threshold must be between 0 and 1")
 
