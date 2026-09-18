@@ -1,4 +1,5 @@
 import { WorkspaceHeader } from './WorkspaceShell';
+import { SessionWorkdir } from './SessionWorkdir';
 import type { Snapshot, EventMsg } from '../api';
 import type { MissionView } from '../../../core/src/types';
 import { theme } from '../lib/theme';
@@ -88,15 +89,16 @@ export function TopBar({
         <div className="topbar-title min-w-0 truncate text-sm font-semibold text-ink" title={snap.session.display_name || snap.session.id}>
           {snap.session.display_name || snap.session.id}
         </div>
-        {roleActive || focus ? <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {roleActive ? <span
             data-role-dot={roleName}
             aria-label={t('topbar.roleActive', { role: roleLabel(roleName, t) })}
             className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none"
             style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
           /> : null}
-          <span className="shrink-0 text-[10px] font-medium text-ink-dim">{!streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale') : workStatusLabel(work, locale)}</span>
-        </div> : null}
+          {roleActive || focus ? <span className="shrink-0 text-[10px] font-medium text-ink-dim">{!streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale') : workStatusLabel(work, locale)}</span> : null}
+          <SessionWorkdir session={snap.session} />
+        </div>
       </div>
       <span
         title={healthTitle}

@@ -158,7 +158,23 @@ export function Sidebar({
       {slim && onOpenWiki ? <WikiEntry sid={activeId} onOpen={onOpenWiki} compact /> : null}
       {!slim ? (
         <>
-          <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-5">
+          <nav aria-label={locale === 'zh-CN' ? '工具与知识' : 'Tools and knowledge'} data-sidebar-resources
+            className="shrink-0 overflow-y-auto overscroll-contain border-b border-line/50 px-2 py-2 scroll-thin [&>section]:mx-2 [&>section]:border-0 [&>section]:py-0 [&>section>div>button:first-child]:px-3"
+            style={{ maxHeight: 'min(40dvh, 360px)' }}>
+            <PluginLauncher />
+            {onOpenSkills && <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} />}
+            {onOpenWiki && <WikiEntry sid={activeId} onOpen={onOpenWiki} />}
+            <details className="sidebar-tools mx-2 mt-1">
+              <summary className="cursor-pointer px-2 py-2 text-xs text-ink-dim">{locale === 'zh-CN' ? '更多工具与资源' : 'More tools and resources'}</summary>
+              {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
+              {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
+                <a href="/invite/compute" className="mx-3 mb-2 flex items-center gap-2 rounded-md border border-line/50 px-3 py-2 text-xs text-blue hover:bg-bg">
+                  <FontAwesomeIcon icon={faMicrochip} className="h-3.5 w-3.5" />{t('sidebar.compute')}
+                </a>
+              ) : null}
+            </details>
+          </nav>
+          <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
             <span className="text-xs font-medium text-ink-faint">{locale === 'zh-CN' ? '项目' : 'Projects'}</span>
             {localProjects.length > 0 && localProjects.length < projects.length ? <select aria-label={locale === 'zh-CN' ? '项目范围' : 'Project scope'} value={scope} onChange={event => setScope(event.target.value as Scope)} className="min-w-0 bg-transparent text-xs text-ink-faint">
               <option value="local">{t('common.local')}</option><option value="all">{t('common.all')}</option>
@@ -329,19 +345,6 @@ export function Sidebar({
             ))}
           </div>
 
-          {onOpenSkills && <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} />}
-          {onOpenWiki && <WikiEntry sid={activeId} onOpen={onOpenWiki} />}
-          <details className="sidebar-tools mx-3 mb-2 border-t border-line/60 pt-2">
-            <summary className="cursor-pointer px-2 py-2 text-xs text-ink-dim">{locale === 'zh-CN' ? '工具与资源' : 'Tools and resources'}</summary>
-            <PluginLauncher />
-            {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
-          {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
-            <a href="/invite/compute" className="mx-3 mb-2 flex items-center gap-2 rounded-md border border-line/50 px-3 py-2 text-xs text-blue hover:bg-bg">
-              <FontAwesomeIcon icon={faMicrochip} className="h-3.5 w-3.5" />
-              {t('sidebar.compute')}
-            </a>
-          ) : null}
-          </details>
           <div className="flex min-h-14 items-center justify-between border-t border-line/50 px-4 py-2">
             <button type="button" onClick={() => onOpenPanel('config')} className="icon-control flex h-8 w-8 items-center justify-center" aria-label={t('sidebar.openSettings')} title={t('common.settings')}>
               <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />

@@ -37,7 +37,7 @@ def isolated_environment(work: Path) -> dict[str, str]:
         "XDG_DATA_HOME": str(work / "data"),
         "CARGO_HOME": original.get("CARGO_HOME", str(Path(user_home) / ".cargo")),
         "RUSTUP_HOME": original.get("RUSTUP_HOME", str(Path(user_home) / ".rustup")),
-        "RUSTUP_TOOLCHAIN": "stable-x86_64-pc-windows-msvc",
+        "RUSTUP_TOOLCHAIN": original.get("RUSTUP_TOOLCHAIN") or "stable-x86_64-pc-windows-msvc",
         "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONPATH": str(REPO), "PATH": str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", ""),
         "PYINSTALLER_CONFIG_DIR": str(work / "pyinstaller-cache"),
@@ -61,7 +61,11 @@ def assert_release_versions(repo: Path) -> str:
             payload = json.loads(lock.read_text(encoding="utf-8"))
             values[f"{directory}/package-lock.json"] = payload["version"]
             values[f"{directory}/package-lock.json root"] = payload["packages"][""]["version"]
-    for filename in ("desktop-tauri/src-tauri/tauri.conf.json", "plugins/argus/.claude-plugin/plugin.json"):
+    for filename in (
+        "desktop-tauri/src-tauri/tauri.conf.json",
+        "plugins/argus/.claude-plugin/plugin.json",
+        "plugins/argus/.codex-plugin/plugin.json",
+    ):
         values[filename] = json.loads((repo / filename).read_text(encoding="utf-8"))["version"]
     marketplace = json.loads((repo / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
     values["marketplace"] = next(plugin["version"] for plugin in marketplace["plugins"] if plugin["name"] == "argus")

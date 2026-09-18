@@ -6,6 +6,8 @@ import { formatRelativeTime } from '../lib/format';
 import { KnowledgeFeedList, useKnowledgeFeed } from './KnowledgeFeed';
 import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
+import { KnowledgeReadingGuide, LibraryIntroduction } from './LibraryGuide';
+import { libraryVertical } from '../lib/libraryPresentation';
 
 const scopes: WikiScope[] = ['private', 'global', 'vertical', 'project'];
 /** Browser tabs: the live feed, every page by recency, lessons, principles, then one tab per level. */
@@ -17,7 +19,7 @@ export const wikiScopeLabels = {
 };
 export const wikiKindLabels: Record<'en' | 'zh', Record<WikiPageKind, string>> = {
   en: { fact: 'Fact', lesson: 'Lesson', survey: 'Survey', principles: 'Principles', note: 'Note', profile: 'Profile', page: 'Page' },
-  zh: { fact: '事实', lesson: '教训', survey: '调研', principles: '原则', note: '记录', profile: '画像', page: '页面' },
+  zh: { fact: '事实', lesson: '经验教训', survey: '调研摘要', principles: '原则', note: '个人记录', profile: '个人概况', page: '参考页面' },
 };
 /** The page kind the host reported, folded onto the five the browser knows how to label. */
 export const pageKind = (item: Pick<WikiLibraryItem, 'kind'>): WikiPageKind =>
@@ -98,7 +100,7 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
   const relative = (value: number) => formatRelativeTime(value, zh ? 'zh-CN' : 'en');
   const where = (item: { scope: WikiScope; vertical: string }) => item.scope === 'project'
     ? `${names.project}${projectName ? ` · ${projectName}` : ''}`
-    : `${names[item.scope]}${item.vertical ? ` · ${item.vertical}` : ''}`;
+    : `${names[item.scope]}${item.vertical ? ` · ${libraryVertical(item.vertical, locale)}` : ''}`;
   const reused = (count: number) => zh ? `复用 ${count} 次` : count === 1 ? 'Reused once' : `Reused ${count} times`;
   const origin = (item: WikiLibraryItem) => pageKind(item) === 'lesson' ? (zh ? '由 Argus 反思写下' : 'Written by Argus in reflection')
     : pageKind(item) === 'survey' ? (zh ? '问答后沉淀' : 'Distilled after an answer') : '';
@@ -115,6 +117,7 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
 
   return <div className="flex h-[min(780px,84dvh)] min-h-0 flex-col" data-wiki-library>
     <ModalHeader title={zh ? '知识库' : 'Knowledge base'} sub={zh ? 'Argus 一边工作一边学：任务后写下教训，读取已有知识，把评审通过的页面提升到共享层。' : 'Argus learns as it works: lessons after each mission, knowledge read back into prompts, reviewed pages promoted to shared levels.'} />
+    <LibraryIntroduction kind="knowledge" />
     <nav aria-label={zh ? '知识分类' : 'Knowledge levels'} className="flex shrink-0 overflow-x-auto border-b border-line/60 px-4">
       {tabs.map(value => <button key={value} type="button" aria-pressed={scope === value} onClick={() => pickScope(value)}
         className={`shrink-0 border-b-2 px-2 py-2.5 text-xs sm:px-3 sm:text-sm ${scope === value ? 'border-blue text-ink' : 'border-transparent text-ink-faint hover:text-ink'}`}>
@@ -129,7 +132,7 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
           {scope === 'vertical' && <select value={vertical} onChange={event => { setVertical(event.target.value); setView(null); }} aria-label={zh ? '垂直领域' : 'Vertical'}
             className="w-full rounded-md border border-line bg-bg px-2 py-2 text-sm text-ink">
             <option value="">{zh ? '所有领域' : 'All verticals'}</option>
-            {catalog.data?.verticals.map(value => <option key={value} value={value}>{value}{value === catalog.data.active_vertical ? (zh ? ' · 当前项目' : ' · this project') : ''}</option>)}
+            {catalog.data?.verticals.map(value => <option key={value} value={value}>{libraryVertical(value, locale)}{value === catalog.data.active_vertical ? (zh ? ' · 当前项目' : ' · this project') : ''}</option>)}
           </select>}
           {scope === 'feed' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? 'Argus 学到、读取和提升知识的记录，最新在前，每 10 秒刷新。' : 'What Argus learned, recalled and promoted, newest first; refreshes every 10 seconds.'}</p>}
           {scope === 'recent' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '按文件更新时间排列，涵盖所有层级。' : 'All levels, newest file updates first.'}</p>}
@@ -151,14 +154,14 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
             {principled.map(library => <button key={libraryKey(library)} type="button" onClick={() => setView({ kind: 'principles', scope: library.scope, vertical: library.vertical })}
               aria-pressed={principlesLibrary ? libraryKey(principlesLibrary) === libraryKey(library) : false}
               className={`block w-full rounded-md px-3 py-3 text-left ${principlesLibrary && libraryKey(principlesLibrary) === libraryKey(library) ? 'bg-blue/10' : 'hover:bg-bg'}`}>
-              <span className="block break-words text-sm font-medium text-ink" data-wiki-title>{library.vertical || names[library.scope]}</span>
+              <span className="block break-words text-sm font-medium text-ink" data-wiki-title>{libraryVertical(library.vertical, locale) || names[library.scope]}</span>
               <span className="mt-1.5 block text-[11px] text-ink-faint">{where(library)} · principles.md</span>
             </button>)}
           </>}
           {listsPages && <>
             {catalog.isPending && <p className="p-3 text-sm text-ink-faint">{zh ? '正在加载页面…' : 'Loading pages…'}</p>}
             {catalog.isError && <div role="alert" className="p-3 text-sm text-err">{zh ? '无法加载知识库。' : 'Could not load the knowledge base.'} <button type="button" className="underline" onClick={() => void catalog.refetch()}>{zh ? '重试' : 'Retry'}</button></div>}
-            {scope === 'private' && !query && libraries.filter(library => library.scope === 'private' && library.profile?.trim()).map(library => <section key={libraryKey(library)} className="mx-1 mb-3 rounded-md border border-line/60 p-3" aria-label={zh ? '你的画像' : 'Your profile'} data-wiki-profile>
+            {scope === 'private' && !query && libraries.filter(library => library.scope === 'private' && library.profile?.trim()).map(library => <section key={libraryKey(library)} className="mx-1 mb-3 rounded-md border border-line/60 p-3" aria-label={zh ? '你的个人概况' : 'Your profile'} data-wiki-profile>
               <h3 className="text-sm font-semibold text-ink">{zh ? 'Argus 对你的了解' : 'What Argus knows about you'}</h3>
               <p className="mt-0.5 break-all text-[11px] text-ink-faint">{library.root}/profile.md</p>
               <div className="mt-2 text-sm text-ink"><MarkdownContent>{library.profile ?? ''}</MarkdownContent></div>
@@ -207,12 +210,13 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
           <p className="mt-1 text-xs text-ink-faint">{zh ? '更新于 ' : 'Updated '}{timestamp(document.data?.updated_at ?? selected.updated_at)}</p>
           <p className="mt-1 text-xs text-ink-faint">{selected.reuse_count > 0 ? reused(selected.reuse_count) : (zh ? '尚未被读取过' : 'Not recalled yet')}</p>
           {origin(selected) && <p className="mt-1 text-xs text-ink-faint">{origin(selected)}</p>}
-          {(document.data?.description || selected.description) && <p className="mt-4 text-sm leading-relaxed text-ink-dim">{document.data?.description || selected.description}</p>}
+          <KnowledgeReadingGuide item={selected} />
+          {(document.data?.description || selected.description) && <p className="mt-4 text-sm leading-relaxed text-ink-dim">{zh && <span className="font-medium">原始摘要： </span>}{document.data?.description || selected.description}</p>}
           <div className="mt-5 border-t border-line/60 pt-5 text-sm text-ink">
             {document.isPending && <p>{zh ? '正在加载全文…' : 'Loading page…'}</p>}
             {document.isError && <p role="alert" className="text-err">{document.error.message} <button type="button" className="underline" onClick={() => void document.refetch()}>{zh ? '重试' : 'Retry'}</button></p>}
             {document.data?.truncated && <p className="mb-3 text-xs text-ink-faint">{zh ? '页面过长，已截断显示。' : 'Page shortened for display.'}</p>}
-            {document.data && <MarkdownContent>{document.data.content}</MarkdownContent>}
+            {document.data && <>{zh && <p className="mb-3 text-xs text-ink-faint">原文（保留创建时的内容与语言）</p>}<MarkdownContent>{document.data.content}</MarkdownContent></>}
           </div>
         </> : indexLibrary ? <>
           <button type="button" className="mb-4 text-sm text-blue md:hidden" onClick={() => setView(null)}>{zh ? '← 返回页面列表' : '← Back to pages'}</button>

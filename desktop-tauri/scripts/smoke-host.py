@@ -21,6 +21,16 @@ import urllib.request
 from pathlib import Path
 
 
+def configure_test_instance(env: dict[str, str], *, preview: bool) -> None:
+    """Preview uses the existing namespaced mutex, never a single-instance bypass."""
+    env["ARGUS_DESKTOP_TEST_INSTANCE"] = secrets.token_hex(16)
+    if preview:
+        env.pop("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE", None)
+    else:
+        # Keep the existing isolated non-preview QA path unchanged.
+        env["ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE"] = "1"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -104,14 +114,13 @@ def main() -> int:
             "XDG_DATA_HOME": str(sandbox / "data"),
             "PYTHONUTF8": "1",
             "PYTHONIOENCODING": "utf-8",
-            "ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE": "1",
-            "ARGUS_DESKTOP_TEST_INSTANCE": secrets.token_hex(16),
             "ARGUS_DESKTOP_QA_ROOT": str(sandbox),
             # Packaged-host smoke must be deterministic and must not depend on
             # GitHub availability or compete with the startup measurement.
             "ARGUS_DESKTOP_DISABLE_UPDATE_CHECK": "1",
         }
     )
+    configure_test_instance(env, preview=args.preview)
     env.pop("ARGUS_DESKTOP_DEV", None)
     env.pop("PYTHONPATH", None)
     env.pop("PYTHONHOME", None)
@@ -169,12 +178,19 @@ def main() -> int:
                         request = urllib.request.Request(f"http://127.0.0.1:{port}/api/meta", headers={"Authorization": f"Bearer {token}"})
                         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=5) as response:
                             metadata = json.load(response)
-                        if metadata.get("authentication", {}).get("authenticated") is not True or metadata.get("runtime", {}).get("release_id") != expected["release_id"]:
-                            raise RuntimeError("Native backend authentication or release identity did not match")
+                        runtime = metadata.get("runtime", {})
+                        if (metadata.get("authentication", {}).get("authenticated") is not True
+                                or runtime.get("release_id") != expected["release_id"]
+                                or runtime.get("manifest_source_digest") != expected["source_digest"]):
+                            raise RuntimeError("Native backend authentication or release/source identity did not match")
                         if args.report:
                             with args.report.open("x", encoding="utf-8") as report:
                                 json.dump({"scope": "isolated Windows packaged-host check", "release_id": expected["release_id"],
+                                           "source_digest": expected["source_digest"],
                                            "preview": args.preview, "qa_state_preserved": args.keep_state,
+                                           "preview_single_instance_enabled": args.preview,
+                                           "single_instance_reactivation_checked": False, "native_toast_checked": False,
+                                           "fault_injection_checked": False,
                                            "backend_health_soak_passed": args.health_window >= 1800,
                                            "native_host_started": True, "authenticated_backend": True,
                                            "real_cli_version_preflight": True, "ready_seconds": round(ready_seconds, 3),

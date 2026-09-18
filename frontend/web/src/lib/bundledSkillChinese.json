@@ -1,0 +1,1479 @@
+{
+  "global/agent-md-optimize-project-template.md": {
+    "title": "实测指标优化约定",
+    "summary": "用于明确要求改进实测指标的项目，整理正确性、范围、资源限制和真实停止条件；不是通用任务的额外门槛。",
+    "originalName": "Metric Optimization Project Contract",
+    "source": "argus/builtin_skills/agent-md-optimize-project-template.md",
+    "sourceSha256": "04635712c232d01b2b7ecae3af0e94f32071b89996094f43ca3b89c921296eaf"
+  },
+  "global/agent-team-lead.md": {
+    "title": "多智能体团队协作",
+    "summary": "判断何时值得并行工作，按文件与职责拆分协作，并独立审查汇总结果；不替代原有角色与授权。",
+    "originalName": "Agent Team Lead",
+    "source": "argus/builtin_skills/agent-team-lead.md",
+    "sourceSha256": "79939693fb63c67ba65f77767e6467d8c494694fdfe14ef55d80df83c139e6ff"
+  },
+  "global/curator/argus-curator-role.md": {
+    "title": "团队成果整理",
+    "summary": "维护团队候选成果池和比较记录，归纳后续策略；整理者不代替执行者完成工程任务。",
+    "originalName": "Team Curator",
+    "source": "argus/builtin_skills/curator/argus-curator-role.md",
+    "sourceSha256": "05f2f753fca7778c33c853a085e2a442853d8cb17cc9eb75e51d9d1b64a9bd7f"
+  },
+  "global/engineer/argus-engineer-role.md": {
+    "title": "执行者的工作职责",
+    "summary": "说明如何在监督下实现或研究任务、解释证据并准备独立评审；不改变现有角色权限。",
+    "originalName": "The Engineer's role",
+    "source": "argus/builtin_skills/engineer/argus-engineer-role.md",
+    "sourceSha256": "3c4f983a645ed3a3be7742db797c741c1741362b93b9de72253bd5ca4b3334bf"
+  },
+  "global/engineer/drawio-diagram-authoring.md": {
+    "title": "可编辑 Draw.io 图示",
+    "summary": "适用于架构、流程、UML、网络等需要交付可继续编辑图稿的任务，选择合适图形库并核对输出。",
+    "originalName": "Draw.io Diagram Authoring",
+    "source": "argus/builtin_skills/engineer/drawio-diagram-authoring.md",
+    "sourceSha256": "c53d92072531bd3662ef181c7bd0459b0ecff10963a41b078e5ca6f5162b92e6"
+  },
+  "global/engineer/environment-readiness.md": {
+    "title": "项目环境就绪检查",
+    "summary": "在产出实验结论前核实解释器、依赖、数据、评估器、存储和实际需要的计算资源；不擅自扩充环境。",
+    "originalName": "Environment Readiness Check",
+    "source": "argus/builtin_skills/engineer/environment-readiness.md",
+    "sourceSha256": "726cfbbdc2952d253e800904d8e4bc4749e06c6de1ad8cad445dade753b0c625"
+  },
+  "global/engineer/mermaid-graphviz-diagrams.md": {
+    "title": "Mermaid 与 Graphviz 图示",
+    "summary": "用可版本管理的文本描述流程、时序、状态和依赖关系，并检查实际渲染结果；适合轻量文档图。",
+    "originalName": "Mermaid and Graphviz Diagrams",
+    "source": "argus/builtin_skills/engineer/mermaid-graphviz-diagrams.md",
+    "sourceSha256": "6d544cb4ec918840a3ccbe07de86771831c660c3ec07d751b3b64fd26969af12"
+  },
+  "global/engineer/minimal-coding-agent.md": {
+    "title": "最小且严谨的软件修改",
+    "summary": "用足够小的改动实现、修复或重构软件与界面，保留既有行为，避免无依据的抽象和新增依赖。",
+    "originalName": "极简而严谨的 Coding Agent",
+    "source": "argus/builtin_skills/engineer/minimal-coding-agent.md",
+    "sourceSha256": "aa47c79252eb5086451530ae25aac77ce87bd4315eda1e9defae2af719295cab"
+  },
+  "global/engineer/pdf-chat.md": {
+    "title": "分段阅读 PDF",
+    "summary": "按页或章节阅读并核对版本、页码；图片和版式需查看实际页面，回答只依据相关证据。",
+    "originalName": "Progressive PDF Reading",
+    "source": "argus/builtin_skills/engineer/pdf-chat.md",
+    "sourceSha256": "141bd41eb888191aedc391f0df2ba100ab5aee3e7970f9afc21a6f50f4deca5f"
+  },
+  "global/engineer/presentation-master.md": {
+    "title": "可编辑演示文稿",
+    "summary": "使用已有 PPT Master 工具制作或修改可编辑演示文稿，遵守格式要求和授权；不替代科研绘图规则。",
+    "originalName": "Editable Presentations with PPT Master",
+    "source": "argus/builtin_skills/engineer/presentation-master.md",
+    "sourceSha256": "0e6316ac52ec8b8cf29442498ecbcf52b1dec7991fd0ffba3065e7cca65db4e4"
+  },
+  "global/engineer/skill-authoring-guide.md": {
+    "title": "编写可复用技能",
+    "summary": "仅在任务证据支持可复用方法时整理技能，选择恰当范围并合并重复内容；证据不足时可以不修改。",
+    "originalName": "Skill Authoring Guide",
+    "source": "argus/builtin_skills/engineer/skill-authoring-guide.md",
+    "sourceSha256": "be9191751f5a92cbbc6f7740d199dc45b21ce656674042f0d94dc1f15628e37d"
+  },
+  "global/engineer/stale-world-model.md": {
+    "title": "核实易变化的外部事实",
+    "summary": "当前决策依赖模型权限、库版本、接口、基准或价格时，核实实时来源，不凭旧印象判断。",
+    "originalName": "Verify Decision-Critical External Facts",
+    "source": "argus/builtin_skills/engineer/stale-world-model.md",
+    "sourceSha256": "714994de1046a062cd3ef6a06d80e55bb62aba75e1499aef51645be635064302"
+  },
+  "global/engineer/study-and-curate.md": {
+    "title": "学习资料并整理方法与知识",
+    "summary": "阅读明确提供的材料和已有技能、知识，只做忠实、有证据且不重复的整理。",
+    "originalName": "Study and Curate Semantic Libraries",
+    "source": "argus/builtin_skills/engineer/study-and-curate.md",
+    "sourceSha256": "7b4ed6295967d305b13b0cadbb83ede8d5906eed81c775523f1426338c3d7561"
+  },
+  "global/engineer/web-primary-source-evidence.md": {
+    "title": "查证一手网络来源",
+    "summary": "为软件、产品、接口和基准等现实信息寻找并保留一手来源，让重要结论能够追溯。",
+    "originalName": "Web Primary-Source Evidence",
+    "source": "argus/builtin_skills/engineer/web-primary-source-evidence.md",
+    "sourceSha256": "632930eb13afc66ebf4742ab6c87fa586edee916c3eeacef25f50215e78f776f"
+  },
+  "global/engineer/wiki-collector.md": {
+    "title": "围绕知识缺口整理资料",
+    "summary": "针对具体问题查证一手来源，只更新证据支持的最小知识页和索引，不堆砌无关材料。",
+    "originalName": "Semantic Wiki Research",
+    "source": "argus/builtin_skills/engineer/wiki-collector.md",
+    "sourceSha256": "429e3feb524fecef7022d73998cb086e805251db779c2a200edf56bdcf0b8ff8"
+  },
+  "global/manager/argus-manager-role.md": {
+    "title": "协调者的工作职责",
+    "summary": "说明如何理解需求、选择推进方式、判断阶段转换并监督干预；不改写现有执行与评审权威。",
+    "originalName": "The Manager's role",
+    "source": "argus/builtin_skills/manager/argus-manager-role.md",
+    "sourceSha256": "b3ac66146051884ec9523daf5d372d65d993687a8a6c9eb9a992a2a25a051cea"
+  },
+  "global/manager/evidence-based-stage-decision.md": {
+    "title": "依据证据决定下一阶段",
+    "summary": "结合规划和评审证据，判断继续、推进、返回或结束，避免重复已经完成的工作。",
+    "originalName": "Deciding the next stage from the evidence",
+    "source": "argus/builtin_skills/manager/evidence-based-stage-decision.md",
+    "sourceSha256": "1f6753a6135610e07031ceb022e9b96118f663acfedbeee3013089b604634e7d"
+  },
+  "global/performance-profile-ground-truth.md": {
+    "title": "真实工作负载性能分析",
+    "summary": "用指定环境和代表性输入定位瓶颈，对照未开启剖析的实测结果；不顺带执行未要求的优化。",
+    "originalName": "Performance Profile Ground Truth",
+    "source": "argus/builtin_skills/performance-profile-ground-truth.md",
+    "sourceSha256": "42430420ce8bd31047780e9b08ac5eab366f849eb222805ca05492779095f4d0"
+  },
+  "global/planner/argus-planner-role.md": {
+    "title": "规划者的工作职责",
+    "summary": "阅读当前工作与证据，选择有用的后续任务；具体可执行权限和阶段契约以原文及运行时为准。",
+    "originalName": "The Planner's role",
+    "source": "argus/builtin_skills/planner/argus-planner-role.md",
+    "sourceSha256": "d96d5258ecbfec8ffb7a16672ba812d331c8b24446be6b633df26fbc103f38e7"
+  },
+  "global/planner/dependency-aware-task-decomposition.md": {
+    "title": "按依赖拆解任务",
+    "summary": "把项目目标与已有证据整理成最小、可执行、有依赖关系且能明确验收的任务集合。",
+    "originalName": "Dependency-Aware Task Decomposition",
+    "source": "argus/builtin_skills/planner/dependency-aware-task-decomposition.md",
+    "sourceSha256": "84e45697a78a648fce3287dd6fd8bc32b562688734a31586c31cbf0cf1bfd349"
+  },
+  "global/project-venv-package-management.md": {
+    "title": "项目环境与依赖管理",
+    "summary": "诊断解释器、包和缓存冲突，使用项目环境与锁文件；不修改 Argus 框架自己的运行环境。",
+    "originalName": "Project Environment and Dependencies",
+    "source": "argus/builtin_skills/project-venv-package-management.md",
+    "sourceSha256": "6d342c3f4f80b8b6055f00fed4ba2e3e598554e5b4a4debcac94d41703467186"
+  },
+  "global/reviewer/argus-reviewer-role.md": {
+    "title": "评审者的工作职责",
+    "summary": "独立判断执行结果是否成立、需要补充或转向，或确实应等待外部条件；不替执行者作完成声明。",
+    "originalName": "The Reviewer's role",
+    "source": "argus/builtin_skills/reviewer/argus-reviewer-role.md",
+    "sourceSha256": "ae9290080490fe78d38d916145d63e4f8a61b2655df44bcc7e19f4f607ef8f1b"
+  },
+  "global/reviewer/engineer-process-audit.md": {
+    "title": "核对执行过程与证据",
+    "summary": "当成果或验证声明存在争议时检查任务相关回执和日志，区分缺少记录与确实未执行。",
+    "originalName": "Engineer Process Audit",
+    "source": "argus/builtin_skills/reviewer/engineer-process-audit.md",
+    "sourceSha256": "b109fb737e747b863244c9b03e1b23ff82acf724ef420bc547ad457c1cf65ac5"
+  },
+  "global/reviewer/guiding-the-engineer.md": {
+    "title": "把评审意见变成下一步行动",
+    "summary": "将检查发现整理为简洁、具体、可执行的指导，帮助执行者有针对性地修正问题。",
+    "originalName": "Guiding the Engineer",
+    "source": "argus/builtin_skills/reviewer/guiding-the-engineer.md",
+    "sourceSha256": "0829bb50b5546b07a1b9b3a33cc544254c9ef6c37a3e67a3deccce2d4afa7ee6"
+  },
+  "global/reviewer/web-source-evidence-audit.md": {
+    "title": "审查网络证据是否支撑结论",
+    "summary": "核对实际取得的来源与重要现实信息声明是否一致，不把有链接等同于已经证实。",
+    "originalName": "Web Source-Evidence Audit",
+    "source": "argus/builtin_skills/reviewer/web-source-evidence-audit.md",
+    "sourceSha256": "35dbb6288199c52d4ecfd4e241a54346f5ef8af985f50bf24121e687ea9dc22e"
+  },
+  "global/reviewer/wiki-curator.md": {
+    "title": "审查知识页整理",
+    "summary": "检查知识修改的证据、命名、格式、重复内容与阅读层次，保留原意和可追溯性。",
+    "originalName": "Semantic Wiki Review",
+    "source": "argus/builtin_skills/reviewer/wiki-curator.md",
+    "sourceSha256": "27112369581e1e255660c4a60408e7810abe5a4f6afd28bf2e2b53827a4b6d68"
+  },
+  "global/stale-blocker-verification-probe.md": {
+    "title": "重新核实记录中的阻塞",
+    "summary": "用最小且已授权的探针判断旧阻塞是否仍然存在，区分已解除、仍阻塞和证据不足。",
+    "originalName": "Verify a Recorded Blocker",
+    "source": "argus/builtin_skills/stale-blocker-verification-probe.md",
+    "sourceSha256": "4b5ae50b25ce83f3d0b097acbcc724a2b23172b327ff7b01b0681f818834f0b6"
+  },
+  "vertical/chemistry/engineer/batteries/battery-identity-and-data-normalization.md": {
+    "title": "电池对象与测试数据对齐",
+    "summary": "在循环分析前统一电芯、电极、电解液、测试协议和时间序列身份；不用于分子计算或一般光谱分析。",
+    "originalName": "Battery Cell Identity and Electrochemical Data Normalization",
+    "source": "argus/domains/chemistry/skills/engineer/batteries/battery-identity-and-data-normalization.md",
+    "sourceSha256": "d1cfc1cb94cf4e4828fcd2b75fb0f1dc57181208f2fad1f19c343a9d169462e6"
+  },
+  "vertical/chemistry/engineer/batteries/battery-model-validation.md": {
+    "title": "电池模型与退化解释验证",
+    "summary": "用防止数据泄漏的实测电芯数据验证预测和退化解释，明确模型边界；不把预测当作实测。",
+    "originalName": "Battery Model Boundary and Degradation Validation",
+    "source": "argus/domains/chemistry/skills/engineer/batteries/battery-model-validation.md",
+    "sourceSha256": "fe4ec1ec78ec21dd0d568b71276c2f85e13b6216d5a7770f5f75d09baabc6d27"
+  },
+  "vertical/chemistry/engineer/batteries/cycling-and-degradation-analysis.md": {
+    "title": "电池循环与退化分析",
+    "summary": "分析循环、倍率、阻抗和退化轨迹，保留电芯与协议对照，并避免评估数据泄漏。",
+    "originalName": "Battery Cycling and Degradation Analysis Workflow",
+    "source": "argus/domains/chemistry/skills/engineer/batteries/cycling-and-degradation-analysis.md",
+    "sourceSha256": "3e0870b82fbc40463f81ca8eb1e84576c9fe1ae5fe501da6d2b274535fd16d2e"
+  },
+  "vertical/chemistry/engineer/biochemistry/biochemical-assay-and-mechanism-workflow.md": {
+    "title": "生化结合与功能实验分析",
+    "summary": "分析亲和力、动力学、抑制和功能证据，核对构建体、辅因子、状态与实验对照；对接结果不能单独证明活性。",
+    "originalName": "Biochemical Binding, Kinetics, and Functional Assay Workflow",
+    "source": "argus/domains/chemistry/skills/engineer/biochemistry/biochemical-assay-and-mechanism-workflow.md",
+    "sourceSha256": "12d235a655a1b6b6022a84a5c36e3c291df6227cb40bd2dc78f19012deff62e5"
+  },
+  "vertical/chemistry/engineer/biochemistry/biochemistry-structural-computational-evidence.md": {
+    "title": "生化结构与模拟的证据边界",
+    "summary": "把结构、分子对接、动力学和突变结果作为待验证假设，结合真实实验边界解释，不直接宣称亲和力成立。",
+    "originalName": "Biochemistry Structural, Docking, and MD Evidence Boundary Workflow",
+    "source": "argus/domains/chemistry/skills/engineer/biochemistry/biochemistry-structural-computational-evidence.md",
+    "sourceSha256": "47283774a89fa87050fd35df791c961dce37588ec9c92c9d4e357d59a9f14d6c"
+  },
+  "vertical/chemistry/engineer/biochemistry/biochemistry-system-and-assay-normalization.md": {
+    "title": "生化体系与实验对象对齐",
+    "summary": "统一序列、构建体、分子状态、配体、辅因子、突变、结构和实验身份，再开展比较。",
+    "originalName": "Biochemistry and Chemical Biology System Identity Normalization",
+    "source": "argus/domains/chemistry/skills/engineer/biochemistry/biochemistry-system-and-assay-normalization.md",
+    "sourceSha256": "9b7d80ae04064e9a1b5465dc1fee60f5511491694aaa20e423ae92779ad12ee5"
+  },
+  "vertical/chemistry/engineer/characterization/characterization-data-and-sample-normalization.md": {
+    "title": "表征样品与原始数据对齐",
+    "summary": "保留衍射、光谱、质谱、核磁和显微原始数据及仪器信息；不把不同测试方式统一成简单拟峰。",
+    "originalName": "Characterization Sample, Instrument Data, and Metadata Normalization",
+    "source": "argus/domains/chemistry/skills/engineer/characterization/characterization-data-and-sample-normalization.md",
+    "sourceSha256": "dad27a33c24c37fdc17a7f7386478246e7847edde9cac4cc2939590ab3e07b9c"
+  },
+  "vertical/chemistry/engineer/characterization/characterization-validation-and-integration.md": {
+    "title": "多种表征证据交叉验证",
+    "summary": "综合不同仪器证据时保留各自适用范围和限制，避免跨测试方式作过强推断。",
+    "originalName": "Characterization Validation and Multimodal Evidence Integration",
+    "source": "argus/domains/chemistry/skills/engineer/characterization/characterization-validation-and-integration.md",
+    "sourceSha256": "9671988085d6a0127a4739300c9c851e904016f8f17c31fafb676303b7d736c1"
+  },
+  "vertical/chemistry/engineer/characterization/modality-specific-interpretation-workflow.md": {
+    "title": "按测试方式解释表征结果",
+    "summary": "依据衍射、光谱、质谱、核磁或显微的具体机制选择对照和模型，不使用一套解释套用全部数据。",
+    "originalName": "Modality-Specific Chemical Characterization Interpretation Workflow",
+    "source": "argus/domains/chemistry/skills/engineer/characterization/modality-specific-interpretation-workflow.md",
+    "sourceSha256": "c09d9f9710e8ee7a72ff7cfd0f04ec741ea792a61a8b8abf56c038c26b126e46"
+  },
+  "vertical/chemistry/engineer/chemistry-execution.md": {
+    "title": "化学研究执行指南",
+    "summary": "按任务选择领域流程，核实实际工具能力，保留一手证据并验证科学结论；实体实验仍需明确授权。",
+    "originalName": "Chemistry Research Execution",
+    "source": "argus/domains/chemistry/skills/engineer/chemistry-execution.md",
+    "sourceSha256": "d6ad8b3ae0254319e31de1ca91a7c75fd06c70795d3948b38b8d35b895e69d59"
+  },
+  "vertical/chemistry/engineer/chemistry-toolkit.md": {
+    "title": "化学方法与工具导航",
+    "summary": "先选择科学问题对应的方法，再查看具体工具说明；这是导航目录，不是自动安装或执行脚本。",
+    "originalName": "Chemistry Skill and Capability Router",
+    "source": "argus/domains/chemistry/skills/engineer/chemistry-toolkit.md",
+    "sourceSha256": "14840bc5603ce237373ab4832f7bf747c24e6d4ef524eb2ccd112a8bb9eaea70"
+  },
+  "vertical/chemistry/engineer/computational_chemistry/computational-identity-normalization.md": {
+    "title": "计算化学对象与输入对齐",
+    "summary": "在量子化学、力场、分子动力学或自由能计算前，统一分子或周期体系的输入与状态。",
+    "originalName": "Computational Chemistry Identity and Input Normalization",
+    "source": "argus/domains/chemistry/skills/engineer/computational_chemistry/computational-identity-normalization.md",
+    "sourceSha256": "fd9bebbdc28731a9eeab536279466e3b97c289a49db515f509c713f4b3f0df7b"
+  },
+  "vertical/chemistry/engineer/computational_chemistry/computational-validation-and-interpretation.md": {
+    "title": "计算收敛性与结论边界",
+    "summary": "验证数值收敛、模型敏感性和适用范围，区分计算预测与实验测量，不外推为生物活性证明。",
+    "originalName": "Computational Chemistry Convergence and Interpretation Validation",
+    "source": "argus/domains/chemistry/skills/engineer/computational_chemistry/computational-validation-and-interpretation.md",
+    "sourceSha256": "ed1bffff26a5cb22ff61c60dcbf3464cbcff0f15200b9d604436bcd6243ab3f7"
+  },
+  "vertical/chemistry/engineer/computational_chemistry/electronic-structure-simulation-workflow.md": {
+    "title": "可复现电子结构与分子模拟",
+    "summary": "组织分子或周期体系计算，分别检查方法选择和数值收敛，保留可复现的输入与输出。",
+    "originalName": "Reproducible Electronic-Structure and Molecular Simulation Workflow",
+    "source": "argus/domains/chemistry/skills/engineer/computational_chemistry/electronic-structure-simulation-workflow.md",
+    "sourceSha256": "13c5d42ae2f417c7f16665e33f3660fad9f76163be2a08401edd57662ab6f22c"
+  },
+  "vertical/chemistry/engineer/crystallography/cif-and-structure-validation.md": {
+    "title": "CIF 与晶体结构检查",
+    "summary": "核对格式、对称性、组成、几何、占位、位移参数和精修证据；不代替从头解结构。",
+    "originalName": "CIF and Crystal Structure Validation",
+    "source": "argus/domains/chemistry/skills/engineer/crystallography/cif-and-structure-validation.md",
+    "sourceSha256": "b49527c827b69b5a37543059faf997fa8d0c9c3f60ed2c0a0e6807ddf5b0e802"
+  },
+  "vertical/chemistry/engineer/crystallography/diffraction-and-crystal-identity.md": {
+    "title": "衍射数据与晶体对象对齐",
+    "summary": "核对单晶或粉末衍射的波长、几何、晶胞、对称性、物相及 CIF 来源。",
+    "originalName": "Diffraction and Crystal Structure Identity",
+    "source": "argus/domains/chemistry/skills/engineer/crystallography/diffraction-and-crystal-identity.md",
+    "sourceSha256": "97367c0fad622c1d2ae19868b12a8de571bbc99c282c8b5eec4c4b97ed3615ed"
+  },
+  "vertical/chemistry/engineer/crystallography/structure-solution-and-refinement.md": {
+    "title": "晶体结构求解与精修",
+    "summary": "结合数据处理、对称性检验、化学约束、残差和替代解释完成结构求解及精修。",
+    "originalName": "Crystal Structure Solution and Refinement Workflow",
+    "source": "argus/domains/chemistry/skills/engineer/crystallography/structure-solution-and-refinement.md",
+    "sourceSha256": "8f5d913cf3bfc6c421f2d137ece735eba96e3b6840da63d6c4d40c22bc518e08"
+  },
+  "vertical/chemistry/engineer/foundations/chemical-identity-and-representation.md": {
+    "title": "化学对象与表达方式核实",
+    "summary": "先核对分子、反应、材料、晶体、样品、序列或配方身份；这是跨领域基础，不替代专门流程。",
+    "originalName": "Chemical Identity and Representation",
+    "source": "argus/domains/chemistry/skills/engineer/foundations/chemical-identity-and-representation.md",
+    "sourceSha256": "b1b0f0148ae94a1ad6ad60b6383cc8f6b1596b387d885ca896148486004ac392"
+  },
+  "vertical/chemistry/engineer/foundations/chemical-risk-and-authorization.md": {
+    "title": "化学风险与授权边界",
+    "summary": "识别化学、生物、热、电、压力、辐射和仪器风险；文档建议不等于允许开展实体操作。",
+    "originalName": "Chemical Risk and Authorization Boundary",
+    "source": "argus/domains/chemistry/skills/engineer/foundations/chemical-risk-and-authorization.md",
+    "sourceSha256": "2d6cb4a8421bb62bbde199f7aa131f5f678019ffbeed231f0676e9095f176b5e"
+  },
+  "vertical/chemistry/engineer/foundations/chemistry-workflow-output-contract.md": {
+    "title": "化学任务输入与交付约定",
+    "summary": "明确输入、决策、能力核实、证据、验证方式、输出与停止条件，用于缺少更具体流程的任务。",
+    "originalName": "Chemistry Workflow and Output Contract",
+    "source": "argus/domains/chemistry/skills/engineer/foundations/chemistry-workflow-output-contract.md",
+    "sourceSha256": "1b52c242611bb39cbbe929dc2bee8072e501ab56b23907df50a51c5c0b4f15fd"
+  },
+  "vertical/chemistry/engineer/foundations/computational-reproducibility.md": {
+    "title": "化学计算与分析的可复现性",
+    "summary": "保留计算、模拟、数据处理和模型训练的输入、环境、数值设置、诊断与主要输出。",
+    "originalName": "Chemistry Computational Reproducibility",
+    "source": "argus/domains/chemistry/skills/engineer/foundations/computational-reproducibility.md",
+    "sourceSha256": "d92b4a7b6e65c92138ef785a04a47f1fae6ab4ef2e6c4af111264cdc081a0bd8"
+  },
+  "vertical/chemistry/engineer/foundations/dataset-curation-and-leakage.md": {
+    "title": "化学数据整理与泄漏控制",
+    "summary": "核对数据来源、去重、分组、标签和划分方式，避免分子、反应或样品间的信息泄漏。",
+    "originalName": "Chemistry Dataset Curation and Leakage Control",
+    "source": "argus/domains/chemistry/skills/engineer/foundations/dataset-curation-and-leakage.md",
+    "sourceSha256": "ceeaf0a929c67df26cc91651721d943749c7e2c3bad6c7978cb78fa085bf948b"
+  },
+  "vertical/chemistry/engineer/foundations/evidence-provenance-and-claim-levels.md": {
+    "title": "化学证据来源与结论强度",
+    "summary": "区分检索、整理、预测、计算、模拟、测量与推断，让结论不超出证据能支持的程度。",
+    "originalName": "Chemistry Evidence Provenance and Claim Levels",
+    "source": "argus/domains/chemistry/skills/engineer/foundations/evidence-provenance-and-claim-levels.md",
+    "sourceSha256": "c8b6454e673aae3298d4089c1603b9edfe63c4be7f5f3ad8fd6f24ef2b2910f5"
+  },
+  "vertical/chemistry/engineer/foundations/failure-diagnosis-and-negative-results.md": {
+    "title": "化学任务失败与负结果分析",
+    "summary": "保留失败证据，区分实现缺陷、资源问题和科学假设被否定，不把负结果隐去。",
+    "originalName": "Chemistry Failure Diagnosis and Negative Results",
+    "source": "argus/domains/chemistry/skills/engineer/foundations/failure-diagnosis-and-negative-results.md",
+    "sourceSha256": "068cf8400d770fb6c97edbd26d6788adb1acc0e7d6ea00e3b14949c7a9a64a40"
+  },
+  "vertical/chemistry/engineer/foundations/uncertainty-and-applicability-domain.md": {
+    "title": "化学结果的不确定性与适用范围",
+    "summary": "判断模型、计算、测量或文献结论能否用于当前实际体系，并量化或说明不确定性。",
+    "originalName": "Chemistry Uncertainty and Applicability Domain",
+    "source": "argus/domains/chemistry/skills/engineer/foundations/uncertainty-and-applicability-domain.md",
+    "sourceSha256": "d552b6cad9e2a942e44a1a4c98647236488186458d3f2cd4bdd395a34c23d8ae"
+  },
+  "vertical/chemistry/engineer/foundations/units-conditions-and-normalization.md": {
+    "title": "化学单位与条件规范化",
+    "summary": "比较不同来源前明确单位、计量基础、环境条件、样品归一方式和报告约定。",
+    "originalName": "Chemical Units Conditions and Normalization",
+    "source": "argus/domains/chemistry/skills/engineer/foundations/units-conditions-and-normalization.md",
+    "sourceSha256": "540d6c4a3389900be51e3e9a7bdcf7f16169bb72246d53cbb1fbac247b527cde"
+  },
+  "vertical/chemistry/engineer/materials_science/materials-discovery-and-optimization.md": {
+    "title": "材料发现与优化研究",
+    "summary": "限定设计空间、性质目标、基线与不确定性，组织可验证的筛选或工艺优化，不替代晶体精修。",
+    "originalName": "Materials Discovery and Optimization Workflow",
+    "source": "argus/domains/chemistry/skills/engineer/materials_science/materials-discovery-and-optimization.md",
+    "sourceSha256": "02d2aeacb74302eb2853345772f5096cce5b26db15ab5d229a210ccfabe04cbd"
+  },
+  "vertical/chemistry/engineer/materials_science/materials-identity-processing-and-property-data.md": {
+    "title": "材料组成、工艺与性能数据",
+    "summary": "统一组成、物相、工艺历史、样品形态、微结构和测试条件，建立可比的性能记录。",
+    "originalName": "Materials Identity Processing and Property Data",
+    "source": "argus/domains/chemistry/skills/engineer/materials_science/materials-identity-processing-and-property-data.md",
+    "sourceSha256": "ec0ac9c5a4b62eb9d027a97f9c78cc9ed986776e48f9f3bbf94f015a8d689521"
+  },
+  "vertical/chemistry/engineer/materials_science/processing-structure-property-validation.md": {
+    "title": "工艺—结构—性能关系验证",
+    "summary": "用可比样品、对照和不确定性检验材料关系声明，保留机理解释的适用边界。",
+    "originalName": "Materials Processing Structure Property Validation",
+    "source": "argus/domains/chemistry/skills/engineer/materials_science/processing-structure-property-validation.md",
+    "sourceSha256": "7c556e48b0b97de122d0f342839c92ece5e33f36c1aa3f7efbcc6fbc319ea06c"
+  },
+  "vertical/chemistry/engineer/mof_reticular_chemistry/framework-identity-node-linker-and-topology.md": {
+    "title": "MOF 构筑单元与拓扑识别",
+    "summary": "从来源结构核实节点、连接体、连通性、穿插、缺陷、客体和网络拓扑，不以普通 CIF 检查代替。",
+    "originalName": "MOF Framework Identity Node Linker and Topology",
+    "source": "argus/domains/chemistry/skills/engineer/mof_reticular_chemistry/framework-identity-node-linker-and-topology.md",
+    "sourceSha256": "7a6490bd8dad40deeb548f03541673b91df2bd9bddbe3e9c8cf58d73b3ee31b8"
+  },
+  "vertical/chemistry/engineer/mof_reticular_chemistry/mof-datasets-prediction-and-generation.md": {
+    "title": "MOF 数据、预测与结构生成",
+    "summary": "组织拓扑相关去重、泄漏控制、性质预测和生成结构的分阶段验证；生成不等于可合成。",
+    "originalName": "MOF Datasets Prediction and Structure Generation",
+    "source": "argus/domains/chemistry/skills/engineer/mof_reticular_chemistry/mof-datasets-prediction-and-generation.md",
+    "sourceSha256": "8f1d023caf19aeb5801036cc58e2531cd8d39bb398008a4b614c654b3073ab51"
+  },
+  "vertical/chemistry/engineer/mof_reticular_chemistry/porosity-adsorption-and-structure-property.md": {
+    "title": "MOF 孔隙、吸附与性质分析",
+    "summary": "关联原始等温线、活化和样品状态，检查孔隙、吸附、输运模型及不确定性。",
+    "originalName": "MOF Porosity Adsorption and Structure Property Workflow",
+    "source": "argus/domains/chemistry/skills/engineer/mof_reticular_chemistry/porosity-adsorption-and-structure-property.md",
+    "sourceSha256": "98088eef9fa108d0f0aa8fab9f746315414cc64edbcfab0d0da8accd4ab83b0b"
+  },
+  "vertical/chemistry/engineer/mof_reticular_chemistry/synthesis-activation-and-postsynthetic-evidence.md": {
+    "title": "MOF 合成与后处理证据",
+    "summary": "整理合成、活化、溶剂交换、缺陷调节和后修饰的证据，核对样品关联与表征要求。",
+    "originalName": "MOF Synthesis Activation and Postsynthetic Evidence",
+    "source": "argus/domains/chemistry/skills/engineer/mof_reticular_chemistry/synthesis-activation-and-postsynthetic-evidence.md",
+    "sourceSha256": "b65377f7d995a638f721e8dea34a99807e97c948ec274bbc3f9cc1d35ccf1f5a"
+  },
+  "vertical/chemistry/engineer/organic_synthesis/reaction-identity-and-records.md": {
+    "title": "有机反应对象与记录对齐",
+    "summary": "核对反应物、映射、计量、立体化学、条件、后处理和收率，用于路线或数据整理。",
+    "originalName": "Organic Reaction Identity and Records",
+    "source": "argus/domains/chemistry/skills/engineer/organic_synthesis/reaction-identity-and-records.md",
+    "sourceSha256": "02221beebf4e39d9bd0e5c4090de61aba6596ceb48fb3a5f29b3e54466999d87"
+  },
+  "vertical/chemistry/engineer/organic_synthesis/retrosynthesis-and-route-design.md": {
+    "title": "有机逆合成与路线设计",
+    "summary": "结合目标、断键、已有先例、选择性、供应和安全设计候选路线；候选仍需证据验证。",
+    "originalName": "Organic Retrosynthesis and Route Design",
+    "source": "argus/domains/chemistry/skills/engineer/organic_synthesis/retrosynthesis-and-route-design.md",
+    "sourceSha256": "6ee1e514bf05cc052de12ee39497c783d1dd6ca9549335cbe62e7f2106ec8de4"
+  },
+  "vertical/chemistry/engineer/organic_synthesis/route-validation-and-experiment-design.md": {
+    "title": "有机路线验证与实验设计",
+    "summary": "把候选路线转化为有对照、分析读数和停止条件的验证计划；不授权自动开展实体实验。",
+    "originalName": "Organic Route Validation and Experiment Design",
+    "source": "argus/domains/chemistry/skills/engineer/organic_synthesis/route-validation-and-experiment-design.md",
+    "sourceSha256": "9a543fdca5cc4fa3ed0cc9cef2395af55ffaa35758b3c36895a2309d1d09dc80"
+  },
+  "vertical/chemistry/engineer/tools/aizynthfinder.md": {
+    "title": "AiZynthFinder 逆合成候选",
+    "summary": "在明确模型、原料库、配置和预算后使用本地搜索生成候选路线；搜索结果不是可行性证明。",
+    "originalName": "AiZynthFinder Retrosynthesis",
+    "source": "argus/domains/chemistry/skills/engineer/tools/aizynthfinder.md",
+    "sourceSha256": "fd406198b2a436d954aefb95c1062f945e08cf98806ca7ceaba5d402c006f4dc"
+  },
+  "vertical/chemistry/engineer/tools/askcos.md": {
+    "title": "ASKCOS 路线与反应预测",
+    "summary": "仅使用已获授权的部署，记录接口、模型、数据库、预算与结果来源；不假定已有服务权限。",
+    "originalName": "ASKCOS Retrosynthesis",
+    "source": "argus/domains/chemistry/skills/engineer/tools/askcos.md",
+    "sourceSha256": "31689603c8f5b80f2ed94a25ef05148edf311287e64bf336fc98fea5aeeaf486"
+  },
+  "vertical/chemistry/engineer/tools/chembl.md": {
+    "title": "ChEMBL 生物活性资料检索",
+    "summary": "检索分子、靶点、实验和活性记录，核对版本、单位及来源；已有记录不证明新体系的活性。",
+    "originalName": "ChEMBL Bioactivity Retrieval",
+    "source": "argus/domains/chemistry/skills/engineer/tools/chembl.md",
+    "sourceSha256": "9b33111794504afb064302785f66bd7fcbccac9e855d83df0eb84297f00b4863"
+  },
+  "vertical/chemistry/engineer/tools/chemcrow.md": {
+    "title": "ChemCrow 工具集成参考",
+    "summary": "研究公开工具集成方式及其依赖、安全和证据要求；架构借鉴不等于复现论文结果。",
+    "originalName": "ChemCrow Integration Reference",
+    "source": "argus/domains/chemistry/skills/engineer/tools/chemcrow.md",
+    "sourceSha256": "877388249df2ed635a78ae2edb68b1d25fa2cd5305eec4e09c289fb0f1bd1ba3"
+  },
+  "vertical/chemistry/engineer/tools/chemos.md": {
+    "title": "ChemOS 实验室编排参考",
+    "summary": "仅在设备服务、设施归属、安全联锁、数据约定和恢复机制已具备时评估编排能力。",
+    "originalName": "ChemOS Orchestration Reference",
+    "source": "argus/domains/chemistry/skills/engineer/tools/chemos.md",
+    "sourceSha256": "2dbb97df4b7107f08f00bbdd88fef587eda0b6d3d04e5850b619550e7a9c4cc3"
+  },
+  "vertical/chemistry/engineer/tools/coscientist.md": {
+    "title": "Coscientist 系统集成参考",
+    "summary": "依据确切公开实现借鉴组件和架构，保留授权边界；不宣称得到可直接运行的自主实验室。",
+    "originalName": "Coscientist Integration Reference",
+    "source": "argus/domains/chemistry/skills/engineer/tools/coscientist.md",
+    "sourceSha256": "8a47d850deb1d7dfb2ddeecbea4cba38ceecec129a6e2b2d8ad403e9bbff5252"
+  },
+  "vertical/chemistry/engineer/tools/deepchem.md": {
+    "title": "DeepChem 分子机器学习",
+    "summary": "先明确目标、对象、分组、泄漏控制、基线和适用范围，再选择数据、特征、模型与评估工具。",
+    "originalName": "DeepChem Molecular Machine Learning",
+    "source": "argus/domains/chemistry/skills/engineer/tools/deepchem.md",
+    "sourceSha256": "27a9bd06792446cfeeafb63db293fcd8305d59ca3da164810e1267c13e6dcdeb"
+  },
+  "vertical/chemistry/engineer/tools/guacamol.md": {
+    "title": "GuacaMol 分子设计基准",
+    "summary": "按确定任务、评分、参考数据、预算和有效性检查评估方法；结论仅限对应基准。",
+    "originalName": "GuacaMol Molecular Design Benchmarking",
+    "source": "argus/domains/chemistry/skills/engineer/tools/guacamol.md",
+    "sourceSha256": "f626a4b92ec2b081620f5da146f6baebe3b5cc44df824e77fc2becd0b3e87e7e"
+  },
+  "vertical/chemistry/engineer/tools/olympus.md": {
+    "title": "Olympus 反应优化基准",
+    "summary": "使用规划器和模拟曲面作有对照的优化研究，明确参数空间、噪声和预算；模拟不等于实体实验。",
+    "originalName": "Olympus Reaction Optimization",
+    "source": "argus/domains/chemistry/skills/engineer/tools/olympus.md",
+    "sourceSha256": "160f357db2ec4527b7368d2b41a2ab43d2ab6b76130e8a27b2a035e0531c4be2"
+  },
+  "vertical/chemistry/engineer/tools/openbabel.md": {
+    "title": "Open Babel 化学格式转换",
+    "summary": "转换结构格式并核对解析、氢原子、坐标和互操作性，保留原始身份及转换来源。",
+    "originalName": "Open Babel Structure Conversion",
+    "source": "argus/domains/chemistry/skills/engineer/tools/openbabel.md",
+    "sourceSha256": "6eca4f250101ad817f624a76ca6c22193c73fd67a8d13d76a39bcf07d848fd75"
+  },
+  "vertical/chemistry/engineer/tools/orca.md": {
+    "title": "ORCA 量子化学计算",
+    "summary": "在用户提供并授权的安装上计算，记录版本、分子状态、方法、基组、数值设置和主要输出。",
+    "originalName": "ORCA Quantum Chemistry",
+    "source": "argus/domains/chemistry/skills/engineer/tools/orca.md",
+    "sourceSha256": "683637ad2fb781da58295e67229859794085fb01fcaaa43c10e11e13c8a91085"
+  },
+  "vertical/chemistry/engineer/tools/ord.md": {
+    "title": "开放反应数据库读写规范",
+    "summary": "按数据库结构验证反应角色、数量、条件、结果与来源；结构有效不等于实验可复现。",
+    "originalName": "Open Reaction Database I/O",
+    "source": "argus/domains/chemistry/skills/engineer/tools/ord.md",
+    "sourceSha256": "eb81cbde5711e04c578cc89a5b233a3de109c5b68b7322adeefd0996df21b8da"
+  },
+  "vertical/chemistry/engineer/tools/psi4.md": {
+    "title": "Psi4 量子化学计算",
+    "summary": "明确分子状态、方法、基组、选项、收敛和单位，保留计算输出来源。",
+    "originalName": "Psi4 Quantum Chemistry",
+    "source": "argus/domains/chemistry/skills/engineer/tools/psi4.md",
+    "sourceSha256": "2d8bf9817a90f90fe2407d8e4d71e6ffbf431f64207f61b8c2fca8acda199a69"
+  },
+  "vertical/chemistry/engineer/tools/pubchem.md": {
+    "title": "PubChem 公共资料检索",
+    "summary": "通过核实的标识和带日期的查询取得公共化合物、性质及安全记录，保留原始响应与来源边界。",
+    "originalName": "PubChem PUG REST Retrieval",
+    "source": "argus/domains/chemistry/skills/engineer/tools/pubchem.md",
+    "sourceSha256": "9aa66ea316f8180a29884f78b1ae927adf55f727476fa0529c01e7300161c89e"
+  },
+  "vertical/chemistry/engineer/tools/pyscf.md": {
+    "title": "PySCF 电子结构计算",
+    "summary": "先确定电荷、自旋、几何、方法、基组、边界和收敛要求，再组织分子或周期体系计算。",
+    "originalName": "PySCF Quantum Chemistry",
+    "source": "argus/domains/chemistry/skills/engineer/tools/pyscf.md",
+    "sourceSha256": "9ccb368195807ed7390cf2397506d004f849ccd1c0e1d51532b31e42e579dbc2"
+  },
+  "vertical/chemistry/engineer/tools/rdkit.md": {
+    "title": "RDKit 分子数据处理",
+    "summary": "用于解析、规范化、立体化学、子结构、描述符、指纹与构象等处理；不直接证明化学身份或可行性。",
+    "originalName": "RDKit Molecular Integrity",
+    "source": "argus/domains/chemistry/skills/engineer/tools/rdkit.md",
+    "sourceSha256": "b9330a5a8c90fb31bf3b551555d4f439cca90f9ecd45506734ce5051628ee074"
+  },
+  "vertical/chemistry/engineer/tools/tdc.md": {
+    "title": "TDC 药物研究数据基准",
+    "summary": "使用明确任务、版本、许可、划分和评估器开展比较，核对污染与证据边界。",
+    "originalName": "Therapeutics Data Commons Benchmarking",
+    "source": "argus/domains/chemistry/skills/engineer/tools/tdc.md",
+    "sourceSha256": "a1aaed9bff60b1df25ccc8a9846ebcd30784c1f814cb20633e8a5ef57e11decb"
+  },
+  "vertical/chemistry/engineer/workflows/chemistry-playground.md": {
+    "title": "受限化学假设试探",
+    "summary": "仅对明确提出的候选问题开展有边界的计算优先试探，保留问题、结果和负证据，并经过评审。",
+    "originalName": "Chemistry Playground Bounded Hypothesis Probe",
+    "source": "argus/domains/chemistry/skills/engineer/workflows/chemistry-playground.md",
+    "sourceSha256": "72326a42543600e3fffedf0562c171466cc25b433cb8c05913e9fcfac3eb2d12"
+  },
+  "vertical/chemistry/manager/chemistry-manager.md": {
+    "title": "化学任务协调与分流",
+    "summary": "为科学问题选择专门技能组合，保留原研究阶段、证据强度与授权边界。",
+    "originalName": "Chemistry Manager Context",
+    "source": "argus/domains/chemistry/skills/manager/chemistry-manager.md",
+    "sourceSha256": "ecc7e16be351188d3c6ae75aa0e55c4b3978f1916e67c45754766cb63085f336"
+  },
+  "vertical/chemistry/planner/chemistry-planning.md": {
+    "title": "化学研究规划",
+    "summary": "选择最贴合任务的流程，保持证据和安全要求；未完成时才安排具有科学判别力的后续工作。",
+    "originalName": "Chemistry Research Planning",
+    "source": "argus/domains/chemistry/skills/planner/chemistry-planning.md",
+    "sourceSha256": "c9258fa062f3853d7a04950d0e0045b10be65c41c11248d6fe5c981e0ed02e02"
+  },
+  "vertical/chemistry/reviewer/battery-review.md": {
+    "title": "电池与电化学证据评审",
+    "summary": "独立核对电芯身份、协议可比性、单位、循环退化证据和防泄漏模型评估。",
+    "originalName": "Battery and Electrochemistry Evidence Review",
+    "source": "argus/domains/chemistry/skills/reviewer/battery-review.md",
+    "sourceSha256": "e0aa8763587e38281b5c2c5b6f7c92b3e07264b1cee076539751de8971d87725"
+  },
+  "vertical/chemistry/reviewer/biochemistry-review.md": {
+    "title": "生化与化学生物学评审",
+    "summary": "检查构建体、结构、实验、动力学、模拟和功能声明，保留各自对照与结论边界。",
+    "originalName": "Biochemistry and Chemical Biology Evidence Review",
+    "source": "argus/domains/chemistry/skills/reviewer/biochemistry-review.md",
+    "sourceSha256": "68f2cc57f10d6c9bf30c41c249ebe7fc192b8ac4b763cb6ff40d9a41377135d0"
+  },
+  "vertical/chemistry/reviewer/characterization-review.md": {
+    "title": "化学表征证据评审",
+    "summary": "独立核对原始仪器数据、校准、对照、归属和多模态证据，避免用通用解释越过测试边界。",
+    "originalName": "Chemical Characterization Evidence Review",
+    "source": "argus/domains/chemistry/skills/reviewer/characterization-review.md",
+    "sourceSha256": "3ba8858ac408729e78fa27a9338cd6eb435bd64d38da803d837aaec111ef8d67"
+  },
+  "vertical/chemistry/reviewer/chemistry-playground-review.md": {
+    "title": "化学试探结果评审",
+    "summary": "检查受限问题与结果、证据和状态历史，防止未经确认的探索被当作正式科学结论。",
+    "originalName": "Chemistry Playground Promotion Gate",
+    "source": "argus/domains/chemistry/skills/reviewer/chemistry-playground-review.md",
+    "sourceSha256": "309f1ff685c93c46c47239d9db1a3b85c41c6c384e986532e774ed3795e8d3c0"
+  },
+  "vertical/chemistry/reviewer/chemistry-review.md": {
+    "title": "化学研究综合评审",
+    "summary": "按问题转交专门评审方法，核对对象、原始证据、对照、可复现性、不确定性和安全要求。",
+    "originalName": "Chemistry Research Review",
+    "source": "argus/domains/chemistry/skills/reviewer/chemistry-review.md",
+    "sourceSha256": "bc2587f915788c94f8de55a0f2947a18e7bd368cccf1b400d1479e1681c64cf7"
+  },
+  "vertical/chemistry/reviewer/computational-review.md": {
+    "title": "计算化学证据评审",
+    "summary": "审查输入身份、数值收敛、方法有效性，以及计算结果和测量结果之间的界线。",
+    "originalName": "Computational Chemistry Evidence Review",
+    "source": "argus/domains/chemistry/skills/reviewer/computational-review.md",
+    "sourceSha256": "cab134d61ce5d45bf0240d2219eca03002e7b6315c4abf3738c2740229353e68"
+  },
+  "vertical/chemistry/reviewer/crystallography-review.md": {
+    "title": "晶体学证据评审",
+    "summary": "独立检查衍射、对称性、精修、CIF、物相声明和结构不确定性，不替代其他领域评审。",
+    "originalName": "Crystallography Evidence Review",
+    "source": "argus/domains/chemistry/skills/reviewer/crystallography-review.md",
+    "sourceSha256": "034223d76528f09aede5febdb7fff1c848819f82564a8be7acf23ebc1a25d369"
+  },
+  "vertical/chemistry/reviewer/materials-science-review.md": {
+    "title": "材料科学证据评审",
+    "summary": "核对非 MOF 材料的身份、工艺、性质和发现声明，不把结论跨用到晶体精修或电池循环。",
+    "originalName": "Materials Science Evidence Review",
+    "source": "argus/domains/chemistry/skills/reviewer/materials-science-review.md",
+    "sourceSha256": "ac639340d34bc5dae734e9f9841e91762cb31ec42c73c5a108dc69b25c2b76ba"
+  },
+  "vertical/chemistry/reviewer/mof-reticular-chemistry-review.md": {
+    "title": "MOF 与网状化学证据评审",
+    "summary": "核对构筑单元、拓扑、合成活化、孔隙吸附、后修饰、数据与生成结构的证据。",
+    "originalName": "MOF and Reticular Chemistry Evidence Review",
+    "source": "argus/domains/chemistry/skills/reviewer/mof-reticular-chemistry-review.md",
+    "sourceSha256": "d095ca81ab168c658696b20de0e149647cdbfcffe545cff73e3ed9ccaeb37dcf"
+  },
+  "vertical/chemistry/reviewer/organic-synthesis-review.md": {
+    "title": "有机合成与逆合成评审",
+    "summary": "独立核对反应记录、路线先例、选择性、分析证据、安全和实际可行性声明。",
+    "originalName": "Organic Synthesis and Retrosynthesis Review",
+    "source": "argus/domains/chemistry/skills/reviewer/organic-synthesis-review.md",
+    "sourceSha256": "0ce7fdeee239a78b9d74f7e64dbd55b38d99b9e88bf141399ec999d30f519ad0"
+  },
+  "vertical/chemistry/scientist/chemistry-adaptation.md": {
+    "title": "根据证据改进化学方法",
+    "summary": "只有证据显示现有方法在对象、能力、验证或安全等机制层面存在缺口时，才调整可复用流程。",
+    "originalName": "Chemistry Skill Adaptation",
+    "source": "argus/domains/chemistry/skills/scientist/chemistry-adaptation.md",
+    "sourceSha256": "d231961e4c85bee737df313c376e046dba50ed5a375460a924176db507f8ee9a"
+  },
+  "vertical/chemistry/scientist/chemistry-distillation.md": {
+    "title": "沉淀可复用化学流程",
+    "summary": "在技能匹配缺失后归纳带范围、证据、验证和停止条件的方法，而不是保存目标答案或工具教程。",
+    "originalName": "Chemistry Skill Distillation",
+    "source": "argus/domains/chemistry/skills/scientist/chemistry-distillation.md",
+    "sourceSha256": "1f7c9b2cddae0e19332d6e38edbac2671026d04e5ca0f3203f3d777e5e51d010"
+  },
+  "vertical/argus_maintenance/engineer/argus-maintenance-execution.md": {
+    "title": "Argus 小范围维护",
+    "summary": "按核心与领域职责检查和简化框架，用小而可复用的修改解决明确问题。",
+    "originalName": "Argus Maintenance",
+    "source": "argus/verticals/argus_maintenance/skills/engineer/argus-maintenance-execution.md",
+    "sourceSha256": "138f9b7e2503c5ce0307e575fa0555a62e1820c559e105d60cc6e31ab9991c0f"
+  },
+  "vertical/argus_maintenance/reviewer/argus-maintenance-review.md": {
+    "title": "Argus 维护变更评审",
+    "summary": "核对补丁是否真正简化、复用和解耦，并用验证结果证明行为，而不是只看代码缩短。",
+    "originalName": "Argus Maintenance Review",
+    "source": "argus/verticals/argus_maintenance/skills/reviewer/argus-maintenance-review.md",
+    "sourceSha256": "d6ad0f8eb29d5ca3d5a66fbc7df34de86e42229f15e8e2e22ce601a8ae08c4f8"
+  },
+  "vertical/kernel_engineering/engineer/kernel-benchmark-measurement-integrity.md": {
+    "title": "GPU 算子基准测量可信性",
+    "summary": "检查共享硬件负载、时钟和串行隔离，防止把并发干扰造成的延迟差当作真实性能提升。",
+    "originalName": "Kernel Benchmark Measurement Integrity — Isolation Is the Whole Game",
+    "source": "argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md",
+    "sourceSha256": "2fc88e863b95d871a79db00f218e086a7e8e961b7f617beaadfa80030c47a2d4"
+  },
+  "vertical/kernel_engineering/engineer/kernel-environment-first-engineering.md": {
+    "title": "GPU 算子实现与实测",
+    "summary": "针对一个明确的生产算子或推理改进实现并测量，不引入无关框架流程文件。",
+    "originalName": "Direct Kernel Engineering",
+    "source": "argus/verticals/kernel_engineering/skills/engineer/kernel-environment-first-engineering.md",
+    "sourceSha256": "a5e41f397ec10f57bceff7c853f788947464132f82861387f7d81739d3b56700"
+  },
+  "vertical/kernel_engineering/engineer/kernel-optimization-knowledge.md": {
+    "title": "GPU 算子瓶颈与优化知识",
+    "summary": "结合屋顶线、带宽、占用率和实测结果定位机制瓶颈，并查证所需知识，而非只试参数。",
+    "originalName": "Kernel Optimization Knowledge & Retrieval",
+    "source": "argus/verticals/kernel_engineering/skills/engineer/kernel-optimization-knowledge.md",
+    "sourceSha256": "e4d999286e2d4f05f457918c2d9d63d470da39efcb1d9937a1411433b38206fa"
+  },
+  "vertical/kernel_engineering/engineer/kernel-optimization-process-trace.md": {
+    "title": "GPU 算子优化过程案例",
+    "summary": "通过具体案例学习正确性容差、官方评分、成本定位和机制优化；案例中的加速不代表当前任务结果。",
+    "originalName": "Kernel Optimization Process — Worked Trace (019 decoder layer)",
+    "source": "argus/verticals/kernel_engineering/skills/engineer/kernel-optimization-process-trace.md",
+    "sourceSha256": "84e8feb27c50abdeaee10413eff2147bc80cad71a52d9d5e05e0f9ac82f0cada"
+  },
+  "vertical/kernel_engineering/engineer/modern-gpu-blackwell-kernel-techniques.md": {
+    "title": "Blackwell GPU 编程参考",
+    "summary": "查阅 B200 等平台的矩阵乘、注意力、数据搬运与调度技术，结合当前章节和实际测量使用。",
+    "originalName": "Modern GPU Programming for MLSys (Blackwell B200) — the SOTA kernel reference",
+    "source": "argus/verticals/kernel_engineering/skills/engineer/modern-gpu-blackwell-kernel-techniques.md",
+    "sourceSha256": "e4b21b069c4714e1f41fab19186cc6452d09f87193965ad0931f27e123a11ef8"
+  },
+  "vertical/kernel_engineering/reviewer/kernel-engineering-review.md": {
+    "title": "GPU 算子独立评审",
+    "summary": "直接检查代码、正确性和基准证据，不用流程文档数量代替结论。",
+    "originalName": "Direct Kernel Review",
+    "source": "argus/verticals/kernel_engineering/skills/reviewer/kernel-engineering-review.md",
+    "sourceSha256": "43e801e03ffdca459ebeca46f9d8b15119e74d0f6e90522582dcde6e06e4f664"
+  },
+  "vertical/learning/engineer/learning-curation.md": {
+    "title": "把提供的资料整理成知识",
+    "summary": "依据明确提供的材料整理项目技能或知识；没有充分证据或无新增价值时保持不修改。",
+    "originalName": "Learning Curation Execution",
+    "source": "argus/verticals/learning/skills/engineer/learning-curation.md",
+    "sourceSha256": "04b79b844bc15ab1aebd612001f624eb79551028cd14845c3223c5883fa5a59b"
+  },
+  "vertical/learning/reviewer/curation-review.md": {
+    "title": "资料学习与整理评审",
+    "summary": "检查拟议增删改是否忠实、非重复、无回归且范围正确；删除需有依据，合理的不修改也可通过。",
+    "originalName": "Learning Curation Review",
+    "source": "argus/verticals/learning/skills/reviewer/curation-review.md",
+    "sourceSha256": "67ee5918b390ae7f278d983df34f939d30d18800935158a2fad8929dd90d3afa"
+  },
+  "vertical/math/engineer/math-research-execution.md": {
+    "title": "数学研究执行",
+    "summary": "忠实保留命题与范围，诚实区分结果类别；需要 Lean 证据时实际编译，不虚构证明。",
+    "originalName": "Math Research Execution",
+    "source": "argus/verticals/math/skills/engineer/math-research-execution.md",
+    "sourceSha256": "20f72fbb355d700f647cb376092bb0a722dc96cbbaf8454cdc5e8bebe8613494"
+  },
+  "vertical/math/manager/math-research-manager.md": {
+    "title": "数学研究任务协调",
+    "summary": "在通用协调流程中保持研究目标、范围、求解和评审职责，不另造一套权限体系。",
+    "originalName": "Math Research Manager Context",
+    "source": "argus/verticals/math/skills/manager/math-research-manager.md",
+    "sourceSha256": "e228b24cd82e6dee678458b5e32c4e1fc6092151b06c7eee198b158bdd1a1b95"
+  },
+  "vertical/math/planner/math-research-planning.md": {
+    "title": "数学研究规划",
+    "summary": "围绕范围界定、求解和评审安排动态任务，保持原有角色与生命周期规则。",
+    "originalName": "Math Research Planning",
+    "source": "argus/verticals/math/skills/planner/math-research-planning.md",
+    "sourceSha256": "e3320bf8a0b986eae0251ce1004962659ab2a9505a2cc73da63c33b94d2799f4"
+  },
+  "vertical/math/reviewer/math-research-review.md": {
+    "title": "数学研究独立评审",
+    "summary": "检查正确性、新意、意义、命题忠实性和真实形式化证据，不以叙述代替证明。",
+    "originalName": "Math Research Review",
+    "source": "argus/verticals/math/skills/reviewer/math-research-review.md",
+    "sourceSha256": "21b7e0f172bbb695ae9950c0e9dd1cdac60ae6aa21df0962a88a1b06ba505251"
+  },
+  "vertical/math/scientist/math-research-adaptation.md": {
+    "title": "改进数学研究方法",
+    "summary": "在评审确认方法失败或技能缺口后，按已有适应阶段调整可复用方法。",
+    "originalName": "Math Research Scientist Adaptation",
+    "source": "argus/verticals/math/skills/scientist/math-research-adaptation.md",
+    "sourceSha256": "fd8961cb0155e3fc05428cf0b5dbd6be86ed048636dc657b3b23abbee6495933"
+  },
+  "vertical/math/scientist/math-research-distillation.md": {
+    "title": "沉淀数学研究方法",
+    "summary": "在首次匹配缺失后整理可复用研究方法，不假定已经失败，也不代替当前任务的执行。",
+    "originalName": "Math Research Skill Distillation",
+    "source": "argus/verticals/math/skills/scientist/math-research-distillation.md",
+    "sourceSha256": "83a7367798b1ac327861deaa94accf1d77da0e140ebc8da8137442a30a83b09a"
+  },
+  "vertical/research/engineer/ablation-planner.md": {
+    "title": "选择有判别力的消融实验",
+    "summary": "只选择能区分结果解释、说明所选方法作用的必要消融，而不是机械穷举组合。",
+    "originalName": "Choosing ablations that distinguish explanations",
+    "source": "argus/verticals/research/skills/engineer/ablation-planner.md",
+    "sourceSha256": "f5c9bff3d6b5bc9dc4b50316e172856fcc01d708685c08a1ff29650871369858"
+  },
+  "vertical/research/engineer/academic-vector-figures.md": {
+    "title": "学术矢量图与数学排版",
+    "summary": "准备精确数学文字和数据组件，用于可编辑的原生 PPT 论文图稿。",
+    "originalName": "Academic vector figures and mathematical typography",
+    "source": "argus/verticals/research/skills/engineer/academic-vector-figures.md",
+    "sourceSha256": "7167cd0fbd87b470ab5a9faaaffb1a457f586742cbf52101d2835c14c24c442d"
+  },
+  "vertical/research/engineer/citation-check.md": {
+    "title": "核对引用与一手来源",
+    "summary": "在科学审查中直接对照原始来源核实和修正重要引用，不凭二手转述确认。",
+    "originalName": "Checking citations against primary sources",
+    "source": "argus/verticals/research/skills/engineer/citation-check.md",
+    "sourceSha256": "1c865d8b4a38e95b35847f83b54aeac3e9b33f3632ca19e560c6ed2ad2f7093d"
+  },
+  "vertical/research/engineer/claims-against-evidence.md": {
+    "title": "让论文声明与证据一致",
+    "summary": "核对重要论述的实际来源，修正无依据或夸大的表述，不另造一套检查记录。",
+    "originalName": "Reading claims against the evidence",
+    "source": "argus/verticals/research/skills/engineer/claims-against-evidence.md",
+    "sourceSha256": "f7edc1fcaac5a573972af565ccb891e3821ef8bc9687bb3aaefca726edbe08f5"
+  },
+  "vertical/research/engineer/delta-on-reference.md": {
+    "title": "在参考实现上表达方法差异",
+    "summary": "使用固定版本的官方或强公开实现并验证其示例，使新增代码差异对应研究想法的差异。",
+    "originalName": "Delta on reference",
+    "source": "argus/verticals/research/skills/engineer/delta-on-reference.md",
+    "sourceSha256": "236b2b124907bbef2b13ce3fb467503ba28780d64d64cb92478267232714f3ff"
+  },
+  "vertical/research/engineer/executable-spec.md": {
+    "title": "把方法声明写成可执行测试",
+    "summary": "为公式、实现差异、组件消融及复杂度等声明建立独立测试依据，由测试结果支撑组件状态。",
+    "originalName": "Executable spec (tests/spec)",
+    "source": "argus/verticals/research/skills/engineer/executable-spec.md",
+    "sourceSha256": "a5486acdd969b46fd6d464e2b408b43ecea398d6a41d7ea90718dbd10ee63e5b"
+  },
+  "vertical/research/engineer/figure-spec.md": {
+    "title": "用 FigureSpec 描述精确图形",
+    "summary": "在既定论文绘图路线中描述局部几何和矢量组件；不把它当作独立框架图路线或数据图替代品。",
+    "originalName": "FigureSpec: drawing exact diagrams from JSON",
+    "source": "argus/verticals/research/skills/engineer/figure-spec.md",
+    "sourceSha256": "e63d1f7e807a3e918a79c02b5a5584ae531cc6e48de608a6fbb632ca6a16b2ca"
+  },
+  "vertical/research/engineer/framework-stand-up-pilot.md": {
+    "title": "训练框架限时试点",
+    "summary": "对入围框架固定版本、隔离准备并运行真实一步剖析，再根据测量决定进一步采用方式。",
+    "originalName": "Framework Stand-up Pilot",
+    "source": "argus/verticals/research/skills/engineer/framework-stand-up-pilot.md",
+    "sourceSha256": "828921f48c22fc0edac47b2fb8629f001f9a1422a6a0eb0308a8bf7f6bf8d049"
+  },
+  "vertical/research/engineer/hypothesis-implementation-contract.md": {
+    "title": "保持研究假设与实现一致",
+    "summary": "在实验阶段核对所选论点和检验它的代码，防止实现偏离实际要证明的方法。",
+    "originalName": "Keeping the hypothesis and implementation aligned",
+    "source": "argus/verticals/research/skills/engineer/hypothesis-implementation-contract.md",
+    "sourceSha256": "5732ec92babec1a2d8f81ff223af8dbc38df3ecb4518acde78ff312e69adb5e3"
+  },
+  "vertical/research/engineer/implementation-brief.md": {
+    "title": "研究实现任务说明",
+    "summary": "明确方法声明、组件入口、接口、测试、数据规模、命令、前置条件、完成定义和不做事项。",
+    "originalName": "Implementation brief",
+    "source": "argus/verticals/research/skills/engineer/implementation-brief.md",
+    "sourceSha256": "a48829e84b0b538ee83e869d03f306054ed895eed14fda69bffd1fcbb1a7b8e7"
+  },
+  "vertical/research/engineer/infrastructure-landscape-survey.md": {
+    "title": "调查当前训练与推理框架",
+    "summary": "依据当时的一手来源形成带日期的候选和排除理由，不只使用记忆中的框架名称。",
+    "originalName": "Infrastructure Landscape Survey",
+    "source": "argus/verticals/research/skills/engineer/infrastructure-landscape-survey.md",
+    "sourceSha256": "045d974fc5ee96077fbfeb4dfd66af3f11c55775cb5f58a1089f3c100e4bc09e"
+  },
+  "vertical/research/engineer/method-card.md": {
+    "title": "方法卡：研究方法的明确陈述",
+    "summary": "在 METHOD.md 中写清方法、组件、协议和证伪条件；状态、测试和历史由已有宿主机制推导。",
+    "originalName": "Method card (METHOD.md)",
+    "source": "argus/verticals/research/skills/engineer/method-card.md",
+    "sourceSha256": "64655b2d5ebed8aaea3e474a2b9988af4178a7ae2ee8e6194c341a4c67e23753"
+  },
+  "vertical/research/engineer/method_card_template.md": {
+    "title": "方法卡填写模板",
+    "summary": "提供 METHOD.md 的结构模板，应根据已选研究路线填写；不是替研究者生成已验证结论。",
+    "originalName": "METHOD.md template",
+    "source": "argus/verticals/research/skills/engineer/method_card_template.md",
+    "sourceSha256": "dc1a6b08dd80155e2f4a6332752d8ef9a12b435bc72f262b5836afba76b9c2d9"
+  },
+  "vertical/research/engineer/novelty-check.md": {
+    "title": "检验研究想法的新意",
+    "summary": "通过当前来源对照最接近的已有工作，判断一条候选想法的差异，而非先宣称创新。",
+    "originalName": "Testing the idea's novelty",
+    "source": "argus/verticals/research/skills/engineer/novelty-check.md",
+    "sourceSha256": "e20a0f4290c72b07c9b09fa77633ecc915f0f7a8b90d8efd4c627fb9d12f8c16"
+  },
+  "vertical/research/engineer/paper-chart-styling.md": {
+    "title": "论文数据图样式",
+    "summary": "统一数据图的配色、尺寸、标记和字体嵌入，遵守所选期刊会议版式；不改变数据本身。",
+    "originalName": "Styling data figures for publication",
+    "source": "argus/verticals/research/skills/engineer/paper-chart-styling.md",
+    "sourceSha256": "5e0d4dba8d293edb000389d488ecf1b74e6512b494b70bafe92977b59174443d"
+  },
+  "vertical/research/engineer/paper-exemplar-pdf-learning.md": {
+    "title": "借鉴优秀论文的论证与呈现",
+    "summary": "从目标期刊会议的开放论文中学习论证和视觉组织，不把示例结果移作本项目证据。",
+    "originalName": "Learning from strong published papers",
+    "source": "argus/verticals/research/skills/engineer/paper-exemplar-pdf-learning.md",
+    "sourceSha256": "e8435d84ea38da7f24e4ec9304e5c47705d9b14c7228ca61b5049605c2d8b617"
+  },
+  "vertical/research/engineer/paper-framework-figure-studio.md": {
+    "title": "编排论文概念与框架图",
+    "summary": "沿现有绘图路线组织可编辑图稿、机制细节和组件，注重信息准确与整体视觉层次。",
+    "originalName": "Composing a conceptual paper figure",
+    "source": "argus/verticals/research/skills/engineer/paper-framework-figure-studio.md",
+    "sourceSha256": "ac3383fae82f76b072c6d92ab7126177759534493a819d286e53973e4b0fdfc4"
+  },
+  "vertical/research/engineer/paper-illustration-image2.md": {
+    "title": "论文中的生成式示意素材",
+    "summary": "仅通过已授权的图像路线生成设计草图或非语义插画；这些素材不是科研证据。",
+    "originalName": "Using generated imagery in a paper figure",
+    "source": "argus/verticals/research/skills/engineer/paper-illustration-image2.md",
+    "sourceSha256": "567c6e25be4d3be443fe25833b7ff958ae2c3afd1207610f3faa62f8f06c7c34"
+  },
+  "vertical/research/engineer/paper-infrastructure-review.md": {
+    "title": "检查论文中的内部实现信息",
+    "summary": "只读检查最终论文是否暴露不应公开的内部实现细节，不擅自编辑论文。",
+    "originalName": "Keeping private implementation details out of the paper",
+    "source": "argus/verticals/research/skills/engineer/paper-infrastructure-review.md",
+    "sourceSha256": "31775a6b15692a938c75c31f434cb08fbf518616eab2ad08eba643388368b7b5"
+  },
+  "vertical/research/engineer/recipe-anchored-tuning.md": {
+    "title": "以官方配置为基线调参",
+    "summary": "以固定版本官方示例为起点，在受控小试中一次改变一个因子，再考虑完整运行。",
+    "originalName": "Recipe-anchored Tuning",
+    "source": "argus/verticals/research/skills/engineer/recipe-anchored-tuning.md",
+    "sourceSha256": "1a101849e7276b9370a87728ad540ebe1ccd3463955cc65421741b539ba9a8f0"
+  },
+  "vertical/research/engineer/references/ideation/ATTRIBUTION.md": {
+    "title": "研究构思资料的来源与归属",
+    "summary": "说明随包研究构思参考资料的来源和引用关系，用于追溯归属，不是具体执行技能。",
+    "originalName": "engineer/references/ideation/ATTRIBUTION",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ATTRIBUTION.md",
+    "sourceSha256": "768eb690ea6dc36812abc8bb7bc580739e38081c2fa6efe890401d49db5445fd"
+  },
+  "vertical/research/engineer/references/ideation/anti-patterns.md": {
+    "title": "研究构思中的常见无效组合",
+    "summary": "提供容易导致研究论证不足的组合与反例，帮助检查想法；不是自动判断论文录用的规则。",
+    "originalName": "engineer/references/ideation/anti-patterns",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/anti-patterns.md",
+    "sourceSha256": "ec3f36e3281c2a7762e3af9142323e338b0c88911d290eec331451d3c60a7c95"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/adapt_via_conditioning.md": {
+    "title": "构思参考：通过条件信息适应任务",
+    "summary": "研究如何利用条件输入和参考信息适应新任务，而不是对每个任务重新训练；需检验泛化边界。",
+    "originalName": "engineer/references/ideation/ideation-patterns/adapt_via_conditioning",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/adapt_via_conditioning.md",
+    "sourceSha256": "62dc2865c62d0adccfd14613312f9f746990baa930314be8dfc2b914e4a65865"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/algebraic_equivalence_unification.md": {
+    "title": "构思参考：用等价关系统一方法",
+    "summary": "寻找并证明不同表达之间的等价性，再据此简化或推广方法；类比本身不是证明。",
+    "originalName": "engineer/references/ideation/ideation-patterns/algebraic_equivalence_unification",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/algebraic_equivalence_unification.md",
+    "sourceSha256": "f52205190e01c73e751d586bafb44b53df85d3a75a6a58214922b6b0c45a9a33"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/architectural_operator_substitution.md": {
+    "title": "构思参考：替换算子或表示",
+    "summary": "定位结构性瓶颈，研究替代算子或表示，并验证必须保留的性质。",
+    "originalName": "engineer/references/ideation/ideation-patterns/architectural_operator_substitution",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/architectural_operator_substitution.md",
+    "sourceSha256": "3d19340d40077d188b19d8db29f6dc531068b2f94f474a814a12e6da47a220e7"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/assumption_audit_and_pivot.md": {
+    "title": "构思参考：审查并改变关键假设",
+    "summary": "找出真正影响结论的假设，研究更合适的条件与推导，不只作表面替换。",
+    "originalName": "engineer/references/ideation/ideation-patterns/assumption_audit_and_pivot",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/assumption_audit_and_pivot.md",
+    "sourceSha256": "7fb65ff9bc53521846363d63a24232dc7b60d82a2b7190e0b57fc1ed575e0b16"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass.md": {
+    "title": "构思参考：先刻画限制再突破",
+    "summary": "明确既有方法不能处理什么，再用可检验的结构或机制证明改进，而非设置弱基线。",
+    "originalName": "engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass.md",
+    "sourceSha256": "546e02ccfcf965d4084f8d3a00776268f93212b32a3849f2fa20c7a287db5001"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/companion-combos.md": {
+    "title": "构思参考：模式组合的已有证据",
+    "summary": "查看研究模式在资料中共同出现的组合；共现不代表组合后必然有效。",
+    "originalName": "engineer/references/ideation/ideation-patterns/companion-combos",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/companion-combos.md",
+    "sourceSha256": "eaaa98d1c54a360cf126c88345ca34c807f5206e07d0e579a36cb202592cbd86"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/controlled_diagnostic_design.md": {
+    "title": "构思参考：隔离混杂因素的诊断",
+    "summary": "设计能独立控制一个混杂因素的样例与检验，分清真实能力和表面得分。",
+    "originalName": "engineer/references/ideation/ideation-patterns/controlled_diagnostic_design",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/controlled_diagnostic_design.md",
+    "sourceSha256": "b92e7c4d77dfbe941f005d10804a72791043ba1637b70dd8e6d5725b09eb66e9"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/decompose_and_delegate.md": {
+    "title": "构思参考：拆解并交给合适求解器",
+    "summary": "把问题分成可检查的中间对象，交给适合的组件或求解器，并用结果闭环验证。",
+    "originalName": "engineer/references/ideation/ideation-patterns/decompose_and_delegate",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/decompose_and_delegate.md",
+    "sourceSha256": "5c07cc1f7e08ac4b50d771aa3b57c02c6430f24b60f99433e7f876795422dc27"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/generative_process_redesign.md": {
+    "title": "构思参考：重新设计生成过程",
+    "summary": "审视生成流程中被当作固定条件的组件或表示，验证改变它是否带来真实能力差异。",
+    "originalName": "engineer/references/ideation/ideation-patterns/generative_process_redesign",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/generative_process_redesign.md",
+    "sourceSha256": "d8d7a8633ff3243ab5d56f0e3ddabba88cb0314bf01b788922e369d4d19348d0"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/heterogeneous_decomposition.md": {
+    "title": "构思参考：按差异分别处理",
+    "summary": "识别组成部分的敏感性或冗余差异，采用不同处理方式，并核对误差与收益。",
+    "originalName": "engineer/references/ideation/ideation-patterns/heterogeneous_decomposition",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/heterogeneous_decomposition.md",
+    "sourceSha256": "08cc30a356d8aeb0c07109c914938c3da14d60c07be809613b2195efd45f4476"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/overview.md": {
+    "title": "研究构思模式总览",
+    "summary": "用作各研究构思模式的导航，帮助选择进一步阅读的方向，不替代创新性与正确性验证。",
+    "originalName": "engineer/references/ideation/ideation-patterns/overview",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/overview.md",
+    "sourceSha256": "651b4efa2acea97ca6987883eee42c32ca109e686db6a30941a294e37b6d9063"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/reframe_as_solvable_object.md": {
+    "title": "构思参考：转化为可求解对象",
+    "summary": "将模糊问题改写成定义明确、已有分析或求解工具可处理的对象，并核对转化是否忠实。",
+    "originalName": "engineer/references/ideation/ideation-patterns/reframe_as_solvable_object",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/reframe_as_solvable_object.md",
+    "sourceSha256": "ffd715c78896db4c4ce25c45a123418021a1df5d25994abb05b36c3c5cee2e08"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/relax_discrete_search_to_continuous.md": {
+    "title": "构思参考：把离散搜索松弛为连续问题",
+    "summary": "研究连续表达是否能简化搜索，同时说明松弛条件、误差和回到离散答案的边界。",
+    "originalName": "engineer/references/ideation/ideation-patterns/relax_discrete_search_to_continuous",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/relax_discrete_search_to_continuous.md",
+    "sourceSha256": "7a4db9933efa57024083886e5d42432ac5330f56a9ea6a7936de8fd70368b502"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/self_supervised_signal_engineering.md": {
+    "title": "构思参考：构造自监督信号",
+    "summary": "从已有数据或结构中构造监督依据，并验证信号与目标一致，防止循环论证。",
+    "originalName": "engineer/references/ideation/ideation-patterns/self_supervised_signal_engineering",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/self_supervised_signal_engineering.md",
+    "sourceSha256": "036371622e9e367ed5af220da88ecaf2b172d5d3ead1f2e2375f36c05b144ca4"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/structural_prior_encoding.md": {
+    "title": "构思参考：在结构中编码先验",
+    "summary": "通过构造保留任务所需性质，减少重新学习的负担；仍需检查表达能力与适用条件。",
+    "originalName": "engineer/references/ideation/ideation-patterns/structural_prior_encoding",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/structural_prior_encoding.md",
+    "sourceSha256": "3e48b13ac8b73ccb6e0260202674beecfe056f0084daaf8f2b8adde3aa53cc4b"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/targeted_self_supervised_objective.md": {
+    "title": "构思参考：面向特定性质的训练目标",
+    "summary": "让自监督目标对应明确的结构性质，并通过诊断和对照验证，而非只更换损失名称。",
+    "originalName": "engineer/references/ideation/ideation-patterns/targeted_self_supervised_objective",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/targeted_self_supervised_objective.md",
+    "sourceSha256": "a7e8ba7e87ea63a0446741ed89d53f38b2f7fc85a84c9f69dd75afcb67ba8df1"
+  },
+  "vertical/research/engineer/references/ideation/ideation-patterns/unify_into_shared_representation.md": {
+    "title": "构思参考：统一异构输入的表示",
+    "summary": "构造可承载不同输入的共同表示或接口，再验证其保留的信息与迁移效果。",
+    "originalName": "engineer/references/ideation/ideation-patterns/unify_into_shared_representation",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/unify_into_shared_representation.md",
+    "sourceSha256": "ebba3230237271e37d5280030ad147493deed2605fe53f5324f3ebb70f1d599c"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C00.md": {
+    "title": "构思细分 C00：把解释问题变成可测对象",
+    "summary": "将可解释性或不确定性问题转成明确的优化、选择或归因量，并用忠实性约束和独立检验验证。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C00",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C00.md",
+    "sourceSha256": "0bc790076bc61bc5a902094b3b1326375b20a2210540b9665c97728f8a869d56"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C01.md": {
+    "title": "构思细分 C01：重新定位安全评估信号",
+    "summary": "审查安全与检测结论依赖的表示位置，比较不同信号的可解释性和鲁棒性；仅作为研究阅读参考。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C01",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C01.md",
+    "sourceSha256": "7313de54f35bd19420a234d65261429f27555af69e6babde10bb204bd4cb82a8"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C02.md": {
+    "title": "构思细分 C02：控制单一混杂因素",
+    "summary": "构造独立控制混杂因素的评估样例与外部依据，比较表面表现和去混杂后的真实差异。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C02",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C02.md",
+    "sourceSha256": "254f83ef47ab39d36ae3475bc05ed3e0eee3c8b4f40f970c3dbec0dd5703f119"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C03.md": {
+    "title": "构思细分 C03：统一任务条件格式",
+    "summary": "利用统一条件格式与参考信息组织跨任务适应，并在真正未见过的任务类别上验证。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C03",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C03.md",
+    "sourceSha256": "b0c71cc591da1a7a87579a7aaa983b8b8e1a53a9f51376dca9232ff5fd868a32"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C04.md": {
+    "title": "构思细分 C04：按敏感性压缩",
+    "summary": "区分高影响部分与冗余部分，分别保留或压缩，用误差分析验证，而非统一施加损失。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C04",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C04.md",
+    "sourceSha256": "e6caef00b214d780e5735e4323d10aac059d5d7c8c8c8ec16a5b050f6d81ba45"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C05.md": {
+    "title": "构思细分 C05：替换可识别性假设",
+    "summary": "研究用结构或几何条件替代分布假设，并重新证明隐藏结构能够恢复到何种等价范围。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C05",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C05.md",
+    "sourceSha256": "543f82fee5c11136813c512e82bf493d6bbae00f8c857e8a0a523320e44b0dda"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C06.md": {
+    "title": "构思细分 C06：重新理解概率训练目标",
+    "summary": "证明损失、散度或概率量之间的关系，再据此消除阶段、改善条件或选择更合适的目标。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C06",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C06.md",
+    "sourceSha256": "d1570fddded634848788b33c6a731dbce440d0450e6f3c550f0f517d87a7bba8"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C07.md": {
+    "title": "构思细分 C07：用内部信号作有限适应",
+    "summary": "定位分布变化或训练不稳的来源，使用内部无标签信号调整小范围变量，并防止退化。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C07",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C07.md",
+    "sourceSha256": "1cf23b65fbee15bbbffcda7f4af3542f60cc167134efce2e203cd0fc4aede69f"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C08.md": {
+    "title": "构思细分 C08：生成并筛选训练数据",
+    "summary": "针对真实数据缺口生成候选样本，以与目标相关的质量依据筛选；不以外观合理作为有效性证明。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C08",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C08.md",
+    "sourceSha256": "ab97e07ed950cc256732ee18991001e3f4866a23b08f04aed402a8027b4fa538"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C09.md": {
+    "title": "构思细分 C09：在有界中间表示上处理",
+    "summary": "构造单条输入影响可被分析的中间对象，把扰动或验证机制放在这里，再证明效用与边界。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C09",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C09.md",
+    "sourceSha256": "e178b7925e08f94311f28639a88030f84ece1468b7080707472afe432ff4126e"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C10.md": {
+    "title": "构思细分 C10：补回局部方法丢失的结构",
+    "summary": "刻画局部计算忽略的关系结构，证明其表达限制，再在受控成本下加入必要信息。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C10",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C10.md",
+    "sourceSha256": "8724aaff35a9704544a9be7625e6a05d58c606335f3a65e99a825d3bbce8366a"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C11.md": {
+    "title": "构思细分 C11：重新定义选择与停止规则",
+    "summary": "审查采样、获取信息或停止准则的关键假设，重新推导改动后的性能与资源保证。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C11",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C11.md",
+    "sourceSha256": "65ba6973f962ab0e8e1cdea6f30da92ca27e6be3b6d08a09a1dc0e565e309e75"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C12.md": {
+    "title": "构思细分 C12：替换架构中的结构槽位",
+    "summary": "调整参数位置、连接方式或阶段算子，证明必要性质保留，再分析成本与表达能力变化。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C12",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C12.md",
+    "sourceSha256": "6157bfd876ba96f837c0f577399f6afc1602e419c45fe77424f57b5e446a8927"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C13.md": {
+    "title": "构思细分 C13：通过连接结构编码先验",
+    "summary": "根据关系或几何构建连接与传播方式，用对照检验这些结构是否真正支撑效果。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C13",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C13.md",
+    "sourceSha256": "7e19113e0aff6d02e77fc4a9898c6c5edae5a1b20f6c46bf65cd78fae0e62d9b"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C14.md": {
+    "title": "构思细分 C14：保留注意力性质的低成本替代",
+    "summary": "研究全对交互的替代算子，重点验证表达、感受野、顺序等性质，而不只比较计算量。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C14",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C14.md",
+    "sourceSha256": "006232a2a76a5730b6746b8caf98a3601a369af0881749e38c3c6aeec332ec1c"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C15.md": {
+    "title": "构思细分 C15：改变三维生成的空间表示",
+    "summary": "研究几何表示本身如何限制重建或生成，并在其他流程尽量不变时验证替代表达。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C15",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C15.md",
+    "sourceSha256": "fce7d01cac2fe7f8562d5de2af87159547d7a7e9bb9b115560af14a00a6f8999"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C16.md": {
+    "title": "构思细分 C16：显式保证对称性",
+    "summary": "确定真正作用于数据的对称群，构造或分析保持相应性质的算子，不以数据增强代替证明。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C16",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C16.md",
+    "sourceSha256": "0978269b1da55a84902d42087c8d481a3fb40c6d299870d760ff9a64df1ed70e"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C17.md": {
+    "title": "构思细分 C17：重设计对比学习配对",
+    "summary": "使配对、对齐和相似性目标对应明确结构性质，检验其是否真正进入表示空间。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C17",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C17.md",
+    "sourceSha256": "95020d47a0cd32cd65240db80018e09119021d3616af43015b1a6797400c4303"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C18.md": {
+    "title": "构思细分 C18：为新模态构造统一接口",
+    "summary": "通过离散化、序列化或投影连接不同模态与既有方法，验证接口的信息保留和迁移效果。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C18",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C18.md",
+    "sourceSha256": "871ad780b2120f7f4bd0930a3ae0d2c66e3928368a5ffbf36f4777c3fb8d01a6"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C19.md": {
+    "title": "构思细分 C19：减弱统计保证的假设",
+    "summary": "分析证明中独立性、正则性或有界性假设的作用，寻找更弱充分条件并重新推导保证。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C19",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C19.md",
+    "sourceSha256": "27c570e775a3a845334dfd5d06494bfc382dbb79bad4928d349a30b9129c166a"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C20.md": {
+    "title": "构思细分 C20：用正向过程定义逆问题",
+    "summary": "明确观测或退化过程，再构建对应的恢复或生成机制，区分已知结构与需要学习的部分。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C20",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C20.md",
+    "sourceSha256": "44b744d5822c8c662171e2f9607e78f0dd57246938254a22354e05386841c63f"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C21.md": {
+    "title": "构思细分 C21：从交互数据构造控制监督",
+    "summary": "研究如何从已有轨迹或无标签交互构造监督信号，使序列建模服务于控制，并核对目标是否一致。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C21",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C21.md",
+    "sourceSha256": "17fd8f2d33a83878dbd31bba149eb409be958e022ff666b52f1a8d169257b5a9"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C22.md": {
+    "title": "构思细分 C22：把设计方案变成搜索变量",
+    "summary": "统一表达架构、目标或流程配置，研究联合优化和条件化选择；不把简单搜索当成已证明的新方法。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C22",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C22.md",
+    "sourceSha256": "094fa0747a14ae5f706575ad7be75604d7ccd307420e39ad22c79bc870c5a17c"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C23.md": {
+    "title": "构思细分 C23：改变迭代生成链的内部选择",
+    "summary": "研究端点、步骤分布、离散化或初始化等选择，并依据问题结构重新推导其效果与代价。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C23",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C23.md",
+    "sourceSha256": "4f611478bb586c82f5f965e2ae8104c173355df780745af4193a721eb39ca0c1"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C24.md": {
+    "title": "构思细分 C24：改变生成模型的条件接口",
+    "summary": "在主干尽量保持不变时，调整条件信息、注入方式或表示空间，验证可控性与一致性。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C24",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C24.md",
+    "sourceSha256": "b87fd8132e773ee277b2387567d6d91ff3a6680fd9e57da7591900f582a4e2ee"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C25.md": {
+    "title": "构思细分 C25：让中间产物可以被验证",
+    "summary": "生成程序、图或其他可检查对象，交给求解器或验证闭环，再用可核对的结果修正候选。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C25",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C25.md",
+    "sourceSha256": "af5e435dd553c6e4893e9f17bd8da9c19e8dbf3cbc15699b0d716cf24f32b787"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C26.md": {
+    "title": "构思细分 C26：构造偏好或奖励监督",
+    "summary": "研究来自模型、判定器或执行结果的比较信号，核对噪声、粒度与训练目标，避免自我认可。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C26",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C26.md",
+    "sourceSha256": "8b3b77eb217046fa5c64a7f5fd38a67bbfc96550b92cc6249a46241d222318ae"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C27.md": {
+    "title": "构思细分 C27：把目标写成多方博弈",
+    "summary": "明确参与者、收益和解的定义，证明均衡与原目标之间的对应关系，而不是只换术语。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C27",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C27.md",
+    "sourceSha256": "227cca6515c13719e55b5fd3393db32e50143795732fc252246997915eb52704"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C28.md": {
+    "title": "构思细分 C28：重审分布式优化结构",
+    "summary": "审查本地更新、通信、同步和修正位置的假设，重新验证现实参与条件下的收敛与成本。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C28",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C28.md",
+    "sourceSha256": "3930ba042b73d11820201a4e191c2203a32b837934673465d2df908adf5bbff6"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C29.md": {
+    "title": "构思细分 C29：重新推导迭代优化保证",
+    "summary": "研究更适合的正则性或目标量，用关键进展界重新推导收敛或遗憾保证。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C29",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C29.md",
+    "sourceSha256": "1ad7523af2d0a5c1a2aa81e144cb6269a87fcba110397ce679604c8e3db22d9d"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C30.md": {
+    "title": "构思细分 C30：替换或重塑训练曲率",
+    "summary": "研究更便宜的曲率近似或变量表示，验证必须保留的谱性质及其对优化的作用。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/C30",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C30.md",
+    "sourceSha256": "07a9807ff9890c993d50f8589f02014927aa320b9e9475d240ed609da97753cd"
+  },
+  "vertical/research/engineer/references/ideation/ideation-sub-patterns/overview.md": {
+    "title": "研究构思细分模式导航",
+    "summary": "查看细分模式与上层模式的关系，选择进一步阅读的材料；不是可自动套用的成功配方。",
+    "originalName": "engineer/references/ideation/ideation-sub-patterns/overview",
+    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/overview.md",
+    "sourceSha256": "f38798c718bd61a1641075bbcea582ecea8c01c09756ecfd37ab86d68e720d92"
+  },
+  "vertical/research/engineer/references/paper-writing-craft.md": {
+    "title": "论文写作方法参考",
+    "summary": "提供论文论证和表达的写作参考，需结合真实证据与所选期刊会议要求使用。",
+    "originalName": "engineer/references/paper-writing-craft",
+    "source": "argus/verticals/research/skills/engineer/references/paper-writing-craft.md",
+    "sourceSha256": "bd645d2f2f48987c988c54b6b22843b22ee3b5a9dc0ce950bff4acdc0fcf3eeb"
+  },
+  "vertical/research/engineer/research-grind.md": {
+    "title": "反复打磨研究结果",
+    "summary": "把首次实现当作草稿，在固定声明下诊断差距、持续改进，并依据证据判断是否足够。",
+    "originalName": "Working a research result into shape",
+    "source": "argus/verticals/research/skills/engineer/research-grind.md",
+    "sourceSha256": "ddc759378073c719fb19e9723c7cda1db97dc9b1008981476e5ee9ecfc9dd13b"
+  },
+  "vertical/research/engineer/research-results-analysis-and-figures.md": {
+    "title": "把原始结果整理为图表",
+    "summary": "依据真实输出生成表格与论文图，使用既定绘图路线和合适组件，不改变结论依据。",
+    "originalName": "Turning results into tables and figures",
+    "source": "argus/verticals/research/skills/engineer/research-results-analysis-and-figures.md",
+    "sourceSha256": "7cca016207fc39003028c43abab480e26f2f9b418d4ce439b833e532c30b68a6"
+  },
+  "vertical/research/engineer/research-timeline.md": {
+    "title": "研究提案与实验排期",
+    "summary": "估算方案工期，结合依赖和资源安排实验，并解释计划为何调整。",
+    "originalName": "Research proposal timeline",
+    "source": "argus/verticals/research/skills/engineer/research-timeline.md",
+    "sourceSha256": "4e08e186b5cf37f6e71215cf47a0cd262a54ca574e89ed2e6c5162f616bda07a"
+  },
+  "vertical/research/engineer/research-visualization-router.md": {
+    "title": "选择科研图的表达方式",
+    "summary": "根据图需要表达的证据选择渲染路线，最终视觉判断仍由既有评审负责。",
+    "originalName": "Choosing how to draw a research figure",
+    "source": "argus/verticals/research/skills/engineer/research-visualization-router.md",
+    "sourceSha256": "3ad9ae024268b79389daae192594ec4c13b70dc15cd9e83a1d61711038175ce3"
+  },
+  "vertical/research/engineer/result-to-claim.md": {
+    "title": "对照固定声明解释实验结果",
+    "summary": "用直接实验依据决定下一步诊断方向，声明获支持后再将相关记录交给论文阶段。",
+    "originalName": "Reading the results against the fixed claim",
+    "source": "argus/verticals/research/skills/engineer/result-to-claim.md",
+    "sourceSha256": "f089b08ca0546150b55e594393c1e2a4aa20cc02ed8d77e38a68735913e66c1b"
+  },
+  "vertical/research/engineer/rl-training-collapse-diagnosis.md": {
+    "title": "强化学习训练健康诊断",
+    "summary": "检查奖励、优势、梯度、KL、截断和吞吐异常，先诊断配置与过程，再归因方法；不同训练目标不能混用规则。",
+    "originalName": "RL Training Health Diagnosis",
+    "source": "argus/verticals/research/skills/engineer/rl-training-collapse-diagnosis.md",
+    "sourceSha256": "d48fd69adaac73ad45c41cd9565798a94a476de52c9354097abe2d8604db8782"
+  },
+  "vertical/research/engineer/semantic-scholar-search.md": {
+    "title": "Semantic Scholar 文献检索",
+    "summary": "查找相关论文和引用，区分预印本与正式发表，核实版本、会议期刊和来源不确定性。",
+    "originalName": "Semantic Scholar Literature Search",
+    "source": "argus/verticals/research/skills/engineer/semantic-scholar-search.md",
+    "sourceSha256": "b80ebdca7fd1f60a9979dea04437da48f2ef5f29304aca35d28a7ce961bfa1c9"
+  },
+  "vertical/research/engineer/suspect-the-setup.md": {
+    "title": "先检查实验设置再否定想法",
+    "summary": "结果异常时先核对预算、训练配置、协议与评分器，避免把设置错误误判为方法失败。",
+    "originalName": "Suspect the setup before the idea",
+    "source": "argus/verticals/research/skills/engineer/suspect-the-setup.md",
+    "sourceSha256": "44978c6edc4f4dbd126d40336edbb4af7079ef6f062a3cbd4be2ec1ec6494255"
+  },
+  "vertical/research/engineer/training-infrastructure-guide.md": {
+    "title": "训练与推理基础设施选择",
+    "summary": "针对真实工作负载调查来源、试运行固定版本候选并依据官方配置调试，不凭框架名字作决定。",
+    "originalName": "Training Infrastructure Guide",
+    "source": "argus/verticals/research/skills/engineer/training-infrastructure-guide.md",
+    "sourceSha256": "13db77beee6648eb5d5ab6e0d99c81dfdf142ef130c93ae80944ef546eee6707"
+  },
+  "vertical/research/engineer/venue-format-preflight.md": {
+    "title": "投稿格式与编译预检",
+    "summary": "在评审前用目标期刊会议的官方作者模板编译完整稿件，核对格式准备情况。",
+    "originalName": "Preparing the draft for the venue",
+    "source": "argus/verticals/research/skills/engineer/venue-format-preflight.md",
+    "sourceSha256": "1d8e37a7595a9b4e0786a7ff557752c8f173bad4586afa97bd371e869e262d0b"
+  },
+  "vertical/research/engineer/venue-format-research.md": {
+    "title": "选择投稿目标并核对要求",
+    "summary": "根据研究内容选择合适期刊会议，获取当前官方作者要求，而非沿用过时模板。",
+    "originalName": "Choosing a venue and reading its requirements",
+    "source": "argus/verticals/research/skills/engineer/venue-format-research.md",
+    "sourceSha256": "aad2d0ec25649231ec233f4abb5b216af313a7a1dfa699cc6f0c8b23be7cbcf2"
+  },
+  "vertical/research/engineer/venue-paper-drafting.md": {
+    "title": "面向投稿目标撰写论文",
+    "summary": "依据所选作者模板和确认的证据组织完整论文，不把未验证探索写成既定结论。",
+    "originalName": "Writing for the selected venue",
+    "source": "argus/verticals/research/skills/engineer/venue-paper-drafting.md",
+    "sourceSha256": "5d4c48646582b084561ae3bd9f94533edfa26fa396e30f450c5563100f463ec3"
+  },
+  "vertical/research/engineer/write-for-review.md": {
+    "title": "让研究代码便于独立评审",
+    "summary": "为组件、简化、复用和关键决策保留可追溯说明，使评审能对照代码、测试与方法声明。",
+    "originalName": "Write for review",
+    "source": "argus/verticals/research/skills/engineer/write-for-review.md",
+    "sourceSha256": "455ffba88572baf1e0945715cb892b00ab4384baebbede40a77f45b5fc50fce1"
+  },
+  "vertical/research/research-experiment-playbook.md": {
+    "title": "通过实验发展研究想法",
+    "summary": "忠实实现已选想法，通过适应性实验形成足以支撑论文的证据，而不是只完成首次运行。",
+    "originalName": "Developing an idea through experiments",
+    "source": "argus/verticals/research/skills/research-experiment-playbook.md",
+    "sourceSha256": "0a550161d7a7fa7f8f2b959a06d517330650575ffbe51df961371bf52ee76ff2"
+  },
+  "vertical/research/research-idea-playbook.md": {
+    "title": "寻找并选择研究想法",
+    "summary": "从来源中发现候选可能性，经独立审查后作最终选择，不把构思直接当作实验结果。",
+    "originalName": "Finding a research idea",
+    "source": "argus/verticals/research/skills/research-idea-playbook.md",
+    "sourceSha256": "8feee40cb8b22aafabe793d32a5cfcdfc724560901400b020f22366c3b6b938d"
+  },
+  "vertical/research/research-paper-playbook.md": {
+    "title": "撰写完整研究论文",
+    "summary": "从已确认的正向证据组织论文、编译并准备投稿材料，保持证据与论述一致。",
+    "originalName": "Writing the research paper",
+    "source": "argus/verticals/research/skills/research-paper-playbook.md",
+    "sourceSha256": "5ce0e75bcf768a513ade29d21a29df17dd94d0253c7c086c97e7fb4f1fe665a5"
+  },
+  "vertical/research/research-review-playbook.md": {
+    "title": "对论文形成独立判断",
+    "summary": "综合科学性、图示、语言和整体论证，判断工作是否成立并提出建设性意见。",
+    "originalName": "Reaching a judgment on the paper",
+    "source": "argus/verticals/research/skills/research-review-playbook.md",
+    "sourceSha256": "8c106e335646c84da1c0b72b24112407c1d11cb262b26d2b76fbfbb8473acf41"
+  },
+  "vertical/research/reviewer/academic-paper-peer-review-benchmark.md": {
+    "title": "按目标期刊会议评审论文",
+    "summary": "以独立评审视角判断当前稿件，提供科学指导并更新评审记录。",
+    "originalName": "Reading the paper as a venue reviewer",
+    "source": "argus/verticals/research/skills/reviewer/academic-paper-peer-review-benchmark.md",
+    "sourceSha256": "6446f17af2a751bd9570b4351e4b28d84d09cc06ed2c59174111f17f39e0cbc9"
+  },
+  "vertical/research/reviewer/claim-to-code-trace.md": {
+    "title": "追溯声明到实际代码",
+    "summary": "沿配置和执行路径核对公式、比较条件与观测，判断研究声明是否对应实际产生证据的代码。",
+    "originalName": "Claim-to-Code Trace",
+    "source": "argus/verticals/research/skills/reviewer/claim-to-code-trace.md",
+    "sourceSha256": "fef3ef16ce27a9c1e9ec5f095c73bb734da06aedba74fa994122e28d32c293ee"
+  },
+  "vertical/research/reviewer/experiment-results-review.md": {
+    "title": "判断实验真正说明了什么",
+    "summary": "独立阅读当前实验依据，判断方法获得哪些支持、还有哪些缺口及下一步方向。",
+    "originalName": "What the experiments establish",
+    "source": "argus/verticals/research/skills/reviewer/experiment-results-review.md",
+    "sourceSha256": "700b8417edd71ff528fa095dc8c81fa5a44cdd578d9126503ecf94e06ac52000"
+  },
+  "vertical/research/reviewer/infrastructure-choice-review.md": {
+    "title": "审查基础设施选择依据",
+    "summary": "只读核对来源日期、候选版本和试点数字的可追溯性，不用事后叙述代替实测记录。",
+    "originalName": "Infrastructure Choice Review",
+    "source": "argus/verticals/research/skills/reviewer/infrastructure-choice-review.md",
+    "sourceSha256": "6244075c1903ee733b9bef3995475d743a9b9e5c52975cd0f6f7692fd0055446"
+  },
+  "vertical/research/reviewer/reading-the-evidence.md": {
+    "title": "只读核对声明背后的证据",
+    "summary": "阅读真实代码、配置、评估器和原始结果，判断它们是否支撑声明，不在评审中修改它们。",
+    "originalName": "Reading the evidence behind a claim",
+    "source": "argus/verticals/research/skills/reviewer/reading-the-evidence.md",
+    "sourceSha256": "b7b445df97f695fddcecde05fa42780a143af569a6d3935d62936020d7381e3a"
+  },
+  "vertical/research/reviewer/strongest-argument-against.md": {
+    "title": "寻找最有力的科学反对意见",
+    "summary": "在最终评审中识别论文最关键的科学弱点，不通过直接改稿掩盖它。",
+    "originalName": "The strongest argument against the paper",
+    "source": "argus/verticals/research/skills/reviewer/strongest-argument-against.md",
+    "sourceSha256": "6cc3e7990dacb420a04ff945cb1f221852bd249b981a60def70dfcace2ac3418"
+  },
+  "vertical/research/reviewer/venue-academic-language-review.md": {
+    "title": "审查论文论证与学术表达",
+    "summary": "对照目标期刊会议的当前惯例阅读论证与语言，指出问题，不擅自编辑论文。",
+    "originalName": "Reading the paper's argument and language",
+    "source": "argus/verticals/research/skills/reviewer/venue-academic-language-review.md",
+    "sourceSha256": "a2fe9faf57ff0a09181f42de2ac2b5080158e08c430078fb48722fd6b9893f66"
+  },
+  "vertical/software/engineer/software-change-implementation.md": {
+    "title": "有边界的软件实现",
+    "summary": "结合仓库结构选择合适工具，以与任务规模相称的检查和决定性验证完成软件修改。",
+    "originalName": "Software Change Implementation",
+    "source": "argus/verticals/software/skills/engineer/software-change-implementation.md",
+    "sourceSha256": "741acb427b655a9b1d92bcec572561790835081e76d8c11642b003bc8c898241"
+  },
+  "vertical/software/manager/software-project-grounding.md": {
+    "title": "软件任务前的仓库理解",
+    "summary": "在交给规划或执行前识别架构、已有类似实现、验证命令和契约风险，不改变用户任务。",
+    "originalName": "Software Project Grounding Before Decomposition",
+    "source": "argus/verticals/software/skills/manager/software-project-grounding.md",
+    "sourceSha256": "fbf81ed96d7eb80c481e37bdbd68cb7e860b70025ece40725df16533e3d1f89b"
+  },
+  "vertical/software/planner/software-project-grounding.md": {
+    "title": "依据仓库结构规划软件任务",
+    "summary": "核对协调者提供的仓库信息，围绕架构边界和独立验证风险拆解工作。",
+    "originalName": "Software Project Grounding Before Decomposition",
+    "source": "argus/verticals/software/skills/planner/software-project-grounding.md",
+    "sourceSha256": "70b38719478858afc0e4e8eb191ac54c70db9ffff304bb593983fca271ddd7c6"
+  },
+  "vertical/software/reviewer/software-change-review.md": {
+    "title": "软件修改独立评审",
+    "summary": "检查真实调用路径、兼容性与验证证据，不依赖参考答案或仅凭完成声明判断。",
+    "originalName": "Software Change Review",
+    "source": "argus/verticals/software/skills/reviewer/software-change-review.md",
+    "sourceSha256": "5d1a66ff65accae04ec02005724735c9767308ac63c005b8be6e269eb9acb25f"
+  }
+}

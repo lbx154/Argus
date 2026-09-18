@@ -140,8 +140,13 @@ def test_frozen_byte_or_frontend_identity_mismatch_is_rejected(tmp_path, monkeyp
         builder.validate_frozen_inputs(source, tmp_path)
 
 
-def test_build_isolation_preserves_windows_bootstrap_without_ambient_account_configuration(tmp_path, monkeypatch):
+@pytest.mark.parametrize("toolchain", [None, "1.98.0-x86_64-pc-windows-msvc"])
+def test_build_isolation_preserves_windows_bootstrap_without_ambient_account_configuration(tmp_path, monkeypatch, toolchain):
     builder, _desktop, _manifest = _builder(tmp_path, monkeypatch)
+    if toolchain is None:
+        monkeypatch.delenv("RUSTUP_TOOLCHAIN", raising=False)
+    else:
+        monkeypatch.setenv("RUSTUP_TOOLCHAIN", toolchain)
     monkeypatch.setenv("EXAMPLE_API_KEY", "synthetic-test-value")
     monkeypatch.setenv("ARGUS_SKILL_HOME", "unrelated-profile")
     monkeypatch.setenv("SYSTEMROOT", r"C:\Windows")
@@ -154,4 +159,4 @@ def test_build_isolation_preserves_windows_bootstrap_without_ambient_account_con
     assert env["USERPROFILE"] == str(work / "home")
     assert env["APPDATA"] == str(work / "roaming")
     assert env["PYTHONDONTWRITEBYTECODE"] == "1"
-    assert env["RUSTUP_TOOLCHAIN"] == "stable-x86_64-pc-windows-msvc"
+    assert env["RUSTUP_TOOLCHAIN"] == (toolchain or "stable-x86_64-pc-windows-msvc")
