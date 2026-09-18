@@ -1,7 +1,8 @@
 # Execution safety review unit A
 
-Base: `310bc3bc2681a16356d96748a52989033fb90d37` (PR130-only). Local review only;
-not an installed-runtime change or authorization to activate.
+Based on current upstream `dev`, with execution-only changes transplanted from
+the separately reviewed implementation. PR130/131 are not dependencies. Source
+review and local tests do not authorize installation or activation.
 
 ## Ownership
 
