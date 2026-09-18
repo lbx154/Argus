@@ -100,6 +100,7 @@ def test_real_copilot_fixture_preserves_matcher_and_scientist_output_tokens(
         encoding="utf-8",
     )
 
+    UsageLedger(project).reconcile()
     records = UsageLedger(project).records(mission_id="mission-1")
     assert len(records) == 2
     assert [record.output_tokens for record in records] == [118, 13_175]
@@ -224,6 +225,7 @@ def test_pending_tokens_are_reconciled_and_persisted_when_pricing_becomes_availa
         MODEL_PRICES_USD_PER_MTOK, model, MODEL_PRICES_USD_PER_MTOK["gpt-5.5"],
     )
 
+    ledger.reconcile()
     resolved = ledger.records()[0]
     assert resolved.pricing_status == "priced"
     assert resolved.cost_usd is not None and resolved.cost_usd > 0
@@ -816,6 +818,7 @@ def test_reconciles_legacy_copilot_request_cost_with_exact_token_cost(
         encoding="utf-8",
     )
 
+    UsageLedger(project).reconcile()
     summary = UsageLedger(project).summary()
     assert summary.input_tokens == 25_819
     assert summary.output_tokens == 8
@@ -886,6 +889,7 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
         thread_id="session-1",
     )
     ledger.append(first)
+    UsageLedger(project).reconcile()
     assert UsageLedger(project).records()[0].cost_usd == pytest.approx(0.08)
 
     second = build_usage_record(
@@ -901,6 +905,7 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
         error="provider copilot is cooling down after budget fence breach",
     )
     ledger.append(second)
+    pristine = ledger.path.read_bytes()
     rows = [
         json.loads(line)
         for line in ledger.path.read_text(encoding="utf-8").splitlines()
@@ -933,6 +938,15 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
         encoding="utf-8",
     )
 
+    from argus.core.accounting_integrity import AccountingIntegrityError
+    before = {str(p): p.read_bytes() for p in project.rglob('*') if p.is_file()}
+    with pytest.raises(AccountingIntegrityError):
+        UsageLedger(project).reconcile()
+    assert {str(p): p.read_bytes() for p in project.rglob('*') if p.is_file()} == before
+    # Fresh synthetic control: undo this test's deliberate corrupt row only;
+    # now retain the original once-only reconciliation assertions below.
+    ledger.path.write_bytes(pristine)
+    UsageLedger(project).reconcile()
     records = UsageLedger(project).records()
     completed, denied = records
     assert completed.cost_usd == pytest.approx(0.08)
@@ -945,6 +959,7 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
 
     third = replace(first, call_id="second-completed")
     ledger.append(third)
+    UsageLedger(project).reconcile()
     records = UsageLedger(project).records()
     assert records[-1].total_nano_aiu is None
     assert records[-1].pricing_status == "priced"
@@ -1069,6 +1084,7 @@ def test_legacy_migration_preserves_unknown_resumed_premium_delta(
         encoding="utf-8",
     )
 
+    UsageLedger(project).reconcile()
     records = UsageLedger(project).records()
 
     assert len(records) == 1
@@ -1118,6 +1134,7 @@ def test_legacy_codex_migration_uses_recorded_call_deltas_not_raw_cumulative(
         encoding="utf-8",
     )
 
+    UsageLedger(project).reconcile()
     summary = UsageLedger(project).summary(mission_id="mission-1")
     assert summary.call_count == 2
     assert summary.input_tokens == 150

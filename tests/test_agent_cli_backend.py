@@ -120,6 +120,7 @@ class FakeCliRunnerOptions:
     watchdog_soft_idle_seconds: int = 0
     watchdog_stalled_idle_seconds: int = 0
     watchdog_hard_idle_seconds: int = 0
+    # PR130 added this real RunnerOptions field; the pre-existing fake lagged.
     _bind_provider_session: Any | None = None
 
 
@@ -950,10 +951,16 @@ def test_missing_copilot_resume_target_does_not_poison_cost_control(
         run_label="manager",
     )
 
-    assert resumes == ["stale-thread", None]
-    assert stale.pricing_status == "not_billed"
-    assert stale.cost_usd == 0.0
-    assert fresh.exit_code == 0
+    # A terminal string from an entered fake runner is not producer proof.
+    assert resumes == ["stale-thread"]
+    assert stale.exit_code == -1 and "accounting integrity" in stale.fatal_error
+    assert fresh.exit_code == -1
+    from argus.core.accounting_integrity import AccountingIntegrityError
+    from argus.core.cost_control import accounting_integrity_preflight
+    from argus.core.usage import UsageLedger
+    assert not UsageLedger(project).records()
+    with pytest.raises(AccountingIntegrityError):
+        accounting_integrity_preflight(project_root=project, global_root=root)
 
 
 def test_run_exec_writes_full_agent_io_log(
@@ -2548,3 +2555,74 @@ def test_context_parser_failure_uses_trusted_completion_receipt(tmp_path, monkey
                               run_label="manager-classify-grounded-retry")
     assert result.pricing_status == ("partial" if observed else "not_billed")
     assert result.cost_usd == (None if observed else 0.0)
+
+
+@pytest.mark.parametrize("run_label", ["planner.cycle1", "engineer-r1", "reviewer-r1",
+                                      "manager-frontdoor-classify", "manager-stage", "external-job"])
+@pytest.mark.parametrize("cost_enabled", ["0", "1"])
+def test_all_role_labels_honor_durable_quiesce_without_provider_spawn(tmp_path, monkeypatch, run_label, cost_enabled):
+    from argus.core.dispatch_safety import quiesce_project
+    root = tmp_path / "root"
+    project = root / "projects" / "synthetic-project"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", cost_enabled)
+    backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=project, global_root=root, mission_id="synthetic")
+    calls = []
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", lambda *a, **kw: calls.append(1), raising=False)
+    quiesce_project(root=root, project=project, expected_epoch=0, reason="accounting integrity")
+    (project / "campaign-state.json").write_text('{"observation":"new"}')
+    result = backend.run_exec(prompt="same stale objective", options=RunnerOptions(model="gpt-5.6-sol"), run_label=run_label)
+    assert result.exit_code != 0 and not calls
+    assert not (root / "cost-control.json").exists()
+
+
+def test_finalizer_append_enospc_preserves_real_intent_and_blocks_next_call(tmp_path, monkeypatch):
+    from argus.core.accounting_integrity import AccountingIntegrityError
+    from argus.core.cost_control import cost_admission_reason
+    from argus.core.usage import UsageLedger
+    root = tmp_path / "root"
+    project = root / "projects" / "synthetic-project"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
+    backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=project, global_root=root, mission_id="synthetic")
+    calls = []
+    def provider(*args, **kwargs):
+        calls.append(1)
+        return _make_cli_result(json_events=[{"type": "token_count", "input_tokens": 100, "output_tokens": 10}], thread_id="synthetic-session")
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", provider, raising=True)
+    monkeypatch.setattr(UsageLedger, "append", lambda *a, **kw: (_ for _ in ()).throw(OSError(28, "synthetic ENOSPC")))
+    first = backend.run_exec(prompt="synthetic", options=RunnerOptions(model="gpt-5.6-sol"), run_label="engineer-r1")
+    assert first.exit_code == -1 and len(calls) == 1
+    intent = json.loads(next((root / "cost-finalizers").glob("*.json")).read_text())
+    assert intent["phase"] == "failed" and len(intent["receipts"]) == 1
+    assert intent["receipts"][0]["thread_id"] == "synthetic-session"
+    with pytest.raises(AccountingIntegrityError):
+        cost_admission_reason(global_root=root)
+    second = backend.run_exec(prompt="synthetic successor", options=RunnerOptions(model="gpt-5.6-sol"), run_label="reviewer-r1")
+    assert second.exit_code == -1 and len(calls) == 1
+    assert len(json.loads((root / "cost-control.json").read_text())["reservations"]) == 1
+
+
+def test_pause_between_reservation_and_spawn_fences_actual_backend(tmp_path, monkeypatch):
+    from argus.core.dispatch_safety import quiesce_project
+    root = tmp_path / "root"
+    project = root / "projects" / "synthetic-project"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
+    backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=project, global_root=root, mission_id="synthetic")
+    translate = backend._translate_options
+    def pause_then_translate(options):
+        quiesce_project(root=root, project=project, expected_epoch=0, reason="concurrent operator pause")
+        return translate(options)
+    monkeypatch.setattr(backend, "_translate_options", pause_then_translate)
+    calls = []
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", lambda *a, **kw: calls.append(1), raising=False)
+    result = backend.run_exec(prompt="synthetic", options=RunnerOptions(model="gpt-5.6-sol"), run_label="planner")
+    assert result.exit_code != 0 and not calls
+    # This reservation is affirmatively never started, unlike interrupted work.
+    assert json.loads((root / "cost-control.json").read_text())["reservations"] == []

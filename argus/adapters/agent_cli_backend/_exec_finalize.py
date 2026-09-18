@@ -184,60 +184,92 @@ def finalize_result(
                 error=persisted_error,
                 startup_receipt=startup_receipt,
             )
-            appended = UsageLedger(
-                ctx.usage_project_root,
-                migrate_legacy=False,
-            ).append(record)
+            if ctx.cost_reservation is not None:
+                if record.pricing_status == "not_billed" and startup_receipt is not None:
+                    from ...core.no_charge_provenance import certify_local_startup
+                    from ...core.runner_errors import is_local_startup_refusal
+                    context = dict(error=persisted_error, provider=backend._backend_name,
+                        call_id=ctx.call_id, run_label=ctx.run_label, status=status,
+                        thread_id=result.thread_id, source="run_exec", receipt=startup_receipt)
+                    if is_local_startup_refusal(**context):
+                        certify_local_startup(ctx.cost_reservation, context)
+                # One reservation-serialized prepare/append/close transition.
+                # Do not publish a zero ledger row in the gap between a public
+                # prepare and settle while telemetry can still change the debt.
+                appended = ctx.cost_reservation.settle(record)
+            else:
+                appended = UsageLedger(
+                    ctx.usage_project_root,
+                    migrate_legacy=False,
+                ).append(record)
             usage_record = record
             result.pricing_status = record.pricing_status
             result.cost_usd = record.cost_usd
             if appended:
                 backend._log_agent_io(ctx.log_path, usage_recorded_event(record))
-        except Exception:  # never turn persistence failure into work success
+        except Exception as exc:  # never let work success hide lost accounting
             log.exception("failed to persist usage record for %s", ctx.call_id)
+            if ctx.cost_reservation is not None:
+                try:
+                    ctx.cost_reservation.finalization_failed(f"usage persistence: {type(exc).__name__}: {exc}")
+                except Exception:
+                    log.exception("failed to persist finalizer error; original obligation retained")
             result.fatal_error = "\n".join(filter(None, [result.fatal_error,
                 "accounting integrity: usage persistence failed"]))
             result.stop_kind = "backend_unavailable"
             result.exit_code = -1
+            # Do not settle/delete an obligation whose original receipt failed.
             backend._close_io_context(ctx.call_id)
             return result
     if ctx.cost_reservation is not None:
         try:
-            if status == "denied":
+            # Canonical denial receipts use the ordinary durable settlement
+            # path. release() is exclusively a checked pre-transport lifecycle,
+            # never cleanup after possible execution (including local refusals).
+            if (status == "denied" and usage_record is None
+                    and ctx.cost_reservation.intent is not None
+                    and not ctx.cost_reservation.intent.data.get("execution_started")):
                 ctx.cost_reservation.release(
                     reason=persisted_error or "not_started"
                 )
-                backend._log_agent_io(ctx.log_path, {
-                    "type": EventType.BUDGET_RESERVATION_RELEASED,
-                    "reservation_id": ctx.cost_reservation.reservation_id,
-                    "call_id": ctx.call_id,
-                    "amount_usd": ctx.cost_reservation.amount_usd,
-                    "reason": persisted_error or "not_started",
-                })
+                if ctx.cost_reservation.enforce_policy:
+                    backend._log_agent_io(ctx.log_path, {
+                        "type": EventType.BUDGET_RESERVATION_RELEASED,
+                        "reservation_id": ctx.cost_reservation.reservation_id,
+                        "call_id": ctx.call_id,
+                        "amount_usd": ctx.cost_reservation.amount_usd,
+                        "reason": persisted_error or "not_started",
+                    })
             elif usage_record is not None:
                 ctx.cost_reservation.settle(usage_record)
-                backend._log_agent_io(ctx.log_path, {
-                    "type": EventType.BUDGET_RESERVATION_SETTLED,
-                    "reservation_id": ctx.cost_reservation.reservation_id,
-                    "call_id": ctx.call_id,
-                    "amount_usd": ctx.cost_reservation.amount_usd,
-                    "cost_usd": usage_record.cost_usd,
-                    "pricing_status": usage_record.pricing_status,
-                })
+                if ctx.cost_reservation.enforce_policy:
+                    backend._log_agent_io(ctx.log_path, {
+                        "type": EventType.BUDGET_RESERVATION_SETTLED,
+                        "reservation_id": ctx.cost_reservation.reservation_id,
+                        "call_id": ctx.call_id,
+                        "amount_usd": ctx.cost_reservation.amount_usd,
+                        "cost_usd": usage_record.cost_usd,
+                        "pricing_status": usage_record.pricing_status,
+                    })
             else:
                 reason = persisted_error or "usage record was not persisted"
                 ctx.cost_reservation.settle_unknown(reason=reason)
-                backend._log_agent_io(ctx.log_path, {
-                    "type": EventType.BUDGET_RESERVATION_SETTLED,
-                    "reservation_id": ctx.cost_reservation.reservation_id,
-                    "call_id": ctx.call_id,
-                    "amount_usd": ctx.cost_reservation.amount_usd,
-                    "cost_usd": None,
-                    "pricing_status": "unknown",
-                    "error": reason,
-                })
-        except Exception:  # a settlement failure cannot authorize success
+                if ctx.cost_reservation.enforce_policy:
+                    backend._log_agent_io(ctx.log_path, {
+                        "type": EventType.BUDGET_RESERVATION_SETTLED,
+                        "reservation_id": ctx.cost_reservation.reservation_id,
+                        "call_id": ctx.call_id,
+                        "amount_usd": ctx.cost_reservation.amount_usd,
+                        "cost_usd": None,
+                        "pricing_status": "unknown",
+                        "error": reason,
+                    })
+        except Exception as exc:  # durable intent survives failed settlement
             log.exception("failed to settle cost admission for %s", ctx.call_id)
+            try:
+                ctx.cost_reservation.finalization_failed(f"settlement: {type(exc).__name__}: {exc}")
+            except Exception:
+                log.exception("failed to persist finalizer error; original obligation retained")
             result.fatal_error = "\n".join(filter(None, [result.fatal_error,
                 "accounting integrity: settlement failed"]))
             result.stop_kind = "backend_unavailable"

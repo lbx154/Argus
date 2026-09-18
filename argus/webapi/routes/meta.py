@@ -19,6 +19,7 @@ from typing import Any
 
 from fastapi import Depends, Header, HTTPException, Request, Response
 
+from ...core.accounting_integrity import AccountingIntegrityError
 from .context import ServerContext
 from .models import (
     BudgetSetIn,
@@ -295,8 +296,8 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         try:
             return {"cost_control": cost_control_snapshot(global_root=root),
                     "admission_reason": cost_admission_reason(global_root=root)}
-        except CostControlStateError as exc:
-            raise HTTPException(503, "cost control is temporarily unavailable") from exc
+        except (CostControlStateError, AccountingIntegrityError) as exc:
+            raise HTTPException(503, "accounting integrity unavailable; dispatch blocked") from exc
 
     @app.post("/api/projects/{sid}/cost-control/acknowledge", dependencies=[Depends(ctx.require_auth)])
     def _acknowledge_cost(sid: str, body: CostAcknowledgeIn) -> dict[str, Any]:
@@ -320,8 +321,8 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        except CostControlStateError as exc:
-            raise HTTPException(503, "cost control is temporarily unavailable") from exc
+        except (CostControlStateError, AccountingIntegrityError) as exc:
+            raise HTTPException(503, "accounting integrity unavailable; dispatch blocked") from exc
 
     @app.post("/api/projects/{sid}/identity", dependencies=[Depends(ctx.require_auth)])
     def _identity_set(sid: str, body: IdentitySetIn) -> dict[str, Any]:
