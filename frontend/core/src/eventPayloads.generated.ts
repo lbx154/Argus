@@ -562,6 +562,63 @@ export interface LifeRuntimeFailureCanaryPassedEvent extends EventMsg {
   "circuit_cleared": boolean;
 }
 
+export interface LifeRuntimeIncidentDetectedEvent extends EventMsg {
+  type: "life.runtime.incident.detected";
+  payload_schema_version?: 1;
+  "incident_id": string;
+  "event_revision"?: number;
+  "detector": string;
+  "invariant": string;
+  "subject_kind": string;
+  "subject_id": string;
+  "severity": string;
+  "status": "detected";
+  "occurrence_count"?: number;
+  "recovery_attempts"?: number;
+  "manager_attention_required"?: boolean;
+}
+
+export interface LifeRuntimeIncidentRecoveredEvent extends EventMsg {
+  type: "life.runtime.incident.recovered";
+  payload_schema_version?: 1;
+  "incident_id": string;
+  "event_revision"?: number;
+  "detector": string;
+  "invariant": string;
+  "subject_kind": string;
+  "subject_id": string;
+  "severity": string;
+  "status": "recovered";
+  "occurrence_count"?: number;
+  "recovery_attempts"?: number;
+  "recovery_verified"?: boolean;
+  "recovery_action"?: string;
+  "expected_postcondition"?: string;
+  "verification"?: Record<string, unknown>;
+  "manager_attention_required"?: boolean;
+}
+
+export interface LifeRuntimeIncidentEscalatedEvent extends EventMsg {
+  type: "life.runtime.incident.escalated";
+  payload_schema_version?: 1;
+  "incident_id": string;
+  "event_revision"?: number;
+  "detector": string;
+  "invariant": string;
+  "subject_kind": string;
+  "subject_id": string;
+  "severity": string;
+  "status": "escalated";
+  "occurrence_count"?: number;
+  "recovery_attempts"?: number;
+  "recovery_verified"?: boolean;
+  "recovery_action"?: string;
+  "expected_postcondition"?: string;
+  "verification"?: Record<string, unknown>;
+  "reason"?: string;
+  "manager_attention_required": true;
+}
+
 export interface LifePlannerTaskAddedEvent extends EventMsg {
   type: "life.planner.task_added";
   payload_schema_version?: 1;
@@ -2084,6 +2141,9 @@ export interface EventPayloadByType {
   "life.runtime_failure.circuit_opened": LifeRuntimeFailureCircuitOpenedEvent;
   "life.runtime_failure.circuit_blocked": LifeRuntimeFailureCircuitBlockedEvent;
   "life.runtime_failure.canary_passed": LifeRuntimeFailureCanaryPassedEvent;
+  "life.runtime.incident.detected": LifeRuntimeIncidentDetectedEvent;
+  "life.runtime.incident.recovered": LifeRuntimeIncidentRecoveredEvent;
+  "life.runtime.incident.escalated": LifeRuntimeIncidentEscalatedEvent;
   "life.planner.task_added": LifePlannerTaskAddedEvent;
   "life.planner.dependency_dropped": LifePlannerDependencyDroppedEvent;
   "life.planner.parallel_dropped": LifePlannerParallelDroppedEvent;

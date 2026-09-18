@@ -456,6 +456,16 @@ class SupervisedEngineer(
                     # mtimes or provider-private session files.
                     external_interrupt_reason_provider=None,
                     watchdog_hard_idle_seconds=hard_idle_seconds,
+                    extension_env=(
+                        {
+                            "ARGUS_PLUGIN_PARENT_MISSION_ID": str(
+                                supervised_config.session_id
+                            )
+                        }
+                        if supervised_config is not None
+                        and supervised_config.session_id
+                        else None
+                    ),
                 ),
                 run_label=run_label,
                 resume_thread_id=resume_thread_id,

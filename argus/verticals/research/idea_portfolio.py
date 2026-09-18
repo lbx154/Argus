@@ -41,6 +41,15 @@ DEFAULT_PORTFOLIO_SIZE = 3
 PORTFOLIO_SIZE_ENV = "ARGUS_RESEARCH_PORTFOLIO_ROUTES"
 MAX_PORTFOLIO_SIZE = 12
 _LEGACY_PORTFOLIO_SIZE = 12
+_TERMINAL_RETRY_LIMIT = 2
+_NON_RETRYABLE_FAILURE_MARKERS = (
+    "authentication",
+    "authorization",
+    "budget",
+    "credential",
+    "operator decision",
+    "policy violation",
+)
 SELECTION_POLICY = "fixed_twelve_source_only_v6"
 SELECTION_TEAM_SUFFIX = "selection"
 _REVIEW_SCHEMA_VERSION = 2
@@ -607,6 +616,17 @@ def _available_review_ids(
     return tuple(sorted(review_ids))
 
 
+def _terminal_retry_allowed(task: dict[str, Any]) -> bool:
+    if str(task.get("state") or "") not in {"done", "failed"}:
+        return False
+    if int(task.get("attempts", 0) or 0) >= _TERMINAL_RETRY_LIMIT:
+        return False
+    if task.get("state") == "done":
+        return True
+    reason = str(task.get("reason") or "").casefold()
+    return not any(marker in reason for marker in _NON_RETRYABLE_FAILURE_MARKERS)
+
+
 def _retry_invalid_terminal_tasks(
     project_root: Path,
     root: Path,
@@ -616,9 +636,10 @@ def _retry_invalid_terminal_tasks(
     artifact_root: str,
 ) -> tuple[str, ...]:
     retried: list[str] = []
+    size = _portfolio_size_for(root)
     specs = {
         str(task["task_id"]): task
-        for task in portfolio_tasks(team_id, artifact_root)
+        for task in portfolio_tasks(team_id, artifact_root, size)
     }
     for route_spec in (
         task for task in specs.values() if task.get("role") == "idea-route"
@@ -637,7 +658,7 @@ def _retry_invalid_terminal_tasks(
             and _valid_shard(root, review)
             and _review_payload(project_root, review) is not None
         )
-        if route.get("state") in {"done", "failed"} and not route_valid:
+        if _terminal_retry_allowed(route) and not route_valid:
             reason = (
                 "reopened: " + (
                     "result shard missing or not a success"
@@ -650,7 +671,7 @@ def _retry_invalid_terminal_tasks(
             if task_board.retry_terminal(root, route_id, reason=reason):
                 retried.append(route_id)
                 log.warning("idea portfolio %s: %s", route_id, reason)
-        if review.get("state") in {"done", "failed"} and (not route_valid or not review_valid):
+        if _terminal_retry_allowed(review) and (not route_valid or not review_valid):
             if not route_valid:
                 reason = f"reopened: its route {route_id} was reopened"
             elif not _valid_shard(root, review):
@@ -878,7 +899,7 @@ def _ensure_selection_team(
         ),
         {},
     )
-    if selector.get("state") in {"done", "failed"}:
+    if _terminal_retry_allowed(selector):
         selection = _selection_from_tasks(
             project_root,
             root,
@@ -1192,6 +1213,44 @@ def idea_portfolio_selection(
     if selected is not None:
         return selected
     return _task_selection(project_root, state_root, _portfolio_meta(payload))
+
+
+def reconcile_idea_portfolio_campaign(
+    *,
+    project_root: Path,
+    state_root: Path,
+    marker: dict[str, Any],
+) -> None:
+    """Advance the runtime-owned selector after its route campaign settles."""
+
+    project_root, state_root = _resolved_roots(project_root, state_root)
+    payload = _pipeline_payload(state_root)
+    meta = _portfolio_meta(payload)
+    team_id = str(meta.get("team_id") or "")
+    artifact_root = str(meta.get("artifact_root") or "")
+    if (
+        not team_id
+        or str(marker.get("team_id") or "") != team_id
+        or not artifact_root
+    ):
+        return
+    root = project_root / TEAM_ROOT / team_id
+    selection_root = _ensure_selection_team(
+        project_root,
+        root=root,
+        team_id=team_id,
+        artifact_root=artifact_root,
+        state_root=state_root,
+    )
+    selection = idea_portfolio_selection(project_root, state_root=state_root)
+    if selection is not None and selection_root is not None:
+        _materialize_selection(
+            project_root,
+            root,
+            selection_root,
+            selection,
+            state_root=state_root,
+        )
 
 
 def _write_handoff(project_root: Path, selection: dict[str, Any]) -> None:

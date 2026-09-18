@@ -110,6 +110,18 @@ class IterationAssessmentHook(Protocol):
     ) -> "IterationAssessment | None": ...
 
 
+class BackgroundReconciler(Protocol):
+    """Optional vertical-owned upkeep for daemon-resident campaign state."""
+
+    def __call__(
+        self,
+        *,
+        project_root: Path,
+        state_root: Path,
+        marker: dict[str, Any],
+    ) -> None: ...
+
+
 @dataclass(frozen=True)
 class IterationAssessment:
     """A vertical's domain-specific reason to continue or stop iteration.
@@ -177,6 +189,7 @@ class VerticalContract:
     search_altitude: Callable[[object], str] | None = None
     mission_prelude: MissionPrelude | None = None
     library_preparer: Callable[[VerticalLibraryContext], None] | None = None
+    background_reconciler: BackgroundReconciler | None = None
     stage_completion_validator: Callable[..., object] | None = None
     automatic_stage_completion: Callable[..., bool] | None = None
     planner_task_validator: Callable[[str, Path, Any], object] | None = None
@@ -761,6 +774,11 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         library_preparer=(
             getattr(provider, "LIBRARY_PREPARER")
             if callable(getattr(provider, "LIBRARY_PREPARER", None))
+            else None
+        ),
+        background_reconciler=(
+            getattr(provider, "BACKGROUND_RECONCILER")
+            if callable(getattr(provider, "BACKGROUND_RECONCILER", None))
             else None
         ),
         stage_completion_validator=stage_completion_validator,

@@ -315,6 +315,58 @@ class LifeSupervisor(
                 "error": it.last_error,
                 "orphan_retries": it.orphan_retries,
             })
+            try:
+                from ...core.runtime_incidents import (
+                    RuntimeIncidentStore,
+                    drain_runtime_incident_events,
+                )
+
+                store = RuntimeIncidentStore(self.memory.root)
+                incident = store.detect(
+                    detector="startup_orphan_reaper",
+                    invariant="running_requires_live_executor",
+                    subject_kind="mission",
+                    subject_id=it.id,
+                    severity="error",
+                    observed={
+                        "backlog_status": "running",
+                        "daemon_restarted": True,
+                        "orphan_retries": it.orphan_retries,
+                    },
+                )
+                store.begin_recovery(
+                    incident["incident_id"],
+                    action="requeue_or_fail_orphaned_parent",
+                    expected_postcondition=(
+                        "orphaned parent is pending below the retry limit or failed "
+                        "after the retry limit"
+                    ),
+                )
+                current = next(
+                    (
+                        row
+                        for row in self.memory.backlog.history()
+                        if row.id == it.id
+                    ),
+                    None,
+                )
+                store.verify_recovery(
+                    incident["incident_id"],
+                    recovered=bool(
+                        current is not None
+                        and current.status in {"pending", "failed"}
+                    ),
+                    evidence={
+                        "backlog_status": getattr(current, "status", ""),
+                        "orphan_retries": getattr(current, "orphan_retries", 0),
+                    },
+                )
+                drain_runtime_incident_events(
+                    self.memory.root,
+                    self.sink.handle_event,
+                )
+            except Exception:  # noqa: BLE001 - orphan recovery remains authoritative
+                log.exception("life supervisor: orphan incident recording failed")
 
     @staticmethod
     def _safe_mode_enabled() -> bool:

@@ -110,6 +110,9 @@
     "life.research.second_reading",
     "life.review.waived",
     "life.reviewer.backend_resolved",
+    "life.runtime.incident.detected",
+    "life.runtime.incident.escalated",
+    "life.runtime.incident.recovered",
     "life.runtime_failure.canary_passed",
     "life.runtime_failure.circuit_blocked",
     "life.runtime_failure.circuit_opened",
@@ -194,7 +197,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 166
+        "missing": 169
       },
       "fallback": "greppable",
       "handled": [
@@ -318,6 +321,9 @@
         "life.research.second_reading",
         "life.review.waived",
         "life.reviewer.backend_resolved",
+        "life.runtime.incident.detected",
+        "life.runtime.incident.escalated",
+        "life.runtime.incident.recovered",
         "life.runtime_failure.canary_passed",
         "life.runtime_failure.circuit_blocked",
         "life.runtime_failure.circuit_opened",
@@ -395,7 +401,7 @@
       "counts": {
         "handled": 100,
         "hidden": 88,
-        "missing": 0
+        "missing": 3
       },
       "fallback": "hide",
       "handled": [
@@ -590,13 +596,17 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": []
+      "missing": [
+        "life.runtime.incident.detected",
+        "life.runtime.incident.escalated",
+        "life.runtime.incident.recovered"
+      ]
     },
     "web": {
       "counts": {
         "handled": 100,
         "hidden": 88,
-        "missing": 0
+        "missing": 3
       },
       "fallback": "hide",
       "handled": [
@@ -791,7 +801,11 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": []
+      "missing": [
+        "life.runtime.incident.detected",
+        "life.runtime.incident.escalated",
+        "life.runtime.incident.recovered"
+      ]
     }
   },
   "schema_version": 1

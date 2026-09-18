@@ -47,6 +47,7 @@ EXPERIMENT_HISTORY_REL = "research/EXPERIMENT_HISTORY.jsonl"
 _ZERO_USAGE_TUPLE = (0, 0, 0, 0)
 
 _QUIET_LOGS_ENV = "ARGUS_SUBAGENT_QUIET_LOGS"
+_TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +264,7 @@ def _write_task(
     *,
     registry_root: Path | str | None = None,
 ) -> None:
+    data = dict(data)
     root = _registry_root(registry_root)
     root.mkdir(parents=True, exist_ok=True)
     path = _registry_path(task_id, registry_root=root)
@@ -290,6 +292,8 @@ def _write_task(
                 "resource_warning",
                 "resource_ledger_root",
                 "resource_owner",
+                "owner_team_task_id",
+                "owner_mission_id",
             ])
         preserved_fields = {
             key: existing[key]
@@ -297,8 +301,15 @@ def _write_task(
             if key not in data and key in existing
         }
         if preserved_fields:
-            data = dict(data)
             data.update(preserved_fields)
+    data.setdefault(
+        "owner_team_task_id",
+        os.environ.get(_TEAM_TASK_ENV, "").strip(),
+    )
+    data.setdefault(
+        "owner_mission_id",
+        os.environ.get("ARGUS_PLUGIN_PARENT_MISSION_ID", "").strip(),
+    )
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)

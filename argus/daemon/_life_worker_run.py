@@ -31,6 +31,23 @@ log = logging.getLogger(__name__)
 
 _RUNNING_STALL_ERROR = "executor exited without completing the task"
 _RUNNING_STALL_POLL_SECONDS = 1.0
+_SUBAGENT_INFLIGHT_STATES = frozenset({
+    "discussing",
+    "preflight",
+    "running",
+    "starting",
+    "waiting_resource",
+})
+_SUBAGENT_TERMINAL_STATES = frozenset({
+    "cancelled",
+    "canceled",
+    "done",
+    "early_stop",
+    "error",
+    "failed",
+    "stopped",
+    "timeout",
+})
 
 
 def _maybe_consolidate(rf_state: Any, config: Any) -> None:
@@ -85,6 +102,286 @@ class LifeWorkerRunMixin:
     # Set by LifeWorker at construction (a LifeWorkerConfig).
     config: Any
 
+    @staticmethod
+    def _owned_subagents(
+        rf_state: _RunForeverState,
+        mission_id: str,
+    ) -> list[tuple[float, str, str]]:
+        def timestamp(value: object) -> float:
+            try:
+                return float(value or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        workdir = getattr(getattr(rf_state, "cfg", None), "project_workdir", None)
+        if not workdir:
+            return None
+        registry = Path(workdir) / ".argus_subagents"
+        if not registry.is_dir():
+            return None
+        owned: list[tuple[float, str, str]] = []
+        for path in registry.glob("*.json"):
+            try:
+                import json
+
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(record, dict):
+                continue
+            if str(record.get("owner_mission_id") or "").strip() != mission_id:
+                continue
+            task_id = str(record.get("task_id") or path.stem).strip()
+            state = str(record.get("state") or "").strip().lower()
+            if not task_id or not state:
+                continue
+            observed_at = max(
+                timestamp(record.get("submitted_at")),
+                timestamp(record.get("started_at")),
+                timestamp(record.get("completed_at")),
+            )
+            owned.append((observed_at, task_id, state))
+        return sorted(owned, reverse=True)
+
+    @classmethod
+    def _owned_subagent(
+        cls,
+        rf_state: _RunForeverState,
+        mission_id: str,
+    ) -> tuple[str, str] | None:
+        """Compatibility view of the most recently observed owned subagent."""
+
+        owned = cls._owned_subagents(rf_state, mission_id)
+        if not owned:
+            return None
+        _timestamp, task_id, state = owned[0]
+        return task_id, state
+
+    @staticmethod
+    def _backlog_item(rf_state: _RunForeverState, item_id: str) -> Any | None:
+        return next(
+            (
+                candidate
+                for candidate in rf_state.mem.backlog.history()
+                if candidate.id == item_id
+            ),
+            None,
+        )
+
+    def _record_runtime_recovery(
+        self,
+        rf_state: _RunForeverState,
+        *,
+        detector: str,
+        invariant: str,
+        item: Any,
+        observed: dict[str, Any],
+        action: str,
+        expected_postcondition: str,
+        recovered: bool,
+        verification: dict[str, Any],
+    ) -> None:
+        from ..core.runtime_incidents import (
+            RuntimeIncidentStore,
+            drain_runtime_incident_events,
+        )
+
+        try:
+            store = RuntimeIncidentStore(rf_state.runtime_root)
+            incident = store.detect(
+                detector=detector,
+                invariant=invariant,
+                subject_kind="mission",
+                subject_id=str(item.id),
+                severity="error",
+                observed=observed,
+            )
+            store.begin_recovery(
+                incident["incident_id"],
+                action=action,
+                expected_postcondition=expected_postcondition,
+            )
+            store.verify_recovery(
+                incident["incident_id"],
+                recovered=recovered,
+                evidence=verification,
+            )
+            drain_runtime_incident_events(
+                rf_state.runtime_root,
+                rf_state.sink.handle_event,
+            )
+        except Exception:  # noqa: BLE001 - backlog recovery remains authoritative
+            log.exception(
+                "daemon: failed to record runtime recovery for mission %s",
+                item.id,
+            )
+
+    def _recover_stalled_external_mission(
+        self,
+        rf_state: _RunForeverState,
+        item: Any,
+        *,
+        now: float,
+    ) -> bool:
+        owned = self._owned_subagents(rf_state, str(item.id))
+        if not owned:
+            return False
+        observed_work = [
+            {"task_id": task_id, "state": state, "observed_at": observed_at}
+            for observed_at, task_id, state in owned
+        ]
+        inflight = [row for row in owned if row[2] in _SUBAGENT_INFLIGHT_STATES]
+        terminal = [row for row in owned if row[2] in _SUBAGENT_TERMINAL_STATES]
+        if not inflight and len(terminal) != len(owned):
+            from ..core.runtime_incidents import (
+                RuntimeIncidentStore,
+                drain_runtime_incident_events,
+            )
+
+            try:
+                store = RuntimeIncidentStore(rf_state.runtime_root)
+                store.record_unresolved(
+                    detector="running_stall_watchdog",
+                    invariant="owned_subagents_have_known_states",
+                    subject_kind="mission",
+                    subject_id=str(item.id),
+                    severity="error",
+                    observed={
+                        "backlog_status": item.status,
+                        "owned_work": observed_work,
+                    },
+                    reason="owned subagent state is neither in-flight nor terminal",
+                )
+                drain_runtime_incident_events(
+                    rf_state.runtime_root,
+                    rf_state.sink.handle_event,
+                )
+            except Exception:  # noqa: BLE001 - fallback failure remains available
+                log.exception(
+                    "daemon: failed to record unknown subagent state for mission %s",
+                    item.id,
+                )
+            return False
+        _observed_at, task_id, subagent_state = (
+            inflight[0] if inflight else owned[0]
+        )
+        workdir = Path(rf_state.cfg.project_workdir)
+        external_wait = {
+            "kind": "subagent",
+            "work_id": task_id,
+            "workdir": str(workdir),
+        }
+        if inflight:
+            from ..life.mission_outcome import mission_outcome_dimensions
+
+            outcome = mission_outcome_dimensions(
+                status="paused_external_work",
+                success=False,
+                review_status="",
+                stop_kind=None,
+                resumable=True,
+            )
+            outcome["external_wait"] = external_wait
+            rf_state.mem.backlog.update(
+                item.id,
+                status="paused_external_work",
+                started_ts=None,
+                finished_ts=now,
+                running_owner="",
+                last_error=_RUNNING_STALL_ERROR,
+                outcome=outcome,
+            )
+            rf_state.sink.handle_event({
+                "type": "life.mission.completed",
+                "item_id": item.id,
+                "title": item.title,
+                "success": False,
+                "status": "paused_external_work",
+                "recoverable": True,
+                "external_wait": external_wait,
+                "outcome": outcome,
+            })
+            settled = self._backlog_item(rf_state, str(item.id))
+            self._record_runtime_recovery(
+                rf_state,
+                detector="running_stall_watchdog",
+                invariant="running_requires_live_executor",
+                item=item,
+                observed={
+                    "backlog_status": "running",
+                    "executor_alive": False,
+                    "owned_work": observed_work,
+                },
+                action="park_parent_on_owned_external_work",
+                expected_postcondition=(
+                    "parent is paused_external_work and references an in-flight "
+                    "owned subagent"
+                ),
+                recovered=bool(
+                    settled is not None
+                    and settled.status == "paused_external_work"
+                    and isinstance(settled.outcome, dict)
+                    and settled.outcome.get("external_wait", {}).get("work_id")
+                    == task_id
+                ),
+                verification={
+                    "backlog_status": getattr(settled, "status", ""),
+                    "wait_id": (
+                        settled.outcome.get("external_wait", {}).get("work_id")
+                        if settled is not None
+                        and isinstance(settled.outcome, dict)
+                        else ""
+                    ),
+                    "owned_work": observed_work,
+                },
+            )
+            log.warning(
+                "daemon: parked stalled mission %s on owned subagent %s",
+                item.id,
+                task_id,
+            )
+            return True
+        rf_state.mem.backlog.update(
+            item.id,
+            status="pending",
+            attempt=max(1, int(item.attempt or 1)) + 1,
+            started_ts=None,
+            finished_ts=None,
+            running_owner="",
+            last_error=(
+                f"{_RUNNING_STALL_ERROR}; owned subagent {task_id} "
+                f"is already {subagent_state}"
+            ),
+            outcome={"external_wait": external_wait},
+        )
+        settled = self._backlog_item(rf_state, str(item.id))
+        self._record_runtime_recovery(
+            rf_state,
+            detector="running_stall_watchdog",
+            invariant="terminal_subagent_resumes_parent",
+            item=item,
+            observed={
+                "backlog_status": "running",
+                "executor_alive": False,
+                "owned_work": observed_work,
+            },
+            action="requeue_parent_after_owned_work_terminal",
+            expected_postcondition="parent mission is pending and claimable",
+            recovered=bool(settled is not None and settled.status == "pending"),
+            verification={
+                "backlog_status": getattr(settled, "status", ""),
+                "owned_work": observed_work,
+            },
+        )
+        log.warning(
+            "daemon: requeued stalled mission %s after all owned subagents became terminal "
+            "(latest=%s:%s)",
+            item.id,
+            task_id,
+            subagent_state,
+        )
+        return True
+
     def _fail_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
         """Fail durable running claims whose executor thread is no longer alive."""
         from ..core.event_catalog import EventType
@@ -108,11 +405,34 @@ class LifeWorkerRunMixin:
             executor_thread = executor_threads.get(owner)
             if executor_thread is None or executor_thread.is_alive():
                 continue
+            if self._recover_stalled_external_mission(
+                rf_state,
+                item,
+                now=now,
+            ):
+                failed.append(item.id)
+                continue
             if rf_state.mem.backlog.mark_failed(
                 item.id,
                 error=_RUNNING_STALL_ERROR,
             ) is None:
                 continue
+            settled = self._backlog_item(rf_state, str(item.id))
+            self._record_runtime_recovery(
+                rf_state,
+                detector="running_stall_watchdog",
+                invariant="running_requires_live_executor",
+                item=item,
+                observed={
+                    "backlog_status": "running",
+                    "executor_alive": False,
+                    "owned_work": [],
+                },
+                action="fail_parent_without_owned_external_work",
+                expected_postcondition="parent mission is failed",
+                recovered=bool(settled is not None and settled.status == "failed"),
+                verification={"backlog_status": getattr(settled, "status", "")},
+            )
             failed.append(item.id)
             rf_state.sink.handle_event({
                 "type": EventType.LIFE_MISSION_COMPLETED,
@@ -136,7 +456,10 @@ class LifeWorkerRunMixin:
             or "primary"
         )
         self._supervisor_execution_threads[worker_id] = threading.current_thread()
-        return supervisor.run()
+        try:
+            return supervisor.run()
+        finally:
+            self._supervisor_execution_threads.pop(worker_id, None)
 
     def _start_running_stall_watcher(self, rf_state: _RunForeverState) -> None:
         def _watch() -> None:
@@ -157,6 +480,15 @@ class LifeWorkerRunMixin:
         self._running_stall_stop.set()
         if self._running_stall_thread is not None:
             self._running_stall_thread.join(timeout=2.0)
+
+    @staticmethod
+    def _drain_runtime_incidents(rf_state: _RunForeverState) -> int:
+        from ..core.runtime_incidents import drain_runtime_incident_events
+
+        return drain_runtime_incident_events(
+            rf_state.runtime_root,
+            rf_state.sink.handle_event,
+        )
 
     def _deployment_handoff_gate(self) -> str:
         from ..core.runtime_identity import source_root
@@ -332,6 +664,10 @@ class LifeWorkerRunMixin:
             while not self._stop.is_set():
                 if self._deployment_handoff_gate():
                     break
+                try:
+                    self._drain_runtime_incidents(rf_state)
+                except Exception:  # noqa: BLE001 - incidents remain durable for retry
+                    log.exception("daemon: runtime incident delivery remains pending")
                 summary: dict = {}
                 self._supervisor_execution_active.set()
                 try:

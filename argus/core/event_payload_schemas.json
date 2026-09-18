@@ -2009,6 +2009,206 @@
         }
       }
     },
+    "life.runtime.incident.detected": {
+      "version": 1,
+      "required": [
+        "incident_id",
+        "detector",
+        "invariant",
+        "subject_kind",
+        "subject_id",
+        "severity",
+        "status"
+      ],
+      "properties": {
+        "incident_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "detector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "invariant": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "const": "detected"
+        },
+        "occurrence_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recovery_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manager_attention_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "life.runtime.incident.recovered": {
+      "version": 1,
+      "required": [
+        "incident_id",
+        "detector",
+        "invariant",
+        "subject_kind",
+        "subject_id",
+        "severity",
+        "status"
+      ],
+      "properties": {
+        "incident_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "detector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "invariant": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "const": "recovered"
+        },
+        "occurrence_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recovery_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recovery_verified": {
+          "type": "boolean"
+        },
+        "recovery_action": {
+          "type": "string"
+        },
+        "expected_postcondition": {
+          "type": "string"
+        },
+        "verification": {
+          "type": "object"
+        },
+        "manager_attention_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "life.runtime.incident.escalated": {
+      "version": 1,
+      "required": [
+        "incident_id",
+        "detector",
+        "invariant",
+        "subject_kind",
+        "subject_id",
+        "severity",
+        "status",
+        "manager_attention_required"
+      ],
+      "properties": {
+        "incident_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "detector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "invariant": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "const": "escalated"
+        },
+        "occurrence_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recovery_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recovery_verified": {
+          "type": "boolean"
+        },
+        "recovery_action": {
+          "type": "string"
+        },
+        "expected_postcondition": {
+          "type": "string"
+        },
+        "verification": {
+          "type": "object"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "manager_attention_required": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
     "life.planner.task_added": {
       "version": 1,
       "required": [

@@ -9,16 +9,18 @@ from argus.core.vertical_contract import VerticalLibraryContext
 from argus.skills.loop_skill_library import SkillLibraryMixin
 from argus.skills.loop_state import MissionContext
 from argus.skills.vertical_select import reset_stage_for_new_intent
-from argus.team import task_board
+from argus.team import pool, task_board
 from argus.verticals.research.idea_portfolio import (
     SELECTION_POLICY,
     TEAM_ID,
+    _terminal_retry_allowed,
     ensure_idea_portfolio,
     idea_portfolio_completion_issues,
     idea_portfolio_selection,
     portfolio_route_count,
     portfolio_size,
     portfolio_tasks,
+    reconcile_idea_portfolio_campaign,
 )
 from argus.verticals.research.library_preparation import (
     prepare_skill_libraries,
@@ -41,6 +43,29 @@ def _state(root: Path) -> None:
         }),
         encoding="utf-8",
     )
+
+
+def test_terminal_retry_policy_is_bounded_and_reason_aware() -> None:
+    assert _terminal_retry_allowed({"state": "done", "attempts": 1})
+    assert _terminal_retry_allowed({
+        "state": "failed",
+        "attempts": 0,
+        "reason": "healthy subagent is still running",
+    })
+    assert not _terminal_retry_allowed({
+        "state": "failed",
+        "attempts": 0,
+        "reason": "authentication failed",
+    })
+    assert not _terminal_retry_allowed({
+        "state": "failed",
+        "attempts": 2,
+        "reason": "invalid output",
+    })
+    assert not _terminal_retry_allowed({
+        "state": "waiting_external",
+        "attempts": 0,
+    })
 
 
 def _shard(root: Path, owner: str, task: dict) -> str:
@@ -217,6 +242,43 @@ def test_selector_does_not_exist_until_all_route_reviews_finish(
     assert idea_portfolio_selection(tmp_path) is None
 
 
+def test_background_reconciliation_creates_and_materializes_selector(
+    tmp_path: Path,
+) -> None:
+    _state(tmp_path)
+    root = ensure_idea_portfolio(tmp_path, direction="reliable agents")
+    routes = _complete_routes_and_reviews(tmp_path, root)
+    marker = {
+        "team_id": TEAM_ID + "-g1",
+        "team_root": str(root),
+        "cwd": str(tmp_path),
+    }
+
+    reconcile_idea_portfolio_campaign(
+        project_root=tmp_path,
+        state_root=tmp_path,
+        marker=marker,
+    )
+    state = json.loads(
+        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    selector_root = (
+        tmp_path / ".argus" / "teams" / state["idea_portfolio"]["selection_team_id"]
+    )
+    assert len(task_board.snapshot(selector_root)) == 1
+
+    _complete_selector(tmp_path, routes[0])
+    reconcile_idea_portfolio_campaign(
+        project_root=tmp_path,
+        state_root=tmp_path,
+        marker=marker,
+    )
+
+    selected = idea_portfolio_selection(tmp_path)
+    assert selected is not None
+    assert selected["route_id"] == routes[0]["target"]
+
+
 def test_team_local_owner_ids_and_compact_handoff(tmp_path: Path) -> None:
     from argus.life.supervisor._planning_cycle_enqueue import (
         _automatic_stage_target,
@@ -381,6 +443,7 @@ def test_preparation_exposes_the_only_canonical_portfolio_to_engineer(
     assert f".argus/teams/{TEAM_ID}-g1" in prompt_blocks[0]
     assert "only authorized Idea portfolio" in prompt_blocks[0]
     assert "Do not call `team form`" in prompt_blocks[0]
+    assert "Do not launch a shell command or background subagent" in prompt_blocks[0]
 
 
 def test_skill_library_state_includes_vertical_prompt_blocks() -> None:
