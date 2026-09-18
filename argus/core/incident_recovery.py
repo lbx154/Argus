@@ -197,10 +197,19 @@ def _prepare(root: Path, spec: dict):
         if not models or [m["usage_event_id"] for m in models] != evidence["ids"]:
             raise ValueError("provider receipt identities changed")
         for model in models:
+            # A sealed table need not retain the provider's PRIMARY KEY. Never
+            # pick an arbitrary match, even if repeated rows appear identical.
             found = con.execute(
                 "SELECT * FROM assistant_usage_events WHERE id=?", (model["usage_event_id"],)
-            ).fetchone()
-            if found is None or any(model[k] != found[v] for k, v in columns.items()):
+            ).fetchmany(2)
+            if len(found) != 1:
+                raise ValueError("provider receipt cardinality must be exactly one")
+            receipt = found[0]
+            if (
+                type(receipt["id"]) is not int
+                or receipt["id"] != model["usage_event_id"]
+                or any(model[k] != receipt[v] for k, v in columns.items())
+            ):
                 raise ValueError("provider receipt mismatch")
     if (
         known[0]["provider"] != "copilot"
@@ -489,9 +498,16 @@ def _apply_to_copy(root: Path, txid: str, *, expected_manifest_sha256: str, faul
             for name in names:
                 raw = paths.read(name, optional=True)
                 current = digest(raw) if raw is not None else None
-                allowed = {manifest["originals"].get(name)}
-                if marker:
-                    allowed.add(manifest["targets"].get(name))
+                if name in manifest["originals"]:
+                    allowed = {manifest["originals"][name]}
+                elif name == order[2]:
+                    # The validated order explicitly creates the previously
+                    # absent legacy finalizer, never an absent original.
+                    allowed = {None}
+                else:
+                    raise ValueError("unexpected new destination: " + name)
+                if marker and name in manifest["targets"]:
+                    allowed.add(manifest["targets"][name])
                 if current not in allowed:
                     raise ValueError("source changed: " + name)
 

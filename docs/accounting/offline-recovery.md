@@ -46,6 +46,16 @@ Version 1 deliberately supports one narrow shape:
   reservation/start/completion events. Migration preserves it as an explicitly
   unknown blocking obligation, not a completed, free, or zero-cost call.
 
+Each claimed provider ID must identify exactly one SQLite row, with an integer
+ID and all corroborated fields matching. Tables without a uniqueness constraint
+are allowed only when each claimed ID still has exactly one row. Duplicate rows
+for a claimed ID are rejected even when identical; contradictory duplicates are
+never silently selected or deduplicated. The canonical model receipt list and
+spec ID list must agree in order and contain each ID exactly once. Repeated model
+receipts are unsupported here, even if a general usage reader can deduplicate
+them. Multiple distinct receipt IDs are supported, with their total charged once.
+Unclaimed database rows do not establish additional charges or completeness.
+
 The SQLite schema is provider-specific, not a general receipt adapter. Supplying
 bytes and matching hashes proves internal consistency, **not provider authenticity
 or completeness**. The operator must separately verify trustworthy acquisition
@@ -80,7 +90,11 @@ There is no budget reset, pricing-policy change, or new approval.
    pending marker protect the transaction. `read_state()` rejects pending state.
 6. After interruption, use `OfflineRecovery.resume(parent, name,
    resume_token=retained_token)` and the **same reviewed manifest hash**. Each
-   destination must still be its original or projected bytes. A completed replay
+   non-projected original must still have its original digest; each projected
+   original must have its original or projected digest. Missing or changed
+   originals reject before any apply mutation, both initially and while pending.
+   Only the explicitly new finalizer destination may be absent (or, while pending,
+   already projected). A completed replay
    is a no-op and preserves later acknowledgements; a partial transaction never
    overwrites unexpected changes. A crash during preparation has no published
    apply manifest guarantee: preserve that copy and start a new one from sealed
