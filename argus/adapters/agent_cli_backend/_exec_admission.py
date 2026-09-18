@@ -9,9 +9,10 @@
 4. Provider quota permit acquisition (Copilot **or** Codex; mutually
    exclusive).
 
-On any admission failure the function returns ``(None, RunnerResult)`` where
-the result is already fully finalised (secrets redacted, usage record
-persisted if applicable, reservation released, metric emitted).  The caller
+On any admission failure the function returns ``(None, RunnerResult)`` with
+secrets redacted and identity/timing preserved. Ordinary admitted denials use
+accounting finalization; admission exceptions use a non-accounting finalizer
+so damaged evidence is not written.  The caller
 must forward that result immediately; no subprocess must be started.
 
 On success it returns ``(cli_options, None)`` — the caller may proceed to the
@@ -31,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 from ...core.event_catalog import EventType
 from ...core.models import RunnerResult
 from ...core.stop_kinds import normalize_stop_kind, stop_kind_from_external_interrupt
-from ._exec_finalize import finalize_result
+from ._exec_finalize import finalize_result, finalize_without_accounting
 from ._options import _interrupt_reason, resolve_pricing_model
 from ._result import _reservation_denial_stop_kind
 
@@ -46,8 +47,8 @@ def admit(ctx: "_ExecContext") -> tuple[Any, RunnerResult | None]:
 
     Returns ``(cli_options, None)`` when the call is admitted and ready to
     spawn.  Returns ``(None, RunnerResult)`` when the call is denied; the
-    returned result is already finalised (secrets redacted, usage recorded,
-    reservation settled/released).
+    returned result is redacted and stamped; admission exceptions never
+    write accounting, while admitted denials settle/release normally.
     """
     backend = ctx.backend
 
@@ -58,42 +59,37 @@ def admit(ctx: "_ExecContext") -> tuple[Any, RunnerResult | None]:
         None, ctx.options.model, None,
     )[0]
     try:
-        from ...core.cost_control import (
-            cost_control_enabled,
-            reserve_call_budget,
-        )
-
-        if cost_control_enabled():
-            cost_reservation, reserve_reason = reserve_call_budget(
-                call_id=ctx.call_id,
-                project_root=ctx.usage_project_root,
-                mission_id=ctx.usage_mission_id,
-                provider=backend._backend_name,
-                model=reservation_model,
-                run_label=ctx.run_label,
-                global_root=ctx.usage_global_root,
+        from ...core.dispatch_safety import assert_project_dispatch
+        from ._accounting_admission import accounting_admission
+        # Execution permission is checked first and cannot be granted by accounting.
+        assert_project_dispatch(ctx.execution_project_root)
+        admission = accounting_admission(ctx, reservation_model)
+        from ...core.dispatch_admission import AccountingAdmission
+        AccountingAdmission.validate(admission)
+        ctx.accounting_admission = admission
+        cost_reservation, reserve_reason = admission.reservation, admission.reason
+        if admission.allowed is not True:
+            backend._log_agent_io(ctx.log_path, {
+                "type": EventType.BUDGET_RESERVATION_DENIED,
+                "call_id": ctx.call_id,
+                "provider": backend._backend_name,
+                "model": reservation_model,
+                "run_label": ctx.run_label,
+                "reason": reserve_reason,
+            })
+            return None, finalize_result(
+                ctx,
+                RunnerResult(
+                    exit_code=-1,
+                    thread_id=ctx.resume_thread_id,
+                    fatal_error=f"refused before start: {reserve_reason}",
+                    stop_kind=_reservation_denial_stop_kind(reserve_reason),
+                ),
+                status="denied",
+                error=reserve_reason,
             )
-            if cost_reservation is None:
-                backend._log_agent_io(ctx.log_path, {
-                    "type": EventType.BUDGET_RESERVATION_DENIED,
-                    "call_id": ctx.call_id,
-                    "provider": backend._backend_name,
-                    "model": reservation_model,
-                    "run_label": ctx.run_label,
-                    "reason": reserve_reason,
-                })
-                return None, finalize_result(
-                    ctx,
-                    RunnerResult(
-                        exit_code=-1,
-                        thread_id=ctx.resume_thread_id,
-                        fatal_error=f"refused before start: {reserve_reason}",
-                        stop_kind=_reservation_denial_stop_kind(reserve_reason),
-                    ),
-                    status="denied",
-                    error=reserve_reason,
-                )
-            ctx.cost_reservation = cost_reservation
+        ctx.cost_reservation = cost_reservation
+        if cost_reservation is not None and admission.report_budget_events:
             backend._log_agent_io(ctx.log_path, {
                 "type": EventType.BUDGET_RESERVATION_CREATED,
                 "reservation_id": cost_reservation.reservation_id,
@@ -104,26 +100,12 @@ def admit(ctx: "_ExecContext") -> tuple[Any, RunnerResult | None]:
                 "amount_usd": cost_reservation.amount_usd,
             })
     except Exception as exc:  # noqa: BLE001 — fail closed before provider spend
-        reason = f"cost control unavailable: {type(exc).__name__}: {exc}"
-        backend._log_agent_io(ctx.log_path, {
-            "type": EventType.BUDGET_RESERVATION_DENIED,
-            "call_id": ctx.call_id,
-            "provider": backend._backend_name,
-            "model": reservation_model,
-            "run_label": ctx.run_label,
-            "reason": reason,
-        })
-        return None, finalize_result(
-            ctx,
-            RunnerResult(
-                exit_code=-1,
-                thread_id=ctx.resume_thread_id,
-                fatal_error=f"refused before start: {reason}",
-                stop_kind="backend_unavailable",
-            ),
-            status="denied",
-            error=reason,
-        )
+        # No finalizer was admitted: do not append a denial into possibly damaged
+        # accounting evidence. Report the real failure and never start transport.
+        reason = f"dispatch admission unavailable: {type(exc).__name__}: {exc}"
+        return None, finalize_without_accounting(ctx, RunnerResult(
+            exit_code=-1, thread_id=ctx.resume_thread_id,
+            fatal_error=reason, stop_kind="backend_unavailable"))
 
     # ------------------------------------------------------------------ #
     # 2. CLI option translation                                            #

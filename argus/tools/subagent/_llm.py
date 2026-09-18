@@ -12,8 +12,6 @@ from ...core.knobs import (
     resolve_runner_bin_setting,
 )
 from ...core.models import RunnerOptions, RunnerResult
-from ...core.paths import session_state_root
-from ...core.project import project_fingerprint
 from ...core.run_gateway import run_exec as gateway_run_exec
 from ...core.sandbox import engineer_sandbox_mode
 from ._registry import _add_usage_totals
@@ -60,8 +58,9 @@ def resolve_supervisor_reasoning_effort() -> str:
 
 
 def _usage_project_root(cwd: str) -> Path:
-    identity = project_fingerprint(cwd)
-    return session_state_root(identity.fingerprint)
+    from ...core.dispatch_ownership import resolve_dispatch_project
+    return resolve_dispatch_project(project=None, root=None,
+                                    working_dir=cwd, require_project=True)
 
 
 def _run_backend_turn(

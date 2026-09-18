@@ -141,6 +141,9 @@ class AgentCliBackend:
             ``dsh``).
         default_extra_args: appended to every command (after
             ``options.extra_args``). Useful for global ``-c`` flags.
+        require_project: deny standalone calls without a canonical owner.
+            Project-only entry points must enable this; generic setup/doctor
+            calls retain standalone mode only when no ownership evidence exists.
         before_exec: called before each subprocess spawn — used to reset
             auth state etc.
         event_callback: optional ``(stream_name, line) -> None`` callback
@@ -162,6 +165,7 @@ class AgentCliBackend:
         before_exec=None,
         event_callback=None,
         known_secret_values_override: Iterable[str] | None = None,
+        require_project: bool = False,
     ) -> None:
         deps = load_agent_cli_runtime()
         self._deps = deps
@@ -205,6 +209,7 @@ class AgentCliBackend:
         self._auth_failure_detected: bool = False
         self._usage = UsageAccumulator()
         self._repeated_tool_call_guard = _RepeatedToolCallGuard()
+        self._require_project = require_project
         self._usage_context_lock = threading.Lock()
         self._usage_project_root: Path | None = None
         self._usage_global_root: Path | None = None
@@ -268,7 +273,11 @@ class AgentCliBackend:
         global_root: Path | str | None = None,
         mission_id: str | None = None,
     ) -> None:
-        """Set the project/global ledgers and mission owning subsequent calls."""
+        """Bind the canonical owning state root (not workdir or log directory).
+
+        This trusted runtime API also retains explicit legacy state-root support.
+        The execution fence and usage routing share this owner; fork preserves it.
+        """
         with self._usage_context_lock:
             self._usage_project_root = (
                 Path(project_root).expanduser() if project_root is not None else None
@@ -310,6 +319,7 @@ class AgentCliBackend:
             before_exec=self._runner.before_exec,
             event_callback=callback,
             known_secret_values_override=self._known_secret_values_override,
+            require_project=self._require_project,
         )
         project_root, mission_id, global_root = self._usage_context_snapshot()
         backend.set_usage_context(
