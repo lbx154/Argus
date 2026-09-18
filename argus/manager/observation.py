@@ -142,6 +142,7 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     relevant_types = {
         "life.mission.completed", "life.mission.started", "life.mission.failed",
         "life.planner.verdict", "round.review.completed", "life.manager.stage_decision",
+        "life.runtime.incident.escalated",
     }
     relevant = [row for row in events if str(row.get("type") or "") in relevant_types][-8:]
     if event is not None:
@@ -187,7 +188,29 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         diagnostics.append(f"showing {len(selected)} of {len(active)} active tasks")
     # Archived completions remain visible through their canonical event and
     # current projection even when there are no live backlog rows.
-    event_fields = ("event_id", "type", "ts", "item_id", "title", "status", "summary", "reason", "success", "outcome", "agent_layer", "round_index")
+    event_fields = (
+        "event_id",
+        "type",
+        "ts",
+        "item_id",
+        "title",
+        "status",
+        "summary",
+        "reason",
+        "success",
+        "outcome",
+        "agent_layer",
+        "round_index",
+        "incident_id",
+        "detector",
+        "invariant",
+        "subject_kind",
+        "subject_id",
+        "severity",
+        "recovery_action",
+        "verification",
+        "manager_attention_required",
+    )
     event_rows = [{key: row[key] for key in event_fields if key in row} for row in relevant]
     facts: dict[str, Any] = {
         "objective": continuous.objective,

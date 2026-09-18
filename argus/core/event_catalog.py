@@ -170,6 +170,9 @@ class EventType(StrEnum):
     LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED = "life.runtime_failure.circuit_opened"
     LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED = "life.runtime_failure.circuit_blocked"
     LIFE_RUNTIME_FAILURE_CANARY_PASSED = "life.runtime_failure.canary_passed"
+    LIFE_RUNTIME_INCIDENT_DETECTED = "life.runtime.incident.detected"
+    LIFE_RUNTIME_INCIDENT_RECOVERED = "life.runtime.incident.recovered"
+    LIFE_RUNTIME_INCIDENT_ESCALATED = "life.runtime.incident.escalated"
     LIFE_PLAN_REVISION_PROPOSED = "life.plan.revision.proposed"
     LIFE_PLAN_REVISION_REJECTED = "life.plan.revision.rejected"
     LIFE_PLAN_REVISION_COMMITTED = "life.plan.revision.committed"
@@ -321,6 +324,9 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED,
     EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED,
     EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,
+    EventType.LIFE_RUNTIME_INCIDENT_DETECTED,
+    EventType.LIFE_RUNTIME_INCIDENT_RECOVERED,
+    EventType.LIFE_RUNTIME_INCIDENT_ESCALATED,
     EventType.LIFE_PLAN_REVISION_PROPOSED,
     EventType.LIFE_PLAN_REVISION_REJECTED,
     EventType.LIFE_PLAN_REVISION_COMMITTED,

@@ -19,7 +19,7 @@ from argus.manager._session_ops import manager_pipeline_lock
 from argus.manager.directive import load_active_manager_directive
 from argus.manager.observation import observe_project
 from argus.manager.session_context import conversation_backend
-from argus.manager.supervision import supervise, waiting_for_evidence
+from argus.manager.supervision import schedule_supervision, supervise, waiting_for_evidence
 
 
 def project(root, *, question=""):
@@ -65,6 +65,61 @@ class EvidenceBackend:
         child = type(self)()
         child.calls = self.calls
         return child
+
+
+def test_runtime_incident_escalation_is_admitted_for_manager_supervision(
+    tmp_path,
+    monkeypatch,
+):
+    from argus.manager import supervision
+
+    backend = EvidenceBackend()
+    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    key = str(tmp_path.resolve())
+    monkeypatch.setattr(supervision, "_CLOSED", False)
+    monkeypatch.setattr(supervision, "_PENDING", {})
+    monkeypatch.setattr(supervision, "_WORKERS", {})
+    monkeypatch.setattr(supervision, "_STOPPED_ROOTS", set())
+    monkeypatch.setattr(supervision, "_dispatch_pending", lambda: None)
+
+    accepted = schedule_supervision(
+        manager,
+        tmp_path,
+        {
+            "type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED,
+            "event_id": "runtime-incident-1",
+            "incident_id": "incident-1",
+            "invariant": "running_requires_live_executor",
+        },
+    )
+
+    assert accepted is True
+    assert supervision._PENDING[key][2]["incident_id"] == "incident-1"
+
+
+def test_runtime_incident_evidence_remains_visible_to_manager(tmp_path) -> None:
+    project(tmp_path)
+    event = {
+        "type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED,
+        "event_id": "runtime-incident-1",
+        "incident_id": "incident-1",
+        "detector": "running_stall_watchdog",
+        "invariant": "running_requires_live_executor",
+        "subject_kind": "mission",
+        "subject_id": "mission-1",
+        "severity": "error",
+        "status": "escalated",
+        "reason": "recovery postcondition failed",
+        "manager_attention_required": True,
+    }
+    assert JsonlEventSink(None, life_dir=tmp_path).append(event)
+
+    observation = observe_project(tmp_path)
+    recorded = observation.facts["recent_events"][-1]
+
+    assert recorded["incident_id"] == "incident-1"
+    assert recorded["invariant"] == "running_requires_live_executor"
+    assert recorded["manager_attention_required"] is True
 
 
 def test_dialogue_and_restarted_daemon_share_the_persistent_manager_identity(tmp_path, monkeypatch):

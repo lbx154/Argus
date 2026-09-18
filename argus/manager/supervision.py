@@ -551,7 +551,8 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     """Coalesce new evidence with bounded workers and bounded project admission."""
     event_type = event.get("type")
     relevant = event_type in {EventType.LIFE_MISSION_COMPLETED, EventType.LIFE_PLANNER_VERDICT,
-                              EventType.LIFE_DAEMON_DEGRADED}
+                              EventType.LIFE_DAEMON_DEGRADED,
+                              EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}
     relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}
     relevant |= event_type == EventType.LIFE_PHASE_STARTED and event.get("agent_layer") == "engineer" and int(event.get("round_index") or 0) > 1
     if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):

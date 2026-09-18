@@ -406,6 +406,50 @@ def _settle_direct_process_group(
     return {"orphan_process_group_id": group, "process_group_cleanup_succeeded": True}
 
 
+def _record_process_group_cleanup(
+    *,
+    task_id: str,
+    task_data: dict[str, Any],
+    group_cleanup: dict[str, Any],
+) -> None:
+    if not group_cleanup:
+        return
+    life_dir = str(task_data.get("owner_session_root") or "").strip()
+    if not life_dir:
+        return
+    try:
+        from ...core.runtime_incidents import RuntimeIncidentStore
+
+        store = RuntimeIncidentStore(life_dir)
+        incident = store.detect(
+            detector="subagent_process_group",
+            invariant="command_exit_requires_process_group_exit",
+            subject_kind="subagent",
+            subject_id=task_id,
+            severity="error",
+            observed={
+                "run_id": task_data.get("run_id"),
+                "process_group_id": group_cleanup.get("orphan_process_group_id"),
+                "command_exit_code": task_data.get("exit_code"),
+            },
+        )
+        store.begin_recovery(
+            incident["incident_id"],
+            action="terminate_owned_process_group",
+            expected_postcondition="owned process group is no longer running",
+        )
+        store.verify_recovery(
+            incident["incident_id"],
+            recovered=bool(group_cleanup.get("process_group_cleanup_succeeded")),
+            evidence=group_cleanup,
+        )
+    except Exception:  # noqa: BLE001 - command settlement remains authoritative
+        log.exception(
+            "subagent %s: failed to record process-group cleanup incident",
+            task_id,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Direct execution entry point
 # ---------------------------------------------------------------------------
@@ -579,6 +623,11 @@ def _run_direct(
                 "The remaining owned processes were stopped; preserve partial "
                 "outputs and use a command that waits for all of its work."
             )
+        _record_process_group_cleanup(
+            task_id=task_id,
+            task_data={**submitted_task, **td},
+            group_cleanup=group_cleanup,
+        )
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
         _alert_engineer(task_id, "COMPLETED" if td["state"] == "done" else "FAILED", td)

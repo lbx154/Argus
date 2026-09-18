@@ -319,6 +319,81 @@ class Curator:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
+    def _incident_store(self):
+        if self.conversation_root is None:
+            return None
+        from ..core.runtime_incidents import RuntimeIncidentStore
+
+        return RuntimeIncidentStore(self.conversation_root)
+
+    def _record_recovery(
+        self,
+        *,
+        invariant: str,
+        subject_id: str,
+        observed: dict[str, Any],
+        action: str,
+        expected_postcondition: str,
+        recovered: bool,
+        verification: dict[str, Any],
+    ) -> None:
+        try:
+            store = self._incident_store()
+            if store is None:
+                return
+            incident = store.detect(
+                detector="team_curator",
+                invariant=invariant,
+                subject_kind="team_task",
+                subject_id=subject_id,
+                severity="error",
+                observed=observed,
+            )
+            store.begin_recovery(
+                incident["incident_id"],
+                action=action,
+                expected_postcondition=expected_postcondition,
+            )
+            store.verify_recovery(
+                incident["incident_id"],
+                recovered=recovered,
+                evidence=verification,
+            )
+        except Exception:  # noqa: BLE001 - Team recovery remains authoritative
+            log.exception(
+                "curator: failed to record recovery incident for task %s",
+                subject_id,
+            )
+
+    def _record_unresolved(
+        self,
+        *,
+        invariant: str,
+        subject_id: str,
+        observed: dict[str, Any],
+        reason: str,
+        escalation_after: int = 1,
+    ) -> None:
+        try:
+            store = self._incident_store()
+            if store is None:
+                return
+            store.record_unresolved(
+                detector="team_curator",
+                invariant=invariant,
+                subject_kind="team_campaign",
+                subject_id=subject_id,
+                severity="error",
+                observed=observed,
+                reason=reason,
+                escalation_after=escalation_after,
+            )
+        except Exception:  # noqa: BLE001 - other campaigns must still advance
+            log.exception(
+                "curator: failed to record unresolved campaign incident %s",
+                subject_id,
+            )
+
     # ---- spawning a tracked child --------------------------------------
     def _default_make_proc(self, root: Path, member_id: str, task_id: str,
                            cwd: Path) -> Any:
@@ -468,6 +543,33 @@ class Curator:
         now = self._now() if now is None else now
         live = self.live_owner_ids(root)
         reassigned = task_board.reassign_stale(root, ttl=ttl, now=now, live_owners=live)
+        if reassigned:
+            snapshot = {
+                str(task.get("task_id") or ""): task
+                for task in task_board.snapshot(root)
+            }
+            for task_id in reassigned:
+                task = snapshot.get(task_id, {})
+                self._record_recovery(
+                    invariant="team_task_requires_live_owner",
+                    subject_id=task_id,
+                    observed={
+                        "team_root": str(root),
+                        "prior_state": "claimed_or_running",
+                        "owner_alive": False,
+                    },
+                    action="reassign_stale_team_task",
+                    expected_postcondition="team task is pending without an owner",
+                    recovered=bool(
+                        task.get("state") == "pending"
+                        and not str(task.get("owner") or "")
+                    ),
+                    verification={
+                        "state": task.get("state"),
+                        "owner": task.get("owner"),
+                        "attempts": task.get("attempts"),
+                    },
+                )
         in_flight = task_board.count_in_flight(root)
         occupied = max(in_flight, len(live))
         free = max(0, int(width) - occupied)
@@ -559,7 +661,22 @@ class Curator:
                 continue
             deadline = tt.hard_deadline()
             if deadline is not None and now >= deadline:
-                if not self._terminate(tt):
+                terminated = self._terminate(tt)
+                if not terminated:
+                    self._record_recovery(
+                        invariant="timed_out_teammate_must_exit",
+                        subject_id=tt.task_id,
+                        observed={
+                            "team_root": str(tt.root),
+                            "member_id": tt.member_id,
+                            "pid": getattr(tt.proc, "pid", 0),
+                            "deadline": deadline,
+                        },
+                        action="terminate_timed_out_teammate",
+                        expected_postcondition="teammate process is not alive",
+                        recovered=False,
+                        verification={"process_alive": tt.alive()},
+                    )
                     log.error(
                         "curator: timed-out teammate %s remained alive after termination",
                         tt.member_id,
@@ -568,6 +685,35 @@ class Curator:
                 with contextlib.suppress(Exception):
                     task_board.fail(tt.root, tt.task_id, reason="curator hard-timeout")
                     roster.set_member_status(tt.root, tt.member_id, "failed")
+                task = next(
+                    (
+                        row
+                        for row in task_board.snapshot(tt.root)
+                        if row.get("task_id") == tt.task_id
+                    ),
+                    {},
+                )
+                self._record_recovery(
+                    invariant="timed_out_teammate_must_exit",
+                    subject_id=tt.task_id,
+                    observed={
+                        "team_root": str(tt.root),
+                        "member_id": tt.member_id,
+                        "pid": getattr(tt.proc, "pid", 0),
+                        "deadline": deadline,
+                    },
+                    action="terminate_timed_out_teammate_and_fail_task",
+                    expected_postcondition=(
+                        "teammate process is not alive and task is failed"
+                    ),
+                    recovered=bool(
+                        not tt.alive() and task.get("state") == "failed"
+                    ),
+                    verification={
+                        "process_alive": tt.alive(),
+                        "task_state": task.get("state"),
+                    },
+                )
                 del self._children[key]
                 hard_killed.append(tt.member_id)
         return {"dropped": dropped, "hard_killed": hard_killed}
@@ -596,6 +742,13 @@ class Curator:
                     spawn_budget=spawn_budget,
                 )
             except Exception:  # noqa: BLE001 — one campaign must not sink the tick
+                self._record_unresolved(
+                    invariant="team_campaign_tick_must_complete",
+                    subject_id=str((marker or {}).get("team_id") or "?"),
+                    observed={"marker": dict(marker or {})},
+                    reason="Curator campaign tick raised before reconciliation completed",
+                    escalation_after=2,
+                )
                 log.exception("curator: tick failed for campaign %s; skipping it "
                               "this tick", (marker or {}).get("team_id", "?"))
 
@@ -616,7 +769,10 @@ class Curator:
         root = Path(marker["team_root"])
         cwd = Path(marker.get("cwd") or root)
         self._adopt_orphans(root, now=now)  # reclaim prior-daemon teammates first
-        task_board.resume_finished_external_waits(root, default_workdir=cwd)
+        task_board.resume_finished_external_waits(
+            root,
+            default_workdir=cwd,
+        )
         if self._campaign_reconcile_fn is not None:
             self._campaign_reconcile_fn(marker)
         self._maybe_fold(root)

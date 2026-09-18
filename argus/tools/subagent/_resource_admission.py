@@ -1,6 +1,7 @@
 """Resource-ledger mechanics at the subagent command-launch boundary."""
 from __future__ import annotations
 
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from typing import Any, Mapping
 
 from ..resource_ledger.ledger import ResourceLedger, owner_identity
 
+log = logging.getLogger(__name__)
+
 # Renewed leases bound crash cleanup; they never bound a live job's duration.
 _DIRECT_TTL_SECONDS = 120.0
 _SUPERVISED_TTL_SECONDS = 1800.0
@@ -16,6 +19,8 @@ _SUPERVISED_TTL_SECONDS = 1800.0
 
 @dataclass
 class ResourceLease:
+    task_id: str
+    incident_root: str
     ledger: ResourceLedger
     grant_id: str
     demand: dict[str, Any]
@@ -38,6 +43,28 @@ class ResourceLease:
         if renewed is None:
             return False
         self.record = renewed
+        if self.incident_root:
+            try:
+                from ...core.runtime_incidents import RuntimeIncidentStore
+
+                RuntimeIncidentStore(self.incident_root).recover_if_present(
+                    detector="resource_lease",
+                    invariant="live_worker_renews_resource_grant",
+                    subject_kind="subagent",
+                    subject_id=self.task_id,
+                    action="renew_resource_grant",
+                    expected_postcondition="resource grant renewal succeeds",
+                    evidence={
+                        "grant_id": self.grant_id,
+                        "renewed": True,
+                        "expires_at": renewed.get("expires_at"),
+                    },
+                )
+            except Exception:  # noqa: BLE001 - lease renewal remains authoritative
+                log.exception(
+                    "subagent %s: failed to close resource renewal incident",
+                    self.task_id,
+                )
         return True
 
     def release(self) -> None:
@@ -102,7 +129,15 @@ def acquire_for_task(
             task.pop("resource_wait", None)
             task.pop("resource_queue_id", None)
             _write_task(task_id, task)
-            return ResourceLease(ledger, request_id, demand, owner, admitted)
+            return ResourceLease(
+                task_id=task_id,
+                incident_root=str(task.get("owner_session_root") or ""),
+                ledger=ledger,
+                grant_id=request_id,
+                demand=demand,
+                owner=owner,
+                record=admitted,
+            )
         poll_after = float(result.get("poll_after_seconds") or 5.0)
         holders = [
             {
@@ -154,6 +189,31 @@ def record_renewal_failure(task_id: str, lease: ResourceLease) -> None:
     if str(task.get("resource_grant_id") or "") == lease.grant_id:
         task["resource_warning"] = "resource grant renewal failed; ledger facts may be stale"
         _write_task(task_id, task)
+        life_dir = str(task.get("owner_session_root") or lease.incident_root or "").strip()
+        if life_dir:
+            try:
+                from ...core.runtime_incidents import RuntimeIncidentStore
+
+                RuntimeIncidentStore(life_dir).record_unresolved(
+                    detector="resource_lease",
+                    invariant="live_worker_renews_resource_grant",
+                    subject_kind="subagent",
+                    subject_id=task_id,
+                    severity="error",
+                    observed={
+                        "grant_id": lease.grant_id,
+                        "worker_pid": task.get("worker_pid"),
+                        "state": task.get("state"),
+                        "resource_warning": task["resource_warning"],
+                    },
+                    reason="resource grant renewal failed while the worker remained active",
+                    escalation_after=3,
+                )
+            except Exception:  # noqa: BLE001 - registry warning remains authoritative
+                log.exception(
+                    "subagent %s: failed to record resource renewal incident",
+                    task_id,
+                )
 
 
 def yield_facts_for_task(task_id: str) -> list[dict[str, Any]]:

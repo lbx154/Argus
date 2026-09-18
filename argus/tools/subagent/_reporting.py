@@ -546,6 +546,39 @@ def _record_report_delivery_failure(
             task_id,
             expected_run_id,
         )
+    life_dir = str(
+        persisted.get("owner_session_root")
+        or task_data.get("owner_session_root")
+        or ""
+    ).strip()
+    if life_dir:
+        try:
+            from ...core.runtime_incidents import RuntimeIncidentStore
+
+            RuntimeIncidentStore(life_dir).record_unresolved(
+                detector="subagent_report_delivery",
+                invariant="terminal_subagent_report_is_durable",
+                subject_kind="subagent",
+                subject_id=task_id,
+                severity="error",
+                observed={
+                    "event": event,
+                    "run_id": expected_run_id,
+                    "owner_mission_id": str(
+                        persisted.get("owner_mission_id")
+                        or task_data.get("owner_mission_id")
+                        or ""
+                    ),
+                    "report_delivery": "failed",
+                    "error": fields["report_delivery_error"],
+                },
+                reason="terminal subagent report did not reach the project inbox",
+            )
+        except Exception:  # noqa: BLE001 - the durable task record remains primary
+            log.exception(
+                "subagent %s: runtime incident recording failed after report loss",
+                task_id,
+            )
 
 
 def _alert_engineer(task_id: str, event: str, task_data: dict[str, Any]) -> str:

@@ -1140,6 +1140,52 @@ def test_daemon_requeues_running_item_when_owned_subagent_finished(
     assert events == []
 
 
+def test_daemon_keeps_parent_parked_when_any_owned_subagent_is_active(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    registry = project / ".argus_subagents"
+    registry.mkdir(parents=True)
+    memory = LifeMemory.open(tmp_path)
+    memory.init()
+    item = BacklogItem.new(title="stalled", objective="collect both results")
+    memory.backlog.add(item)
+    memory.backlog.mark_running(item.id)
+    (registry / "finished.json").write_text(json.dumps({
+        "task_id": "finished",
+        "state": "done",
+        "owner_mission_id": item.id,
+        "completed_at": time.time(),
+    }), encoding="utf-8")
+    (registry / "active.json").write_text(json.dumps({
+        "task_id": "active",
+        "state": "running",
+        "owner_mission_id": item.id,
+        "submitted_at": time.time() - 10,
+    }), encoding="utf-8")
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        project_workdir=project,
+    ))
+    dead_executor = threading.Thread(target=lambda: None)
+    dead_executor.start()
+    dead_executor.join()
+    worker._supervisor_execution_threads = {"primary": dead_executor}
+    state = SimpleNamespace(
+        cfg=worker.config,
+        mem=memory,
+        runtime_root=tmp_path,
+        sink=SimpleNamespace(handle_event=lambda _event: None),
+    )
+
+    assert worker._fail_stalled_running_items(state) == [item.id]
+
+    stored = next(row for row in memory.backlog.active() if row.id == item.id)
+    assert stored.status == "paused_external_work"
+    assert stored.outcome["external_wait"]["work_id"] == "active"
+
+
 def test_daemon_parks_running_item_on_owned_active_subagent(
     tmp_path: Path,
 ) -> None:

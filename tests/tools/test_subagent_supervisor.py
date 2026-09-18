@@ -127,7 +127,12 @@ def test_legacy_hashed_registry_record_is_read_and_migrated(
 
     assert _registry._registry_path(task_id).exists()
     assert not legacy.exists()
-    assert _registry._list_tasks() == [{"task_id": task_id, "status": "done"}]
+    assert _registry._list_tasks() == [{
+        "task_id": task_id,
+        "status": "done",
+        "owner_team_task_id": "",
+        "owner_mission_id": "",
+    }]
 
     legacy_only_id = "~legacy"
     legacy_only = _registry.REGISTRY_DIR / f"{legacy_only_id}.json"
