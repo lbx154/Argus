@@ -7,7 +7,9 @@ records what it encoded, and exports PDF + PNG the manuscript can use.
 """
 from __future__ import annotations
 
+import gc
 import json
+import weakref
 from pathlib import Path
 
 import pytest
@@ -156,3 +158,72 @@ def test_shared_y_panels_keep_the_taller_limit_and_the_legend_follows_drawing_or
     written = pc.save(fig, tmp_path / "paper" / "figures" / "shared", project_root=tmp_path)
     panels = json.loads(Path(written["facts"]).read_text(encoding="utf-8"))["panels"]
     assert all(p["axis_from_zero"] is True for p in panels)
+
+
+@pytest.fixture
+def isolated_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Keep the implementation's registry type, but isolate lifecycle assertions
+    # from unsaved figures created by other tests. Do not mock IDs or collection.
+    monkeypatch.setattr(pc, "_FACTS", type(pc._FACTS)())
+
+
+def test_collected_unsaved_figure_releases_metadata(isolated_facts: None) -> None:
+    fig, ax = pc.dots({"Old": (16, 96), "Ours": (2, 91)}, ours="Ours", two_column=True)
+    ref = weakref.ref(fig)
+    assert len(pc._FACTS) == 1
+    matplotlib.pyplot.close(fig)
+    del fig, ax
+    gc.collect()
+
+    assert ref() is None, "metadata must not keep an unsaved figure alive"
+    assert len(pc._FACTS) == 0, "collected figure metadata must not survive for ID reuse"
+
+
+def test_closed_live_figure_keeps_metadata_until_saved(tmp_path: Path, isolated_facts: None) -> None:
+    fig, ax = pc.bars(["a"], {"Baseline": [1], "Ours": [2]}, ours="Ours", two_column=True)
+    matplotlib.pyplot.close(fig)
+    gc.collect()
+    assert len(pc._FACTS) == 1
+    pc.finish(fig)
+    assert [t.get_text() for t in fig.legends[0].get_texts()] == ["Baseline", "Ours"]
+
+    _paper(tmp_path)
+    written = pc.save(fig, tmp_path / "paper" / "figures" / "closed", project_root=tmp_path)
+    panels = json.loads(Path(written["facts"]).read_text(encoding="utf-8"))["panels"]
+    assert len(panels) == 1 and panels[0]["kind"] == "bars"
+    assert [s["name"] for s in panels[0]["series"]] == ["Baseline", "Ours"]
+    assert panels[0]["legend"] == "above"
+    assert len(pc._FACTS) == 0  # save still consumes metadata even while fig/ax live
+    assert ax.figure is fig
+
+
+def test_figure_metadata_stays_separate_across_collection_and_save(tmp_path: Path, isolated_facts: None) -> None:
+    old, old_ax = pc.dots({"Old": (16, 96), "Ours": (2, 91)}, ours="Ours", two_column=True)
+    fig, axes = pc.grid(1, 2, column="double", two_column=True)
+    pc.bars(["4k", "32k"], REPEATS, ours="Ours", ax=axes[0])
+    pc.lines([1, 2], {"Baseline": [1, 2], "Ours": [1, 3]}, ours="Ours", ax=axes[1])
+    survivor, survivor_ax = pc.lines([1, 2], {"Other": [3, 4]}, two_column=True)
+    assert len(pc._FACTS) == 3
+    old_ref = weakref.ref(old)
+    matplotlib.pyplot.close(old)
+    del old, old_ax
+    gc.collect()
+    assert old_ref() is None
+    assert len(pc._FACTS) == 2
+
+    pc.finish(fig)
+    assert [t.get_text() for t in fig.legends[0].get_texts()] == ["Baseline", "Ours"]
+    _paper(tmp_path)
+    written = pc.save(fig, tmp_path / "paper" / "figures" / "new", project_root=tmp_path)
+    panels = json.loads(Path(written["facts"]).read_text(encoding="utf-8"))["panels"]
+    assert [p["kind"] for p in panels] == ["bars", "lines"]
+    assert all([s["name"] for s in p["series"]] == ["Baseline", "Ours"] for p in panels)
+    assert all(p["legend"] == "above" for p in panels)
+    assert len(pc._FACTS) == 1  # saving one figure must not discard another's facts
+
+    written = pc.save(survivor, tmp_path / "paper" / "figures" / "survivor", project_root=tmp_path)
+    panels = json.loads(Path(written["facts"]).read_text(encoding="utf-8"))["panels"]
+    assert len(panels) == 1 and panels[0]["kind"] == "lines"
+    assert [s["name"] for s in panels[0]["series"]] == ["Other"]
+    assert len(pc._FACTS) == 0
+    assert survivor_ax.figure is survivor
