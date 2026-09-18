@@ -48,6 +48,15 @@ it('represents an empty diff without claiming an Agent has finished or changed f
   expect(JSON.stringify(view.toJSON())).toContain('No workspace diff');
   expect(fetch).not.toHaveBeenCalled();
 });
+it('uses a Windows workspace basename without losing the full root or covering tree controls', () => {
+  const path = `D:\\Synthetic\\${'long-parent\\'.repeat(25)}session-A\\`;
+  client.setQueryData(['workspace-profiles', 's-A'], { profiles: [{ id: 'workspace-A', label: 'A', path, canonical: true }], default_id: 'workspace-A' });
+  openGit();
+  const name = view.root.findByProps({ className: 'vscode-root' }).findByType('strong');
+  expect(name.children.join('')).toBe('session-A');
+  expect(name.props.title).toBe(path);
+  expect(fetch).not.toHaveBeenCalled();
+});
 it('keeps the existing non-Git fallback and performs no additional queries', () => {
   openGit({ available: false });
   expect(JSON.stringify(view.toJSON())).toContain('Not a Git repository');
