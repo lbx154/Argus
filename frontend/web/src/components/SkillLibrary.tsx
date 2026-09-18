@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
 import { api, type SkillLibraryItem, type SkillScope } from '../api';
 import { useI18n } from '../i18n';
+import { useSidebarFold } from '../lib/sidebarFold';
 import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
 
@@ -26,23 +27,32 @@ function useSkillLibrary(sid: string | null, enabled = true) {
 }
 
 /** Keep new learning visible beside the project, including shared Skills. */
-export function SkillLibraryEntry({ sid, onOpen, compact = false, visible = true }: {
+export function SkillLibraryEntry({ sid, onOpen, compact = false, visible = true, defaultExpanded = false }: {
   sid: string | null;
   onOpen: (item?: SkillLibraryItem) => void;
   compact?: boolean;
   visible?: boolean;
+  /** Whether the recent-updates list starts open; the operator's fold is remembered afterwards. */
+  defaultExpanded?: boolean;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const names = labels[zh ? 'zh' : 'en'];
+  const [expanded, toggle] = useSidebarFold('skills', defaultExpanded);
   const catalog = useSkillLibrary(sid, visible && !compact);
   const recent = recentSkills(catalog.data?.items ?? []).slice(0, 3);
+  const Chevron = expanded ? ChevronDown : ChevronRight;
   return <section className={`shrink-0 border-t border-line/60 ${compact ? 'py-3' : 'mx-3 py-2'}`}>
-    <button type="button" onClick={() => onOpen()} title={zh ? '技能库' : 'Skill library'} aria-label={zh ? '技能库' : 'Skill library'}
-      className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-ink-dim hover:bg-bg ${compact ? 'justify-center' : ''}`}>
-      <BookOpen className="h-4 w-4 shrink-0" />{!compact && (zh ? '技能库' : 'Skill library')}
-    </button>
-    {!compact && recent.length > 0 && <div className="px-2 pb-1">
+    <div className={`flex items-center ${compact ? 'justify-center' : ''}`}>
+      <button type="button" onClick={() => onOpen()} title={zh ? '技能库' : 'Skill library'} aria-label={zh ? '技能库' : 'Skill library'}
+        className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-sm text-ink-dim hover:bg-bg ${compact ? 'justify-center' : ''}`}>
+        <BookOpen className="h-4 w-4 shrink-0" />{!compact && (zh ? '技能库' : 'Skill library')}
+      </button>
+      {!compact && recent.length > 0 && <button type="button" onClick={toggle} aria-expanded={expanded} data-sidebar-fold="skills"
+        aria-label={zh ? (expanded ? '收起最近更新' : '展开最近更新') : (expanded ? 'Hide recent updates' : 'Show recent updates')}
+        className="rounded p-1.5 text-ink-faint hover:bg-bg hover:text-ink"><Chevron className="h-3.5 w-3.5" /></button>}
+    </div>
+    {!compact && expanded && recent.length > 0 && <div className="px-2 pb-1">
       <p className="mb-1 text-[11px] text-ink-faint">{names.recent}</p>
       {recent.map(item => <button type="button" key={identity(item)} onClick={() => onOpen(item)}
         className="block w-full rounded py-1.5 text-left hover:text-blue" title={item.description || item.name}>

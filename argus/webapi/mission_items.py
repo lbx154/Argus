@@ -360,13 +360,119 @@ def get_doctor(sid: str, *, global_root: Path | str | None = None) -> dict[str, 
     return {"checks": rows, "recommended": recommended, "log_tail": _daemon_log_tail(life_dir)}
 
 
+_MODEL_OPTION_LIMIT = 64
+_MODEL_SEEN_WINDOW_S = 30 * 24 * 3600
+
+
+def _catalog_model_ids() -> list[str]:
+    """Model ids the pi harness knows: PI_CODING_AGENT_DIR/models.json, else the installed harness dir."""
+    import json as _json
+
+    candidates = []
+    configured = os.environ.get("PI_CODING_AGENT_DIR", "").strip()
+    if configured:
+        candidates.append(Path(configured) / "models.json")
+    candidates.append(Path.home() / ".argus-skill" / "argus-pi" / "models.json")
+    candidates.append(Path.home() / ".pi" / "agent" / "models.json")
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+            raw = path.read_bytes()[:262144]
+            providers = _json.loads(raw).get("providers", {})
+        except (OSError, ValueError, AttributeError):
+            continue
+        ids: list[str] = []
+        if isinstance(providers, dict):
+            for config in providers.values():
+                rows = config.get("models") if isinstance(config, dict) else None
+                for row in rows or []:
+                    model = row.get("id") if isinstance(row, dict) else None
+                    if isinstance(model, str) and model and model not in ids:
+                        ids.append(model)
+        if ids:
+            return ids
+    return []
+
+
+def _seen_model_ids(global_root: Path | str | None, *, now: float | None = None) -> dict[str, float]:
+    """Models that answered on this home in the last thirty days, with the newest time each."""
+    import json as _json
+
+    root = _global_root(global_root)
+    since = (now if now is not None else time.time()) - _MODEL_SEEN_WINDOW_S
+    seen: dict[str, float] = {}
+    try:
+        files = sorted((root / "projects").glob("*/usage.jsonl"))
+    except OSError:
+        return seen
+    for path in files[:200]:
+        try:
+            with path.open("rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                start = max(0, size - 200_000)
+                handle.seek(start)
+                tail = handle.read().decode("utf-8", "ignore")
+        except OSError:
+            continue
+        lines = tail.splitlines()
+        if start:
+            lines = lines[1:]  # the first line of a mid-file read is a torn record
+        for line in lines:
+            try:
+                row = _json.loads(line)
+            except ValueError:
+                continue
+            model = str(row.get("model") or "").strip()
+            ts = row.get("completed_at") or row.get("recorded_at") or 0
+            if not model or not isinstance(ts, (int, float)) or ts < since:
+                continue
+            if row.get("error") and not row.get("output_tokens"):
+                continue  # a model that only ever failed is not an option
+            seen[model] = max(seen.get(model, 0.0), float(ts))
+    return seen
+
+
+def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]:
+    """What the quick picker offers instead of a text box.
+
+    The harness catalog first, then models that have actually answered on
+    this home (a catalog can lag the provider: gpt-6-astra answered for weeks
+    before any catalog listed it), then whatever the knobs currently name.
+    Bare model ids only; never provider URLs or credentials.
+    """
+    from ..core.knob_store import read_persisted_knobs
+
+    options: dict[str, dict[str, Any]] = {}
+    for model in _catalog_model_ids():
+        options[model] = {"model": model, "source": "catalog"}
+    for model, ts in sorted(_seen_model_ids(global_root).items(), key=lambda kv: -kv[1]):
+        options.setdefault(model, {"model": model, "source": "seen"})["last_used_at"] = ts
+    try:
+        persisted = read_persisted_knobs()
+    except Exception:  # noqa: BLE001 - a corrupt store still leaves the catalog
+        persisted = {}
+    for knob in ("ARGUS_SKILL_MODEL", *ROLE_MODEL_KNOBS, "ARGUS_SKILL_FIGURE_MODEL"):
+        model = str(os.environ.get(knob) or persisted.get(knob) or "").strip()
+        if model and model.lower() not in {"auto", "inherit", "default"}:
+            options.setdefault(model, {"model": model, "source": "current"})
+    rows = list(options.values())
+    rows.sort(key=lambda row: (-(row.get("last_used_at") or 0.0), row["model"]))
+    return rows[:_MODEL_OPTION_LIMIT]
+
+
 def get_config(
     *,
     project_state_dir: Path | str | None = None,
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Runtime settings snapshot with the host-global USD budget."""
+    """Runtime settings snapshot with the host-global USD budget and the model options."""
     snapshot = build_config_snapshot(env=os.environ)
+    try:
+        snapshot["model_options"] = model_options(global_root)
+    except Exception:  # noqa: BLE001 - the snapshot must never fail on the options
+        snapshot["model_options"] = []
     if project_state_dir is None:
         return snapshot
     from ..core.knobs import resolve_budget_caps

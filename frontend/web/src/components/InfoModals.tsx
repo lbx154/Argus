@@ -204,6 +204,22 @@ export function ConfigModal({
       setQuickConfigBusy(false);
     }
   };
+  const setMapModel = async (model: string) => {
+    if (quickConfigBusy) return;
+    setQuickConfigBusy(true);
+    setQuickConfigMsg('');
+    setQuickConfigError(false);
+    try {
+      await api.setConfig(sid, 'ARGUS_SKILL_MAP_MODEL', model || 'auto');
+      await refreshSettings();
+      setQuickConfigMsg(model && model !== 'auto' ? t('settings.mapModelSet', { model }) : t('settings.mapModelFollows'));
+    } catch (error) {
+      setQuickConfigError(true);
+      setQuickConfigMsg(requestFailureText(error, t).text);
+    } finally {
+      setQuickConfigBusy(false);
+    }
+  };
   const applyModel = async () => {
     if (quickConfigBusy) return;
     setQuickConfigBusy(true);
@@ -304,16 +320,45 @@ export function ConfigModal({
               </label>
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.model')}</span>
-                <input
-                  value={quickModelValue}
-                  onChange={(event) => setQuickModelValue(event.target.value)}
-                  placeholder={t('settings.modelPlaceholder')}
+                <select
+                  value={quickModelValue || 'auto'}
+                  onChange={(event) => setQuickModelValue(event.target.value === 'auto' ? '' : event.target.value)}
+                  aria-label={t('settings.model')}
                   className="h-8 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue"
-                />
+                >
+                  <option value="auto">{t('settings.modelPlaceholder')}</option>
+                  {(() => {
+                    const options = (data.model_options ?? []).map(option => option.model);
+                    const current = quickModelValue.trim();
+                    if (current && current !== 'auto' && !options.includes(current)) options.unshift(current);
+                    return options.map(model => <option key={model} value={model}>{model}</option>);
+                  })()}
+                </select>
                 <button type="button" onClick={() => void applyModel()} disabled={quickConfigBusy} className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40">
                   {t('settings.applyModel')}
                 </button>
               </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.mapModel')}</span>
+                <select
+                  value={data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_MAP_MODEL')?.value || 'auto'}
+                  disabled={quickConfigBusy}
+                  onChange={(event) => void setMapModel(event.target.value)}
+                  aria-label={t('settings.mapModel')}
+                  className="h-8 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue disabled:opacity-40"
+                >
+                  <option value="auto">{t('settings.mapModelFollows')}</option>
+                  {(() => {
+                    const options = (data.model_options ?? []).map(option => option.model);
+                    const current = data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_MAP_MODEL')?.value || '';
+                    if (current && current !== 'auto' && !options.includes(current)) options.unshift(current);
+                    return options.map(model => <option key={model} value={model}>{model}</option>);
+                  })()}
+                </select>
+              </div>
+              {snapshot?.cost_control?.daily_tokens != null && <p className="mt-2 text-[10px] tabular-nums text-ink-faint">
+                {t('settings.tokensUsed', { count: snapshot.cost_control.daily_tokens.toLocaleString() })}
+              </p>}
               {data.roles.some(role => role.model && quickModelValue.trim() && role.model !== quickModelValue.trim()) && (
                 <p className="mt-1.5 text-[10px] text-ink-faint" data-role-models>
                   {t('settings.rolesRunning')}{' '}
@@ -342,10 +387,10 @@ export function ConfigModal({
               </div>
             </section>}
 
-            <MapModelSettings sid={sid} config={data} onSaved={refreshSettings} />
-            <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />
+            {advancedOpen && <MapModelSettings sid={sid} config={data} onSaved={refreshSettings} />}
+            {advancedOpen && <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />}
 
-            <section className="rounded-lg border border-gold/40 bg-gold/5 p-3">
+            {advancedOpen && <section className="rounded-lg border border-gold/40 bg-gold/5 p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-gold">{t('settings.budgetTitle')}</div>
@@ -369,7 +414,7 @@ export function ConfigModal({
                 ))}
               </div>
               {budgetResult ? <div className="mt-2 text-xs text-ink-dim">{budgetResult}</div> : null}
-            </section>
+            </section>}
 
             <section className="overflow-hidden rounded-lg border border-line bg-surface/50">
               <button

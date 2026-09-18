@@ -321,6 +321,8 @@ export interface ConfigSnapshot {
   generated_at_utc: string;
   roles: ConfigRole[];
   operator_knobs: ConfigKnob[];
+  /** Models the quick picker offers: the harness catalog, models that answered here recently, the current knobs. */
+  model_options?: Array<{ model: string; source: 'catalog' | 'seen' | 'current'; last_used_at?: number }>;
   how_to_change: string[];
 }
 export interface AdvisorConfig {

@@ -93,7 +93,7 @@ it("saves review overrides and auto through the existing config API and displays
     expect(select("Explanation review effort").props.value).toBe(value);
     expect(select("Explanation review effort").props.disabled).toBe(false);
     expect(select("Explanation effort").props.value).toBe("medium");
-    expect(renderer!.root.findByType("input").props.value).toBe("summary-model");
+    expect(select("Summary model").props.value).toBe("summary-model");
   }
 
   const writes = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
