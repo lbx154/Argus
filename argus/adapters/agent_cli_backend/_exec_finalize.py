@@ -31,21 +31,9 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def finalize_result(
-    ctx: "_ExecContext",
-    result: RunnerResult,
-    *,
-    status: str,
-    token_usage: TokenUsage | None = None,
-    premium_requests: float | None = None,
-    error: str = "",
-    startup_receipt: dict | None = None,
-) -> RunnerResult:
+def prepare_result(ctx: "_ExecContext", result: RunnerResult) -> RunnerResult:
+    """Redact and stamp identity/time without reading or writing accounting."""
     backend = ctx.backend
-    persisted_error = redact_secrets_text(
-        error or str(result.fatal_error or ""),
-        known_values=backend._known_secret_values,
-    )
     result.fatal_error = redact_secrets_text(
         str(result.fatal_error or ""),
         known_values=backend._known_secret_values,
@@ -72,17 +60,47 @@ def finalize_result(
         for line in result.stderr_lines
     ]
     completed_at = time.time()
-    usage_record = None
     result.call_id = ctx.call_id
-    result.call_id_log_correlated = True
+    result.call_id_log_correlated = bool(ctx.io_mode)
     result.stop_kind = normalize_stop_kind(result.stop_kind)
-    result.thread_id = result.thread_id or ctx.resume_thread_id
+    result.thread_id = (result.thread_id
+                        or getattr(ctx, "bound_provider_session_id", "")
+                        or ctx.resume_thread_id)
     result.started_at = ctx.started_at
     result.completed_at = completed_at
     result.duration_ms = max(
         0,
         int(round((completed_at - ctx.started_at) * 1000)),
     )
+    return result
+
+
+def finalize_without_accounting(ctx: "_ExecContext", result: RunnerResult) -> RunnerResult:
+    """An admission failure must not append to damaged evidence."""
+    try:
+        return prepare_result(ctx, result)
+    finally:
+        ctx.backend._close_io_context(ctx.call_id)
+
+
+def finalize_result(
+    ctx: "_ExecContext",
+    result: RunnerResult,
+    *,
+    status: str,
+    token_usage: TokenUsage | None = None,
+    premium_requests: float | None = None,
+    error: str = "",
+    startup_receipt: dict | None = None,
+) -> RunnerResult:
+    backend = ctx.backend
+    persisted_error = redact_secrets_text(
+        error or str(result.fatal_error or ""),
+        known_values=backend._known_secret_values,
+    )
+    prepare_result(ctx, result)
+    completed_at = result.completed_at
+    usage_record = None
     usage = token_usage or TokenUsage(
         input_tokens=result.input_tokens,
         cached_input_tokens=result.cached_input_tokens,
@@ -175,8 +193,14 @@ def finalize_result(
             result.cost_usd = record.cost_usd
             if appended:
                 backend._log_agent_io(ctx.log_path, usage_recorded_event(record))
-        except Exception:  # noqa: BLE001 — accounting must not break work
+        except Exception:  # never turn persistence failure into work success
             log.exception("failed to persist usage record for %s", ctx.call_id)
+            result.fatal_error = "\n".join(filter(None, [result.fatal_error,
+                "accounting integrity: usage persistence failed"]))
+            result.stop_kind = "backend_unavailable"
+            result.exit_code = -1
+            backend._close_io_context(ctx.call_id)
+            return result
     if ctx.cost_reservation is not None:
         try:
             if status == "denied":
@@ -212,8 +236,12 @@ def finalize_result(
                     "pricing_status": "unknown",
                     "error": reason,
                 })
-        except Exception:  # noqa: BLE001 — metering must not break work
+        except Exception:  # a settlement failure cannot authorize success
             log.exception("failed to settle cost admission for %s", ctx.call_id)
+            result.fatal_error = "\n".join(filter(None, [result.fatal_error,
+                "accounting integrity: settlement failed"]))
+            result.stop_kind = "backend_unavailable"
+            result.exit_code = -1
     if ctx.usage_project_root is not None:
         try:
             record_metric(

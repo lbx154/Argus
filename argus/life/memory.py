@@ -2330,11 +2330,19 @@ class Backlog:
             self._save(items)
             return item
 
+    @staticmethod
+    def _retained_origin_conflict(candidate: BacklogItem, items: list[BacklogItem]) -> bool:
+        aliases = {candidate.id, candidate.node_key} - {""}
+        return any(item.id != candidate.id
+                   and item.status in {"running", "paused_external_work"}
+                   and aliases.intersection({item.id, item.node_key} - {""})
+                   for item in items)
+
     def claim_next(
         self,
         *,
         parallel_only: bool = False,
-        respect_running: bool = False,
+        respect_running: bool = True,
         expected_id: str = "",
         owner: str = "",
     ) -> BacklogItem | None:
@@ -2363,7 +2371,8 @@ class Backlog:
             history = self._dependency_history(items)
             cascaded = self._cascade_blocked(items, history=history)
             done = self._done_ids([*history, *items])
-            ready = [it for it in items if self._is_ready(it, done)]
+            ready = [it for it in items if self._is_ready(it, done)
+                     and not self._retained_origin_conflict(it, items)]
             # An example that reached the backlog before the planner learned to
             # reject it is still sitting there, and a stored item is claimed
             # without being planned again.
@@ -2712,7 +2721,7 @@ class Backlog:
         self,
         *,
         parallel_only: bool = False,
-        respect_running: bool = False,
+        respect_running: bool = True,
     ) -> BacklogItem | None:
         """Head of the *ready* queue (deps all ``done``), or ``None``.
 
@@ -2730,7 +2739,8 @@ class Backlog:
             history = self._dependency_history(items)
             changed = self._cascade_blocked(items, history=history)
             done = self._done_ids([*history, *items])
-            ready = [item for item in items if self._is_ready(item, done)]
+            ready = [item for item in items if self._is_ready(item, done)
+                     and not self._retained_origin_conflict(item, items)]
             if parallel_only or (
                 respect_running
                 and any(

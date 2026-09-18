@@ -58,14 +58,9 @@ class MissionExecutionMixin(
         # head moved between the budget peek and now (concurrent writer
         # or user `/rm`), bail; the next tick will re-evaluate.
         parallel_worker = getattr(self.config, "parallel_worker", False)
-        coordinate_claims = getattr(
-            self.config,
-            "coordinate_parallel_claims",
-            False,
-        )
         claimed = self.memory.backlog.claim_next(
             parallel_only=parallel_worker,
-            respect_running=coordinate_claims,
+            respect_running=True,
             expected_id=item.id,
             owner=str(
                 getattr(self.config, "worker_id", "primary") or "primary"

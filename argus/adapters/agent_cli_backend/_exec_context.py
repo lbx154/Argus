@@ -59,6 +59,8 @@ class _ExecContext:
     # ------------------------------------------------------------------ #
     # Mutable: populated during the admission phase                        #
     # ------------------------------------------------------------------ #
+    execution_project_root: "Path | None" = None
+    accounting_admission: Any = field(default=None)
     cost_reservation: Any = field(default=None)
     copilot_permit: Any = field(default=None)
     codex_permit: Any = field(default=None)

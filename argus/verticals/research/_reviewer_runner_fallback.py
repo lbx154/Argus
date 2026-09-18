@@ -142,7 +142,13 @@ def run_reviewer_prompt_via_runner(
             backend=backend_name,
             runner_bin=runner_bin,
             default_extra_args=extra_args,
+            require_project=True,
         )
+        from ...core.dispatch_ownership import resolve_dispatch_project
+        from ...core.paths import global_root
+        owner = resolve_dispatch_project(project=None, root=global_root(),
+            working_dir=working_dir, require_project=True)
+        backend.set_usage_context(project_root=owner, global_root=global_root())
         result = gateway_run_exec(
             backend,
             prompt=_RUNNER_PREAMBLE + prompt,
