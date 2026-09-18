@@ -420,10 +420,18 @@ def test_modern_missing_usage_is_pending_and_reconciles_late_wal_write(
     assert result.cost_usd is None
     ledger = UsageLedger(project)
 
-    def unexpected_event_scan(_root):
-        pytest.fail("modern ledger thread_id must not require raw event history")
+    # Modern row identities still need validation against durable/completion
+    # history: an existing thread_id must not bypass conflicting evidence.
+    from argus.core import usage as usage_module
 
-    monkeypatch.setattr("argus.core.usage._legacy_call_threads", unexpected_event_scan)
+    original_event_scan = usage_module._legacy_call_threads
+    scanned_roots = []
+
+    def track_event_scan(root):
+        scanned_roots.append(root)
+        return original_event_scan(root)
+
+    monkeypatch.setattr(usage_module, "_legacy_call_threads", track_event_scan)
     if not store_exists:
         # A first invocation with a store that has not appeared yet cannot be
         # declared legacy. Preserve pending status until the late DB arrives.
@@ -457,6 +465,7 @@ def test_modern_missing_usage_is_pending_and_reconciles_late_wal_write(
         assert settled.premium_request_cost_usd == pytest.approx(0.04)
         assert len(settled.model_usage) == 1
         assert ledger.ensure_copilot_usage_reconciled() == 0
+    assert scanned_roots and all(root == project for root in scanned_roots)
 
 
 def test_partial_model_cost_is_not_summed_as_a_complete_charge(tmp_path: Path, monkeypatch) -> None:
