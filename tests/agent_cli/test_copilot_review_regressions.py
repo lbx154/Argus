@@ -76,7 +76,12 @@ def test_probe_uses_dispatch_executable_environment_and_launch_options(monkeypat
         assert kwargs["timeout"] == 10
         from argus.agent_cli._process_control import background_subprocess_kwargs
         for key, value in background_subprocess_kwargs().items():
-            assert kwargs[key] == value
+            if key == "startupinfo":
+                # STARTUPINFO instances have identity, not value equality.
+                assert kwargs[key].dwFlags == value.dwFlags
+                assert kwargs[key].wShowWindow == value.wShowWindow
+            else:
+                assert kwargs[key] == value
         return SimpleNamespace(returncode=0, stdout="  --session-id <id>\n")
 
     monkeypatch.setattr(_copilot_session.subprocess, "run", probe)
