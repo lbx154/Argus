@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { resolve, relative, extname } from 'node:path';
 import { tmpdir } from 'node:os';
+import { knowledgeFixture } from './knowledge-fixture.mjs';
 
 export const FIXTURE_AUTH = 'synthetic-session-fixture';
 export const REPORT_PATH = 'results/report.md';
@@ -101,6 +102,10 @@ export async function startSessionFixture(options = {}) {
       if (method === 'GET' && url.pathname === '/api/skill-library') return json(response, { scopes: [], items: [], verticals: [], active_vertical: '', errors: [] });
       if (method === 'GET' && url.pathname === '/api/plugins') return json(response, { plugins: [] });
       if (method === 'GET' && /^\/api\/map-copy\/dataset\/s-[AB]$/.test(url.pathname)) return json(response, { cards: {}, relations: [], available: false });
+      if (method === 'GET') {
+        const extra = knowledgeFixture(url) || await options.read?.({ url, state, root });
+        if (extra) return json(response, extra.body, extra.status ?? 200);
+      }
       if (!project) {
         state.unexpected.push(trace);
         return json(response, { error: 'Read blocked: outside the synthetic test allowlist' }, 403);

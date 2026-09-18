@@ -297,6 +297,30 @@ test('A2: shell source/origin checks remain intact and legitimate forwarding pre
   await expect.poll(forwarded).toEqual([payload]);
 });
 
+test('Upstream: the knowledge entry opens the real browser, feed, tiers, pages and principles without losing a draft', async ({ page }) => {
+  await open(page, 's-A');
+  await input().fill('Keep while reading knowledge');
+  await frame.locator('[data-wiki-entry]').getByRole('button', { name: /^(Knowledge base|知识库)$/ }).click();
+  const library = frame.locator('[data-wiki-library]');
+  await expect(library).toBeVisible();
+  await library.getByRole('button', { name: 'Reviewed research lesson', exact: true }).click();
+  await expect(library.getByRole('article')).toContainText('Synthetic vertical body for shared readers.');
+  await library.getByRole('button', { name: /^(Principles|原则)/ }).click();
+  await expect(library.getByRole('article')).toContainText('Read evidence before acting.');
+  await library.getByRole('button', { name: /^(Global|全局)/ }).click();
+  await library.getByRole('button', { name: /Shared host reference/ }).click();
+  await expect(library.getByRole('article')).toContainText('Synthetic global body for shared readers.');
+  await library.getByRole('button', { name: /^(Project|项目)/ }).click();
+  await library.getByRole('searchbox').fill('Knowledge s-A');
+  await library.getByRole('button', { name: /Knowledge s-A/ }).click();
+  await expect(library.getByRole('article')).toContainText('Synthetic project body for s-A.');
+  const requested = fixture.state.trace.filter((row: { path: string }) => row.path.startsWith('/api/wiki/page?'));
+  expect(requested.some((row: { path: string }) => new URL(row.path, fixture.origin).searchParams.get('sid') === 's-A')).toBe(true);
+  await frame.getByRole('dialog').getByRole('button', { name: /close|关闭/i }).first().click();
+  await expect(input()).toHaveValue('Keep while reading knowledge');
+  expect(writes()).toEqual([]);
+});
+
 test('A2: non-parent messages, wrong origins and malicious session identities are refused', async ({ page }) => {
   await open(page);
   const cockpit = page.frames().find(candidate => candidate.url().startsWith(fixture.origin))!;
