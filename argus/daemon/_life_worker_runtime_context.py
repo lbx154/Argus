@@ -13,7 +13,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..core import paths as core_paths
 from ..life.supervisor import LifeBudget, LifeSupervisorConfig
@@ -197,7 +197,7 @@ def _build_supervisor_config(
     stop_event: Any,
     init_continuous: bool,
     init_objective: str,
-    continuous_provider: Any,
+    continuous_provider: Callable[[], tuple[bool, str, bool]],
     post_mission_hook: Any,
 ) -> LifeSupervisorConfig:
     from ..apps._runtime import (

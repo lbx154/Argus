@@ -714,7 +714,22 @@ class PlanningContextMixin:
         if provider is None:
             return
         try:
-            enabled, objective, open_ended = provider()
+            supplied = provider()
+            if not isinstance(supplied, tuple) or len(supplied) != 3:
+                raise TypeError(
+                    "continuous config provider must return "
+                    "(enabled, objective, open_ended)"
+                )
+            enabled, objective, open_ended = supplied
+            if not isinstance(enabled, bool) or not isinstance(open_ended, bool):
+                raise TypeError(
+                    "continuous config provider enabled/open_ended values "
+                    "must be bool"
+                )
+            if not isinstance(objective, str):
+                raise TypeError(
+                    "continuous config provider objective must be str"
+                )
             self.config.continuous = enabled
             self.config.open_ended = open_ended
             self.config.final_certification_gate = bool(
@@ -723,7 +738,10 @@ class PlanningContextMixin:
             if objective:
                 self.config.continuous_objective = objective
         except Exception:  # noqa: BLE001
-            log.debug("continuous config provider raised; keeping current values")
+            log.warning(
+                "continuous config provider failed; keeping current values",
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Planner — continuous improvement mode
@@ -1059,6 +1077,11 @@ class PlanningContextMixin:
     def _manager_feedback_signature_for(self, diagnostic: str) -> str:
         if diagnostic == PLANNER_TASKS_FILTERED_DIAGNOSTIC:
             return self._backlog_planning_signature()
+        if diagnostic == "bounded_completion_invariant_failed":
+            return (
+                f"{self._backlog_planning_signature()}:"
+                f"{self._manager_feedback_evidence_signature()}"
+            )
         return self._manager_feedback_evidence_signature()
 
     def _persist_manager_planner_feedback(
@@ -1181,6 +1204,16 @@ class PlanningContextMixin:
                 "The missing invariant is the current stage's certified completion. Describe the "
                 "next executable verification task naturally; the Host will record "
                 "it as stage-closing work requiring independent review."
+            )
+        elif (
+            diagnostic == "bounded_completion_invariant_failed"
+            and "live backlog remains" in str(state.get("reason") or "")
+        ):
+            task_instruction = (
+                "Existing live backlog work still owns completion. Do not create "
+                "duplicate tasks for those rows. Plan only independent work that "
+                "can proceed now, or return a structured wait for the durable "
+                "work already in flight."
             )
         else:
             task_instruction = (

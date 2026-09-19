@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from ...core.ports import EventSink
 from ...core.usage import UsageSummary
@@ -152,7 +152,9 @@ class LifeSupervisorConfig:
     # supervisor calls it each iteration to hot-reload from disk or
     # elsewhere. When ``None``, the static ``continuous`` /
     # ``continuous_objective`` fields are used unchanged.
-    continuous_config_provider: Any = None
+    continuous_config_provider: (
+        Callable[[], tuple[bool, str, bool]] | None
+    ) = None
     # Optional mission-boundary yield signal. A live operator Manager request
     # uses this to make ``run()`` return before the next tick/planner cycle so
     # the host can release its outer pipeline lock and commit configuration.
