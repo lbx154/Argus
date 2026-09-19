@@ -36,7 +36,7 @@ def test_worker_bounded_disables_final_certification_gate(tmp_path: Path):
         stop_event=threading.Event(),
         init_continuous=True,
         init_objective="bounded survey",
-        continuous_provider=lambda: (True, "bounded survey"),
+        continuous_provider=lambda: (True, "bounded survey", False),
         post_mission_hook=lambda: "",
     )
 
@@ -52,7 +52,7 @@ def test_worker_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Pat
         stop_event=threading.Event(),
         init_continuous=True,
         init_objective="open ended paper",
-        continuous_provider=lambda: (True, "open ended paper"),
+        continuous_provider=lambda: (True, "open ended paper", True),
         post_mission_hook=lambda: "",
     )
 
@@ -149,7 +149,7 @@ def test_worker_supervisor_enables_paper_mode_only_after_research_resolution(
         stop_event=threading.Event(),
         init_continuous=True,
         init_objective="paper campaign",
-        continuous_provider=lambda: (True, "paper campaign"),
+        continuous_provider=lambda: (True, "paper campaign", True),
         post_mission_hook=lambda: "",
     )
 

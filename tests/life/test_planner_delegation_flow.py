@@ -514,6 +514,28 @@ def test_continuous_reload_updates_lifetime_and_final_gate() -> None:
     assert harness.config.final_certification_gate is True
 
 
+def test_continuous_reload_rejects_malformed_provider_tuple(caplog) -> None:
+    from argus.life.supervisor._planning_context import PlanningContextMixin
+
+    class Harness(PlanningContextMixin):
+        config = SimpleNamespace(
+            continuous=True,
+            continuous_objective="current",
+            open_ended=False,
+            paper_mission=False,
+            final_certification_gate=False,
+            continuous_config_provider=lambda: (False, ""),
+        )
+
+    harness = Harness()
+    harness._reload_continuous_config()
+
+    assert harness.config.continuous is True
+    assert harness.config.continuous_objective == "current"
+    assert harness.config.open_ended is False
+    assert "must return (enabled, objective, open_ended)" in caplog.text
+
+
 def test_task_policy_uses_isolated_stage_and_execution_evidence_root(
     tmp_path: Path,
 ) -> None:

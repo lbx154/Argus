@@ -41,6 +41,54 @@ from ._planning_cycle_helpers import (
 class PlanningCycleCompletionMixin:
     """Waiting handling + project_done normalization + no-tasks rejection."""
 
+    def _bounded_completion_issue(
+        self,
+        *,
+        certificate_verified: bool = False,
+    ) -> str:
+        """Return why a finite campaign cannot complete authoritatively."""
+        backlog = getattr(self.memory, "backlog", None)
+        active = getattr(backlog, "active", None)
+        live_items = list(active()) if callable(active) else []
+        if live_items:
+            preview = ", ".join(
+                f"{item.id}:{item.status}" for item in live_items[:5]
+            )
+            return f"live backlog remains ({preview})"
+        artifact_root = self._artifact_root()
+        from ...core.external_completion_gate import external_completion_gate_issue
+        from ...skills.vertical_select import (
+            resolve_vertical,
+            resolve_workflow_mode,
+            vertical_completion_certificate_status,
+        )
+
+        vertical = resolve_vertical(artifact_root)
+        if not certificate_verified:
+            certificate = vertical_completion_certificate_status(
+                artifact_root,
+                vertical,
+            )
+            if not certificate.get("ok"):
+                return str(
+                    certificate.get("reason")
+                    or "completion certificate is not current"
+                )
+        external_issue = external_completion_gate_issue(artifact_root)
+        if external_issue:
+            return external_issue
+        research_issue = (
+            _research_project_done_issue(
+                artifact_root,
+                self.memory.journal.all(),
+                current_signature=self._final_submission_signature(),
+                evidence_root=self._project_workdir(),
+            )
+            if resolve_workflow_mode(artifact_root) != "direct"
+            else ""
+        )
+        return research_issue
+
     def _pc_is_certified_operator_wait(self, state: _PlanCycleState) -> bool:
         """Recognize an actual Planner handoff, never infer handling from a cert."""
         verdict = state.verdict
@@ -703,6 +751,15 @@ class PlanningCycleCompletionMixin:
                     return paused
                 self._emit_status(reason)
                 return PLAN_RETRY
+            if not self.config.open_ended:
+                bounded_issue = self._bounded_completion_issue(
+                    certificate_verified=True,
+                )
+                if bounded_issue:
+                    return reject_completion(
+                        f"Bounded project completion held: {bounded_issue}.",
+                        "bounded_completion_invariant_failed",
+                    )
             if certified_increment:
                 if state.certified_operator_wait:
                     self._deactivate_planner_waiting_contract()

@@ -258,6 +258,7 @@ def test_completion_uses_separate_execution_workdir(
         "venue_review": _accepted_venue_review(),
         "venue_review_snapshot": paper_review_snapshot(project),
     })
+    supervisor.memory.backlog.mark_done(item.id)
     assert supervisor._journal_has_final_certification() is True
     supervisor.config.final_certification_gate = False
     if completion_path == "bounded":
@@ -266,8 +267,8 @@ def test_completion_uses_separate_execution_workdir(
         supervisor.config.open_ended = False
         monkeypatch.setattr(
             vertical_select,
-            "vertical_has_current_completion_certificate",
-            lambda *_args: True,
+            "vertical_completion_certificate_status",
+            lambda *_args: {"ok": True},
         )
 
     def certification_consumed() -> bool:

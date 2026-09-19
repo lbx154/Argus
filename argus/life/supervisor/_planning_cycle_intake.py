@@ -172,31 +172,12 @@ class PlanningCycleIntakeMixin:
         if (
             getattr(self.config, "open_ended", False)
             or self._effective_final_certification_gate(artifact_root)
+            or self._bounded_completion_issue()
         ):
             return ""
-
-        from ...core.external_completion_gate import external_completion_gate_issue
-        from ...skills.vertical_select import (
-            resolve_vertical,
-            resolve_workflow_mode,
-            vertical_has_current_completion_certificate,
-        )
+        from ...skills.vertical_select import resolve_vertical
 
         vertical = resolve_vertical(artifact_root)
-        if not vertical_has_current_completion_certificate(artifact_root, vertical):
-            return ""
-        if external_completion_gate_issue(artifact_root):
-            return ""
-        if (
-            resolve_workflow_mode(artifact_root) != "direct"
-            and _research_project_done_issue(
-                artifact_root,
-                self.memory.journal.all(),
-                current_signature=self._final_submission_signature(),
-                evidence_root=self._project_workdir(),
-            )
-        ):
-            return ""
         return f"bounded {vertical} vertical has a current completion certificate"
 
     def _pc_intake_gate(self, state: _PlanCycleState) -> Any | None:

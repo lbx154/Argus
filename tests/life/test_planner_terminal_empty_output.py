@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -27,7 +28,7 @@ from argus.life.supervisor._constants import (
 )
 from argus.life.supervisor._core import LifeSupervisor
 from argus.manager import Manager
-from argus.planner import NO_CONCRETE_TASKS_ERROR
+from argus.planner import NO_CONCRETE_TASKS_ERROR, PlannerVerdict
 
 
 class _RecordingSink:
@@ -396,6 +397,53 @@ def test_bounded_completed_campaign_stops_before_planner_cycle(
     )
 
 
+def test_bounded_completion_waits_for_live_backlog(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, _backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=True,
+    )
+    supervisor.config.open_ended = False
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Await external verification",
+            objective="Wait for the durable result before completing.",
+        )
+    )
+    supervisor.memory.backlog.update(
+        item.id,
+        status="paused_external_work",
+        outcome={
+            "external_wait": {
+                "kind": "subagent",
+                "work_id": "verification-1",
+                "workdir": str(tmp_path),
+            }
+        },
+    )
+
+    assert supervisor._bounded_completion_reason() == ""
+
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    state = _PlanCycleState(None)
+    state.verdict = PlannerVerdict(
+        project_done=True,
+        waiting=False,
+        new_tasks=[],
+        reason="The visible artifact looks complete.",
+    )
+    assert supervisor._pc_normalize_project_done(state) == PLAN_RETRY
+    assert any(
+        event.get("diagnostic") == "bounded_completion_invariant_failed"
+        and "live backlog remains" in str(event.get("reason") or "")
+        for event in sink.events
+    )
+
+
 def test_direct_research_can_complete_its_bounded_deliverable(
     tmp_path: Path,
     monkeypatch,
@@ -416,6 +464,20 @@ def test_direct_research_can_complete_its_bounded_deliverable(
         research_target_level="exploratory",
         workflow_mode="direct",
     )
+    objective = "Complete the reviewed direct research deliverable."
+    handoff = {
+        "version": 3,
+        "objective_sha256": hashlib.sha256(objective.encode("utf-8")).hexdigest(),
+        "vertical": "research",
+        "domain": "",
+        "continuous_generation": 1,
+        "intent_id": "intent-current",
+        "recorded_at": time.time(),
+    }
+    (project / "manager-handoff.json").write_text(
+        json.dumps(handoff),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(
         stage_machine,
         "_ensure_stage_completion",
@@ -430,6 +492,22 @@ def test_direct_research_can_complete_its_bounded_deliverable(
         (project / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
     assert state["stages"]["idea"]["status"] == "done"
+    assert state["stages"]["idea"]["completion_intent_id"] == "intent-current"
+    assert (
+        state["stages"]["idea"]["completion_objective_sha256"]
+        == handoff["objective_sha256"]
+    )
+    from argus.skills.vertical_select import vertical_completion_certificate_status
+
+    assert vertical_completion_certificate_status(project, "research")["ok"] is True
+    handoff["intent_id"] = "intent-replacement"
+    (project / "manager-handoff.json").write_text(
+        json.dumps(handoff),
+        encoding="utf-8",
+    )
+    status = vertical_completion_certificate_status(project, "research")
+    assert status["ok"] is False
+    assert status["reason"] == "completion belongs to a different Manager intent"
     assert backend.planner_calls == 0
 
 
