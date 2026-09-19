@@ -206,6 +206,7 @@ class UsageSummary:
 def _copilot_usage_needs_reconciliation(row: dict[str, Any]) -> bool:
     return (
         str(row.get("provider") or "").strip().lower() == "copilot"
+        and "provider_session_identity_conflict" not in str(row.get("error") or "")
         and str(row.get("status") or "").lower() != "denied"
         and str(row.get("pricing_status") or "").lower() != "not_billed"
         and (
@@ -636,15 +637,15 @@ class UsageLedger:
         updated = 0
         with self._locked():
             rows = _read_usage_json_rows(self.path)
-            # Current records already carry the session id. Reading the entire
-            # raw event history is only necessary for older records without it.
-            call_threads = (
+            # A row's own identity does not override conflicting durable or
+            # completion evidence. Isolate conflicts without blocking siblings.
+            call_threads, conflicting_calls = (
                 _legacy_call_threads(self.project_root)
                 if any(
-                    _copilot_usage_needs_reconciliation(row) and not row.get("thread_id")
+                    _copilot_usage_needs_reconciliation(row)
                     for row in rows
                 )
-                else {}
+                else ({}, set())
             )
             not_billed: dict[str, Any] = {
                 "input_tokens": None,
@@ -681,9 +682,17 @@ class UsageLedger:
                 if not _copilot_usage_needs_reconciliation(row):
                     continue
                 call_id = str(row.get("call_id") or "")
+                row_session = _optional_text(row.get("thread_id"))
+                history_session = call_threads.get(call_id)
+                if call_id in conflicting_calls or (
+                    row_session and history_session and row_session != history_session
+                ):
+                    # Keep the original unknown liability; never fall back to
+                    # an unscoped time-window lookup for conflicting evidence.
+                    continue
                 completed_at = _float(row.get("completed_at"), 0.0)
                 started_at = _float(row.get("started_at"), completed_at)
-                session_id = _optional_text(row.get("thread_id")) or call_threads.get(call_id)
+                session_id = row_session or history_session
                 found = find_copilot_usage_near(
                     completed_at=completed_at,
                     started_at=started_at,
@@ -1393,8 +1402,21 @@ def _exclusive_file_lock(path: Path) -> Iterator[None]:
             os.close(fd)
 
 
-def _legacy_call_threads(project_root: Path) -> dict[str, str]:
+def _legacy_call_threads(project_root: Path) -> tuple[dict[str, str], set[str]]:
+    from .provider_sessions import read_bindings
+
     out: dict[str, str] = {}
+    conflicts: set[str] = set()
+
+    def observe(call_id: str, thread_id: str) -> None:
+        if call_id in out and out[call_id] != thread_id:
+            conflicts.add(call_id)
+        else:
+            out[call_id] = thread_id
+
+    for decision in read_bindings(project_root)["decisions"]:
+        if decision["kind"] == "dispatch":
+            observe(decision["call_id"], decision["session_id"])
     for event_path in (
         project_root / "events.jsonl",
         project_root / ".argus" / "events.jsonl",
@@ -1415,8 +1437,8 @@ def _legacy_call_threads(project_root: Path) -> dict[str, str]:
                     call_id = str(row.get("call_id") or "")
                     thread_id = str(row.get("thread_id") or "")
                     if call_id and thread_id:
-                        out[call_id] = thread_id
-    return out
+                        observe(call_id, thread_id)
+    return {call_id: identity for call_id, identity in out.items() if call_id not in conflicts}, conflicts
 
 
 def _copilot_reconcile_enabled_for(project_root: Path) -> bool:

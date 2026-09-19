@@ -67,3 +67,5 @@ class _ExecContext:
     event_permit: Any = field(default=None)
     copilot_token_billing_expected: bool = False
     copilot_usage_cursor: Any = None
+
+    bound_provider_session_id: str | None = None

@@ -122,6 +122,8 @@ class _StreamState:
 class RunExecMixin:
     """Owns the public ``run_exec`` entry point and its private phases."""
 
+    backend: str  # Initialized by AgentCliRunner; matches PromptDeliveryMixin.
+
     def run_exec(
         self,
         *,
@@ -160,10 +162,21 @@ class RunExecMixin:
             )
             if acp_result is not None:
                 return acp_result
+        bound_thread_id = resume_thread_id
+        if self.backend == BACKEND_COPILOT:
+            from ._copilot_session import prepare_session
+
+            options, bound_thread_id = prepare_session(self, options, resume_thread_id)
+            if options._bind_provider_session is not None:
+                gated = self._run_exec_start_gate(resume_thread_id=resume_thread_id, options=options)
+                if gated is not None:
+                    return gated
+                options._bind_provider_session(bound_thread_id, bool(resume_thread_id))
         command, process, spawn_failure, prompt_path = self._spawn_turn_process(
             prompt=prompt, resume_thread_id=resume_thread_id, options=options
         )
         if spawn_failure is not None:
+            spawn_failure.thread_id = bound_thread_id
             return spawn_failure
         try:
             state = self._stream_turn_output(
@@ -171,7 +184,7 @@ class RunExecMixin:
                 command=command,
                 options=options,
                 run_label=run_label,
-                thread_id=resume_thread_id,
+                thread_id=bound_thread_id,
             )
             return self._finalize_turn_result(
                 process=process, command=command, options=options, state=state

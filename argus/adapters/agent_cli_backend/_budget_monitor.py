@@ -44,6 +44,8 @@ class LiveBudgetMonitor:
             return
         if not isinstance(event, dict):
             return
+        if getattr(getattr(self.ctx, "backend", None), "_is_copilot", False) and event.get("agentId"):
+            return
         if (getattr(getattr(self.ctx, "backend", None), "_backend_name", "") == "pi"
                 and event.get("type") == "message_end"):
             # Pi emits usage once on message_end; turn_end/agent_end repeat
@@ -78,6 +80,10 @@ class LiveBudgetMonitor:
         else:
             return
         if isinstance(session, str) and session.strip():
+            bound = getattr(self.ctx, "bound_provider_session_id", None) or self.ctx.resume_thread_id
+            if bound and session.strip() != bound:
+                self.reason = "unresolved provider cost: provider_session_identity_conflict"
+                return
             self.session_id = session.strip()
             self.next_check = 0.0
 
@@ -95,6 +101,7 @@ class LiveBudgetMonitor:
             self._roll_day()
             observed, tokens = self.pi_cost, self.pi_tokens
             cursor = getattr(self.ctx, "copilot_usage_cursor", None)
+            self.session_id = getattr(self.ctx, "bound_provider_session_id", None) or self.session_id
             if self.ctx.backend._is_copilot and cursor is not None and self.session_id:
                 usage = read_copilot_usage_since(cursor, session_id=self.session_id, timeout=0)
                 if usage is not None:

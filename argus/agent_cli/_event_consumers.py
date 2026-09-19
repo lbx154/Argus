@@ -545,12 +545,16 @@ class EventConsumerMixin:
                         fatal_error = maybe_msg.strip()
             return thread_id, turn_completed, turn_failed, fatal_error
 
+        if event_type in {"session.start", "result"}:
+            reported = (data.get("sessionId") if event_type == "session.start"
+                        and isinstance(data, dict) else event.get("sessionId"))
+            if isinstance(reported, str) and reported.strip():
+                if thread_id and reported != thread_id:
+                    return thread_id, False, True, "provider_session_identity_conflict"
+                thread_id = reported
+
         if event_type != "result":
             return thread_id, turn_completed, turn_failed, fatal_error
-
-        session_id = event.get("sessionId")
-        if isinstance(session_id, str) and session_id.strip():
-            thread_id = session_id
 
         exit_code = event.get("exitCode")
         if type(exit_code) is int and exit_code == 0:

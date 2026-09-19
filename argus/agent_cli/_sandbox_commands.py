@@ -604,6 +604,8 @@ class CommandBuilderMixin:
             command.extend(merged_extra_args)
         if resume_thread_id:
             command.extend(["--resume", resume_thread_id])
+        elif getattr(options, "_provider_session_id", None):
+            command.extend(["--session-id", options._provider_session_id])
         # Copilot CLI (@github/copilot) reads the prompt from STDIN when no
         # ``-p/--prompt <text>`` argv is given (non-interactive because stdin is
         # not a TTY). We deliberately DO NOT pass the prompt via argv: a large

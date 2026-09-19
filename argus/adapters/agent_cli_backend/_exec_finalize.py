@@ -76,13 +76,23 @@ def finalize_result(
     result.call_id = ctx.call_id
     result.call_id_log_correlated = True
     result.stop_kind = normalize_stop_kind(result.stop_kind)
-    result.thread_id = result.thread_id or ctx.resume_thread_id
+    result.thread_id = result.thread_id or ctx.bound_provider_session_id or ctx.resume_thread_id
     result.started_at = ctx.started_at
     result.completed_at = completed_at
     result.duration_ms = max(
         0,
         int(round((completed_at - ctx.started_at) * 1000)),
     )
+    if (status == "error" and ctx.bound_provider_session_id and not result.model_usage
+            and "provider_session_identity_conflict" not in persisted_error):
+        from ...provider_integrations.copilot_usage import read_copilot_usage_since
+
+        observed = read_copilot_usage_since(ctx.copilot_usage_cursor,
+                                            session_id=ctx.bound_provider_session_id)
+        if observed is not None:
+            result.model_usage = list(observed.model_usage)
+            result.total_nano_aiu = observed.total_nano_aiu
+            result.usage_model = observed.model
     usage = token_usage or TokenUsage(
         input_tokens=result.input_tokens,
         cached_input_tokens=result.cached_input_tokens,
