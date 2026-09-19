@@ -442,6 +442,20 @@ def test_bounded_completion_waits_for_live_backlog(
         and "live backlog remains" in str(event.get("reason") or "")
         for event in sink.events
     )
+    feedback = supervisor._load_manager_planner_feedback()
+    assert feedback is not None
+    assert "live backlog remains" in str(feedback["reason"])
+    assert "Do not create duplicate tasks" in (
+        supervisor._manager_planner_feedback_runtime_note()
+    )
+    rejected_signature = str(feedback["evidence_signature"])
+
+    supervisor.memory.backlog.mark_done(item.id)
+
+    assert supervisor._manager_feedback_signature_for(
+        "bounded_completion_invariant_failed"
+    ) != rejected_signature
+    assert supervisor._bounded_completion_reason()
 
 
 def test_direct_research_can_complete_its_bounded_deliverable(
