@@ -11,15 +11,16 @@
  *      larger and lets it say more; it does not blow the same words up into a
  *      billboard, and zooming out drops detail instead of shrinking it to fur.
  *
- * `--map-zoom` is written by useSemanticCamera on the canvas wrapper;
+ * `--map-zoom-step` is written by useSemanticCamera on the canvas wrapper
+ * (the zoom in quarter-octave steps, see zoomStep.ts);
  * `--summary-scale` by MacroTaskNode on each summary. */
 
-/* Declared on the wrapper that carries `--map-zoom`: a custom property that
+/* Declared on the wrapper that carries `--map-zoom-step`: a custom property that
  * quotes another is resolved where it is declared, so one level further out
  * these would freeze at the fallback. */
 .map-canvas-wrap {
   /* One canvas unit in screen pixels, and its inverse for screen-sized chrome. */
-  --z: var(--map-zoom, 0.24);
+  --z: var(--map-zoom-step, 0.24);
   --px: calc(1px / var(--z));
   --map-card-shadow:
     0 calc(1 * var(--px)) calc(2 * var(--px)) rgb(30 48 72 / 0.05),
@@ -414,9 +415,11 @@
 
 /* ── Paper and atmosphere ───────────────────────────────────────────────── */
 
-/* The grain of the sheet: fractal noise, multiplied in at a few percent. It
- * is felt more than seen, and keeps large empty areas from reading as flat
- * screen colour. */
+/* The grain of the sheet: fractal noise laid over the paper at a few percent.
+ * It is felt more than seen, and keeps large empty areas from reading as flat
+ * screen colour. The specks carry their own colour and alpha (dark on paper,
+ * pale on the night sheet) and are composited plainly: a blend mode here made
+ * the browser re-blend the whole canvas on every frame of a pan or zoom. */
 .argus-map .map-canvas-wrap::before {
   content: "";
   position: absolute;
@@ -424,47 +427,46 @@
   z-index: 0;
   pointer-events: none;
   opacity: 0.5;
-  mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n' x='0' y='0' width='100%' height='100%'><feTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.31  0 0 0 0 0.24  0 0 0 0.09 0'/></filter><rect width='240' height='240' filter='url(%23n)'/></svg>");
 }
 [data-theme="dark"] .argus-map .map-canvas-wrap::before {
-  mix-blend-mode: screen;
-  opacity: 0.35;
+  opacity: 0.4;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n' x='0' y='0' width='100%' height='100%'><feTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.84  0 0 0 0 0.82  0 0 0 0 0.76  0 0 0 0.07 0'/></filter><rect width='240' height='240' filter='url(%23n)'/></svg>");
 }
 /* Washes of diluted ink drift where coloured light used to: mist between
- * hills, not a gradient mesh. One carries a breath of indigo, one of ochre. */
-.argus-map .map-ambient i {
-  filter: blur(36px);
-}
+ * hills, not a gradient mesh. One carries a breath of indigo, one of ochre.
+ * Their softness is in the gradient's own long falloff. A blur filter on a
+ * layer this large, which also drifts, was re-blurred on every frame and cost
+ * more than everything else on the map together. */
 .argus-map .map-ambient i:nth-child(1) {
   left: -14%;
   top: -30%;
   width: 66%;
   height: 78%;
-  background: radial-gradient(ellipse 60% 50% at 46% 54%, rgb(52 58 66 / 0.13), rgb(52 58 66 / 0.04) 52%, transparent 70%);
+  background: radial-gradient(ellipse 64% 54% at 46% 54%, rgb(52 58 66 / 0.12), rgb(52 58 66 / 0.075) 26%, rgb(52 58 66 / 0.03) 52%, rgb(52 58 66 / 0.008) 70%, transparent 82%);
 }
 .argus-map .map-ambient i:nth-child(2) {
   right: -18%;
   bottom: -34%;
   width: 70%;
   height: 80%;
-  background: radial-gradient(ellipse 58% 46% at 52% 46%, rgb(48 66 84 / 0.12), rgb(48 66 84 / 0.035) 54%, transparent 72%);
+  background: radial-gradient(ellipse 62% 50% at 52% 46%, rgb(48 66 84 / 0.11), rgb(48 66 84 / 0.07) 26%, rgb(48 66 84 / 0.028) 54%, rgb(48 66 84 / 0.007) 72%, transparent 84%);
 }
 .argus-map .map-ambient i:nth-child(3) {
   left: 30%;
   top: 34%;
   width: 46%;
   height: 50%;
-  background: radial-gradient(ellipse 56% 44% at 50% 50%, rgb(120 92 58 / 0.07), transparent 68%);
+  background: radial-gradient(ellipse 60% 48% at 50% 50%, rgb(120 92 58 / 0.065), rgb(120 92 58 / 0.03) 38%, rgb(120 92 58 / 0.008) 64%, transparent 80%);
 }
 [data-theme="dark"] .argus-map .map-ambient i:nth-child(1) {
-  background: radial-gradient(ellipse 60% 50% at 46% 54%, rgb(190 198 208 / 0.08), rgb(190 198 208 / 0.02) 52%, transparent 70%);
+  background: radial-gradient(ellipse 64% 54% at 46% 54%, rgb(190 198 208 / 0.075), rgb(190 198 208 / 0.045) 26%, rgb(190 198 208 / 0.016) 52%, rgb(190 198 208 / 0.004) 70%, transparent 82%);
 }
 [data-theme="dark"] .argus-map .map-ambient i:nth-child(2) {
-  background: radial-gradient(ellipse 58% 46% at 52% 46%, rgb(104 142 178 / 0.1), rgb(104 142 178 / 0.025) 54%, transparent 72%);
+  background: radial-gradient(ellipse 62% 50% at 52% 46%, rgb(104 142 178 / 0.095), rgb(104 142 178 / 0.058) 26%, rgb(104 142 178 / 0.02) 54%, rgb(104 142 178 / 0.005) 72%, transparent 84%);
 }
 [data-theme="dark"] .argus-map .map-ambient i:nth-child(3) {
-  background: radial-gradient(ellipse 56% 44% at 50% 50%, rgb(176 142 96 / 0.06), transparent 68%);
+  background: radial-gradient(ellipse 60% 48% at 50% 50%, rgb(176 142 96 / 0.055), rgb(176 142 96 / 0.026) 38%, rgb(176 142 96 / 0.007) 64%, transparent 80%);
 }
 /* Far hills at the foot of the sheet, three ridges in thinning ink. They sit
  * under everything and stay with the viewport, so they never compete with
@@ -480,10 +482,12 @@
   background: center bottom / 100% 100% no-repeat
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 420' preserveAspectRatio='none'><defs><filter id='b'><feGaussianBlur stdDeviation='5'/></filter><linearGradient id='f' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23343a42' stop-opacity='1'/><stop offset='1' stop-color='%23343a42' stop-opacity='0'/></linearGradient></defs><g filter='url(%23b)'><path fill='url(%23f)' opacity='0.05' d='M0 250 C120 190 210 150 330 176 C430 198 470 118 590 96 C700 76 770 168 880 176 C1000 184 1060 96 1180 84 C1300 72 1390 170 1480 186 C1540 196 1580 176 1600 170 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.075' d='M0 310 C90 270 170 226 280 240 C380 252 430 300 540 292 C660 284 720 196 850 190 C960 186 1010 262 1120 270 C1240 278 1300 218 1410 214 C1500 210 1560 250 1600 262 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.11' d='M0 366 C110 340 190 318 300 330 C420 344 500 372 620 360 C740 348 800 300 920 304 C1040 308 1110 356 1230 352 C1350 348 1420 316 1510 322 C1560 326 1590 338 1600 342 L1600 420 L0 420 Z'/></g></svg>");
 }
+/* On the night sheet the same ridges are drawn in pale ink. Inverting and
+ * screening the day drawing gave the same picture at the price of a filter
+ * and a blend over the full width of the canvas. */
 [data-theme="dark"] .argus-map .map-ambient::after {
-  opacity: 0.9;
-  filter: invert(1) brightness(1.6);
-  mix-blend-mode: screen;
+  opacity: 0.8;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 420' preserveAspectRatio='none'><defs><filter id='b'><feGaussianBlur stdDeviation='5'/></filter><linearGradient id='f' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23d3d7dd' stop-opacity='1'/><stop offset='1' stop-color='%23d3d7dd' stop-opacity='0'/></linearGradient></defs><g filter='url(%23b)'><path fill='url(%23f)' opacity='0.05' d='M0 250 C120 190 210 150 330 176 C430 198 470 118 590 96 C700 76 770 168 880 176 C1000 184 1060 96 1180 84 C1300 72 1390 170 1480 186 C1540 196 1580 176 1600 170 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.075' d='M0 310 C90 270 170 226 280 240 C380 252 430 300 540 292 C660 284 720 196 850 190 C960 186 1010 262 1120 270 C1240 278 1300 218 1410 214 C1500 210 1560 250 1600 262 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.11' d='M0 366 C110 340 190 318 300 330 C420 344 500 372 620 360 C740 348 800 300 920 304 C1040 308 1110 356 1230 352 C1350 348 1420 316 1510 322 C1560 326 1590 338 1600 342 L1600 420 L0 420 Z'/></g></svg>");
 }
 .argus-map .react-flow__background {
   opacity: clamp(0.2, calc(var(--z) * 1.8), 0.7);
@@ -670,6 +674,14 @@
   backdrop-filter: saturate(1.5) blur(18px);
   border-color: rgb(var(--ink) / 0.08);
 }
+/* While the map moves the glass is plain paper (useSemanticCamera sets
+ * `data-moving`): what is behind a frosted panel changes on every frame of a
+ * pan or zoom, and re-blurring it each time is what a reader feels as drag. */
+.argus-map .map-canvas-wrap[data-moving="true"] :is(.map-canvas-toolbar button, .map-canvas-toolbar label, .map-legend, .react-flow__controls, .react-flow__minimap) {
+  background-color: color-mix(in srgb, var(--map-paper) 94%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .argus-map .map-legend b {
   border-top-color: var(--map-edge-context);
 }
@@ -767,10 +779,12 @@
   box-shadow:
     inset 0 0 0 1px rgb(var(--ink) / 0.1),
     0 1px 2px rgb(40 34 24 / 0.06);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  /* Nearly opaque paper, and no backdrop blur: a label travels with the map,
+   * and a blur behind every one of them was redone on each frame of a zoom. */
 }
-.argus-map .map-relation-label[data-kind="context"] {
+/* A line that only names its kind speaks up when a task it touches is pointed
+ * at, and then in a lower voice than a line that says what it carries. */
+.argus-map .map-relation-label[data-kind="context"][data-quiet="true"] {
   font-family: inherit;
   font-size: 10.5px;
   font-weight: 500;

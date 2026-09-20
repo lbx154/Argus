@@ -50,15 +50,17 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, type Dataset } from "./model";
+import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, type Dataset } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
+import { ZoomStepContext } from "./zoomStep";
 import { groupNotesByNode } from "./notes";
 import "./notes.css";
 import { BranchNode, BRANCH_FRAME, GROUP_FRAME, type BranchFlowNode } from "./BranchNode";
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
+import { useMapLines } from "./useMapLines";
 import { useSelectedFoundation } from '../research-brief/foundation';
 import { MapComposer, type MapComposerProps } from "./MapComposer";
 import { referenceText, type CardReference } from "./presentation";
@@ -240,9 +242,16 @@ export function MapCanvas({
     retry: readOnly ? undefined : retryCopy, retryDisabled: copyGenerating,
   } : undefined, [readingRequest, readingEvidence, readingNeedsUpdate, copyGenerating, readingGenerating, generationPhase,
     copyGenerationError, copyGenerationUnavailable, readOnly, retryCopy, foundationRequired]);
-  const links = useMemo(
-    () => connectMap(graph, copy?.relations || [], zh),
+  // The lines are drawn first and annotated after: a note says what an
+  // existing line carries, so asking for notes cannot move the map.
+  const unstated = useMemo(
+    () => unstatedPairs(connectMap(graph, copy?.relations || [], zh)),
     [graph, copy?.relations, zh],
+  );
+  const lineNotes = useMapLines(data, unstated, zh, !readOnly && !data.history_loading, sessionId, paused);
+  const links = useMemo(
+    () => connectMap(graph, copy?.relations || [], zh, lineNotes),
+    [graph, copy?.relations, zh, lineNotes],
   );
   const sceneCache = useRef<ReturnType<typeof layoutScene> | undefined>(savedView.current.scene);
   // Before the canvas is measured the window stands in for it, so a phone
@@ -864,6 +873,11 @@ export function MapCanvas({
             lit: lit.edges.has(e.id),
             lane: lanes[index],
             muted,
+            // A line whose only label would be the name of its kind ("same
+            // study", "dependency") says that with its stroke and the key. The
+            // words come forward when the reader points at either task; a map
+            // of ten tasks is not annotated with the same two words nine times.
+            quiet: !e.stated && (e.kind === "context" || (e.kind === "dependency" && !e.label)),
           },
           className: `map-edge-${e.kind}${lit.edges.has(e.id) ? " is-lit" : ""}`,
           // Fan edges carry no label: the pill itself names the branch.
@@ -1091,6 +1105,7 @@ export function MapCanvas({
     </div>
   );
   return (
+    <ZoomStepContext.Provider value={camera.zoomSteps}>
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
       {copy?.generation_error && <div role="status" className="map-paused-label">
@@ -1589,6 +1604,7 @@ export function MapCanvas({
       </Modal>
     </MapArtifactContext.Provider>
     </MapNotesContext.Provider>
+    </ZoomStepContext.Provider>
   );
 }
 

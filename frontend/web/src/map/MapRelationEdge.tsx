@@ -2,7 +2,6 @@ import { GrowthReveal } from './GrowthReveal';
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  useStore,
   useStoreApi,
   type Edge,
   type EdgeProps,
@@ -11,9 +10,10 @@ import { useId } from "react";
 import { brushStroke } from "./brush";
 import { pointAlong } from "./relationGeometry";
 import { relationLabelText, relationLayout } from "./relationLabels";
+import { useSteppedZoom } from "./zoomStep";
 import "./edges.css";
 
-type RelationEdge = Edge<{ lane: number; growthDelay?: number; active?: boolean; muted?: boolean; lit?: boolean }, "relation">;
+type RelationEdge = Edge<{ lane: number; growthDelay?: number; active?: boolean; muted?: boolean; lit?: boolean; quiet?: boolean }, "relation">;
 
 /** MapPanel paints a cyclic reference directly on the stroke; that warning
  * outranks the kind hues resolved from edges.css. */
@@ -21,10 +21,10 @@ const CYCLE_STROKE = "#dc6648";
 
 /** Curves follow their ports; label type stays readable at overview scale. */
 export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEdge>) {
-  // Zoom only drives screen-constant sizing here. Bucketing it means a zoom
-  // gesture re-renders every edge at step boundaries (≤4% size drift between
-  // steps, absorbed by the canvas transform) instead of on every frame.
-  const zoom = useStore((s) => Math.round(s.transform[2] * 24) / 24 || s.transform[2]);
+  // Zoom only drives screen-constant sizing here, so an edge reads the step
+  // the camera holds, like the cards: a gesture scales the strokes and labels
+  // with the rest of the picture, and they are redrawn when it rests.
+  const zoom = useSteppedZoom((step) => step);
   const uid = useId().replace(/:/g, "");
   const arrow = `relation-arrow-${uid}`;
   const flow = `relation-flow-${uid}`;
@@ -168,9 +168,11 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
             className="map-relation-label nodrag nopan"
             data-kind={kind}
             data-lit={!!data?.lit}
+            data-quiet={!!data?.quiet}
             title={text}
             style={{
-              opacity: style?.opacity,
+              opacity: data?.quiet && !data.lit ? 0 : style?.opacity,
+              pointerEvents: data?.quiet && !data.lit ? "none" : undefined,
               transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px) scale(${1 / zoom})`,
             }}
           >

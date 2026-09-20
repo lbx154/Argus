@@ -152,10 +152,11 @@ function placeLabels(
   zoom: number,
 ) {
   const occupied: Box[] = [...boxes];
-  // A label that states a relation (a dependency, related work, a changed
-  // plan) claims its place before one that only says two tasks share a study:
-  // when space runs out it is the generic one that goes.
-  const stated = (e: { id: string }) => (value.kinds.get(e.id) === "context" ? 1 : 0);
+  // A label that states a relation (what one task hands the next, related
+  // work, a changed plan) claims its place before one that only names the
+  // kind of line and is shown on hover (`quiet`, set by MapPanel): when space
+  // runs out it is the generic one that goes.
+  const stated = (e: { id: string; data?: Record<string, unknown> }) => (e.data?.quiet ? 1 : 0);
   for (const e of [...edges].sort((a, b) => stated(a) - stated(b))) {
     const route = value.routes.get(e.id);
     if (!route || !e.label) continue;

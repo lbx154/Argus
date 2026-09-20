@@ -1,5 +1,5 @@
 import { createContext, memo, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Handle, Position, useStore, type Node, type NodeProps } from "@xyflow/react";
+import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
   Check,
   ChevronLeft,
@@ -29,6 +29,7 @@ import {
   type MapCard,
   MAP_FRAME,
 } from "./submap";
+import { useSteppedZoom } from "./zoomStep";
 import { SubmapEdges } from "./SubmapEdges";
 import { LiveLine } from "./LiveLine";
 import { arrivalDelay } from "./alive";
@@ -174,14 +175,15 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
   const { artifacts, onOpenArtifact } = useContext(MapArtifactContext);
   const cardNotes = useContext(MapNotesContext).notes[task.id] ?? [];
-  // Only density thresholds trigger React work; continuous zoom typography is CSS.
+  // Only density thresholds trigger React work; zoom typography is CSS. Both
+  // read the step the camera holds, so what a card says and the size it says
+  // it at change together, when the map rests, and not during a gesture.
   // One tier for the whole view, read from the zoom alone: cards of different
   // widths then say the same amount at a given zoom instead of three looking
   // like headed cards and the fourth like a blank tile. Stacked cards on a
   // narrow canvas are the one narrower family.
   const stacked = !!currentLayout.stacked;
-  const overview = useStore((state) => {
-    const zoom = state.transform[2];
+  const overview = useSteppedZoom((zoom) => {
     const width = zoom * (stacked ? 900 : MAP_FRAME.width);
     const tier = width < 130 ? 'micro' : width < 300 ? 'compact' : 'full';
     // What this card has room for on screen, in whole lines, so nothing is

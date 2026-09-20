@@ -53,7 +53,7 @@
 .macro-reader-body table { font-size: .85em; }
 
 /* At overview scale show fewer details instead of shrinking everything to illegible text. */
-.macro-summary { --overview-type: calc(1 / var(--map-zoom, .24) / var(--summary-scale, 1)); }
+.macro-summary { --overview-type: calc(1 / var(--map-zoom-step, .24) / var(--summary-scale, 1)); }
 .map-macro:not([data-overview-density=full]) .map-card { display: flex; flex-direction: column; min-height: 0; height: var(--summary-height); justify-content: center; overflow: hidden; }
 .map-macro[data-overview-density=micro] .map-card-copy { display: none; }
 .map-macro[data-overview-density=compact] .map-card-copy { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: max(11px, calc(9px * var(--overview-type))); line-height: 1.55; margin-bottom: 8px; flex: 0 1 auto; min-height: 0; mask-image: linear-gradient(to bottom, #000 calc(100% - 0.9em), transparent); }

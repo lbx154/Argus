@@ -30,6 +30,18 @@ class MapCopyIn(BaseModel):
     foundation_id: str | None = Field(default=None, min_length=1, max_length=80)
 
 
+class MapLinePairIn(BaseModel):
+    source: str = Field(min_length=1, max_length=200)
+    target: str = Field(min_length=1, max_length=200)
+
+
+class MapLinesIn(BaseModel):
+    pairs: list[MapLinePairIn] = Field(min_length=1, max_length=48)
+    locale: Literal["zh-CN", "en-US"] = "zh-CN"
+    # False reads what is saved; True also writes the notes that are missing.
+    write: bool = False
+
+
 def _copy_error(exc: Exception) -> HTTPException:
     if isinstance(exc, ValueError):
         logging.getLogger(__name__).warning("Map copy validation failed: %s", exc)
@@ -179,6 +191,27 @@ def register_map_live_routes(app, ctx, read_dataset):
                 "process_version": APPLICATION_PROCESS_VERSION} if foundation else {}),
             **map_narrative._failure_metadata(cache),
         }
+
+    @app.post("/api/map-lines/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
+    async def map_lines_notes(
+        source: Literal["project", "dataset"], name: str, body: MapLinesIn,
+        session_id: str | None = None,
+    ):
+        """What the lines between tasks say. The pairs are the lines the
+        reader's map draws; the notes annotate them and change no line."""
+        from .. import map_lines
+
+        value = await run_in_threadpool(load, source, name)
+        root, project_root = owner(source, name, session_id)
+        try:
+            return await run_in_threadpool(
+                lambda: map_lines.notes(
+                    root, value, [pair.model_dump() for pair in body.pairs], body.locale,
+                    project_root=project_root, generate=body.write,
+                )
+            )
+        except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
+            raise _copy_error(exc) from exc
 
     @app.post("/api/map-copy/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
     async def make_copy(

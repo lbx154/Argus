@@ -126,13 +126,13 @@
   color: rgb(var(--ink-dim));
 }
 /* A folded group speaks a whole sentence for the subtasks it stands for. Like
- * the cards' titles, its type grows as the camera pulls back (--map-zoom is
- * the live zoom, set on the canvas), so the sentence reads at overview zoom
+ * the cards' titles, its type grows as the camera pulls back (--map-zoom-step
+ * is the stepped zoom, set on the canvas), so the sentence reads at overview zoom
  * instead of shrinking into a sliver; a small handle says what a click does. */
 .map-branch-group {
   /* Capped so that, however far the camera pulls back, the sentence still
    * fits its frame in four lines; beyond that the reader zooms in. */
-  --group-type: clamp(40px, calc(11px / var(--map-zoom, 0.24)), 110px);
+  --group-type: clamp(40px, calc(11px / var(--map-zoom-step, 0.24)), 110px);
   gap: calc(var(--group-type) * 0.45);
   padding: 0 calc(var(--group-type) * 0.7) 0 calc(var(--group-type) * 0.55);
   border-radius: 64px;

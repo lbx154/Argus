@@ -407,9 +407,9 @@ class Analytics:
             return "/api/projects/:sid/" + match[1]
         if re.fullmatch(r"/api/projects/[^/]+", raw):
             return "/api/projects/:sid"
-        match = re.fullmatch(r"/api/map-copy/(project|dataset)/[^/]+", raw)
+        match = re.fullmatch(r"/api/map-(copy|lines)/(project|dataset)/[^/]+", raw)
         if match:
-            return f"/api/map-copy/{match[1]}/:name"
+            return f"/api/map-{match[1]}/{match[2]}/:name"
         if re.fullmatch(r"/compute/(?:api/)?jobs/[0-9]+(?:/logs|/cancel)?", raw):
             return "/compute/jobs/:id"
         return raw if raw in {
