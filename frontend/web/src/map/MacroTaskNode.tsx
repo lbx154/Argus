@@ -184,19 +184,32 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     const zoom = state.transform[2];
     const width = zoom * (stacked ? 900 : MAP_FRAME.width);
     const tier = width < 130 ? 'micro' : width < 300 ? 'compact' : 'full';
-    // Whole title lines that fit this card on screen, so a short card ends its
-    // title on a line instead of slicing through the next one. The sizes are
-    // the ones design.css sets: a 13–18px title at 1.38, the header row, the
-    // card's padding.
+    // What this card has room for on screen, in whole lines, so nothing is
+    // sliced through and nothing important is crowded out. The sizes are the
+    // ones design.css sets: title 12.5–18px at 1.38, explanation 11–13.5px at
+    // 1.6, the header row, the course row, the card's padding.
     const scale = Math.min(data.frame.width / 288, data.frame.height / 218);
-    const title = tier === 'micro' ? 12 : Math.min(18, Math.max(13, 16 * scale * zoom));
-    // The header row and padding, and the course row a task card carries.
-    const course = task.kind === 'turn' || tier === 'micro' ? 0 : tier === 'compact' ? 15 : 30;
-    const room = zoom * data.frame.height - (tier === 'micro' ? 16 : 26 + 27) - course;
-    const lines = Math.max(1, Math.min(tier === 'micro' ? 4 : 3, Math.floor(room / (title * 1.38))));
-    return `${tier}:${lines}`;
+    const height = zoom * data.frame.height;
+    const lines = (room: number, line: number, most: number) => Math.max(1, Math.min(most, Math.floor(room / line)));
+    if (tier === 'micro') return `micro:${lines(height - 16, 12 * 1.38, 4)}:0:0`;
+    const hasCourse = task.kind !== 'turn';
+    const titleLine = Math.min(18, Math.max(tier === 'compact' ? 12.5 : 13, 16 * scale * zoom)) * 1.38;
+    if (tier === 'full') return `full:${lines(height - 53 - (hasCourse ? 30 : 0), titleLine, 3)}:0:${hasCourse ? 1 : 0}`;
+    // At overview a small card cannot say everything, so it says things in the
+    // order a reader needs them: what the task is (two lines of title), what
+    // happened (a line of explanation), the course it ran, then more of each.
+    const copyLine = Math.min(13.5, Math.max(11, 12 * scale * zoom)) * 1.6;
+    let room = height - 44;
+    let title = lines(room, titleLine, 2);
+    room -= title * titleLine + 7;
+    let copyLines = 0, course = 0;
+    if (room >= copyLine + 2) { copyLines = 1; room -= copyLine + 8; }
+    if (hasCourse && room >= 14) { course = 1; room -= 15; }
+    if (copyLines && room >= copyLine) { copyLines = 2; room -= copyLine; }
+    if (room >= titleLine) title++;
+    return `compact:${title}:${copyLines}:${course}`;
   });
-  const [density, titleLines] = overview.split(':');
+  const [density, titleLines, copyLines, courseShown] = overview.split(':');
   const [arrive] = useState(() => !!data.revealing || (!data.restoring && !data.seenCards?.has(id)));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
@@ -272,6 +285,14 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     copy[task.id]?.summary || task.pending_question ||
     humanizeHarnessNote(task.summary || "", zh).summary || task.summary ||
     (!objectiveVisible ? task.objective : "");
+  // At overview a card has one line for its explanation, so the line says what
+  // this task is about. The notice that an execution ended short of the goal
+  // reads the same on every such card and would fill a map with one repeated
+  // sentence; it stays on the larger card, and the state mark carries it here.
+  const overviewSummary = (isLastPart ? task.pending_question : "") || partSummary ||
+    copy[task.id]?.summary || (objectiveVisible ? task.objective : "") ||
+    humanizeHarnessNote(task.summary || "", zh).summary || task.summary || "";
+  const shownSummary = density === 'compact' ? overviewSummary || cardSummary : cardSummary;
   const scale = Math.min(
     data.frame.width / layout.width,
     data.frame.height / layout.height,
@@ -386,6 +407,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-detailed={detailed}
       aria-label={title}
       data-overview-density={density}
+      data-course={courseShown === '1'}
+      data-copy-lines={copyLines}
       data-completed-now={completedNow}
       data-active={activeTeamSteps.length > 0 || isLastPart && data.live && !data.paused && ACTIVE.has(task.status)}
       onContextMenu={(e) => {
@@ -412,6 +435,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         aria-hidden={detailed}
         style={{
           "--title-lines": titleLines,
+          "--copy-lines": copyLines,
           "--summary-scale": summaryScale,
           "--summary-height": `${data.frame.height / summaryScale - 20}px`,
           width: data.frame.width / summaryScale - 20,
@@ -469,8 +493,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           {objectiveVisible && (
             <p className="map-card-objective" title={task.objective}>{task.objective}</p>
           )}
-          {cardSummary && cardSummary.trim() !== (objectiveVisible ? task.objective.trim() : "") &&
-            <div className="map-card-copy"><MarkdownExcerpt>{cardSummary}</MarkdownExcerpt></div>}
+          {shownSummary && (density === 'compact' || shownSummary.trim() !== (objectiveVisible ? task.objective.trim() : "")) &&
+            <div className="map-card-copy"><MarkdownExcerpt>{shownSummary}</MarkdownExcerpt></div>}
           {/* The course a task ran: planned, carried out, reviewed, delivered.
               Four marks, inked where the record holds a step of that kind, so a
               whole map shows at a glance which tasks were reviewed and which
