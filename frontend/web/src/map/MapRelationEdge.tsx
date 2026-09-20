@@ -8,6 +8,7 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 import { useId } from "react";
+import { brushStroke } from "./brush";
 import { pointAlong } from "./relationGeometry";
 import { relationLabelText, relationLayout } from "./relationLabels";
 import "./edges.css";
@@ -55,6 +56,13 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
   const to = route.points[route.points.length - 1];
   const graded = !!from && !!to && style?.stroke !== CYCLE_STROKE
     && (Math.abs(from.x - to.x) > 1 || Math.abs(from.y - to.y) > 1);
+  // A route that is a path (the order of work, a dependency, a task carrying
+  // on) is an ink stroke; an association keeps its dashed line, which a filled
+  // outline cannot carry.
+  const inked = !fan && !style?.strokeDasharray;
+  const ink = inked
+    ? brushStroke(route.points, (Number(style?.strokeWidth || 2) * 1.45) / zoom, 16 / zoom)
+    : "";
   return (
     <>
       <defs>
@@ -74,8 +82,8 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
         </marker>
         {graded && (
           <linearGradient id={flow} gradientUnits="userSpaceOnUse" x1={from.x} y1={from.y} x2={to.x} y2={to.y}>
-            <stop offset="0" style={{ stopColor: stroke, stopOpacity: 0.28 }} />
-            <stop offset="0.55" style={{ stopColor: stroke, stopOpacity: 0.78 }} />
+            <stop offset="0" style={{ stopColor: stroke, stopOpacity: inked ? 0.34 : 0.28 }} />
+            <stop offset="0.55" style={{ stopColor: stroke, stopOpacity: inked ? 0.7 : 0.78 }} />
             <stop offset="1" style={{ stopColor: stroke, stopOpacity: 1 }} />
           </linearGradient>
         )}
@@ -84,10 +92,12 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
       <BaseEdge
         id={id}
         path={route.path}
-        markerEnd={`url(#${arrow})`}
+        markerEnd={ink ? undefined : `url(#${arrow})`}
         style={{
           ...style,
-          stroke: graded ? `url(#${flow})` : stroke,
+          // The plain path stays for hit-testing and the growth mask; the ink
+          // outline below is what is seen.
+          stroke: ink ? "transparent" : graded ? `url(#${flow})` : stroke,
           strokeLinecap: "round",
           vectorEffect: "none",
           strokeWidth,
@@ -100,14 +110,24 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
             : undefined,
         }}
       />
+      {ink && (
+        <path
+          className="map-edge-ink"
+          d={ink}
+          style={{ fill: graded ? `url(#${flow})` : stroke, opacity: style?.opacity }}
+          aria-hidden="true"
+        />
+      )}
       {/* Where the route leaves its card: a small anchor ties the line to it. */}
       {!fan && from && (
         <circle
           className="map-edge-anchor"
           cx={from.x}
           cy={from.y}
-          r={2.6 / zoom}
-          style={{ fill: "var(--map-paper)", stroke, strokeWidth: 1.4 / zoom, opacity: style?.opacity }}
+          r={(ink ? 2.1 : 2.6) / zoom}
+          style={ink
+            ? { fill: stroke, opacity: Number(style?.opacity ?? 1) * 0.62 }
+            : { fill: "var(--map-paper)", stroke, strokeWidth: 1.4 / zoom, opacity: style?.opacity }}
           aria-hidden="true"
         />
       )}

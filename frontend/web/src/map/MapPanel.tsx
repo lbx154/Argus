@@ -91,15 +91,15 @@ type AtlasNode = MacroNode | BranchFlowNode;
 // Minimap fills echo the card state palette a step lighter, so the overview
 // inset reads as a status heatmap instead of undifferentiated confetti.
 const MINIMAP_STATUS: Record<string, string> = {
-  done: "#a8cfbb",
-  running: "#8fb6e4",
-  question: "#e2c78e",
-  failed: "#dfab97",
-  paused: "#d6c6a0",
-  superseded: "#c8bdd5",
-  aborted: "#c3c5cb",
-  skipped: "#c3c5cb",
-  missing: "#c3c5cb",
+  done: "#a9c4b6",
+  running: "#9fb6cc",
+  question: "#dcc797",
+  failed: "#d9a79f",
+  paused: "#cdbba3",
+  superseded: "#c5bdcd",
+  aborted: "#c6c8cb",
+  skipped: "#c6c8cb",
+  missing: "#c6c8cb",
 };
 
 /** The subtask tally lives in the map options menu: the cards and the folded
@@ -1101,6 +1101,14 @@ export function MapCanvas({
       {/* The second header line: one sentence on where the work stands, and,
           when something waits on the reader, a link straight to it. */}
       <div className="map-status-row">
+        {/* How the tasks divide, as one thin bar ahead of the sentence that says
+            it in words: the eye takes the proportion, the sentence the detail. */}
+        {data.tasks.length > 0 && (
+          <span className="map-progress" aria-hidden="true">
+            {(["done", "ended", "running", "question", "failed", "other"] as const).map((bucket) =>
+              tally[bucket] > 0 ? <i key={bucket} data-bucket={bucket} style={{ flexGrow: tally[bucket] }} /> : null)}
+          </span>
+        )}
         <p className="map-status-line" role="status">
           {(composer.pending || (!paused && activePhase)) ? <i className="map-live-dot" aria-hidden /> : null}
           <span className="map-status-text">
@@ -1412,13 +1420,13 @@ export function MapCanvas({
               <MiniMap
                 nodeColor={(n) =>
                   n.type === "branch"
-                    ? "#c5d4e2"
+                    ? "#cfd2d5"
                     : MINIMAP_STATUS[statusKey((n.data as MacroData).task)] ??
-                      "#a7bfd9"
+                      "#c6c8cb"
                 }
                 maskColor="var(--map-minimap-mask)"
-                maskStrokeColor="#85aacf"
-                maskStrokeWidth={2}
+                maskStrokeColor="#6d737a"
+                maskStrokeWidth={1.5}
                 onClick={(_, point) => camera.navigate(point)}
                 pannable
                 zoomable
@@ -1431,12 +1439,16 @@ export function MapCanvas({
             <span
               title={
                 zh
-                  ? "同一会话中的时间归属，不是执行依赖"
-                  : "Chronological context, not execution dependencies"
+                  ? "内容相关的工作，不是执行依赖"
+                  : "Related in content, not an execution dependency"
               }
             >
               <b className="dashed" />
               {zh ? "内容关联" : "Related work"}
+            </span>
+            <span title={zh ? "工作发生的先后" : "The order work happened in"}>
+              <b className="order" />
+              {zh ? "先后" : "Order"}
             </span>
             <span>
               <b />
@@ -1838,6 +1850,7 @@ export const MapPanel = memo(function MapPanel({
     >
       <header className="map-header">
         <div className="map-heading">
+          <span className="map-kicker" aria-hidden="true">{zh ? "ARGUS · 研究地图" : "ARGUS · RESEARCH MAP"}</span>
           <h1 title={snapshot.session.display_name}>{snapshot.session.display_name}</h1>
         </div>
         <details className="map-more">

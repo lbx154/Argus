@@ -326,3 +326,378 @@
 .argus-map .map-macro[data-overview-density="compact"] .map-card.map-state-recorded .map-status > * {
   display: none;
 }
+
+/* ══ 纸上墨线 · ink on paper ══════════════════════════════════════════════
+ * The restraint is Apple's: whitespace, one material, hairlines, soft depth,
+ * nothing decorative that does not also inform. The vocabulary is ink
+ * painting's: a sheet of paper, washes of diluted ink for atmosphere, lines
+ * drawn with a brush, and the mineral pigments of that tradition for the few
+ * colours the map needs. Colour is spent only on state. */
+
+/* The doubled class outranks the per-component sheets (edges.css is pulled in
+ * by the edge itself and may load after this file), so the palette holds
+ * whatever order the bundler settles on. */
+.argus-map.argus-map {
+  /* 宣纸 paper and 墨 ink */
+  --map-canvas: #f4f1ea;
+  --map-paper: #fffdf8;
+  --map-card-surface: #fffdf8;
+  --map-dot: rgb(74 66 52 / 0.09);
+  --map-minimap-mask: rgb(244 241 234 / 0.78);
+  --map-vignette: rgb(58 50 38 / 0.07);
+  --ink-1: #1f2226; /* 焦墨 */
+  --ink-2: #3c4248; /* 浓墨 */
+  --ink-3: #6d737a; /* 淡墨 */
+  --ink-4: #a2a7ad; /* 清墨 */
+  /* 颜料 pigments, each the muted mineral tone of its name */
+  --pig-malachite: #4f7f68; /* 石绿 done */
+  --pig-indigo: #3b668c; /* 花青 running */
+  --pig-vermilion: #b0463a; /* 朱砂 failed */
+  --pig-gamboge: #b38a34; /* 藤黄 a question is waiting */
+  --pig-ochre: #977650; /* 赭石 paused */
+  --pig-lotus: #867a93; /* 藕荷 superseded */
+  --map-serif: "New York", "Iowan Old Style", "Songti SC", "STSong", "Source Han Serif SC",
+    "Noto Serif CJK SC", "Noto Serif SC", Georgia, serif;
+  /* Lines are ink. The order of work is the body of the drawing, a dependency
+   * is pressed harder, an association is a dry, broken stroke. */
+  --map-edge-context: var(--ink-2);
+  --map-edge-continuation: var(--ink-2);
+  --map-edge-dependency: var(--ink-1);
+  --map-edge-semantic: var(--ink-4);
+  --map-edge-replacement: var(--pig-ochre);
+  --map-edge-fanout: var(--ink-3);
+  --map-edge-fanin: var(--ink-3);
+}
+[data-theme="dark"] .argus-map.argus-map {
+  /* Night ink: the sheet is dark, the ink is pale, the pigments lift a step. */
+  --map-canvas: #131518;
+  --map-paper: #1c1f23;
+  --map-card-surface: #1c1f23;
+  --map-dot: rgb(226 220 205 / 0.06);
+  --map-minimap-mask: rgb(19 21 24 / 0.74);
+  --map-vignette: rgb(0 0 0 / 0.34);
+  --ink-1: #eceae4;
+  --ink-2: #c4c6c8;
+  --ink-3: #8f959b;
+  --ink-4: #5d636a;
+  --pig-malachite: #74a88f;
+  --pig-indigo: #6f9cc4;
+  --pig-vermilion: #d07466;
+  --pig-gamboge: #d1ab58;
+  --pig-ochre: #b89873;
+  --pig-lotus: #a99db8;
+  /* Restated here: the edge sheet's own dark rule is as specific as the light
+   * block above and may load later, so it would turn the ink blue again. */
+  --map-edge-context: var(--ink-2);
+  --map-edge-continuation: var(--ink-2);
+  --map-edge-dependency: var(--ink-1);
+  --map-edge-semantic: var(--ink-4);
+  --map-edge-replacement: var(--pig-ochre);
+  --map-edge-fanout: var(--ink-3);
+  --map-edge-fanin: var(--ink-3);
+}
+.argus-map .map-state-done { --state: var(--pig-malachite); }
+.argus-map .map-state-running { --state: var(--pig-indigo); }
+.argus-map .map-state-failed { --state: var(--pig-vermilion); }
+.argus-map .map-state-question { --state: var(--pig-gamboge); }
+.argus-map .map-state-paused { --state: var(--pig-ochre); }
+.argus-map .map-state-superseded { --state: var(--pig-lotus); }
+.argus-map .map-state-recorded,
+.argus-map .map-state-aborted,
+.argus-map .map-state-skipped,
+.argus-map .map-state-missing { --state: var(--ink-4); }
+.argus-map .submap-kind-plan { --step-color: var(--pig-ochre); }
+.argus-map .submap-kind-execution { --step-color: var(--pig-indigo); }
+.argus-map .submap-kind-review { --step-color: var(--pig-lotus); }
+.argus-map .submap-kind-revision { --step-color: var(--pig-gamboge); }
+.argus-map .submap-kind-result { --step-color: var(--pig-malachite); }
+
+/* ── Paper and atmosphere ───────────────────────────────────────────────── */
+
+/* The grain of the sheet: fractal noise, multiplied in at a few percent. It
+ * is felt more than seen, and keeps large empty areas from reading as flat
+ * screen colour. */
+.argus-map .map-canvas-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n' x='0' y='0' width='100%' height='100%'><feTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.31  0 0 0 0 0.24  0 0 0 0.09 0'/></filter><rect width='240' height='240' filter='url(%23n)'/></svg>");
+}
+[data-theme="dark"] .argus-map .map-canvas-wrap::before {
+  mix-blend-mode: screen;
+  opacity: 0.35;
+}
+/* Washes of diluted ink drift where coloured light used to: mist between
+ * hills, not a gradient mesh. One carries a breath of indigo, one of ochre. */
+.argus-map .map-ambient i {
+  filter: blur(36px);
+}
+.argus-map .map-ambient i:nth-child(1) {
+  left: -14%;
+  top: -30%;
+  width: 66%;
+  height: 78%;
+  background: radial-gradient(ellipse 60% 50% at 46% 54%, rgb(52 58 66 / 0.13), rgb(52 58 66 / 0.04) 52%, transparent 70%);
+}
+.argus-map .map-ambient i:nth-child(2) {
+  right: -18%;
+  bottom: -34%;
+  width: 70%;
+  height: 80%;
+  background: radial-gradient(ellipse 58% 46% at 52% 46%, rgb(48 66 84 / 0.12), rgb(48 66 84 / 0.035) 54%, transparent 72%);
+}
+.argus-map .map-ambient i:nth-child(3) {
+  left: 30%;
+  top: 34%;
+  width: 46%;
+  height: 50%;
+  background: radial-gradient(ellipse 56% 44% at 50% 50%, rgb(120 92 58 / 0.07), transparent 68%);
+}
+[data-theme="dark"] .argus-map .map-ambient i:nth-child(1) {
+  background: radial-gradient(ellipse 60% 50% at 46% 54%, rgb(190 198 208 / 0.08), rgb(190 198 208 / 0.02) 52%, transparent 70%);
+}
+[data-theme="dark"] .argus-map .map-ambient i:nth-child(2) {
+  background: radial-gradient(ellipse 58% 46% at 52% 46%, rgb(104 142 178 / 0.1), rgb(104 142 178 / 0.025) 54%, transparent 72%);
+}
+[data-theme="dark"] .argus-map .map-ambient i:nth-child(3) {
+  background: radial-gradient(ellipse 56% 44% at 50% 50%, rgb(176 142 96 / 0.06), transparent 68%);
+}
+/* Far hills at the foot of the sheet, three ridges in thinning ink. They sit
+ * under everything and stay with the viewport, so they never compete with
+ * the work drawn above them. */
+.argus-map .map-ambient::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 4%;
+  height: 34%;
+  opacity: 0.55;
+  background: center bottom / 100% 100% no-repeat
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 420' preserveAspectRatio='none'><defs><filter id='b'><feGaussianBlur stdDeviation='5'/></filter><linearGradient id='f' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23343a42' stop-opacity='1'/><stop offset='1' stop-color='%23343a42' stop-opacity='0'/></linearGradient></defs><g filter='url(%23b)'><path fill='url(%23f)' opacity='0.05' d='M0 250 C120 190 210 150 330 176 C430 198 470 118 590 96 C700 76 770 168 880 176 C1000 184 1060 96 1180 84 C1300 72 1390 170 1480 186 C1540 196 1580 176 1600 170 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.075' d='M0 310 C90 270 170 226 280 240 C380 252 430 300 540 292 C660 284 720 196 850 190 C960 186 1010 262 1120 270 C1240 278 1300 218 1410 214 C1500 210 1560 250 1600 262 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.11' d='M0 366 C110 340 190 318 300 330 C420 344 500 372 620 360 C740 348 800 300 920 304 C1040 308 1110 356 1230 352 C1350 348 1420 316 1510 322 C1560 326 1590 338 1600 342 L1600 420 L0 420 Z'/></g></svg>");
+}
+[data-theme="dark"] .argus-map .map-ambient::after {
+  opacity: 0.9;
+  filter: invert(1) brightness(1.6);
+  mix-blend-mode: screen;
+}
+.argus-map .react-flow__background {
+  opacity: clamp(0.2, calc(var(--z) * 1.8), 0.7);
+}
+
+/* ── The sheet a task is written on ─────────────────────────────────────── */
+
+.argus-map .map-macro {
+  border-radius: calc(14 * var(--px));
+  border-color: rgb(var(--ink) / 0.09);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--state, var(--ink-4)) 6%, var(--map-paper)) 0,
+      var(--map-paper) 42%
+    );
+  box-shadow:
+    0 0 0 calc(0.5 * var(--px)) rgb(255 255 255 / 0.6) inset,
+    0 calc(1 * var(--px)) calc(1.5 * var(--px)) rgb(40 34 24 / 0.05),
+    0 calc(10 * var(--px)) calc(30 * var(--px)) rgb(40 34 24 / 0.08);
+}
+[data-theme="dark"] .argus-map .map-macro {
+  border-color: rgb(255 255 255 / 0.08);
+  box-shadow:
+    0 0 0 calc(0.5 * var(--px)) rgb(255 255 255 / 0.05) inset,
+    0 calc(1 * var(--px)) calc(2 * var(--px)) rgb(0 0 0 / 0.5),
+    0 calc(12 * var(--px)) calc(34 * var(--px)) rgb(0 0 0 / 0.42);
+}
+.argus-map .map-macro[data-hovered="true"],
+.argus-map .map-macro:hover {
+  border-color: color-mix(in srgb, var(--state, var(--ink-3)) 34%, rgb(var(--ink) / 0.1));
+  box-shadow:
+    0 0 0 calc(0.5 * var(--px)) rgb(255 255 255 / 0.6) inset,
+    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(40 34 24 / 0.06),
+    0 calc(18 * var(--px)) calc(46 * var(--px)) rgb(40 34 24 / 0.14);
+}
+/* Focus is a ring of ink, not of interface blue. */
+.argus-map .map-macro[data-focused="true"] {
+  border-color: color-mix(in srgb, var(--ink-2) 55%, transparent);
+  box-shadow:
+    0 0 0 calc(3 * var(--px)) rgb(var(--ink) / 0.07),
+    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(40 34 24 / 0.06),
+    0 calc(22 * var(--px)) calc(56 * var(--px)) rgb(40 34 24 / 0.16);
+}
+/* The state rail is a brush mark: full in the middle, thinning to its ends. */
+.argus-map .map-macro::after {
+  width: calc(3.5 * var(--px));
+  top: calc(14 * var(--px));
+  bottom: calc(14 * var(--px));
+  border-radius: 50% / calc(18 * var(--px));
+  background: linear-gradient(180deg, transparent, var(--state, var(--ink-4)) 16%, var(--state, var(--ink-4)) 78%, transparent);
+}
+
+/* Titles are set in a serif: the one typographic gesture toward the page. */
+.argus-map .macro-summary .map-card h3,
+.argus-map .map-macro:not([data-overview-density="full"]) .map-card h3,
+.argus-map .macro-heading h2 {
+  font-family: var(--map-serif);
+  font-weight: 600;
+  letter-spacing: -0.006em;
+  color: var(--ink-1);
+}
+.argus-map .macro-summary .map-card-number {
+  color: var(--ink-3);
+}
+.argus-map .macro-summary .map-card-copy {
+  color: var(--ink-2);
+}
+
+/* ── The course of a task ───────────────────────────────────────────────── */
+
+.argus-map .map-card-course {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ot));
+  margin: auto 0 0;
+  padding-top: calc(6px * var(--ot));
+  flex-shrink: 0;
+}
+.argus-map .map-card-course ~ .map-card-stages {
+  margin-top: calc(6px * var(--ot));
+}
+.argus-map .map-card-course > span {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--ot));
+  padding: calc(2.5px * var(--ot)) calc(7px * var(--ot));
+  border-radius: 999px;
+  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+  line-height: 1.4;
+  color: var(--ink-4);
+  background: transparent;
+  box-shadow: inset 0 0 0 calc(1px * var(--ot)) rgb(var(--ink) / 0.08);
+  opacity: 0.75;
+}
+.argus-map .map-card-course > span b {
+  font-weight: 520;
+}
+.argus-map .map-card-course > span svg {
+  width: 1.05em;
+  height: 1.05em;
+}
+.argus-map .map-card-course > span[data-present="true"] {
+  opacity: 1;
+  color: color-mix(in srgb, var(--step-color) 82%, var(--ink-1));
+  background: color-mix(in srgb, var(--step-color) 11%, transparent);
+  box-shadow: inset 0 0 0 calc(1px * var(--ot)) color-mix(in srgb, var(--step-color) 22%, transparent);
+}
+.argus-map .map-card-course > span[data-active="true"] {
+  box-shadow: inset 0 0 0 calc(1.5px * var(--ot)) color-mix(in srgb, var(--step-color) 55%, transparent);
+}
+/* At overview the course is four beads: a drop of pigment for a stage the
+ * record holds, a ring of pale ink for one it does not. */
+.argus-map .map-macro[data-overview-density="compact"] .map-card-course {
+  gap: calc(5px * var(--ot));
+}
+.argus-map .map-macro[data-overview-density="compact"] .map-card-course > span {
+  width: calc(7px * var(--ot));
+  height: calc(7px * var(--ot));
+  padding: 0;
+  opacity: 1;
+  background: transparent;
+  box-shadow: inset 0 0 0 calc(1.2px * var(--ot)) var(--ink-4);
+}
+.argus-map .map-macro[data-overview-density="compact"] .map-card-course > span > * {
+  display: none;
+}
+.argus-map .map-macro[data-overview-density="compact"] .map-card-course > span[data-present="true"] {
+  background: var(--step-color);
+  box-shadow: none;
+}
+.argus-map .map-macro[data-overview-density="micro"] .map-card-course {
+  display: none;
+}
+
+/* ── The head of the sheet ──────────────────────────────────────────────── */
+
+.argus-map .map-kicker {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+  margin-bottom: 3px;
+}
+.argus-map .map-heading h1 {
+  font-family: var(--map-serif);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--ink-1);
+}
+.argus-map .map-status-row {
+  gap: 12px;
+}
+.argus-map .map-progress {
+  display: flex;
+  flex: 0 0 132px;
+  gap: 2px;
+  height: 4px;
+}
+.argus-map .map-progress i {
+  display: block;
+  min-width: 3px;
+  flex-basis: 0;
+  border-radius: 2px;
+  background: var(--ink-4);
+}
+.argus-map .map-progress i[data-bucket="done"] { background: var(--pig-malachite); }
+.argus-map .map-progress i[data-bucket="ended"] { background: var(--ink-3); }
+.argus-map .map-progress i[data-bucket="running"] { background: var(--pig-indigo); }
+.argus-map .map-progress i[data-bucket="question"] { background: var(--pig-gamboge); }
+.argus-map .map-progress i[data-bucket="failed"] { background: var(--pig-vermilion); }
+
+/* ── Controls float on the sheet as one material ────────────────────────── */
+
+.argus-map .map-canvas-toolbar button,
+.argus-map .map-canvas-toolbar label,
+.argus-map .map-legend,
+.argus-map .react-flow__controls,
+.argus-map .react-flow__minimap {
+  background-color: color-mix(in srgb, var(--map-paper) 72%, transparent);
+  -webkit-backdrop-filter: saturate(1.5) blur(18px);
+  backdrop-filter: saturate(1.5) blur(18px);
+  border-color: rgb(var(--ink) / 0.08);
+}
+.argus-map .map-legend b {
+  border-top-color: var(--map-edge-context);
+}
+
+/* The key: order is the thin ink line, a dependency the pressed one. */
+.argus-map .map-legend b.order {
+  border-top-color: var(--map-edge-context);
+  border-top-width: 1.5px;
+  opacity: 0.7;
+}
+.argus-map .map-legend b:not(.dashed):not(.replacement):not(.order) {
+  border-top-color: var(--map-edge-dependency);
+  border-top-width: 2.5px;
+}
+.argus-map .map-legend .dashed {
+  border-top-color: var(--map-edge-semantic);
+}
+/* Deliveries are the one call to action on the sheet; it speaks in indigo
+ * pigment instead of interface blue. */
+.argus-map .map-delivery-toggle:not(:disabled) {
+  color: var(--pig-indigo);
+  border-color: color-mix(in srgb, var(--pig-indigo) 28%, transparent);
+}
+.argus-map .map-delivery-toggle:not(:disabled) b {
+  color: var(--pig-indigo);
+  background: color-mix(in srgb, var(--pig-indigo) 14%, transparent);
+}
+.argus-map .react-flow__minimap {
+  border-radius: 12px;
+  overflow: hidden;
+}

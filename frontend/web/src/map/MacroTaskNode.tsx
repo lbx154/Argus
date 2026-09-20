@@ -190,7 +190,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     // card's padding.
     const scale = Math.min(data.frame.width / 288, data.frame.height / 218);
     const title = tier === 'micro' ? 12 : Math.min(18, Math.max(13, 16 * scale * zoom));
-    const room = zoom * data.frame.height - (tier === 'micro' ? 16 : 26 + 27);
+    // The header row and padding, and the course row a task card carries.
+    const course = task.kind === 'turn' || tier === 'micro' ? 0 : tier === 'compact' ? 15 : 30;
+    const room = zoom * data.frame.height - (tier === 'micro' ? 16 : 26 + 27) - course;
     const lines = Math.max(1, Math.min(tier === 'micro' ? 4 : 3, Math.floor(room / (title * 1.38))));
     return `${tier}:${lines}`;
   });
@@ -469,6 +471,26 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           )}
           {cardSummary && cardSummary.trim() !== (objectiveVisible ? task.objective.trim() : "") &&
             <div className="map-card-copy"><MarkdownExcerpt>{cardSummary}</MarkdownExcerpt></div>}
+          {/* The course a task ran: planned, carried out, reviewed, delivered.
+              Four marks, inked where the record holds a step of that kind, so a
+              whole map shows at a glance which tasks were reviewed and which
+              stopped short. A chat turn has no such course. */}
+          {task.kind !== 'turn' && (
+            <div className="map-card-course" aria-label={zh ? '任务经过' : 'Course of the task'}>
+              {(['plan', 'execution', 'review', 'result'] as const).map((kind) => {
+                const StageIcon = ICONS[kind];
+                const present = layout.steps.some((step) => step.kind === kind);
+                const active = layout.steps.some((step) => step.kind === kind && isStepActive(step));
+                const label = zh ? { plan: '规划', execution: '执行', review: '审查', result: '交付' }[kind] : KINDS[kind][1];
+                return (
+                  <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={label}>
+                    <StageIcon size={12} aria-hidden />
+                    <b>{label}</b>
+                  </span>
+                );
+              })}
+            </div>
+          )}
           <div className="map-card-stages">
             {isLastPart && data.live && !data.paused && ACTIVE.has(task.status)
               ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
