@@ -474,3 +474,25 @@ it('shows question and answer without inventing work or review stages', () => {
   expect(running.map(row => row.kind)).toEqual(['plan', 'result']);
   expect(running[1].title).toBe('正在回答');
 });
+
+it("stacks a short card into one column on a narrow canvas so the answer is not cut off", () => {
+  const task: MapTask = { id: "qa", title: "在吗?", objective: "在吗?", status: "done", deps: [], kind: "turn", turn_kind: "qa" };
+  const rows = [{ id: "answer", item_id: "qa", type: "turn.replied", ts: 5, text: "在的，你说。" }] as MapEvent[];
+  const wide = layoutSubmap(task, rows, true);
+  const narrow = layoutSubmap(task, rows, true, undefined, 0, true);
+  expect(wide.stacked).toBeUndefined();
+  expect(narrow.stacked).toBe(true);
+  expect(narrow.steps.map((s) => s.id)).toEqual(wide.steps.map((s) => s.id));
+  // One column: every step shares an x and reads downward.
+  expect(new Set(Object.values(narrow.positions).map((p) => p.x)).size).toBe(1);
+  expect(narrow.columns).toHaveLength(1);
+  expect(narrow.width).toBeLessThan(wide.width);
+  // At the 0.6 reading scale a phone keeps, the whole card fits a 390px screen with its 20px margins.
+  const frame = frameForSubmap(narrow);
+  expect(narrow.width * 0.6).toBeLessThanOrEqual(390 - 40);
+  expect(frame.width).toBe(900);
+  // A card with more steps than fit one screen keeps the wide layout and pans.
+  const long = { id: "t", title: "T", objective: "T", status: "done", deps: [] } as MapTask;
+  const rounds = Array.from({ length: 7 }, (_, i) => ({ id: `r${i + 1}`, type: "round.start", ts: i + 1, item_id: "t", round_index: i + 1, text: "" }) as MapEvent);
+  expect(layoutSubmap(long, rounds, true, undefined, 0, true)).toEqual(layoutSubmap(long, rounds, true));
+});

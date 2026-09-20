@@ -597,7 +597,16 @@ export interface SubmapLayout {
   positions: Record<string, { x: number; y: number }>;
   width: number;
   height: number;
+  /** The steps are stacked in one column for a narrow canvas. */
+  stacked?: boolean;
 }
+
+/** A card this short reads top to bottom on a narrow canvas: at a readable
+ * scale its single column is about one phone screen, so a question and its
+ * answer are seen together instead of the answer starting off-screen. Longer
+ * cards keep the wide layout and pan. */
+export const STACKED_STEPS = 3;
+const STACKED_WIDTH = 480;
 
 /** Content bounds are computed before zooming, so disclosure cannot move ports. */
 export function layoutSubmap(
@@ -606,14 +615,17 @@ export function layoutSubmap(
   zh: boolean,
   steps = buildSubmap(task, events, zh),
   offset = 0,
+  narrow = false,
 ): SubmapLayout {
   // Read downward within a column, then advance right. Equal spacing makes
   // phase changes legible without leaving empty cells between sparse groups.
   const pitchX = 340,
     pitchY = 236;
-  let rows = 1,
+  const stacked = narrow && steps.length > 0 && steps.length <= STACKED_STEPS;
+  const minWidth = stacked ? STACKED_WIDTH : 640;
+  let rows = stacked ? steps.length : 1,
     best = Infinity;
-  for (let n = 1; n <= Math.min(3, steps.length); n++) {
+  for (let n = 1; !stacked && n <= Math.min(3, steps.length); n++) {
     const columns = Math.ceil(steps.length / n);
     const width = Math.max(640, columns * 232 + (columns - 1) * 108 + 96);
     const height = 408 + (n - 1) * pitchY;
@@ -626,7 +638,7 @@ export function layoutSubmap(
     }
   }
   const count = Math.ceil(steps.length / rows);
-  const width = Math.max(640, count * 232 + (count - 1) * 108 + 96);
+  const width = Math.max(minWidth, count * 232 + (count - 1) * 108 + 96);
   const height = 408 + (rows - 1) * pitchY;
   const left = (width - (count * 232 + (count - 1) * 108)) / 2;
   const positions: SubmapLayout["positions"] = {};
@@ -656,6 +668,7 @@ export function layoutSubmap(
     positions,
     width,
     height,
+    ...(stacked ? { stacked } : {}),
   };
 }
 
@@ -696,6 +709,8 @@ function columnTitle(
   fallback: string,
 ): string {
   if (!rounds.length) {
+    if (first && last && steps.length > 1 && steps[0].kind === "plan" && steps[steps.length - 1].kind === "result")
+      return zh ? "起点 → 结果" : "Setting out → Outcome";
     if (first && steps.some((s) => s.kind === "plan")) return zh ? "起点" : "Setting out";
     if (last && steps.some((s) => s.kind === "result")) return zh ? "结果" : "Outcome";
     return fallback;
@@ -714,11 +729,15 @@ function columnTitle(
   return label;
 }
 
-export function frameForSubmap(layout: Pick<SubmapLayout, "width" | "height">) {
-  const scale = Math.max(
-    600 / layout.height,
-    Math.min(1000 / layout.height, MAP_FRAME.width / layout.width),
-  );
+export function frameForSubmap(layout: Pick<SubmapLayout, "width" | "height" | "stacked">) {
+  // A stacked card keeps one width, so its summary reads at the same size as
+  // its neighbours' whatever its height.
+  const scale = layout.stacked
+    ? 900 / layout.width
+    : Math.max(
+        600 / layout.height,
+        Math.min(1000 / layout.height, MAP_FRAME.width / layout.width),
+      );
   return { width: layout.width * scale, height: layout.height * scale, scale };
 }
 
@@ -918,6 +937,7 @@ export function layoutScene(
   },
   links = connectMap(graph, [], zh),
   expandedMissions?: ReadonlySet<string>,
+  narrow = false,
 ) {
   const cards: MapCard[] = [];
   const layouts: Record<string, SubmapLayout> = {};
@@ -949,7 +969,7 @@ export function layoutScene(
         nextId: part < count ? idFor(part + 1) : undefined,
         completionScope: scope || undefined,
       });
-      layouts[id] = layoutSubmap(task, events, zh, slice, start);
+      layouts[id] = layoutSubmap(task, events, zh, slice, start, narrow);
       if (part > 1) {
         const boundary = submapLinks([steps[start - 1], slice[0]], zh)[0];
         continuations.push({

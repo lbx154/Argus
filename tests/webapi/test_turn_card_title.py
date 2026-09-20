@@ -51,3 +51,23 @@ def test_title_falls_back_to_the_quote_when_nothing_else_was_said() -> None:
 def test_plain_first_line_is_unchanged() -> None:
     assert ask_title("Write a short story\nabout a lighthouse") == "Write a short story"
     assert ask_title("") == ""
+
+
+def test_a_choice_card_reply_is_titled_by_the_task_it_starts() -> None:
+    """Picking "直接做" on the intake card starts the request made earlier; the
+    card is about that request (stable web trial s-54218bf4, 2026-09-18)."""
+    request = "你学习一下FA 就是初创公司融资的相关知识"
+    rows = [
+        {"type": "ui.operator", "message_id": "web-q-operator", "ts": 10, "text": "直接做"},
+        {"type": "manager.turn.started", "message_id": "web-q", "ts": 11, "text": request},
+    ]
+    turns: dict = {}
+    asks: dict = {}
+    running = turn_records(rows, turns, asks)["turn:web-q"]["card"]
+    assert running["title"] == request
+    # The reply arrives on a later incremental read and rebuilds the card.
+    reply = [{"type": "ui.argus", "message_id": "web-q-argus", "ts": 12, "text": "FA 是……",
+              "task_turn": True, "success": True}]
+    card = turn_records(reply, turns, asks)["turn:web-q"]["card"]
+    assert card["title"] == request
+    assert card["objective"] == request
