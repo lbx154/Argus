@@ -20,7 +20,6 @@ export function useMapLines(
   zh: boolean,
   allowGeneration: boolean,
   sessionId?: string,
-  paused = false,
 ): LineNote[] {
   const locale = zh ? "zh-CN" : "en-US";
   const source = data.kind === "live" ? "project" : "dataset";
@@ -49,7 +48,7 @@ export function useMapLines(
   const written = useQuery({
     queryKey: [...scope, "written"],
     queryFn: ({ signal }) => api.mapLines(source, name, { pairs: body, locale, write: true }, signal, sessionId),
-    enabled: body.length > 0 && allowGeneration && !paused && saved.data?.available === true
+    enabled: body.length > 0 && allowGeneration && saved.data?.available === true
       && saved.data.lines.length < body.length,
     staleTime: Infinity,
     gcTime: 2 * 60 * 60 * 1000,

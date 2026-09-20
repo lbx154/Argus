@@ -248,7 +248,9 @@ export function MapCanvas({
     () => unstatedPairs(connectMap(graph, copy?.relations || [], zh)),
     [graph, copy?.relations, zh],
   );
-  const lineNotes = useMapLines(data, unstated, zh, !readOnly && !data.history_loading, sessionId, paused);
+  // Asked for whether or not the project is still running: a finished map is
+  // the one that gets read, and its lines are written once, in one small call.
+  const lineNotes = useMapLines(data, unstated, zh, !readOnly && !data.history_loading, sessionId);
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh, lineNotes),
     [graph, copy?.relations, zh, lineNotes],
