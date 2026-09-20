@@ -27,6 +27,7 @@ import {
   type SubmapLayout,
   type SubmapStep,
   type MapCard,
+  MAP_FRAME,
 } from "./submap";
 import { SubmapEdges } from "./SubmapEdges";
 import { LiveLine } from "./LiveLine";
@@ -174,10 +175,26 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const { artifacts, onOpenArtifact } = useContext(MapArtifactContext);
   const cardNotes = useContext(MapNotesContext).notes[task.id] ?? [];
   // Only density thresholds trigger React work; continuous zoom typography is CSS.
-  const density = useStore((state) => {
-    const width = state.transform[2] * data.frame.width;
-    return width < 140 ? 'micro' : width < 230 ? 'compact' : 'full';
+  // One tier for the whole view, read from the zoom alone: cards of different
+  // widths then say the same amount at a given zoom instead of three looking
+  // like headed cards and the fourth like a blank tile. Stacked cards on a
+  // narrow canvas are the one narrower family.
+  const stacked = !!currentLayout.stacked;
+  const overview = useStore((state) => {
+    const zoom = state.transform[2];
+    const width = zoom * (stacked ? 900 : MAP_FRAME.width);
+    const tier = width < 130 ? 'micro' : width < 300 ? 'compact' : 'full';
+    // Whole title lines that fit this card on screen, so a short card ends its
+    // title on a line instead of slicing through the next one. The sizes are
+    // the ones design.css sets: a 13–18px title at 1.38, the header row, the
+    // card's padding.
+    const scale = Math.min(data.frame.width / 288, data.frame.height / 218);
+    const title = tier === 'micro' ? 12 : Math.min(18, Math.max(13, 16 * scale * zoom));
+    const room = zoom * data.frame.height - (tier === 'micro' ? 16 : 26 + 27);
+    const lines = Math.max(1, Math.min(tier === 'micro' ? 4 : 3, Math.floor(room / (title * 1.38))));
+    return `${tier}:${lines}`;
   });
+  const [density, titleLines] = overview.split(':');
   const [arrive] = useState(() => !!data.revealing || (!data.restoring && !data.seenCards?.has(id)));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
@@ -392,6 +409,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         className="macro-summary"
         aria-hidden={detailed}
         style={{
+          "--title-lines": titleLines,
           "--summary-scale": summaryScale,
           "--summary-height": `${data.frame.height / summaryScale - 20}px`,
           width: data.frame.width / summaryScale - 20,

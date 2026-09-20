@@ -1,0 +1,328 @@
+/* The map's visual language at every zoom. Loaded last, so it states the
+ * finished look in one place instead of being spread over the files that grew
+ * the behaviour.
+ *
+ * Two rules carry it:
+ *   1. Chrome is measured on the screen, not in canvas units. A card's
+ *      hairline, corner, accent rail and shadow stay the same from the widest
+ *      overview to a fully opened task, where canvas units made them vanish at
+ *      one end and swell at the other.
+ *   2. Type lives inside a band of screen sizes. Zooming in makes a card
+ *      larger and lets it say more; it does not blow the same words up into a
+ *      billboard, and zooming out drops detail instead of shrinking it to fur.
+ *
+ * `--map-zoom` is written by useSemanticCamera on the canvas wrapper;
+ * `--summary-scale` by MacroTaskNode on each summary. */
+
+/* Declared on the wrapper that carries `--map-zoom`: a custom property that
+ * quotes another is resolved where it is declared, so one level further out
+ * these would freeze at the fallback. */
+.map-canvas-wrap {
+  /* One canvas unit in screen pixels, and its inverse for screen-sized chrome. */
+  --z: var(--map-zoom, 0.24);
+  --px: calc(1px / var(--z));
+  --map-card-shadow:
+    0 calc(1 * var(--px)) calc(2 * var(--px)) rgb(30 48 72 / 0.05),
+    0 calc(8 * var(--px)) calc(24 * var(--px)) rgb(30 48 72 / 0.07);
+  --map-card-shadow-lift:
+    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(30 48 72 / 0.06),
+    0 calc(16 * var(--px)) calc(40 * var(--px)) rgb(30 48 72 / 0.13);
+  --map-card-line: rgb(var(--ink) / 0.1);
+}
+[data-theme="dark"] .map-canvas-wrap {
+  --map-card-shadow:
+    0 calc(1 * var(--px)) calc(2 * var(--px)) rgb(0 0 0 / 0.4),
+    0 calc(10 * var(--px)) calc(28 * var(--px)) rgb(0 0 0 / 0.35);
+  --map-card-shadow-lift:
+    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(0 0 0 / 0.45),
+    0 calc(18 * var(--px)) calc(44 * var(--px)) rgb(0 0 0 / 0.5);
+  --map-card-line: rgb(255 255 255 / 0.1);
+}
+
+/* ── The card frame ─────────────────────────────────────────────────────── */
+
+.argus-map .map-macro {
+  border: var(--px) solid var(--map-card-line);
+  border-radius: calc(12 * var(--px));
+  box-shadow: var(--map-card-shadow);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--state, #9babbc) 7%, var(--map-paper)) 0,
+      var(--map-paper) 46%
+    );
+  overflow: visible;
+  transition:
+    opacity 150ms ease,
+    border-color 180ms ease,
+    box-shadow 220ms ease;
+}
+/* The state is a rail down the leading edge: one quiet stroke of colour that
+ * survives the overview, where a tinted top border read as a smudge. */
+.argus-map .map-macro::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--px));
+  top: calc(12 * var(--px));
+  bottom: calc(12 * var(--px));
+  width: calc(3 * var(--px));
+  border-radius: calc(3 * var(--px));
+  background: var(--state, #9babbc);
+  pointer-events: none;
+}
+.argus-map .map-macro[data-history="true"] {
+  box-shadow: none;
+  background: color-mix(in srgb, var(--map-paper) 92%, rgb(var(--line)));
+}
+.argus-map .map-macro[data-history="true"]::after {
+  opacity: 0.45;
+}
+.argus-map .map-macro[data-hovered="true"],
+.argus-map .map-macro:hover {
+  box-shadow: var(--map-card-shadow-lift);
+  border-color: color-mix(in srgb, var(--state, #82a6c5) 38%, var(--map-card-line));
+}
+.argus-map .map-macro[data-focused="true"] {
+  border-color: color-mix(in srgb, #5d8fbd 62%, var(--map-card-line));
+  box-shadow:
+    0 0 0 calc(3 * var(--px)) rgb(93 143 189 / 0.14),
+    var(--map-card-shadow-lift);
+}
+.argus-map .map-macro[data-active="true"] {
+  border-color: color-mix(in srgb, var(--state) 45%, var(--map-card-line));
+  box-shadow:
+    0 0 0 calc(3 * var(--px)) color-mix(in srgb, var(--state) 16%, transparent),
+    var(--map-card-shadow-lift);
+}
+/* Ports are for the eye only here; a dot per side at every zoom was clutter. */
+.argus-map .map-macro > .react-flow__handle {
+  opacity: 0;
+}
+
+/* ── The summary: the same card from overview to the edge of detail ─────── */
+
+.argus-map .macro-summary {
+  /* Canvas units of this summary per screen pixel. */
+  --ot: calc(1 / var(--z) / var(--summary-scale, 1));
+}
+.argus-map .macro-summary .map-card,
+.argus-map .map-macro:not([data-overview-density="full"]) .map-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  height: var(--summary-height);
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: calc(10 * var(--ot) * 1px);
+  background: transparent;
+  box-shadow: none;
+  padding: calc(14px * var(--ot)) calc(16px * var(--ot)) calc(12px * var(--ot)) calc(18px * var(--ot));
+  transform: none;
+}
+.argus-map .macro-summary .map-card:hover,
+.argus-map .macro-summary .map-card:active {
+  transform: none;
+  box-shadow: none;
+}
+.argus-map .macro-summary .map-card > * {
+  margin-left: 0;
+  margin-right: 0;
+  /* A comfortable measure: a wide card does not set 120-character lines. */
+  max-width: calc(560px * var(--ot));
+}
+
+.argus-map .macro-summary .map-card-top {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ot));
+  padding: 0;
+  margin: 0 0 calc(9px * var(--ot));
+  flex-shrink: 0;
+}
+.argus-map .macro-summary .map-card-number {
+  font-family: "Geist Mono Variable", ui-monospace, monospace;
+  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+  letter-spacing: 0.06em;
+  color: rgb(var(--ink-faint));
+  white-space: nowrap;
+}
+.argus-map .macro-summary .map-status {
+  margin-left: auto;
+  display: block;
+  white-space: nowrap;
+  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+  line-height: 1.5;
+  padding: calc(1.5px * var(--ot)) calc(7px * var(--ot));
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--state, #6b859f) 78%, rgb(var(--ink)));
+  background: color-mix(in srgb, var(--state, #6b859f) 12%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.argus-map .macro-summary .map-status svg {
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  margin-right: 0.3em;
+  vertical-align: -0.14em;
+}
+.argus-map .macro-summary .map-state-dot {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-right: 0.4em;
+  vertical-align: 0.12em;
+}
+
+.argus-map .macro-summary .map-card h3,
+.argus-map .map-macro:not([data-overview-density="full"]) .map-card h3 {
+  font-size: clamp(calc(13px * var(--ot)), 16px, calc(18px * var(--ot)));
+  line-height: 1.38;
+  font-weight: 620;
+  letter-spacing: -0.012em;
+  color: rgb(var(--ink));
+  margin: 0 0 calc(7px * var(--ot));
+  min-height: 0;
+  flex-shrink: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--title-lines, 3);
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+.argus-map .macro-summary .map-card-objective,
+.argus-map .macro-summary .map-card > p.map-card-objective {
+  font-size: clamp(calc(11px * var(--ot)), 12px, calc(13px * var(--ot)));
+  line-height: 1.55;
+  color: rgb(var(--ink-faint));
+  margin: 0 0 calc(8px * var(--ot));
+  -webkit-line-clamp: 3;
+  flex-shrink: 0;
+}
+/* The excerpt is the elastic row: it takes what height is left and dissolves
+ * at the bottom, so more of it appears as the card grows on screen. */
+.argus-map .macro-summary .map-card-copy,
+.argus-map .map-macro[data-overview-density="compact"] .map-card-copy {
+  display: block;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  -webkit-line-clamp: unset;
+  font-size: clamp(calc(11px * var(--ot)), 12px, calc(13.5px * var(--ot)));
+  line-height: 1.6;
+  color: rgb(var(--ink-dim));
+  margin: 0 0 calc(8px * var(--ot));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4em), transparent);
+}
+.argus-map .macro-summary .map-card-stages {
+  margin: auto 0 0;
+  padding-top: calc(4px * var(--ot));
+  flex-shrink: 0;
+}
+.argus-map .macro-summary .map-card-stages > span,
+.argus-map .macro-summary .map-card-bottom,
+.argus-map .macro-summary .map-card-submap-hint {
+  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+}
+.argus-map .macro-summary .map-card-bottom {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ot));
+  padding: calc(8px * var(--ot)) 0 0;
+  margin-top: calc(6px * var(--ot));
+  border-top: calc(1px * var(--ot)) solid var(--map-card-line);
+  color: rgb(var(--ink-faint));
+  flex-shrink: 0;
+}
+.argus-map .macro-summary .map-card-submap-hint svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+.argus-map .macro-summary .map-card-teambar {
+  margin: calc(4px * var(--ot)) 0 0;
+  flex-shrink: 0;
+}
+
+/* Overview tiers say less, never smaller. */
+.argus-map .map-macro[data-overview-density="compact"] .map-card-objective,
+.argus-map .map-macro[data-overview-density="compact"] .map-card-bottom,
+.argus-map .map-macro[data-overview-density="compact"] .map-card-stages {
+  display: none;
+}
+.argus-map .map-macro[data-overview-density="micro"] .map-card {
+  justify-content: center;
+  padding: calc(8px * var(--ot)) calc(10px * var(--ot)) calc(8px * var(--ot)) calc(13px * var(--ot));
+}
+.argus-map .map-macro[data-overview-density="micro"] .map-card-top,
+.argus-map .map-macro[data-overview-density="micro"] .map-card-objective,
+.argus-map .map-macro[data-overview-density="micro"] .map-card-copy,
+.argus-map .map-macro[data-overview-density="micro"] .map-card-stages,
+.argus-map .map-macro[data-overview-density="micro"] .map-card-bottom {
+  display: none;
+}
+.argus-map .map-macro[data-overview-density="micro"] .map-card h3 {
+  font-size: calc(12px * var(--ot));
+  margin: 0;
+}
+.argus-map .map-macro:not([data-overview-density="full"]) .map-history-toggle,
+.argus-map .macro-summary ~ .map-history-toggle,
+.argus-map .macro-summary .map-history-toggle {
+  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+}
+.argus-map .map-macro:not([data-overview-density="full"]) .map-history-toggle {
+  display: none;
+}
+.argus-map .map-macro:not([data-overview-density="full"])[data-has-history="true"] .map-card {
+  padding-bottom: calc(12px * var(--ot));
+}
+/* A card that keeps earlier parts shows it as a second sheet behind it. */
+.argus-map .map-macro[data-has-history="true"]::before {
+  content: "";
+  position: absolute;
+  inset: calc(7 * var(--px)) calc(-7 * var(--px)) calc(-7 * var(--px)) calc(7 * var(--px));
+  border: var(--px) solid var(--map-card-line);
+  border-radius: calc(12 * var(--px));
+  background: color-mix(in srgb, var(--map-paper) 88%, rgb(var(--line)));
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ── The canvas ─────────────────────────────────────────────────────────── */
+
+/* The dot grid thins out with distance instead of turning to a grey wash. */
+.argus-map .react-flow__background {
+  opacity: clamp(0.25, calc(var(--z) * 2.2), 0.9);
+}
+
+/* ── Overview refinements ───────────────────────────────────────────────── */
+
+/* At overview the card is small on screen, so its inner margins give way to
+ * the title: a 13px word needs the width more than the frame needs air. */
+.argus-map .map-macro[data-overview-density="compact"] .map-card {
+  padding: calc(11px * var(--ot)) calc(11px * var(--ot)) calc(9px * var(--ot)) calc(14px * var(--ot));
+}
+.argus-map .map-macro[data-overview-density="compact"] .map-card h3 {
+  font-size: clamp(calc(12.5px * var(--ot)), 16px, calc(18px * var(--ot)));
+}
+.argus-map .macro-summary .map-status {
+  max-width: 64%;
+}
+/* A card that was only recorded has nothing to announce. Its long label
+ * ("执行结束 · 目标未完成") collapsed to a dot and an ellipsis beside the number;
+ * the dot alone says the same and leaves the row clean. The full label returns
+ * with the footer once the card is large enough to carry it. */
+.argus-map .map-macro[data-overview-density="compact"] .map-card.map-state-recorded .map-status {
+  max-width: none;
+  width: calc(7px * var(--ot));
+  height: calc(7px * var(--ot));
+  padding: 0;
+  font-size: 0;
+  background: color-mix(in srgb, var(--state, #6b859f) 55%, transparent);
+  align-self: center;
+}
+.argus-map .map-macro[data-overview-density="compact"] .map-card.map-state-recorded .map-status > * {
+  display: none;
+}

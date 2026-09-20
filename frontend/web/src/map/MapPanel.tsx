@@ -68,6 +68,7 @@ import "./map.css";
 import "./submap.css";
 import "./atlas.css";
 import "./branch.css";
+import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
 import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
@@ -899,14 +900,15 @@ export function MapCanvas({
                   : "#7594ad",
             // Dependencies stay the strongest line; fan edges are thinner and
             // translucent (branch.css), context is a fainter, sparser dash.
-            strokeWidth: highlighted ? 2.4 : e.kind === "dependency" ? 1.55 : fan ? 0.95 : 1.3,
+            strokeWidth: highlighted ? 2.6 : e.kind === "dependency" ? 2 : fan ? 1.1 : 1.6,
             vectorEffect: "non-scaling-stroke",
+            // The order work happened in is the spine of most maps, so it is
+            // a continuous line; a dash is kept for "related work", which is
+            // an association and not a path.
             strokeDasharray:
-              e.kind === "dependency" || fan
+              e.kind === "dependency" || e.kind === "context" || e.kind === "continuation" || fan
                 ? undefined
-                : e.kind === "context"
-                  ? "3 10"
-                  : "4 5",
+                : "5 6",
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,

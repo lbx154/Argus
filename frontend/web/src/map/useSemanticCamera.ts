@@ -223,7 +223,9 @@ export function useSemanticCamera(
       el.dataset.zoom = viewport.zoom.toFixed(2);
       el.style.setProperty("--map-zoom", String(viewport.zoom));
       setFocusId(alpha > 0 && id ? id : null);
-      setDetailed(alpha >= 0.55);
+      // Detail belongs to a card. Zooming into open canvas has none to show,
+      // and dimming the whole map around nothing left it grey with no subject.
+      setDetailed(!!id && alpha >= 0.55);
       if (
         viewport.zoom <= 0.32 &&
         !lockedFocus.current &&
