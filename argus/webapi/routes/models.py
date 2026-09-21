@@ -117,6 +117,12 @@ class BudgetSetIn(BaseModel):
     values: dict[str, str]
 
 
+class DispatchQuiesceIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    expected_epoch: int = Field(ge=0, strict=True)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 class CostAcknowledgeIn(BaseModel):
     call_id: str = Field(min_length=1, max_length=128)
     liability_usd: float = Field(gt=0, allow_inf_nan=False, strict=True)

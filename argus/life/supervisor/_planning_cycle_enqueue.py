@@ -268,6 +268,7 @@ class PlanningCycleEnqueueMixin:
                 active_base_signatures[base_signature] = existing
                 seen_signatures[signature] = existing
                 node_key = str(existing.node_key or "").strip()
+                active_node_keys[existing.id] = existing
                 if node_key:
                     active_node_keys[node_key] = existing
             elif signature not in seen_signatures:

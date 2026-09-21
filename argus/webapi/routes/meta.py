@@ -20,7 +20,14 @@ from typing import Any
 from fastapi import Depends, Header, HTTPException, Request, Response
 
 from .context import ServerContext
-from .models import BudgetSetIn, ConfigSetIn, CostAcknowledgeIn, IdentitySetIn, SkillsIn
+from .models import (
+    BudgetSetIn,
+    ConfigSetIn,
+    CostAcknowledgeIn,
+    DispatchQuiesceIn,
+    IdentitySetIn,
+    SkillsIn,
+)
 
 _RESOURCE_PROSE_LIMIT = 300
 
@@ -258,6 +265,23 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/projects/{sid}/dispatch-safety", dependencies=[Depends(ctx.require_auth)])
+    def _dispatch_safety(sid: str) -> dict[str, Any]:
+        from ...core.dispatch_safety import safety_snapshot
+        return safety_snapshot(ctx.resolve_or_404(sid))
+
+    @app.post("/api/projects/{sid}/dispatch-safety/quiesce", dependencies=[Depends(ctx.require_auth)])
+    def _quiesce_dispatch(sid: str, body: DispatchQuiesceIn) -> dict[str, Any]:
+        from ...core.dispatch_safety import quiesce_project
+        try:
+            return quiesce_project(root=ctx.project_root_or_404(sid),
+                                   project=ctx.resolve_or_404(sid),
+                                   expected_epoch=body.expected_epoch, reason=body.reason)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (OSError, RuntimeError) as exc:
+            raise HTTPException(503, "dispatch safety write unavailable; do not resume") from exc
 
     @app.get("/api/projects/{sid}/cost-control", dependencies=[Depends(ctx.require_auth)])
     def _cost_status(sid: str) -> dict[str, Any]:

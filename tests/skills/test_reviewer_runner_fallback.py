@@ -17,6 +17,19 @@ from argus.verticals.research._reviewer_runner_fallback import (
 from tests.skills.researched_venues import EIGHT_PAGE_CONFERENCE
 
 
+@pytest.fixture(autouse=True)
+def registered_reviewer_owner(tmp_path, monkeypatch):
+    from argus.core.session import SessionMeta, write_session_meta
+    home = tmp_path / "home"
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    write_session_meta(home, SessionMeta(id="s-review-test", workdir=str(workdir)))
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
+    monkeypatch.setenv("ARGUS_SKILL_SESSION_ROOT", str(home / "projects/s-review-test"))
+    monkeypatch.setenv("ARGUS_SKILL_SESSION_ID", "s-review-test")
+    return workdir
+
+
 def _explicit_env() -> dict[str, str]:
     return {
         "ARGUS_SKILL_REVIEWER_BACKEND": "claude",
@@ -30,13 +43,16 @@ def _explicit_env() -> dict[str, str]:
 
 
 def test_fallback_uses_canonical_reviewer_config_and_timeout(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, registered_reviewer_owner,
 ) -> None:
     captured: dict[str, object] = {}
 
     class _Backend:
         def __init__(self, **kwargs: object) -> None:
             captured["backend_kwargs"] = kwargs
+
+        def set_usage_context(self, **kwargs):
+            captured["usage_context"] = kwargs
 
     def _run(backend, *, prompt, options, run_label):  # noqa: ANN001
         captured.update(
@@ -58,7 +74,7 @@ def test_fallback_uses_canonical_reviewer_config_and_timeout(
     raw, label = fallback.run_reviewer_prompt_via_runner(
         "review this",
         run_label="research.test_review",
-        working_dir="/workspace",
+        working_dir=str(registered_reviewer_owner),
         env=_explicit_env(),
         timeout=5.0,
     )
@@ -71,11 +87,12 @@ def test_fallback_uses_canonical_reviewer_config_and_timeout(
         "backend": "claude",
         "runner_bin": "/opt/reviewer",
         "default_extra_args": ["--trace"],
+        "require_project": True,
     }
     options = captured["options"]
     assert options.model == "claude-reviewer"
     assert options.reasoning_effort == "medium"
-    assert options.working_dir == "/workspace"
+    assert options.working_dir == str(registered_reviewer_owner)
     assert options.full_auto is True
     assert options.watchdog_hard_idle_seconds == 5
     assert options.external_interrupt_reason_provider() == (
@@ -98,7 +115,7 @@ def test_explicit_shared_runner_bin_beats_persisted_role_bin(
     monkeypatch.setattr(
         agent_cli_backend,
         "AgentCliBackend",
-        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(),
+        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(set_usage_context=lambda **kw: None),
     )
     monkeypatch.setattr(
         run_gateway,
@@ -140,7 +157,7 @@ def test_reviewer_backend_override_ignores_persisted_shared_runner(
     monkeypatch.setattr(
         agent_cli_backend,
         "AgentCliBackend",
-        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(),
+        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(set_usage_context=lambda **kw: None),
     )
     monkeypatch.setattr(
         run_gateway,
@@ -197,7 +214,7 @@ def test_fallback_rejects_failed_or_empty_runner_results(
     monkeypatch.setattr(
         agent_cli_backend,
         "AgentCliBackend",
-        lambda **kwargs: SimpleNamespace(kwargs=kwargs),
+        lambda **kwargs: SimpleNamespace(kwargs=kwargs, set_usage_context=lambda **kw: None),
     )
     monkeypatch.setattr(run_gateway, "run_exec", lambda *args, **kwargs: result)
 

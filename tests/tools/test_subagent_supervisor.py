@@ -1179,6 +1179,12 @@ def test_backend_turn_uses_accounted_agent_backend(monkeypatch, tmp_path) -> Non
     monkeypatch.setattr(_sub._llm, "_supervisor_backend", lambda: _Backend())
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
 
+    # Project-scoped supervisor calls no longer invent an unregistered owner.
+    from argus.core.project import project_fingerprint
+    from argus.core.session import SessionMeta, write_session_meta
+    write_session_meta(tmp_path / "argus-home", SessionMeta(
+        id=project_fingerprint(tmp_path).fingerprint, workdir=str(tmp_path)))
+
     result = _ORIGINAL_RUN_BACKEND_TURN(
         "inspect metrics",
         "gpt-5.5",

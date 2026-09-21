@@ -202,7 +202,7 @@ def test_planner_dedup_index_maps_active_planner_node_key(tmp_path: Path) -> Non
     state = _PlanCycleState(None)
     Harness()._pc_build_dedupe_index(state)
 
-    assert state.active_node_keys == {"publication-evidence-gap": active}
+    assert state.active_node_keys == {"publication-evidence-gap": active, active.id: active}
 
 
 def test_commit_resolves_dependency_from_existing_backlog_item_id(
