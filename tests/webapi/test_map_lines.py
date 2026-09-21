@@ -112,3 +112,24 @@ def test_a_failed_attempt_is_not_repeated_at_once(tmp_path, model, monkeypatch):
         map_lines.notes(tmp_path, dataset(), PAIRS, "en-US", project_root=tmp_path, generate=True)
     result = map_lines.notes(tmp_path, dataset(), PAIRS, "en-US", project_root=tmp_path, generate=True)
     assert result["retry_after"] > 0 and model.calls == ["failed"]
+
+
+def test_a_phrase_is_sized_for_its_language_and_never_cut_through_a_word(tmp_path, model):
+    model([{"source": "t0", "target": "t1", "label": "Method contract and pinned baseline reference code", "evidence": "x"}])
+    en = map_lines.notes(tmp_path, dataset(), PAIRS[:1], "en-US", project_root=tmp_path, generate=True)["lines"][0]
+    assert en["label"] == "Method contract and…"
+    assert "2-3 words" in model.calls[0]["prompt"] and "4-10个字" not in model.calls[0]["prompt"]
+    model([{"source": "t0", "target": "t1", "label": "方法规范与基线参考代码", "evidence": "x"}])
+    zh = map_lines.notes(tmp_path, dataset(), PAIRS[:1], "zh-CN", project_root=tmp_path, generate=True)["lines"][0]
+    assert zh["label"] == "方法规范与基线参考代码" and "4-10个字" in model.calls[1]["prompt"]
+
+
+@pytest.mark.parametrize("said, limit, shown", [
+    ("Short one", 40, "Short one"),
+    ("Accuracy reached 38.31% at 32k context, which beats the baseline by a wide margin", 45, "Accuracy reached 38.31% at 32k context…"),
+    ("First sentence that fits. Second sentence that runs on and on past the limit", 40, "First sentence that fits."),
+    ("在 32k 检索中准确率达 38.31%，比基线高出 14.52 个百分点，后面还有很长的一段话", 24, "在 32k 检索中准确率达 38.31%…"),
+    ("无标点的一整串中文字符用来测试硬截断", 8, "无标点的一整串中…"),
+])
+def test_fitting_ends_where_a_phrase_ends(said, limit, shown):
+    assert map_lines.fit(said, limit) == shown

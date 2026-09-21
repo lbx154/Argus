@@ -19,7 +19,8 @@ const cache = new WeakMap<Store, Cache>();
 
 /** Pills cap at this width on screen; longer phrases ellipsize (edges.css)
  * while the title attribute keeps the full wording. */
-export const LABEL_MAX_WIDTH = 150;
+// Wide enough for a phrase of ten Chinese characters or four English words.
+export const LABEL_MAX_WIDTH = 200;
 const LABEL_MIN_ZOOM = 0.5;
 /** Below this the cards themselves are down to a title; a label on the line
  * between them would be the largest thing on the map. */
@@ -50,7 +51,8 @@ export function relationLabelText(label: unknown) {
  * padding, capped where the CSS ellipsis takes over. */
 export function labelBox(label: unknown) {
   const width = [...relationLabelText(label)].reduce(
-    (n, c) => n + (/[^\x00-\x7F]/.test(c) ? 10.5 : 6),
+    // The pill is set in a bold serif: a Latin letter runs nearer 7px than 6.
+    (n, c) => n + (/[^\x00-\x7F]/.test(c) ? 10.5 : 7),
     20,
   );
   return { width: Math.min(width, LABEL_MAX_WIDTH + 16), height: 26 };

@@ -720,7 +720,9 @@ def enrich(
                 {
                     "source": pair[0],
                     "target": pair[1],
-                    "label": text(r.get("label"), 18),
+                    # Eighteen characters hold a Chinese phrase and cut an English
+                    # one mid-word; the schema's own limit bounds the English.
+                    "label": text(r.get("label"), 18 if locale == "zh-CN" else 32),
                     "evidence": text(r["evidence"], 500),
                     "kind": "semantic",
                 }

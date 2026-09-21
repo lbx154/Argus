@@ -85,3 +85,23 @@ def test_without_a_session_or_after_a_failure_nothing_is_asked(tmp_path, model, 
         map_cards.words(tmp_path, dataset(), ["t0"], "zh-CN", project_root=tmp_path, generate=True)
     waiting = map_cards.words(tmp_path, dataset(), ["t0"], "zh-CN", project_root=tmp_path, generate=True)
     assert waiting["retry_after"] > 0 and model.calls == ["failed"]
+
+
+def test_words_are_sized_for_the_language_they_are_read_in(tmp_path, model):
+    english = "Benchmark retrieval accuracy across long context windows"
+    finding = ("Accuracy reached 38.31% at 32k context, ahead of the baseline by 14.52 points. "
+               + "A second sentence that keeps going well past what a card can show. " * 5)
+    model([{"id": "t0", "title": english, "summary": finding}])
+    en = map_cards.words(tmp_path, dataset(), ["t0"], "en-US", project_root=tmp_path, generate=True)["cards"]["t0"]
+    # An English title of eight words is not cut where a Chinese one would end.
+    assert en["title"] == english
+    # An overlong sentence ends where a sentence ends, never inside "38.31%".
+    assert en["summary"].endswith(".") and len(en["summary"]) <= map_cards.LIMITS["en-US"]["summary"]
+    assert "38.31%" in en["summary"]
+    asked = model.calls[0]
+    assert "English" in asked["prompt"] and "no more than 8 words" in asked["prompt"] and "16个字" not in asked["prompt"]
+    # The reader's other language is written and kept separately.
+    model([{"id": "t0", "title": "评测长上下文检索精度", "summary": "32k 下准确率 38.31%。"}])
+    zh = map_cards.words(tmp_path, dataset(), ["t0"], "zh-CN", project_root=tmp_path, generate=True)["cards"]["t0"]
+    assert zh["title"] == "评测长上下文检索精度" and "16个字" in model.calls[1]["prompt"]
+    assert map_cards.words(tmp_path, dataset(), ["t0"], "en-US", project_root=tmp_path)["cards"]["t0"]["title"] == english

@@ -41,7 +41,7 @@
  * stay on (nodrag/nopan already neutralize the canvas) so that title shows. */
 .argus-map .map-relation-label {
   --edge-hue: var(--map-edge-semantic);
-  max-width: 150px;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 11px;

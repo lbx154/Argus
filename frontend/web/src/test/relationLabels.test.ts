@@ -72,7 +72,7 @@ it("buckets zoom coarsely and keeps labels through the overview", () => {
 });
 
 it("estimates pill boxes capped where the CSS ellipsis takes over", () => {
-  expect(labelBox("aaaa")).toEqual({ width: 20 + 4 * 6, height: 26 });
+  expect(labelBox("aaaa")).toEqual({ width: 20 + 4 * 7, height: 26 });
   expect(labelBox("依赖依赖")).toEqual({ width: 20 + 4 * 10.5, height: 26 });
   expect(labelBox("x".repeat(60)).width).toBe(LABEL_MAX_WIDTH + 16);
 });
