@@ -56,10 +56,11 @@ export function PluginEntries({ plugins, compact = false, pending, onLaunch, onM
         {manage}
       </div>;
     })}
-    {manual && <button type="button" onClick={onManage} title={tr("插件")} aria-label={tr("插件")}
-      className={`mx-2 my-1 flex h-9 shrink-0 items-center rounded-md text-sm text-ink-dim transition-colors hover:bg-bg hover:text-ink ${compact ? 'justify-center' : 'gap-2 px-3'}`}>
-      <Boxes size={17} strokeWidth={1.5} />{!compact && <span>{tr("插件")}</span>}
-    </button>}
+    {manual && <div className="mx-2 my-1 flex shrink-0 items-center">
+      <button type="button" onClick={onManage} title={tr("插件")} aria-label={tr("插件")} className={entry(compact)}>
+        <Boxes size={16} strokeWidth={1.5} className="shrink-0" />{!compact && <span>{tr("插件")}</span>}
+      </button>
+    </div>}
   </>;
 }
 
