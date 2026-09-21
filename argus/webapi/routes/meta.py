@@ -236,6 +236,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
                 body.value,
                 project_state_dir=project_state_dir,
                 global_root=root,
+                apply_to_roles=body.apply_to_roles,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

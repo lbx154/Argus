@@ -7,7 +7,6 @@ import { layoutSubmap, type SubmapStep } from '../map/submap';
 import type { CardCopy } from '../map/presentation';
 import { ReaderExplanation } from '../research-brief/ReaderExplanation';
 import { MarkdownContent } from '../components/MarkdownContent';
-import { ReaderEvidence, ReaderEvidenceSummary } from '../research-brief/ReaderEvidence';
 import { Spinner } from '../components/primitives';
 import * as i18n from '../i18n';
 
@@ -29,12 +28,7 @@ const props = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({ id: '
   canvasSize: { width: 1440, height: 960 }, zh: false, focused: true, detailed: true, live: true,
   source: 'live:project', readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(), readCopy: vi.fn(),
   copy: { version: 15, cards: { [task.id]: explanation('LATEST ROOT CONCLUSION'), [step.id]: oldCopy } },
-  readerCopy: { request: { key: step.id, task_id: task.id, kind: step.kind, event_ids: step.eventIds }, pending: true, generating: false,
-    evidence: [
-      { id: 'old-event', item_id: task.id, type: 'round.review.completed', ts: 100, text: 'Earlier event text', revision: 'event-v1' },
-      { id: 'new-event', item_id: task.id, type: 'round.review.completed', ts: 200, text: 'Later outcome' },
-      { id: 'old-event', item_id: 'another-task', type: 'round.review.completed', ts: 100, text: 'Other task evidence' },
-    ] },
+  readerCopy: { request: { key: step.id, task_id: task.id, kind: step.kind, event_ids: step.eventIds }, pending: true, generating: false },
   ...patch,
 } } as NodeProps<MacroNode>);
 let renderer: ReactTestRenderer | undefined;
@@ -62,12 +56,12 @@ it('uses the same explanation component for a historical step without borrowing 
   expect(reader.findAllByType(MarkdownContent).filter(node => node.props.children === oldCopy.detail)).toHaveLength(1);
   const sources = reader.findAllByType(MarkdownContent).map(node => node.props.children).join('\n');
   expect(sources).toContain(oldCopy.reader_brief!.concept!.example);
-  expect(sources).toContain(step.detail);
+  expect(sources).not.toContain(step.detail);
   expect(sources).toContain(oldCopy.detail);
   expect(sources).not.toContain('LATEST ROOT CONCLUSION');
   expect(sources).not.toContain('Later outcome');
   expect(sources).not.toContain('Other task evidence');
-  expect(reader.findAllByProps({ 'data-event-id': 'old-event' })).toHaveLength(1);
+  expect(reader.findAllByProps({ 'data-event-id': 'old-event' })).toHaveLength(0);
   expect(reader.findByProps({ 'data-testid': 'research-brief-status' }).findByType('time').props.dateTime).toBe('1970-01-01T00:02:00.000Z');
   expect(reader.findAllByType('span').some(node => node.children.includes(' · update pending'))).toBe(true);
   expect(renderer!.root.findAll(node => node.type === 'button' && node.props['data-testid'] === 'map-task-read')).toHaveLength(0);
@@ -92,7 +86,7 @@ it('passes only the selected historical card’s learning path to the shared rea
   expect(text).toContain('Earlier step question');
   expect(text).toContain(oldCopy.reader_brief!.scope);
   expect(text).not.toContain('LATEST ROOT');
-  expect(renderer!.root.findByType(ReaderEvidence).props.selection.cardKey).toBe(step.id);
+  expect(renderer!.root.findByProps({ 'data-reader-card': step.id }).props['data-reader-task-id']).toBe(task.id);
 });
 
 it('keeps legacy step details readable and clears the reader selection when leaving a task', () => {
@@ -116,12 +110,11 @@ it('opens a task explanation with only its own root key, including read-only vie
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, task.id);
 });
 
-it('does not use mismatched reader metadata as a card’s evidence', () => {
+it('does not use mismatched reader metadata as a card’s pending generation', () => {
   act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} card={oldCopy}
     originalDetail={step.detail} selection={{ ...props().data.readerCopy!, request: { key: 'another-step', task_id: task.id, kind: 'review', event_ids: ['old-event'] } }} />); });
-  const source = renderer!.root.findByProps({ 'data-event-id': 'old-event' });
-  expect(source.props['data-evidence-state']).toBe('missing');
-  expect(source.findAllByType('pre')).toHaveLength(0);
+  expect(renderer!.root.findAllByType('pre')).toHaveLength(0);
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain('update pending');
 });
 
 it.each([true, false])('shows a stopped failure and manual retry with retained explanation=%s', async retained => {
@@ -142,8 +135,8 @@ it.each([true, false])('shows a stopped failure and manual retry with retained e
   expect(text).not.toContain('Internal provider detail');
   expect(text).not.toContain('阅读说明待整理');
   expect(text).not.toContain('待更新');
-  expect(text).toContain(step.detail);
-  expect(renderer!.root.findByProps({ 'data-event-id': 'old-event' })).toBeDefined();
+  expect(text.includes(step.detail)).toBe(!retained);
+  expect(renderer!.root.findAllByProps({ 'data-event-id': 'old-event' })).toHaveLength(0);
   if (retained) {
     expect(renderer!.root.findByType(ReaderExplanation).props.brief).toEqual(oldCopy.reader_brief);
     expect(status.findByType('time').props.dateTime).toBe('1970-01-01T00:02:00.000Z');
@@ -189,37 +182,35 @@ it.each([
   expect(retry).not.toHaveBeenCalled();
 });
 
-it('uses retained historical sources while keeping updated records and current detail separate', () => {
-  const material = { id: 'old-event', item_id: task.id, revision: 'event-v1', type: 'round.review.completed',
-    ts: 100, attempt: 1, text: 'Original earlier-attempt excerpt', text_truncated: true };
-  const taskMaterial = { title: task.title, objective: 'Original retained goal', acceptance_check: 'Partial condition', acceptance_check_truncated: true };
-  const copy: CardCopy = { ...oldCopy, detail: 'Retained condition; see the [recorded note](research/note.md).', source_snapshot: { version: 1, card_key: step.id, task_id: task.id,
-    captured_at: 110, task: taskMaterial, events: [material], source_ids: ['old-event'] } };
+it('keeps useful explanation links without repeating source records or current task detail', () => {
+  const copy: CardCopy = { ...oldCopy, detail: 'Retained condition; see the [recorded note](research/note.md).' };
   const currentTask = { ...task, objective: 'Changed task goal', revision: 'task-v2', attempt: 2 };
-  const currentEvent = { ...props().data.readerCopy!.evidence[0], revision: 'event-v2', text: 'Current record revision', ts: 200 };
   const onOpenArtifact = vi.fn();
   act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} card={copy} task={currentTask}
     artifacts={[{ path: 'research/note.md', name: 'note.md', why: 'Recorded note', exists: true, kind: 'markdown', mime: 'text/markdown', size: 42, mtime: null }]} onOpenArtifact={onOpenArtifact}
     originalDetail="Current loaded detail only" selection={{ request: { key: step.id, task_id: task.id, kind: 'review', event_ids: [] },
-      evidence: [currentEvent], pending: true, generating: false }} />); });
-  const shared = renderer!.root.findByType(ReaderEvidence);
-  const used = shared.findByProps({ 'data-evidence-group': 'used' });
-  expect(JSON.parse(used.findByProps({ 'data-evidence-json': 'excerpt' }).children.join(''))).toEqual(material);
-  expect(JSON.parse(used.findByProps({ 'data-evidence-json': 'task' }).children.join(''))).toEqual(taskMaterial);
-  expect(used.findAllByProps({ 'data-evidence-full-record': true })).toHaveLength(0);
-  const current = shared.findByProps({ 'data-evidence-group': 'current' });
-  expect(current.findByProps({ 'data-event-id': 'old-event' }).props['data-evidence-reason']).toBe('changed');
-  expect(current.findAllByType(MarkdownContent).map(node => node.props.children)).toContain('Changed task goal');
-  expect(current.findAllByType(MarkdownContent).map(node => node.props.children)).toContain('Current record revision');
-  expect(renderer!.root.findByType(ReaderEvidenceSummary).findAllByProps({ 'data-evidence-captured-at': true })).toHaveLength(0);
-  expect(used.findByProps({ 'data-evidence-captured-at': true }).props.dateTime).toBe('1970-01-01T00:01:50.000Z');
-  const currentDetail = renderer!.root.findAllByType('details').find(node => node.findByType('summary').children.includes('Currently loaded task and step record'))!;
-  expect(currentDetail.findByType(MarkdownContent).props.children).toBe('Current loaded detail only');
-  expect(used.findAllByType(MarkdownContent).map(node => node.props.children)).not.toContain('Current loaded detail only');
+      pending: true, generating: false }} />); });
+  const text = JSON.stringify(renderer!.toJSON());
+  for (const shell of ['View evidence', 'Source record', 'Original record', 'Currently loaded task and step record', 'data-evidence', 'Current loaded detail only']) {
+    expect(text).not.toContain(shell);
+  }
   const retainedDetails = renderer!.root.findByType(ReaderExplanation).findAllByType('details').find(node => node.findByType('summary').children.includes('Detailed explanation and conditions'))!;
   expect(retainedDetails.findByType(MarkdownContent).props.children).toBe(copy.detail);
   const preventDefault = vi.fn();
   act(() => retainedDetails.findByProps({ 'data-artifact-path': 'research/note.md' }).props.onClick({ preventDefault }));
   expect(preventDefault).toHaveBeenCalledOnce();
   expect(onOpenArtifact).toHaveBeenCalledWith('research/note.md');
+});
+
+it.each([false, true])('preserves the full blocking question with saved explanation=%s and no evidence shells', saved => {
+  const question = 'Please choose the input to compare. '.repeat(40);
+  act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id}
+    task={{ ...task, pending_question: question }} card={saved ? oldCopy : undefined} originalDetail="Useful task objective" />); });
+  expect(renderer!.root.findByProps({ 'data-reader-pending-question': task.id }).findByType(MarkdownContent).props.children).toBe(question.trim());
+  const text = JSON.stringify(renderer!.toJSON());
+  for (const shell of ['View evidence', 'Source record', 'Original record', 'data-evidence']) expect(text).not.toContain(shell);
+  expect(text.includes('Useful task objective')).toBe(!saved);
+  act(() => renderer!.update(<MapReaderContent cardKey={step.id} taskId={task.id}
+    task={{ ...task, id: 'another-task', pending_question: question }} originalDetail="Useful task objective" />));
+  expect(renderer!.root.findAllByProps({ 'data-reader-pending-question': 'another-task' })).toHaveLength(0);
 });

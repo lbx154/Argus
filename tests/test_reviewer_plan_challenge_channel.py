@@ -17,14 +17,12 @@ open from prompt to Manager decision.
 from __future__ import annotations
 
 import json
-import re
 
 from argus.manager.plan_challenge import adjudicate_plan_challenge
 from argus.reviewer import Reviewer
-from argus.reviewer._parsing import _PLAN_SIGNALS, parse_decision_text
+from argus.reviewer._parsing import parse_decision_text
+from argus.reviewer.tools import ReviewActions
 from argus.skills.store import SkillStore
-
-_SHOWN_SIGNAL = re.compile(r"(?im)^\s*PLAN_SIGNAL\s*=\s*([a-z_]+)")
 
 
 def _reviewer_prompt(tmp_path) -> str:
@@ -44,22 +42,22 @@ def _reviewer_prompt(tmp_path) -> str:
     )
 
 
-def test_every_plan_signal_the_reviewer_is_shown_is_one_the_parser_accepts(
+def test_plan_challenge_is_a_native_action_with_explicit_authority(
     tmp_path,
 ) -> None:
-    shown = set(_SHOWN_SIGNAL.findall(_reviewer_prompt(tmp_path)))
-    assert shown, "the Reviewer must see at least one plan_signal example"
-    assert shown <= _PLAN_SIGNALS, f"unparseable example values: {shown - _PLAN_SIGNALS}"
+    assert "replan_review" in _reviewer_prompt(tmp_path)
+    tool = next(tool for tool in ReviewActions().tools if tool["name"] == "replan_review")
+    assert tool["inputSchema"]["properties"]["authority_impact"]["enum"] == [
+        "technical", "manager_contract", "operator",
+    ]
 
 
 def test_the_reviewer_is_told_the_word_that_challenges_the_plan(tmp_path) -> None:
     prompt = _reviewer_prompt(tmp_path)
-    assert "reconsider" in prompt
-    for field in ("plan_challenge", "plan_alternative", "authority_impact"):
-        assert field in prompt
-    assert 'if evidence lowers expected value' in prompt
-    assert 'Without a known `plan_alternative`, Manager uses `revise`' in prompt
-    assert "STATUS=replan_requested" in prompt
+    assert "replan_review" in prompt
+    assert "failed assumption" in prompt
+    assert "alternative" in prompt
+    assert "STATUS=" not in prompt
 
 
 def test_the_reviewer_is_told_a_team_authored_plan_is_revisable(tmp_path) -> None:

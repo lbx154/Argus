@@ -44,11 +44,11 @@ let renderer: ReactTestRenderer;
 let onOpen: Mock<(page?: WikiLibraryItem) => void>;
 const content = (node: ReactTestInstance): string => node.children.map(child => typeof child === 'string' ? child : content(child)).join('');
 const button = (name: string) => renderer.root.findAllByType('button').find(node => content(node).startsWith(name))!;
-const rows = () => renderer.root.findAllByType('button').slice(1).map(content);
+const rows = () => renderer.root.findAllByType('button').filter(node => !node.props['data-sidebar-fold']).slice(1).map(content);
 const settle = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(5); }); };
-const tree = (props: { sid?: string | null; compact?: boolean; withOpen?: boolean } = {}) =>
+const tree = (props: { sid?: string | null; compact?: boolean; withOpen?: boolean; defaultExpanded?: boolean } = {}) =>
   <QueryClientProvider client={client}>
-    <WikiEntry sid={props.sid === undefined ? 'one' : props.sid} compact={props.compact} onOpen={props.withOpen === false ? undefined : onOpen} />
+    <WikiEntry sid={props.sid === undefined ? 'one' : props.sid} compact={props.compact} onOpen={props.withOpen === false ? undefined : onOpen} defaultExpanded={props.defaultExpanded ?? true} />
   </QueryClientProvider>;
 async function mount(props: { sid?: string | null; compact?: boolean; withOpen?: boolean } = {}) {
   await act(async () => { renderer = create(tree(props)); });
@@ -168,6 +168,6 @@ it('picks up a page the project just wrote without remounting', async () => {
   const next: WikiCatalog = { ...fixture, items: [page('Just written', 70), ...fixture.items] };
   vi.mocked(api.wikiLibrary).mockResolvedValue(next);
   await act(async () => { await client.invalidateQueries({ queryKey: wikiQueryKey('one') }); }); await settle();
-  expect(content(renderer.root.findAllByType('button')[1])).toContain('Just written');
+  expect(rows()[0]).toContain('Just written');
   expect(renderer.root.findByProps({ 'aria-label': '7 pages' })).toBeDefined();
 });

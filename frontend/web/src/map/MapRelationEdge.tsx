@@ -2,17 +2,18 @@ import { GrowthReveal } from './GrowthReveal';
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  useStore,
   useStoreApi,
   type Edge,
   type EdgeProps,
 } from "@xyflow/react";
 import { useId } from "react";
+import { brushStroke } from "./brush";
 import { pointAlong } from "./relationGeometry";
 import { relationLabelText, relationLayout } from "./relationLabels";
+import { useSteppedZoom } from "./zoomStep";
 import "./edges.css";
 
-type RelationEdge = Edge<{ lane: number; growthDelay?: number; active?: boolean; muted?: boolean; lit?: boolean }, "relation">;
+type RelationEdge = Edge<{ lane: number; growthDelay?: number; active?: boolean; muted?: boolean; lit?: boolean; quiet?: boolean }, "relation">;
 
 /** MapPanel paints a cyclic reference directly on the stroke; that warning
  * outranks the kind hues resolved from edges.css. */
@@ -20,11 +21,13 @@ const CYCLE_STROKE = "#dc6648";
 
 /** Curves follow their ports; label type stays readable at overview scale. */
 export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEdge>) {
-  // Zoom only drives screen-constant sizing here. Bucketing it means a zoom
-  // gesture re-renders every edge at step boundaries (≤4% size drift between
-  // steps, absorbed by the canvas transform) instead of on every frame.
-  const zoom = useStore((s) => Math.round(s.transform[2] * 24) / 24 || s.transform[2]);
-  const arrow = `relation-arrow-${useId().replace(/:/g, "")}`;
+  // Zoom only drives screen-constant sizing here, so an edge reads the step
+  // the camera holds, like the cards: a gesture scales the strokes and labels
+  // with the rest of the picture, and they are redrawn when it rests.
+  const zoom = useSteppedZoom((step) => step);
+  const uid = useId().replace(/:/g, "");
+  const arrow = `relation-arrow-${uid}`;
+  const flow = `relation-flow-${uid}`;
   const store = useStoreApi();
   const layout = relationLayout(store, zoom);
   const route = layout.routes.get(id);
@@ -46,6 +49,20 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
     ? pointAlong(route.points, (kind === "fanout" ? 2 : 15) / zoom, kind === "fanin")
     : null;
   const text = typeof label === "string" ? relationLabelText(label) : undefined;
+  // A route fades in from the card it leaves and is full strength where it
+  // arrives, so direction reads along the whole line and not only at the
+  // arrowhead. A cyclic reference keeps its flat warning colour.
+  const from = route.points[0];
+  const to = route.points[route.points.length - 1];
+  const graded = !!from && !!to && style?.stroke !== CYCLE_STROKE
+    && (Math.abs(from.x - to.x) > 1 || Math.abs(from.y - to.y) > 1);
+  // A route that is a path (the order of work, a dependency, a task carrying
+  // on) is an ink stroke; an association keeps its dashed line, which a filled
+  // outline cannot carry.
+  const inked = !fan && !style?.strokeDasharray;
+  const ink = inked
+    ? brushStroke(route.points, (Number(style?.strokeWidth || 2) * 1.45) / zoom, 16 / zoom)
+    : "";
   return (
     <>
       <defs>
@@ -54,22 +71,34 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
-          markerWidth={10.5 / zoom}
-          markerHeight={10.5 / zoom}
+          markerWidth={9 / zoom}
+          markerHeight={9 / zoom}
           markerUnits="userSpaceOnUse"
           orient="auto"
         >
-          <path d="M 0 0 L 10 5 L 0 10 z" style={{ fill: stroke }} />
+          {/* A swept head with a notched back sits on the line more lightly
+            * than a solid triangle. */}
+          <path d="M 0.6 0.9 L 9.6 5 L 0.6 9.1 L 3 5 z" style={{ fill: stroke }} />
         </marker>
+        {graded && (
+          <linearGradient id={flow} gradientUnits="userSpaceOnUse" x1={from.x} y1={from.y} x2={to.x} y2={to.y}>
+            <stop offset="0" style={{ stopColor: stroke, stopOpacity: inked ? 0.34 : 0.28 }} />
+            <stop offset="0.55" style={{ stopColor: stroke, stopOpacity: inked ? 0.7 : 0.78 }} />
+            <stop offset="1" style={{ stopColor: stroke, stopOpacity: 1 }} />
+          </linearGradient>
+        )}
       </defs>
       <GrowthReveal path={route.path} delay={data?.growthDelay} padding={24 / zoom}>
       <BaseEdge
         id={id}
         path={route.path}
-        markerEnd={`url(#${arrow})`}
+        markerEnd={ink ? undefined : `url(#${arrow})`}
         style={{
           ...style,
-          stroke,
+          // The plain path stays for hit-testing and the growth mask; the ink
+          // outline below is what is seen.
+          stroke: ink ? "transparent" : graded ? `url(#${flow})` : stroke,
+          strokeLinecap: "round",
           vectorEffect: "none",
           strokeWidth,
           // Keep the dash pattern chosen per edge kind, at screen scale.
@@ -81,6 +110,27 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
             : undefined,
         }}
       />
+      {ink && (
+        <path
+          className="map-edge-ink"
+          d={ink}
+          style={{ fill: graded ? `url(#${flow})` : stroke, opacity: style?.opacity }}
+          aria-hidden="true"
+        />
+      )}
+      {/* Where the route leaves its card: a small anchor ties the line to it. */}
+      {!fan && from && (
+        <circle
+          className="map-edge-anchor"
+          cx={from.x}
+          cy={from.y}
+          r={(ink ? 2.1 : 2.6) / zoom}
+          style={ink
+            ? { fill: stroke, opacity: Number(style?.opacity ?? 1) * 0.62 }
+            : { fill: "var(--map-paper)", stroke, strokeWidth: 1.4 / zoom, opacity: style?.opacity }}
+          aria-hidden="true"
+        />
+      )}
       {joint && (
         <circle
           className="map-edge-joint"
@@ -118,9 +168,11 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
             className="map-relation-label nodrag nopan"
             data-kind={kind}
             data-lit={!!data?.lit}
+            data-quiet={!!data?.quiet}
             title={text}
             style={{
-              opacity: style?.opacity,
+              opacity: data?.quiet && !data.lit ? 0 : style?.opacity,
+              pointerEvents: data?.quiet && !data.lit ? "none" : undefined,
               transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px) scale(${1 / zoom})`,
             }}
           >

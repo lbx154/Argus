@@ -56,19 +56,23 @@ it("keeps the full phrase single-spaced; truncation belongs to the pill", () => 
   expect(relationLabelText("motivates attribution study")).not.toContain("…");
 });
 
-it("buckets zoom coarsely and hides labels below the overview threshold", () => {
-  expect(labelZoom(0.2)).toBe(0);
-  expect(labelZoom(0.49)).toBe(0);
+it("buckets zoom coarsely and keeps labels through the overview", () => {
+  // The overview is where a map is read; what connects two tasks shows there.
+  expect(labelZoom(0.2)).toBe(0.2);
+  expect(labelZoom(0.11)).toBe(0.1);
+  expect(labelZoom(0.49)).toBe(0.45);
+  // Only where cards are down to a title do labels give way.
+  expect(labelZoom(0.04)).toBe(0);
   expect(labelZoom(0.5)).toBe(0.5);
   expect(labelZoom(0.9)).toBe(0.875);
   expect(labelZoom(1)).toBe(1);
   // Floor semantics: reserved boxes (size / bucket) never undershoot reality.
-  for (const zoom of [0.5, 0.62, 0.87, 1.01, 1.9])
+  for (const zoom of [0.06, 0.11, 0.27, 0.49, 0.5, 0.62, 0.87, 1.01, 1.9])
     expect(labelZoom(zoom)).toBeLessThanOrEqual(zoom);
 });
 
 it("estimates pill boxes capped where the CSS ellipsis takes over", () => {
-  expect(labelBox("aaaa")).toEqual({ width: 20 + 4 * 6, height: 26 });
+  expect(labelBox("aaaa")).toEqual({ width: 20 + 4 * 7, height: 26 });
   expect(labelBox("依赖依赖")).toEqual({ width: 20 + 4 * 10.5, height: 26 });
   expect(labelBox("x".repeat(60)).width).toBe(LABEL_MAX_WIDTH + 16);
 });
@@ -94,11 +98,15 @@ it("places a label clear of both cards and reports each edge's kind", () => {
   }
 });
 
-it("keeps routes but drops every pill at overview zoom", () => {
+it("places a relation's label at overview zoom, and drops it only where cards are titles", () => {
   const store = storeWith([relation()]);
   const layout = relationLayout(store, 0.4);
   expect(layout.routes.has("dep")).toBe(true);
-  expect(layout.labels.size).toBe(0);
+  // The scale a map is read at: the line says what it is.
+  expect(layout.labels.size).toBe(1);
+  const far = relationLayout(store, 0.04);
+  expect(far.routes.has("dep")).toBe(true);
+  expect(far.labels.size).toBe(0);
 });
 
 it("reuses the placement pass while zoom stays inside one bucket", () => {

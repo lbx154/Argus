@@ -180,13 +180,9 @@ def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):
     assert "`replan_requested` for a wrong target" in p
 
 
-def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):
-    # The reviewer must talk in natural language during its turn and carry
-    # structure ONLY at the final handoff. Since 2026-07-26 that handoff is a
-    # few named lines rather than a schema-constrained JSON object, which makes
-    # the property stronger, not weaker: the prose and the verdict now live in
-    # the same message instead of the verdict replacing it.
+def test_reviewer_reasons_in_prose_and_submits_a_native_action(monkeypatch):
     p = _prompt(measured=False, monkeypatch=monkeypatch)
-    assert "Reason naturally" in p
+    assert "review naturally" in p
     assert "ARGUS_ROLE_DECISION=" not in p
-    assert "STATUS=done" in p
+    assert "STATUS=" not in p
+    assert "approve_review" in p

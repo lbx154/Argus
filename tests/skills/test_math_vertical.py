@@ -679,13 +679,7 @@ def test_reviewer_keeps_workflow_policy_when_the_daemon_names_the_vertical(
 
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="Worked the route."))
-    backend.queue("reviewer", CannedResponse(message=json.dumps({
-        "status": "done",
-        "reason": "Verified.",
-        "next_action": "None.",
-        "round_summary_markdown": "# Review\n\n- verified\n",
-        "completion_summary_markdown": "Verified.",
-    })))
+    backend.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': ('Verified.') + '\n\n' + ('None.')})))
     loop = SkillLoop(
         skills_dir=skills,
         engineer_runner=backend,

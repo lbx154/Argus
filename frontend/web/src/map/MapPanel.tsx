@@ -50,15 +50,18 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, type Dataset } from "./model";
+import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, latestCertifiedTask, type Dataset } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
+import { ZoomStepContext } from "./zoomStep";
 import { groupNotesByNode } from "./notes";
 import "./notes.css";
 import { BranchNode, BRANCH_FRAME, GROUP_FRAME, type BranchFlowNode } from "./BranchNode";
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
+import { useMapLines } from "./useMapLines";
+import { useMapWords } from "./useMapWords";
 import { useSelectedFoundation } from '../research-brief/foundation';
 import { MapComposer, type MapComposerProps } from "./MapComposer";
 import { referenceText, type CardReference } from "./presentation";
@@ -68,6 +71,7 @@ import "./map.css";
 import "./submap.css";
 import "./atlas.css";
 import "./branch.css";
+import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
 import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
@@ -90,15 +94,16 @@ type AtlasNode = MacroNode | BranchFlowNode;
 // Minimap fills echo the card state palette a step lighter, so the overview
 // inset reads as a status heatmap instead of undifferentiated confetti.
 const MINIMAP_STATUS: Record<string, string> = {
-  done: "#a8cfbb",
-  running: "#8fb6e4",
-  question: "#e2c78e",
-  failed: "#dfab97",
-  paused: "#d6c6a0",
-  superseded: "#c8bdd5",
-  aborted: "#c3c5cb",
-  skipped: "#c3c5cb",
-  missing: "#c3c5cb",
+  done: "#a9c4b6",
+  running: "#9fb6cc",
+  question: "#dcc797",
+  failed: "#d9a79f",
+  review_unavailable: "#cdbba3",
+  paused: "#cdbba3",
+  superseded: "#c5bdcd",
+  aborted: "#c6c8cb",
+  skipped: "#c6c8cb",
+  missing: "#c6c8cb",
 };
 
 /** The subtask tally lives in the map options menu: the cards and the folded
@@ -185,6 +190,7 @@ export function MapCanvas({
   const [pendingCard, setPendingCard] = useState<string | null>(null);
   const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
+  const finalReview = useMemo(() => latestCertifiedTask(data.tasks, data.events), [data.tasks, data.events]);
   const foundationChoice = useSelectedFoundation(sessionId, zh ? 'zh-CN' : 'en-US');
   const [readingCopy, setReadingCopy] = useState<{ nodeId: string; key: string; foundationId: string | null } | null>(null);
   const readCopy = useCallback((nodeId: string, key: string | null) => {
@@ -215,7 +221,7 @@ export function MapCanvas({
     ...dependencies.downstream.map((task) => task.id),
   ]) : null, [tracedTask, dependencies]);
   const { copy, ready: copyReady, generating: copyGenerating, readingRequest, readingNeedsUpdate,
-    readingGenerating, generationPhase, foundationRequired,
+    readingGenerating, generationPhase, foundationRequired, questionContext,
     generationError: copyGenerationError, generationUnavailable: copyGenerationUnavailable, retry: retryCopy } = useMapCopy(
     data,
     readingTask?.id || focusedNode?.data.task.id || null,
@@ -223,32 +229,39 @@ export function MapCanvas({
     !readOnly && !data.history_loading,
     focusedNode?.data.layout.steps,
     sessionId,
-    paused,
     false,
     readingKey,
     readingCopy?.foundationId,
   );
-  const readingEvidence = useMemo(() => {
-    if (!readingRequest) return [];
-    const ids = new Set([...readingRequest.event_ids, ...(copy?.cards[readingRequest.key]?.event_ids || [])]);
-    return data.events.filter(event => event.item_id === readingRequest.task_id && ids.has(event.id));
-  }, [readingRequest, copy, data.events]);
   const readerSelection = useMemo<MapReaderSelection | undefined>(() => readingRequest ? {
-    request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: readingGenerating,
+    request: readingRequest, questionContext, pending: readingNeedsUpdate, generating: readingGenerating,
     phase: generationPhase, error: copyGenerationError, unavailable: copyGenerationUnavailable, foundationRequired,
     retry: readOnly ? undefined : retryCopy, retryDisabled: copyGenerating,
-  } : undefined, [readingRequest, readingEvidence, readingNeedsUpdate, copyGenerating, readingGenerating, generationPhase,
+  } : undefined, [readingRequest, questionContext, readingNeedsUpdate, copyGenerating, readingGenerating, generationPhase,
     copyGenerationError, copyGenerationUnavailable, readOnly, retryCopy, foundationRequired]);
-  const links = useMemo(
-    () => connectMap(graph, copy?.relations || [], zh),
+  // The lines are drawn first and annotated after: a note says what an
+  // existing line carries, so asking for notes cannot move the map.
+  const unstated = useMemo(
+    () => unstatedPairs(connectMap(graph, copy?.relations || [], zh)),
     [graph, copy?.relations, zh],
   );
+  // Asked for whether or not the project is still running: a finished map is
+  // the one that gets read, and its lines are written once, in one small call.
+  const cardWords = useMapWords(data, zh, !readOnly && !data.history_loading, sessionId);
+  const lineNotes = useMapLines(data, unstated, zh, !readOnly && !data.history_loading, sessionId);
+  const links = useMemo(
+    () => connectMap(graph, copy?.relations || [], zh, lineNotes),
+    [graph, copy?.relations, zh, lineNotes],
+  );
   const sceneCache = useRef<ReturnType<typeof layoutScene> | undefined>(savedView.current.scene);
+  // Before the canvas is measured the window stands in for it, so a phone
+  // lays its cards out once instead of re-placing them after the first frame.
+  const narrow = (camera.canvasSize.width || window.innerWidth) < 640;
   const scene = useMemo(() => {
-    const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions);
+    const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions, narrow);
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
     return sceneCache.current;
-  }, [graph, data.events, zh, links, expandedMissions]);
+  }, [graph, data.events, zh, links, expandedMissions, narrow]);
   // Team fan-out promotion: parallel `team.task` work leaves its owning card
   // as small branch pills and returns to it, instead of hiding as steps.
   // Subtasks that share a state are then folded into one sentence-labelled
@@ -531,8 +544,8 @@ export function MapCanvas({
   // cycling, so the three can never disagree about what "a match" is.
   const cardSearchText = useCallback(
     (card: { task: { id: string; title: string; objective?: string }; part: number }) =>
-      `${card.task.title} ${card.task.objective ?? ""} ${copy?.cards[card.task.id]?.title || ""} ${copy?.cards[card.task.id]?.summary || ""} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`.toLowerCase(),
-    [copy, zh],
+      `${card.task.title} ${card.task.objective ?? ""} ${copy?.cards[card.task.id]?.title || ""} ${copy?.cards[card.task.id]?.summary || ""} ${cardWords[card.task.id]?.title || ""} ${cardWords[card.task.id]?.summary || ""} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`.toLowerCase(),
+    [copy, cardWords, zh],
   );
   const matches = useMemo(
     () =>
@@ -699,6 +712,7 @@ export function MapCanvas({
             [n.data.task.id, ...n.data.layout.steps.map((s) => s.id)]
               .filter((id) => copy.cards[id]).map((id) => [id, copy.cards[id]]),
           ) } : undefined,
+          words: cardWords[n.data.task.id],
           readerCopy: readingCopy?.nodeId === n.id ? readerSelection : undefined,
           focused: n.id === camera.focusId,
           detailed: camera.detailed && n.id === camera.focusId,
@@ -742,6 +756,7 @@ export function MapCanvas({
       query,
       cardSearchText,
       copy,
+      cardWords,
       readingCopy,
       readerSelection,
       zh,
@@ -860,6 +875,11 @@ export function MapCanvas({
             lit: lit.edges.has(e.id),
             lane: lanes[index],
             muted,
+            // A line whose only label would be the name of its kind ("same
+            // study", "dependency") says that with its stroke and the key. The
+            // words come forward when the reader points at either task; a map
+            // of ten tasks is not annotated with the same two words nine times.
+            quiet: !e.stated && (e.kind === "context" || (e.kind === "dependency" && !e.label)),
           },
           className: `map-edge-${e.kind}${lit.edges.has(e.id) ? " is-lit" : ""}`,
           // Fan edges carry no label: the pill itself names the branch.
@@ -896,14 +916,15 @@ export function MapCanvas({
                   : "#7594ad",
             // Dependencies stay the strongest line; fan edges are thinner and
             // translucent (branch.css), context is a fainter, sparser dash.
-            strokeWidth: highlighted ? 2.4 : e.kind === "dependency" ? 1.55 : fan ? 0.95 : 1.3,
+            strokeWidth: highlighted ? 2.6 : e.kind === "dependency" ? 2 : fan ? 1.1 : 1.6,
             vectorEffect: "non-scaling-stroke",
+            // The order work happened in is the spine of most maps, so it is
+            // a continuous line; a dash is kept for "related work", which is
+            // an association and not a path.
             strokeDasharray:
-              e.kind === "dependency" || fan
+              e.kind === "dependency" || e.kind === "context" || e.kind === "continuation" || fan
                 ? undefined
-                : e.kind === "context"
-                  ? "3 10"
-                  : "4 5",
+                : "5 6",
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -946,12 +967,13 @@ export function MapCanvas({
   // a failed task that also carries a question.
   const tally = useMemo(() => {
     const ended = new Set(scene.cards.filter((card) => card.completionScope).map((card) => card.task.id));
-    const buckets = { done: 0, ended: 0, running: 0, question: 0, failed: 0, other: 0 };
+    const buckets = { done: 0, ended: 0, running: 0, question: 0, review_unavailable: 0, failed: 0, other: 0 };
     for (const task of data.tasks) {
       if (ended.has(task.id)) buckets.ended++;
       else if (task.status === "done") buckets.done++;
       else if (ACTIVE.has(task.status)) buckets.running++;
       else if (task.pending_question) buckets.question++;
+      else if (statusKey(task) === "review_unavailable") buckets.review_unavailable++;
       else if (task.status === "failed") buckets.failed++;
       else buckets.other++;
     }
@@ -965,6 +987,13 @@ export function MapCanvas({
       Math.max(c, scene.cards.find((card) => card.id === id)?.ordinal || 1),
     );
     camera.enter(id);
+  };
+  const openFinalReview = () => {
+    const card = scene.cards.filter(item => item.task.id === finalReview?.id).at(-1);
+    if (card) {
+      setReadingCopy(null);
+      focus(card.id);
+    }
   };
   const locateCurrent = () => {
     const target = currentTask(data.tasks);
@@ -1086,16 +1115,25 @@ export function MapCanvas({
     </div>
   );
   return (
+    <ZoomStepContext.Provider value={camera.zoomSteps}>
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
       {copy?.generation_error && <div role="status" className="map-paused-label">
-        {zh ? '地图说明暂时不可用，原始记录和已有说明已保留。' : 'Map explanation unavailable; records and saved explanations are retained.'}
+        {zh ? '地图说明暂时不可用，任务和已有说明仍可阅读。' : 'Map explanation unavailable; tasks and saved explanations remain readable.'}
         {copy.generation_error.code === 'cost_unreconciled' && (zh
           ? ' 调用费用待对账，并非预算耗尽。' : ' Provider usage awaits reconciliation, not budget exhaustion.')}
       </div>}
       {/* The second header line: one sentence on where the work stands, and,
           when something waits on the reader, a link straight to it. */}
       <div className="map-status-row">
+        {/* How the tasks divide, as one thin bar ahead of the sentence that says
+            it in words: the eye takes the proportion, the sentence the detail. */}
+        {data.tasks.length > 0 && (
+          <span className="map-progress" aria-hidden="true">
+            {(["done", "ended", "running", "question", "review_unavailable", "failed", "other"] as const).map((bucket) =>
+              tally[bucket] > 0 ? <i key={bucket} data-bucket={bucket} style={{ flexGrow: tally[bucket] }} /> : null)}
+          </span>
+        )}
         <p className="map-status-line" role="status">
           {(composer.pending || (!paused && activePhase)) ? <i className="map-live-dot" aria-hidden /> : null}
           <span className="map-status-text">
@@ -1104,6 +1142,7 @@ export function MapCanvas({
               qa: data.tasks.filter(task => task.turn_kind === 'qa').length,
               complete,
               ended: tally.ended,
+              reviewUnavailable: tally.review_unavailable,
               running: tally.running,
               pending: composer.pending,
               paused,
@@ -1130,6 +1169,22 @@ export function MapCanvas({
           )}
         </p>
       </div>
+      {data.kind === "live" && finalReview && !replaying && (
+        <div className="map-final-review" role="status">
+          <span>
+            <strong>{zh ? "最终交付已通过审稿" : "Final delivery passed review"}</strong>
+            {focusedNode?.data.task.id !== finalReview.id
+              && focusedNode?.data.task.outcome?.review_status === "unavailable"
+              && (finalReview.finished_ts ?? 0) > (focusedNode.data.task.finished_ts ?? 0)
+              ? <span>{zh ? " · 本项目后续已交付；此卡保留当次审查异常。" : " · This project was delivered later; this card retains its earlier review error."}</span>
+              : null}
+          </span>
+          <button type="button" onClick={openFinalReview}>{zh ? "查看最终审稿" : "View final review"}</button>
+          {actions.deliveryCount > 0 && <button type="button" onClick={actions.onOpenDelivery}>
+            {zh ? "查看项目成果" : "View project deliverables"}
+          </button>}
+        </div>
+      )}
       {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog}
         currentTaskId={currentTaskId ?? snapshot.mission_view?.mission.id} onAnswer={actions.onAnswer} onLocate={(taskId) => {
           const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
@@ -1407,13 +1462,13 @@ export function MapCanvas({
               <MiniMap
                 nodeColor={(n) =>
                   n.type === "branch"
-                    ? "#c5d4e2"
+                    ? "#cfd2d5"
                     : MINIMAP_STATUS[statusKey((n.data as MacroData).task)] ??
-                      "#a7bfd9"
+                      "#c6c8cb"
                 }
                 maskColor="var(--map-minimap-mask)"
-                maskStrokeColor="#85aacf"
-                maskStrokeWidth={2}
+                maskStrokeColor="#6d737a"
+                maskStrokeWidth={1.5}
                 onClick={(_, point) => camera.navigate(point)}
                 pannable
                 zoomable
@@ -1426,12 +1481,16 @@ export function MapCanvas({
             <span
               title={
                 zh
-                  ? "同一会话中的时间归属，不是执行依赖"
-                  : "Chronological context, not execution dependencies"
+                  ? "内容相关的工作，不是执行依赖"
+                  : "Related in content, not an execution dependency"
               }
             >
               <b className="dashed" />
               {zh ? "内容关联" : "Related work"}
+            </span>
+            <span title={zh ? "工作发生的先后" : "The order work happened in"}>
+              <b className="order" />
+              {zh ? "先后" : "Order"}
             </span>
             <span>
               <b />
@@ -1556,6 +1615,16 @@ export function MapCanvas({
         {readingTask && (readingRequest || readingTask.turn_kind === 'qa') ? <>
           <ModalHeader title={readingTask.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"} sub={readingTask.turn_kind === 'qa' ? readingTask.objective || readingTask.title : copy?.cards[readingTask.id]?.title || readingTask.title} />
           <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
+            {readingTask.outcome?.review_status === "unavailable" && (
+              <p className="mb-3 text-sm text-ink-dim" role="status">
+                {zh ? "当次审查异常，未形成审阅结论。" : "No review judgment was returned on this attempt."}
+                {finalReview && (finalReview.finished_ts ?? 0) > (readingTask.finished_ts ?? 0) && (
+                  <button type="button" className="ml-2 text-blue underline" onClick={openFinalReview}>
+                    {zh ? "查看本项目后续通过的最终审稿" : "View this project's later accepted final review"}
+                  </button>
+                )}
+              </p>
+            )}
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
               readOnly={readOnly}
@@ -1572,6 +1641,7 @@ export function MapCanvas({
       </Modal>
     </MapArtifactContext.Provider>
     </MapNotesContext.Provider>
+    </ZoomStepContext.Provider>
   );
 }
 
@@ -1833,6 +1903,7 @@ export const MapPanel = memo(function MapPanel({
     >
       <header className="map-header">
         <div className="map-heading">
+          <span className="map-kicker" aria-hidden="true">{zh ? "ARGUS · 研究地图" : "ARGUS · RESEARCH MAP"}</span>
           <h1 title={snapshot.session.display_name}>{snapshot.session.display_name}</h1>
         </div>
         <details className="map-more">

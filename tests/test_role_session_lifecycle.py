@@ -14,14 +14,8 @@ from argus.core.role_session import (
 from argus.planner import Planner, PlannerConfig
 
 
-def _review(status: str) -> str:
-    return json.dumps(
-        {
-            "status": status,
-            "reason": f"review-{status}",
-            "next_action": "finish" if status == "continue" else "none",
-        }
-    )
+def _review(status: str) -> tuple[str, dict]:
+    return (('approve_review' if status == 'done' else 'revise_review'), {'review': (f'review-{status}') + '\n\n' + ('finish' if status == 'continue' else 'none')})
 
 
 def _context(tmp_path: Path) -> tuple[Path, Path]:
@@ -80,9 +74,9 @@ def test_mission_policy_resumes_each_role_without_crossing_roles(tmp_path: Path)
     context, checkpoint = _context(tmp_path)
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="engineer one", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(message=_review("continue"), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
     backend.queue("engineer-r2", CannedResponse(message="engineer two", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(message=_review("done"), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v1"))
     events: list[dict] = []
 
     outcome = _loop(
@@ -128,10 +122,10 @@ def test_fresh_policy_repeats_task_contract_on_continuation_round(
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="one", thread_id="e1"))
     backend.queue(
-        "reviewer", CannedResponse(message=_review("continue"), thread_id="v1")
+        "reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1")
     )
     backend.queue("engineer-r2", CannedResponse(message="two", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(message=_review("done"), thread_id="v2"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v2"))
 
     outcome = _loop(
         backend,
@@ -163,11 +157,11 @@ def test_resumed_reviewer_reduces_prompt_bytes_without_changing_verdict(
         backend = MemoryBackend()
         backend.queue("engineer-r1", CannedResponse(message="one", thread_id="e1"))
         backend.queue(
-            "reviewer", CannedResponse(message=_review("continue"), thread_id="v1")
+            "reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1")
         )
         backend.queue("engineer-r2", CannedResponse(message="two", thread_id="e2"))
         backend.queue(
-            "reviewer", CannedResponse(message=_review("done"), thread_id="v2")
+            "reviewer", CannedResponse(review_action=_review("done"), thread_id="v2")
         )
         outcome = _loop(
             backend,
@@ -194,9 +188,9 @@ def test_rolling_policy_rotates_at_the_turn_limit(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="one", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(message=_review("continue"), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
     backend.queue("engineer-r2", CannedResponse(message="two", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(message=_review("done"), thread_id="v2"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v2"))
     events: list[dict] = []
 
     outcome = _loop(
@@ -243,7 +237,7 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     context, checkpoint = _context(tmp_path)
     first = MemoryBackend()
     first.queue("engineer-r1", CannedResponse(message="partial", thread_id="e1"))
-    first.queue("reviewer", CannedResponse(message=_review("continue"), thread_id="v1"))
+    first.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
     first_loop = _loop(first, tmp_path, context, checkpoint, policy="mission")
     first_loop.config.max_rounds = 1
     first_loop.config.hard_escalate_rounds = 0
@@ -269,7 +263,7 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
 
     second = MemoryBackend()
     second.queue("engineer-r1", CannedResponse(message="finished", thread_id="e1"))
-    second.queue("reviewer", CannedResponse(message=_review("done"), thread_id="v1"))
+    second.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v1"))
     outcome = _loop(second, tmp_path, context, checkpoint, policy="mission").run(
         "same objective", workdir=tmp_path
     )
@@ -427,21 +421,12 @@ def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Pat
     backend.queue(
         "reviewer",
         CannedResponse(
-            message=json.dumps({
-                "status": "continue",
-                "reason": "The Engineer repeated an obsolete repair.",
-                "next_action": "Use the current frontier and repair the active cluster.",
-                "session_signal": {
-                    "kind": "quality_degradation",
-                    "target": "engineer",
-                    "detail": "Repeated the obsolete repair after a current handoff.",
-                },
-            }),
+            review_action=('revise_review', {'review': ('The Engineer repeated an obsolete repair.') + '\n\n' + ('Use the current frontier and repair the active cluster.'), 'session_signal': {'kind': 'quality_degradation', 'target': 'engineer', 'detail': 'Repeated the obsolete repair after a current handoff.'}}),
             thread_id="v1",
         ),
     )
     backend.queue("engineer-r2", CannedResponse(message="second", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(message=_review("done"), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v1"))
     events: list[dict] = []
 
     outcome = _loop(

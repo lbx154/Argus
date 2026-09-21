@@ -127,7 +127,7 @@ def _document_value(raw: str):
     return value
 
 
-def _parse_document(raw: str, output_schema: dict) -> dict:
+def _parse_document(raw: str, output_schema: dict, prepare: Callable[[dict], dict] | None = None) -> dict:
     """Read the shared draft/check format, preserving prose and schema checks."""
     raw = raw.strip()
     if raw.startswith("```") and raw.endswith("```"):
@@ -140,6 +140,8 @@ def _parse_document(raw: str, output_schema: dict) -> dict:
             raise
         value = _document_value(literal)
         logging.getLogger(__name__).warning("Preserved literal backslashes in map presentation JSON")
+    if prepare is not None and isinstance(value, dict):
+        value = prepare(value)
     return _checked_document(value, output_schema)
 
 
@@ -246,8 +248,13 @@ def run_map_model(
     run_label: str = "map-summary",
     on_result: Callable[[RunnerResult], None] | None = None,
     output_format: Literal["json", "markdown"] = "json",
+    prepare: Callable[[dict], dict] | None = None,
 ) -> dict:
-    """Share execution; Markdown uses its schema only for local field limits."""
+    """Share execution; Markdown uses its schema only for local field limits.
+
+    `prepare` sees the parsed JSON before the schema does, for a caller that
+    knows a wrong shape its model keeps producing and can move the model's own
+    text to where the schema says it goes. It must not write text."""
     if output_format not in {"json", "markdown"}:
         raise ValueError("unsupported map output format")
     result = _run_map_turn(
@@ -255,5 +262,6 @@ def run_map_model(
         project_root=project_root, global_root=global_root, deadline=deadline,
         on_progress=on_progress, phase=phase, run_label=run_label, on_result=on_result,
     )
-    parse = _parse_document if output_format == "json" else _parse_markdown_document
-    return parse(result.last_agent_message, output_schema)
+    if output_format == "json":
+        return _parse_document(result.last_agent_message, output_schema, prepare)
+    return _parse_markdown_document(result.last_agent_message, output_schema)

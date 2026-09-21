@@ -10,7 +10,6 @@ from ...core.model_visible_text import (
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_visible_text,
 )
-from ...core.role_decision import decision_footer_instruction
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
     native_shell_summary,
@@ -54,20 +53,6 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
     "repair round. For final paper review, the separate selected-venue acceptance "
     "threshold still governs `done`: fixing the last edit alone is insufficient.\n\n"
 )
-
-# The Reviewer is the only role that can open the plan-challenge channel, and
-# `reconsider` is the single token that opens it. Until this block existed the
-# word appeared nowhere in any prompt while the example offered an invalid
-# `keep`, so the channel stayed shut and a campaign could close round after
-# locally correct round without anything ever questioning the plan itself.
-# Keep these values in step with ``argus.reviewer._parsing``.
-_PLAN_SIGNAL_VOCABULARY = (
-    "`plan_signal` is `continue` or, if evidence lowers expected value, `reconsider`. "
-    "Add evidence-backed `plan_challenge` and `authority_impact`: `technical` for "
-    "working choices and team plans; `manager_contract`/`operator` for their "
-    "commitments only. Without a known `plan_alternative`, Manager uses `revise`.\n"
-)
-
 
 def evaluate_request(
     project_root: Path | str,
@@ -430,11 +415,11 @@ def render_reviewer_prompt(
             verification_instruction += (
                 "If the direction cannot reach the target, return "
                 "`replan_requested`.\n"
-                "End with `RESEARCH_RESULT=<JSON>` over evidence you inspected. "
-                "`evidence` and `limitations` are JSON string arrays; a survey is "
+                "Supply the research assessment through the review action tool "
+                "using evidence you inspected; never append a data block to your reply. A survey is "
                 "`literature_review` with `novelty_status` `known` or "
                 "`not_applicable`. Use one listed value per field so the record "
-                "stays comparable across campaigns; the block summarizes your "
+                "stays comparable across campaigns; the tool argument summarizes your "
                 "judgment and never replaces it:\n"
                 + "".join(
                     f"{_field}: {' '.join(_choices)}\n"
@@ -660,45 +645,29 @@ def render_reviewer_prompt(
         )
     )
     decision_policy = (
-        "## Decision\n"
-        "REASON, NEXT_ACTION, and OPERATOR_QUESTION are human-facing. Use the "
-        "operator's language. State evidence and consequence plainly; ask questions "
-        "answerable in one sentence. Omit internal values and template names. "
-        "Separate options (`id::label::description`) with semicolons."
-        + (
-            " Include `research_result` from inspected evidence."
-            if _research_target_level is not None
-            else ""
-        )
-        + "\n"
-        + decision_footer_instruction(
-            "STATUS=done\n"
-            "REASON=requested outcome is materially complete\n"
-            "NEXT_ACTION=\n"
-            "FORWARD_PROGRESS=true\n"
-            "PLAN_SIGNAL=continue"
-        )
-        + "\nPlan change:\n"
-        "STATUS=replan_requested\n"
-        "PLAN_CHALLENGE=failed assumption\n"
-        "AUTHORITY_IMPACT=technical"
-        + "\nFor operator choices only, add "
-        "`OPERATOR_QUESTION=...` and "
-        "`OPERATOR_OPTIONS=a::Use A::What choosing A does; "
-        "b::Use B::What choosing B does`.\n"
-        + "\nJudge forward_progress toward the operator's goal, which even a sound "
-        "repair may leave unchanged.\n"
-        + _PLAN_SIGNAL_VOCABULARY
-        + "Give Engineer instructions only in next_action; neither read nor edit "
-        "checkpoint or context records.\n\n"
+        "## Submit your review\n"
+        "Express the complete review naturally in the operator's language. No JSON, "
+        "fixed fields, named closing lines, or text template is required or parsed. "
+        "Submit the judgment with one native action tool: approve_review for a complete "
+        "task, revise_review for concrete repairs, defer_review while already-running "
+        "work or external evidence is pending, request_review_decision for an actual "
+        "operator-owned question, or replan_review to challenge the plan. Put your "
+        "complete evidence and next steps in the tool's review argument; the host "
+        "passes it unchanged to Engineer. A final chat reply can simply acknowledge "
+        "the action. An action is not a keyword to print: invoke the tool. "
+        "Judge forward_progress toward the operator's goal, which even a sound "
+        "repair may leave unchanged. For a plan challenge, explain the failed "
+        "assumption, alternative and whose authority it affects: technical for "
+        "working choices and team plans, manager_contract or operator only for "
+        "their commitments. Give Engineer instructions in the review; neither "
+        "read nor edit checkpoint or context records.\n\n"
     )
     if prose_final_review:
-        decision_policy = (
-            "Write your final review naturally in the operator's language. No JSON, "
-            "fixed fields, named closing lines, or review template is required. "
-            "Explain the actual venue recommendation, the evidence behind it, and "
-            "any further changes Engineer should make. The host handles control flow "
-            "internally and passes your complete feedback to Engineer.\n\n"
+        decision_policy += (
+            "Explain your actual current venue recommendation, not a hoped-for future "
+            "rating. Submit approve_review only when no required repairs remain; "
+            "otherwise use revise_review even if the current rating is weak accept "
+            "or better. Scientific repairs stay in this final review task.\n\n"
         )
         handoff_policy = (
             "The selected venue's acceptance standard governs completion. Continue "
@@ -706,13 +675,6 @@ def render_reviewer_prompt(
             "feasible high-impact improvements remain. Speculative future work stays "
             "advisory; meaningful improvement after final review belongs in this task."
         )
-    # Other review operations retain their existing minimal control protocol.
-    # Keep the requested footer smaller than the compatibility parser. Legacy
-    # FRONTIER_*, NEXT_DECISION_POINT, REGRESSION_ENVELOPE,
-    # CHECKPOINT_RECOMMENDED, and SESSION_SIGNAL lines remain readable, but the
-    # Reviewer is not asked to fill them in. The fields below each feed round
-    # settlement, operator routing, research certification, or plan adjudication.
-    #
     # Nothing here may vary with the mission. The static preamble is
     # fingerprinted, and a same-role session resumes only when the fingerprint
     # matches; when the objective and the Planner's guidance lived here, every

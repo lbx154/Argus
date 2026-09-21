@@ -108,6 +108,9 @@ class RewriteIn(BaseModel):
 class ConfigSetIn(BaseModel):
     name: str
     value: str
+    # For ARGUS_SKILL_MODEL: release every role's own model pin so all roles
+    # follow the shared choice. A role pinned later in the role table wins again.
+    apply_to_roles: bool = False
 
 
 class BudgetSetIn(BaseModel):

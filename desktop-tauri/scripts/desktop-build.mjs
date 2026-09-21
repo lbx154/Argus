@@ -30,6 +30,8 @@ if (operation === 'dist') {
   if (operation === 'unsigned') {
     args.push('--config', JSON.stringify({ bundle: { createUpdaterArtifacts: false } }));
   }
+  // A Windows candidate must use the reviewed Cargo.lock, not resolve new crates.
+  if (process.platform === 'win32') args.push('--', '--locked');
   run(process.execPath, [join(root, 'node_modules/@tauri-apps/cli/tauri.js'), ...args]);
 } else {
   throw new Error(`Unknown desktop build operation: ${operation}`);

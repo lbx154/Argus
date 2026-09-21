@@ -246,7 +246,7 @@ def normalize_events(
             number = row.get("round_index", row.get("round"))
             if isinstance(number, int) and 0 <= number < 10000:
                 e["round_index"] = number
-            for key in ("success", "review_skipped", "overall_complete", "campaign_continues"):
+            for key in ("success", "review_skipped", "backend_unavailable", "overall_complete", "campaign_continues"):
                 if isinstance(row.get(key), bool):
                     e[key] = row[key]
             if isinstance(row.get("attempt"), int):
@@ -324,6 +324,11 @@ def turn_records(
         message_id = str(row.get("message_id") or "")
         if row.get("type") == "manager.turn.started":
             ask = asks.setdefault(message_id, {"ts": row.get("ts"), "text": text(row.get("text"), 4000)})
+            # The turn states the task it carries out. When the operator's
+            # message only picked an option on a choice card ("直接做"), the task
+            # is the request made earlier, and that request names the card.
+            if objective := text(row.get("text"), 4000).strip():
+                ask["text"] = objective
             ask["task"] = True
             ask["started_ts"] = _timestamp(row.get("ts"))
             card_id = f"turn:{message_id}"

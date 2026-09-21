@@ -1,7 +1,6 @@
 """Stop a real SkillLoop during Reviewer retry without another provider call."""
 from __future__ import annotations
 
-import json
 import socket
 import threading
 import time
@@ -25,10 +24,17 @@ ENGINEER_OUTPUT = "The requested local result is ready for independent review."
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
+    original_connect = socket.socket.connect
+
+    def local_only(sock, address):
+        if isinstance(address, tuple) and address[0] == "127.0.0.1":
+            return original_connect(sock, address)
+        raise AssertionError("Backoff regressions cannot use an external network")
+
     def forbidden(*_args, **_kwargs):
         raise AssertionError("Backoff regressions cannot use a real provider or network")
 
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", local_only)
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
 
 
@@ -47,9 +53,12 @@ class Backend:
             return RunnerResult(exit_code=0, agent_messages=[ENGINEER_OUTPUT])
         if self.calls == 1:
             return RunnerResult(exit_code=1, fatal_error=REVIEW_FAILURE)
-        return RunnerResult(exit_code=0, agent_messages=[json.dumps({
-            "status": "done", "reason": "The local result was independently checked.", "next_action": "",
-        })])
+        from argus.core.role_tool_bridge import bridge_request
+
+        bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
+            "review": "The local result was independently checked.",
+        }, env=_kwargs["options"].extension_env)
+        return RunnerResult(exit_code=0)
 
 
 def make_loop(tmp_path, engineer, reviewer, events):

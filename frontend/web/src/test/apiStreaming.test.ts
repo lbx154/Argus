@@ -4,6 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api, type ExplanationPhase } from '../api';
 import type { MapCopy } from '../map/presentation';
 import type { ReaderPreview } from '../map/copyMode';
+import type { ProgressSourceRef } from '../../../core/src/types';
+import { ApiError } from '../../../core/src/http';
 
 const nativeFetch = globalThis.fetch;
 const encoder = new TextEncoder();
@@ -50,6 +52,50 @@ afterEach(async () => {
   server = undefined;
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it('records question material only through the explicit source POST with the selected reader context', async () => {
+  const sid = 'research name';
+  const source: ProgressSourceRef = { source_id: 'source-1', card_key: 'earlier-review', task_id: 'task',
+    title: 'Selected explanation', generated_at: 130, copy_revision: 2, path: `reader-progress/${sid}/source-1.md` };
+  const body = { card_key: source.card_key, task_id: source.task_id, locale: 'zh-CN' as const,
+    preview: 'question-foundation' as const, foundation_id: 'saved-foundation' };
+  await serve((response) => {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify(source));
+  });
+  const signal = new AbortController().signal;
+  await expect(api.mapQuestionSource(sid, body, signal)).resolves.toEqual(source);
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({ method: 'POST',
+    path: '/api/map-question-source/project/research%20name?session_id=research%20name', body });
+  expect(requests[0].headers.authorization).toBe(`Bearer ${localStorage.getItem('argus.token')}`);
+});
+
+it.each<[ReaderPreview | undefined, boolean | string]>([
+  [undefined, false], [null, false], ['source-first', true], ['learning-path', 'learning-path'], ['question-foundation', 'question-foundation'],
+])('serializes the selected question-source preview %s to its backend wire value', async (preview, wire) => {
+  await serve(response => {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end('{}');
+  });
+  await api.mapQuestionSource('research', { card_key: 'step', task_id: 'task', locale: 'en-US', preview });
+  expect(requests).toHaveLength(1);
+  expect(requests[0].body).toEqual({ card_key: 'step', task_id: 'task', locale: 'en-US', preview: wire });
+});
+
+it.each([
+  { code: 'reader_source_unavailable', detail: 'No matching explanation is saved.' },
+  { detail: { code: 'reader_source_unavailable', message: 'No matching explanation is saved.' } },
+])('preserves reader_source_unavailable from the question-source endpoint without retrying or generating (%j)', async body => {
+  await serve(response => {
+    response.writeHead(422, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify(body));
+  });
+  const result = api.mapQuestionSource('research', { card_key: 'step', task_id: 'task', locale: 'en-US' });
+  await expect(result).rejects.toBeInstanceOf(ApiError);
+  await expect(result).rejects.toMatchObject({ status: 422, code: 'reader_source_unavailable', detail: 'No matching explanation is saved.' });
+  expect(requests).toHaveLength(1);
 });
 
 it.each([

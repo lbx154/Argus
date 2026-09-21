@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'node:fs';
@@ -50,6 +51,12 @@ import { ArgusMark, Wordmark } from '../components/Wordmark';
 import { ConnectionProblemBanner, pairingTokenFromInput, temporaryPairingLinkFromInput } from '../components/ConnectionProblemBanner';
 import { LocalArgusUnavailableError, PairingRequiredError } from '../api';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
+
+let queryClient: QueryClient;
+beforeEach(() => {
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+});
+afterEach(() => queryClient.clear());
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -284,8 +291,8 @@ describe('shared frontend core', () => {
       onToggleCollapse: () => undefined,
       onCycleTheme: () => undefined,
     };
-    const light = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'light' }));
-    const dark = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'dark' }));
+    const light = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(Sidebar, { ...props, themeMode: 'light' })));
+    const dark = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(Sidebar, { ...props, themeMode: 'dark' })));
     expect(light).toContain('Settings');
     expect(light).toContain('data-icon="gear"');
     expect(light).toContain('lucide-sun');
@@ -817,6 +824,17 @@ describe('shared frontend core', () => {
     );
     expect(error.message).toBe('GET /api/projects/s/artifacts → 401: invalid Web token');
     expect(error.status).toBe(401);
+  });
+
+  it.each([
+    { detail: { code: 'reader_source_unavailable', message: 'The selected source is missing.' } },
+    { code: 'reader_source_unavailable', detail: { code: 'ignored_nested_code', message: 'The selected source is missing.' } },
+  ])('preserves structured FastAPI source rejection codes and messages (%j)', async body => {
+    const error = await responseError({ ok: false, status: 422, text: async () => JSON.stringify(body) },
+      'POST', '/api/map-question-source/project/s');
+    expect(error).toMatchObject({ status: 422, code: 'reader_source_unavailable', detail: 'The selected source is missing.' });
+    expect(error.message).toContain('The selected source is missing.');
+    expect(error.message).not.toContain('[object Object]');
   });
 
   it('shares feed filters and backlog lifecycle semantics with Ink', () => {

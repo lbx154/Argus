@@ -24,20 +24,26 @@ def test_windows_release_version_matrix_has_no_drift():
     assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
 
 
-def test_version_matrix_rejects_a_divergent_windows_host(tmp_path):
+@pytest.mark.parametrize("metadata", [
+    "desktop-tauri/src-tauri/tauri.conf.json",
+    "plugins/argus/.claude-plugin/plugin.json",
+    "plugins/argus/.codex-plugin/plugin.json",
+])
+def test_version_matrix_rejects_divergent_host_or_plugin_metadata(tmp_path, metadata):
     # Copy only named public release metadata, never a profile or signing file.
     files = (
         "pyproject.toml", "argus/__init__.py", "uv.lock",
         "frontend/core/package.json", "frontend/web/package.json", "frontend/web/package-lock.json",
         "frontend/tui/package.json", "frontend/tui/package-lock.json", "desktop-tauri/package.json",
         "desktop-tauri/package-lock.json", "desktop-tauri/src-tauri/Cargo.toml", "desktop-tauri/src-tauri/Cargo.lock",
-        "desktop-tauri/src-tauri/tauri.conf.json", ".claude-plugin/marketplace.json", "plugins/argus/.claude-plugin/plugin.json",
+        "desktop-tauri/src-tauri/tauri.conf.json", ".claude-plugin/marketplace.json",
+        "plugins/argus/.claude-plugin/plugin.json", "plugins/argus/.codex-plugin/plugin.json",
     )
     for filename in files:
         target = tmp_path / filename
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes((ROOT / filename).read_bytes())
-    config_file = tmp_path / "desktop-tauri/src-tauri/tauri.conf.json"
+    config_file = tmp_path / metadata
     config = json.loads(config_file.read_text(encoding="utf-8"))
     config["version"] = "999.0.0"
     config_file.write_text(json.dumps(config), encoding="utf-8")

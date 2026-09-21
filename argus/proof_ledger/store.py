@@ -783,12 +783,29 @@ class MathState:
 
     def _route_issues(self) -> list[StateIssue]:
         current = {claim.ref() for claim in self.current_claims()}
+        # Every version ever recorded, current or superseded. A retired route
+        # is history: it aimed at the statement as it stood when the attempt
+        # was made, and revising the claim afterwards must not make that
+        # record invalid. Its goal still has to be a claim this ledger has
+        # actually recorded, hash and all — an unknown id or a wrong digest is
+        # a defect in the file, not a legitimate piece of history.
+        recorded = {claim.ref() for claim in self.claims}
         issues: list[StateIssue] = []
         for index, route in enumerate(
             sorted(self.routes, key=lambda item: item.route_id)
         ):
             path = f"$.routes[{index}]"
-            if route.goal not in current:
+            retired = bool(route.retired_because.strip())
+            if retired and route.goal not in recorded:
+                issues.append(
+                    StateIssue(
+                        "route_goal_unknown",
+                        f"{path}.goal",
+                        f"retired route {route.route_id!r} aims at a statement "
+                        "this ledger never recorded as any version of a claim",
+                    )
+                )
+            elif not retired and route.goal not in current:
                 issues.append(
                     StateIssue(
                         "route_goal_stale",

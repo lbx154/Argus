@@ -1,7 +1,6 @@
 """Role-session defaults and fresh-only fallback contract."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
@@ -20,14 +19,8 @@ SKILL_MD = (
 )
 
 
-def _review(status: str) -> str:
-    return json.dumps({
-        "status": status,
-        "reason": "reviewed",
-        "next_action": "Finish the work." if status == "continue" else "—",
-        "round_summary_markdown": "# review\n",
-        "completion_summary_markdown": "done" if status == "done" else "",
-    })
+def _review(status: str) -> tuple[str, dict]:
+    return (('approve_review' if status == 'done' else 'revise_review'), {'review': ('reviewed') + '\n\n' + ('Finish the work.' if status == 'continue' else '—')})
 
 
 def _loop(backend: MemoryBackend, skills: Path, checkpoint: Path | None = None) -> SkillLoop:
@@ -56,9 +49,9 @@ def test_engineer_and_reviewer_never_resume_across_rounds_or_missions(
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="r1", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(message=_review("continue"), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
     backend.queue("engineer-r2", CannedResponse(message="r2", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(message=_review("done"), thread_id="v2"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v2"))
 
     out = _loop(backend, tmp_path / "skills").run(
         "task",
@@ -93,7 +86,7 @@ def test_backend_retry_also_starts_fresh(tmp_path: Path) -> None:
         ),
     )
     backend.queue("engineer-r2", CannedResponse(message="recovered", thread_id="healthy"))
-    backend.queue("reviewer", CannedResponse(message=_review("done")))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done")))
 
     out = _loop(backend, tmp_path / "skills").run(
         "task", workdir=tmp_path, seed_thread_id="incoming"
@@ -111,9 +104,9 @@ def test_continuation_engineer_round_uses_compact_checkpoint_prompt(tmp_path: Pa
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="r1", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(message=_review("continue")))
+    backend.queue("reviewer", CannedResponse(review_action=_review("continue")))
     backend.queue("engineer-r2", CannedResponse(message="r2", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(message=_review("done")))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done")))
 
     # Compact continuation prompts apply only to resumable provider threads;
     # a fresh-policy session repeats the static contract every round.
@@ -150,7 +143,7 @@ def test_shared_checkpoint_file_survives_across_missions(tmp_path: Path) -> None
         return "mission B work"
 
     backend.queue("engineer-r1", CannedResponse(message_factory=engineer))
-    backend.queue("reviewer", CannedResponse(message=_review("done")))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done")))
 
     out = _loop(backend, tmp_path / "skills", checkpoint).run(
         "task B", workdir=tmp_path
@@ -165,7 +158,7 @@ def test_no_checkpoint_path_creates_no_checkpoint_file(tmp_path: Path) -> None:
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="work"))
-    backend.queue("reviewer", CannedResponse(message=_review("done")))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done")))
 
     out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)
     assert out.successful

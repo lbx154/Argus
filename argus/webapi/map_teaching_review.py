@@ -190,7 +190,7 @@ def teaching_context(value: Mapping | None) -> dict:
     if isinstance(events, (list, tuple)):
         result["events"] = [
             _source_fields(event, EVENT_SOURCE_LIMITS, (
-                "ts", "round_index", "attempt", "success", "review_skipped", "overall_complete", "campaign_continues",
+                "ts", "round_index", "attempt", "success", "review_skipped", "backend_unavailable", "overall_complete", "campaign_continues",
             )) for event in events[:MAX_SOURCE_EVENTS] if isinstance(event, Mapping)
         ]
         result["source_ids"] = [event["id"] for event in result["events"] if "id" in event]

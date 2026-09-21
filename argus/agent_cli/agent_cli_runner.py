@@ -124,6 +124,10 @@ class RunnerOptions:
     trusted_extensions: list[str] | None = None
     trusted_tool_names: list[str] | None = None
     extension_env: dict[str, str] | None = None
+    # Provider-session identity Argus allocated for a NEW Copilot session and
+    # bound to the call before spawn (``--session-id``). Never set together
+    # with a resume identity; a resumed call keeps its original session.
+    provider_session_id: str | None = None
     # Internal transport fields must survive the real run_exec sandbox policy's
     # dataclasses.replace. They are never populated from ordinary user options.
     _training_extension: str | None = field(default=None, repr=False, compare=False)

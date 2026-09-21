@@ -76,13 +76,7 @@ class _RealLoopRunner:
         self.reviewer_backend.queue(
             "reviewer",
             CannedResponse(
-                message=json.dumps({
-                    "status": "done",
-                    "reason": "The submitted artifact satisfies its checklist.",
-                    "next_action": "",
-                    "round_summary_markdown": "# done\n",
-                    "completion_summary_markdown": "Done.",
-                }),
+                review_action=('approve_review', {'review': 'The submitted artifact satisfies its checklist.'}),
                 thread_id="v1",
             ),
         )

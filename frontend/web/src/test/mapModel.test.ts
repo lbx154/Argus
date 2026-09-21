@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionTasks, buildMap, currentTask, replayTasks, statusKey, supersededByLaterWork, taskDependencies, type MapTask } from "../map/model";
+import { attentionTasks, buildMap, currentTask, replayTasks, statusKey, supersededByLaterWork, taskDependencies, latestCertifiedTask, type MapTask, type MapEvent } from "../map/model";
 
 const task = (
   id: string,
@@ -8,6 +8,27 @@ const task = (
   ts = 0,
 ): MapTask => ({ id, title: id, objective: "", deps, status, ts });
 describe("progress map data semantics", () => {
+  it("separates a recorded review error from execution failure without rewriting task status", () => {
+    const failed = { ...task("failed", [], "failed"), outcome: { review_status: "unavailable" } };
+    expect(statusKey(failed)).toBe("review_unavailable");
+    expect(failed.status).toBe("failed");
+    expect(statusKey({ ...failed, status: "running" })).toBe("running");
+    expect(statusKey({ ...failed, pending_question: "Choose" })).toBe("question");
+    expect(statusKey(task("plain-failure", [], "failed"))).toBe("failed");
+    expect(statusKey({ ...failed, outcome: { review_status: "blocked" } })).toBe("failed");
+  });
+  it("links only explicit final acceptance, not an intermediate success or later conversation", () => {
+    const accepted = { ...task("final", [], "done", 20), started_ts: 19, finished_ts: 20,
+      outcome: { execution_status: "completed", review_status: "done", stage_certification: "certified" } };
+    const completion: MapEvent = { id: "end", item_id: "final", type: "life.mission.completed",
+      ts: 21, text: "", overall_complete: true };
+    const rows = [task("failed", [], "failed", 10), accepted, { ...task("hello", [], "done", 30), kind: "turn" }];
+    expect(latestCertifiedTask(rows, [completion])).toBe(accepted);
+    expect(latestCertifiedTask(rows, [{ ...completion, overall_complete: false }])).toBeUndefined();
+    expect(latestCertifiedTask(rows, [])).toBeUndefined();
+    expect(latestCertifiedTask([{ ...accepted, status: "running" }], [completion])).toBeUndefined();
+    expect(rows[0].status).toBe("failed");
+  });
   it("orders actionable questions before failures without duplicating or mutating tasks", () => {
     const rows = [
       task("failed", [], "failed"),

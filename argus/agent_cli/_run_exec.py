@@ -171,7 +171,10 @@ class RunExecMixin:
                 command=command,
                 options=options,
                 run_label=run_label,
-                thread_id=resume_thread_id,
+                # A new Copilot session is already bound to the identity the
+                # CLI was given, so a watchdog kill, timeout, or missing
+                # terminal ``result`` no longer loses the session (#129).
+                thread_id=resume_thread_id or self._prebound_session_id(options),
             )
             return self._finalize_turn_result(
                 process=process, command=command, options=options, state=state
@@ -226,6 +229,15 @@ class RunExecMixin:
         state.orphan_process_group_cleanup_succeeded = not cls._process_group_alive(
             process_group_id
         )
+
+    def _prebound_session_id(self, options) -> str | None:
+        """The provider-session identity passed to a NEW Copilot CLI session."""
+        if self.backend != BACKEND_COPILOT:
+            return None
+        bound = getattr(options, "provider_session_id", None)
+        if not isinstance(bound, str):
+            return None
+        return bound.strip() or None
 
     def _exit_receipt(self, returncode: int | None, state: _StreamState) -> str:
         """The runner's one-line account of a call that ended without a turn."""
@@ -904,4 +916,5 @@ class RunExecMixin:
             usage_model=state.usage_model,
             orphan_process_group_id=state.orphan_process_group_id,
             orphan_process_group_cleanup_succeeded=(state.orphan_process_group_cleanup_succeeded),
+            session_identity_conflict=state.copilot_write.identity_conflict,
         )

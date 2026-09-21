@@ -1,8 +1,8 @@
 name: extended checks
 
 # On-demand only. These jobs were the second, third and fourth jobs of
-# tests.yml until 2026-09-14; the per-push signal is now the single Linux
-# full-suite job there. Run this workflow by hand before a release or when a
+# tests.yml until 2026-09-14, and the mypy type gate was its second step
+# until 2026-09-18; the per-push signal is now lint + tests in one Linux job. Run this workflow by hand before a release or when a
 # change touches the chat bridges, the pairing/QR path, the cockpits or the
 # Tauri desktop host.
 #
@@ -25,6 +25,11 @@ name: extended checks
 
 on:
   workflow_dispatch:
+    inputs:
+      typecheck_base:
+        description: Git revision the type gate compares against
+        default: origin/main
+        required: false
 
 concurrency:
   group: extended-${{ github.ref }}
@@ -128,6 +133,35 @@ env:
     tests/test_engineer_sandbox.py
 
 jobs:
+  typecheck:
+    name: linux · Python type gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,qr,trial]'
+      - name: Reject new Python type diagnostics
+        env:
+          TYPECHECK_BASE: ${{ inputs.typecheck_base || 'origin/main' }}
+        run: >-
+          python -m argus.release_tools.typecheck_gate
+          --base "$TYPECHECK_BASE" --output-dir "$RUNNER_TEMP/typecheck"
+      - name: Preserve Python type diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-typecheck
+          path: ${{ runner.temp }}/typecheck
+          if-no-files-found: ignore
+
   portable:
     name: ${{ matrix.os }} · portable surface
     runs-on: ${{ matrix.os }}

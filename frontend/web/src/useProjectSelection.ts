@@ -36,6 +36,8 @@ function writeProjectLocation(id: string | null, mode: ProjectHistoryMode): void
 interface UseProjectSelectionOptions {
   cancelActiveMessage: () => void;
   notify: (tone: NoticeTone, message: string) => void;
+  /** Localized text for a URL project that no longer exists; English fallback otherwise. */
+  formatProjectMissing?: (requested: string | null, fallbackLabel?: string) => string;
   projects: ProjectRow[];
   projectsError: boolean;
   projectsReady: boolean;
@@ -48,6 +50,7 @@ interface UseProjectSelectionOptions {
 export function useProjectSelection({
   cancelActiveMessage,
   notify,
+  formatProjectMissing,
   projects,
   projectsError,
   projectsReady,
@@ -56,6 +59,12 @@ export function useProjectSelection({
   setSidebarOpen,
   setTaskItemId,
 }: UseProjectSelectionOptions) {
+  const projectMissingText = (requested: string | null, fallbackLabel?: string): string => {
+    if (formatProjectMissing) return formatProjectMissing(requested, fallbackLabel);
+    return fallbackLabel
+      ? `Project “${requested}” was not found. Switched to ${fallbackLabel}.`
+      : `Project “${requested}” was not found. Create a project to continue.`;
+  };
   const params = new URLSearchParams(window.location.search);
   const [sid, setSid] = useState<string | null>(
     params.get('project') || storedBrowserProject(),
@@ -115,12 +124,10 @@ export function useProjectSelection({
       const fallback = projects.find((project) => project.id === selection.id);
       notify(
         'info',
-        fallback
-          ? `Project “${selection.requested}” was not found. Switched to ${fallback.label || fallback.id}.`
-          : `Project “${selection.requested}” was not found. Create a daemon to continue.`,
+        projectMissingText(selection.requested, fallback ? fallback.label || fallback.id : undefined),
       );
     }
-  }, [activateProject, notify, projects, projectsReady]);
+  }, [activateProject, formatProjectMissing, notify, projects, projectsReady]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -141,9 +148,7 @@ export function useProjectSelection({
         const fallback = projects.find((project) => project.id === selection.id);
         notify(
           'info',
-          fallback
-            ? `Project “${selection.requested}” was not found. Switched to ${fallback.label || fallback.id}.`
-            : `Project “${selection.requested}” was not found. Create a daemon to continue.`,
+          projectMissingText(selection.requested, fallback ? fallback.label || fallback.id : undefined),
         );
       }
     };

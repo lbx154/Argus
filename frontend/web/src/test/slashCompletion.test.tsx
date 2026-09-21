@@ -79,9 +79,10 @@ describe('slash completion menu', () => {
       />,
     );
     expect(html).toContain('message category');
-    expect(html).toContain('<option value="task" selected="">Task</option>');
-    expect(html).toContain('<option value="auto">Auto</option>');
-    expect(html).toContain('<option value="chat">Chat</option>');
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toMatch(/aria-checked="true"[^>]*>Task</);
+    expect(html).toMatch(/aria-checked="false"[^>]*>Auto</);
+    expect(html).toMatch(/aria-checked="false"[^>]*>Chat</);
   });
 
   it('keeps stop control but omits the synthetic quiet-progress row', () => {

@@ -10,7 +10,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ..apps._inbox import count_pending_inbox_messages, queue_inbox_message
 from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
@@ -360,13 +360,119 @@ def get_doctor(sid: str, *, global_root: Path | str | None = None) -> dict[str, 
     return {"checks": rows, "recommended": recommended, "log_tail": _daemon_log_tail(life_dir)}
 
 
+_MODEL_OPTION_LIMIT = 64
+_MODEL_SEEN_WINDOW_S = 30 * 24 * 3600
+
+
+def _catalog_model_ids() -> list[str]:
+    """Model ids the pi harness knows: PI_CODING_AGENT_DIR/models.json, else the installed harness dir."""
+    import json as _json
+
+    candidates = []
+    configured = os.environ.get("PI_CODING_AGENT_DIR", "").strip()
+    if configured:
+        candidates.append(Path(configured) / "models.json")
+    candidates.append(Path.home() / ".argus-skill" / "argus-pi" / "models.json")
+    candidates.append(Path.home() / ".pi" / "agent" / "models.json")
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+            raw = path.read_bytes()[:262144]
+            providers = _json.loads(raw).get("providers", {})
+        except (OSError, ValueError, AttributeError):
+            continue
+        ids: list[str] = []
+        if isinstance(providers, dict):
+            for config in providers.values():
+                rows = config.get("models") if isinstance(config, dict) else None
+                for row in rows or []:
+                    model = row.get("id") if isinstance(row, dict) else None
+                    if isinstance(model, str) and model and model not in ids:
+                        ids.append(model)
+        if ids:
+            return ids
+    return []
+
+
+def _seen_model_ids(global_root: Path | str | None, *, now: float | None = None) -> dict[str, float]:
+    """Models that answered on this home in the last thirty days, with the newest time each."""
+    import json as _json
+
+    root = _global_root(global_root)
+    since = (now if now is not None else time.time()) - _MODEL_SEEN_WINDOW_S
+    seen: dict[str, float] = {}
+    try:
+        files = sorted((root / "projects").glob("*/usage.jsonl"))
+    except OSError:
+        return seen
+    for path in files[:200]:
+        try:
+            with path.open("rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                start = max(0, size - 200_000)
+                handle.seek(start)
+                tail = handle.read().decode("utf-8", "ignore")
+        except OSError:
+            continue
+        lines = tail.splitlines()
+        if start:
+            lines = lines[1:]  # the first line of a mid-file read is a torn record
+        for line in lines:
+            try:
+                row = _json.loads(line)
+            except ValueError:
+                continue
+            model = str(row.get("model") or "").strip()
+            ts = row.get("completed_at") or row.get("recorded_at") or 0
+            if not model or not isinstance(ts, (int, float)) or ts < since:
+                continue
+            if row.get("error") and not row.get("output_tokens"):
+                continue  # a model that only ever failed is not an option
+            seen[model] = max(seen.get(model, 0.0), float(ts))
+    return seen
+
+
+def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]:
+    """What the quick picker offers instead of a text box.
+
+    The harness catalog first, then models that have actually answered on
+    this home (a catalog can lag the provider: gpt-6-astra answered for weeks
+    before any catalog listed it), then whatever the knobs currently name.
+    Bare model ids only; never provider URLs or credentials.
+    """
+    from ..core.knob_store import read_persisted_knobs
+
+    options: dict[str, dict[str, Any]] = {}
+    for model in _catalog_model_ids():
+        options[model] = {"model": model, "source": "catalog"}
+    for model, ts in sorted(_seen_model_ids(global_root).items(), key=lambda kv: -kv[1]):
+        options.setdefault(model, {"model": model, "source": "seen"})["last_used_at"] = ts
+    try:
+        persisted = read_persisted_knobs()
+    except Exception:  # noqa: BLE001 - a corrupt store still leaves the catalog
+        persisted = {}
+    for knob in ("ARGUS_SKILL_MODEL", *ROLE_MODEL_KNOBS, "ARGUS_SKILL_FIGURE_MODEL"):
+        model = str(os.environ.get(knob) or persisted.get(knob) or "").strip()
+        if model and model.lower() not in {"auto", "inherit", "default"}:
+            options.setdefault(model, {"model": model, "source": "current"})
+    rows = list(options.values())
+    rows.sort(key=lambda row: (-(row.get("last_used_at") or 0.0), row["model"]))
+    return rows[:_MODEL_OPTION_LIMIT]
+
+
 def get_config(
     *,
     project_state_dir: Path | str | None = None,
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Runtime settings snapshot with the host-global USD budget."""
+    """Runtime settings snapshot with the host-global USD budget and the model options."""
     snapshot = build_config_snapshot(env=os.environ)
+    try:
+        snapshot["model_options"] = model_options(global_root)
+    except Exception:  # noqa: BLE001 - the snapshot must never fail on the options
+        snapshot["model_options"] = []
     if project_state_dir is None:
         return snapshot
     from ..core.knobs import resolve_budget_caps
@@ -440,14 +546,42 @@ _CONFIG_ALIASES = {
 }
 
 
+# The knobs that pin one role (or one host-side task) to its own model. A
+# role knob wins over ARGUS_SKILL_MODEL, so a picker that sets only the shared
+# knob changes nothing on a host whose roles were pinned at setup; the trial
+# host showed "gpt-6-astra" chosen while every role still ran gemini.
+# ARGUS_SKILL_FIGURE_MODEL is a route override and ARGUS_SKILL_MAP_MODEL a
+# host-side draw; both are left alone.
+ROLE_MODEL_KNOBS: tuple[str, ...] = (
+    "ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_MANAGER_REPLY_MODEL", "ARGUS_SKILL_PLAN_MODEL",
+    "ARGUS_SKILL_PLAN_PREVIEW_MODEL", "ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL",
+    "ARGUS_SKILL_SUPERVISOR_MODEL", "ARGUS_SKILL_CURATOR_MODEL", "ARGUS_SKILL_FRONTDOOR_MODEL",
+    "ARGUS_SKILL_REWRITE_MODEL", "ARGUS_SKILL_BOUNDED_DAG_MODEL", "ARGUS_SKILL_REFLECTION_MODEL",
+)
+
+
+def role_model_pins(persisted: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Role knobs that currently pin a model of their own (env first, then persisted)."""
+    from ..core.knob_store import read_persisted_knobs
+
+    store = persisted if persisted is not None else read_persisted_knobs()
+    pins: dict[str, str] = {}
+    for knob in ROLE_MODEL_KNOBS:
+        value = str(os.environ.get(knob) or store.get(knob) or "").strip()
+        if value and value.lower() not in {"auto", "inherit", "default", ""}:
+            pins[knob] = value
+    return pins
+
+
 def set_operator_config(
     name: str,
     value: str,
     *,
     project_state_dir: Path | str | None = None,
     global_root: Path | str | None = None,
+    apply_to_roles: bool = False,
 ) -> dict[str, Any]:
-    from ..core.knob_store import write_persisted_knob
+    from ..core.knob_store import write_persisted_knob, write_persisted_knobs
     from ..core.knobs import cockpit_editable_names, normalize_cockpit_knob_value
 
     raw = (name or "").strip()
@@ -456,6 +590,16 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
+    released: list[str] = []
+    if apply_to_roles and env_name == "ARGUS_SKILL_MODEL":
+        # The shared choice is meant for every role: release the role pins so
+        # they follow it. A pin the operator sets afterwards in the role table
+        # wins again, as before.
+        released = sorted(role_model_pins())
+        if released and not write_persisted_knobs({knob: "" for knob in released}):
+            raise RuntimeError("role model pins could not be released")
+        for knob in released:
+            os.environ.pop(knob, None)
     if project_state_dir is not None:
         from ..core.operator_context import IntakeDecision, persist_intake_decision
 
@@ -478,6 +622,8 @@ def set_operator_config(
     os.environ[env_name] = val
     return {
         "name": env_name, "value": val,
+        "released_role_pins": released,
+        "role_pins": role_model_pins(),
         "restart_required": env_name not in {
             "ARGUS_SKILL_MAP_MODEL", "ARGUS_SKILL_MAP_REASONING_EFFORT",
             "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT",

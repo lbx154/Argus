@@ -95,8 +95,10 @@ class LiveBudgetMonitor:
             self._roll_day()
             observed, tokens = self.pi_cost, self.pi_tokens
             cursor = getattr(self.ctx, "copilot_usage_cursor", None)
-            if self.ctx.backend._is_copilot and cursor is not None and self.session_id:
-                usage = read_copilot_usage_since(cursor, session_id=self.session_id, timeout=0)
+            # A new session bound before spawn is readable before any event.
+            session_id = self.session_id or getattr(self.ctx, "provider_session_id", None)
+            if self.ctx.backend._is_copilot and cursor is not None and session_id:
+                usage = read_copilot_usage_since(cursor, session_id=session_id, timeout=0)
                 if usage is not None:
                     today = datetime.fromtimestamp(_local_day_start(time.time()), UTC)
                     for row in usage.rows:

@@ -246,7 +246,7 @@ def test_ordinary_execution_stops_while_role_storage_holder_remains_locked(tmp_p
 
 def _queue_success(backend, *, first_message=None):
     backend.queue("engineer-r1", CannedResponse(message="implementation ready", message_factory=first_message))
-    backend.queue("reviewer", CannedResponse(message=json.dumps({"status": "done", "reason": "verified", "next_action": "none"})))
+    backend.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': ('verified') + '\n\n' + ('none')})))
 
 
 def _translated_watchdog(case):

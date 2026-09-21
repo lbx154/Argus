@@ -20,7 +20,10 @@ def _quote(value: str | Path) -> str:
 def _powershell(command: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=40,
+        # The first PowerShell start on a hosted Windows runner takes close to
+        # 40 s cold (module analysis, Defender); 40 s made the first test in
+        # this file a coin flip. The bound only guards against a hang.
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
         env={**os.environ, "PSModuleAnalysisCachePath": "NUL"},
     )
 

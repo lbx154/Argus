@@ -67,3 +67,10 @@ class _ExecContext:
     event_permit: Any = field(default=None)
     copilot_token_billing_expected: bool = False
     copilot_usage_cursor: Any = None
+    # Provider-session identity Argus allocated for a NEW Copilot session and
+    # bound to this call before spawn; ``None`` for resumed calls, non-Copilot
+    # backends, the warm ACP path, or a CLI without ``--session-id``.
+    provider_session_id: str | None = None
+    # The CLI named a different session than the one this call was bound to.
+    # Usage lookups and the persisted record must not fall back to any identity.
+    session_identity_conflict: str | None = None

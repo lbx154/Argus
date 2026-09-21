@@ -74,6 +74,8 @@ export interface MapEvent {
   attempt?: number;
   success?: boolean;
   review_skipped?: boolean;
+  backend_unavailable?: boolean;
+  outcome?: MapTask["outcome"];
   overall_complete?: boolean;
   campaign_continues?: boolean;
   stage_certification?: string;
@@ -136,6 +138,9 @@ export interface MapLink {
     | "fanin";
   label?: string;
   evidence?: string;
+  /** The label says what connects these two tasks, not just what kind of
+   * line this is. Only a stated label is written on the map at rest. */
+  stated?: boolean;
   target_plan_id?: string;
   target_count?: number;
   missing?: boolean;
@@ -216,6 +221,7 @@ export function statusKey(task: MapTask): string {
   if (task.status === "cancelled") return "aborted";
   if (task.pending_question) return "question";
   if (ACTIVE.has(task.status)) return "running";
+  if (task.outcome?.review_status === "unavailable") return "review_unavailable";
   if (task.status.startsWith("paused") || task.status === "blocked")
     return "paused";
   return [
@@ -229,6 +235,14 @@ export function statusKey(task: MapTask): string {
   ].includes(task.status)
     ? task.status
     : "unknown";
+}
+
+export function latestCertifiedTask(tasks: MapTask[], events: MapEvent[]): MapTask | undefined {
+  return tasks.filter(task => task.status === "done"
+    && task.outcome?.review_status === "done"
+    && task.outcome.stage_certification === "certified"
+    && latestMissionCompletion(task, events)?.overall_complete === true)
+    .sort((a, b) => (b.finished_ts ?? b.ts ?? 0) - (a.finished_ts ?? a.ts ?? 0))[0];
 }
 
 /** Iterative SCC traversal also handles histories deeper than the JS call stack. */
@@ -700,26 +714,44 @@ export function foldTeamBranches(
   return { ...graph, tasks, links };
 }
 
-/** Connect components with content/context links; recorded dependencies remain authoritative. */
+export type LineNote = { source: string; target: string; label: string };
+
+/** The pairs of tasks whose line has nothing to say yet beyond its kind: the
+ * lines a note is asked for (useMapLines). */
+export function unstatedPairs(links: MapLink[]): Array<{ source: string; target: string }> {
+  return links
+    .filter((link) => !link.stated && (link.kind === "context" || (link.kind === "dependency" && !link.label)))
+    .map(({ source, target }) => ({ source, target }));
+}
+
+/** Connect components with content/context links; recorded dependencies remain authoritative.
+ *
+ * `notes` say what an existing line carries. They annotate the line between
+ * their two tasks and never add one or change its kind, so the map keeps its
+ * shape whether or not the notes have arrived. */
 export function connectMap(
   graph: MapGraph,
   semantic: Array<{
     source: string;
     target: string;
     label: string;
-    evidence: string;
   }>,
   zh: boolean,
+  notes: LineNote[] = [],
 ): MapLink[] {
-  const links = graph.links.map((link) => {
-    const phrase = semantic.find(
-      (r) => r.source === link.source && r.target === link.target,
-    );
-    return phrase && link.kind === "dependency"
+  const noteFor = (source: string, target: string) =>
+    notes.find((n) => n.source === source && n.target === target && n.label);
+  const links = graph.links.map((link): MapLink => {
+    if (link.kind !== "dependency") return link;
+    const phrase =
+      semantic.find((r) => r.source === link.source && r.target === link.target) ??
+      noteFor(link.source, link.target);
+    return phrase
       ? {
           ...link,
           label: phrase.label,
-          evidence: `${zh ? "执行依赖" : "Execution dependency"} · ${phrase.evidence}`,
+          stated: true,
+          evidence: `${zh ? "执行依赖" : "Execution dependency"} · ${phrase.label}`,
         }
       : link;
   });
@@ -743,8 +775,11 @@ export function connectMap(
     )
       continue;
     links.push({
-      ...relation,
+      source: relation.source,
+      target: relation.target,
+      label: relation.label,
       kind: "semantic",
+      stated: true,
       id: `semantic:${relation.source}:${relation.target}`,
     });
     join(relation.source, relation.target);
@@ -754,6 +789,20 @@ export function connectMap(
       previous = graph.tasks[i - 1];
     if (find(task.id) === find(previous.id)) continue;
     const samePlan = task.plan_id && task.plan_id === previous.plan_id;
+    const note = noteFor(previous.id, task.id);
+    if (note) {
+      links.push({
+        id: `context:${previous.id}:${task.id}`,
+        source: previous.id,
+        target: task.id,
+        kind: "context",
+        label: note.label,
+        stated: true,
+        evidence: `${note.label} · ${zh ? "按时间排列，不表示执行依赖。" : "Arranged in time; no execution dependency is implied."}`,
+      });
+      join(previous.id, task.id);
+      continue;
+    }
     links.push({
       id: `context:${previous.id}:${task.id}`,
       source: previous.id,
