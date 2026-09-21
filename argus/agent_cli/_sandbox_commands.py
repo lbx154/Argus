@@ -488,6 +488,9 @@ class CommandBuilderMixin:
             command.extend(["--tools", ""])
         elif options.sandbox_mode == "read-only":
             command.extend(["--tools", "Read,Glob,Grep"])
+            trusted = getattr(options, "trusted_tool_names", None) or []
+            if trusted:
+                command.extend(["--allowedTools", ",".join(trusted)])
         elif options.dangerous_yolo:
             command.extend([
                 "--permission-mode",

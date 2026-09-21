@@ -39,7 +39,7 @@ def _environment(tmp_path, monkeypatch, backend):
 
 
 def _review(status):
-    return CannedResponse(message=json.dumps({"status": status, "reason": "offline review", "next_action": "none"}))
+    return CannedResponse(review_action=(('approve_review' if status == 'done' else 'revise_review'), {'review': ('offline review') + '\n\n' + ('none')}))
 
 
 def _mission_thread(tmp_path, monkeypatch, workspace, *, inherited_abort=False):

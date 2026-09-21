@@ -135,7 +135,7 @@ describe("step readability in buildSubmap", () => {
     const result = rows.find((row) => row.kind === "result")!;
     expect(result.title).toBe("This execution ended");
     expect(result.status).toBe("recorded");
-    expect(result.summary).toContain("the overall goal is not complete and further work remains");
+    expect(result.summary).toContain("the overall goal was not complete at that time and further work remained");
     expect(result.detail).toContain("Read one source route.");
     expect(result.detail).toContain("Stage certification was intentionally skipped; this is not final acceptance.");
     expect(rows.some((row) => row.kind === "review")).toBe(false);

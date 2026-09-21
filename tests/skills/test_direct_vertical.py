@@ -162,11 +162,7 @@ def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
     backend.queue("engineer-r1", CannedResponse(message="The requested task is complete."))
     backend.queue(
         "reviewer",
-        CannedResponse(message=json.dumps({
-            "status": "done",
-            "reason": "The focused check passed.",
-            "next_action": "",
-        })),
+        CannedResponse(review_action=('approve_review', {'review': 'The focused check passed.'})),
     )
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
@@ -200,7 +196,7 @@ def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
 def test_reviewer_workflow_change_refreshes_the_session_rubric(tmp_path) -> None:
     backend = MemoryBackend()
     response = CannedResponse(
-        message=json.dumps({"status": "done", "reason": "Complete.", "next_action": ""}),
+        review_action=('approve_review', {'review': 'Complete.'}),
         thread_id="reviewer-thread",
     )
     backend.queue("reviewer", response)

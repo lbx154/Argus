@@ -197,7 +197,7 @@ class ReviewDecision:
     # objective; LifeSupervisor uses this signal to surface repeated hollow work.
     planner_report: dict[str, Any] = field(default_factory=dict)
     # Runtime-owned semantic transition and explicit role-session signal. The
-    # model states these on tolerant named lines; no JSON schema is required.
+    # Reviewer supplies these through its native review action.
     frontier_report: dict[str, Any] = field(default_factory=dict)
     session_signal: dict[str, str] = field(default_factory=dict)
     review_source: str = "reviewer"

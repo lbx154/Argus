@@ -74,6 +74,8 @@ export interface MapEvent {
   attempt?: number;
   success?: boolean;
   review_skipped?: boolean;
+  backend_unavailable?: boolean;
+  outcome?: MapTask["outcome"];
   overall_complete?: boolean;
   campaign_continues?: boolean;
   stage_certification?: string;
@@ -219,6 +221,7 @@ export function statusKey(task: MapTask): string {
   if (task.status === "cancelled") return "aborted";
   if (task.pending_question) return "question";
   if (ACTIVE.has(task.status)) return "running";
+  if (task.outcome?.review_status === "unavailable") return "review_unavailable";
   if (task.status.startsWith("paused") || task.status === "blocked")
     return "paused";
   return [
@@ -232,6 +235,14 @@ export function statusKey(task: MapTask): string {
   ].includes(task.status)
     ? task.status
     : "unknown";
+}
+
+export function latestCertifiedTask(tasks: MapTask[], events: MapEvent[]): MapTask | undefined {
+  return tasks.filter(task => task.status === "done"
+    && task.outcome?.review_status === "done"
+    && task.outcome.stage_certification === "certified"
+    && latestMissionCompletion(task, events)?.overall_complete === true)
+    .sort((a, b) => (b.finished_ts ?? b.ts ?? 0) - (a.finished_ts ?? a.ts ?? 0))[0];
 }
 
 /** Iterative SCC traversal also handles histories deeper than the JS call stack. */

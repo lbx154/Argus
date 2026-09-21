@@ -6,13 +6,12 @@ directly; this version takes any ``RunnerBackend`` (see
 ``argus.core.ports``) so it works with any supported agent CLI or the
 in-memory test stub equally well.
 
-Public surface kept identical: ``Reviewer.evaluate(...) -> ReviewDecision``,
-``parse_decision_text(text) -> ReviewDecision | None``.
+``Reviewer.evaluate(...) -> ReviewDecision`` receives a native tool action,
+not a verdict parsed from the model's prose.
 """
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from contextlib import ExitStack
 from dataclasses import dataclass, field
@@ -22,10 +21,9 @@ from typing import Any, TypedDict
 from ..core.models import ReviewDecision, RunnerOptions
 from ..core.operator_messages import uses_cjk
 from ..core.ports import RunnerBackend
-from ..core.role_decision import latest_role_decision
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.stop_kinds import StopKind, normalize_stop_kind
-from ._parsing import _find_decision_in_messages, decision_from_payload
+from .tools import review_action_tools
 
 log = logging.getLogger(__name__)
 
@@ -693,9 +691,6 @@ class Reviewer:
         memory_maintenance_enabled: bool = True,
     ) -> None:
         self.runner = runner
-        # Final paper reviews use natural prose; a tool-free internal reader
-        # translates only their stated judgment into round-control metadata.
-        # Other operations keep their existing minimal closing-line protocol.
         self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
         # Optional agent-native library roots. The Reviewer searches and reads
         # relevant Markdown itself; the runtime never injects Skill bodies.
@@ -859,14 +854,13 @@ class Reviewer:
                 "give constructive next experiments that strengthen the contribution. "
                 "Do not create a second review report or modify the manuscript, code, "
                 "figures, or experiment data. Your written report is the authoritative "
-                "review text; after saving it, your final reply can simply confirm the update."
+                "review text; after saving it, submit the corresponding review action "
+                "tool. Your final reply can simply confirm the update."
             )
         try:
-            result = gateway_run_exec(
+            with review_action_tools(
                 self.runner,
-                prompt=prompt,
-                resume_thread_id=resume,
-                options=RunnerOptions(
+                RunnerOptions(
                     model=config.model,
                     reasoning_effort=config.reasoning_effort,
                     # Only its report is writable through review_output. The
@@ -884,8 +878,13 @@ class Reviewer:
                     # skill; ordinary review turns need not invoke it.
                     live_search=True,
                 ),
-                run_label="reviewer",
-            )
+                venue=venue, venue_required=venue_required,
+            ) as (actions, options):
+                result = gateway_run_exec(
+                    self.runner, prompt=prompt, resume_thread_id=resume,
+                    options=options, run_label="reviewer",
+                )
+                decision = actions.decision
             if review_output and result.exit_code == 0 and not getattr(result, "fatal_error", None):
                 from .review_file import ReviewFileStore
 
@@ -968,27 +967,17 @@ class Reviewer:
                 backend_exit_code=result.exit_code,
                 backend_stop_kind=backend_stop_kind,
             )
-        process_decision = None if authored_review is not None else latest_role_decision(result, "reviewer")
-        # A recorded decision is already structured; reading it directly keeps
-        # the runtime from serialising its own payload back to JSON text and
-        # re-parsing that. `decision_messages` stays the evidence quoted back to
-        # the operator when nothing parses.
-        decision_messages = (
-            [authored_review] if authored_review is not None
-            else [json.dumps(process_decision, ensure_ascii=True)]
-            if process_decision is not None
-            else result.agent_messages
-        )
-        if not decision_messages:
+        if decision is None:
             return ReviewDecision(
                 status="blocked",
                 reason=(
-                    "Reviewer backend returned empty output; this says nothing "
-                    "about the Engineer's work."
+                    "The Reviewer ended without submitting a review action. "
+                    "Its reply was not interpreted as acceptance or rejection."
                 ),
                 next_action=(
-                    "Retry the independent Reviewer and clarify the current venue recommendation in ordinary prose."
-                    if venue_required else "Retry Reviewer; do not manufacture an Engineer gap."
+                    "Ask the independent Reviewer to submit its judgment through "
+                    "approve_review, revise_review, defer_review, "
+                    "request_review_decision, or replan_review."
                 ),
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
@@ -1000,94 +989,36 @@ class Reviewer:
                 thread_id=rev_tid,
                 static_fingerprint=new_fp,
             )
-        parsed = (
-            decision_from_payload(process_decision)
-            if process_decision is not None
-            else _find_decision_in_messages(decision_messages)
-        )
-        if venue_required and (parsed is None or parsed.venue_review is None):
-            from ._prose_decision import interpret_prose_review
-
-            # Provider events may already carry the ordinary prose inside the
-            # compatibility envelope. Preserve its full text, not a clipped parse.
-            review_text = (
-                "\n\n".join(
-                    str(process_decision.get(key) or "").strip()
-                    for key in ("reason", "next_action")
-                    if str(process_decision.get(key) or "").strip()
-                )
-                if process_decision is not None
-                else str(decision_messages[-1]).strip()
-            )
-            try:
-                parsed, control_result = interpret_prose_review(
-                    self.runner, review_text=review_text, venue=venue, config=config,
-                )
-                rev_in += int(control_result.input_tokens or 0)
-                rev_cached += int(control_result.cached_input_tokens or 0)
-                rev_out += int(control_result.output_tokens or 0)
-                rev_reasoning_output_tokens += int(control_result.reasoning_output_tokens or 0)
-                rev_premium += float(control_result.premium_requests or 0)
-            except Exception:  # noqa: BLE001 - interpretation cannot certify by default
-                log.exception("could not interpret the final Reviewer's natural judgment")
-                parsed = None
-        if parsed is None and not venue_required:
-            from ._parsing import decision_from_deferred_wait
-
-            parsed = decision_from_deferred_wait(decision_messages)
-        if parsed is None:
-            from ._parsing import describe_unparsed_verdict
-
-            return ReviewDecision(
-                status="blocked",
-                reason=(
-                    (
-                        "The final review's current venue recommendation could not be read reliably."
-                        if venue_required else describe_unparsed_verdict(decision_messages)
-                    )
-                    + " This is a Reviewer/backend failure, not evidence that "
-                    "implementation is incomplete."
-                ),
-                next_action=(
-                    "Retry the independent Reviewer and clarify the current venue recommendation in ordinary prose."
-                    if venue_required else "Retry Reviewer; do not manufacture an Engineer gap."
-                ),
-                backend_unavailable=True,
-                backend_stop_kind="backend_unavailable",
-                input_tokens=rev_in,
-                cached_input_tokens=rev_cached,
-                output_tokens=rev_out,
-                reasoning_output_tokens=rev_reasoning_output_tokens,
-                premium_requests=rev_premium,
-                thread_id=rev_tid,
-                static_fingerprint=new_fp,
-            )
+        if authored_review is not None:
+            decision.reason = authored_review
+            if decision.next_action:
+                decision.next_action = authored_review
         # Phase-2 instrumentation: cost-tracking sinks (e.g. LifeSupervisor's
         # _CostTrackingSink) read these fields off ``round.review.completed``
         # events. If we don't propagate them every iteration budget enforcement
         # silently breaks and the journal shows ``cost_usd=$0.0000``.
-        parsed.input_tokens = rev_in
-        parsed.cached_input_tokens = rev_cached
-        parsed.output_tokens = rev_out
-        parsed.reasoning_output_tokens = rev_reasoning_output_tokens
-        parsed.premium_requests = rev_premium
-        parsed.prompt_block_stats = prompt_block_stats
-        parsed.thread_id = rev_tid
-        parsed.static_fingerprint = new_fp
-        parsed.session_resumed = bool(resume)
-        parsed.manuscript_snapshot = reviewed_manuscript_snapshot
+        decision.input_tokens = rev_in
+        decision.cached_input_tokens = rev_cached
+        decision.output_tokens = rev_out
+        decision.reasoning_output_tokens = rev_reasoning_output_tokens
+        decision.premium_requests = rev_premium
+        decision.prompt_block_stats = prompt_block_stats
+        decision.thread_id = rev_tid
+        decision.static_fingerprint = new_fp
+        decision.session_resumed = bool(resume)
+        decision.manuscript_snapshot = reviewed_manuscript_snapshot
         # Reviewer owns the scientific recommendation. The host enforces the
         # operator's explicit minimum and current-file binding, not prose or
         # research-result keyword heuristics.
         if venue_required:
             enforce_venue_acceptance(
-                parsed, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
+                decision, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
                 minimum=acceptance_minimum,
             )
-            if parsed.backend_unavailable:
-                return parsed
-        _persist_research_review(parsed, config, authored_text=authored_review)
-        return parsed
+            if decision.backend_unavailable:
+                return decision
+        _persist_research_review(decision, config, authored_text=authored_review)
+        return decision
 
     def _render(
         self,

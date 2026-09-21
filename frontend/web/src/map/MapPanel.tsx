@@ -50,7 +50,7 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, type Dataset } from "./model";
+import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, latestCertifiedTask, type Dataset } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
@@ -98,6 +98,7 @@ const MINIMAP_STATUS: Record<string, string> = {
   running: "#9fb6cc",
   question: "#dcc797",
   failed: "#d9a79f",
+  review_unavailable: "#cdbba3",
   paused: "#cdbba3",
   superseded: "#c5bdcd",
   aborted: "#c6c8cb",
@@ -189,6 +190,7 @@ export function MapCanvas({
   const [pendingCard, setPendingCard] = useState<string | null>(null);
   const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
+  const finalReview = useMemo(() => latestCertifiedTask(data.tasks, data.events), [data.tasks, data.events]);
   const foundationChoice = useSelectedFoundation(sessionId, zh ? 'zh-CN' : 'en-US');
   const [readingCopy, setReadingCopy] = useState<{ nodeId: string; key: string; foundationId: string | null } | null>(null);
   const readCopy = useCallback((nodeId: string, key: string | null) => {
@@ -965,12 +967,13 @@ export function MapCanvas({
   // a failed task that also carries a question.
   const tally = useMemo(() => {
     const ended = new Set(scene.cards.filter((card) => card.completionScope).map((card) => card.task.id));
-    const buckets = { done: 0, ended: 0, running: 0, question: 0, failed: 0, other: 0 };
+    const buckets = { done: 0, ended: 0, running: 0, question: 0, review_unavailable: 0, failed: 0, other: 0 };
     for (const task of data.tasks) {
       if (ended.has(task.id)) buckets.ended++;
       else if (task.status === "done") buckets.done++;
       else if (ACTIVE.has(task.status)) buckets.running++;
       else if (task.pending_question) buckets.question++;
+      else if (statusKey(task) === "review_unavailable") buckets.review_unavailable++;
       else if (task.status === "failed") buckets.failed++;
       else buckets.other++;
     }
@@ -984,6 +987,13 @@ export function MapCanvas({
       Math.max(c, scene.cards.find((card) => card.id === id)?.ordinal || 1),
     );
     camera.enter(id);
+  };
+  const openFinalReview = () => {
+    const card = scene.cards.filter(item => item.task.id === finalReview?.id).at(-1);
+    if (card) {
+      setReadingCopy(null);
+      focus(card.id);
+    }
   };
   const locateCurrent = () => {
     const target = currentTask(data.tasks);
@@ -1120,7 +1130,7 @@ export function MapCanvas({
             it in words: the eye takes the proportion, the sentence the detail. */}
         {data.tasks.length > 0 && (
           <span className="map-progress" aria-hidden="true">
-            {(["done", "ended", "running", "question", "failed", "other"] as const).map((bucket) =>
+            {(["done", "ended", "running", "question", "review_unavailable", "failed", "other"] as const).map((bucket) =>
               tally[bucket] > 0 ? <i key={bucket} data-bucket={bucket} style={{ flexGrow: tally[bucket] }} /> : null)}
           </span>
         )}
@@ -1132,6 +1142,7 @@ export function MapCanvas({
               qa: data.tasks.filter(task => task.turn_kind === 'qa').length,
               complete,
               ended: tally.ended,
+              reviewUnavailable: tally.review_unavailable,
               running: tally.running,
               pending: composer.pending,
               paused,
@@ -1158,6 +1169,22 @@ export function MapCanvas({
           )}
         </p>
       </div>
+      {data.kind === "live" && finalReview && !replaying && (
+        <div className="map-final-review" role="status">
+          <span>
+            <strong>{zh ? "最终交付已通过审稿" : "Final delivery passed review"}</strong>
+            {focusedNode?.data.task.id !== finalReview.id
+              && focusedNode?.data.task.outcome?.review_status === "unavailable"
+              && (finalReview.finished_ts ?? 0) > (focusedNode.data.task.finished_ts ?? 0)
+              ? <span>{zh ? " · 本项目后续已交付；此卡保留当次审查异常。" : " · This project was delivered later; this card retains its earlier review error."}</span>
+              : null}
+          </span>
+          <button type="button" onClick={openFinalReview}>{zh ? "查看最终审稿" : "View final review"}</button>
+          {actions.deliveryCount > 0 && <button type="button" onClick={actions.onOpenDelivery}>
+            {zh ? "查看项目成果" : "View project deliverables"}
+          </button>}
+        </div>
+      )}
       {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog}
         currentTaskId={currentTaskId ?? snapshot.mission_view?.mission.id} onAnswer={actions.onAnswer} onLocate={(taskId) => {
           const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
@@ -1588,6 +1615,16 @@ export function MapCanvas({
         {readingTask && (readingRequest || readingTask.turn_kind === 'qa') ? <>
           <ModalHeader title={readingTask.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"} sub={readingTask.turn_kind === 'qa' ? readingTask.objective || readingTask.title : copy?.cards[readingTask.id]?.title || readingTask.title} />
           <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
+            {readingTask.outcome?.review_status === "unavailable" && (
+              <p className="mb-3 text-sm text-ink-dim" role="status">
+                {zh ? "当次审查异常，未形成审阅结论。" : "No review judgment was returned on this attempt."}
+                {finalReview && (finalReview.finished_ts ?? 0) > (readingTask.finished_ts ?? 0) && (
+                  <button type="button" className="ml-2 text-blue underline" onClick={openFinalReview}>
+                    {zh ? "查看本项目后续通过的最终审稿" : "View this project's later accepted final review"}
+                  </button>
+                )}
+              </p>
+            )}
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
               readOnly={readOnly}

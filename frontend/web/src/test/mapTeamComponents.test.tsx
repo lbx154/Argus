@@ -45,7 +45,7 @@ describe('Team work in the map', () => {
     const props = propsFor(scene.layouts[task.id].steps, { ...scene.cards[0], layout: scene.layouts[task.id], copy });
     const markup = renderToStaticMarkup(<MacroTaskNode {...props} />);
     expect(markup).toContain('Execution ended · goal incomplete');
-    expect(markup).toContain('the overall goal is not complete and further work remains');
+    expect(markup).toContain('the overall goal was not complete at that time and further work remained');
     expect(markup).toContain('This execution ended');
     expect(markup).not.toContain('map-state-done');
     expect(markup).not.toContain('Paper accepted.');
@@ -53,6 +53,23 @@ describe('Team work in the map', () => {
     act(() => renderer!.root.findByProps({ 'data-step-id': 'end' }).props.onClick());
     expect(JSON.stringify(renderer!.toJSON())).toContain('Read one source route.');
     expect(JSON.stringify(renderer!.toJSON())).not.toContain('Paper accepted.');
+  });
+
+  it('does not repeat stale scientific conclusions when the recorded failure was in the Reviewer', () => {
+    const failed = { ...task, status: 'failed', outcome: { review_status: 'unavailable' } };
+    const stale = {
+      title: 'Evaluate models', summary: 'No experimental data was produced.',
+      detail: 'Older explanation.', generated_at: 1,
+    };
+    const copy = { cards: { [task.id]: stale, 'review-error': { ...stale, title: 'Scientifically rejected' } } };
+    const step: SubmapStep = { ...worker('review-error', 'review_unavailable', 'review'), source: 'event',
+      title: 'Review error on this attempt', summary: 'The Reviewer returned no judgment.' };
+    const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([step], { task: failed, copy })} />);
+    expect(markup).toContain('map-state-review_unavailable');
+    expect(markup).toContain('Review error on this attempt');
+    expect(markup).not.toContain('No experimental data was produced.');
+    expect(markup).not.toContain('map-state-failed');
+    expect(markup).not.toContain('Scientifically rejected');
   });
 
   it('keeps completed, waiting and failed workers truthful while their parent is running', () => {

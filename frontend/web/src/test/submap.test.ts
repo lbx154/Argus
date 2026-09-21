@@ -31,6 +31,24 @@ const event = (
 });
 
 describe("task submap evidence", () => {
+  it("shows reviewer failure as an error rather than rejection and keeps later review independent", () => {
+    const rows = buildSubmap({ ...task, status: "failed" }, [
+      event("e1", "life.mission.started"),
+      event("e2", "round.review.completed", {
+        status: "blocked", review_skipped: true, backend_unavailable: true, round_index: 1,
+        text: "No readable STATUS line", next_action: "Retry Reviewer",
+      }),
+      event("e3", "life.mission.completed", { status: "error", success: false, overall_complete: false }),
+      event("e4", "life.mission.started"),
+      event("e5", "round.review.completed", { status: "done", round_index: 1 }),
+      event("e6", "life.mission.completed", { status: "done", success: true }),
+    ], true);
+    expect(rows.find(row => row.id === "e2")).toMatchObject({ title: "当次审查异常", status: "review_unavailable" });
+    expect(rows.find(row => row.id === "e2")?.detail).toContain("No readable STATUS line");
+    expect(rows.find(row => row.id === "e3")).toMatchObject({ status: "review_unavailable", completionScope: undefined });
+    expect(rows.find(row => row.id === "e6")?.status).toBe("done");
+    expect(rows.some(row => row.kind === "revision")).toBe(false);
+  });
   it("leaves missing execution and review stages absent", () => {
     const rows = buildSubmap(task, [], true);
     expect(rows.map((r) => r.kind)).toEqual(["plan", "result"]);

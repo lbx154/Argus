@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
@@ -48,13 +47,7 @@ def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(
     backend.queue("engineer-r1", CannedResponse(message="Implemented and verified."))
     backend.queue(
         "reviewer",
-        CannedResponse(message=json.dumps({
-            "status": "done",
-            "reason": "Verified.",
-            "next_action": "None.",
-            "round_summary_markdown": "# Review\\n\\n- verified\\n",
-            "completion_summary_markdown": "Verified.",
-        })),
+        CannedResponse(review_action=('approve_review', {'review': ('Verified.') + '\n\n' + ('None.')})),
     )
     loop = SkillLoop(
         skills_dir=skills,

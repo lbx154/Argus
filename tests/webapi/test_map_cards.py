@@ -43,6 +43,17 @@ def test_reading_never_asks_the_model(tmp_path, model):
     assert model.calls == []
 
 
+def test_review_error_is_supplied_without_claiming_missing_experimental_results():
+    about = map_cards._about({
+        "id": "failed-review", "status": "failed", "title": "Evaluate Qwen",
+        "outcome": {"execution_status": "failed", "review_status": "unavailable"},
+    }, "The evaluation was submitted; Reviewer returned no judgment.")
+    assert about["ended"]["review_status"] == "unavailable"
+    prompt = map_cards._prompt("zh-CN", [about], {})
+    assert "不能据此推断实验失败或未产出数据" in prompt
+    assert "任务记录描述当次尝试" in prompt
+
+
 def test_writes_once_from_the_works_own_record(tmp_path, model):
     model([
         {"id": "t0", "title": "长文本检索评测", "summary": "32k 下准确率 38.31%。"},

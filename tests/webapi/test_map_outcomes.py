@@ -158,3 +158,48 @@ def test_normalized_raw_events_keep_the_old_outcome_after_current_projection():
     result = project_task_outcome(task(), normalized)
     assert result["outcome"] == {} and result["recorded_outcome"] == PAUSED
     assert normalized == before and normalized[2]["outcome"] == PAUSED
+
+
+def test_reviewer_backend_failure_is_not_a_scientific_verdict_or_a_backlog_rewrite():
+    failed = {**COMPLETED, "execution_status": "failed", "review_status": "blocked"}
+    raw = [
+        {"event_id": "start", "item_id": "a", "type": "life.mission.started", "ts": 200, "attempt": 2},
+        {"event_id": "review", "item_id": "a", "type": "round.review.completed", "ts": 210,
+         "status": "blocked", "review_skipped": True, "backend_unavailable": True},
+        {"event_id": "end", "item_id": "a", "type": "life.mission.completed", "ts": 211,
+         "status": "error", "outcome": failed},
+    ]
+    normalized = normalize_events(raw, {"a"})
+    original = task(status="failed", finished_ts=211, outcome=failed)
+    before = copy.deepcopy((original, normalized))
+    result = project_task_outcome(original, normalized)
+    assert normalized[1]["backend_unavailable"] is True
+    assert result["status"] == "failed"
+    assert result["outcome"] == {**failed, "review_status": "unavailable"}
+    assert result["recorded_outcome"] == failed
+    assert (original, normalized) == before
+    # Re-projecting for a task explanation uses the same outcome as the map.
+    assert project_task_outcome(result, normalized)["outcome"] == result["outcome"]
+
+
+def test_skipped_review_and_real_blocked_verdict_are_not_backend_failures():
+    failed = {**COMPLETED, "execution_status": "failed", "review_status": "blocked"}
+    events = [*rows(), {"id": "review", "item_id": "a", "type": "round.review.completed",
+                       "ts": 210, "status": "blocked", "review_skipped": True},
+              {"id": "end", "item_id": "a", "type": "life.mission.completed", "ts": 211, "outcome": failed}]
+    original = task(status="failed", finished_ts=211, outcome=failed)
+    assert project_task_outcome(original, events)["outcome"]["review_status"] == "blocked"
+    events[-2]["backend_unavailable"] = True
+    events.insert(-1, {"id": "real-review", "item_id": "a", "type": "round.review.completed",
+                      "ts": 210.5, "status": "blocked", "backend_unavailable": False})
+    assert project_task_outcome(original, events)["outcome"]["review_status"] == "blocked"
+    assert project_task_outcome(task(), events)["outcome"] == {}
+
+
+def test_old_review_error_does_not_replace_a_new_attempt_outcome():
+    events = rows()
+    events[1]["backend_unavailable"] = True
+    events.append({"id": "done", "item_id": "a", "type": "life.mission.completed",
+                   "ts": 240, "outcome": COMPLETED})
+    result = project_task_outcome(task(status="done", finished_ts=240, outcome=COMPLETED), events)
+    assert result["outcome"] == COMPLETED

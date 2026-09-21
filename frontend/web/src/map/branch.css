@@ -14,8 +14,7 @@
   align-items: center;
   gap: 26px;
   padding: 0 40px 0 30px;
-  /* Status wash strong enough to read at far zoom, mirroring the cards'
-   * micro wash; mixing against the paper token keeps dark theme honest. */
+  /* Mixing against the paper token keeps the status wash theme-aware. */
   background: color-mix(in srgb, var(--state) 14%, var(--map-paper));
   border: 2px solid color-mix(in srgb, var(--state) 30%, rgb(var(--line)));
   border-left: 12px solid var(--state);
@@ -74,7 +73,7 @@
   width: 44px;
   height: 44px;
 }
-/* Status glyph before the title: the cards' micro watermark alphabet. */
+/* Status glyph before the title. */
 .map-branch-state {
   flex: none;
   margin-right: -6px;
@@ -125,14 +124,9 @@
   border-left-style: solid;
   color: rgb(var(--ink-dim));
 }
-/* A folded group speaks a whole sentence for the subtasks it stands for. Like
- * the cards' titles, its type grows as the camera pulls back (--map-zoom-step
- * is the stepped zoom, set on the canvas), so the sentence reads at overview zoom
- * instead of shrinking into a sliver; a small handle says what a click does. */
+/* A folded group keeps the same sentence and layout at every zoom. */
 .map-branch-group {
-  /* Capped so that, however far the camera pulls back, the sentence still
-   * fits its frame in four lines; beyond that the reader zooms in. */
-  --group-type: clamp(40px, calc(11px / var(--map-zoom-step, 0.24)), 110px);
+  --group-type: 46px;
   gap: calc(var(--group-type) * 0.45);
   padding: 0 calc(var(--group-type) * 0.7) 0 calc(var(--group-type) * 0.55);
   border-radius: 64px;

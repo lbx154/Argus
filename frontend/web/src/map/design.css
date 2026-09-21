@@ -7,13 +7,11 @@
  *      hairline, corner, accent rail and shadow stay the same from the widest
  *      overview to a fully opened task, where canvas units made them vanish at
  *      one end and swell at the other.
- *   2. Type lives inside a band of screen sizes. Zooming in makes a card
- *      larger and lets it say more; it does not blow the same words up into a
- *      billboard, and zooming out drops detail instead of shrinking it to fur.
+ *   2. Card text has a fixed layout and scales with the canvas. Zooming does
+ *      not change the words, line limits or visible controls.
  *
  * `--map-zoom-step` is written by useSemanticCamera on the canvas wrapper
- * (the zoom in quarter-octave steps, see zoomStep.ts);
- * `--summary-scale` by MacroTaskNode on each summary. */
+ * (the zoom in quarter-octave steps, see zoomStep.ts). */
 
 /* Declared on the wrapper that carries `--map-zoom-step`: a custom property that
  * quotes another is resolved where it is declared, so one level further out
@@ -102,12 +100,7 @@
 
 /* ── The summary: the same card from overview to the edge of detail ─────── */
 
-.argus-map .macro-summary {
-  /* Canvas units of this summary per screen pixel. */
-  --ot: calc(1 / var(--z) / var(--summary-scale, 1));
-}
-.argus-map .macro-summary .map-card,
-.argus-map .map-macro:not([data-overview-density="full"]) .map-card {
+.argus-map .macro-summary .map-card {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -115,10 +108,10 @@
   min-height: 0;
   overflow: hidden;
   border: 0;
-  border-radius: calc(10 * var(--ot) * 1px);
+  border-radius: 10px;
   background: transparent;
   box-shadow: none;
-  padding: calc(14px * var(--ot)) calc(16px * var(--ot)) calc(12px * var(--ot)) calc(18px * var(--ot));
+  padding: 14px 16px 12px 18px;
   transform: none;
 }
 .argus-map .macro-summary .map-card:hover,
@@ -130,20 +123,20 @@
   margin-left: 0;
   margin-right: 0;
   /* A comfortable measure: a wide card does not set 120-character lines. */
-  max-width: calc(560px * var(--ot));
+  max-width: 560px;
 }
 
 .argus-map .macro-summary .map-card-top {
   display: flex;
   align-items: center;
-  gap: calc(8px * var(--ot));
+  gap: 8px;
   padding: 0;
-  margin: 0 0 calc(9px * var(--ot));
+  margin: 0 0 9px;
   flex-shrink: 0;
 }
 .argus-map .macro-summary .map-card-number {
   font-family: "Geist Mono Variable", ui-monospace, monospace;
-  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+  font-size: 10px;
   letter-spacing: 0.06em;
   color: rgb(var(--ink-faint));
   white-space: nowrap;
@@ -152,9 +145,9 @@
   margin-left: auto;
   display: block;
   white-space: nowrap;
-  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+  font-size: 10px;
   line-height: 1.5;
-  padding: calc(1.5px * var(--ot)) calc(7px * var(--ot));
+  padding: 1.5px 7px;
   border-radius: 999px;
   color: color-mix(in srgb, var(--state, #6b859f) 78%, rgb(var(--ink)));
   background: color-mix(in srgb, var(--state, #6b859f) 12%, transparent);
@@ -177,64 +170,61 @@
   vertical-align: 0.12em;
 }
 
-.argus-map .macro-summary .map-card h3,
-.argus-map .map-macro:not([data-overview-density="full"]) .map-card h3 {
-  font-size: clamp(calc(13px * var(--ot)), 16px, calc(18px * var(--ot)));
+.argus-map .macro-summary .map-card h3 {
+  font-size: 16px;
   line-height: 1.38;
   font-weight: 620;
   letter-spacing: -0.012em;
   color: rgb(var(--ink));
-  margin: 0 0 calc(7px * var(--ot));
+  margin: 0 0 7px;
   min-height: 0;
   flex-shrink: 0;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: var(--title-lines, 3);
+  -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: break-word;
   word-break: normal;
 }
 .argus-map .macro-summary .map-card-objective,
 .argus-map .macro-summary .map-card > p.map-card-objective {
-  font-size: clamp(calc(11px * var(--ot)), 12px, calc(13px * var(--ot)));
+  font-size: 12px;
   line-height: 1.55;
   color: rgb(var(--ink-faint));
-  margin: 0 0 calc(8px * var(--ot));
-  -webkit-line-clamp: 3;
+  margin: 0 0 8px;
+  -webkit-line-clamp: 2;
   flex-shrink: 0;
 }
-/* The excerpt is the elastic row: it takes what height is left and dissolves
- * at the bottom, so more of it appears as the card grows on screen. */
-.argus-map .macro-summary .map-card-copy,
-.argus-map .map-macro[data-overview-density="compact"] .map-card-copy {
+/* The excerpt takes the remaining space in the fixed card layout. */
+.argus-map .macro-summary .map-card-copy {
   display: block;
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
   -webkit-line-clamp: unset;
-  font-size: clamp(calc(11px * var(--ot)), 12px, calc(13.5px * var(--ot)));
+  font-size: 12px;
   line-height: 1.6;
   color: rgb(var(--ink-dim));
-  margin: 0 0 calc(8px * var(--ot));
+  margin: 0 0 8px;
   mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4em), transparent);
 }
 .argus-map .macro-summary .map-card-stages {
   margin: auto 0 0;
-  padding-top: calc(4px * var(--ot));
+  padding-top: 4px;
   flex-shrink: 0;
 }
 .argus-map .macro-summary .map-card-stages > span,
 .argus-map .macro-summary .map-card-bottom,
 .argus-map .macro-summary .map-card-submap-hint {
-  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+  font-size: 10px;
 }
 .argus-map .macro-summary .map-card-bottom {
   display: flex;
   align-items: center;
-  gap: calc(8px * var(--ot));
-  padding: calc(8px * var(--ot)) 0 0;
-  margin-top: calc(6px * var(--ot));
-  border-top: calc(1px * var(--ot)) solid var(--map-card-line);
+  gap: 8px;
+  padding: 8px 0 0;
+  margin-top: 6px;
+  border-top: 1px solid var(--map-card-line);
   color: rgb(var(--ink-faint));
   flex-shrink: 0;
 }
@@ -243,41 +233,15 @@
   height: 1.1em;
 }
 .argus-map .macro-summary .map-card-teambar {
-  margin: calc(4px * var(--ot)) 0 0;
+  margin: 4px 0 0;
   flex-shrink: 0;
 }
 
-/* Overview tiers say less, never smaller. */
-.argus-map .map-macro[data-overview-density="compact"] .map-card-objective,
-.argus-map .map-macro[data-overview-density="compact"] .map-card-bottom,
-.argus-map .map-macro[data-overview-density="compact"] .map-card-stages {
-  display: none;
-}
-.argus-map .map-macro[data-overview-density="micro"] .map-card {
-  justify-content: center;
-  padding: calc(8px * var(--ot)) calc(10px * var(--ot)) calc(8px * var(--ot)) calc(13px * var(--ot));
-}
-.argus-map .map-macro[data-overview-density="micro"] .map-card-top,
-.argus-map .map-macro[data-overview-density="micro"] .map-card-objective,
-.argus-map .map-macro[data-overview-density="micro"] .map-card-copy,
-.argus-map .map-macro[data-overview-density="micro"] .map-card-stages,
-.argus-map .map-macro[data-overview-density="micro"] .map-card-bottom {
-  display: none;
-}
-.argus-map .map-macro[data-overview-density="micro"] .map-card h3 {
-  font-size: calc(12px * var(--ot));
-  margin: 0;
-}
-.argus-map .map-macro:not([data-overview-density="full"]) .map-history-toggle,
-.argus-map .macro-summary ~ .map-history-toggle,
 .argus-map .macro-summary .map-history-toggle {
-  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+  font-size: 10px;
 }
-.argus-map .map-macro:not([data-overview-density="full"]) .map-history-toggle {
-  display: none;
-}
-.argus-map .map-macro:not([data-overview-density="full"])[data-has-history="true"] .map-card {
-  padding-bottom: calc(12px * var(--ot));
+.argus-map .map-macro[data-has-history="true"] .map-card {
+  padding-bottom: 30px;
 }
 /* A card that keeps earlier parts shows it as a second sheet behind it. */
 .argus-map .map-macro[data-has-history="true"]::before {
@@ -300,32 +264,8 @@
 
 /* ── Overview refinements ───────────────────────────────────────────────── */
 
-/* At overview the card is small on screen, so its inner margins give way to
- * the title: a 13px word needs the width more than the frame needs air. */
-.argus-map .map-macro[data-overview-density="compact"] .map-card {
-  padding: calc(11px * var(--ot)) calc(11px * var(--ot)) calc(9px * var(--ot)) calc(14px * var(--ot));
-}
-.argus-map .map-macro[data-overview-density="compact"] .map-card h3 {
-  font-size: clamp(calc(12.5px * var(--ot)), 16px, calc(18px * var(--ot)));
-}
 .argus-map .macro-summary .map-status {
   max-width: 64%;
-}
-/* A card that was only recorded has nothing to announce. Its long label
- * ("执行结束 · 目标未完成") collapsed to a dot and an ellipsis beside the number;
- * the dot alone says the same and leaves the row clean. The full label returns
- * with the footer once the card is large enough to carry it. */
-.argus-map .map-macro[data-overview-density="compact"] .map-card.map-state-recorded .map-status {
-  max-width: none;
-  width: calc(7px * var(--ot));
-  height: calc(7px * var(--ot));
-  padding: 0;
-  font-size: 0;
-  background: color-mix(in srgb, var(--state, #6b859f) 55%, transparent);
-  align-self: center;
-}
-.argus-map .map-macro[data-overview-density="compact"] .map-card.map-state-recorded .map-status > * {
-  display: none;
 }
 
 /* ══ 纸上墨线 · ink on paper ══════════════════════════════════════════════
@@ -402,6 +342,7 @@
 .argus-map .map-state-failed { --state: var(--pig-vermilion); }
 .argus-map .map-state-question { --state: var(--pig-gamboge); }
 .argus-map .map-state-paused { --state: var(--pig-ochre); }
+.argus-map .map-state-review_unavailable { --state: var(--pig-ochre); }
 .argus-map .map-state-superseded { --state: var(--pig-lotus); }
 .argus-map .map-state-recorded,
 .argus-map .map-state-aborted,
@@ -543,7 +484,6 @@
 
 /* Titles are set in a serif: the one typographic gesture toward the page. */
 .argus-map .macro-summary .map-card h3,
-.argus-map .map-macro:not([data-overview-density="full"]) .map-card h3,
 .argus-map .macro-heading h2 {
   font-family: var(--map-serif);
   font-weight: 600;
@@ -561,26 +501,27 @@
 
 .argus-map .map-card-course {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: calc(6px * var(--ot));
+  gap: 6px;
   margin: auto 0 0;
-  padding-top: calc(6px * var(--ot));
+  padding-top: 6px;
   flex-shrink: 0;
 }
 .argus-map .map-card-course ~ .map-card-stages {
-  margin-top: calc(6px * var(--ot));
+  margin-top: 6px;
 }
 .argus-map .map-card-course > span {
   display: inline-flex;
   align-items: center;
-  gap: calc(4px * var(--ot));
-  padding: calc(2.5px * var(--ot)) calc(7px * var(--ot));
+  gap: 4px;
+  padding: 2.5px 7px;
   border-radius: 999px;
-  font-size: clamp(calc(10px * var(--ot)), 10px, calc(11.5px * var(--ot)));
+  font-size: 10px;
   line-height: 1.4;
   color: var(--ink-4);
   background: transparent;
-  box-shadow: inset 0 0 0 calc(1px * var(--ot)) rgb(var(--ink) / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.08);
   opacity: 0.75;
 }
 .argus-map .map-card-course > span b {
@@ -594,33 +535,10 @@
   opacity: 1;
   color: color-mix(in srgb, var(--step-color) 82%, var(--ink-1));
   background: color-mix(in srgb, var(--step-color) 11%, transparent);
-  box-shadow: inset 0 0 0 calc(1px * var(--ot)) color-mix(in srgb, var(--step-color) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--step-color) 22%, transparent);
 }
 .argus-map .map-card-course > span[data-active="true"] {
-  box-shadow: inset 0 0 0 calc(1.5px * var(--ot)) color-mix(in srgb, var(--step-color) 55%, transparent);
-}
-/* At overview the course is four beads: a drop of pigment for a stage the
- * record holds, a ring of pale ink for one it does not. */
-.argus-map .map-macro[data-overview-density="compact"] .map-card-course {
-  gap: calc(5px * var(--ot));
-}
-.argus-map .map-macro[data-overview-density="compact"] .map-card-course > span {
-  width: calc(7px * var(--ot));
-  height: calc(7px * var(--ot));
-  padding: 0;
-  opacity: 1;
-  background: transparent;
-  box-shadow: inset 0 0 0 calc(1.2px * var(--ot)) var(--ink-4);
-}
-.argus-map .map-macro[data-overview-density="compact"] .map-card-course > span > * {
-  display: none;
-}
-.argus-map .map-macro[data-overview-density="compact"] .map-card-course > span[data-present="true"] {
-  background: var(--step-color);
-  box-shadow: none;
-}
-.argus-map .map-macro[data-overview-density="micro"] .map-card-course {
-  display: none;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--step-color) 55%, transparent);
 }
 
 /* ── The head of the sheet ──────────────────────────────────────────────── */
@@ -661,6 +579,21 @@
 .argus-map .map-progress i[data-bucket="running"] { background: var(--pig-indigo); }
 .argus-map .map-progress i[data-bucket="question"] { background: var(--pig-gamboge); }
 .argus-map .map-progress i[data-bucket="failed"] { background: var(--pig-vermilion); }
+.argus-map .map-progress i[data-bucket="review_unavailable"] { background: var(--pig-ochre); }
+
+.argus-map .map-final-review {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 24px;
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--map-paper);
+  border-bottom: 1px solid rgb(var(--ink) / 0.08);
+}
+.argus-map .map-final-review strong { color: var(--pig-malachite); }
+.argus-map .map-final-review button { color: var(--pig-indigo); text-decoration: underline; }
 
 /* ── Controls float on the sheet as one material ────────────────────────── */
 
@@ -714,33 +647,11 @@
   overflow: hidden;
 }
 
-/* ── What a small card says first ───────────────────────────────────────────
- * MacroTaskNode counts the whole lines a card has room for and hands them
- * over as --title-lines, --copy-lines and data-course. The explanation under
- * the title ("what happened here") outranks the course beads: a reader from
- * outside the team needs the sentence before the process marks. */
-.argus-map .map-macro[data-overview-density="compact"] .map-card-copy {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: var(--copy-lines, 1);
-  flex: 0 0 auto;
-  overflow: hidden;
-  mask-image: none;
-  margin: 0 0 calc(6px * var(--ot));
-  color: var(--ink-3);
-}
-.argus-map .map-macro[data-overview-density="compact"][data-copy-lines="0"] .map-card-copy {
-  display: none;
-}
-.argus-map .map-macro[data-course="false"] .map-card-course {
-  display: none;
-}
-
 /* ── A branch of the team, on the same sheet ────────────────────────────── */
 .argus-map .map-branch {
   background: color-mix(in srgb, var(--state) 9%, var(--map-paper));
-  border: var(--px) solid color-mix(in srgb, var(--state) 26%, rgb(var(--ink) / 0.1));
-  border-left: calc(3.5 * var(--px)) solid var(--state);
+  border: 2px solid color-mix(in srgb, var(--state) 26%, rgb(var(--ink) / 0.1));
+  border-left: 12px solid var(--state);
   border-radius: calc(14 * var(--px));
   box-shadow:
     0 calc(1 * var(--px)) calc(1.5 * var(--px)) rgb(40 34 24 / 0.05),

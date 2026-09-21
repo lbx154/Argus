@@ -1,10 +1,10 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import { useStore } from "@xyflow/react";
 
-/** The zoom that type and card chrome are sized against.
+/** The zoom that edge labels and card chrome are sized against.
  *
  * Text held at a constant size on screen has to be sized against the zoom, and
- * a size that follows the zoom continuously re-wraps every card on every frame
+ * a size that follows the zoom continuously re-wraps labels on every frame
  * of a zoom: the whole map is laid out sixty times a second and the gesture
  * stutters. Sized against a stepped zoom, the map scales as one picture inside
  * a step, which costs the compositor a transform and nothing else, and text is
@@ -25,7 +25,7 @@ export function zoomStep(zoom: number): number {
 
 /** The step to size against while the map is moving.
  *
- * Re-setting every card is one long frame, and a gesture that crosses several
+ * Re-setting labels and chrome is one long frame, and a gesture that crosses several
  * steps would stumble at each. So a moving map keeps the step it had: it is a
  * picture being scaled, as smooth as the compositor can make it. It gives the
  * step up only once the picture has drifted far enough to look wrong, two

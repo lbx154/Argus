@@ -93,18 +93,24 @@ class RuntimeRunner(SkillLoopExecuteMixin):
 
 def verdict(status="done"):
     return CannedResponse(
-        message=json.dumps({"status": status, "reason": "Synthetic bounded check.",
-                            "next_action": "Check the next bounded observation." if status == "continue" else ""}),
+        review_action=(('approve_review' if status == 'done' else 'revise_review'), {'review': ('Synthetic bounded check.') + '\n\n' + ('Check the next bounded observation.' if status == 'continue' else '')}),
         thread_id="offline-reviewer",
     )
 
 
 @pytest.fixture
 def runtime(tmp_path, monkeypatch):
+    original_connect = socket.socket.connect
+
+    def local_only(sock, address):
+        if isinstance(address, tuple) and address[0] == "127.0.0.1":
+            return original_connect(sock, address)
+        raise AssertionError("This integration regression cannot use an external network")
+
     def forbidden(*_args, **_kwargs):
         raise AssertionError("This integration regression must remain offline")
 
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", local_only)
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "user"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))

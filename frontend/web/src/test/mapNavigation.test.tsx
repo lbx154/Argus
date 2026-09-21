@@ -192,7 +192,36 @@ it("does not count a partial research execution as a completed overall goal", ()
   // The header no longer carries a progress strip; the sentence is the only tally.
   expect(renderer.root.findAllByProps({ className: "map-progress-strip" })).toHaveLength(0);
   expect(nodes()[0].data.task.status).toBe("done");
-  expect(nodes()[0].data.completionScope).toContain("further work remains");
+  expect(nodes()[0].data.completionScope).toContain("further work remained");
+});
+
+it("connects a historical review error to the project's final review and deliverables", () => {
+  const failed = { ...data.tasks[1], outcome: { review_status: "unavailable" }, finished_ts: 10 };
+  const final = { ...data.tasks[0], id: "final", started_ts: 11, finished_ts: 12,
+    outcome: { execution_status: "completed", review_status: "done", stage_certification: "certified" } };
+  const complete = { ...data, tasks: [failed, final], events: [
+    { id: "end", item_id: "final", type: "life.mission.completed", ts: 13, text: "", overall_complete: true },
+  ] };
+  const onOpenDelivery = vi.fn();
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={complete}
+    actions={{ ...props.actions, deliveryCount: 1, onOpenDelivery }} /></QueryClientProvider>));
+  act(() => nodes().find(node => node.id === failed.id)!.data.open(failed.id));
+  const banner = renderer.root.findByProps({ className: "map-final-review" });
+  expect(banner.findByType("strong").children).toEqual(["Final delivery passed review"]);
+  expect(banner.findAllByType("span").some(span => span.children.includes(
+    " · This project was delivered later; this card retains its earlier review error."))).toBe(true);
+  act(() => banner.findAllByType("button")[0].props.onClick());
+  expect(focused()).toBe("final");
+  act(() => banner.findAllByType("button")[1].props.onClick());
+  expect(onOpenDelivery).toHaveBeenCalledOnce();
+  expect(nodes().find(node => node.id === failed.id)!.data.task.status).toBe("failed");
+  act(() => nodes().find(node => node.id === failed.id)!.data.readCopy!(failed.id, failed.id));
+  const reader = renderer.root.findByProps({ "data-testid": "map-task-reading" });
+  const laterReview = reader.findAllByType("button").find(item =>
+    item.children.includes("View this project's later accepted final review"))!;
+  act(() => laterReview.props.onClick());
+  expect(renderer.root.findAllByProps({ "data-testid": "map-task-reading" })).toHaveLength(0);
+  expect(focused()).toBe("final");
 });
 
 it("measures offscreen cards before fitting and after graph growth", () => {

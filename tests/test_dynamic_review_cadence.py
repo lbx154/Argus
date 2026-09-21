@@ -1,7 +1,6 @@
 """Reviewer cadence follows the explicit independent-review contract."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
@@ -15,14 +14,8 @@ from argus.engineer.runner import (
 from argus.reviewer import Reviewer, ReviewerConfig
 
 
-def _done_review() -> str:
-    return json.dumps({
-        "status": "done",
-        "reason": "reviewed",
-        "next_action": "",
-        "round_summary_markdown": "# done\n",
-        "completion_summary_markdown": "Done.",
-    })
+def _done_review() -> tuple[str, dict]:
+    return "approve_review", {"review": "reviewed"}
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -53,7 +46,7 @@ def test_continue_work_text_does_not_skip_reviewer(tmp_path: Path) -> None:
             thread_id="t1",
         ),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
 
     events: list[dict] = []
     status, rounds, _final, _reason, tid = _engineer(backend).run(
@@ -212,7 +205,7 @@ def test_project_local_paper_edit_question_reaches_reviewer_not_operator_pause(
             thread_id="t1",
         ),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="Update paper/main.tex with the reviewed scoped result.",
@@ -248,7 +241,7 @@ def test_forbidden_engineer_question_becomes_autonomous_continuation(
             thread_id="t1",
         ),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="complete and review the work",
@@ -292,7 +285,7 @@ def test_inflight_forbid_takes_effect_at_engineer_boundary(tmp_path: Path) -> No
         "engineer-r1",
         CannedResponse(message_factory=forbid_during_turn, thread_id="t1"),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="finish without waiting",
@@ -370,17 +363,12 @@ def test_forbidden_reviewer_question_preserves_telemetry_and_continues(
     backend.queue(
         "reviewer",
         CannedResponse(
-            message=json.dumps({
-                "status": "blocked",
-                "reason": "The environment needs repair.",
-                "next_action": "Ask the operator.",
-                "operator_question": "Can you repair the environment?",
-            }),
+            review_action=('request_review_decision', {'review': ('The environment needs repair.') + '\n\n' + ('Ask the operator.'), 'question': 'Can you repair the environment?'}),
             input_tokens=17,
             output_tokens=9,
             thread_id="v1",
         ),
-        CannedResponse(message=_done_review(), thread_id="v2"),
+        CannedResponse(review_action=_done_review(), thread_id="v2"),
     )
     backend.queue(
         "engineer-r2",
@@ -424,14 +412,9 @@ def test_first_forbidden_question_at_hard_boundary_gets_one_retry(
     backend.queue(
         "reviewer",
         CannedResponse(
-            message=json.dumps({
-                "status": "blocked",
-                "reason": "A reversible tool issue remains.",
-                "next_action": "Ask the operator.",
-                "operator_question": "Can you install the missing tool?",
-            })
+            review_action=('request_review_decision', {'review': ('A reversible tool issue remains.') + '\n\n' + ('Ask the operator.'), 'question': 'Can you install the missing tool?'})
         ),
-        CannedResponse(message=_done_review()),
+        CannedResponse(review_action=_done_review()),
     )
     backend.queue(
         "engineer-r2",
@@ -474,28 +457,13 @@ def test_policy_retry_preserves_existing_stall_clock(tmp_path: Path) -> None:
     backend.queue(
         "reviewer",
         CannedResponse(
-            message=json.dumps({
-                "status": "continue",
-                "reason": "The route made no progress.",
-                "next_action": "Try the next diagnostic.",
-                "planner_report": {"forward_progress": False},
-            })
+            review_action=('revise_review', {'review': ('The route made no progress.') + '\n\n' + ('Try the next diagnostic.'), 'forward_progress': False})
         ),
         CannedResponse(
-            message=json.dumps({
-                "status": "blocked",
-                "reason": "A reversible environment issue remains.",
-                "next_action": "Ask the operator.",
-                "operator_question": "Can you repair the environment?",
-            })
+            review_action=('request_review_decision', {'review': ('A reversible environment issue remains.') + '\n\n' + ('Ask the operator.'), 'question': 'Can you repair the environment?'})
         ),
         CannedResponse(
-            message=json.dumps({
-                "status": "continue",
-                "reason": "The route still made no progress.",
-                "next_action": "Use a different route.",
-                "planner_report": {"forward_progress": False},
-            })
+            review_action=('revise_review', {'review': ('The route still made no progress.') + '\n\n' + ('Use a different route.'), 'forward_progress': False})
         ),
     )
     events: list[dict] = []
@@ -538,12 +506,7 @@ def test_repeated_forbidden_reviewer_question_ends_blocked_without_asking(
             ),
         )
     blocked_review = CannedResponse(
-        message=json.dumps({
-            "status": "blocked",
-            "reason": "Irreversible authority is required.",
-            "next_action": "Ask for authority.",
-            "operator_question": "May I perform the irreversible action?",
-        })
+        review_action=('request_review_decision', {'review': ('Irreversible authority is required.') + '\n\n' + ('Ask for authority.'), 'question': 'May I perform the irreversible action?'})
     )
     backend.queue("reviewer", blocked_review, blocked_review)
 
@@ -666,7 +629,7 @@ def test_legacy_reviewer_request_without_owner_reaches_reviewer(
             thread_id="t1",
         ),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="complete and independently review the artifact",
         engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
@@ -700,7 +663,7 @@ def test_structured_reviewer_handoff_is_authoritative_over_summary_vocabulary(
             thread_id="t1",
         ),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="publish an artifact",
@@ -734,7 +697,7 @@ def test_internal_review_request_is_not_operator_authority(
             thread_id="t1",
         ),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="perform an authorization-gated review",
@@ -766,7 +729,7 @@ def test_legacy_internal_review_request_is_not_operator_authority(
             thread_id="t1",
         ),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="perform an approval-gated review",
@@ -811,7 +774,7 @@ def test_structured_engineer_handoff_continues_without_early_review(
             thread_id="t2",
         ),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="complete a two-step artifact",

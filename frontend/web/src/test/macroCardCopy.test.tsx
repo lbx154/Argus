@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import type { NodeProps } from "@xyflow/react";
@@ -6,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MacroTaskNode, type MacroData, type MacroNode } from "../map/MacroTaskNode";
 import { layoutSubmap, type SubmapStep } from "../map/submap";
 import type { MapTask } from "../map/model";
+import { createZoomStepStore, ZoomStepContext } from "../map/zoomStep";
 
 vi.mock("@xyflow/react", async (original) => ({
   ...(await original<typeof import("@xyflow/react")>()),
@@ -179,16 +179,31 @@ describe("macro card copy", () => {
   });
 });
 
-describe("compact density summary", () => {
-  const atlas = readFileSync(new URL("../map/atlas.css", import.meta.url), "utf8");
-  it("keeps a clamped two-line summary visible at compact density", () => {
-    expect(atlas).toMatch(
-      /\[data-overview-density=compact\][^{]*\.map-card-copy[^}]*-webkit-line-clamp:\s*2/,
-    );
-    expect(atlas).toMatch(/\[data-overview-density=micro\][^{]*\.map-card-copy[^}]*display:\s*none/);
-    expect(atlas).not.toMatch(
-      /:not\(\[data-overview-density=full\]\)\s*\.map-card-copy\s*\{\s*display:\s*none/,
-    );
+describe("zoom-independent card content", () => {
+  it.each([false, true])("keeps the same layout and words at every zoom (stacked: %s)", (stacked) => {
+    const props = propsFor([step("s1"), step("review", { kind: "review" })], {
+      task: { ...task, status: "done" },
+      live: false,
+      completionScope: "The goal was incomplete on this attempt.",
+      words: { title: "Evaluation", summary: "The recorded results remain visible." },
+      copy: copyFor("A superseded conclusion must not return when zooming.", "done"),
+      historyCount: 2,
+      toggleHistory: vi.fn(),
+    });
+    props.data.layout.stacked = stacked;
+    const zoom = createZoomStepStore();
+    const markups = [0.03, 0.08, 0.16, 0.24, 0.5, 1, 1.4].map((value) => {
+      zoom.set(value);
+      return renderToStaticMarkup(
+        <ZoomStepContext.Provider value={zoom}><MacroTaskNode {...props} /></ZoomStepContext.Provider>,
+      );
+    });
+    expect(new Set(markups).size).toBe(1);
+    expect(markups[0]).toContain("The recorded results remain visible.");
+    expect(markups[0]).not.toContain("A superseded conclusion");
+    expect(markups[0]).toContain('class="map-card-course"');
+    expect(markups[0]).toContain("Mission history: Evaluation");
+    expect(markups[0]).not.toMatch(/data-overview-density|data-copy-lines|--title-lines/);
   });
 });
 

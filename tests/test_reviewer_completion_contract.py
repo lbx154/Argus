@@ -79,18 +79,13 @@ class _ReviewerRunner:
         self.tool_activity = tool_activity
 
     def run_exec(self, **_kwargs) -> RunnerResult:
+        from argus.core.role_tool_bridge import bridge_request
+
+        bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
+            "review": "The requested outcome is complete.", "forward_progress": True,
+        }, env=_kwargs["options"].extension_env)
         return RunnerResult(
             exit_code=0,
-            role_decisions=[{
-                "role": "reviewer",
-                "payload": {
-                    "status": "done",
-                    "reason": "The requested outcome is complete.",
-                    "next_action": "",
-                    "forward_progress": True,
-                    "plan_signal": "continue",
-                },
-            }],
             tool_activity_observed=self.tool_activity,
         )
 
@@ -122,8 +117,8 @@ def test_empty_reviewer_output_does_not_create_engineer_work(tmp_path) -> None:
 
     assert decision.status == "blocked"
     assert decision.backend_unavailable is True
-    assert "says nothing about the Engineer" in decision.reason
-    assert "Retry Reviewer" in decision.next_action
+    assert "not interpreted as acceptance or rejection" in decision.reason
+    assert "review action" in decision.reason
 
 
 def test_done_remains_reviewer_judgment_after_real_tool_activity(tmp_path) -> None:

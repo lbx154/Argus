@@ -127,6 +127,30 @@ def test_completion_scope_survives_incremental_feed_and_old_history_cache(tmp_pa
     assert not completed["history_loading"]
 
 
+def test_history_upgrade_restores_structured_reviewer_errors_without_changing_the_log(tmp_path, monkeypatch):
+    sid, life, _ = setup_session(tmp_path)
+    append(life, {"event_id": "review-error", "type": "round.review.completed", "item_id": "a",
+                  "ts": 3, "status": "blocked", "review_skipped": True, "backend_unavailable": True})
+    before = (life / "events.jsonl").read_bytes()
+    snapshot = read_map(sid, tmp_path, life, include_events=False)
+    normalize = map_history.normalize_events
+
+    def old_projection(*args):
+        return [{key: value for key, value in event.items() if key != "backend_unavailable"}
+                for event in normalize(*args)]
+
+    with monkeypatch.context() as old:
+        old.setattr(map_history, "HISTORY_VERSION", map_history.HISTORY_VERSION - 1)
+        old.setattr(map_history, "normalize_events", old_projection)
+        page = map_history.history_page(tmp_path, life, snapshot, None)
+    assert "backend_unavailable" not in page["events"][-1]
+    rebuilt = map_history.history_page(tmp_path, life, snapshot, page["history_cursor"])
+    assert rebuilt["reset_history"]
+    review = next(event for event in rebuilt["events"] if event["id"] == "review-error")
+    assert review["backend_unavailable"] is True
+    assert (life / "events.jsonl").read_bytes() == before
+
+
 def test_legacy_solo_receipts_survive_history_pages_and_rebuild_old_cache(tmp_path, monkeypatch):
     sid, life, _ = setup_session(tmp_path)
     rows = [

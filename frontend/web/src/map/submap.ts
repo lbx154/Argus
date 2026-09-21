@@ -396,6 +396,7 @@ export function buildSubmap(
   ];
   const seen = new Set<string>();
   let episode = 0;
+  let lastReview: MapEvent | undefined;
   const sorted = events
     .filter((e) => e.item_id === task.id)
     .sort((a, b) => a.ts - b.ts || (a.type === 'team.task' && b.type === 'team.task'
@@ -453,7 +454,11 @@ export function buildSubmap(
       });
       continue;
     }
-    if (e.type === "life.mission.started") episode++;
+    if (e.type === "life.mission.started") {
+      episode++;
+      lastReview = undefined;
+    }
+    if (e.type === "round.review.completed") lastReview = e;
     const kind: StepKind | null =
       e.type.includes("review") ||
       (e.type === "life.phase.started" && e.role === "reviewer")
@@ -474,9 +479,10 @@ export function buildSubmap(
     const finished =
       e.type.endsWith(".completed") || e.type.endsWith(".failed");
     const reviewSkipped = kind === "review" && e.review_skipped === true;
-    const scope = completionScope(e, zh);
+    const reviewUnavailable = e.backend_unavailable === true || (kind === "result" && lastReview?.backend_unavailable === true);
+    const scope = reviewUnavailable ? "" : completionScope(e, zh);
     const status =
-      (reviewSkipped ? "skipped" : e.status) ||
+      (reviewUnavailable ? "review_unavailable" : reviewSkipped ? "skipped" : e.status === "error" ? "failed" : e.status) ||
       (e.success === false || e.type.endsWith(".failed")
         ? "failed"
         : e.success === true
@@ -503,7 +509,9 @@ export function buildSubmap(
     // Harness plumbing never names a step; only research prose does.
     const interrupted = note.kind === "interrupt";
     const clause = kind === "execution" && !note.summary ? titleClause(prose) : "";
-    const title = interrupted
+    const title = reviewUnavailable
+      ? zh ? "当次审查异常" : "Review error on this attempt"
+      : interrupted
       ? zh ? "这一轮没做完就被停下" : "Stopped before the round could finish"
       : reviewSkipped
         ? zh ? "本轮未审阅" : "No review this round"
@@ -543,7 +551,9 @@ export function buildSubmap(
       id: e.id,
       kind,
       title,
-      summary: scope || note.summary || clipSentence(prose) || described || undefined,
+      summary: reviewUnavailable
+        ? zh ? "审查器未能给出判断，不是审阅否决。" : "The Reviewer could not return a judgment; this was not a rejection."
+        : scope || note.summary || clipSentence(prose) || described || undefined,
       detail: [
         scope,
         prose || note.summary || (!scope ? described || noDetails(zh) : ""),
