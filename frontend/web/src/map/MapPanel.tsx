@@ -227,7 +227,6 @@ export function MapCanvas({
     !readOnly && !data.history_loading,
     focusedNode?.data.layout.steps,
     sessionId,
-    paused,
     false,
     readingKey,
     readingCopy?.foundationId,

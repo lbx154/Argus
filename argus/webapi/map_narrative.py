@@ -200,18 +200,36 @@ def _normalize_reader_brief_shape(value) -> object:
     if not isinstance(value, dict):
         return value
     scope = value.get("scope")
-    if not isinstance(scope, dict):
-        return value
     flat = dict(value)
-    inner_scope = scope.get("scope")
-    inner_next = scope.get("next")
-    if isinstance(inner_scope, str):
-        flat["scope"] = inner_scope
-    else:
-        flat.pop("scope", None)
-    if isinstance(inner_next, str) and not isinstance(flat.get("next"), str):
-        flat["next"] = inner_next
+    if isinstance(scope, dict) and (isinstance(scope.get("scope"), str) or isinstance(scope.get("next"), str)):
+        inner_scope = scope.get("scope")
+        inner_next = scope.get("next")
+        if isinstance(inner_scope, str):
+            flat["scope"] = inner_scope
+        else:
+            flat.pop("scope", None)
+        if isinstance(inner_next, str) and not isinstance(flat.get("next"), str):
+            flat["next"] = inner_next
+    # A second wrong shape, from gemini-3.8-flash on 2026-09-20: a section
+    # written as an object of named parts ({"name", "restriction", ...}), the
+    # way `concept` is, where the schema asks for one text. The parts are the
+    # model's own paragraphs in its own order, so they are joined, not dropped;
+    # the length limit is still the schema's to enforce.
+    for key in BRIEF_LIMITS:
+        parts = flat.get(key)
+        if isinstance(parts, dict) and parts and all(isinstance(part, str) and part.strip() for part in parts.values()):
+            flat[key] = "\n\n".join(part.strip() for part in parts.values())
     return flat
+
+
+def _prepare_cards(value: dict) -> dict:
+    """Before the schema check: reader briefs in the shapes known to be text misplaced."""
+    cards = value.get("cards")
+    if isinstance(cards, dict):
+        for card in cards.values():
+            if isinstance(card, dict) and "reader_brief" in card:
+                card["reader_brief"] = _normalize_reader_brief_shape(card["reader_brief"])
+    return value
 
 
 def _reader_brief(value) -> dict:
@@ -370,6 +388,7 @@ def generate(
         raise MapGenerationError("map_input_too_large")
     value = run_map_model(
         prompt, output_schema, config, project_root=project_root, global_root=global_root, deadline=deadline,
+        prepare=_prepare_cards,
         **({"on_progress": on_progress, "phase": "writing"} if on_progress is not None else {}),
     )
     if not isinstance(value.get("cards"), dict) or not all(

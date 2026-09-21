@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -24,16 +25,16 @@ let client: QueryClient;
 let renderer: ReactTestRenderer | undefined;
 
 let latest!: ReturnType<typeof useMapCopy>;
-function Probe({ paused = false, allowGeneration = true, zh = false, source = data, readingKey = 'task' }: {
-  paused?: boolean; allowGeneration?: boolean; zh?: boolean; source?: Dataset; readingKey?: string | null;
+function Probe({ allowGeneration = true, zh = false, source = data, readingKey = 'task' }: {
+  allowGeneration?: boolean; zh?: boolean; source?: Dataset; readingKey?: string | null;
 }) {
-  latest = useMapCopy(source, "task", zh, allowGeneration, undefined, "session", paused, false, readingKey);
+  latest = useMapCopy(source, "task", zh, allowGeneration, undefined, "session", false, readingKey);
   return null;
 }
 
-const tree = (paused: boolean, allowGeneration = true) => (
+const tree = (allowGeneration = true) => (
   <QueryClientProvider client={client}>
-    <Probe paused={paused} allowGeneration={allowGeneration} />
+    <Probe allowGeneration={allowGeneration} />
   </QueryClientProvider>
 );
 
@@ -65,7 +66,7 @@ it('refreshes changed related sources only after opening an editable reader, ret
   let current = { ...data, tasks: [...data.tasks, neighbor] };
   let state!: ReturnType<typeof useMapCopy>;
   function Reader({ open, allowed }: { open: boolean; allowed: boolean }) {
-    state = useMapCopy(current, 'task', false, allowed, undefined, 'session', false, false, open ? 'task' : null);
+    state = useMapCopy(current, 'task', false, allowed, undefined, 'session', false, open ? 'task' : null);
     return null;
   }
   const reading = (open: boolean, allowed = true) => <QueryClientProvider client={client}><Reader open={open} allowed={allowed} /></QueryClientProvider>;
@@ -110,7 +111,7 @@ it('verifies hidden related sources once per source cursor and keeps late respon
   let current: Dataset = { ...data, cursor: 'full-source-v1', incremental: false };
   let state!: ReturnType<typeof useMapCopy>;
   function Reader({ open = true, allowed = true }: { open?: boolean; allowed?: boolean }) {
-    state = useMapCopy(current, 'task', false, allowed, undefined, 'session', false, false, open ? 'task' : null);
+    state = useMapCopy(current, 'task', false, allowed, undefined, 'session', false, open ? 'task' : null);
     return null;
   }
   const reading = (open = true, allowed = true) => <QueryClientProvider client={client}><Reader open={open} allowed={allowed} /></QueryClientProvider>;
@@ -286,7 +287,7 @@ it("naturally rechecks an open historical step after saving review settings whil
   const generate = vi.spyOn(api, 'generateMapCopy').mockReturnValue(new Promise(resolve => { finish = resolve; }));
   let state!: ReturnType<typeof useMapCopy>;
   function HistoricalReader() {
-    state = useMapCopy(historical, task.id, false, true, [step], 's-history', false, false, step.id);
+    state = useMapCopy(historical, task.id, false, true, [step], 's-history', false, step.id);
     return <MapReaderContent cardKey={step.id} taskId={task.id} task={task} card={state.copy?.cards[step.id]} originalDetail={step.detail}
       selection={state.readingRequest ? { request: state.readingRequest, evidence: historical.events,
         pending: state.readingNeedsUpdate, generating: state.generating } : undefined} />;
@@ -322,14 +323,12 @@ it("naturally rechecks an open historical step after saving review settings whil
   expect(generate).toHaveBeenCalledTimes(1);
 });
 
-it("does not retry failed summary generation when the daemon resumes without new source records", async () => {
+it("does not retry a failed explanation on its own, however long the reader stays", async () => {
   const generate = vi.spyOn(api, "generateMapCopy").mockRejectedValue(new Error("Runner unavailable"));
-  act(() => { renderer = create(tree(true)); });
-  await act(async () => { await vi.advanceTimersByTimeAsync(120700); });
-  expect(generate).not.toHaveBeenCalled();
-
-  act(() => renderer!.update(tree(false)));
+  act(() => { renderer = create(tree()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(120700); });
   expect(generate).toHaveBeenCalledTimes(1);
 });
 
@@ -394,7 +393,7 @@ it('keeps historical failure attached to the original step when current task exe
   const event = { id: 'old', item_id: 'task', type: 'round.review.completed', text: 'Original review', ts: 2, revision: 'old-event' };
   const step: SubmapStep = { id: 'old', kind: 'review', title: 'Review', detail: event.text, ts: 2, status: 'done', source: 'event', eventIds: ['old'] };
   let source: Dataset = { ...data, events: [event] };
-  function Historical() { latest = useMapCopy(source, 'task', false, true, [step], 'session', false, false, 'old'); return null; }
+  function Historical() { latest = useMapCopy(source, 'task', false, true, [step], 'session', false, 'old'); return null; }
   const render = () => <QueryClientProvider client={client}><Historical /></QueryClientProvider>;
   act(() => { renderer = create(render()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
@@ -418,14 +417,14 @@ it('retries only by the explicit control after failure and retains the previous 
   let finish!: (value: MapCopy) => void;
   const generate = vi.spyOn(api, 'generateMapCopy').mockRejectedValueOnce(new Error('First request failed'))
     .mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-  act(() => { renderer = create(tree(false)); });
+  act(() => { renderer = create(tree()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
   expect(generate).toHaveBeenCalledTimes(1);
   expect(latest.copy?.cards.task).toEqual(retained.cards.task);
-  act(() => renderer!.update(tree(false, false)));
+  act(() => renderer!.update(tree(false)));
   await act(async () => { await latest.retry(); });
   expect(generate).toHaveBeenCalledTimes(1);
-  act(() => renderer!.update(tree(false)));
+  act(() => renderer!.update(tree()));
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(generate).toHaveBeenCalledTimes(1);
   act(() => { void latest.retry(); });
@@ -445,7 +444,7 @@ it('honors a successful server coalescing delay and eventually refreshes the new
     title: 'Updated', summary: 'New result', detail: 'Complete conditions', generated_at: 10, task_revision: '1', task_status: 'done',
   } } };
   const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValueOnce({ ...empty, retry_after: 25 }).mockResolvedValue(updated);
-  act(() => { renderer = create(tree(false)); });
+  act(() => { renderer = create(tree()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(24000); });
   expect(generate).toHaveBeenCalledTimes(1);
   expect(latest.generationUnavailable).toBe(false);
@@ -468,7 +467,7 @@ it('refreshes completion immediately after an active-task coalescing response', 
   act(() => { renderer = create(<QueryClientProvider client={client}><Probe source={running} /></QueryClientProvider>); });
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
   expect(generate).toHaveBeenCalledTimes(1);
-  act(() => { renderer!.update(tree(false)); });
+  act(() => { renderer!.update(tree()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
   expect(generate).toHaveBeenCalledTimes(2);
   expect(latest.copy?.cards.task.title).toBe('Done');
@@ -477,7 +476,7 @@ it('refreshes completion immediately after an active-task coalescing response', 
 
 it('does not loop when a response has no complete result or server-directed retry', async () => {
   const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(empty);
-  act(() => { renderer = create(tree(false)); });
+  act(() => { renderer = create(tree()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
   expect(generate).toHaveBeenCalledTimes(1);
   expect(latest.generationUnavailable).toBe(true);
@@ -488,12 +487,12 @@ it('does not loop when a response has no complete result or server-directed retr
 it('does not duplicate an in-flight semantic attempt when the canvas remounts', async () => {
   let finish!: (value: MapCopy) => void;
   const generate = vi.spyOn(api, 'generateMapCopy').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-  act(() => { renderer = create(tree(false)); });
+  act(() => { renderer = create(tree()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
   expect(latest.generationPhase).toBe('planning');
   act(() => renderer!.unmount());
-  act(() => { renderer = create(tree(false)); });
+  act(() => { renderer = create(tree()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(generate).toHaveBeenCalledTimes(1);
   expect(latest.generating).toBe(true);
@@ -622,12 +621,14 @@ it('shares an in-flight phase on return to its source without leaking it into an
   expect(generate).toHaveBeenCalledTimes(2);
 });
 
-it('does not generate while paused and starts when the session resumes', async () => {
+it("explains what the reader opened without asking whether the project's daemon is running", async () => {
+  // A map is read most when the work is over. Whether the daemon is alive is
+  // the panel's concern (it stops the live dot); the explanation is written by
+  // a separate read-only turn and must not be held back by it again.
+  const hook = readFileSync(new URL("../map/useMapCopy.ts", import.meta.url), "utf8");
+  expect(hook).not.toMatch(/\bpaused\b\s*(?:\|\||=|,)/);
   const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(empty);
-  act(() => { renderer = create(tree(true)); });
-  await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
-  expect(generate).not.toHaveBeenCalled();
-  act(() => { renderer!.update(tree(false)); });
+  act(() => { renderer = create(tree()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(generate).toHaveBeenCalledTimes(1);
 });
@@ -637,7 +638,7 @@ it('honors a persisted failure cooldown even when the cache has no cards', async
     generation_error: { code: 'map_timeout', message: 'Cached fallback' } });
   const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue({ ...empty,
     generation_error: null, retry_after: 0 });
-  act(() => { renderer = create(tree(false)); });
+  act(() => { renderer = create(tree()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(299999); });
   expect(generate).not.toHaveBeenCalled();
   expect(latest.generationError?.message).toBe('Cached fallback');
@@ -645,16 +646,14 @@ it('honors a persisted failure cooldown even when the cache has no cards', async
   expect(generate).toHaveBeenCalledTimes(1);
 });
 
-it("never schedules generation in read-only mode, including across pause changes", async () => {
+it("never schedules generation in read-only mode", async () => {
   client.setQueryData(key, { ...empty, version: 15, cards: { task: {
     title: '旧中文标题', summary: 'Old summary', detail: 'Original detail', generated_at: 1, version: 14,
     task_revision: '1', task_status: 'done',
   } } });
   const generate = vi.spyOn(api, "generateMapCopy").mockResolvedValue(empty);
-  act(() => { renderer = create(tree(true, false)); });
-  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-  act(() => renderer!.update(tree(false, false)));
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  act(() => { renderer = create(tree(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(121000); });
   expect(generate).not.toHaveBeenCalled();
   expect(client.getQueryData<MapCopy>(key)?.cards.task.title).toBe('旧中文标题');
 });

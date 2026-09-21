@@ -131,7 +131,7 @@ it('binds map application requests and caches to the reader’s pinned foundatio
   selectFoundation(client, props.sid, 'en-US', 'foundation-a');
   let pinned: string | undefined = 'foundation-a';
   let latest!: ReturnType<typeof useMapCopy>;
-  function Reader() { latest = useMapCopy(source, 'a', false, true, undefined, props.sid, false, false, 'a', pinned); return null; }
+  function Reader() { latest = useMapCopy(source, 'a', false, true, undefined, props.sid, false, 'a', pinned); return null; }
   const render = () => <QueryClientProvider client={client}><Reader /></QueryClientProvider>;
   let finishA!: (copy: MapCopy) => void, finishB!: (copy: MapCopy) => void;
   const generate = vi.spyOn(api, 'generateMapCopy')

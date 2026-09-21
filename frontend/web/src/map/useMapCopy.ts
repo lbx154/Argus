@@ -80,7 +80,6 @@ export function useMapCopy(
   allowGeneration = true,
   visibleSteps?: SubmapStep[],
   sessionId?: string,
-  paused = false,
   prewarm = false,
   readingKey: string | null = focused,
   pinnedFoundationId?: string | null,
@@ -222,7 +221,10 @@ export function useMapCopy(
     if (
       !allowGeneration ||
       foundationRequired ||
-      paused ||
+      // Whether the project's daemon is running is not asked here. A map is
+      // read most when the work is over; an explanation is written by a
+      // separate read-only turn that needs no daemon, and only for what the
+      // reader opened, so a stopped project can still be explained.
       !copy.data?.available ||
       !cards.length ||
       generation.isError || (generation.isSuccess && !retryAfter) || activeGenerations > 0 ||
@@ -246,10 +248,10 @@ export function useMapCopy(
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, pulse, copy.data?.available, copy.data?.retry_after, copy.dataUpdatedAt,
-    allowGeneration, paused, foundationRequired, activeGenerations, generation.status, generation.dataUpdatedAt]);
+    allowGeneration, foundationRequired, activeGenerations, generation.status, generation.dataUpdatedAt]);
   const busy = generating || generation.isFetching || activeGenerations > 0;
   const retry = async () => {
-    if (!allowGeneration || paused || foundationRequired || !copy.data?.available || !cards.length || busy || inflight.current) return;
+    if (!allowGeneration || foundationRequired || !copy.data?.available || !cards.length || busy || inflight.current) return;
     await startGeneration().catch(() => undefined);
   };
   return { copy: copy.data, generating: busy, ready: copy.isFetched,
