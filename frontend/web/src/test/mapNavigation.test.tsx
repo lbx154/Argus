@@ -117,7 +117,7 @@ it("keeps the explicitly opened task reader when new copy changes relations and 
   expect(reader().props['data-task-id']).toBe('failed');
   const positions = nodes().map(node => node.position);
   const updated: MapCopy = { ...retained, cards: { failed: { ...retained.cards.failed, title: 'Updated task explanation', generated_at: 2 } },
-    relations: [{ source: 'parent', target: 'unrelated', kind: 'semantic', label: 'Explains', evidence: 'Recorded relation' }] };
+    relations: [{ source: 'parent', target: 'unrelated', kind: 'semantic', label: 'Explains' }] };
   await act(async () => { client.setQueryData(key, updated); await new Promise(resolve => setTimeout(resolve, 0)); });
   expect(nodes().map(node => node.position)).not.toEqual(positions);
 
@@ -143,6 +143,7 @@ it.each([false, true])('shares selected error status between task and step reade
   const failure = new Error('Explanation did not finish');
   const generation = {
     copy: undefined, ready: true, generating: false, foundationRequired: false, readingGenerating: false, generationPhase: undefined, readingNeedsUpdate: true,
+    questionContext: { locale: 'en-US' as const, preview: null, foundationId: null },
     readingRequest: { key: 'failed', task_id: 'failed', kind: 'task', event_ids: ['failure'] },
     generationError: failure, generationUnavailable: false, retry,
   };

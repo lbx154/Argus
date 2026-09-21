@@ -53,13 +53,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it('refreshes changed related sources only after opening an editable reader, retaining the old explanation while pending', async () => {
+it('does not rewrite a saved explanation for neighboring changes, but refreshes changed selected input only when opened', async () => {
   const neighbor = { id: 'neighbor', title: 'Neighbor', objective: 'Old neighboring goal', status: 'pending', deps: [] };
   const retained: MapCopy = { ...empty, cards: { task: {
     title: 'Retained explanation', summary: 'Retained summary', detail: 'Retained conditions', generated_at: 1, copy_revision: 1,
     task_revision: '1', task_status: 'done', reader_brief: { why: 'Why', scope: 'Scope', next: neighbor.objective, concept: null },
-    source_snapshot: { version: 2, card_key: 'task', task_id: 'task', captured_at: 1,
-      task: {}, events: [], source_ids: [], related_tasks: [{ ...neighbor }] },
   } } };
   const before = structuredClone(retained);
   client.setQueryData(key, retained);
@@ -81,15 +79,22 @@ it('refreshes changed related sources only after opening an editable reader, ret
   await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
   expect(generate).not.toHaveBeenCalled();
   act(() => { renderer!.update(reading(true)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(generate).not.toHaveBeenCalled();
+  expect(state.readingNeedsUpdate).toBe(false);
+  current = { ...current, tasks: [{ ...data.tasks[0], revision: '2', objective: 'Changed selected goal' }, current.tasks[1]] };
+  act(() => { renderer!.update(reading(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(generate).not.toHaveBeenCalled();
+  act(() => { renderer!.update(reading(true)); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(generate).toHaveBeenCalledTimes(1);
   expect(state.readingNeedsUpdate).toBe(true);
   expect(state.generating).toBe(true);
   expect(state.copy?.cards.task).toEqual(before.cards.task);
   const updated: MapCopy = { ...retained, cache_revision: 2, cards: { task: {
-    ...retained.cards.task, copy_revision: 2, generated_at: 2,
+    ...retained.cards.task, copy_revision: 2, generated_at: 2, task_revision: '2',
     reader_brief: { ...retained.cards.task.reader_brief!, next: 'New neighboring goal' },
-    source_snapshot: { ...retained.cards.task.source_snapshot!, captured_at: 2, related_tasks: [{ ...current.tasks[1] }] },
   } } };
   await act(async () => { finish(updated); });
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
@@ -99,13 +104,10 @@ it('refreshes changed related sources only after opening an editable reader, ret
   expect(retained).toEqual(before);
 });
 
-it('verifies hidden related sources once per source cursor and keeps late responses bound to the cursor they checked', async () => {
-  const neighbor = { id: 'neighbor', title: 'Neighbor', objective: 'Old neighboring goal', status: 'pending', deps: [] };
+it('does not ask the server to verify or rewrite a saved explanation for source cursor changes', async () => {
   const retained: MapCopy = { ...empty, cards: { task: {
     title: 'Retained explanation', summary: 'Retained summary', detail: 'Retained conditions', generated_at: 1, copy_revision: 1,
     task_revision: '1', task_status: 'done',
-    source_snapshot: { version: 2, card_key: 'task', task_id: 'task', captured_at: 1,
-      task: {}, events: [], source_ids: [], related_tasks: [neighbor] },
   } } };
   client.setQueryData(key, retained);
   let current: Dataset = { ...data, cursor: 'full-source-v1', incremental: false };
@@ -123,62 +125,28 @@ it('verifies hidden related sources once per source cursor and keeps late respon
   expect(generate).not.toHaveBeenCalled();
   act(() => { renderer!.update(reading()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-  expect(generate).toHaveBeenCalledTimes(1);
+  expect(generate).not.toHaveBeenCalled();
   expect(state.readingNeedsUpdate).toBe(false);
   await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
-  expect(generate).toHaveBeenCalledTimes(1); // An omitted neighbor still exists; no loop.
+  expect(generate).not.toHaveBeenCalled();
 
   current = { ...current, cursor: 'unrelated-change-v2' };
   act(() => { renderer!.update(reading()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-  expect(generate).toHaveBeenCalledTimes(2);
+  expect(generate).not.toHaveBeenCalled();
   expect(state.copy?.cards.task).toEqual(retained.cards.task);
-  expect(state.readingNeedsUpdate).toBe(false); // Cached verification needs no new card version.
-
-  let finish!: (copy: MapCopy) => void;
-  generate.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
-  current = { ...current, cursor: 'hidden-goal-edit-v3' };
-  act(() => { renderer!.update(reading()); });
-  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
-  expect(generate).toHaveBeenCalledTimes(3);
-  current = { ...current, cursor: 'hidden-task-deleted-v4' };
-  act(() => { renderer!.update(reading()); });
-  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
-  expect(generate).toHaveBeenCalledTimes(3);
-  const edited: MapCopy = { ...retained, cache_revision: 2, cards: { task: { ...retained.cards.task, generated_at: 2, copy_revision: 2,
-    source_snapshot: { ...retained.cards.task.source_snapshot!, captured_at: 2,
-      related_tasks: [{ ...neighbor, objective: 'Changed hidden goal' }] },
-  } } };
-  // A coalesced response cannot certify the later deletion as checked.
-  generate.mockResolvedValueOnce({ ...edited, retry_after: 25 });
-  await act(async () => { finish(edited); });
-  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
-  expect(generate).toHaveBeenCalledTimes(4);
-  const deleted: MapCopy = { ...edited, cache_revision: 3, cards: { task: { ...edited.cards.task, generated_at: 3, copy_revision: 3,
-    source_snapshot: { ...edited.cards.task.source_snapshot!, captured_at: 3, related_tasks: [] },
-  } } };
-  generate.mockResolvedValue(deleted);
-  await act(async () => { await vi.advanceTimersByTimeAsync(24000); });
-  expect(generate).toHaveBeenCalledTimes(4);
-  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-  expect(generate).toHaveBeenCalledTimes(5);
   expect(state.readingNeedsUpdate).toBe(false);
-  expect(state.copy?.cards.task.source_snapshot?.related_tasks).toEqual([]);
-  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
-  expect(generate).toHaveBeenCalledTimes(5);
 });
 
-it('does not treat another reader sharing the source request as verification of its own cached card', async () => {
+it('does not treat another reader sharing the source request as generation of its own missing card', async () => {
   const shared: Dataset = { ...data, cursor: 'full-source-v1', tasks: [
     ...data.tasks, { ...data.tasks[0], id: 'other' },
   ] };
   const retained: MapCopy = { ...empty, cards: Object.fromEntries(shared.tasks.map(task => [task.id, {
     title: `Explanation for ${task.id}`, summary: 'Summary', detail: 'Conditions', generated_at: 1, copy_revision: 1,
     task_revision: task.revision, task_status: task.status,
-    source_snapshot: { version: 2 as const, card_key: task.id, task_id: task.id, captured_at: 1,
-      task: {}, events: [], source_ids: [], related_tasks: [{ id: 'hidden', title: 'Hidden', objective: 'Old neighboring goal', status: 'pending', deps: [] }] },
   }])) };
-  client.setQueryData(key, retained);
+  client.setQueryData(key, empty);
   const states: Record<string, ReturnType<typeof useMapCopy>> = {};
   function Reader({ task }: { task: string }) {
     states[task] = useMapCopy(shared, task, false, true, undefined, 'session');
@@ -192,8 +160,7 @@ it('does not treat another reader sharing the source request as verification of 
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(generate).toHaveBeenCalledTimes(1);
   expect(generate.mock.calls[0][2].cards.map(card => card.key)).toEqual(['task']);
-  // The backend returns the entire cache, including an unrequested old card.
-  await act(async () => { finish(retained); });
+  await act(async () => { finish({ ...retained, cards: { task: retained.cards.task } }); });
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
   expect(generate).toHaveBeenCalledTimes(2);
   expect(generate.mock.calls[1][2].cards.map(card => card.key)).toEqual(['other']);
@@ -255,7 +222,7 @@ it('starts the selected preview after an in-flight normal request finishes witho
   expect(generate).toHaveBeenCalledTimes(2);
 });
 
-it("naturally rechecks an open historical step after saving review settings while retaining its original text and evidence", async () => {
+it("naturally rechecks an open historical step after saving review settings while retaining its original explanation", async () => {
   const task = { id: 'historical', title: 'Recorded task', objective: 'Original objective', status: 'done', deps: [],
     revision: 'later-task-state', content_revision: 'same-goal', started_ts: 20, attempt: 2 };
   const original = { id: 'old-review', item_id: task.id, type: 'round.review.completed', ts: 3,
@@ -270,8 +237,6 @@ it("naturally rechecks an open historical step after saving review settings whil
       reader_brief: { why: 'Earlier purpose', scope: 'Earlier result only', next: 'Earlier next action', concept: null },
       generated_at: 10, copy_revision: 1, version: 21, model_revision: 'review-medium', task_revision: 'original-task-state',
       task_content_revision: 'same-goal', task_status: 'failed', event_ids: [original.id], event_revisions: [original.revision],
-      source_snapshot: { version: 1, card_key: step.id, task_id: task.id, captured_at: 9,
-        task: { title: task.title, objective: task.objective }, source_ids: [original.id], events: [{ ...original }] },
     },
   } };
   const before = structuredClone({ historical, retained });
@@ -289,7 +254,7 @@ it("naturally rechecks an open historical step after saving review settings whil
   function HistoricalReader() {
     state = useMapCopy(historical, task.id, false, true, [step], 's-history', false, step.id);
     return <MapReaderContent cardKey={step.id} taskId={task.id} task={task} card={state.copy?.cards[step.id]} originalDetail={step.detail}
-      selection={state.readingRequest ? { request: state.readingRequest, evidence: historical.events,
+      selection={state.readingRequest ? { request: state.readingRequest,
         pending: state.readingNeedsUpdate, generating: state.generating } : undefined} />;
   }
   act(() => { renderer = create(<QueryClientProvider client={client}><HistoricalReader /></QueryClientProvider>); });
@@ -318,7 +283,8 @@ it("naturally rechecks an open historical step after saving review settings whil
   await act(async () => { stored = updated; finish(updated); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(state.readingNeedsUpdate).toBe(false);
-  expect(state.copy?.cards[step.id].source_snapshot).toEqual(before.retained.cards[step.id].source_snapshot);
+  expect(state.copy?.cards[step.id].event_ids).toEqual([original.id]);
+  expect(state.copy?.cards[step.id].detail).toEqual(before.retained.cards[step.id].detail);
   expect(historical).toEqual(before.historical);
   expect(generate).toHaveBeenCalledTimes(1);
 });
@@ -520,7 +486,7 @@ it('keeps a failed card visibly failed while another card in the same map is gen
     const task = source.tasks.find(item => item.id === focused)!;
     return <MapReaderContent cardKey={focused} taskId={focused} task={task} card={latest.copy?.cards[focused]}
       originalDetail={task.objective || ''} selection={latest.readingRequest ? {
-        request: latest.readingRequest, evidence: source.events,
+        request: latest.readingRequest,
         pending: latest.readingNeedsUpdate, generating: latest.readingGenerating, phase: latest.generationPhase,
         error: latest.generationError, retry: latest.retry, retryDisabled: latest.generating,
       } : undefined} />;

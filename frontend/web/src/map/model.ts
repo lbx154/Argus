@@ -703,7 +703,7 @@ export function foldTeamBranches(
   return { ...graph, tasks, links };
 }
 
-export type LineNote = { source: string; target: string; label: string; evidence: string };
+export type LineNote = { source: string; target: string; label: string };
 
 /** The pairs of tasks whose line has nothing to say yet beyond its kind: the
  * lines a note is asked for (useMapLines). */
@@ -724,7 +724,6 @@ export function connectMap(
     source: string;
     target: string;
     label: string;
-    evidence: string;
   }>,
   zh: boolean,
   notes: LineNote[] = [],
@@ -741,7 +740,7 @@ export function connectMap(
           ...link,
           label: phrase.label,
           stated: true,
-          evidence: `${zh ? "执行依赖" : "Execution dependency"} · ${phrase.evidence}`,
+          evidence: `${zh ? "执行依赖" : "Execution dependency"} · ${phrase.label}`,
         }
       : link;
   });
@@ -765,7 +764,9 @@ export function connectMap(
     )
       continue;
     links.push({
-      ...relation,
+      source: relation.source,
+      target: relation.target,
+      label: relation.label,
       kind: "semantic",
       stated: true,
       id: `semantic:${relation.source}:${relation.target}`,
@@ -786,7 +787,7 @@ export function connectMap(
         kind: "context",
         label: note.label,
         stated: true,
-        evidence: `${note.evidence} · ${zh ? "按时间排列，不表示执行依赖。" : "Arranged in time; no execution dependency is implied."}`,
+        evidence: `${note.label} · ${zh ? "按时间排列，不表示执行依赖。" : "Arranged in time; no execution dependency is implied."}`,
       });
       join(previous.id, task.id);
       continue;

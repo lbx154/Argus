@@ -25,10 +25,10 @@ describe("what a line between two tasks says", () => {
     const graph = buildMap(tasks);
     const bare = connectMap(graph, [], true);
     const noted = connectMap(graph, [], true, [
-      { source: "a", target: "b", label: "基线结果", evidence: "b 读取了 a 的结果文件" },
-      { source: "b", target: "c", label: "评测数据", evidence: "c 汇总了 b 的评测" },
-      { source: "ghost", target: "d", label: "bad", evidence: "bad" },
-      { source: "a", target: "d", label: "不相邻", evidence: "没有这条线" },
+      { source: "a", target: "b", label: "基线结果" },
+      { source: "b", target: "c", label: "评测数据" },
+      { source: "ghost", target: "d", label: "bad" },
+      { source: "a", target: "d", label: "不相邻" },
     ]);
     expect(shape(noted)).toEqual(shape(bare));
     const line = (source: string, target: string) => noted.find((l) => l.source === source && l.target === target)!;
@@ -45,15 +45,15 @@ describe("what a line between two tasks says", () => {
   it("lets a relation the explanation already states win over a note", () => {
     const noted = connectMap(
       buildMap(tasks),
-      [{ source: "a", target: "b", label: "方法前置", evidence: "card" }],
+      [{ source: "a", target: "b", label: "方法前置" }],
       true,
-      [{ source: "a", target: "b", label: "基线结果", evidence: "note" }],
+      [{ source: "a", target: "b", label: "基线结果" }],
     );
     expect(noted.find((l) => l.source === "a" && l.target === "b")).toMatchObject({ label: "方法前置", stated: true });
   });
 
   it("ignores a note with nothing in it", () => {
-    const noted = connectMap(buildMap(tasks), [], true, [{ source: "c", target: "d", label: "", evidence: "" }]);
+    const noted = connectMap(buildMap(tasks), [], true, [{ source: "c", target: "d", label: "" }]);
     expect(noted.find((l) => l.source === "c" && l.target === "d")).toMatchObject({ label: "同一研究" });
   });
 });

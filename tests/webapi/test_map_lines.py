@@ -43,7 +43,7 @@ def test_reading_never_asks_the_model(tmp_path, model):
 
 def test_writes_once_and_remembers_the_lines_with_nothing_to_say(tmp_path, model):
     model([
-        {"source": "t0", "target": "t1", "label": "baseline results", "evidence": "t1 reads t0's results"},
+        {"source": "t0", "target": "t1", "label": "baseline results"},
         # Not a line that was asked about, a repeat, and an empty label: all dropped.
         {"source": "t0", "target": "t3", "label": "invented", "evidence": "x"},
         {"source": "t0", "target": "t1", "label": "again", "evidence": "x"},
@@ -51,11 +51,15 @@ def test_writes_once_and_remembers_the_lines_with_nothing_to_say(tmp_path, model
     ])
     first = map_lines.notes(tmp_path, dataset(), PAIRS, "en-US", project_root=tmp_path, generate=True)
     assert first["lines"] == [
-        {"source": "t0", "target": "t1", "label": "baseline results", "evidence": "t1 reads t0's results"},
+        {"source": "t0", "target": "t1", "label": "baseline results"},
     ]
     assert len(model.calls) == 1
     asked = model.calls[0]
     assert asked["schema"]["properties"]["lines"]["maxItems"] == 3
+    assert "evidence" not in asked["schema"]["properties"]["lines"]["items"]["properties"]
+    assert "evidence" not in asked["prompt"]
+    cache = map_lines.read_cache(tmp_path, map_lines.lines_source(dataset()["id"], "en-US"))
+    assert all("evidence" not in note for note in cache["pairs"].values())
     # A running task is described by what was asked of it; its result is still moving.
     assert "Result 2" in asked["prompt"] and "Result 3" not in asked["prompt"]
 
@@ -64,6 +68,21 @@ def test_writes_once_and_remembers_the_lines_with_nothing_to_say(tmp_path, model
     assert again["lines"] == first["lines"] and len(model.calls) == 1
     read = map_lines.notes(tmp_path, dataset(), PAIRS, "en-US", project_root=tmp_path)
     assert read["lines"] == first["lines"]
+
+
+def test_legacy_line_evidence_is_ignored_without_rewriting_or_regenerating(tmp_path, model):
+    model([{"source": "t0", "target": "t1", "label": "baseline results"}])
+    data = dataset()
+    first = map_lines.notes(tmp_path, data, PAIRS, "en-US", project_root=tmp_path, generate=True)
+    source = map_lines.lines_source(data["id"], "en-US")
+    cache = map_lines.read_cache(tmp_path, source)
+    for note in cache["pairs"].values():
+        note["evidence"] = "Legacy model-written justification"
+    path = map_lines.cache_path(tmp_path, source)
+    map_lines._write_cache(path, cache)
+    before = path.read_bytes()
+    assert map_lines.notes(tmp_path, data, PAIRS, "en-US", project_root=tmp_path, generate=True)["lines"] == first["lines"]
+    assert path.read_bytes() == before and len(model.calls) == 1
 
 
 def test_a_task_settling_asks_again_for_its_lines_only(tmp_path, model, monkeypatch):

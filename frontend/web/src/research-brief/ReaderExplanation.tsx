@@ -74,7 +74,7 @@ export function ReaderExplanation({ brief, identity, detail, learningPath, found
       <p>{text('这次进展参考的基础说明：', 'Foundations used to explain this progress: ')}{foundation.question}</p>
       {onOpenArtifact ? <Button className="mt-1 text-xs" onClick={() => onOpenArtifact(foundation.path)}>{text('阅读这份基础说明', 'Read these foundations')}</Button> : null}
     </div> : null}
-    {readingUnavailable ? <p className="text-xs text-ink-faint">{text('阅读说明还需要核对，可以先查看依据或继续问这一步。', 'The reading explanation still needs checking. You can view its evidence or keep asking about this step.')}</p>
+    {readingUnavailable ? <p className="text-xs text-ink-faint">{text('阅读说明还需要核对，可以继续问这一步。', 'The reading explanation still needs checking. You can keep asking about this step.')}</p>
       : teachingUnavailable ? <p className="text-xs text-ink-faint">{text('这个概念的说明还没核对清楚，可以继续问这一步。', 'The explanation of this concept has not been checked clearly yet. You can keep asking about this step.')}</p> : null}
     {learningPath ? <LearningPath key={identity} path={learningPath} identity={identity} artifacts={artifacts} onOpenArtifact={onOpenArtifact} /> : <><section className="min-w-0" data-reader-why={identity}>
       <h3 className="mb-1 text-xs font-medium text-ink">{text('这一步为什么有用', 'Why this step helps')}</h3>

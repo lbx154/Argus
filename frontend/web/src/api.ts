@@ -931,6 +931,10 @@ export const api = {
   /** What the lines between tasks say. `write` also has the missing notes written. */
   mapLines: (source: string, name: string, body: { pairs: Array<{ source: string; target: string }>; locale: string; write: boolean }, signal?: AbortSignal, sessionId?: string) =>
     postJson<import('./map/useMapLines').MapLines>(`/api/map-lines/${source}/${encodeURIComponent(name)}${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`, body, signal),
+  /** The explanation a reader is about to ask about, kept at that moment with the step's records. */
+  mapQuestionSource: (sid: string, body: { card_key: string; task_id: string; locale: 'zh-CN' | 'en-US'; preview?: ReaderPreview; foundation_id?: string }, signal?: AbortSignal) =>
+    postJson<ProgressSourceRef>(`/api/map-question-source/project/${encodeURIComponent(sid)}?session_id=${encodeURIComponent(sid)}`,
+      { ...body, preview: body.preview === 'source-first' ? true : body.preview ?? false }, signal),
   generateMapCopy: (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string; foundation_id?: string}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, onProgress?: (phase: ExplanationPhase) => void): Promise<import('./map/presentation').MapCopy> =>
     explanationResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview, body.foundation_id), body, signal, onProgress),
   generateReaderFoundation: (sid: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US'; source_task_id?: string; progress_source?: Pick<ProgressSourceRef, 'source_id'> }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>

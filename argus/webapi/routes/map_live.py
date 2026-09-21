@@ -30,6 +30,14 @@ class MapCopyIn(BaseModel):
     foundation_id: str | None = Field(default=None, min_length=1, max_length=80)
 
 
+class MapQuestionSourceIn(BaseModel):
+    card_key: str = Field(min_length=1, max_length=300)
+    task_id: str = Field(min_length=1, max_length=200)
+    locale: Literal["zh-CN", "en-US"] = "zh-CN"
+    preview: map_narrative.Preview = False
+    foundation_id: str | None = Field(default=None, min_length=1, max_length=80)
+
+
 class MapLinePairIn(BaseModel):
     source: str = Field(min_length=1, max_length=200)
     target: str = Field(min_length=1, max_length=200)
@@ -54,6 +62,18 @@ def _copy_error(exc: Exception) -> HTTPException:
         logging.getLogger(__name__).warning("Map copy validation failed: %s", exc)
         return HTTPException(422, "card content could not be prepared")
     return HTTPException(503, "card text is temporarily unavailable")
+
+
+def _reader_copy(value: dict) -> dict:
+    """Hide obsolete source wrappers without rewriting the saved explanation."""
+    return {**value, "cards": {
+        key: {field: content for field, content in card.items()
+              if field not in {"source_snapshot", "progress_source"}}
+        for key, card in value.get("cards", {}).items()
+    }, "relations": [
+        {key: content for key, content in relation.items() if key != "evidence"}
+        for relation in value.get("relations", [])
+    ]}
 
 
 def register_map_live_routes(app, ctx, read_dataset):
@@ -177,17 +197,8 @@ def register_map_live_routes(app, ctx, read_dataset):
             model_revision = map_narrative.resolve_map_model().revision
         except (OSError, ValueError, RuntimeError):
             model_revision = ""
-        cards = cache.get("cards", {})
-        if source == "project" and cards:
-            from ..reader_progress import bind_progress_cards
-
-            cards = bind_progress_cards(
-                root, name, map_narrative.copy_source(value["id"], locale, preview=preview,
-                                                     foundation_id=foundation["id"] if foundation else None),
-                cards, locale, evidence=value,
-            )
-        return {
-            "cards": cards,
+        return _reader_copy({
+            "cards": cache.get("cards", {}),
             "relations": cache.get("relations", []),
             "available": project_root is not None and (preview != "question-foundation" or foundation is not None)
                          and map_narrative.configured(),
@@ -197,7 +208,57 @@ def register_map_live_routes(app, ctx, read_dataset):
             **({"foundation_ref": foundation_reference(foundation),
                 "process_version": APPLICATION_PROCESS_VERSION} if foundation else {}),
             **map_narrative._failure_metadata(cache),
-        }
+        })
+
+    @app.post("/api/map-question-source/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
+    async def map_question_source(
+        source: Literal["project"], name: str, body: MapQuestionSourceIn,
+        session_id: str | None = None,
+    ):
+        from ..reader_clarification import ReaderSourceUnavailable
+        from ..reader_progress import retain_progress_source
+        from .reader_foundation import _foundation_error
+
+        def prepare():
+            root, _ = owner(source, name, session_id)
+            try:
+                if body.preview == "question-foundation" and not body.foundation_id:
+                    raise ReaderSourceUnavailable("select a saved question foundation explanation")
+                value = load(source, name)
+                copy_source = map_narrative.copy_source(
+                    value["id"], body.locale, preview=body.preview, foundation_id=body.foundation_id,
+                )
+                card = map_narrative.read_cache(root, copy_source).get("cards", {}).get(body.card_key)
+                if not isinstance(card, dict):
+                    raise ReaderSourceUnavailable("no saved explanation to ask about")
+                task_id = card.get("task_id") or card.get("source_snapshot", {}).get("task_id")
+                if task_id and task_id != body.task_id:
+                    raise ReaderSourceUnavailable("explanation does not belong to this task")
+                events = {event["id"]: event for event in value["events"]}
+                key = body.card_key
+                task_keys = {body.task_id, *(body.task_id + suffix for suffix in (":brief", ":active", ":outcome"))}
+                # A saved event card can outlive the feed's historical event.
+                # Only a server-owned task binding permits that missing record.
+                if task_id and key not in task_keys and key.removesuffix(":next") not in events:
+                    key = body.task_id
+                try:
+                    documents = map_narrative.card_evidence(value, [{
+                        "key": key, "task_id": body.task_id, "kind": "task",
+                        "event_ids": [event_id for event_id in card.get("event_ids", []) if event_id in events],
+                    }])
+                except ValueError as exc:
+                    raise ReaderSourceUnavailable(str(exc)) from exc
+                if not documents:
+                    raise ReaderSourceUnavailable("no saved explanation to ask about")
+                document = map_narrative._bounded_document(documents[0])
+                return retain_progress_source(
+                    root, name, copy_source=copy_source, card_key=body.card_key, card=card, locale=body.locale,
+                    records={key: document[key] for key in ("task_id", "task", "events")},
+                )
+            except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
+                raise _foundation_error(exc) from exc
+
+        return await run_in_threadpool(prepare)
 
     @app.post("/api/map-lines/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
     async def map_lines_notes(
@@ -270,15 +331,7 @@ def register_map_live_routes(app, ctx, read_dataset):
                     **({"on_progress": on_progress} if on_progress is not None else {}),
                     **({"foundation": foundation} if foundation is not None else {}),
                 )
-                if source == "project" and result.get("cards"):
-                    from ..reader_progress import bind_progress_cards
-
-                    result["cards"] = bind_progress_cards(
-                        root, name, map_narrative.copy_source(value["id"], body.locale, preview=preview,
-                                                             foundation_id=foundation["id"] if foundation else None),
-                        result["cards"], body.locale, evidence=value,
-                    )
-                return result
+                return _reader_copy(result)
             except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
                 raise _copy_error(exc) from exc
 

@@ -219,7 +219,7 @@ export function MapCanvas({
     ...dependencies.downstream.map((task) => task.id),
   ]) : null, [tracedTask, dependencies]);
   const { copy, ready: copyReady, generating: copyGenerating, readingRequest, readingNeedsUpdate,
-    readingGenerating, generationPhase, foundationRequired,
+    readingGenerating, generationPhase, foundationRequired, questionContext,
     generationError: copyGenerationError, generationUnavailable: copyGenerationUnavailable, retry: retryCopy } = useMapCopy(
     data,
     readingTask?.id || focusedNode?.data.task.id || null,
@@ -231,16 +231,11 @@ export function MapCanvas({
     readingKey,
     readingCopy?.foundationId,
   );
-  const readingEvidence = useMemo(() => {
-    if (!readingRequest) return [];
-    const ids = new Set([...readingRequest.event_ids, ...(copy?.cards[readingRequest.key]?.event_ids || [])]);
-    return data.events.filter(event => event.item_id === readingRequest.task_id && ids.has(event.id));
-  }, [readingRequest, copy, data.events]);
   const readerSelection = useMemo<MapReaderSelection | undefined>(() => readingRequest ? {
-    request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: readingGenerating,
+    request: readingRequest, questionContext, pending: readingNeedsUpdate, generating: readingGenerating,
     phase: generationPhase, error: copyGenerationError, unavailable: copyGenerationUnavailable, foundationRequired,
     retry: readOnly ? undefined : retryCopy, retryDisabled: copyGenerating,
-  } : undefined, [readingRequest, readingEvidence, readingNeedsUpdate, copyGenerating, readingGenerating, generationPhase,
+  } : undefined, [readingRequest, questionContext, readingNeedsUpdate, copyGenerating, readingGenerating, generationPhase,
     copyGenerationError, copyGenerationUnavailable, readOnly, retryCopy, foundationRequired]);
   // The lines are drawn first and annotated after: a note says what an
   // existing line carries, so asking for notes cannot move the map.
@@ -1114,7 +1109,7 @@ export function MapCanvas({
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
       {copy?.generation_error && <div role="status" className="map-paused-label">
-        {zh ? '地图说明暂时不可用，原始记录和已有说明已保留。' : 'Map explanation unavailable; records and saved explanations are retained.'}
+        {zh ? '地图说明暂时不可用，任务和已有说明仍可阅读。' : 'Map explanation unavailable; tasks and saved explanations remain readable.'}
         {copy.generation_error.code === 'cost_unreconciled' && (zh
           ? ' 调用费用待对账，并非预算耗尽。' : ' Provider usage awaits reconciliation, not budget exhaustion.')}
       </div>}

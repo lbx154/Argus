@@ -97,7 +97,7 @@ def _saved(cache: dict, wanted: list[tuple[str, str]], inputs: dict[str, str]) -
     for source, target in wanted:
         note = cache.get("pairs", {}).get(_key(source, target))
         if note and note.get("input") == inputs[_key(source, target)] and note.get("label"):
-            lines.append({"source": source, "target": target, "label": note["label"], "evidence": note["evidence"]})
+            lines.append({"source": source, "target": target, "label": note["label"]})
     return lines
 
 
@@ -107,7 +107,6 @@ def _prompt(locale: str, tasks: list[dict], todo: list[tuple[str, str]], output_
 每条连线连接两件先后发生的工作。读者想从连线上看懂：前一件事把什么交给了后一件事，或者后一件事为什么接在它后面。
 - label：一个具体的短语（{_LABEL_HINTS[locale]}），用{language}写，专有名词保留原文；写传递的是什么，或两件事的实际联系：用到了哪份产物，沿用了哪个结论，针对哪个问题继续。用读者看得懂的日常语言，不堆路径和内部名称。
 - “同一研究”“相关工作”“后续”这类放在任何两件事之间都成立的话不写。
-- evidence：一句话，指出记录里支持这个说法的内容。提到某件工作时用它做的事来称呼，不写任务 id。
 - 两件事只是时间上相邻、记录里看不出内容联系，或不能确定时，不为这一对输出。不编造记录之外的产物或结论。
 只为 pairs 中列出的连线写，source 与 target 原样照抄。"""
     return (
@@ -135,9 +134,8 @@ def _schema(todo: list[tuple[str, str]], locale: str) -> dict:
                         # Wider than what is shown: an overlong phrase is fitted, not a
                         # reason to throw away every other line's note with it.
                         "label": {**string, "maxLength": 120},
-                        "evidence": {**string, "maxLength": 400},
                     },
-                    "required": ["source", "target", "label", "evidence"],
+                    "required": ["source", "target", "label"],
                     "additionalProperties": False,
                 },
             },
@@ -195,16 +193,18 @@ def notes(
                 continue
             pair = (line.get("source"), line.get("target"))
             label = fit(line.get("label"), LABEL_LIMITS[locale]) if isinstance(line.get("label"), str) else ""
-            if pair in todo and label and line.get("evidence") and pair not in written:
-                written[pair] = {"label": label, "evidence": text(line["evidence"], 400)}
+            if pair in todo and label and pair not in written:
+                written[pair] = label
         now = time.time()
         # A pair the model left out is recorded as asked, with no label, so an
         # honest "nothing to say" is not asked again on every visit.
-        pairs_cache = {key: note for key, note in saved.items() if all(part in by_id for part in key.split(">", 1))}
+        pairs_cache = {
+            key: {field: value for field, value in note.items() if field != "evidence"}
+            for key, note in saved.items() if all(part in by_id for part in key.split(">", 1))
+        }
         for pair in todo:
             pairs_cache[_key(*pair)] = {
-                "input": inputs[_key(*pair)], "generated_at": now,
-                **written.get(pair, {"label": "", "evidence": ""}),
+                "input": inputs[_key(*pair)], "generated_at": now, "label": written.get(pair, ""),
             }
         cache.update(version=LINES_VERSION, pairs=pairs_cache, model_revision=revision)
         _write_cache(path, cache)

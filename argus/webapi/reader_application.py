@@ -42,12 +42,11 @@ def generate_application(
     config: MapModel, project_root: Path, global_root: Path,
     on_progress: MapProgress | None = None,
 ) -> dict:
-    from .map_narrative import SOURCE_SNAPSHOT_VERSION, _reader_brief, schema
+    from .map_narrative import _reader_brief, schema
 
     reference = foundation_reference(foundation)
     saved_foundation = {**reference, "markdown": foundation["markdown"]}
     deadline = time.monotonic() + 170
-    captured_at = time.time()
     contexts = {document["key"]: teaching_context({
         "task": document.get("task", {}), "events": document.get("events", []),
         "related_tasks": [task for task in tasks if task.get("id") != document["task_id"]],
@@ -95,10 +94,5 @@ Retained sources:
                                   CARD_TEXT_LIMITS, "invalid application copy"),
             "key": key, "reader_brief": brief, "foundation_ref": copy.deepcopy(reference),
             "application_process": {"version": PROCESS_VERSION, "kind": "saved_foundation_application"},
-            "source_snapshot": {
-                "version": SOURCE_SNAPSHOT_VERSION, "card_key": key, "task_id": document["task_id"],
-                "captured_at": captured_at, **copy.deepcopy(contexts[key]),
-                "foundation": copy.deepcopy(saved_foundation),
-            },
         })
     return {"cards": result, "relations": value.get("relations", [])}
