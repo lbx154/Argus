@@ -1235,7 +1235,7 @@ export default function App() {
                 onOpenFile={openPreview}
                 className="min-h-0 flex-1 mobile-scroll-region"
                 embedded
-                onCollapse={() => setRightPanelOpen(false)}
+                onCollapse={() => { setRightPanelOpen(false); setMobileView('activity'); }}
                 missionView={missionView}
                 activityEvents={activityEvents}
                 requestedPath={previewPathRequest.path}
