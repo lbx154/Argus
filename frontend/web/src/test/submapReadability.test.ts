@@ -196,7 +196,7 @@ describe("step readability in buildSubmap", () => {
       ],
       true,
     );
-    expect(rows.find((r) => r.kind === "execution")!.title).toBe("完成一轮工作");
+    expect(rows.find((r) => r.kind === "execution")!.title).toBe("本轮执行记录");
   });
   it("titles finished reviews by verdict", () => {
     const rowFor = (status: string, zh: boolean) =>
@@ -205,12 +205,12 @@ describe("step readability in buildSubmap", () => {
         [event("e1", "round.review.completed", { round_index: 1, status, text: "Reviewed." })],
         zh,
       ).find((r) => r.kind === "review")!;
-    expect(rowFor("done", false).title).toBe("The Reviewer was satisfied");
-    expect(rowFor("continue", false).title).toBe("The Reviewer asked for another pass");
-    expect(rowFor("blocked", false).title).toBe("The Reviewer asked to change course");
-    expect(rowFor("failed", false).title).toBe("The Reviewer did not accept this round");
+    expect(rowFor("done", false).title).toBe("Review passed");
+    expect(rowFor("continue", false).title).toBe("Review: another pass asked for");
+    expect(rowFor("blocked", false).title).toBe("Review: a change of course asked for");
+    expect(rowFor("failed", false).title).toBe("Review not passed");
     expect(rowFor("done", true).title).toBe("审阅通过");
-    expect(rowFor("replan", true).title).toBe("审阅者建议调整方向");
+    expect(rowFor("replan", true).title).toBe("审阅：建议调整方向");
   });
   it("keeps the verdict title and latest summary when start and completion merge", () => {
     const rows = buildSubmap(
@@ -227,7 +227,7 @@ describe("step readability in buildSubmap", () => {
     );
     const reviews = rows.filter((r) => r.kind === "review");
     expect(reviews).toHaveLength(1);
-    expect(reviews[0].title).toBe("The Reviewer was satisfied");
+    expect(reviews[0].title).toBe("Review passed");
     expect(reviews[0].summary).toBe("Looks solid.");
   });
   it("clips long records to one readable first sentence", () => {

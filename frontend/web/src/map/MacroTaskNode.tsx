@@ -688,6 +688,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               <div className="submap-step-foot">
                 <span title={sourceLabel(step, zh)}>
                   {zh ? "查看详情" : "Read more"}
+                  {step.workCount ? <em className="submap-step-work">{zh ? ` · ${step.workCount} 步操作` : ` · ${step.workCount} actions`}</em> : null}
                 </span>
                 <ChevronRight size={14} />
               </div>
