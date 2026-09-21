@@ -246,7 +246,7 @@ def normalize_events(
             number = row.get("round_index", row.get("round"))
             if isinstance(number, int) and 0 <= number < 10000:
                 e["round_index"] = number
-            for key in ("success", "review_skipped", "overall_complete", "campaign_continues"):
+            for key in ("success", "review_skipped", "backend_unavailable", "overall_complete", "campaign_continues"):
                 if isinstance(row.get(key), bool):
                     e[key] = row[key]
             if isinstance(row.get("attempt"), int):

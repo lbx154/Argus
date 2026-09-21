@@ -76,7 +76,10 @@ def finalize_result(
     result.call_id = ctx.call_id
     result.call_id_log_correlated = True
     result.stop_kind = normalize_stop_kind(result.stop_kind)
-    result.thread_id = result.thread_id or ctx.resume_thread_id
+    if ctx.session_identity_conflict:
+        result.thread_id = None
+    else:
+        result.thread_id = result.thread_id or ctx.resume_thread_id
     result.started_at = ctx.started_at
     result.completed_at = completed_at
     result.duration_ms = max(

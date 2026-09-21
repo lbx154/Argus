@@ -14,9 +14,7 @@ import { statusKey, type MapTask } from "./model";
 
 /** World-unit frame of a branch pill; the atlas layout reads the same numbers. */
 export const BRANCH_FRAME = { width: 640, height: 190 };
-/** A folded group carries a whole sentence, so it gets a card-wide frame tall
- * enough for that sentence at overview zoom, where its type scales up the way
- * the cards' titles do. */
+/** A folded group gets a card-wide frame for its sentence. */
 export const GROUP_FRAME = { width: 1440, height: 640 };
 
 export type BranchData = {
@@ -41,8 +39,7 @@ const GLYPHS: Record<string, typeof GitBranch> = {
   "idea-selector": ListChecks,
 };
 
-/** The same watermark alphabet the macro cards speak at micro density
- * (map.css); statuses outside the set stay glyph-free on purpose. */
+/** Statuses outside this set stay glyph-free. */
 const STATE_GLYPHS: Record<string, string> = {
   done: "✓",
   failed: "✕",
@@ -56,7 +53,7 @@ const STATES: Record<string, [string, string]> = {
   done: ["已完成", "Completed"],
   running: ["进行中", "In progress"],
   pending: ["待开始", "Planned"],
-  failed: ["未通过", "Failed"],
+  failed: ["执行失败", "Execution failed"],
   question: ["待答复", "Needs input"],
   paused: ["已暂停", "Paused"],
   aborted: ["已取消", "Cancelled"],

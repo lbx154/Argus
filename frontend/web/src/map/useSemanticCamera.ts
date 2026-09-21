@@ -8,6 +8,7 @@ import {
 import { useReactFlow, type Viewport } from "@xyflow/react";
 import type { MacroNode } from "./MacroTaskNode";
 import { zoomTarget } from "./submap";
+import { createZoomStepStore, heldZoomStep, zoomStep } from "./zoomStep";
 
 export const INITIAL_VIEWPORT = { x: 52, y: 125, zoom: 0.24 };
 export interface CameraMemory {
@@ -165,6 +166,17 @@ export function useSemanticCamera(
   const fittedDetail = useRef<{ id: string; zoom: number } | null>(null);
   const raf = useRef<number>(0);
   const target = useRef<Viewport | null>(null);
+  const rest = useRef(0);
+  useEffect(() => () => window.clearTimeout(rest.current), []);
+  const [zoomSteps] = useState(createZoomStepStore);
+  const setStep = useCallback(
+    (el: HTMLElement, step: number) => {
+      if (zoomSteps.get() === step) return;
+      el.style.setProperty("--map-zoom-step", String(step));
+      zoomSteps.set(step);
+    },
+    [zoomSteps],
+  );
   const cancelWheel = useCallback(() => {
     cancelAnimationFrame(raf.current);
     raf.current = 0;
@@ -178,6 +190,15 @@ export function useSemanticCamera(
       }
       const el = root.current;
       if (!el) return;
+      // A frosted panel is blurred again whenever what lies behind it changes,
+      // which while the map moves is every frame. The panels turn to plain
+      // paper for the length of the movement and frost over once it rests.
+      if (!el.dataset.moving) el.dataset.moving = "true";
+      window.clearTimeout(rest.current);
+      rest.current = window.setTimeout(() => {
+        delete el.dataset.moving;
+        setStep(el, zoomStep(flow.getZoom()));
+      }, 180);
       const center = { x: el.clientWidth / 2, y: el.clientHeight / 2 };
       const point =
         pointer.current && pointer.current.until > performance.now()
@@ -221,9 +242,16 @@ export function useSemanticCamera(
       // Nothing selects on the attribute (it aids inspection only); two
       // decimals spare an attribute invalidation on almost every frame.
       el.dataset.zoom = viewport.zoom.toFixed(2);
-      el.style.setProperty("--map-zoom", String(viewport.zoom));
+      // Type and card chrome follow a stepped zoom, held while the map moves,
+      // so a gesture scales one picture and text is re-set when it rests (see
+      // zoomStep). The live zoom is deliberately not published as a custom
+      // property: it is inherited by every element of the map, so writing it
+      // restyled the whole map on every frame whether or not anything read it.
+      setStep(el, heldZoomStep(zoomSteps.get(), viewport.zoom));
       setFocusId(alpha > 0 && id ? id : null);
-      setDetailed(alpha >= 0.55);
+      // Detail belongs to a card. Zooming into open canvas has none to show,
+      // and dimming the whole map around nothing left it grey with no subject.
+      setDetailed(!!id && alpha >= 0.55);
       if (
         viewport.zoom <= 0.32 &&
         !lockedFocus.current &&
@@ -232,7 +260,7 @@ export function useSemanticCamera(
       )
         overview.current = viewport;
     },
-    [flow, root],
+    [flow, root, setStep, zoomSteps],
   );
   const enter = useCallback(
     (id: string) => {
@@ -570,5 +598,6 @@ export function useSemanticCamera(
     readStep,
     onMove,
     reducedMotion,
+    zoomSteps,
   };
 }

@@ -134,3 +134,27 @@ def test_the_reviewer_is_told_it_judges_the_launch_not_the_wait(tmp_path, monkey
     assert reviewer.calls == 1
     assert "wait for `train`" in reviewer.context
     assert "not a judgment" in reviewer.context and "do not wait yourself" in reviewer.context
+
+
+def test_native_defer_waits_and_terminal_result_requires_native_approval(tmp_path, monkeypatch):
+    from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+    from argus.reviewer import Reviewer as NativeReviewer
+
+    backend = MemoryBackend()
+    backend.queue("reviewer", CannedResponse(
+        review_action=("defer_review", {"review": "The launch is sound; wait for the GPU result."}),
+    ))
+    backend.queue("reviewer", CannedResponse(
+        review_action=("approve_review", {"review": "The returned result satisfies the task."}),
+    ))
+    reviewer = NativeReviewer(backend)
+    job(tmp_path)
+    first, events, _ = execute(tmp_path, monkeypatch, reviewer)
+    assert first[0] == "paused_external_work"
+    assert not first[1][0].review.backend_unavailable
+    assert sum(event["type"] == "round.review.completed" for event in events) == 1
+
+    job(tmp_path, state="done")
+    second, _, _ = execute(tmp_path, monkeypatch, reviewer)
+    assert second[0] == "done"
+    assert len(backend.history) == 2

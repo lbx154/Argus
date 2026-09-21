@@ -7,10 +7,10 @@ Historically the Reviewer lived at ``argus.engineer.reviewer`` next to
 "done / continue / blocked"), so it now lives in its own package:
 
   * :mod:`._core`    — the ``Reviewer`` agent + ``ReviewerConfig`` and prompt build.
-  * :mod:`._parsing` — pure verdict/decision parsers (unit-testable, no runner).
+  * :mod:`.tools`    — call-bound native actions with natural-language feedback.
 
-The model-facing verdict is an ordinary reply ending in named lines; the parser
-keeps JSON input compatibility only for sessions started by older releases.
+The execution path never parses review prose. Historical parser helpers remain
+importable for offline consumers, but cannot submit a live review.
 """
 from __future__ import annotations
 

@@ -13,6 +13,7 @@ import {
 } from "../lib/attachments";
 import { formatBytes } from "../lib/format";
 import { ComposerAttachmentChip } from "../components/ComposerAttachmentChip";
+import { RouteSegment } from "../components/RouteSegment";
 import { isImeComposing } from "../lib/ime";
 import "./composerMotion.css";
 
@@ -417,10 +418,7 @@ export function MapComposer({
           />
           <div className="map-island-toolbar">
             <button type="button" className="map-island-collapse" tabIndex={compact ? -1 : 0} onClick={collapse} aria-label={zh ? "收起消息输入" : "Collapse message composer"} title={zh ? "收起（草稿会保留）" : "Collapse (draft is kept)"}><ChevronDown size={15} /></button>
-            <span className="map-island-key-hint" aria-hidden="true">{zh ? "Enter 发送" : "Enter to send"}</span>
-            {onRouteOverrideChange && <select className="map-route-select" tabIndex={compact ? -1 : 0} aria-label={t('chat.routeLabel')} title={t('chat.routeHint')} value={routeOverride} disabled={pending} onChange={(event) => onRouteOverrideChange(event.target.value as MessageRouteOverride)}>
-              <option value="auto">{t('chat.routeAuto')}</option><option value="task">{t('chat.routeTask')}</option><option value="chat">{t('chat.routeChat')}</option>
-            </select>}
+            {onRouteOverrideChange && <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={pending} tabIndex={compact ? -1 : 0} />}
             {pending ? (
               <button
                 type="button"

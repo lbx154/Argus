@@ -1,7 +1,6 @@
 """Reviewer prompt splitting and fresh-per-round session behavior."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
@@ -18,14 +17,8 @@ _DELTA_HEADER = "## Engineer's account of this round"
 _REEVALUATE = "RE-EVALUATE INDEPENDENTLY"
 
 
-def _review_json(status: str = "continue") -> str:
-    return json.dumps({
-        "status": status,
-        "reason": "r",
-        "next_action": "do the next thing",
-        "round_summary_markdown": "# r\n",
-        "completion_summary_markdown": "done" if status == "done" else "",
-    })
+def _review_action(status: str = "continue") -> tuple[str, dict]:
+    return ("approve_review" if status == "done" else "revise_review", {"review": "r"})
 
 
 def _evaluate(reviewer: Reviewer, **over):
@@ -112,7 +105,7 @@ def test_static_preamble_byte_stable_across_missions() -> None:
 
 def test_round1_reviewer_prompt_carries_full_rubric() -> None:
     backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action(), thread_id="rv1"))
     r = Reviewer(backend, skill_store=None)
     review = _evaluate(r)  # resume_thread_id defaults None → full send
     prompt = next(p for label, p, _ in backend.history if label == "reviewer")
@@ -126,7 +119,7 @@ def test_round1_reviewer_prompt_carries_full_rubric() -> None:
 
 def test_reviewer_runner_receives_configured_working_dir(tmp_path: Path) -> None:
     backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(message=_review_json("done"), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action("done"), thread_id="rv1"))
     r = Reviewer(backend, skill_store=None)
 
     _evaluate(
@@ -147,8 +140,8 @@ def test_reviewer_runner_receives_configured_working_dir(tmp_path: Path) -> None
 
 def test_matching_resume_request_sends_delta_only() -> None:
     backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
-    backend.queue("reviewer", CannedResponse(message=_review_json("done"), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action(), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action("done"), thread_id="rv1"))
     r = Reviewer(backend, skill_store=None)
     first = _evaluate(r)
     _evaluate(
@@ -181,8 +174,8 @@ def test_review_artifact_changes_keep_session_and_refresh_delta(tmp_path: Path) 
     review_path = paper / "REVIEW.md"
     review_path.write_text("PRIOR REVIEW CONTENT", encoding="utf-8")
     backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
-    backend.queue("reviewer", CannedResponse(message=_review_json("done"), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(message="Review pending.", thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(message="Review pending.", thread_id="rv1"))
     reviewer = Reviewer(backend)
     config = ReviewerConfig(working_dir=str(tmp_path), active_vertical="research")
     first = _evaluate(reviewer, config=config)
@@ -214,8 +207,8 @@ def test_live_gpu_and_checkpoint_changes_keep_reviewer_session(tmp_path: Path, m
     monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: [])
     monkeypatch.setattr(prompt_policy, "local_hardware_block", lambda: gpu[0])
     backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
-    backend.queue("reviewer", CannedResponse(message=_review_json("done"), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action(), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action("done"), thread_id="rv1"))
     reviewer = Reviewer(backend)
     config = ReviewerConfig(working_dir=str(tmp_path), active_vertical="research")
     first = _evaluate(reviewer, config=config)
@@ -242,8 +235,8 @@ def test_new_objective_keeps_the_fingerprint_and_resumes() -> None:
     delta and let the session resume.
     """
     backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
-    backend.queue("reviewer", CannedResponse(message=_review_json("done"), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action(), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action("done"), thread_id="rv1"))
     r = Reviewer(backend, skill_store=None)
     first = _evaluate(
         r, objective="objective A",
@@ -273,8 +266,8 @@ def test_stage_change_still_uses_a_fresh_full_prompt(tmp_path: Path) -> None:
     state["current_stage"] = "experiment"
     write_pipeline_state(tmp_path, state)
     backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
-    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action(), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_review_action(), thread_id="rv1"))
     r = Reviewer(backend, skill_store=None)
     config = ReviewerConfig(working_dir=str(tmp_path), active_vertical="research")
     first = _evaluate(r, config=config)
@@ -313,12 +306,12 @@ SKILL_MD = (
 )
 
 
-def _continue() -> str:
-    return _review_json("continue")
+def _continue() -> tuple[str, dict]:
+    return _review_action("continue")
 
 
-def _done() -> str:
-    return _review_json("done")
+def _done() -> tuple[str, dict]:
+    return _review_action("done")
 
 
 def _loop(backend: MemoryBackend, skills: Path) -> SkillLoop:
@@ -338,9 +331,9 @@ def test_reviewer_is_fresh_across_rounds(tmp_path: Path) -> None:
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="r1 work", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(message=_continue(), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_continue(), thread_id="rv1"))
     backend.queue("engineer-r2", CannedResponse(message="r2 work", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(message=_done(), thread_id="rv2"))
+    backend.queue("reviewer", CannedResponse(review_action=_done(), thread_id="rv2"))
 
     out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)
     assert out.successful
@@ -389,13 +382,13 @@ def test_reviewer_retry_after_backend_death_starts_fresh_session(
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="r1", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(message=_continue(), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(review_action=_continue(), thread_id="rv1"))
     backend.queue("engineer-r2", CannedResponse(message="r2", thread_id="e2"))
     # Round 2 reviewer: first call dies (backend unavailable), retry succeeds.
     backend.queue("reviewer", CannedResponse(
         message="", thread_id="poison", fatal_error="before turn completion",
     ))
-    backend.queue("reviewer", CannedResponse(message=_done(), thread_id="rv3"))
+    backend.queue("reviewer", CannedResponse(review_action=_done(), thread_id="rv3"))
 
     out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)
     assert out.successful

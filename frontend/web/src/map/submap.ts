@@ -52,6 +52,25 @@ export interface SubmapStep {
   updatedAt?: number;
   revision?: string;
   completionScope?: string;
+  /** Tool activity recorded while this step was under way: how many actions
+   * its card can mention. The actions themselves are in `detail`. */
+  workCount?: number;
+  /** Building only: a stretch of tool activity not yet placed in its step. */
+  segment?: boolean;
+  work?: StepWork;
+  closed?: boolean;
+}
+/** The tool activity folded into a step, kept apart until the step's own
+ * record is final (a round's closing event rewrites its detail). */
+interface StepWork {
+  steps: WorkStep[];
+  overflow: number;
+  narrations: string[];
+  note: string;
+  /** A title the record itself calls for, ahead of anything derived. */
+  title: string;
+  /** The work of a single agent answering a turn, not of a role in a round. */
+  single: boolean;
 }
 export const STEP_KINDS: StepKind[] = [
   "plan",
@@ -125,7 +144,10 @@ export function readableRecord(value: string | undefined | null): string {
       (line) =>
         !/^(?:Decision\s*:|(?:MILESTONE_STATUS|NEXT_OWNER|OPERATOR_QUESTION|OPERATOR_OPTIONS)\s*=)/i.test(
           line.trim(),
-        ),
+        ) &&
+        // A line that is one JSON object is an instruction to the harness
+        // ({"wait_for": "subagent", ...}), not something said to a reader.
+        !/^\{\s*"[\w-]+"\s*:.*\}$/.test(line.trim()),
     )
     .map((line) =>
       line
@@ -184,9 +206,11 @@ function stepArgument(label: string): string {
       return typeof first === "string" ? first.trim() : "";
     }
   } catch {
-    // Not JSON: the argument is the text itself.
+    // Not JSON, or JSON the recorder cut short.
   }
-  return raw;
+  if (!/^[{[]/.test(raw)) return raw;
+  // Cut-short JSON still names what was touched; a reader is never shown the braces.
+  return /"(?:path|file|file_path|pattern|query|url|command)"\s*:\s*"([^"]+)/.exec(raw)?.[1] ?? "";
 }
 
 type StepVerb = "read" | "search" | "fetch" | "edit" | "run" | "other";
@@ -218,14 +242,14 @@ export function stepPhrase(step: WorkStep, zh: boolean): string {
     : verb === "run"
       ? zh ? `运行命令 \`${command}\`` : `Ran \`${command}\``
       : verb === "read"
-        ? zh ? `查看 ${argument || label}` : `Read ${argument || label}`
+        ? zh ? `查看 ${argument || (zh ? "一份文件" : "")}` : `Read ${argument || "a file"}`
         : verb === "search"
-          ? zh ? `查找 ${argument || label}` : `Looked for ${argument || label}`
+          ? zh ? `查找 ${argument || "内容"}` : `Looked for ${argument || "something"}`
           : verb === "fetch"
-            ? zh ? `读取网页 ${argument || label}` : `Fetched ${argument || label}`
+            ? zh ? `读取网页 ${argument || ""}`.trim() : `Fetched ${argument || "a page"}`
             : verb === "edit"
-              ? zh ? `修改文件 ${argument || label}` : `Edited ${argument || label}`
-              : shorten(label, 80);
+              ? zh ? `修改文件 ${argument || ""}`.trim() : `Edited ${argument || "a file"}`
+              : shorten(/^[^:{]*:\s*[{[]/.test(label) ? label.slice(0, label.indexOf(":")) : label, 80);
   return step.status === "failed" ? `${phrase}${zh ? "（失败）" : " (failed)"}` : phrase;
 }
 
@@ -249,38 +273,92 @@ export function stepsSummary(steps: WorkStep[], overflow: number, zh: boolean): 
   return parts.length ? (zh ? `${parts.join("，")}。` : `${parts.join(", ")}.`) : "";
 }
 
-/** A work segment: the agent's own words for what it was doing, then the calls it made. */
+/** A stretch of tool activity: the agent's own words for what it was doing,
+ * then the calls it made. It is not a stage of the task. `buildSubmap` places
+ * it inside the round of work or review it happened in; it stands as a step of
+ * its own only where there is no such round (a single-agent turn). */
 function workSegmentStep(event: MapEvent, zh: boolean): SubmapStep {
   const steps = event.steps ?? [];
   const narration = readableRecord(event.text);
   const missingDetails = event.tool_details_recorded === false;
-  const evidenceNote = missingDetails
+  const note = missingDetails
     ? zh ? "执行日志确认发生过工具活动，但这一轮没有记录详细工具步骤。"
       : "Execution logs confirm tool activity, but detailed tool steps were not recorded for this turn."
     : "";
-  const single = event.role === "manager";
-  const shape = stepsSummary(steps, event.overflow ?? 0, zh);
-  const title = (missingDetails ? zh ? "已记录的执行" : "Recorded execution" : "")
-    || titleClause(narration)
-    || (single
-      ? zh ? "Argus 动手查证" : "Argus did the work"
-      : steps.length
-        ? zh ? `做了 ${steps.length} 步操作` : `${steps.length} steps of work`
-        : zh ? "说明了接下来要做什么" : "Said what comes next");
-  const lines = steps.map((step) => `· ${stepPhrase(step, zh)}`);
-  if ((event.overflow ?? 0) > 0) lines.push(zh ? `· 另有 ${event.overflow} 步未列出` : `· ${event.overflow} more not listed`);
-  return {
+  return standaloneWork({
     id: event.id,
     // The Reviewer's own reading and checking belongs to the review.
     kind: event.role === "reviewer" ? "review" : "execution",
-    title,
-    summary: clipSentence(narration) || shape || undefined,
-    detail: [evidenceNote, narration, lines.join("\n")].filter(Boolean).join("\n\n") || noDetails(zh),
-    status: event.status || (steps.some((step) => step.status === "failed") ? "failed" : "recorded"),
+    title: "",
+    detail: "",
+    // A tool call that failed along the way is shown on its line. It does not
+    // make the step a failure: a missed grep is not a verdict on the work.
+    status: event.status || "recorded",
     ts: event.ts,
     source: event.association === "single_active_window" ? "interval" : "event",
     eventIds: [event.id],
-  };
+    segment: true,
+    work: {
+      steps: [...steps], overflow: event.overflow ?? 0, narrations: narration ? [narration] : [], note,
+      title: missingDetails ? zh ? "已记录的执行" : "Recorded execution" : "",
+      single: event.role === "manager",
+    },
+  }, zh);
+}
+
+/** A step's actions for the reader who opens it: enough to see what kind of
+ * work it was. The full trail is in the conversation; a hundred lines of it
+ * here pushed the step's own record out of sight. */
+const WORK_LINES = 8;
+const workLines = (work: StepWork, zh: boolean) => {
+  const rest = Math.max(0, work.steps.length - WORK_LINES) + work.overflow;
+  return [
+    ...work.steps.slice(0, WORK_LINES).map((step) => `· ${stepPhrase(step, zh)}`),
+    ...(rest > 0 ? [zh ? `· 另有 ${rest} 步未列出` : `· ${rest} more not listed`] : []),
+  ];
+};
+
+/** Tool activity with no round to belong to, told as a step of its own. */
+function standaloneWork(step: SubmapStep, zh: boolean): SubmapStep {
+  const work = step.work!;
+  const narration = work.narrations.join("\n\n");
+  step.title = work.title
+    || titleClause(work.narrations[0] ?? "")
+    || (work.single
+      ? zh ? "Argus 动手查证" : "Argus did the work"
+      : work.steps.length
+        ? zh ? `做了 ${work.steps.length} 步操作` : `${work.steps.length} steps of work`
+        : zh ? "说明了接下来要做什么" : "Said what comes next");
+  step.summary = clipSentence(work.narrations[0] ?? "") || stepsSummary(work.steps, work.overflow, zh) || undefined;
+  step.detail = [work.note, narration, workLines(work, zh).join("\n")].filter(Boolean).join("\n\n") || noDetails(zh);
+  step.workCount = work.steps.length + work.overflow || undefined;
+  return step;
+}
+
+/** A round's step with the tool activity recorded inside it. The round's own
+ * record stays the story; what the agent said along the way and the calls it
+ * made follow it, for the reader who opens the step. */
+function withWork(step: SubmapStep, zh: boolean): SubmapStep {
+  const work = step.work;
+  if (!work || step.segment) return step;
+  const record = step.detail === noDetails(zh) ? "" : step.detail;
+  // A round's closing record usually repeats the last thing the agent said.
+  const along = work.narrations.filter((text) => !record.includes(text.slice(0, 60)));
+  const count = work.steps.length + work.overflow;
+  const shape = stepsSummary(work.steps, 0, zh);
+  const actions = count
+    ? [zh ? `这一步里做的操作（${count} 步）：${shape}` : `What was done in this step (${count} actions): ${shape}`,
+      workLines(work, zh).join("\n")].join("\n")
+    : "";
+  // Until the round's own record arrives, the latest thing said is the news.
+  const latest = work.narrations[work.narrations.length - 1];
+  if (!step.closed && latest) {
+    step.title = titleClause(latest) || step.title;
+    step.summary = clipSentence(latest) || step.summary;
+  }
+  step.detail = [work.note, record, along.join("\n\n"), actions].filter(Boolean).join("\n\n") || noDetails(zh);
+  step.workCount = count || undefined;
+  return step;
 }
 
 /** Where a finished task ended up, when its own record says nothing. */
@@ -309,7 +387,7 @@ export function buildSubmap(
       kind: "plan",
       title: turn
         ? zh ? (task.turn_kind === 'qa' ? '你提出的问题' : "你提出的要求") : "What you asked"
-        : zh ? "这项任务要做什么" : "What this task set out to do",
+        : zh ? "任务目标" : "Task goal",
       detail: task.objective || task.title,
       status: "recorded",
       source: "task",
@@ -318,6 +396,7 @@ export function buildSubmap(
   ];
   const seen = new Set<string>();
   let episode = 0;
+  let lastReview: MapEvent | undefined;
   const sorted = events
     .filter((e) => e.item_id === task.id)
     .sort((a, b) => a.ts - b.ts || (a.type === 'team.task' && b.type === 'team.task'
@@ -357,7 +436,7 @@ export function buildSubmap(
       continue;
     }
     if (e.type === "work.segment") {
-      rows.push(workSegmentStep(e, zh));
+      rows.push({ ...workSegmentStep(e, zh), episode });
       continue;
     }
     if (e.type === "turn.replied") {
@@ -375,7 +454,11 @@ export function buildSubmap(
       });
       continue;
     }
-    if (e.type === "life.mission.started") episode++;
+    if (e.type === "life.mission.started") {
+      episode++;
+      lastReview = undefined;
+    }
+    if (e.type === "round.review.completed") lastReview = e;
     const kind: StepKind | null =
       e.type.includes("review") ||
       (e.type === "life.phase.started" && e.role === "reviewer")
@@ -396,14 +479,17 @@ export function buildSubmap(
     const finished =
       e.type.endsWith(".completed") || e.type.endsWith(".failed");
     const reviewSkipped = kind === "review" && e.review_skipped === true;
-    const scope = completionScope(e, zh);
+    const reviewUnavailable = e.backend_unavailable === true || (kind === "result" && lastReview?.backend_unavailable === true);
+    const scope = reviewUnavailable ? "" : completionScope(e, zh);
     const status =
-      (reviewSkipped ? "skipped" : e.status) ||
+      (reviewUnavailable ? "review_unavailable" : reviewSkipped ? "skipped" : e.status === "error" ? "failed" : e.status) ||
       (e.success === false || e.type.endsWith(".failed")
         ? "failed"
         : e.success === true
           ? "done"
-          : finished
+          : finished || e.type === "life.planner.task_added" || e.type === "life.mission.started"
+            // Being put on the plan and being taken up happen at a moment.
+            // Only a round can be under way, and its step says so while it is.
             ? "recorded"
             : "started");
     const note = humanizeHarnessNote(e.text || "", zh);
@@ -412,31 +498,33 @@ export function buildSubmap(
     const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
     const reviewVerdictTitle =
       status === "done"
-        ? zh ? "审阅通过" : "The Reviewer was satisfied"
+        ? zh ? "审阅通过" : "Review passed"
         : status === "continue"
-          ? zh ? "审阅者要求再改一轮" : "The Reviewer asked for another pass"
+          ? zh ? "审阅：要求再改一轮" : "Review: another pass asked for"
           : ["blocked", "replan", "replan_requested"].includes(status)
-            ? zh ? "审阅者建议调整方向" : "The Reviewer asked to change course"
+            ? zh ? "审阅：建议调整方向" : "Review: a change of course asked for"
             : status === "failed"
-              ? zh ? "审阅未通过" : "The Reviewer did not accept this round"
+              ? zh ? "审阅未通过" : "Review not passed"
               : "";
     // Harness plumbing never names a step; only research prose does.
     const interrupted = note.kind === "interrupt";
     const clause = kind === "execution" && !note.summary ? titleClause(prose) : "";
-    const title = interrupted
+    const title = reviewUnavailable
+      ? zh ? "当次审查异常" : "Review error on this attempt"
+      : interrupted
       ? zh ? "这一轮没做完就被停下" : "Stopped before the round could finish"
       : reviewSkipped
-        ? zh ? "这一轮没有审阅" : "No review this round"
+        ? zh ? "本轮未审阅" : "No review this round"
         : kind === "review"
           ? finished
-            ? reviewVerdictTitle || (zh ? "审阅意见" : "What the Reviewer said")
+            ? reviewVerdictTitle || (zh ? "审阅意见" : "Review")
             : zh
-              ? "审阅者开始核查"
-              : "The Reviewer began reading"
+              ? "开始审阅"
+              : "Review started"
           : kind === "result"
             ? scope
               ? zh ? "本次执行已结束" : "This execution ended"
-              : zh ? "最后得到了什么" : "What came out"
+              : zh ? "执行结果" : "Result of the work"
             : kind === "plan"
               ? zh
                 ? "列入计划"
@@ -448,14 +536,14 @@ export function buildSubmap(
                     : "A new round began"
                   : e.type === "life.mission.started"
                     ? zh
-                      ? "开始动手"
-                      : "Work began"
+                      ? "开始执行"
+                      : "Work started"
                     : e.type === "round.main.completed"
                       ? zh
-                        ? "完成一轮工作"
-                        : "A round of work"
+                        ? "本轮执行记录"
+                        : "This round's work"
                       : zh
-                        ? "一次尝试"
+                        ? "一次执行尝试"
                         : "An attempt at the work");
     const nextNote = humanizeHarnessNote(e.next_action || "", zh);
     const described = prose || note.summary ? "" : describeRecord(e, status, zh);
@@ -463,7 +551,9 @@ export function buildSubmap(
       id: e.id,
       kind,
       title,
-      summary: scope || note.summary || clipSentence(prose) || described || undefined,
+      summary: reviewUnavailable
+        ? zh ? "审查器未能给出判断，不是审阅否决。" : "The Reviewer could not return a judgment; this was not a rejection."
+        : scope || note.summary || clipSentence(prose) || described || undefined,
       detail: [
         scope,
         prose || note.summary || (!scope ? described || noDetails(zh) : ""),
@@ -480,6 +570,7 @@ export function buildSubmap(
       ].filter(Boolean).join("\n\n"),
       status: scope && status === "done" ? "recorded" : status,
       completionScope: scope || undefined,
+      closed: finished,
       ts: e.ts,
       round,
       episode,
@@ -495,7 +586,7 @@ export function buildSubmap(
       rows.push({
         id: `${e.id}:next`,
         kind: "revision",
-        title: zh ? "审阅者提出的修改" : "What the Reviewer asked to change",
+        title: zh ? "建议的修改" : "Changes asked for",
         detail: nextNote.summary || e.next_action,
         status: "requested",
         ts: e.ts,
@@ -539,7 +630,35 @@ export function buildSubmap(
   // explicitly numbered round and the same observed mission episode.
   const merged: SubmapStep[] = [];
   const groups = new Map<string, SubmapStep>();
+  // The round of work and the round of review under way, which the tool
+  // activity recorded meanwhile belongs to.
+  const underWay = new Map<StepKind, SubmapStep>();
+  const absorb = (host: SubmapStep, row: SubmapStep) => {
+    const work = (host.work ??= { steps: [], overflow: 0, narrations: [], note: "", title: "", single: false });
+    work.steps.push(...row.work!.steps);
+    work.overflow += row.work!.overflow;
+    work.narrations.push(...row.work!.narrations.filter((text) => !work.narrations.includes(text)));
+    work.note ||= row.work!.note;
+    host.eventIds.push(...row.eventIds);
+    if (row.source === "interval") host.source = "interval";
+  };
   for (const row of rows) {
+    if (row.segment) {
+      // A task is read as its stages: what was asked, a round of work, its
+      // review, what the review asked for, the next round, the outcome. Forty
+      // tool calls are what happened inside one of those stages, not a stage,
+      // and a card for each stretch of them buried the stages and left the
+      // links between cards with nothing to say but "then".
+      const round = underWay.get(row.kind);
+      const tail = merged[merged.length - 1];
+      const host = round && round.episode === row.episode ? round
+        : tail?.segment && tail.kind === row.kind ? tail : undefined;
+      if (host) {
+        absorb(host, row);
+        if (host.segment) standaloneWork(host, zh);
+      } else merged.push({ ...row, eventIds: [...row.eventIds] });
+      continue;
+    }
     const mergeable =
       row.round != null && ["execution", "review"].includes(row.kind);
     const key = `${row.episode}:${row.round}:${row.kind}`;
@@ -552,19 +671,22 @@ export function buildSubmap(
       previous.summary = row.summary ?? previous.summary;
       previous.detail = row.detail;
       previous.status = row.status;
+      previous.closed = previous.closed || row.closed;
       previous.eventIds.push(...row.eventIds);
       if (row.source === "interval") previous.source = "interval";
-      // The round's node tells how the round ended, so it belongs after the
-      // work segments recorded inside that round, not before them.
-      merged.splice(merged.indexOf(previous), 1);
-      merged.push(previous);
     } else {
       const copy = { ...row, eventIds: [...row.eventIds] };
       merged.push(copy);
-      if (mergeable) groups.set(key, copy);
+      if (mergeable) {
+        groups.set(key, copy);
+        underWay.set(copy.kind, copy);
+      }
     }
   }
-  return merged;
+  return merged.map((step) => {
+    const { work: _work, segment: _segment, closed: _closed, ...shown } = withWork(step, zh);
+    return shown;
+  });
 }
 
 export interface SubmapLink {
@@ -672,22 +794,18 @@ export function layoutSubmap(
   };
 }
 
-/** The round each step belongs to. A step recorded without a round number,
- * such as a segment of the Engineer's work, belongs to the numbered round
- * whose record follows it (a round's work is recorded when the round ends),
- * or failing that to the last round seen. Planning steps and the outcome of
- * the whole task belong to no round. */
+/** The round each step belongs to. A step recorded without a round number
+ * belongs to the round under way when it was recorded. Tool activity is
+ * already inside its round's step (buildSubmap), so what is left unnumbered
+ * before the first round is the task being taken up, which is part of setting
+ * out. Planning steps and the outcome of the whole task belong to no round. */
 function effectiveRounds(steps: SubmapStep[]): (number | undefined)[] {
-  const numbered = steps.map((step) => (typeof step.round === "number" ? step.round : undefined));
   let previous: number | undefined;
-  return steps.map((step, i) => {
-    if (numbered[i] !== undefined) {
-      previous = numbered[i];
-      return numbered[i];
-    }
+  return steps.map((step) => {
+    if (typeof step.round === "number") return (previous = step.round);
     if (step.kind === "result" || step.kind === "plan") return undefined;
-    const next = numbered.slice(i + 1).find((r) => r !== undefined);
-    return next ?? previous;
+    // Taking the task up comes before its first round, not inside it.
+    return previous;
   });
 }
 
@@ -721,7 +839,11 @@ function columnTitle(
   let label = lo === hi
     ? zh ? `第 ${lo} 轮` : `Round ${lo}`
     : zh ? `第 ${lo}–${hi} 轮` : `Rounds ${lo}–${hi}`;
-  if (continued) label = zh ? `${label} · 续` : `${label} · cont.`;
+  // The same round runs on into this column: say which part of it is here.
+  if (continued)
+    label = steps[0].kind === "review"
+      ? zh ? `${label} · 审阅` : `${label} · review`
+      : zh ? `${label} · 续` : `${label} · cont.`;
   // A column that also holds the planning before the first round, or the
   // outcome after the last, says so.
   if (first && steps[0].kind === "plan") label = zh ? `起点 · ${label}` : `Setting out · ${label}`;
@@ -794,7 +916,7 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       label = zh
         ? target.kind === "plan"
           ? "纳入计划"
-          : "着手执行"
+          : "执行此任务"
         : target.kind === "plan"
           ? "planned"
           : "carried out";
@@ -807,7 +929,7 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       sameRound
     ) {
       relation = "review";
-      label = zh ? "交付审阅" : "reviewed";
+      label = zh ? "提交审阅" : "sent for review";
       explanation = zh
         ? "同一个任务、同一执行段、同一轮次的执行与审查记录。"
         : "Execution and review belong to the same task, episode and numbered round.";
@@ -830,10 +952,38 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       target.round > source.round
     ) {
       relation = "next_attempt";
-      label = zh ? "下一轮" : "next round";
+      label = zh ? "进入下一轮" : "next round";
       explanation = zh
         ? "修订建议之后出现了同一任务的下一轮执行；不表示建议的全部内容已被采纳。"
         : "A later round follows the revision request; this does not certify every requested change was applied.";
+    } else if (
+      source.kind === "review" &&
+      target.kind === "execution" &&
+      sameEpisode &&
+      source.round != null &&
+      target.round != null &&
+      target.round > source.round
+    ) {
+      relation = "next_attempt";
+      label = zh ? "进入下一轮" : "next round";
+      explanation = zh
+        ? "审阅之后出现了同一任务的下一轮执行。"
+        : "A later round of the same task follows the review.";
+    } else if (
+      source.kind === "execution" &&
+      target.kind === "execution" &&
+      source.round == null &&
+      target.round != null
+    ) {
+      label = zh ? `进入第 ${target.round} 轮` : `round ${target.round} begins`;
+      explanation = zh
+        ? "任务开始执行后记录的一轮工作。"
+        : "A round of work recorded after the task was taken up.";
+    } else if (source.kind === "result" && target.kind === "execution") {
+      label = zh ? "再次开始" : "taken up again";
+      explanation = zh
+        ? "上一次执行结束之后，这项任务又被接手。"
+        : "The task was taken up again after an earlier execution ended.";
     } else if (target.kind === "result" && target.source === "task") {
       relation = "snapshot";
       label = zh ? "最终状态" : "ended as";
@@ -845,7 +995,7 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       ["review", "execution", "revision"].includes(source.kind)
     ) {
       relation = "outcome";
-      label = zh ? "得到结果" : "led to";
+      label = zh ? "形成结果" : "led to";
       explanation = zh
         ? "同一任务的后续完成／失败事件，不等同于成功认证。"
         : "A completion or failure event of this task, not a certification of success.";

@@ -619,7 +619,7 @@ def test_wait_parks_only_task_a_and_independent_b_and_answered_a_can_run(tmp_pat
 
     backend_b = MemoryBackend()
     backend_b.queue("engineer-r1", CannedResponse(message="The independent syntax check passed"))
-    backend_b.queue("reviewer", CannedResponse(message=json.dumps({"status": "done", "reason": "Syntax verified", "next_action": ""})))
+    backend_b.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': 'Syntax verified'})))
     assert role_loop(tmp_path, task_b.id, backend_b).run(task_b.objective, workdir=tmp_path).successful
     backlog.update(task_b.id, status="done")
     assert waiting_for_evidence(tmp_path, task_a.id), "unrelated task completion cannot answer A's question"
@@ -629,7 +629,7 @@ def test_wait_parks_only_task_a_and_independent_b_and_answered_a_can_run(tmp_pat
     backlog.mark_running(task_a.id)
     assert not waiting_for_evidence(tmp_path, task_a.id)
     backend_a.queue("engineer-r1", CannedResponse(message="Applied the supplied author declaration"))
-    backend_a.queue("reviewer", CannedResponse(message=json.dumps({"status": "done", "reason": "Declaration verified", "next_action": ""})))
+    backend_a.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': 'Declaration verified'})))
     assert role_loop(tmp_path, task_a.id, backend_a).run(task_a.objective, workdir=tmp_path).successful
 
 

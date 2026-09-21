@@ -33,8 +33,14 @@ class CannedResponse:
     thread_id: str | None = None
     orphan_process_group_id: int = 0
     orphan_process_group_cleanup_succeeded: bool = False
+    review_action: tuple[str, dict] | None = None
 
     def render(self, prompt: str, options: RunnerOptions) -> RunnerResult:
+        if self.review_action is not None:
+            from ..core.role_tool_bridge import bridge_request
+
+            action, payload = self.review_action
+            bridge_request("ARGUS_PLUGIN_REVIEW", action, payload, env=options.extension_env)
         if self.message_factory is not None:
             text = self.message_factory(prompt, options)
         else:
@@ -64,9 +70,9 @@ class MemoryBackend:
         backend.queue("matcher", CannedResponse(message='{"matched": []}'))
         backend.queue("distiller", CannedResponse(message_factory=lambda p, o: SKILL_MD))
         backend.queue("engineer-r1", CannedResponse(message="round 1 work"))
-        backend.queue("reviewer", CannedResponse(message='{"status":"continue", ...}'))
+        backend.queue("reviewer", CannedResponse(review_action=("revise_review", {"review": "Repair the failing check."})))
         backend.queue("engineer-r2", CannedResponse(message="round 2 work"))
-        backend.queue("reviewer", CannedResponse(message='{"status":"done", ...}'))
+        backend.queue("reviewer", CannedResponse(review_action=("approve_review", {"review": "The check passes."})))
 
     Calls without a queued response return ``default``.
     """
@@ -76,6 +82,8 @@ class MemoryBackend:
     _queues: dict[str, list[CannedResponse]] = field(default_factory=dict)
     history: list[tuple[str, str, RunnerOptions]] = field(default_factory=list)
     resume_history: list[tuple[str, str | None]] = field(default_factory=list)
+
+    backend = "memory"
 
     @property
     def tool_activity_observation_supported(self) -> bool:

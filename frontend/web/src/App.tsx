@@ -2,7 +2,7 @@ import type { DispatchObserver } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useGitDiff } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem } from './api';
+import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { SkillLibrary } from './components/SkillLibrary';
 import { WikiLibrary } from './components/WikiLibrary';
 import { TopBar } from './components/TopBar';
@@ -135,6 +135,9 @@ function useThrottledValue<T>(value: T, ms: number): T {
 
 export default function App() {
   const { locale, t } = useI18n();
+  // The pairing error carries a fixed English message; show the localized copy instead.
+  const landingErrorText = (error: unknown): string =>
+    error instanceof PairingRequiredError ? t('connection.pairingDetail') : errorText(error);
   const queryClient = useQueryClient();
   const projectsQ = useProjects();
   const projectCostsQ = useProjectCosts();
@@ -268,6 +271,9 @@ export default function App() {
   } = useProjectSelection({
     cancelActiveMessage,
     notify,
+    formatProjectMissing: (requested, fallback) => fallback
+      ? t('project.missingSwitched', { requested: requested ?? '', fallback })
+      : t('project.missingCreate', { requested: requested ?? '' }),
     projects,
     projectsError: projectsQ.isError,
     projectsReady: projectsQ.isSuccess,
@@ -1235,7 +1241,7 @@ export default function App() {
                 onOpenFile={openPreview}
                 className="min-h-0 flex-1 mobile-scroll-region"
                 embedded
-                onCollapse={() => setRightPanelOpen(false)}
+                onCollapse={() => { setRightPanelOpen(false); setMobileView('activity'); }}
                 missionView={missionView}
                 activityEvents={activityEvents}
                 requestedPath={previewPathRequest.path}
@@ -1250,9 +1256,9 @@ export default function App() {
             hasProjects={projects.length > 0}
             error={
               projectsQ.isError && projects.length === 0
-                ? errorText(projectsQ.error)
+                ? landingErrorText(projectsQ.error)
                 : snapQ.isError && !snap
-                ? errorText(snapQ.error)
+                ? landingErrorText(snapQ.error)
                 : undefined
             }
             onRetry={() => {

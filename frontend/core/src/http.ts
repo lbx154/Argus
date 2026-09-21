@@ -37,7 +37,16 @@ function detailFromBody(raw: string): ErrorBody {
   if (!compact) return { detail: '', code: '' };
   try {
     const data = JSON.parse(raw) as Record<string, unknown>;
-    const code = typeof data.code === 'string' ? data.code.trim() : '';
+    const nested = data.detail && typeof data.detail === 'object' && !Array.isArray(data.detail)
+      ? data.detail as Record<string, unknown> : undefined;
+    const code = typeof data.code === 'string' && data.code.trim() ? data.code.trim()
+      : typeof nested?.code === 'string' ? nested.code.trim() : '';
+    if (nested) {
+      for (const key of ['message', 'detail']) {
+        const value = nested[key];
+        if (typeof value === 'string' && value.trim()) return { detail: value.trim(), code };
+      }
+    }
     for (const key of ['detail', 'error', 'message']) {
       const value = data[key];
       if (typeof value === 'string' && value.trim()) return { detail: value.trim(), code };

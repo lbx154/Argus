@@ -29,7 +29,7 @@ def test_reviewer_is_not_given_checkpoint_bookkeeping():
 def test_reviewer_never_acts_as_checkpoint_editor():
     p = _prompt()
     assert 'Leave sources, outputs, and builds unchanged' in p
-    assert 'Give Engineer instructions only in next_action' in p
+    assert 'Give Engineer instructions in the review' in p
     assert 'Check essential uncertainty proportionately' in p
     assert (
         'Negative results, hedging, limitations, and reruns need grounded consequences; positive and negative claims share one evidence standard.'
@@ -62,19 +62,18 @@ def test_checkpoint_state_is_not_copied_into_the_prompt():
     assert "tried_and_failed" not in p
 
 
-def test_reviewer_final_handoff_requires_explicit_progress_fields():
+def test_reviewer_handoff_uses_actions_and_preserves_progress_guidance():
     p = _prompt()
 
     for field in (
-        "FORWARD_PROGRESS=true",
-        "PLAN_SIGNAL=continue",
-        "`plan_challenge`",
-        "`plan_alternative`",
-        "`authority_impact`",
-        "`OPERATOR_OPTIONS=",
+        "forward_progress",
+        "replan_review",
+        "alternative",
+        "authority",
+        "request_review_decision",
     ):
         assert field in p
-    assert "Return only STATUS, REASON, NEXT_ACTION and OPERATOR_QUESTION" not in p
+    assert "STATUS=" not in p
 
 
 def test_reviewer_output_without_confidence_parses_into_verdict():

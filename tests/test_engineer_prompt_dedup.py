@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from argus import SkillLoop, SkillLoopConfig
@@ -115,13 +113,9 @@ def test_direct_fresh_retry_forwards_reviewer_action_through_skill_loop(tmp_path
     feedback = "Keep the requested search.py file on disk after verification."
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="first result"))
-    backend.queue("reviewer", CannedResponse(message=json.dumps({
-        "status": "continue", "reason": "search.py is missing", "next_action": feedback,
-    })))
+    backend.queue("reviewer", CannedResponse(review_action=('revise_review', {'review': ('search.py is missing') + '\n\n' + (feedback)})))
     backend.queue("engineer-r2", CannedResponse(message="corrected result"))
-    backend.queue("reviewer", CannedResponse(message=json.dumps({
-        "status": "done", "reason": "requested files present", "next_action": "",
-    })))
+    backend.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': 'requested files present'})))
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,

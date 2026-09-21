@@ -1,5 +1,5 @@
 import { createContext, memo, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Handle, Position, useStore, type Node, type NodeProps } from "@xyflow/react";
+import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
   Check,
   ChevronLeft,
@@ -11,6 +11,7 @@ import {
   Play,
   RotateCcw,
   ShieldCheck,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
@@ -42,6 +43,9 @@ export type MacroData = MapCard & {
   focused: boolean;
   detailed: boolean;
   copy?: Pick<MapCopy, "cards" | "version">;
+  /** A short title and a sentence for this task's card, written for the whole
+   * map at once. They stand in until the task's own explanation exists. */
+  words?: { title: string; summary: string };
   readCopy?: (nodeId: string, key: string | null) => void;
   readerCopy?: MapReaderSelection;
   live: boolean;
@@ -109,7 +113,8 @@ const STATES: Record<string, [string, string]> = {
   done: ["已完成", "Completed"],
   running: ["进行中", "In progress"],
   pending: ["待开始", "Planned"],
-  failed: ["未通过", "Did not pass"],
+  failed: ["执行失败", "Execution failed"],
+  review_unavailable: ["当次审查异常", "Review error on this attempt"],
   aborted: ["已取消", "Cancelled"],
   cancelled: ["已取消", "Cancelled"],
   skipped: ["已跳过", "Skipped"],
@@ -173,11 +178,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
   const { artifacts, onOpenArtifact } = useContext(MapArtifactContext);
   const cardNotes = useContext(MapNotesContext).notes[task.id] ?? [];
-  // Only density thresholds trigger React work; continuous zoom typography is CSS.
-  const density = useStore((state) => {
-    const width = state.transform[2] * data.frame.width;
-    return width < 140 ? 'micro' : width < 230 ? 'compact' : 'full';
-  });
   const [arrive] = useState(() => !!data.revealing || (!data.restoring && !data.seenCards?.has(id)));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
@@ -217,7 +217,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     ? task.status : state;
   const summaryScale = Math.min(
     data.frame.width / 288,
-    data.frame.height / 218,
+    data.frame.height / 280,
   );
   const copy = data.copy?.cards || {};
   // Drifted status makes the generated summary dated, not wrong: keep showing
@@ -229,13 +229,18 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     copy[task.id]?.task_status !== task.status &&
     (ACTIVE.has(task.status) || task.status === "pending");
   const stepCopy = (step: SubmapStep) => {
-    if (step.completionScope) return undefined;
+    if (step.completionScope || step.status === "review_unavailable") return undefined;
     const saved = copy[step.id];
     if (step.source !== 'team') return saved;
     const index = saved?.event_ids?.indexOf(step.id) ?? -1;
     return currentStep(step).revision && index >= 0 && saved?.event_revisions?.[index] === currentStep(step).revision ? saved : undefined;
   };
-  const title = data.completionScope ? task.title : copy[task.id]?.title || task.title;
+  // A reader's own turn keeps the words the reader used.
+  const words = task.kind === "turn" ? undefined : data.words;
+  // The words written for the map say what a task is about and never claim an
+  // outcome, so they may head a card whose execution ended short of its goal;
+  // an explanation's own title may not.
+  const title = (data.completionScope ? "" : copy[task.id]?.title) || words?.title || task.title;
   const range = zh
     ? `环节 ${data.start}–${data.end} / ${data.totalSteps}`
     : `Steps ${data.start}–${data.end} / ${data.totalSteps}`;
@@ -249,8 +254,18 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           .at(-1)
       : undefined;
   const objectiveVisible = isLastPart && task.objective && task.objective.trim() !== task.title.trim();
-  const cardSummary = data.completionScope || (isLastPart ? task.pending_question : "") || partSummary ||
-    copy[task.id]?.summary || task.pending_question ||
+  // What has been written about this task. An explanation written before the
+  // execution ended short of its goal may claim more than happened, so only
+  // the map's own words (written knowing how the execution ended) stand then.
+  const reviewUnavailable = state === "review_unavailable";
+  const reviewSummary = zh ? "当次审查器未能给出判断，未形成审阅结论。" : "The Reviewer could not return a judgment on this attempt.";
+  const written = reviewUnavailable ? reviewSummary
+    : (data.completionScope ? "" : copy[task.id]?.summary) || words?.summary || "";
+  // A card says one thing under its title: what the task found. That its
+  // execution ended short of the goal is on the state chip; the sentence for
+  // it fills the card only while nothing has been written.
+  const cardSummary = (isLastPart ? task.pending_question : "") || partSummary ||
+    written || data.completionScope || task.pending_question ||
     humanizeHarnessNote(task.summary || "", zh).summary || task.summary ||
     (!objectiveVisible ? task.objective : "");
   const scale = Math.min(
@@ -339,7 +354,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       s === 'paused_external_work' ? s : s.startsWith("paused_") ? "paused" : ACTIVE.has(s) ? "running" : s
     ] ?? STATES.unknown)[zh ? 0 : 1];
   const taskStateLabel = data.completionScope
-    ? zh ? "执行结束 · 目标未完成" : "Execution ended · goal incomplete"
+    ? zh ? "当次结束 · 当时目标未完成" : "Execution ended · goal incomplete then"
     : task.turn_kind === 'qa' && ['done', 'running', 'cancelled', 'failed'].includes(state)
     ? ({ done: ['已回答', 'Answered'], running: ['正在回答', 'Answering'], cancelled: ['已中断', 'Interrupted'], failed: ['回答失败', 'Answer failed'] } as Record<string, string[]>)[state][zh ? 0 : 1]
     : stateLabel(displayedState);
@@ -366,7 +381,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-focused={focused}
       data-detailed={detailed}
       aria-label={title}
-      data-overview-density={density}
       data-completed-now={completedNow}
       data-active={activeTeamSteps.length > 0 || isLastPart && data.live && !data.paused && ACTIVE.has(task.status)}
       onContextMenu={(e) => {
@@ -392,7 +406,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         className="macro-summary"
         aria-hidden={detailed}
         style={{
-          "--summary-scale": summaryScale,
           "--summary-height": `${data.frame.height / summaryScale - 20}px`,
           width: data.frame.width / summaryScale - 20,
           transform: `translate(-50%, -50%) scale(${summaryScale})`,
@@ -424,6 +437,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   <Check size={11} />
                 ) : state === "failed" ? (
                   <X size={11} />
+                ) : state === "review_unavailable" ? (
+                  <TriangleAlert size={11} />
                 ) : state === "question" ? (
                   <HelpCircle size={11} />
                 ) : state === "paused" ? (
@@ -446,17 +461,51 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               </span>
             )}
           </h3>
-          {objectiveVisible && (
+          {/* The planner's own specification stands in only while nothing has
+              been written about the task: beside a written sentence it is a
+              second, longer way of saying the title. */}
+          {objectiveVisible && !written && (
             <p className="map-card-objective" title={task.objective}>{task.objective}</p>
           )}
           {cardSummary && cardSummary.trim() !== (objectiveVisible ? task.objective.trim() : "") &&
             <div className="map-card-copy"><MarkdownExcerpt>{cardSummary}</MarkdownExcerpt></div>}
-          <div className="map-card-stages">
-            {isLastPart && data.live && !data.paused && ACTIVE.has(task.status)
-              ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
-              : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
-            {!!data.historyCount && teamSteps.length > 0 && <span className="map-card-team-summary">{teamSummary}</span>}
-          </div>
+          {/* The course a task ran: planned, carried out, reviewed, delivered.
+              Four marks, inked where the record holds a step of that kind, so a
+              whole map shows at a glance which tasks were reviewed and which
+              stopped short. A chat turn has no such course. */}
+          {task.kind !== 'turn' && (
+            <div className="map-card-course" aria-label={zh ? '任务经过' : 'Course of the task'}>
+              {(['plan', 'execution', 'review', 'result'] as const).map((kind) => {
+                const StageIcon = ICONS[kind];
+                const present = layout.steps.some((step) => step.kind === kind);
+                const active = layout.steps.some((step) => step.kind === kind && isStepActive(step));
+                const label = zh ? { plan: '规划', execution: '执行', review: '审查', result: '交付' }[kind] : KINDS[kind][1];
+                return (
+                  <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={label}>
+                    <StageIcon size={12} aria-hidden />
+                    <b>{label}</b>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {(() => {
+            const live = isLastPart && data.live && !data.paused && ACTIVE.has(task.status);
+            // The state is on the chip at the top of the card; it is not said
+            // again down here unless the card has no chip.
+            const chip = state !== "recorded" || !!data.completionScope;
+            const team = !!data.historyCount && teamSteps.length > 0;
+            if (!live && isLastPart && chip && !team) return null;
+            return (
+              <div className="map-card-stages">
+                {live
+                  ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
+                  : isLastPart && chip ? null
+                  : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
+                {team && <span className="map-card-team-summary">{teamSummary}</span>}
+              </div>
+            );
+          })()}
           {isLastPart && teamSteps.length > 0 && (
             <span className="map-card-teambar" aria-hidden>
               <i
@@ -622,6 +671,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               <div className="submap-step-foot">
                 <span title={sourceLabel(step, zh)}>
                   {zh ? "查看详情" : "Read more"}
+                  {step.workCount ? <em className="submap-step-work">{zh ? ` · ${step.workCount} 步操作` : ` · ${step.workCount} actions`}</em> : null}
                 </span>
                 <ChevronRight size={14} />
               </div>

@@ -19,17 +19,26 @@ const cache = new WeakMap<Store, Cache>();
 
 /** Pills cap at this width on screen; longer phrases ellipsize (edges.css)
  * while the title attribute keeps the full wording. */
-export const LABEL_MAX_WIDTH = 150;
+// Wide enough for a phrase of ten Chinese characters or four English words.
+export const LABEL_MAX_WIDTH = 200;
 const LABEL_MIN_ZOOM = 0.5;
+/** Below this the cards themselves are down to a title; a label on the line
+ * between them would be the largest thing on the map. */
+const OVERVIEW_MIN_ZOOM = 0.05;
 
-/** Coarse zoom for label placement: 0 hides every pill at overview scale;
- * above the threshold an eighth-step floor keeps reserved boxes conservative
+/** Coarse zoom for label placement. A floor keeps reserved boxes conservative
  * (bucket ≤ zoom, so estimates never shrink below true pill size) and stops
- * continuous camera zoom from recomputing the shared collision pass per frame. */
+ * continuous camera zoom from recomputing the shared collision pass per
+ * frame: eighth steps from half scale up, twentieth steps across the
+ * overview.
+ *
+ * The overview used to return 0 and hide every label. That is the scale a map
+ * is normally read at, so what connects two tasks was never seen unless the
+ * reader zoomed in on the line itself. Placement already drops a label that
+ * fits nowhere, so showing them here cannot lay one over a card. */
 export function labelZoom(zoom: number) {
-  return zoom < LABEL_MIN_ZOOM
-    ? 0
-    : Math.max(LABEL_MIN_ZOOM, Math.floor(zoom * 8) / 8);
+  if (zoom >= LABEL_MIN_ZOOM) return Math.max(LABEL_MIN_ZOOM, Math.floor(zoom * 8) / 8);
+  return zoom < OVERVIEW_MIN_ZOOM ? 0 : Math.floor(zoom * 20 + 1e-9) / 20;
 }
 
 /** The full phrase, single-spaced. Truncation is the pill's job (CSS ellipsis),
@@ -42,7 +51,8 @@ export function relationLabelText(label: unknown) {
  * padding, capped where the CSS ellipsis takes over. */
 export function labelBox(label: unknown) {
   const width = [...relationLabelText(label)].reduce(
-    (n, c) => n + (/[^\x00-\x7F]/.test(c) ? 10.5 : 6),
+    // The pill is set in a bold serif: a Latin letter runs nearer 7px than 6.
+    (n, c) => n + (/[^\x00-\x7F]/.test(c) ? 10.5 : 7),
     20,
   );
   return { width: Math.min(width, LABEL_MAX_WIDTH + 16), height: 26 };
@@ -144,7 +154,12 @@ function placeLabels(
   zoom: number,
 ) {
   const occupied: Box[] = [...boxes];
-  for (const e of edges) {
+  // A label that states a relation (what one task hands the next, related
+  // work, a changed plan) claims its place before one that only names the
+  // kind of line and is shown on hover (`quiet`, set by MapPanel): when space
+  // runs out it is the generic one that goes.
+  const stated = (e: { id: string; data?: Record<string, unknown> }) => (e.data?.quiet ? 1 : 0);
+  for (const e of [...edges].sort((a, b) => stated(a) - stated(b))) {
     const route = value.routes.get(e.id);
     if (!route || !e.label) continue;
     const size = labelBox(e.label);

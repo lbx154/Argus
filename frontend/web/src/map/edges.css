@@ -5,10 +5,10 @@
  * MapRelationEdge resolves these variables into stroke and arrowhead colors,
  * so light and dark themes are tuned entirely from this file. */
 .argus-map {
-  --map-edge-dependency: #527fa7; /* steel blue: recorded execution order */
+  --map-edge-dependency: #3f74a6; /* steel blue: recorded execution order */
   --map-edge-continuation: #527fa7; /* same family: a task carrying on */
   --map-edge-semantic: #8b95a0; /* neutral gray: related work */
-  --map-edge-context: #97a0aa; /* fainter gray: chronological context */
+  --map-edge-context: #6f8ca8; /* slate blue, a step quieter: the order work happened in */
   --map-edge-replacement: #af8149; /* muted amber: the plan changed course */
   --map-edge-fanout: #6a9ab8; /* team fans stay steel, a step lighter */
   --map-edge-fanin: #6a9ab8;
@@ -17,7 +17,7 @@
   --map-edge-dependency: #7ea9cd;
   --map-edge-continuation: #7ea9cd;
   --map-edge-semantic: #939ea9;
-  --map-edge-context: #7f8a95;
+  --map-edge-context: #7d97b0;
   --map-edge-replacement: #c79e63;
   --map-edge-fanout: #7fb0cd;
   --map-edge-fanin: #7fb0cd;
@@ -41,7 +41,7 @@
  * stay on (nodrag/nopan already neutralize the canvas) so that title shows. */
 .argus-map .map-relation-label {
   --edge-hue: var(--map-edge-semantic);
-  max-width: 150px;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 11px;

@@ -29,6 +29,8 @@ class _DeadResult:
 
 
 class _CapturingRunner:
+    backend = "memory"
+
     def __init__(self) -> None:
         self.prompt: str | None = None
 

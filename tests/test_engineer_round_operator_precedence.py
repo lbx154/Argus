@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 
@@ -20,13 +18,7 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
     backend.queue(
         "reviewer",
         CannedResponse(
-            message=json.dumps(
-                {
-                    "status": "continue",
-                    "reason": "beta is absent",
-                    "next_action": reviewer_action,
-                }
-            )
+            review_action=('revise_review', {'review': ('beta is absent') + '\n\n' + (reviewer_action)})
         ),
     )
     backend.queue(
@@ -36,13 +28,7 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
     backend.queue(
         "reviewer",
         CannedResponse(
-            message=json.dumps(
-                {
-                    "status": "done",
-                    "reason": "latest operator scope is satisfied",
-                    "next_action": "",
-                }
-            )
+            review_action=('approve_review', {'review': 'latest operator scope is satisfied'})
         ),
     )
     loop = SkillLoop(

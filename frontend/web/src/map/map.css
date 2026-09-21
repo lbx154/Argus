@@ -337,7 +337,8 @@
 .map-state-question {
   --state: #bd923f;
 }
-.map-state-paused {
+.map-state-paused,
+.map-state-review_unavailable {
   --state: #a58a56;
 }
 .map-state-superseded {
@@ -713,88 +714,6 @@
 @media(max-width:640px) { .map-workspace-actions { gap: 4px; } .map-workspace-actions button { padding: 0; width: 36px; justify-content: center; } .map-agent-toggle i { left: 20px; } .map-delivery-toggle b { position: absolute; right: -5px; top: -6px; padding: 0 4px; font-size: 11px; line-height: 15px; } .map-conversation { top: 56px; right: 10px; width: calc(100% - 20px); bottom: 148px; } .map-starters { margin-top: 12px; } .map-starters button { padding: 9px; font-size: 12px; } }
 @media(prefers-reduced-motion:reduce) { .map-conversation { animation: none; } }
 
-/* --- Overview legibility: the far and middle zoom must read by status. --- */
-/* Compact (card under ~230 screen px): title and status carry the card. */
-.map-macro[data-overview-density="compact"] .map-card,
-.map-macro[data-overview-density="micro"] .map-card {
-  background: linear-gradient(
-    color-mix(in srgb, var(--state) 8%, var(--map-card-surface)),
-    var(--map-card-surface) 82%
-  );
-  border-left: 4px solid color-mix(in srgb, var(--state) 65%, transparent);
-}
-.map-macro[data-overview-density="compact"] .map-card h3 {
-  font-size: 19px;
-  line-height: 1.4;
-  /* Two lines: the compact card has a fixed height (atlas.css --summary-height),
-   * so a third title line was squeezed by the flex column and cut mid-glyph. */
-  -webkit-line-clamp: 2;
-  min-height: 0;
-}
-.map-macro[data-overview-density="compact"] .map-card-copy,
-.map-macro[data-overview-density="compact"] .map-card-submap-hint {
-  display: none;
-}
-.map-macro[data-overview-density="compact"] .map-card-stages > span > span {
-  display: none;
-}
-.map-macro[data-overview-density="compact"] .map-card-stages svg {
-  width: 15px;
-  height: 15px;
-}
-.map-macro[data-overview-density="compact"] .map-card-number {
-  font-size: 12px;
-}
-.map-macro[data-overview-density="compact"] .map-status {
-  font-size: 13px;
-}
-.map-macro[data-overview-density="compact"] .map-card-bottom {
-  font-size: 12px;
-}
-/* Micro (under ~140 screen px): a status post-it. Text keeps shrinking with
- * distance, so the card's color and a watermark glyph carry the status. */
-.map-macro[data-overview-density="micro"] .map-card {
-  background: color-mix(in srgb, var(--state) 13%, var(--map-card-surface));
-  border-left-width: 6px;
-  border-color: color-mix(in srgb, var(--state) 30%, rgb(var(--line)));
-}
-.map-macro[data-overview-density="micro"] .map-card::before {
-  content: "";
-  position: absolute;
-  top: 8px;
-  right: 14px;
-  font-size: 46px;
-  line-height: 1;
-  font-weight: 700;
-  color: color-mix(in srgb, var(--state) 60%, transparent);
-  pointer-events: none;
-}
-.map-macro[data-overview-density="micro"].map-state-done .map-card::before { content: "✓"; }
-.map-macro[data-overview-density="micro"].map-state-failed .map-card::before { content: "✕"; }
-.map-macro[data-overview-density="micro"].map-state-question .map-card::before { content: "?"; }
-.map-macro[data-overview-density="micro"].map-state-paused .map-card::before { content: "‖"; }
-.map-macro[data-overview-density="micro"].map-state-running .map-card::before { content: "▶"; }
-.map-macro[data-overview-density="micro"].map-state-superseded .map-card::before { content: "↪"; }
-.map-macro[data-overview-density="micro"] .map-card-top,
-.map-macro[data-overview-density="micro"] .map-card-copy,
-.map-macro[data-overview-density="micro"] .map-card-stages,
-.map-macro[data-overview-density="micro"] .map-card-bottom {
-  display: none;
-}
-.map-macro[data-overview-density="micro"] .map-card h3 {
-  font-size: 29px;
-  line-height: 1.28;
-  font-weight: 650;
-  letter-spacing: -0.4px;
-  -webkit-line-clamp: 3;
-  min-height: 0;
-  margin: 18px 18px 14px;
-  padding-right: 34px;
-}
-.map-macro[data-overview-density="micro"] .macro-note-badge {
-  font-size: 16px;
-  padding: 3px 9px;
-}
 /* A live task announces itself: a breathing ring in its own state color. */
 .map-macro[data-active="true"] .map-card::after {
   content: "";
@@ -850,9 +769,6 @@
   border-radius: 2px;
   background: color-mix(in srgb, var(--state) 75%, transparent);
   transition: width 0.4s ease-out;
-}
-.map-macro[data-overview-density="micro"] .map-card-teambar {
-  display: none;
 }
 /* --- Canvas atmosphere: a quiet vignette keeps the eye on the center. --- */
 .map-canvas-wrap::after {

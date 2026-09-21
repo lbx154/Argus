@@ -30,6 +30,10 @@ class AgentRunResult:
     usage_model: str = ""
     orphan_process_group_id: int = 0
     orphan_process_group_cleanup_succeeded: bool = False
+    # Set when the CLI reported a session id other than the one this call was
+    # bound to (pre-allocated or resumed). ``thread_id`` is then ``None`` on
+    # purpose: usage must stay unresolved rather than charge another session.
+    session_identity_conflict: str | None = None
 
     @property
     def last_agent_message(self) -> str:

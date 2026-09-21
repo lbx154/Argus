@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import type { NodeProps } from "@xyflow/react";
@@ -6,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MacroTaskNode, type MacroData, type MacroNode } from "../map/MacroTaskNode";
 import { layoutSubmap, type SubmapStep } from "../map/submap";
 import type { MapTask } from "../map/model";
+import { createZoomStepStore, ZoomStepContext } from "../map/zoomStep";
 
 vi.mock("@xyflow/react", async (original) => ({
   ...(await original<typeof import("@xyflow/react")>()),
@@ -99,6 +99,37 @@ describe("macro card copy", () => {
     expect(markup).toContain("Removed a fingerprint from one footnote"); // retained inside execution history
     expect(markup.match(/Build a reusable date workflow/g)).toHaveLength(2); // text plus title tooltip
   });
+  it("says one thing under its title once the map's words exist, and the state once", () => {
+    const ended = { ...task, status: "done", objective: "Implement and execute downstream long-context evaluation" };
+    const scope = "This execution ended; the overall goal is not complete yet.";
+    const bare = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], { task: ended, live: false, completionScope: scope })} />);
+    // Nothing written yet: the planner's specification and the scope sentence stand in.
+    expect(bare).toContain('class="map-card-objective"');
+    expect(bare).toContain(scope);
+    const written = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], {
+      task: ended, live: false, completionScope: scope,
+      words: { title: "Downstream long-context evaluation", summary: "Qasper F1 reached 4.15 against 3.76 for the baseline." },
+      // An explanation written before the execution ended may claim more than happened.
+      copy: { cards: { parent: { title: "Accepted evaluation", summary: "All goals accepted.", detail: "d", generated_at: 1, task_status: "done" } } },
+    })} />);
+    expect(written).toContain("Downstream long-context evaluation");
+    expect(written).toContain("Qasper F1 reached 4.15");
+    expect(written).not.toContain("Accepted evaluation");
+    expect(written).not.toContain("All goals accepted.");
+    expect(written).not.toContain('class="map-card-objective"');
+    // The sentence about the goal is the chip's tooltip now, not a second line on the card.
+    expect(written.match(/class="map-card-copy">.*?<\/div>/)?.[0]).not.toContain(scope);
+    expect(written).not.toContain('class="map-card-recorded"');
+    expect(written.match(/class="map-status"/g)).toHaveLength(1);
+  });
+  it("keeps a reader's own turn in the reader's words", () => {
+    const turn = { ...task, kind: "turn" as const, status: "done", title: "How many lines is the README?" };
+    const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], {
+      task: turn, live: false, words: { title: "Count README lines", summary: "One line." },
+    })} />);
+    expect(markup).toContain("How many lines is the README?");
+    expect(markup).not.toContain("Count README lines");
+  });
   it("keeps yesterday's summary when the status drifted and hints at the refresh", () => {
     const markup = renderToStaticMarkup(
       <MacroTaskNode
@@ -148,16 +179,31 @@ describe("macro card copy", () => {
   });
 });
 
-describe("compact density summary", () => {
-  const atlas = readFileSync(new URL("../map/atlas.css", import.meta.url), "utf8");
-  it("keeps a clamped two-line summary visible at compact density", () => {
-    expect(atlas).toMatch(
-      /\[data-overview-density=compact\][^{]*\.map-card-copy[^}]*-webkit-line-clamp:\s*2/,
-    );
-    expect(atlas).toMatch(/\[data-overview-density=micro\][^{]*\.map-card-copy[^}]*display:\s*none/);
-    expect(atlas).not.toMatch(
-      /:not\(\[data-overview-density=full\]\)\s*\.map-card-copy\s*\{\s*display:\s*none/,
-    );
+describe("zoom-independent card content", () => {
+  it.each([false, true])("keeps the same layout and words at every zoom (stacked: %s)", (stacked) => {
+    const props = propsFor([step("s1"), step("review", { kind: "review" })], {
+      task: { ...task, status: "done" },
+      live: false,
+      completionScope: "The goal was incomplete on this attempt.",
+      words: { title: "Evaluation", summary: "The recorded results remain visible." },
+      copy: copyFor("A superseded conclusion must not return when zooming.", "done"),
+      historyCount: 2,
+      toggleHistory: vi.fn(),
+    });
+    props.data.layout.stacked = stacked;
+    const zoom = createZoomStepStore();
+    const markups = [0.03, 0.08, 0.16, 0.24, 0.5, 1, 1.4].map((value) => {
+      zoom.set(value);
+      return renderToStaticMarkup(
+        <ZoomStepContext.Provider value={zoom}><MacroTaskNode {...props} /></ZoomStepContext.Provider>,
+      );
+    });
+    expect(new Set(markups).size).toBe(1);
+    expect(markups[0]).toContain("The recorded results remain visible.");
+    expect(markups[0]).not.toContain("A superseded conclusion");
+    expect(markups[0]).toContain('class="map-card-course"');
+    expect(markups[0]).toContain("Mission history: Evaluation");
+    expect(markups[0]).not.toMatch(/data-overview-density|data-copy-lines|--title-lines/);
   });
 });
 

@@ -174,9 +174,9 @@ def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
         assert field not in prompt
 
     # These affect round settlement or Manager plan routing and remain requested.
-    assert "FORWARD_PROGRESS=true" in prompt
-    assert "PLAN_SIGNAL=continue" in prompt
-    assert "plan_alternative" in prompt
+    assert "forward_progress" in prompt
+    assert "replan_review" in prompt
+    assert "alternative" in prompt
 
 
 def test_the_verdict_vocabulary_is_stated_once(monkeypatch):
@@ -327,13 +327,15 @@ def test_research_target_context_stays_compact(tmp_path, monkeypatch):
     assert stats["estimated_tokens"] < 340
 
 
-def test_reviewer_prompt_uses_a_minimal_prose_footer(monkeypatch) -> None:
+def test_reviewer_prompt_uses_native_actions_without_a_prose_footer(monkeypatch) -> None:
     prompt = _prompt(measured=False, monkeypatch=monkeypatch)
 
     assert "ARGUS_ROLE_DECISION=" not in prompt
-    assert "Reason naturally" in prompt
-    assert "STATUS=done" in prompt
-    assert "REASON=requested outcome is materially complete" in prompt
+    assert "review naturally" in prompt
+    assert "approve_review" in prompt
+    assert "defer_review" in prompt
+    assert "STATUS=" not in prompt
+    assert "REASON=" not in prompt
     assert "JSON Schema" not in prompt
     assert "OUTPUT CONTRACT (STRICT)" not in prompt
 

@@ -29,11 +29,25 @@ from .daemon_lock import is_pid_running
 from .event_catalog import EventType, new_event
 from .knobs import resolve_budget_caps, resolve_knob
 from .paths import session_states_root
-from .usage import UsageLedger, UsageRecord, UsageSummary, summarize_usage, usage_pricing_reason
+from .usage import (
+    UsageJournalIntegrityError,
+    UsageLedger,
+    UsageRecord,
+    UsageSummary,
+    summarize_usage,
+    usage_pricing_reason,
+)
 
 COST_CONTROL_STATE_FILE = "cost-control.json"
 COST_CONTROL_LOCK_FILE = "cost-control.lock"
 COST_CONTROL_AUDIT_FILE = "cost-control.jsonl"
+# One marker per call whose unknown-cost settlement could not reach the state
+# file (ENOSPC, busy lock, untracked reservation). Unlike a reservation row it
+# does not depend on the owner PID or the day and blocks admission until the
+# call is acknowledged or a settled usage record appears.
+COST_CONTROL_FAILED_DIR = "cost-control.failed"
+ACCOUNTING_INTEGRITY_REASON = "accounting_integrity"
+FAILED_FINALIZATION_REASON = "unresolved_finalization_liability"
 
 # Version 2 retains explicit operator liabilities. Older writers must refuse
 # it rather than silently discard provisions when refreshing a snapshot.
@@ -49,6 +63,15 @@ class CostControlStateError(RuntimeError):
 
 class CostControlLockBusyError(CostControlStateError):
     """Raised when a bounded read cannot acquire the host-global lock."""
+
+
+class AccountingIntegrityError(CostControlStateError):
+    """A ledger this admission depends on holds malformed records."""
+
+    def __init__(self, cause: UsageJournalIntegrityError) -> None:
+        self.cause = cause
+        self.reason_code = cause.reason_code
+        super().__init__(f"{ACCOUNTING_INTEGRITY_REASON}: {cause}")
 
 
 def _local_day(timestamp: float) -> str:
@@ -250,14 +273,17 @@ def _project_records(project_root: Path, day_start: float) -> list[UsageRecord]:
     # without requiring a UI reader. Never migrate unrelated historical events
     # or take the usage lock while holding the cost lock (usage -> cost order).
     ledger = UsageLedger(project_root, migrate_legacy=False)
-    records = ledger.records(since=day_start)
-    if any(record.provider == "copilot" and (
-        record.cost_usd is None
-        or record.pricing_status in {"partial", "unpriced"}
-        or record.cost_basis == "premium_request"
-    ) for record in records):
-        ledger.ensure_copilot_usage_reconciled()
+    try:
         records = ledger.records(since=day_start)
+        if any(record.provider == "copilot" and (
+            record.cost_usd is None
+            or record.pricing_status in {"partial", "unpriced"}
+            or record.cost_basis == "premium_request"
+        ) for record in records):
+            ledger.ensure_copilot_usage_reconciled()
+            records = ledger.records(since=day_start)
+    except UsageJournalIntegrityError as exc:
+        raise AccountingIntegrityError(exc) from exc
     return records
 
 
@@ -443,11 +469,15 @@ def cost_admission_reason(
     """Shared preflight for automatic pause recovery; no provider call is made."""
     timestamp = time.time() if now is None else float(now)
     root = _global_root(global_root)
-    records = _global_records(root, _local_day_start(timestamp), state_timestamp=timestamp)
+    try:
+        records = _global_records(root, _local_day_start(timestamp), state_timestamp=timestamp)
+    except AccountingIntegrityError as exc:
+        return str(exc)
     caps = resolve_budget_caps(global_root=root)
     limit = caps.global_daily_cap_usd if cap is None else cap
-    return _budget_reason(records, _read_state(root, timestamp), limit,
-                          token_cap=caps.global_daily_token_cap)
+    state = _read_state(root, timestamp)
+    _fold_failed_finalizations(root, state, records)
+    return _budget_reason(records, state, limit, token_cap=caps.global_daily_token_cap)
 
 
 def acknowledge_unpriced_call(
@@ -477,6 +507,7 @@ def acknowledge_unpriced_call(
             if any(previous.get(key) != value for key, value in decision.items()):
                 raise ValueError("this call already has a different acknowledgement")
             return {"call_id": call_id, **previous}
+        _fold_failed_finalizations(root, state, records)
         unresolved = _unresolved_costs(records, list(state["unresolved"]))
         target = next((row for row in unresolved if row.get("call_id") == call_id
                        and row.get("project_id") == project_id), None)
@@ -529,6 +560,10 @@ def _global_records(root: Path, day_start: float, *, state_timestamp: float) -> 
     for project_root in project_roots:
         try:
             records.extend(_project_records(project_root, day_start))
+        except AccountingIntegrityError:
+            # Malformed accounting is not "one project's" problem: admission
+            # must refuse rather than sum a ledger with hidden records.
+            raise
         except Exception:  # noqa: BLE001 - one project cannot hide all spend
             continue
     return records
@@ -561,6 +596,103 @@ def _resolved_unpriced(
         }
         kept.extend(row for row in rows if str(row.get("call_id") or "") not in settled)
     return kept
+
+
+def _failed_finalization_dir(root: Path) -> Path:
+    return root / COST_CONTROL_FAILED_DIR
+
+
+def _record_failed_finalization(
+    reservation: CallBudgetReservation, unresolved_row: dict[str, Any], *, error: str,
+) -> Path:
+    """Durably retain an unknown liability whose state settlement failed.
+
+    The marker's existence is the barrier: creating the directory entry needs
+    no data blocks, so it usually survives the very ENOSPC that broke the
+    settlement. Its payload is best effort; an unreadable marker still blocks.
+    """
+    directory = _failed_finalization_dir(reservation.root)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{reservation.reservation_id}.json"
+    row = {
+        **unresolved_row,
+        "reservation_id": reservation.reservation_id,
+        "pid": os.getpid(),
+        "finalization_error": error,
+        "reason": f"{FAILED_FINALIZATION_REASON}: {unresolved_row.get('reason') or 'settlement failed'}"
+                  f" ({error})",
+    }
+    try:
+        fd = os.open(str(path), os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # A retried finalization of the same reservation is already retained.
+        return path
+    try:
+        payload = json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
+        try:
+            os.write(fd, payload)
+            os.fsync(fd)
+        except OSError:
+            # An empty marker still fails admission closed.
+            pass
+    finally:
+        os.close(fd)
+    return path
+
+
+def _failed_finalization_rows(root: Path) -> list[tuple[Path, dict[str, Any]]]:
+    directory = _failed_finalization_dir(root)
+    try:
+        paths = sorted(path for path in directory.iterdir() if path.suffix == ".json")
+    except OSError:
+        return []
+    rows: list[tuple[Path, dict[str, Any]]] = []
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            payload = None
+        if not isinstance(payload, dict) or not payload.get("call_id"):
+            payload = {
+                "call_id": f"failed-finalization:{path.stem}",
+                "project_id": "",
+                "pricing_status": "unknown",
+                "reason": f"{FAILED_FINALIZATION_REASON}: marker payload unreadable; "
+                          f"inspect and remove {path} after settling the call",
+            }
+        rows.append((path, {**payload, "blocking": True, "marker": str(path)}))
+    return rows
+
+
+def _fold_failed_finalizations(
+    root: Path, state: dict[str, Any], records: list[UsageRecord],
+) -> None:
+    """Carry failed-finalization markers into unresolved state, retiring settled ones.
+
+    Runs on every admission read so the liability outlives the owner PID, a
+    restart and the day rollover of the state file.
+    """
+    settled = {
+        record.call_id for record in records
+        if record.status == "denied" or record.pricing_status == "not_billed"
+        or (record.cost_usd is not None and record.pricing_status not in {"partial", "unpriced"})
+    }
+    acknowledgements = state.get("acknowledgements", {})
+    present = {str(row.get("call_id") or "") for row in state["unresolved"]}
+    for path, row in _failed_finalization_rows(root):
+        call_id = str(row["call_id"])
+        acknowledged = acknowledgements.get(call_id)
+        if call_id in settled or (
+            acknowledged and acknowledged.get("project_id") == row.get("project_id")
+        ):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            continue
+        if call_id not in present:
+            state["unresolved"].append(row)
+            present.add(call_id)
 
 
 def _append_audit(root: Path, event_type: EventType, **payload: Any) -> None:
@@ -709,8 +841,24 @@ def reserve_call_budget(
     # Reading distributed usage ledgers is the expensive part. Never do it
     # while holding the host-global state lock: concurrent daemons otherwise
     # form a lock convoy and even a greeting can wait tens of seconds.
-    project_records = _project_records(project, day_start) if project else []
-    global_records = _global_records(root, day_start, state_timestamp=timestamp)
+    try:
+        project_records = _project_records(project, day_start) if project else []
+        global_records = _global_records(root, day_start, state_timestamp=timestamp)
+    except AccountingIntegrityError as exc:
+        reason = str(exc)
+        _append_audit(
+            root,
+            EventType.BUDGET_RESERVATION_DENIED,
+            call_id=call_id,
+            project_id=project.name if project is not None else "",
+            mission_id=mission_key or None,
+            provider=provider,
+            model=model,
+            run_label=run_label,
+            reason=reason,
+            reason_code=exc.reason_code,
+        )
+        return None, reason
     if project is not None:
         projects_root = session_states_root(root).resolve()
         try:
@@ -766,6 +914,7 @@ def reserve_call_budget(
                 records=global_records,
             )
             state["reservations"] = reservations
+            _fold_failed_finalizations(root, state, global_records)
             state["unresolved"] = _unresolved_costs(global_records, list(state["unresolved"]))
             reason = _budget_reason(global_records, state, global_cap, token_cap=caps.global_daily_token_cap)
             if reason:
@@ -779,7 +928,9 @@ def reserve_call_budget(
     except CostControlLockBusyError:
         # Atomic state reads still include observed in-flight costs and unknown
         # settlements. Contention must not silently bypass either budget gate.
-        reason = _budget_reason(global_records, _read_state(root, timestamp), global_cap,
+        state = _read_state(root, timestamp)
+        _fold_failed_finalizations(root, state, global_records)
+        reason = _budget_reason(global_records, state, global_cap,
                                 token_cap=caps.global_daily_token_cap)
         if reason:
             return None, reason
@@ -888,6 +1039,7 @@ def _close_reservation(
         }
 
     state_updated = False
+    failure: Exception | None = None
     if reservation.state_tracked:
         try:
             with _locked(
@@ -920,10 +1072,24 @@ def _close_reservation(
                 state["unresolved"] = unresolved
                 _write_state(reservation.root, state, timestamp)
                 state_updated = True
-        except CostControlLockBusyError:
+        except CostControlLockBusyError as exc:
             # Usage is already durable in the project ledger. Do not delay the
             # user-visible result behind unrelated cost-state housekeeping.
             state_updated = False
+            failure = exc
+        except (OSError, CostControlStateError) as exc:
+            failure = exc
+    if record is None and unresolved_row is not None and not state_updated:
+        # No usage row exists for this call, so the state file was the only
+        # place holding its unknown liability. Retain it durably instead of
+        # leaving a reservation that vanishes with the owner PID.
+        detail = (
+            f"{type(failure).__name__}: {failure}" if failure is not None
+            else "reservation was not state-tracked"
+        )
+        _record_failed_finalization(reservation, unresolved_row, error=detail)
+    if failure is not None and not isinstance(failure, CostControlLockBusyError):
+        raise failure
 
     if release_reason:
         _append_audit(
@@ -965,6 +1131,7 @@ def cost_control_snapshot(
     try:
         with _locked(root, timeout_seconds=lock_timeout_seconds):
             state = _read_state(root, timestamp)
+            _fold_failed_finalizations(root, state, records)
             reservations = _prune_reservations(list(state["reservations"]), records=records)
             unresolved = _unresolved_costs(records, list(state["unresolved"]))
             state["reservations"] = reservations
@@ -976,6 +1143,7 @@ def cost_control_snapshot(
         # call is settling; prune only in the returned projection and leave the
         # writer-owned file untouched.
         state = _read_state(root, timestamp)
+        _fold_failed_finalizations(root, state, records)
         reservations = _prune_reservations(list(state["reservations"]), records=records)
         unresolved = _unresolved_costs(records, list(state["unresolved"]))
         snapshot_stale = True
@@ -1026,9 +1194,13 @@ def cost_control_snapshot(
 
 
 __all__ = [
+    "ACCOUNTING_INTEGRITY_REASON",
     "COST_CONTROL_AUDIT_FILE",
+    "COST_CONTROL_FAILED_DIR",
     "COST_CONTROL_LOCK_FILE",
     "COST_CONTROL_STATE_FILE",
+    "FAILED_FINALIZATION_REASON",
+    "AccountingIntegrityError",
     "CallBudgetReservation",
     "CostControlLockBusyError",
     "CostControlStateError",

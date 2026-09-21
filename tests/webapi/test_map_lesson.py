@@ -95,9 +95,7 @@ def test_two_stages_share_exact_bounded_sources_deadline_and_actual_efforts(monk
     assert sent["events"][0]["text_truncated"] is True
     assert sent["related_task_ids"] == ["b"]
     saved = value["cards"][0]
-    snapshot = saved["source_snapshot"]
-    assert snapshot["task"] == sent["task"] and snapshot["events"] == sent["events"]
-    assert snapshot["related_tasks"] == calls[0]["sources"]["related_tasks"]
+    assert "source_snapshot" not in saved and "progress_source" not in saved
     assert saved["teaching_process"]["outline"] == outline(learning_path)
     assert saved["teaching_process"]["kind"] == ("learning_plan_then_lesson" if learning_path else "source_outline_then_lesson")
     assert "teaching_review" not in saved

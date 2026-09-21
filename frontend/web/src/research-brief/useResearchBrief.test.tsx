@@ -25,8 +25,6 @@ const neighbor = { id: 'b', title: 'Neighbor', objective: 'Old neighboring goal'
 function relatedCopy(related: typeof neighbor | null = neighbor, generatedAt = 10): MapCopy {
   const copy = completedCopy(source.tasks[0], ['start-a', 'main-a'], generatedAt);
   copy.cards.a.reader_brief = { ...copy.cards.a.reader_brief!, next: related ? `${related.objective}: ${related.status}` : 'No neighboring assignment remains.' };
-  copy.cards.a.source_snapshot = { version: 2, card_key: 'a', task_id: 'a', captured_at: generatedAt - 1,
-    task: { objective: source.tasks[0].objective }, events: [], source_ids: [], related_tasks: related ? [{ ...related }] : [] };
   return copy;
 }
 
@@ -75,7 +73,7 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(result.generating).toBe(false);
   });
 
-  it.each([null, 'source-first'] as const)('rechecks hidden related goals, status and deletion once per cursor in %s mode', async preview => {
+  it.each([null, 'source-first'] as const)('does not rewrite saved copy for hidden neighbors or cursor changes in %s mode', async preview => {
     vi.stubGlobal('window', { location: { search: preview ? '?reader_preview=source-first' : '' } });
     const copyKey = briefCopyKey('s-research', 'en-US');
     const props = inputs();
@@ -91,12 +89,11 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(generate).not.toHaveBeenCalled();
     act(() => renderer!.update(tree(props)));
     await flush(); await flush();
-    expect(generate).toHaveBeenCalledTimes(1);
-    expect(generate.mock.calls[0][5]).toBe(preview);
+    expect(generate).not.toHaveBeenCalled();
     expect(result.needsUpdate).toBe(false);
     act(() => { renderer!.unmount(); renderer = undefined; });
     await mount(props);
-    expect(generate).toHaveBeenCalledTimes(1); // The receipt survives remount.
+    expect(generate).not.toHaveBeenCalled();
 
     const publish = async (cursor: string, related: typeof neighbor | null) => {
       vi.mocked(api.liveMap).mockResolvedValue({ ...source, cursor, incremental: true,
@@ -108,44 +105,34 @@ describe('semantic generation and shared cache lifecycle', () => {
       await flush(); await flush();
     };
     await publish('unrelated-change', neighbor);
-    expect(generate).toHaveBeenCalledTimes(2);
-    expect(result.card).toEqual(before.cards.a); // Cached verification needs no new card version.
+    expect(generate).not.toHaveBeenCalled();
+    expect(result.card).toEqual(before.cards.a);
     expect(result.needsUpdate).toBe(false);
 
-    let finish!: (copy: MapCopy) => void;
-    generate.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     const edited = { ...neighbor, objective: 'New neighboring goal' };
     await publish('neighbor-goal-changed', edited);
-    expect(generate).toHaveBeenCalledTimes(3);
-    expect(result.needsUpdate).toBe(true);
-    expect(result.generating).toBe(true);
-    expect(result.card).toEqual(before.cards.a);
-    const changed = relatedCopy(edited, 11);
-    await act(async () => { finish(changed); });
-    await flush(); await flush();
-    expect(result.brief?.next).toContain(edited.objective);
+    expect(generate).not.toHaveBeenCalled();
     expect(result.needsUpdate).toBe(false);
-    expect(generate).toHaveBeenCalledTimes(3); // A new copy stamp does not trigger itself.
+    expect(result.generating).toBe(false);
+    expect(result.card).toEqual(before.cards.a);
 
     const cancelled = { ...edited, status: 'cancelled' };
-    generate.mockResolvedValue(relatedCopy(cancelled, 12));
     await publish('neighbor-cancelled', cancelled);
-    expect(generate).toHaveBeenCalledTimes(4);
-    expect(result.brief?.next).toContain('cancelled');
-    generate.mockResolvedValue(relatedCopy(null, 13));
+    expect(generate).not.toHaveBeenCalled();
     await publish('neighbor-deleted', null);
-    expect(generate).toHaveBeenCalledTimes(5);
-    expect(result.card?.source_snapshot?.related_tasks).toEqual([]);
+    expect(generate).not.toHaveBeenCalled();
+    expect(result.card).toEqual(before.cards.a);
     expect(result.needsUpdate).toBe(false);
     expect(client.getQueryData<Dataset>(liveKey)?.tasks.map(task => task.id)).toEqual(['a']);
     expect(result.loadedEvents?.every(event => event.item_id === 'a')).toBe(true);
     expect(retained).toEqual(before);
     await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
-    expect(generate).toHaveBeenCalledTimes(5);
+    expect(generate).not.toHaveBeenCalled();
   });
 
-  it.each(['explicit', 'server-delay'] as const)('keeps coalesced hidden-source copy pending until %s retry on the same cursor', async retryMode => {
+  it.each(['explicit', 'server-delay'] as const)('keeps coalesced stale copy pending until %s retry on the same input', async retryMode => {
     const retained = relatedCopy();
+    retained.cards.a.event_ids = ['start-a'];
     client.setQueryData(briefCopyKey('s-research', 'en-US'), retained);
     const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue({ ...retained, retry_after: 25 });
     await mount();
@@ -170,8 +157,9 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(generate).toHaveBeenCalledTimes(2);
   });
 
-  it('shares an in-flight check and lets its late response acknowledge only the captured cursor', async () => {
+  it('shares an in-flight generation without buying another explanation for intervening cursor changes', async () => {
     const retained = relatedCopy();
+    retained.cards.a.event_ids = ['start-a'];
     client.setQueryData(briefCopyKey('s-research', 'en-US'), retained);
     const props = inputs();
     const liveKey = briefLiveKey(props.sid, briefSelection(props.snapshot, props.view));
@@ -191,16 +179,17 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(result.generating).toBe(true);
     await act(async () => { finish(relatedCopy(neighbor, 11)); });
     await flush(); await flush();
-    expect(generate).toHaveBeenCalledTimes(2);
-    expect(result.brief?.next).toContain('Latest hidden goal');
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.brief?.next).toContain(neighbor.objective);
     expect(result.needsUpdate).toBe(false);
     await flush(); await flush();
-    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
-  it('does not let an old related-source receipt confirm the new review configuration', async () => {
+  it('does not let an old generation receipt confirm the new review configuration', async () => {
     const key = briefCopyKey('s-research', 'en-US');
     const retained = relatedCopy();
+    retained.cards.a.event_ids = ['start-a'];
     retained.model_revision = 'review-old'; retained.cards.a.model_revision = 'review-old';
     client.setQueryData(key, retained);
     let finishOld!: (copy: MapCopy) => void;
@@ -285,12 +274,6 @@ describe('semantic generation and shared cache lifecycle', () => {
     const retained = completedCopy(source.tasks[0], ['start-a', 'main-a'], 8);
     retained.model_revision = previousAttempt === 'completed' ? 'review-medium' : 'earlier-pipeline';
     retained.cards.a.model_revision = retained.model_revision;
-    retained.cards.a.source_snapshot = {
-      version: 1, card_key: 'a', task_id: 'a', captured_at: 7,
-      task: { title: source.tasks[0].title, objective: source.tasks[0].objective, attempt: 1 },
-      source_ids: ['start-a', 'main-a'],
-      events: source.events.filter(event => ['start-a', 'main-a'].includes(event.id)).map(event => ({ ...event })),
-    };
     const beforeCard = structuredClone(retained.cards.a);
     let stored: MapCopy = previousAttempt === 'completed'
       ? { cards: {}, relations: [], available: true, version: READER_BRIEF_VERSION, model_revision: 'review-medium' }
@@ -330,12 +313,11 @@ describe('semantic generation and shared cache lifecycle', () => {
     const updated = completedCopy(source.tasks[0], ['start-a', 'main-a'], 12);
     updated.model_revision = 'review-high';
     updated.cards.a.model_revision = 'review-high';
-    updated.cards.a.source_snapshot = { ...retained.cards.a.source_snapshot, captured_at: 11 };
     await act(async () => { stored = updated; finish(updated); });
     await flush();
     expect(result.needsUpdate).toBe(false);
     expect(result.card?.model_revision).toBe('review-high');
-    expect(result.card?.source_snapshot?.events).toEqual(beforeCard.source_snapshot?.events);
+    expect(result.card?.event_ids).toEqual(beforeCard.event_ids);
     expect(source).toEqual(beforeSource);
     await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
     expect(generate).toHaveBeenCalledTimes(2);

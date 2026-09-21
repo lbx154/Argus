@@ -209,13 +209,7 @@ def test_vertical_without_declaration_takes_the_default_path(tmp_path: Path) -> 
 
 
 def _done_review() -> CannedResponse:
-    return CannedResponse(message=json.dumps({
-        "status": "done",
-        "reason": "Verified.",
-        "next_action": "None.",
-        "round_summary_markdown": "# Review\n\n- verified\n",
-        "completion_summary_markdown": "Verified.",
-    }))
+    return CannedResponse(review_action=('approve_review', {'review': ('Verified.') + '\n\n' + ('None.')}))
 
 
 def _build_loop(

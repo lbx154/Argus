@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from argus.core.models import RunnerResult
@@ -18,16 +17,19 @@ class _Backend:
     def run_exec(self, **kwargs) -> RunnerResult:
         self.prompt = kwargs["prompt"]
         self.options = kwargs["options"]
-        return RunnerResult(
-            exit_code=0,
-            agent_messages=[json.dumps({
-                "status": self.status,
-                "reason": "Independent judgment from the inspected evidence.",
-                "next_action": "" if self.status == "done" else "Choose a better direction.",
-                "operator_question": None,
-                "venue_review": self.venue_review,
-            })],
+        from argus.core.role_tool_bridge import bridge_request
+
+        payload = {"review": "Independent judgment from the inspected evidence."}
+        if self.venue_review:
+            payload["recommendation"] = self.venue_review["recommendation"]
+        if self.status == "replan_requested":
+            payload["authority_impact"] = "technical"
+        bridge_request(
+            "ARGUS_PLUGIN_REVIEW",
+            "approve_review" if self.status == "done" else "replan_review",
+            payload, env=self.options.extension_env,
         )
+        return RunnerResult(exit_code=0)
 
 
 def test_research_target_is_prompt_context_not_output_schema(tmp_path: Path) -> None:
