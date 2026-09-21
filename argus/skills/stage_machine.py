@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from ..core.pipeline_state import read_pipeline_state, write_pipeline_state
 

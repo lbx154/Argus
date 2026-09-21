@@ -25,7 +25,6 @@ from ._constants import (
 )
 from ._planning_cycle_helpers import (
     _PlanCycleState,
-    _research_project_done_issue,
     _revision_reason,
     completion_rejection_circuit_path,
     load_completion_rejection_circuit,

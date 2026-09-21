@@ -9,7 +9,7 @@ from argus.core.vertical_contract import VerticalLibraryContext
 from argus.skills.loop_skill_library import SkillLibraryMixin
 from argus.skills.loop_state import MissionContext
 from argus.skills.vertical_select import reset_stage_for_new_intent
-from argus.team import pool, task_board
+from argus.team import task_board
 from argus.verticals.research.idea_portfolio import (
     SELECTION_POLICY,
     TEAM_ID,
