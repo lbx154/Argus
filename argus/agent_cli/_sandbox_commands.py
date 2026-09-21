@@ -219,6 +219,45 @@ _READ_ONLY_VALUE_SWITCHES = frozenset({
 })
 
 
+_COPILOT_IDENTITY_FLAGS = ("--resume", "--session-id", "--continue")
+
+
+def _copilot_session_identity_args(
+    *,
+    resume_thread_id: str | None,
+    provider_session_id: str | None,
+    extra_args: list[str],
+) -> list[str]:
+    """Argv that names the Copilot session this call is bound to.
+
+    A resumed call keeps its original identity (``--resume``); a genuinely new
+    session receives the identity Argus pre-allocated (``--session-id``), so
+    the session the CLI writes usage under is known before the process exists.
+    Conflicting identities never resolve silently in favour of one of them.
+    """
+    resume = str(resume_thread_id or "").strip()
+    bound = str(provider_session_id or "").strip()
+    if resume and bound and resume != bound:
+        raise ValueError(
+            "conflicting Copilot session identity: "
+            f"resume={resume!r} pre-bound={bound!r}"
+        )
+    if not resume and not bound:
+        return []
+    supplied = [
+        arg for arg in extra_args
+        if str(arg).split("=", 1)[0] in _COPILOT_IDENTITY_FLAGS
+    ]
+    if supplied:
+        raise ValueError(
+            "conflicting Copilot session identity flags in extra args: "
+            f"{supplied!r} while the call is bound to {resume or bound!r}"
+        )
+    if resume:
+        return ["--resume", resume]
+    return ["--session-id", bound]
+
+
 def _read_only_extra_args(args: list[str], *, backend: RunnerBackend) -> list[str]:
     """Drop any extra argument capable of broadening a read-only Manager call."""
     cleaned: list[str] = []
@@ -605,8 +644,13 @@ class CommandBuilderMixin:
             )
         if merged_extra_args:
             command.extend(merged_extra_args)
-        if resume_thread_id:
-            command.extend(["--resume", resume_thread_id])
+        command.extend(
+            _copilot_session_identity_args(
+                resume_thread_id=resume_thread_id,
+                provider_session_id=getattr(options, "provider_session_id", None),
+                extra_args=merged_extra_args,
+            )
+        )
         # Copilot CLI (@github/copilot) reads the prompt from STDIN when no
         # ``-p/--prompt <text>`` argv is given (non-interactive because stdin is
         # not a TTY). We deliberately DO NOT pass the prompt via argv: a large

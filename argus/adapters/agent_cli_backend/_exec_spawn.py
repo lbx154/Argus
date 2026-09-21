@@ -23,6 +23,10 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from ...agent_cli.copilot_session import (
+    copilot_cli_supports_session_id,
+    new_copilot_session_id,
+)
 from ...core.event_catalog import EventType
 from ...core.models import RunnerResult
 from ...core.runner_errors import (
@@ -30,7 +34,12 @@ from ...core.runner_errors import (
     is_model_catalog_startup_error,
     result_has_pre_provider_refusal,
 )
-from ...core.runner_receipts import is_provider_turn_cap_receipt
+from ...core.runner_receipts import (
+    ACCOUNTING_PENDING_LOST_SESSION_IDENTITY,
+    ACCOUNTING_PENDING_SESSION_IDENTITY_CONFLICT,
+    accounting_pending_receipt,
+    is_provider_turn_cap_receipt,
+)
 from ...core.secret_guard import redact_secrets_text
 from ...core.token_usage import extract_token_usage
 from ...provider_integrations.authorization_retry import (
@@ -74,6 +83,7 @@ def log_start_record(backend: Any, ctx: "_ExecContext") -> None:
         "reasoning_effort": ctx.options.reasoning_effort,
         "working_dir": ctx.options.working_dir,
         "resume_thread_id": ctx.resume_thread_id,
+        "provider_session_id": getattr(ctx, "provider_session_id", None),
         "ts": time.time(),
     }
     if ctx.io_mode == "compact":
@@ -91,6 +101,44 @@ def log_start_record(backend: Any, ctx: "_ExecContext") -> None:
         backend._log_agent_io(_raw_transcript_path(ctx.log_path), start_row)
 
 
+def bind_provider_session(ctx: "_ExecContext", cli_options: Any) -> str | None:
+    """Bind a NEW Copilot CLI session to this call before the process exists.
+
+    Resumed calls keep their original identity and never receive a replacement.
+    The warm ACP path owns its own session, and a CLI whose help text lacks
+    ``--session-id`` cannot honour a pre-allocated identity; both leave the
+    binding unset and are reported, so nothing pretends to be durable. The
+    identity is written to the ``agent.io.start`` row and returned on every
+    exit path, including the ones with no terminal ``result`` (#129).
+    """
+    backend = ctx.backend
+    if not backend._is_copilot or ctx.resume_thread_id:
+        return None
+    runner = backend._runner
+    option_fields = getattr(type(cli_options), "__dataclass_fields__", {})
+    if "provider_session_id" not in option_fields:
+        log.warning(
+            "installed runner options cannot carry a Copilot session identity; "
+            "call %s is bound only by its terminal result", ctx.call_id,
+        )
+        return None
+    acp_enabled = getattr(runner, "_acp_enabled", None)
+    if callable(acp_enabled) and acp_enabled(ctx.run_label, cli_options):
+        return None
+    executable = getattr(runner, "agent_bin", None) or "copilot"
+    if not copilot_cli_supports_session_id(executable):
+        log.warning(
+            "Copilot CLI %s does not advertise --session-id; call %s is bound "
+            "only by its terminal result and loses its session if interrupted",
+            executable, ctx.call_id,
+        )
+        return None
+    session_id = new_copilot_session_id()
+    ctx.provider_session_id = session_id
+    cli_options.provider_session_id = session_id
+    return session_id
+
+
 def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     """Execute the provider subprocess and return a finalised ``RunnerResult``.
 
@@ -103,8 +151,9 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     backend = ctx.backend
 
     # ------------------------------------------------------------------ #
-    # Log I/O start                                                        #
+    # Bind the provider session, then log I/O start                        #
     # ------------------------------------------------------------------ #
+    bind_provider_session(ctx, cli_options)
     log_start_record(backend, ctx)
 
     # ------------------------------------------------------------------ #
@@ -147,7 +196,7 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             ctx,
             RunnerResult(
                 exit_code=1,
-                thread_id=ctx.resume_thread_id,
+                thread_id=ctx.resume_thread_id or ctx.provider_session_id,
                 fatal_error=exc.cause,
                 stop_kind="permanent_error",
             ),
@@ -207,6 +256,9 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             ctx,
             RunnerResult(
                 exit_code=-1,
+                # The bound identity outlives the exception; failed work
+                # stays failed, but its usage remains reachable.
+                thread_id=ctx.provider_session_id,
                 fatal_error=f"{type(exc).__name__}: {exc}",
                 stop_kind="backend_unavailable",
             ),
@@ -217,11 +269,20 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     # ------------------------------------------------------------------ #
     # Read Copilot session-store usage and translate result                #
     # ------------------------------------------------------------------ #
+    # A CLI that named another session than the one this call was bound to
+    # proves nothing about this call's usage: look nothing up, bind nothing.
+    ctx.session_identity_conflict = (
+        str(getattr(cli_result, "session_identity_conflict", None) or "") or None
+    )
+    resume_thread_id = None if ctx.session_identity_conflict else ctx.resume_thread_id
+    bound_session_id = (
+        None
+        if ctx.session_identity_conflict
+        else getattr(cli_result, "thread_id", None) or resume_thread_id
+    )
     copilot_usage = read_copilot_usage_since(
         copilot_usage_cursor,
-        session_id=(
-            getattr(cli_result, "thread_id", None) or ctx.resume_thread_id
-        ),
+        session_id=bound_session_id,
     )
     # The first invocation can create the token-usage table after the cursor.
     ctx.copilot_token_billing_expected |= copilot_store_supports_token_billing(
@@ -230,7 +291,7 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     try:
         translated = backend._translate_result(
             cli_result,
-            resume_thread_id=ctx.resume_thread_id,
+            resume_thread_id=resume_thread_id,
             copilot_usage=copilot_usage,
         )
     except Exception as exc:  # noqa: BLE001
@@ -249,10 +310,7 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             ctx,
             RunnerResult(
                 exit_code=-1,
-                thread_id=(
-                    getattr(cli_result, "thread_id", None)
-                    or ctx.resume_thread_id
-                ),
+                thread_id=bound_session_id,
                 fatal_error=f"result translation failed: {exc}",
                 stop_kind="backend_unavailable",
                 usage_model=(
@@ -347,7 +405,9 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         "backend": getattr(backend._runner, "backend", ""),
         "model": translated.usage_model or ctx.options.model,
         "exit_code": getattr(cli_result, "exit_code", None),
-        "thread_id": getattr(cli_result, "thread_id", None),
+        "thread_id": bound_session_id,
+        "provider_session_id": ctx.provider_session_id,
+        "session_identity_conflict": ctx.session_identity_conflict,
         "turn_completed": getattr(cli_result, "turn_completed", None),
         "turn_failed": getattr(cli_result, "turn_failed", None),
         "fatal_error": redact_secrets_text(
@@ -405,6 +465,33 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             getattr(cli_result, "command", []) or []
         ),
     })
+    # A failed Copilot call that streamed provider output but whose session
+    # store usage is unreachable is accounting pending for a named cause, not
+    # a spending-limit stop. The cause travels with the persisted error so the
+    # strict-admission refusal says so; it settles nothing and never turns
+    # failed work into completed work. A silent pre-turn CLI refusal keeps its
+    # exact diagnostic, which the startup-refusal classifier matches verbatim.
+    persisted_failure_text = safe_failure_text
+    if (
+        backend._is_copilot
+        and failed
+        and not pre_provider_refusal
+        and copilot_usage is None
+        and (stdout_count > 0 or event_count > 0)
+    ):
+        pending_cause = (
+            ACCOUNTING_PENDING_SESSION_IDENTITY_CONFLICT
+            if ctx.session_identity_conflict
+            else ACCOUNTING_PENDING_LOST_SESSION_IDENTITY
+            if not bound_session_id
+            else ""
+        )
+        if pending_cause:
+            persisted_failure_text = "\n".join(
+                part for part in (
+                    safe_failure_text, accounting_pending_receipt(pending_cause),
+                ) if part
+            )
     # Full raw frames are already persisted exactly once. Flush and close
     # that stream before writing the summary so replay order is start →
     # stream* → complete → usage.
@@ -420,6 +507,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             if failed
             else "completed"
         ),
-        error=safe_failure_text,
+        error=persisted_failure_text,
         startup_receipt=complete_row,
     )

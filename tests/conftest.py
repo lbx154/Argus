@@ -169,6 +169,24 @@ def _forbid_project_state_in_the_checkout() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _no_real_copilot_help_probe(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Never run the installed Copilot CLI to feature-detect ``--session-id``.
+
+    The adapter probes the executable's help text once per process before it
+    binds a new session identity. A developer machine with Copilot on PATH
+    would otherwise make the suite spawn a real Node binary and change which
+    argv/identity path every Copilot-backed test exercises. Default to "no
+    such flag"; a test that exercises the binding stubs the probe itself.
+    """
+    from argus.agent_cli import copilot_session as _copilot_session
+
+    _copilot_session.reset_copilot_session_id_support_cache()
+    monkeypatch.setattr(_copilot_session, "_copilot_help_text", lambda executable: "")
+    yield
+    _copilot_session.reset_copilot_session_id_support_cache()
+
+
+@pytest.fixture(autouse=True)
 def _no_stop_leaks_between_tests():
     """The process-wide stop flag outlives a test by design — it exists so a
     wait deep inside a mission can see a signal. One test setting it once made
