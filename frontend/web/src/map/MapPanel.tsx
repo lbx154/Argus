@@ -61,6 +61,7 @@ import { BranchNode, BRANCH_FRAME, GROUP_FRAME, type BranchFlowNode } from "./Br
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
 import { useMapLines } from "./useMapLines";
+import { useMapWords } from "./useMapWords";
 import { useSelectedFoundation } from '../research-brief/foundation';
 import { MapComposer, type MapComposerProps } from "./MapComposer";
 import { referenceText, type CardReference } from "./presentation";
@@ -250,6 +251,7 @@ export function MapCanvas({
   );
   // Asked for whether or not the project is still running: a finished map is
   // the one that gets read, and its lines are written once, in one small call.
+  const cardWords = useMapWords(data, zh, !readOnly && !data.history_loading, sessionId);
   const lineNotes = useMapLines(data, unstated, zh, !readOnly && !data.history_loading, sessionId);
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh, lineNotes),
@@ -546,8 +548,8 @@ export function MapCanvas({
   // cycling, so the three can never disagree about what "a match" is.
   const cardSearchText = useCallback(
     (card: { task: { id: string; title: string; objective?: string }; part: number }) =>
-      `${card.task.title} ${card.task.objective ?? ""} ${copy?.cards[card.task.id]?.title || ""} ${copy?.cards[card.task.id]?.summary || ""} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`.toLowerCase(),
-    [copy, zh],
+      `${card.task.title} ${card.task.objective ?? ""} ${copy?.cards[card.task.id]?.title || ""} ${copy?.cards[card.task.id]?.summary || ""} ${cardWords[card.task.id]?.title || ""} ${cardWords[card.task.id]?.summary || ""} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`.toLowerCase(),
+    [copy, cardWords, zh],
   );
   const matches = useMemo(
     () =>
@@ -714,6 +716,7 @@ export function MapCanvas({
             [n.data.task.id, ...n.data.layout.steps.map((s) => s.id)]
               .filter((id) => copy.cards[id]).map((id) => [id, copy.cards[id]]),
           ) } : undefined,
+          words: cardWords[n.data.task.id],
           readerCopy: readingCopy?.nodeId === n.id ? readerSelection : undefined,
           focused: n.id === camera.focusId,
           detailed: camera.detailed && n.id === camera.focusId,
@@ -757,6 +760,7 @@ export function MapCanvas({
       query,
       cardSearchText,
       copy,
+      cardWords,
       readingCopy,
       readerSelection,
       zh,

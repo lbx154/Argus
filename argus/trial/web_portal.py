@@ -492,7 +492,7 @@ def permitted(path: str, method: str) -> bool:
         return bool(
             PROJECT_WRITES.fullmatch(path) or PLUGIN_WRITES.fullmatch(path)
             or VERTICAL_WRITES.fullmatch(path) or path == "/api/daemons"
-            or re.fullmatch(r"/api/map-(?:copy|lines)/(?:project|dataset)/[^/]+", path)
+            or re.fullmatch(r"/api/map-(?:copy|lines|cards)/(?:project|dataset)/[^/]+", path)
             or re.fullmatch(r"/api/trash/[^/]+/restore", path)
         )
     return method in {"PATCH", "DELETE"} and bool(re.fullmatch(r"/api/projects/[^/]+", path))

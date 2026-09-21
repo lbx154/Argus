@@ -925,6 +925,9 @@ export const api = {
     return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
   },
   mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, foundationId?: string | null) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview, foundationId), signal),
+  /** A short title and a sentence for each task's card. `write` also has the missing ones written. */
+  mapCardWords: (source: string, name: string, body: { tasks: string[]; locale: string; write: boolean }, signal?: AbortSignal, sessionId?: string) =>
+    postJson<import('./map/useMapWords').MapCardWords>(`/api/map-cards/${source}/${encodeURIComponent(name)}${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`, body, signal),
   /** What the lines between tasks say. `write` also has the missing notes written. */
   mapLines: (source: string, name: string, body: { pairs: Array<{ source: string; target: string }>; locale: string; write: boolean }, signal?: AbortSignal, sessionId?: string) =>
     postJson<import('./map/useMapLines').MapLines>(`/api/map-lines/${source}/${encodeURIComponent(name)}${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`, body, signal),

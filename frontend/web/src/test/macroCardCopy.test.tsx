@@ -99,6 +99,37 @@ describe("macro card copy", () => {
     expect(markup).toContain("Removed a fingerprint from one footnote"); // retained inside execution history
     expect(markup.match(/Build a reusable date workflow/g)).toHaveLength(2); // text plus title tooltip
   });
+  it("says one thing under its title once the map's words exist, and the state once", () => {
+    const ended = { ...task, status: "done", objective: "Implement and execute downstream long-context evaluation" };
+    const scope = "This execution ended; the overall goal is not complete yet.";
+    const bare = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], { task: ended, live: false, completionScope: scope })} />);
+    // Nothing written yet: the planner's specification and the scope sentence stand in.
+    expect(bare).toContain('class="map-card-objective"');
+    expect(bare).toContain(scope);
+    const written = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], {
+      task: ended, live: false, completionScope: scope,
+      words: { title: "Downstream long-context evaluation", summary: "Qasper F1 reached 4.15 against 3.76 for the baseline." },
+      // An explanation written before the execution ended may claim more than happened.
+      copy: { cards: { parent: { title: "Accepted evaluation", summary: "All goals accepted.", detail: "d", generated_at: 1, task_status: "done" } } },
+    })} />);
+    expect(written).toContain("Downstream long-context evaluation");
+    expect(written).toContain("Qasper F1 reached 4.15");
+    expect(written).not.toContain("Accepted evaluation");
+    expect(written).not.toContain("All goals accepted.");
+    expect(written).not.toContain('class="map-card-objective"');
+    // The sentence about the goal is the chip's tooltip now, not a second line on the card.
+    expect(written.match(/class="map-card-copy">.*?<\/div>/)?.[0]).not.toContain(scope);
+    expect(written).not.toContain('class="map-card-recorded"');
+    expect(written.match(/class="map-status"/g)).toHaveLength(1);
+  });
+  it("keeps a reader's own turn in the reader's words", () => {
+    const turn = { ...task, kind: "turn" as const, status: "done", title: "How many lines is the README?" };
+    const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], {
+      task: turn, live: false, words: { title: "Count README lines", summary: "One line." },
+    })} />);
+    expect(markup).toContain("How many lines is the README?");
+    expect(markup).not.toContain("Count README lines");
+  });
   it("keeps yesterday's summary when the status drifted and hints at the refresh", () => {
     const markup = renderToStaticMarkup(
       <MacroTaskNode

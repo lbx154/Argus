@@ -44,6 +44,9 @@ export type MacroData = MapCard & {
   focused: boolean;
   detailed: boolean;
   copy?: Pick<MapCopy, "cards" | "version">;
+  /** A short title and a sentence for this task's card, written for the whole
+   * map at once. They stand in until the task's own explanation exists. */
+  words?: { title: string; summary: string };
   readCopy?: (nodeId: string, key: string | null) => void;
   readerCopy?: MapReaderSelection;
   live: boolean;
@@ -269,7 +272,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     const index = saved?.event_ids?.indexOf(step.id) ?? -1;
     return currentStep(step).revision && index >= 0 && saved?.event_revisions?.[index] === currentStep(step).revision ? saved : undefined;
   };
-  const title = data.completionScope ? task.title : copy[task.id]?.title || task.title;
+  // A reader's own turn keeps the words the reader used.
+  const words = task.kind === "turn" ? undefined : data.words;
+  // The words written for the map say what a task is about and never claim an
+  // outcome, so they may head a card whose execution ended short of its goal;
+  // an explanation's own title may not.
+  const title = (data.completionScope ? "" : copy[task.id]?.title) || words?.title || task.title;
   const range = zh
     ? `环节 ${data.start}–${data.end} / ${data.totalSteps}`
     : `Steps ${data.start}–${data.end} / ${data.totalSteps}`;
@@ -283,8 +291,15 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           .at(-1)
       : undefined;
   const objectiveVisible = isLastPart && task.objective && task.objective.trim() !== task.title.trim();
-  const cardSummary = data.completionScope || (isLastPart ? task.pending_question : "") || partSummary ||
-    copy[task.id]?.summary || task.pending_question ||
+  // What has been written about this task. An explanation written before the
+  // execution ended short of its goal may claim more than happened, so only
+  // the map's own words (written knowing how the execution ended) stand then.
+  const written = (data.completionScope ? "" : copy[task.id]?.summary) || words?.summary || "";
+  // A card says one thing under its title: what the task found. That its
+  // execution ended short of the goal is on the state chip; the sentence for
+  // it fills the card only while nothing has been written.
+  const cardSummary = (isLastPart ? task.pending_question : "") || partSummary ||
+    written || data.completionScope || task.pending_question ||
     humanizeHarnessNote(task.summary || "", zh).summary || task.summary ||
     (!objectiveVisible ? task.objective : "");
   // At overview a card has one line for its explanation, so the line says what
@@ -292,7 +307,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   // reads the same on every such card and would fill a map with one repeated
   // sentence; it stays on the larger card, and the state mark carries it here.
   const overviewSummary = (isLastPart ? task.pending_question : "") || partSummary ||
-    copy[task.id]?.summary || (objectiveVisible ? task.objective : "") ||
+    copy[task.id]?.summary || words?.summary || (objectiveVisible ? task.objective : "") ||
     humanizeHarnessNote(task.summary || "", zh).summary || task.summary || "";
   const shownSummary = density === 'compact' ? overviewSummary || cardSummary : cardSummary;
   const scale = Math.min(
@@ -492,7 +507,10 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               </span>
             )}
           </h3>
-          {objectiveVisible && (
+          {/* The planner's own specification stands in only while nothing has
+              been written about the task: beside a written sentence it is a
+              second, longer way of saying the title. */}
+          {objectiveVisible && !written && (
             <p className="map-card-objective" title={task.objective}>{task.objective}</p>
           )}
           {shownSummary && (density === 'compact' || shownSummary.trim() !== (objectiveVisible ? task.objective.trim() : "")) &&
@@ -517,12 +535,23 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               })}
             </div>
           )}
-          <div className="map-card-stages">
-            {isLastPart && data.live && !data.paused && ACTIVE.has(task.status)
-              ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
-              : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
-            {!!data.historyCount && teamSteps.length > 0 && <span className="map-card-team-summary">{teamSummary}</span>}
-          </div>
+          {(() => {
+            const live = isLastPart && data.live && !data.paused && ACTIVE.has(task.status);
+            // The state is on the chip at the top of the card; it is not said
+            // again down here unless the card has no chip.
+            const chip = state !== "recorded" || !!data.completionScope;
+            const team = !!data.historyCount && teamSteps.length > 0;
+            if (!live && isLastPart && chip && !team) return null;
+            return (
+              <div className="map-card-stages">
+                {live
+                  ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
+                  : isLastPart && chip ? null
+                  : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
+                {team && <span className="map-card-team-summary">{teamSummary}</span>}
+              </div>
+            );
+          })()}
           {isLastPart && teamSteps.length > 0 && (
             <span className="map-card-teambar" aria-hidden>
               <i

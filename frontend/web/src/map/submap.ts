@@ -144,7 +144,10 @@ export function readableRecord(value: string | undefined | null): string {
       (line) =>
         !/^(?:Decision\s*:|(?:MILESTONE_STATUS|NEXT_OWNER|OPERATOR_QUESTION|OPERATOR_OPTIONS)\s*=)/i.test(
           line.trim(),
-        ),
+        ) &&
+        // A line that is one JSON object is an instruction to the harness
+        // ({"wait_for": "subagent", ...}), not something said to a reader.
+        !/^\{\s*"[\w-]+"\s*:.*\}$/.test(line.trim()),
     )
     .map((line) =>
       line
@@ -203,9 +206,11 @@ function stepArgument(label: string): string {
       return typeof first === "string" ? first.trim() : "";
     }
   } catch {
-    // Not JSON: the argument is the text itself.
+    // Not JSON, or JSON the recorder cut short.
   }
-  return raw;
+  if (!/^[{[]/.test(raw)) return raw;
+  // Cut-short JSON still names what was touched; a reader is never shown the braces.
+  return /"(?:path|file|file_path|pattern|query|url|command)"\s*:\s*"([^"]+)/.exec(raw)?.[1] ?? "";
 }
 
 type StepVerb = "read" | "search" | "fetch" | "edit" | "run" | "other";
@@ -237,14 +242,14 @@ export function stepPhrase(step: WorkStep, zh: boolean): string {
     : verb === "run"
       ? zh ? `运行命令 \`${command}\`` : `Ran \`${command}\``
       : verb === "read"
-        ? zh ? `查看 ${argument || label}` : `Read ${argument || label}`
+        ? zh ? `查看 ${argument || (zh ? "一份文件" : "")}` : `Read ${argument || "a file"}`
         : verb === "search"
-          ? zh ? `查找 ${argument || label}` : `Looked for ${argument || label}`
+          ? zh ? `查找 ${argument || "内容"}` : `Looked for ${argument || "something"}`
           : verb === "fetch"
-            ? zh ? `读取网页 ${argument || label}` : `Fetched ${argument || label}`
+            ? zh ? `读取网页 ${argument || ""}`.trim() : `Fetched ${argument || "a page"}`
             : verb === "edit"
-              ? zh ? `修改文件 ${argument || label}` : `Edited ${argument || label}`
-              : shorten(label, 80);
+              ? zh ? `修改文件 ${argument || ""}`.trim() : `Edited ${argument || "a file"}`
+              : shorten(/^[^:{]*:\s*[{[]/.test(label) ? label.slice(0, label.indexOf(":")) : label, 80);
   return step.status === "failed" ? `${phrase}${zh ? "（失败）" : " (failed)"}` : phrase;
 }
 
@@ -301,10 +306,17 @@ function workSegmentStep(event: MapEvent, zh: boolean): SubmapStep {
   }, zh);
 }
 
-const workLines = (work: StepWork, zh: boolean) => [
-  ...work.steps.map((step) => `· ${stepPhrase(step, zh)}`),
-  ...(work.overflow > 0 ? [zh ? `· 另有 ${work.overflow} 步未列出` : `· ${work.overflow} more not listed`] : []),
-];
+/** A step's actions for the reader who opens it: enough to see what kind of
+ * work it was. The full trail is in the conversation; a hundred lines of it
+ * here pushed the step's own record out of sight. */
+const WORK_LINES = 8;
+const workLines = (work: StepWork, zh: boolean) => {
+  const rest = Math.max(0, work.steps.length - WORK_LINES) + work.overflow;
+  return [
+    ...work.steps.slice(0, WORK_LINES).map((step) => `· ${stepPhrase(step, zh)}`),
+    ...(rest > 0 ? [zh ? `· 另有 ${rest} 步未列出` : `· ${rest} more not listed`] : []),
+  ];
+};
 
 /** Tool activity with no round to belong to, told as a step of its own. */
 function standaloneWork(step: SubmapStep, zh: boolean): SubmapStep {
@@ -333,7 +345,7 @@ function withWork(step: SubmapStep, zh: boolean): SubmapStep {
   // A round's closing record usually repeats the last thing the agent said.
   const along = work.narrations.filter((text) => !record.includes(text.slice(0, 60)));
   const count = work.steps.length + work.overflow;
-  const shape = stepsSummary(work.steps, work.overflow, zh);
+  const shape = stepsSummary(work.steps, 0, zh);
   const actions = count
     ? [zh ? `这一步里做的操作（${count} 步）：${shape}` : `What was done in this step (${count} actions): ${shape}`,
       workLines(work, zh).join("\n")].join("\n")

@@ -42,6 +42,13 @@ class MapLinesIn(BaseModel):
     write: bool = False
 
 
+class MapCardWordsIn(BaseModel):
+    tasks: list[str] = Field(min_length=1, max_length=80)
+    locale: Literal["zh-CN", "en-US"] = "zh-CN"
+    # False reads what is saved; True also writes the words that are missing.
+    write: bool = False
+
+
 def _copy_error(exc: Exception) -> HTTPException:
     if isinstance(exc, ValueError):
         logging.getLogger(__name__).warning("Map copy validation failed: %s", exc)
@@ -207,6 +214,27 @@ def register_map_live_routes(app, ctx, read_dataset):
             return await run_in_threadpool(
                 lambda: map_lines.notes(
                     root, value, [pair.model_dump() for pair in body.pairs], body.locale,
+                    project_root=project_root, generate=body.write,
+                )
+            )
+        except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
+            raise _copy_error(exc) from exc
+
+    @app.post("/api/map-cards/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
+    async def map_card_words(
+        source: Literal["project", "dataset"], name: str, body: MapCardWordsIn,
+        session_id: str | None = None,
+    ):
+        """A short title and a sentence for each task's card, standing in until
+        the task's own explanation has been written."""
+        from .. import map_cards
+
+        value = await run_in_threadpool(load, source, name)
+        root, project_root = owner(source, name, session_id)
+        try:
+            return await run_in_threadpool(
+                lambda: map_cards.words(
+                    root, value, [task_id[:200] for task_id in body.tasks], body.locale,
                     project_root=project_root, generate=body.write,
                 )
             )

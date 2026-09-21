@@ -418,6 +418,28 @@ describe("work segments and single-agent turns", () => {
   });
 });
 
+describe("what a reader is shown of a step's tool activity", () => {
+  it("never shows raw JSON, and lists a few actions instead of all of them", () => {
+    const calls = Array.from({ length: 12 }, (_, i) => ({ kind: "tool_use", label: `view: {"cells": null, "limit": 100, "path": "src/f${i}.py", "offs`, ts: i, tool: "view" }));
+    const steps = buildSubmap(task, [
+      event("e1", "round.start", { round_index: 1 }),
+      { ...event("e2", "work.segment"), text: "", overflow: 5, steps: [
+        { kind: "tool_use", label: 'view: {"cells": null, "includeOutputs": false, "limit": 10', ts: 1, tool: "view" },
+        ...calls,
+      ] },
+      event("e3", "round.main.completed", { round_index: 1, text: 'Evaluation submitted.\n{"wait_for":"subagent","wait_id":"eval-01"}' }),
+    ], true);
+    const round = steps.find((step) => step.id === "e1")!;
+    expect(round.workCount).toBe(18);
+    expect(round.detail).not.toMatch(/[{}]/);
+    expect(round.detail).toContain("Evaluation submitted.");
+    expect(round.detail).toContain("· 查看 一份文件");
+    expect(round.detail).toContain("· 查看 src/f0.py");
+    expect(round.detail.split("\n").filter((line) => line.startsWith("· "))).toHaveLength(9);
+    expect(round.detail).toContain("· 另有 10 步未列出");
+  });
+});
+
 describe("work segments inside a round", () => {
   const view = (path: string, ts: number) => ({ kind: "tool_use", label: `view: ${path}`, ts, tool: "view" });
 
@@ -445,7 +467,7 @@ describe("work segments inside a round", () => {
     // The round's own record is the story; what it repeats is not said twice.
     expect(round.detail).toBe([
       "做完了。",
-      ["这一步里做的操作（3 步）：查看了2处，另有 1 步未列出。", "· 查看 a", "· 查看 b", "· 另有 1 步未列出"].join("\n"),
+      ["这一步里做的操作（3 步）：查看了2处。", "· 查看 a", "· 查看 b", "· 另有 1 步未列出"].join("\n"),
     ].join("\n\n"));
     expect(review.summary).toBe("数字对得上。");
     expect(review.detail).toContain("先核对 a 的数字。");
