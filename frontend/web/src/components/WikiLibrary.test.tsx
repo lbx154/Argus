@@ -67,10 +67,10 @@ const feedRows = () => renderer.root.findAll(node => node.type === 'li' && Boole
 const article = () => renderer.root.findByProps({ 'aria-label': 'Knowledge page' });
 const markdown = () => content(renderer.root.findByProps({ 'data-markdown': true }));
 const settle = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(5); }); };
-async function mount(props: { sid?: string | null; initialSelection?: WikiLibraryItem | null; initialScope?: WikiTab } = {}) {
+async function mount(props: { sid?: string | null; initialSelection?: WikiLibraryItem | null; initialScope?: WikiTab; projectNames?: Record<string, string> } = {}) {
   await act(async () => {
     renderer = create(<QueryClientProvider client={client}>
-      <WikiLibrary sid={props.sid === undefined ? 'one' : props.sid} projectName="Proj" initialSelection={props.initialSelection} initialScope={props.initialScope} />
+      <WikiLibrary sid={props.sid === undefined ? 'one' : props.sid} projectName="Proj" projectNames={props.projectNames} initialSelection={props.initialSelection} initialScope={props.initialScope} />
     </QueryClientProvider>);
   });
   await settle();
@@ -344,4 +344,12 @@ it('reports a failed load with a retry and a page that would not open', async ()
   vi.mocked(api.wikiDocument).mockRejectedValue(new Error('Page missing'));
   act(() => list().findAllByType('button').find(node => content(node).includes('Dataset notes'))!.props.onClick()); await settle();
   expect(content(article())).toContain('Page missing');
+});
+
+it('names the project a feed line came from when the name is known and falls back to the id otherwise', async () => {
+  await mount({ projectNames: { 's-two': 'Second project' } });
+  const rows = feedRows().map(node => content(node));
+  expect(rows.some(row => row.includes('from Second project'))).toBe(true);
+  expect(rows.some(row => row.includes('from s-two'))).toBe(false);
+  expect(rows.some(row => row.includes('from other'))).toBe(true);
 });
