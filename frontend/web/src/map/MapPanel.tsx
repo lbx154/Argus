@@ -1407,7 +1407,7 @@ export function MapCanvas({
                     ? "描述你想完成的事情，看 Argus 规划、执行、审查，最后在这里交付。"
                     : "Describe your goal. Watch Argus plan, build, review, and deliver here."}
               </p>
-              {!readOnly && <div className="map-starters"><span className="map-starters-label">{zh ? '试试这样问，点一下就填进输入框' : 'Try asking; tap one to fill the composer'}</span>{(zh ? [
+              {!readOnly && <div className="map-starters">{(zh ? [
                 ['交互实验', '做一个交互式实验室，用动画展示 Dijkstra 和 A* 怎样寻找最短路径。让我能画障碍、单步播放、比较探索范围，并验证两个算法的结果一致。'],
                 ['数据洞察', '用一组可复现的模拟数据，做一个辛普森悖论交互演示。让我能切换整体和分组视角，看结论怎样反转，附上验证过程。'],
                 ['产品原型', '做一个精致的个人旅行规划网页。我能调整预算和出行天数，比较三种行程方案，并将选中的方案导出。让手机上也方便操作。'],
@@ -1415,7 +1415,7 @@ export function MapCanvas({
                 ['Interactive lab', 'Build an interactive Dijkstra vs A* pathfinding lab with editable obstacles, step-by-step animation, and correctness checks.'],
                 ['Data insights', 'Create an interactive Simpson’s paradox demo using reproducible synthetic data, with aggregate and grouped views and validation.'],
                 ['Product prototype', 'Build a polished travel planner. Let me adjust budget and duration, compare three itineraries, and export my choice. Make it easy to use on a phone.'],
-              ]).map(([label, prompt]) => <button key={label} type="button" title={prompt} onClick={() => { composer.onChange(prompt); requestAnimationFrame(() => canvasRef.current?.querySelector('textarea')?.focus()); }}>{label} ↗</button>)}</div>}
+              ]).map(([label, prompt]) => <button key={label} type="button" onClick={() => { composer.onChange(prompt); requestAnimationFrame(() => canvasRef.current?.querySelector('textarea')?.focus()); }}>{label} ↗</button>)}</div>}
             </div>
           ) : (
             <ReactFlow<AtlasNode>
