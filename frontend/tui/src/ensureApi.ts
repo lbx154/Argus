@@ -39,14 +39,25 @@ const debugArgus = debuglog('argus');
 /** Backend launchers, preferred first. `argus-skill` is the pre-rename name, kept one release. */
 export const BACKEND_COMMANDS = ['argus', 'argus-skill'] as const;
 
-export function resolveBin(): string {
-  if (process.env.ARGUS_SKILL_BIN) return process.env.ARGUS_SKILL_BIN;
-  // this file lives at <repo>/frontend/tui/{src|dist}/ensureApi — the repo venv
-  // is three levels up.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const repo = resolve(here, '..', '..', '..');
-  for (const repoBin of repoBackendPaths(repo)) {
-    if (existsSync(repoBin)) return repoBin;
+export function resolveBin(
+  moduleUrl: string = import.meta.url,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (env.ARGUS_SKILL_BIN) return env.ARGUS_SKILL_BIN;
+  // Source, bundled and tsc-emitted modules live at different depths. Find
+  // the owning checkout rather than depending on a compiler output layout.
+  let candidate = dirname(fileURLToPath(moduleUrl));
+  while (true) {
+    if (existsSync(resolve(candidate, 'pyproject.toml'))
+      && existsSync(resolve(candidate, 'frontend/tui/package.json'))) {
+      for (const repoBin of repoBackendPaths(candidate)) {
+        if (existsSync(repoBin)) return repoBin;
+      }
+      break;
+    }
+    const parent = dirname(candidate);
+    if (parent === candidate) break;
+    candidate = parent;
   }
   return BACKEND_COMMANDS[0];
 }

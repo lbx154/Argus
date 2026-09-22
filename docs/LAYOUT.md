@@ -112,15 +112,15 @@ that fixes it.
 
 ## Repository top level
 
-Eighteen tracked directories here (seventeen on public `main`: `technical_report/` is
+The tracked top-level directories are listed below. `technical_report/` is
 private-mirror only, see `PRIVATE_ONLY_PATTERNS` in
-`argus/release_tools/repository_parity.py`). "Not built, not tested, not
+`argus/release_tools/repository_parity.py`. "Not built, not tested, not
 shipped" means no CI job, no test, and no wheel content comes from the directory
 (decision card 5 leaves them in place for now).
 
 - `.agents/` - agent-host marketplace manifest plus the `minimal-rigorous-work` Skill for agents working on this repository.
 - `.claude-plugin/` - Claude Code marketplace manifest pointing at `plugins/argus`.
-- `.github/` - CI workflows: `tests` (the single per-push check: ruff, mypy gate, full pytest on Linux), `extended` (portable macOS/Windows surface, frontend, Windows desktop package; on demand only), `pr-gate`, `release`, `desktop-cache`, `desktop-trial`; plus Copilot instructions.
+- `.github/` - CI workflows: `tests` (ruff and full pytest on Linux, TypeScript packages on Linux/macOS/Windows, frontend contract consumers on Linux), `extended` (mypy, additional portability/frontend/desktop checks; on demand), `pr-gate`, `release`, `desktop-cache`, `desktop-trial`; plus Copilot instructions.
 - `argus/` - the Python package; everything above. Also carries `plugin_catalog.json`.
 - `argus_skill/` - the two-file import alias for the package's pre-rename name (`__init__.py` installs a `sys.meta_path` finder so `argus_skill[.x]` is the same module object as `argus[.x]`; `__main__.py` delegates to `argus.__main__`). Shipped in the wheel for one release after 2026-09-14, then removed. Not a package of its own, not type-checked, no layer.
 - `companions/` - `FLYWHEEL`, a standalone research-data-flywheel control plane that talks to Argus only over the versioned WebAPI. Not built, not tested, not shipped.
@@ -130,6 +130,7 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 - `docs/` - operator and developer documentation; `docs/audits/` holds dated audit reports and their data attachments.
 - `frontend/` - `core` (shared TypeScript), `tui` (Ink terminal cockpit), `web` (React web cockpit). `frontend/web/dist` is committed on purpose and force-included into the wheel.
 - `integrations/` - the `agent-skills` package for external agent hosts (`SKILL.md` plus per-host adapters). Not the Python package `argus/integrations/`.
+- `packages/` - the root npm workspace: `contracts` owns shared event/API definitions and TypeScript generation; `runtime` contains the experimental Pi transport. Built and tested by `npm run check` and CI. Contract schemas ship with the Python wheel and frozen desktop backend; the experimental runtime does not replace the production Python daemon. See [TypeScript migration](typescript-migration.md).
 - `plugins/` - the installable `argus` host plugin for Claude Code and Codex: MCP config, bundled Skills, install scripts.
 - `research/` - generated architecture-audit output (about 2 MB) and maintenance decisions. Not built, not tested, not shipped.
 - `scripts/` - one-off repository scripts (brand asset generation).

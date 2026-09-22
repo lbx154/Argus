@@ -1,16 +1,7 @@
 /** Shared wire types consumed by both the browser cockpit and the Ink TUI. */
 
-export interface EventMsg {
-  type?: string;
-  ts?: number;
-  event_schema_version?: number;
-  canonical_type?: string;
-  event_validation?: {
-    status: 'invalid';
-    errors: string[];
-  };
-  [key: string]: unknown;
-}
+export type { EventMsg } from '../../../packages/contracts/src/events.js';
+import type { EventMsg } from '../../../packages/contracts/src/events.js';
 
 export interface Role {
   role: string;

@@ -16,6 +16,16 @@ This policy applies to `lbx154/Argus`.
 Both long-lived branches run the existing CI. Branch organization adds no
 separate release validation workflow.
 
+## TypeScript runtime
+
+The root npm workspace contains the shared contracts and experimental runtime
+packages. With Node 22.12+, run `npm ci` and `npm run check`. Web and TUI retain
+their own install/build commands. Contract edits require
+`npm run contracts:generate`; generated files are checked by CI.
+
+See [the migration guide](docs/typescript-migration.md) for supported behaviour,
+Python compatibility, state ownership and the remaining migration steps.
+
 ## Archived work
 
 The September 14, 2026 cleanup preserved unmerged remote branch tips under

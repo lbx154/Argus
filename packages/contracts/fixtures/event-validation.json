@@ -1,0 +1,218 @@
+[
+  {
+    "id": "known",
+    "event": {
+      "type": "life.mission.completed",
+      "item_id": "task-1",
+      "status": "done"
+    },
+    "options": {},
+    "expected": {
+      "valid": true,
+      "known": true,
+      "canonical_type": "life.mission.completed"
+    }
+  },
+  {
+    "id": "alias",
+    "event": {
+      "type": "mission.completed",
+      "item_id": "task-1",
+      "status": "done"
+    },
+    "options": {},
+    "expected": {
+      "valid": true,
+      "known": true,
+      "canonical_type": "life.mission.completed"
+    }
+  },
+  {
+    "id": "missing",
+    "event": {
+      "type": "life.mission.completed"
+    },
+    "options": {},
+    "expected": {
+      "valid": false,
+      "known": true,
+      "canonical_type": "life.mission.completed"
+    }
+  },
+  {
+    "id": "legacy",
+    "event": {
+      "type": "life.mission.completed"
+    },
+    "options": {
+      "allowMissingFields": true
+    },
+    "expected": {
+      "valid": true,
+      "known": true,
+      "canonical_type": "life.mission.completed"
+    }
+  },
+  {
+    "id": "legacy-bad-type",
+    "event": {
+      "type": "life.mission.completed",
+      "status": 5
+    },
+    "options": {
+      "allowMissingFields": true
+    },
+    "expected": {
+      "valid": false,
+      "known": true,
+      "canonical_type": "life.mission.completed"
+    }
+  },
+  {
+    "id": "boolean-integer",
+    "event": {
+      "type": "loop.start",
+      "max_rounds": true
+    },
+    "options": {},
+    "expected": {
+      "valid": false,
+      "known": true,
+      "canonical_type": "loop.start"
+    }
+  },
+  {
+    "id": "minimum",
+    "event": {
+      "type": "loop.start",
+      "max_rounds": 0
+    },
+    "options": {},
+    "expected": {
+      "valid": false,
+      "known": true,
+      "canonical_type": "loop.start"
+    }
+  },
+  {
+    "id": "enum",
+    "event": {
+      "type": "life.mission.completed",
+      "item_id": "x",
+      "status": "done",
+      "outcome_class": "invented"
+    },
+    "options": {},
+    "expected": {
+      "valid": false,
+      "known": true,
+      "canonical_type": "life.mission.completed"
+    }
+  },
+  {
+    "id": "array-item",
+    "event": {
+      "type": "life.mission.completed",
+      "item_id": "x",
+      "status": "done",
+      "delivery_candidates": [
+        1
+      ]
+    },
+    "options": {},
+    "expected": {
+      "valid": false,
+      "known": true,
+      "canonical_type": "life.mission.completed"
+    }
+  },
+  {
+    "id": "unknown",
+    "event": {
+      "type": "custom.event"
+    },
+    "options": {},
+    "expected": {
+      "valid": true,
+      "known": false,
+      "canonical_type": "custom.event"
+    }
+  },
+  {
+    "id": "unknown-strict",
+    "event": {
+      "type": "custom.event"
+    },
+    "options": {
+      "requireKnown": true
+    },
+    "expected": {
+      "valid": false,
+      "known": false,
+      "canonical_type": "custom.event"
+    }
+  },
+  {
+    "id": "prototype-name",
+    "event": {
+      "type": "constructor"
+    },
+    "options": {},
+    "expected": {
+      "valid": true,
+      "known": false,
+      "canonical_type": "constructor"
+    }
+  },
+  {
+    "id": "invalid-name",
+    "event": {
+      "type": "bad type"
+    },
+    "options": {},
+    "expected": {
+      "valid": false,
+      "known": false,
+      "canonical_type": "bad type"
+    }
+  },
+  {
+    "id": "invalid-time",
+    "event": {
+      "type": "loop.start",
+      "ts": true
+    },
+    "options": {},
+    "expected": {
+      "valid": false,
+      "known": true,
+      "canonical_type": "loop.start"
+    }
+  },
+  {
+    "id": "invalid-version",
+    "event": {
+      "type": "loop.start",
+      "event_schema_version": 0
+    },
+    "options": {},
+    "expected": {
+      "valid": false,
+      "known": true,
+      "canonical_type": "loop.start"
+    }
+  },
+  {
+    "id": "payload-version",
+    "event": {
+      "type": "loop.start",
+      "payload_schema_version": 2
+    },
+    "options": {},
+    "expected": {
+      "valid": false,
+      "known": true,
+      "canonical_type": "loop.start"
+    }
+  }
+]
