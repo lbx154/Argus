@@ -8,6 +8,7 @@ import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
 import { LibraryIntroduction, SkillReadingGuide } from './LibraryGuide';
 import { libraryVertical, skillPresentation, skillSearchText } from '../lib/libraryPresentation';
+import { LearningStatus } from './LearningStatus';
 
 const scopes: SkillScope[] = ['global', 'vertical', 'project'];
 const labels = {
@@ -54,6 +55,7 @@ export function SkillLibraryEntry({ sid, onOpen, compact = false, visible = true
         aria-label={zh ? (expanded ? '收起最近更新' : '展开最近更新') : (expanded ? 'Hide recent updates' : 'Show recent updates')}
         className="rounded p-1.5 text-ink-faint hover:bg-bg hover:text-ink"><Chevron className="h-3.5 w-3.5" /></button>}
     </div>
+    {!compact && <LearningStatus sid={sid} channel="skills" />}
     {!compact && expanded && recent.length > 0 && <div className="px-2 pb-1">
       <p className="mb-1 text-[11px] text-ink-faint">{names.recent}</p>
       {recent.map(item => <button type="button" key={identity(item)} onClick={() => onOpen(item)}
@@ -108,6 +110,7 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
 
   return <div className="flex h-[min(780px,84dvh)] min-h-0 flex-col" data-skill-library>
     <ModalHeader title={zh ? '技能库' : 'Skill library'} sub={zh ? '查看工作中沉淀的方法，以及各层级可用的技能。' : 'See what work has taught Argus and read the skills available at each level.'} />
+    <LearningStatus sid={sid} channel="skills" />
     <LibraryIntroduction kind="skills" />
     <nav aria-label={zh ? '技能分类' : 'Skill categories'} className="flex shrink-0 overflow-x-auto border-b border-line/60 px-4">
       {(['recent', ...scopes] as const).map(value => <button key={value} type="button" aria-pressed={scope === value} onClick={() => pickScope(value)}

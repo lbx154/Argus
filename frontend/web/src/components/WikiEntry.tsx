@@ -6,6 +6,7 @@ import { useSidebarFold } from '../lib/sidebarFold';
 import { libraryVertical } from '../lib/libraryPresentation';
 import { knowledgeKindLabels, latestLearned, resolveKnowledgeItem, useKnowledgeFeed } from './KnowledgeFeed';
 import { recentWikiPages, useWikiLibrary, wikiScopeLabels } from './WikiLibrary';
+import { LearningStatus } from './LearningStatus';
 
 const RECENT_LIMIT = 5;
 const FEED_LIMIT = 20;
@@ -72,6 +73,7 @@ export function WikiEntry({ sid, onOpen, compact = false, visible = true, defaul
         aria-label={zh ? (expanded ? '收起最近页面' : '展开最近页面') : (expanded ? 'Hide recent pages' : 'Show recent pages')}
         className="rounded p-1.5 text-ink-faint hover:bg-bg hover:text-ink"><Chevron className="h-3.5 w-3.5" /></button>}
     </div>
+    {!compact && <LearningStatus sid={sid} channel="knowledge" />}
     {!compact && wiki.data && !learned && recent.length === 0 && <p className="px-2 pb-1 text-xs text-ink-faint">{names.empty}</p>}
     {!compact && expanded && hasRows && <div className="px-2 pb-1">
       {learned && <button type="button" onClick={() => learnedPage ? onOpen(learnedPage) : onOpen()} data-just-learned

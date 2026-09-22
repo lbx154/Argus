@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from argus.life import reflection
+from argus.life import answer_learning, reflection
 from argus.webapi import manager_bridge, manager_state
 from argus.webapi.manager_state import _chat_state_for
 
@@ -69,13 +69,16 @@ def test_only_an_empty_reply_is_not_scheduled(home: Path) -> None:
     assert _schedule(home, reply="   ", operator_text="ok") is None
 
 
-def test_nothing_is_scheduled_without_a_manager_backend(home: Path) -> None:
-    _chat_state_for(SID)  # a session with no runner yet
-
-    assert _schedule(home) is None
-
-    _prime(SID, backend=None, workdir=home)
-    assert _schedule(home) is None
+def test_a_missing_backend_is_a_visible_failure_not_a_dropped_turn(home: Path, monkeypatch) -> None:
+    def unavailable(*_args):
+        raise RuntimeError("provider unavailable")
+    monkeypatch.setattr(answer_learning, "_backend", unavailable)
+    thread = _schedule(home)
+    assert thread is not None
+    thread.join(timeout=5)
+    status = answer_learning.learning_status(home, SID)
+    assert status["pending"] == 0
+    assert status["jobs"][0]["status"] == "failed"
 
 
 def test_a_researched_answer_is_handed_to_reflection_off_thread(
@@ -131,7 +134,10 @@ def test_a_second_answer_waits_while_the_first_is_still_learning(
     release = threading.Event()
     started = threading.Event()
 
+    seen = []
+
     def _reflect(**_kwargs):
+        seen.append(_kwargs["reply"])
         started.set()
         release.wait(5)
         return {"skipped": "", "created": [], "updated": []}
@@ -142,11 +148,15 @@ def test_a_second_answer_waits_while_the_first_is_still_learning(
     assert first is not None
     assert started.wait(5)
     try:
-        assert _schedule(home) is None
+        assert _schedule(home, reply="A second useful finding", turn_id="second") is first
+        status = answer_learning.learning_status(home, SID)
+        assert status["pending"] == 2
+        assert {job["status"] for job in status["jobs"]} == {"queued", "running"}
     finally:
         release.set()
         first.join(timeout=5)
-    assert _schedule(home) is not None
+    assert seen == [RESEARCH_REPLY, "A second useful finding"]
+    assert answer_learning.learning_status(home, SID)["pending"] == 0
 
 
 def test_answer_learning_failure_stays_off_the_reply(
@@ -164,3 +174,43 @@ def test_answer_learning_failure_stays_off_the_reply(
     assert thread is not None
     thread.join(timeout=10)
     assert not thread.is_alive()
+
+
+def test_replayed_delivery_is_learned_once(home: Path, monkeypatch) -> None:
+    _prime(SID, backend=object(), workdir=None)
+    calls = []
+    monkeypatch.setattr(reflection, "reflect_after_answer", lambda **kw: calls.append(kw) or {})
+    for _ in range(2):
+        thread = _schedule(home, turn_id="same-delivery")
+        thread.join(timeout=5)
+    assert len(calls) == 1
+    assert len(answer_learning.learning_status(home, SID)["jobs"]) == 1
+
+
+def test_interrupted_learning_resumes_and_failed_learning_can_retry(home: Path, monkeypatch) -> None:
+    _prime(SID, backend=object(), workdir=None)
+    monkeypatch.setattr(reflection, "reflect_after_answer", lambda **kw: {"failure": "offline"})
+    thread = _schedule(home, turn_id="recover-me")
+    thread.join(timeout=5)
+    job = answer_learning.learning_status(home, SID)["jobs"][0]
+    assert job["status"] == "failed"
+    assert not answer_learning.retry_learning(home, "other-project", job["id"])
+    monkeypatch.setattr(answer_learning, "_backend", lambda *args: object())
+    captured = []
+    def learn(**kw):
+        captured.append(kw)
+        kw["emit"]({"type": "knowledge.learned", "page_kind": "survey", "scope": "global", "title": "Kept finding"})
+        return {}
+    monkeypatch.setattr(reflection, "reflect_after_answer", learn)
+    assert answer_learning.retry_learning(home, SID, job["id"])
+    answer_learning.resume_learning(home).join(timeout=5)
+    status = answer_learning.learning_status(home, SID)
+    assert status["jobs"][0]["status"] == "completed"
+    assert status["jobs"][0]["outcome"]["counts"]["knowledge"] == 1
+    assert status["jobs"][0]["attempts"] == 2
+    # Simulate a process dying after claiming a durable turn, then restart.
+    with answer_learning._database(home) as db:
+        db.execute("UPDATE jobs SET status='running' WHERE id=?", (job["id"],))
+    answer_learning.resume_learning(home).join(timeout=5)
+    assert len(captured) == 2
+    assert answer_learning.learning_status(home, SID)["jobs"][0]["attempts"] == 3

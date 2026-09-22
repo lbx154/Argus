@@ -242,7 +242,7 @@ def test_lesson_page_is_indexed_journaled_announced_and_receipted(roots: _Roots)
         "One round; the venv already carried torch.",
         "- An older lesson",
         str(lesson_path.parent),
-        "Write NOTHING when nothing durable was learned",
+        "Judge novelty against the saved libraries",
         "at most 300 words per page",
         "WROTE: nothing",
     ):
@@ -379,8 +379,9 @@ def test_pages_that_do_not_parse_are_ignored_and_a_failed_call_is_recorded(roots
     assert result["ignored"] == [str(broken)]
     assert result["failure"] == "exit code 1"
     assert _learned(roots.events) == []
-    receipt = json.loads((roots.life / ".argus" / "REFLECTED.json").read_text(encoding="utf-8"))
-    assert receipt["missions"][MISSION]["failure"] == "exit code 1"
+    assert not (roots.life / ".argus" / "REFLECTED.json").exists()
+    from argus.life.answer_learning import learning_status
+    assert learning_status(roots.home, SID)["jobs"][0]["status"] == "failed"
 
 
 def test_a_raising_backend_never_reaches_the_caller(roots: _Roots) -> None:
@@ -434,7 +435,7 @@ def test_survey_page_is_created_indexed_and_recorded(roots: _Roots) -> None:
     call = backend.calls[0]
     assert call["run_label"] == "answer-learning"
     assert call["options"].working_dir == str(global_root)
-    assert call["options"].add_dirs == [str(global_root), str(roots.home / "operator")]
+    assert call["options"].add_dirs == [str(global_root), str(roots.home / "operator"), str(roots.life / "skills" / "self")]
     prompt = call["prompt"]
     assert "现在 torch.compile 覆盖到哪一步了?" in prompt
     assert "- https://example.org/notes" in prompt
@@ -517,6 +518,34 @@ def test_answer_learning_respects_its_switch(roots: _Roots, monkeypatch: pytest.
 
     assert "ARGUS_SKILL_ANSWER_LEARNING" in result["skipped"]
     assert backend.calls == []
+
+
+def test_answer_can_learn_a_method_and_explicit_preference_with_knowledge(roots: _Roots) -> None:
+    survey = roots.home / "wiki" / "_global" / "pages" / "surveys" / SURVEY_NAME
+    skill = roots.life / "skills" / "self" / "check-environment.md"
+    profile = roots.home / "operator" / "profile.md"
+    preference = "---\ntitle: Working preferences\ndescription: Explicit user preference.\nkind: profile\naudience: private\n---\nExplain the mechanism before the formulas.\n"
+    backend = _Backend([(survey, SURVEY), (skill, SKILL), (profile, preference)])
+    result = _answer(roots, backend, operator_text="Explain the mechanism first in future.",
+                     evidence="read existing environment; successful import")
+    assert set(result["created"]) == {str(survey), str(skill), str(profile)}
+    assert _learned(roots.events, page_kind="skill", scope="project")
+    assert _learned(roots.events, page_kind="profile", scope="private")
+    # Rewriting identical files must not masquerade as new learning.
+    roots.events.clear()
+    repeated = _answer(roots, backend)
+    assert repeated["updated"] == []
+    assert _learned(roots.events) == []
+
+
+def test_long_answers_keep_the_writing_boundaries_and_preference_rules(roots: _Roots) -> None:
+    backend = _Backend()
+    _answer(roots, backend, operator_text="request " * 2000, reply="answer " * 6000, evidence="trace " * 6000)
+    prompt = backend.calls[0]["prompt"]
+    assert len(prompt) <= PROMPT_CHAR_LIMIT
+    assert "Only explicit user statements support a lasting preference" in prompt
+    assert "You may write only inside" in prompt
+    assert prompt.endswith("`WROTE: nothing`.")
 
 
 def test_a_vertical_answer_lands_in_the_vertical_wiki(roots: _Roots) -> None:
@@ -813,4 +842,3 @@ def test_both_prompts_keep_the_operator_s_own_affairs_out_of_shared_pages(tmp_pa
     for prompt in (answer, mission):
         assert "keep the operator's own affairs out" in prompt
         assert "read by other projects and other people" in prompt
-

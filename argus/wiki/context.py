@@ -49,7 +49,7 @@ def render_knowledge_wiki_block(
     shared_roots: Sequence[Path] = (),
 ) -> str:
     roots = discover_wikis(Path(project_root).expanduser())
-    if not roots:
+    if not roots and not shared_roots:
         return ""
     paths_text = "\n".join(f"- `{path.resolve()}`" for path in roots)
     shared = ""

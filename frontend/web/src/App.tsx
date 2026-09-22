@@ -5,6 +5,7 @@ import { useConversationHistory } from './useConversationHistory';
 import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { SkillLibrary } from './components/SkillLibrary';
 import { WikiLibrary } from './components/WikiLibrary';
+import { LearningStatus } from './components/LearningStatus';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import ResearchBrief from './research-brief';
@@ -1111,6 +1112,7 @@ export default function App() {
                   {locale === 'zh-CN' ? '文件' : 'Files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
                 </button>
               </nav>
+              {!kiosk && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={setComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}

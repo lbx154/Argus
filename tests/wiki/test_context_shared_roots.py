@@ -46,8 +46,13 @@ def test_block_lists_shared_roots_and_the_audience_sentence(tmp_path):
     assert block.index("Wiki directories:") < block.index("Shared knowledge")
 
 
-def test_block_stays_empty_without_a_project_wiki(tmp_path):
-    assert render_knowledge_wiki_block(tmp_path, role="Engineer", shared_roots=[tmp_path]) == ""
+def test_shared_knowledge_is_available_without_a_project_wiki(tmp_path):
+    shared = tmp_path / "shared" / "pages"
+    shared.mkdir(parents=True)
+    block = render_knowledge_wiki_block(tmp_path, role="Engineer", shared_roots=[shared.parent])
+    assert str(shared.parent) in block
+    assert "Search and read the Wiki yourself" in block
+    assert render_knowledge_wiki_block(tmp_path, role="Engineer") == ""
 
 
 def test_shared_roots_follow_the_decided_vertical_and_need_pages(tmp_path):

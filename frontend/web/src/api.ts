@@ -114,6 +114,21 @@ export interface WikiPageDocument {
 
 /** Where a knowledge page lives: shared by everyone, by one vertical, or kept by one project. */
 export type WikiScope = 'private' | 'global' | 'vertical' | 'project';
+export type LearningChannel = 'knowledge' | 'skills' | 'preferences';
+export interface LearningJob {
+  id: string;
+  status: 'queued' | 'running' | 'completed' | 'unchanged' | 'failed';
+  created: number;
+  updated: number;
+  attempts: number;
+  retryable?: boolean;
+  outcome: {
+    counts?: Record<LearningChannel, number>;
+    items?: { channel: LearningChannel; title: string; scope: string; path: string }[];
+    reason?: string;
+  };
+}
+export interface LearningState { jobs: LearningJob[]; pending: number; revision: number }
 /** What a knowledge page is: a fact, a lesson from reflection, a survey distilled after an answer, a set of principles, or a plain page. */
 export type WikiPageKind = 'fact' | 'lesson' | 'survey' | 'principles' | 'note' | 'profile' | 'page';
 /** One knowledge page flattened across libraries, newest first; the host adds scope, vertical and root. */
@@ -1310,6 +1325,8 @@ export const api = {
     getJson<WikiDocument>(`/api/wiki/page?${new URLSearchParams({ scope, vertical, path, ...(sid ? { sid } : {}) })}`, signal),
   knowledgeFeed: (limit = 50, signal?: AbortSignal) =>
     getJson<KnowledgeFeed>(`/api/knowledge/feed?${new URLSearchParams({ limit: String(limit) })}`, signal),
+  learningStatus: (sid: string, signal?: AbortSignal) => getJson<LearningState>(P(sid, '/learning'), signal),
+  retryLearning: (sid: string, jobId: string) => postJson<LearningState>(P(sid, `/learning/${encodeURIComponent(jobId)}/retry`), {}),
   setLaunchCwd: (sid: string, launchCwd: string) =>
     postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   setWorkdir: (sid: string, workdir: string) =>
