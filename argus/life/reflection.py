@@ -282,9 +282,14 @@ def _append_index_line(
         existing = _index_heading(scope, vertical) + "\n"
     except (OSError, UnicodeError):
         return False
-    if f"]({relative})" in existing:
-        return False
     line = f"- [{title}]({relative}) — {description}\n"
+    if f"]({relative})" in existing:
+        lines = existing.splitlines(keepends=True)
+        changed = [line if f"]({relative})" in old else old for old in lines]
+        if changed == lines:
+            return False
+        index_path.write_text("".join(changed), encoding="utf-8")
+        return True
     heading = f"## {section}"
     lines = existing.splitlines(keepends=True)
     insert_at: int | None = None
@@ -855,9 +860,13 @@ def build_answer_prompt(
         "URL with its verification status), "
         f"`## Re-verify after` ({reverify}, and what "
         "could have changed by then).\n\n"
-        "If a survey above already covers this question, do not rewrite it: append a "
-        f"`## Update {iso}` section with what is new and refresh its `reverify_after` "
-        "only inside that section. The host keeps the earlier text either way.\n\n"
+        "If a survey above already covers this question, edit that same page. Keep its "
+        "title, description, conclusions and limitations consistent with the latest "
+        "supported evidence. Replace superseded claims in the main text and description; "
+        "do not leave a wrong summary followed by a contradictory dated appendix. "
+        "Preserve unrelated valid facts. The host archives the previous version separately. "
+        "If the findings are unchanged, leave the file byte-for-byte unchanged; do not "
+        "refresh dates, add confirmation notes or rename a skill just to record activity.\n\n"
         + _operator_section(operator_root)
         + ("## Reusable method\n"
            f"Inspect existing Markdown in `{skills_dir}`. When the observed work or "
@@ -889,31 +898,6 @@ def build_answer_prompt(
         size = sum(len(section) for section in sections[1:-1])
         sections[1:-1] = [_clip(section, int(budget * len(section) / size)) for section in sections[1:-1]]
     return "\n\n".join(sections)
-
-
-def _keep_earlier_text(path: Path, earlier: str, *, today: date) -> bool:
-    """Restore a rewritten survey page and keep the new text as a dated update.
-
-    Returns True when the page had to be repaired.
-    """
-    try:
-        current = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return False
-    if current.startswith(earlier.rstrip("\n")):
-        return False
-    addition = _body_without_front_matter(current).strip()
-    heading = f"## Update {today.isoformat()}"
-    if addition.startswith(heading):
-        addition = addition[len(heading):].strip()
-    addition = addition[:3_000].rstrip()
-    repaired = earlier.rstrip("\n") + f"\n\n{heading}\n\n{addition}\n"
-    try:
-        path.write_text(repaired, encoding="utf-8")
-    except OSError:
-        log.warning("reflection: could not restore %s", path, exc_info=True)
-        return False
-    return True
 
 
 def reflect_after_answer(
@@ -970,65 +954,61 @@ def _reflect_after_answer(
         return {"skipped": "survey directory is not writable", "created": [], "updated": []}
     today = _today()
     existing = _existing_surveys(root)
-    earlier_text: dict[Path, str] = {}
-    for path in _markdown_files(survey_dir):
-        try:
-            earlier_text[path] = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            continue
     operator_root = _operator_root(global_root)
     skills_dir = life_dir / "skills" / "self"
     skills_dir.mkdir(parents=True, exist_ok=True)
     skills_before = _snapshot(_markdown_files(skills_dir))
     operator_before = _snapshot(_markdown_files(operator_root)) if operator_root is not None else {}
-    before = _snapshot(earlier_text)
-    prompt = build_answer_prompt(
-        project_id=project_id, vertical=vertical, operator_text=operator_text, reply=reply,
-        root=root, existing=existing, today=today, operator_root=operator_root,
-        skills_dir=skills_dir, evidence=evidence,
-    )
-    failure = ""
-    try:
-        result = gateway_run_exec(
-            backend,
-            prompt=prompt,
-            options=RunnerOptions(
-                model=_reflection_model(backend),
-                reasoning_effort="low",
-                sandbox_mode="workspace-write",
-                skip_git_repo_check=True,
-                working_dir=str(root),
-                add_dirs=[str(root)] + ([str(operator_root)] if operator_root is not None else []) + [str(skills_dir)],
-                skill_paths=[],
-            ),
-            run_label=ANSWER_RUN_LABEL,
-        )
-    except Exception as exc:  # noqa: BLE001 - the answer is already delivered
-        failure = f"{type(exc).__name__}: {exc}"
-        result = None
-    if result is not None and (
-        int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None)
-    ):
-        failure = str(getattr(result, "fatal_error", "") or f"exit code {result.exit_code}")
+    before = _snapshot(_markdown_files(survey_dir))
+    from .learning_draft import LearningDraft
 
-    created_paths, updated_paths = _changed(before, _snapshot(_markdown_files(survey_dir)))
+    roots = {"knowledge": survey_dir, "skills": skills_dir}
+    if operator_root is not None:
+        roots["operator"] = operator_root
+    failure = ""
+    prompt = ""
+    published: list[Path] = []
+    try:
+        with LearningDraft(roots, life_dir / ".learning-drafts") as draft:
+            prompt = build_answer_prompt(
+                project_id=project_id, vertical=vertical, operator_text=operator_text, reply=reply,
+                root=draft.paths["knowledge"].parents[1], existing=existing, today=today,
+                operator_root=draft.paths.get("operator"), skills_dir=draft.paths["skills"], evidence=evidence,
+            )
+            result = gateway_run_exec(
+                backend,
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=_reflection_model(backend),
+                    reasoning_effort="low",
+                    sandbox_mode="workspace-write",
+                    skip_git_repo_check=True,
+                    working_dir=str(draft.directory),
+                    add_dirs=[str(draft.directory)],
+                    skill_paths=[],
+                ),
+                run_label=ANSWER_RUN_LABEL,
+            )
+            if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
+                failure = str(getattr(result, "fatal_error", "") or f"exit code {result.exit_code}")
+            else:
+                published = draft.publish()
+    except Exception as exc:  # failed or invalid drafts never replace the canonical pages
+        failure = f"{type(exc).__name__}: {exc}"
+
+    created_paths, updated_paths = _changed(before, _snapshot(path for path in published if _under(path, survey_dir)))
     created: list[str] = []
     updated: list[str] = []
-    repaired: list[str] = []
-    for path in updated_paths:
-        if path in earlier_text and _keep_earlier_text(path, earlier_text[path], today=today):
-            repaired.append(str(path))
     for path, is_new in [(p, True) for p in created_paths] + [(p, False) for p in updated_paths]:
         meta = _page_meta(path)
         if meta is None:
             continue
         relative = _relative(path, root)
         (created if is_new else updated).append(str(path))
-        if is_new:
-            _append_index_line(
-                root, scope=scope, vertical=vertical, relative=relative, title=meta["title"],
-                description=meta["description"], section="Surveys",
-            )
+        _append_index_line(
+            root, scope=scope, vertical=vertical, relative=relative, title=meta["title"],
+            description=meta["description"], section="Surveys",
+        )
         _record_learned(
             emit=emit, global_root=global_root, kind="learned", scope=scope, vertical=vertical,
             relative=relative, title=meta["title"], source_project=project_id, mission_id="",
@@ -1036,7 +1016,7 @@ def _reflect_after_answer(
             note=("updated: " if not is_new else "") + meta["description"][:300],
         )
     if operator_root is not None:
-        new_notes, changed_notes = _changed(operator_before, _snapshot(_markdown_files(operator_root)))
+        new_notes, changed_notes = _changed(operator_before, _snapshot(path for path in published if _under(path, operator_root)))
         for path, is_new in [(p, True) for p in new_notes] + [(p, False) for p in changed_notes]:
             meta = _page_meta(path)
             if meta is None:
@@ -1050,7 +1030,7 @@ def _reflect_after_answer(
                 page_kind="profile" if relative == "profile.md" else _kind_for(meta, relative, default="note"),
                 note=("updated: " if not is_new else "") + meta["description"][:300],
             )
-    new_skills, changed_skills = _changed(skills_before, _snapshot(_markdown_files(skills_dir)))
+    new_skills, changed_skills = _changed(skills_before, _snapshot(path for path in published if _under(path, skills_dir)))
     for path, is_new in [(p, True) for p in new_skills] + [(p, False) for p in changed_skills]:
         meta = _page_meta(path)
         if meta is None:
@@ -1065,7 +1045,7 @@ def _reflect_after_answer(
     if failure:
         log.warning("learning from the answer: model call failed: %s", failure)
     return {
-        "skipped": "", "created": created, "updated": updated, "repaired": repaired,
+        "skipped": "", "created": created, "updated": updated, "repaired": [],
         "failure": failure, "prompt_chars": len(prompt),
     }
 

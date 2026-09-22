@@ -53,6 +53,20 @@ _SIBLING_WIKIS_KNOB = "ARGUS_SKILL_RECALL_SIBLING_WIKIS"
 _HOSTED_TRIAL_KNOB = "ARGUS_SKILL_COPILOT_TRIAL"
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _RECALL_HEADER = "### What Argus already knows (advisory)"
+# These terms express a request or page scaffolding, not a topic match. Keep
+# them out of lexical scores without degrading the text used by embeddings.
+_SEARCH_VERSION = "knowledge-content-v2"
+_GENERIC_TERMS = frozenset("""
+a an and are as at be been but by can could did do does for from had has have
+how if in into is it its may not of on or our should that the their them then
+there these they this those to us was we were what when where which who why
+will with would you your please help explain tell learn learning knowledge
+question answer source sources survey created description title confidence
+请问 请教 谢谢 你好 学习 知识 问题 回答 解释 告诉 这个 那个 什么 怎么 如何
+我们 你们 可以 需要 一些 一下 进行 关于 相关 然后
+""".split())
+_PROVENANCE_SECTIONS = frozenset({"question", "the question", "history", "问题", "提问", "历史", "历史记录"})
+_SEMANTIC_MIN_SIMILARITY = 0.5
 _RECALL_INTRO = (
     "These pages come from the current knowledge library and match this objective. "
     "Open a page before relying on it and check its evidence and scope; similarity "
@@ -99,9 +113,14 @@ class KnowledgeDocument:
     def indexed(self) -> RecallDocument:
         # Markdown has no monotonic source revision: this is a content token,
         # while the full digest is checked independently by the derived index.
+        # Rebuild old caches when the searchable projection changes, even if
+        # the canonical page bytes remain identical.
+        revision = hashlib.sha256(f"{_SEARCH_VERSION}:{self.digest}".encode()).hexdigest()
+        body = searchable_body(self.content)
         return RecallDocument(
-            self.id, int(self.digest[:15], 16), self.digest,
-            f"{self.path.name}\n{self.content[:1600]}", self.content,
+            self.id, int(revision[:15], 16), self.digest,
+            f"{self.path.stem}\n{self.meta.title}\n{self.meta.description}\n{body[:1600]}",
+            body, _GENERIC_TERMS,
         )
 
     @property
@@ -211,6 +230,29 @@ def _first_prose_line(body: str) -> str:
             continue
         return line
     return ""
+
+
+def searchable_body(content: str) -> str:
+    """Search current knowledge and procedures, excluding provenance scaffolding."""
+    _front, body = _front_matter(content)
+    kept: list[str] = []
+    excluded_depth = 0
+    fenced = False
+    for line in body.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        heading = None if fenced else re.match(r"^(#{1,6})\s+(.+)$", line)
+        if heading:
+            depth = len(heading[1])
+            if excluded_depth and depth <= excluded_depth:
+                excluded_depth = 0
+            if heading[2].strip().casefold() in _PROVENANCE_SECTIONS:
+                excluded_depth = depth
+            # Titles and descriptions have their own stronger matching field.
+            continue
+        if not excluded_depth:
+            kept.append(line)
+    return "\n".join(kept)
 
 
 def _first_heading(body: str) -> str:
@@ -542,8 +584,9 @@ class MarkdownKnowledgeRecall:
             score = scores[document.id]
             # A lesson learned from an earlier mission outranks a plain page
             # that matches equally well: it carries a boundary, not only facts.
+            semantic = not self.index.embedder.identifier.startswith("lexical-hash-")
             return (-score.direct, -score.transfer, document.meta.page_kind != "lesson",
-                    -score.vector, str(document.path))
+                    -score.vector if semantic else 0, str(document.path))
 
         matching = sorted(
             (document for document in candidates
@@ -558,7 +601,7 @@ class MarkdownKnowledgeRecall:
                 hits = hits[:max(0, limit - 1)] + [lesson]
         if candidates and not self.index.embedder.identifier.startswith("lexical-hash-"):
             semantic = max(candidates, key=lambda document: scores[document.id].vector)
-            if scores[semantic.id].vector > 0 and semantic not in hits:
+            if scores[semantic.id].vector >= _SEMANTIC_MIN_SIMILARITY and semantic not in hits:
                 hits = hits[:max(0, limit - 1)] + [semantic]
         if not hits and principles is None:
             return RecallResult("")

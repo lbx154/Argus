@@ -112,6 +112,7 @@ class RecallDocument:
     digest: str
     direct: str
     transfer: str
+    ignored_terms: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -125,8 +126,8 @@ def lexical_scores(documents: Sequence[RecallDocument], query: str) -> dict[str,
     terms = tokens(query)
     return {
         item.id: RecallScore(
-            direct=len(terms & tokens(item.direct)),
-            transfer=len(terms & tokens(item.transfer)),
+            direct=len((terms & tokens(item.direct)) - item.ignored_terms),
+            transfer=len((terms & tokens(item.transfer)) - item.ignored_terms),
         )
         for item in documents
     }
@@ -215,8 +216,9 @@ class FailureExperienceIndex:
                     self.embedder.embed(direct + "\n" + transfer),
                     self.embedder.dimensions,
                 )
-                prepared.append((item.id, item.revision, item.digest, json.dumps(sorted(tokens(direct))),
-                                 json.dumps(sorted(tokens(transfer))), json.dumps(vector)))
+                prepared.append((item.id, item.revision, item.digest,
+                                 json.dumps(sorted(tokens(direct) - item.ignored_terms)),
+                                 json.dumps(sorted(tokens(transfer) - item.ignored_terms)), json.dumps(vector)))
         with self._connection() as db, db:
             db.execute("BEGIN IMMEDIATE")
             latest = dict(db.execute("SELECT key, value FROM metadata"))
