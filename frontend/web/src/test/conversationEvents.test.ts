@@ -200,3 +200,16 @@ it('does not duplicate a legacy delivery when transcript lacks its message id', 
   expect(merged).toHaveLength(1);
   expect(merged[0].message_id).toBe('web-one-argus');
 });
+
+describe('persisted Manager turn steps', () => {
+  it('keeps them out of the conversation feed because the reply row lists them', () => {
+    const step = { type: 'engineer.progress', kind: 'command_execution', agent_layer: 'manager', item_id: 'turn:web-1', turn_step: true, text: '$ wc -l README.md', ts: 2 };
+    const engineerWork = { type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', item_id: 'task-a', text: '$ pytest', ts: 3 };
+    const reply = { type: 'ui.argus', message_id: 'web-1-argus', text: '一行。', steps: [{ kind: 'command_execution', label: '$ wc -l README.md' }], ts: 4 };
+
+    const merged = mergeConversationEvents([step, engineerWork, reply], [], []);
+
+    expect(merged.map((event) => event.type)).toEqual(['engineer.progress', 'ui.argus']);
+    expect(merged[0].agent_layer).toBe('engineer');
+  });
+});

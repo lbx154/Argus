@@ -1893,3 +1893,34 @@ def test_task_paused_for_an_unreachable_model_service_is_explained_in_english(
     assert entry["technical"] == (
         "paused_provider_cooldown; error=Copilot CLI exited with code 1."
     )
+
+
+def test_manager_turn_steps_keep_one_work_record_per_call_with_its_status(tmp_path: Path) -> None:
+    step = dict(
+        agent_layer="manager", actor="manager", kind="command_execution",
+        item_id="turn:web-3", message_id="web-3:c1", text="$ wc -l README.md",
+        action_summary="$ wc -l README.md", call_id="c1", turn_step=True,
+    )
+    view = emit(tmp_path, "engineer.progress", 10, status="running", **step)
+    rows = [row for row in view["role_work"] if row["role"] == "manager"]
+    assert [(row["id"], row["status"], row["item_id"]) for row in rows] == [
+        ("manager:web-3:c1", "running", "turn:web-3"),
+    ]
+    assert next(role for role in view["roles"] if role["role"] == "manager")["status"] == "active"
+
+    view = emit(
+        tmp_path, "engineer.progress", 12, status="completed",
+        **{**step, "action_summary": "$ wc -l README.md · 1 README.md"},
+    )
+    rows = [row for row in view["role_work"] if row["role"] == "manager"]
+    assert [(row["id"], row["status"], row["detail"], row["ts"]) for row in rows] == [
+        ("manager:web-3:c1", "completed", "$ wc -l README.md · 1 README.md", 12.0),
+    ]
+    # Closing a step is not the Manager starting new work.
+    assert next(role for role in view["roles"] if role["role"] == "manager")["updated_at"] == 10
+
+    # Engineer progress keeps its historical shape.
+    view = emit(tmp_path, "engineer.progress", 14, agent_layer="engineer", kind="tool_use",
+                item_id="task-a", text="rg TODO", status="running")
+    engineer = [row for row in view["role_work"] if row["role"] == "engineer"]
+    assert engineer[-1]["status"] == "active"

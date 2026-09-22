@@ -147,6 +147,57 @@ def test_self_steps_reach_the_map_with_or_without_streaming(
     assert data["events"][-1]["status"] == ("failed" if failed else "done")
 
 
+@pytest.mark.parametrize("failed", [False, True])
+def test_manager_tool_steps_become_work_records_on_the_turn_card(
+    client: TestClient, tmp_path: Path, monkeypatch, failed: bool,
+) -> None:
+    from argus.core.mission_view import load_mission_view
+
+    def classify(_mem, _body, state, **_kwargs):
+        state["_frontdoor_self_mode"] = "implement"
+        return None, None, "simple"
+
+    def triage(_mem, _body, state, *, on_fragment=None, **_kwargs):
+        on_fragment("phase", {"kind": "command_execution", "label": "$ wc -l README.md",
+                              "tool": "Count README lines", "call_id": "c1", "status": "running"})
+        on_fragment("phase", {"kind": "tool_result", "label": "↳ Count README lines · completed",
+                              "call_id": "c1", "status": "completed", "output": "1 README.md"})
+        on_fragment("phase", {"kind": "tool_use", "label": "⚙ view README.md",
+                              "tool": "view", "call_id": "v1", "status": "running"})
+        if failed:
+            state["_self_failure"] = "The execution stopped before completion."
+            return state["_self_failure"]
+        on_fragment("phase", {"kind": "tool_result", "label": "↳ view · completed",
+                              "call_id": "v1", "status": "completed"})
+        return "One line."
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "manager_triage", triage)
+    response = client.post("/api/projects/s-msgtest0/message", json={"text": "How many lines?"})
+    assert response.status_code == 200
+    life = tmp_path / "projects/s-msgtest0"
+    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
+    turn_id = next(event["message_id"] for event in events if event["type"] == "manager.turn.started")
+    steps = [event for event in events if event["type"] == "engineer.progress" and event.get("turn_step")]
+    # Every call is written when it opens and again when it closes, live, not
+    # only as the reply's step list at the end of the turn.
+    assert [(event["call_id"], event["status"]) for event in steps] == [
+        ("c1", "running"), ("c1", "completed"), ("v1", "running"),
+        ("v1", "interrupted" if failed else "completed"),
+    ]
+    assert {event["agent_layer"] for event in steps} == {"manager"}
+    assert {event["item_id"] for event in steps} == {f"turn:{turn_id}"}
+    reply_index = events.index(next(event for event in events if event["type"] == "ui.argus"))
+    assert events.index(steps[1]) < reply_index
+    work = [row for row in load_mission_view(life)["role_work"] if row["role"] == "manager"]
+    assert [(row["id"], row["status"], row["kind"]) for row in work] == [
+        (f"manager:{turn_id}:c1", "completed", "command_execution"),
+        (f"manager:{turn_id}:v1", "interrupted" if failed else "completed", "tool_use"),
+    ]
+    assert work[0]["item_id"] == f"turn:{turn_id}"
+    assert work[0]["detail"] == "$ wc -l README.md · 1 README.md"
+
+
 def test_queued_manager_message_cannot_resurrect_deleted_project(
     tmp_path: Path, monkeypatch,
 ) -> None:

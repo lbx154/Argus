@@ -702,7 +702,12 @@ def reduce_round_event(
         kind = _text(event, "kind")
         progress_kind = _progress_kind(kind)
         label = say(progress_kind, chinese)
-        _set_role(view, role, "active", label, ts, kind=progress_kind)
+        # A Manager turn step carries its own status and is written twice
+        # (opened, then closed); a closed step is not the Manager being active.
+        turn_step = event.get("turn_step") is True
+        step_status = _text(event, "status", 40) if turn_step else ""
+        if not (turn_step and step_status and step_status != "running"):
+            _set_role(view, role, "active", label, ts, kind=progress_kind)
         if (
             role == "engineer"
             and kind in {"assistant_message", "agent_message", "message"}
@@ -740,7 +745,7 @@ def reduce_round_event(
                 kind=kind or "progress",
                 title=label,
                 detail=detail,
-                status="active",
+                status=step_status or "active",
             )
         if kind not in {"reasoning", "assistant_message", "agent_message"}:
             _timeline(
