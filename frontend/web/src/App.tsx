@@ -39,7 +39,6 @@ import { MissionControl } from './components/MissionControl';
 import { OperationsModal } from './components/OperationsModal';
 import { VerticalStore } from './components/VerticalStore';
 import { Landing } from './components/Landing';
-import { NewDaemonModal } from './components/NewDaemonModal';
 import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
 import { activeGuardianAlert } from './lib/guardian';
@@ -80,7 +79,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'new' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading' | 'skills' | 'wiki' | 'verticals';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading' | 'skills' | 'wiki' | 'verticals';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -359,15 +358,9 @@ export default function App() {
     selectProject,
     translate: t,
   });
-  // "New" opens the create dialog: a name (optional) and, if the operator
-  // already knows it, the objective. Creating a session silently used to leave
-  // an id-named row in the sidebar with no explanation.
-  const startNewSession = useCallback(() => { setOverlay('new'); }, []);
-  const createNamedSession = useCallback(async (name: string, objective: string, workdir: string) => {
-    const created = await createDaemon(name, objective, workdir);
-    if (created) setOverlay('none');
-    return created;
-  }, [createDaemon]);
+  // A new session starts as an idle conversation in the default workspace;
+  // the first message names what it is for, so there is nothing to ask up front.
+  const startNewSession = useCallback(() => { void createDaemon('', '', ''); }, [createDaemon]);
   const startNewSessionRef = useRef(startNewSession);
   startNewSessionRef.current = startNewSession;
   useEffect(() => subscribeDesktopNewChat(() => startNewSessionRef.current()), []);
@@ -1280,7 +1273,6 @@ export default function App() {
       </main>
 
       {/* global overlays */}
-      <NewDaemonModal open={overlay === 'new'} busy={creatingDaemon} onClose={() => setOverlay('none')} onCreate={createNamedSession} />
       <Modal open={overlay === 'skills'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
         {overlay === 'skills' && <SkillLibrary sid={activeSid} projectName={projects.find(project => project.id === activeSid)?.display_name} initialSelection={skillSelection} initialScope={skillScope} />}
       </Modal>
