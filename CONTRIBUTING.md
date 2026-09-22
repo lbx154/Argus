@@ -18,10 +18,12 @@ separate release validation workflow.
 
 ## TypeScript runtime
 
-The root npm workspace contains the shared contracts and experimental runtime
-packages. With Node 22.12+, run `npm ci` and `npm run check`. Web and TUI retain
+The root npm workspace contains the shared contracts, experimental runtime and
+read API packages. With Node 22.12+, run `npm ci` and `npm run check`. Web and TUI retain
 their own install/build commands. Contract edits require
 `npm run contracts:generate`; generated files are checked by CI.
+Build with `npm run build` before running Python tests to include the real
+Node/Python read API integration tests.
 
 See [the migration guide](docs/typescript-migration.md) for supported behaviour,
 Python compatibility, state ownership and the remaining migration steps.

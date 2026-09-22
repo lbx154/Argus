@@ -1,0 +1,12 @@
+{
+  "service": "argus-read-api",
+  "protocol": { "name": "argus.read-api", "major": 1, "minor": 0 },
+  "bridge_protocol": "argus.read-bridge",
+  "bridge_version": 1,
+  "methods": ["meta", "projects", "costs", "snapshot"],
+  "max_request_bytes": 65536,
+  "max_response_bytes": 16777216,
+  "max_projects": 2000,
+  "max_events": 500,
+  "max_project_id_length": 255
+}

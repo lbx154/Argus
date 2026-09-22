@@ -1,0 +1,590 @@
+/** Shared wire models consumed by the browser, TUI and Node services. */
+
+export type { EventMsg } from './events.js';
+import type { EventMsg } from './events.js';
+
+export interface Role {
+  role: string;
+  backend: string;
+  backend_label: string;
+  model: string;
+  effort: string | null;
+  active: boolean;
+  label: string;
+  status: string;
+  age_s: number | null;
+}
+
+export interface DaemonHealth {
+  state?: string;
+  stalled?: boolean;
+  last_progress_at?: number | null;
+  last_progress_event?: string;
+  seconds_since_progress?: number | null;
+}
+
+export interface Daemon {
+  alive: boolean;
+  pid: number | null;
+  control_available?: boolean;
+  liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;
+  heartbeat_age_seconds?: number | null;
+  uptime_seconds: number | null;
+  started_at_iso?: string | null;
+  health?: DaemonHealth;
+  backend: string | null;
+  backend_label?: string | null;
+  global_daily_cap_usd: number | null;
+  mission_width?: number | null;
+  read_status?: 'ok' | 'error';
+  read_error?: string;
+  protocol?: { name: string; major: number | null; minor: number | null };
+  capabilities?: string[];
+  runtime?: Record<string, unknown> | null;
+  protocol_compatible?: boolean | null;
+  protocol_error?: string;
+}
+
+export interface BacklogItem {
+  id: string;
+  title: string;
+  objective: string;
+  status: string;
+  priority: number;
+  iterate?: boolean;
+  pending_question?: string;
+  operator_decision?: import('./decisions.js').OperatorDecisionCard;
+  ts?: number;
+  tags?: string[];
+  notes?: string;
+  started_ts?: number | null;
+  finished_ts?: number | null;
+  last_error?: string;
+  iteration_max_cycles?: number;
+  iteration_cycles_done?: number;
+  iteration_cost_usd?: number;
+  original_objective?: string;
+  orphan_retries?: number;
+  deps?: string[];
+  acceptance_check?: string;
+  plan_hypothesis?: string;
+  goal_contribution?: string;
+  expected_regressions?: string;
+  decision_rule?: string;
+  non_goals?: string[];
+  outcome?: MissionOutcomeDimensions;
+}
+
+export interface MissionOutcomeDimensions {
+  execution_status: string;
+  review_status: string;
+  stage_certification: string;
+  interruption_kind: string;
+  resumable: boolean;
+}
+
+/** One safe, workspace-relative file selected for a completed delivery. */
+export interface DeliveryTarget {
+  path: string;
+  label: string;
+  source: string;
+  why: string;
+}
+
+/** Durable receipt shared by the completion event, chat card, and preview. */
+export interface DeliveryReceipt {
+  schema_version: number;
+  delivery_id: string;
+  kind: 'task_completed' | 'submission_certified' | string;
+  item_id: string;
+  title: string;
+  summary: string;
+  status: string;
+  review_status: string;
+  delivered_at: number;
+  primary_target: DeliveryTarget | null;
+  targets: DeliveryTarget[];
+}
+
+export interface ContinuousState {
+  enabled: boolean;
+  open_ended?: boolean;
+  objective: string;
+  done_reason?: string;
+  done_at?: string;
+}
+
+export interface ProviderRequestUsage {
+  provider: string;
+  day: string;
+  daily_calls: number;
+  daily_cap: number;
+  remaining: number | null;
+  completed_calls?: number;
+  failed_calls?: number;
+  premium_requests?: number;
+  premium_cap?: number;
+  premium_remaining?: number | null;
+  blocked_until?: number;
+  blocked_reason?: string;
+}
+
+export interface RequestUsage {
+  day: string;
+  codex: ProviderRequestUsage;
+  copilot: ProviderRequestUsage;
+}
+
+export interface CostControlSnapshot {
+  day: string;
+  daily_tokens?: number;
+  daily_token_cap?: number;
+  unsettled_tokens?: number;
+  active_reservations: number;
+  unresolved_calls: number;
+  blocking_unresolved_calls?: number;
+  unresolved: Array<Record<string, unknown>>;
+  policy: 'block' | 'allow';
+}
+
+export interface DaemonCommandReceipt {
+  command_id: string;
+  operation: string;
+  status: 'accepted' | 'running' | 'applied' | 'failed' | 'rejected';
+  revision: number;
+  expected_revision: number | null;
+  args: Record<string, unknown>;
+  result: Record<string, unknown>;
+  error: string;
+  submitted_at: number;
+  updated_at: number;
+}
+
+export interface DaemonCommandState {
+  schema_version: 1;
+  revision: number;
+  recent: DaemonCommandReceipt[];
+}
+
+export interface ObservabilitySnapshot {
+  schema_version: 1;
+  provider: Record<string, unknown>;
+  daemon_commands: Record<string, unknown>;
+  web: Record<string, unknown>;
+  event_validation_failures: number;
+  cost_control: CostControlSnapshot | Record<string, unknown>;
+  slo: {
+    status: 'healthy' | 'degraded';
+    violations: string[];
+  };
+}
+
+export interface DaemonAdmission {
+  admission_required: boolean;
+  requested_at: number;
+  target_sid: string;
+  resume_continuous: boolean;
+  limit: number;
+  active_count: number;
+  error: string;
+  running_daemons: ProjectRow[];
+}
+
+export interface UsageSummary {
+  call_count: number;
+  known_cost_usd: number;
+  cost_usd: number | null;
+  pricing_status: string;
+  priced_calls: number;
+  partial_calls: number;
+  unpriced_calls: number;
+  not_billed_calls: number;
+  input_tokens: number;
+  cached_input_tokens: number;
+  cache_write_tokens: number;
+  output_tokens: number;
+  reasoning_output_tokens: number;
+  premium_requests: number;
+  total_nano_aiu: number;
+  premium_request_cost_usd: number;
+}
+
+export type MissionRoleStatus = 'active' | 'done' | 'waiting' | 'rejected' | 'error';
+
+export interface MissionRoleView {
+  role: string;
+  status: MissionRoleStatus | string;
+  /** Stable code naming the state the label describes; localize by this. */
+  kind?: string;
+  label: string;
+  updated_at: number;
+  backend?: string;
+  model?: string;
+  effort?: string | null;
+}
+
+export interface MissionDagNode {
+  id: string;
+  title: string;
+  objective: string;
+  status: string;
+  deps: string[];
+  branch_id: string;
+  parent_branch_id: string | null;
+  acceptance_check?: string;
+  plan_hypothesis?: string;
+  goal_contribution?: string;
+  expected_regressions?: string;
+  decision_rule?: string;
+  non_goals?: string[];
+}
+
+export interface MissionRoleWorkItem {
+  id: string;
+  ts: number;
+  role: string;
+  kind: string;
+  title: string;
+  detail: string;
+  status: string;
+  /** Why a round produced no judgment (rows with kind "review" and status "skipped"). */
+  cause?: string;
+  /** The runtime's own record (exit code, retry count); shown apart from the sentence. */
+  technical?: string;
+  item_id?: string;
+  mission_id?: string;
+  mission_title?: string;
+  round_index?: number | null;
+}
+
+export interface MissionSkillView {
+  id: string;
+  name: string;
+  version: number;
+  scope: string;
+  path: string;
+  status: string;
+  updated_at: number;
+  mission_id?: string;
+  mission_title?: string;
+  source_path?: string;
+  source_placement?: string;
+  source_vertical?: string;
+  content?: string;
+  content_truncated?: boolean;
+}
+
+export interface MissionTimelineItem {
+  id: string;
+  ts: number;
+  type: string;
+  role: string;
+  /** Stable code naming what happened; localize by this, not by the title. */
+  kind?: string;
+  title: string;
+  detail: string;
+  tone: 'neutral' | 'info' | 'success' | 'error' | 'skill' | string;
+  /** Why a round produced no judgment (rows with kind "round_not_judged"). */
+  cause?: string;
+  /** The runtime's own record (exit code, retry count); shown apart from the sentence. */
+  technical?: string;
+  item_id?: string;
+  branch_id?: string;
+}
+
+export interface MissionAchievement {
+  id: string;
+  title: string;
+  goal: string;
+  summary?: string;
+  rejected_attempts?: number;
+  skills_learned?: number;
+  artifacts?: number;
+  elapsed_seconds?: number;
+  evidence?: string[];
+  reviewer_certified: boolean;
+  certified_at?: number | null;
+}
+
+export interface MissionStorageView {
+  project_skill_dir: string;
+  global_skill_dir: string;
+  project_skill_count: number;
+  global_skill_count: number;
+  skill_history_compressed: number;
+  wiki_retired_compressed: number;
+  skill_history_bytes_saved: number;
+  wiki_retired_bytes_saved: number;
+  wiki_paths: string[];
+}
+
+export interface MissionView {
+  schema_version: number;
+  bootstrapped?: boolean;
+  /** "zh" or "en" once the operator's request has been seen; the view's sentences are in this language. */
+  language?: string;
+  health?: string;
+  mission: {
+    id: string;
+    title: string;
+    objective: string;
+    summary: string;
+    final_output?: string;
+    status: string;
+    started_at: number | null;
+    completed_at: number | null;
+    elapsed_seconds: number;
+    campaign_started_at: number | null;
+    campaign_elapsed_seconds: number;
+  };
+  stage: { id: string; label: string };
+  routing: {
+    route: string;
+    vertical: string;
+    workflow_mode: string;
+    lifetime: string;
+    continuous: boolean;
+    open_ended: boolean;
+  };
+  round: { current: number; max: number };
+  active_role: string;
+  roles: MissionRoleView[];
+  role_work: MissionRoleWorkItem[];
+  dag: MissionDagNode[];
+  timeline: MissionTimelineItem[];
+  artifacts: Array<Record<string, unknown>>;
+  learned_skills: MissionSkillView[];
+  learned_wiki_pages: Array<Record<string, unknown>>;
+  storage: MissionStorageView;
+  achievement: MissionAchievement | null;
+  review: { status: string; reason: string; rejected_attempts: number };
+  frontier: { change: string; summary: string; updated_at: number };
+  delivery: DeliveryReceipt | null;
+  outcome: Partial<MissionOutcomeDimensions>;
+  last_event_ts: number;
+  updated_at: number;
+}
+
+export interface Snapshot {
+  schema_version?: number;
+  session: {
+    id: string;
+    display_name: string;
+    objective: string;
+    created?: number;
+    last_active: number;
+    cwd: string;
+    workdir?: string;
+    launch_cwd?: string;
+  };
+  daemon: Daemon;
+  roles: Role[];
+  backlog: BacklogItem[];
+  recent_events: EventMsg[];
+  spend_usd?: number | null;
+  spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
+  usage_summary?: UsageSummary;
+  global_spend_usd?: number | null;
+  global_spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
+  global_usage_summary?: UsageSummary;
+  request_usage?: RequestUsage | null;
+  cost_control?: CostControlSnapshot | null;
+  daemon_commands?: DaemonCommandState | null;
+  observability?: ObservabilitySnapshot | null;
+  mission_view?: MissionView | null;
+  daemon_admission?: DaemonAdmission;
+  /** Present on compact UI snapshots. */
+  continuous?: ContinuousState;
+  /** Present on compact UI snapshots. */
+  pending_questions?: Array<Record<string, unknown>>;
+  /** Foreground Manager/SELF requests that remain cancellable across a page reload. */
+  manager_requests?: Array<{ request_id: string; status: 'running' }>;
+  partial?: boolean;
+  diagnostics?: Array<{
+    section: string;
+    error_type: string;
+    message: string;
+  }>;
+}
+
+export interface ProjectRow {
+  id: string;
+  label: string;
+  objective: string;
+  display_name?: string;
+  cwd?: string;
+  workdir?: string;
+  launch_cwd?: string;
+  last_active: number;
+  daemon_alive: boolean;
+  daemon_pid: number | null;
+  daemon_control_available?: boolean;
+  daemon_liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;
+  daemon_heartbeat_age_seconds?: number | null;
+  uptime_seconds: number | null;
+  daemon_protocol_compatible?: boolean | null;
+  daemon_protocol_error?: string;
+  daemon_source_owned?: boolean;
+  daemon_upgrade_pending?: boolean;
+  active_role?: string;
+  activity?: string;
+  current_task?: string;
+  unfinished_tasks?: number;
+  continuous_enabled?: boolean;
+  continuous_objective?: string;
+  spend_usd?: number | null;
+  known_cost_usd?: number;
+  spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
+  usage_calls?: number;
+  premium_requests?: number;
+  cost_updated_at?: number;
+}
+
+export interface ProjectCostRow {
+  id: string;
+  spend_usd: number | null;
+  known_cost_usd: number;
+  spend_status: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed' | string;
+  usage_calls: number;
+  premium_requests: number;
+  updated_at: number;
+}
+
+export type ArtifactKind =
+  | 'text'
+  | 'markdown'
+  | 'html'
+  | 'json'
+  | 'table'
+  | 'image'
+  | 'pdf'
+  | 'audio'
+  | 'video'
+  | 'binary';
+
+/** An immutable, server-retained version of a progress explanation. */
+export interface ProgressSourceRef {
+  source_id: string;
+  title: string;
+  generated_at: number;
+  path: string;
+  task_id: string;
+  card_key: string;
+  copy_revision: number;
+}
+
+/** A registered project file exposed by the protected artifact API. */
+export interface ArtifactInfo {
+  path: string;
+  name: string;
+  why: string;
+  exists: boolean;
+  kind: ArtifactKind;
+  mime: string;
+  size: number;
+  mtime: number | null;
+  /** Absolute local location shown on hover; reads still use the protected path. */
+  storage_path?: string;
+  source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery' | 'reader_foundation' | 'progress_snapshot';
+  progress_source?: ProgressSourceRef;
+  group_title?: string;
+  /** An explicit reading request, separate from a research result or review. */
+  reader_foundation?: {
+    id: string;
+    /** Missing on earlier records; those records are root foundations. */
+    kind?: 'foundation' | 'clarification' | 'progress_answer';
+    progress_source?: ProgressSourceRef;
+    parent_id?: string | null;
+    root_id?: string;
+    sources?: Array<{ id: string; path: string; title: string }>;
+    question: string;
+    title?: string;
+    locale: 'zh-CN' | 'en-US';
+    source_task_id?: string | null;
+    created_at: number;
+    version: number;
+    state: 'generating' | 'complete' | 'failed';
+    deadline_exceeded?: boolean;
+  };
+  /** Included by the single-artifact endpoint for text/HTML files only. */
+  preview?: string;
+  truncated?: boolean;
+}
+
+export interface GitDiffView {
+  available: boolean;
+  branch: string;
+  status: string;
+  stat: string;
+  diff: string;
+  truncated: boolean;
+}
+
+// --- Vertical store (GET /api/verticals; capability "verticals.store.v1") ---
+
+/** Where a vertical comes from: shipped in core, bundled with the package, installed from the catalog, or only listed there. */
+export type VerticalKind = 'builtin' | 'package' | 'installed' | 'available';
+
+export type VerticalAction = 'install' | 'update' | 'enable' | 'disable' | 'uninstall';
+
+/** The store's record of the last or current lifecycle job for one vertical. */
+export interface VerticalOperation {
+  status: 'running' | 'done' | 'failed';
+  action: string;
+  /** Integer percent 0–100; 0 means the job has not reported a step yet. */
+  progress: number;
+  message: string | null;
+  /** ISO-8601 UTC timestamps, e.g. "2026-09-14T19:00:00Z". */
+  started: string;
+  finished: string | null;
+}
+
+export interface VerticalRow {
+  name: string;
+  purpose: string;
+  purpose_zh: string | null;
+  kind: VerticalKind;
+  version: string | null;
+  installed_version: string | null;
+  enabled: boolean;
+  update_available: boolean;
+  /** Other verticals this one needs, by name. */
+  requires: string[];
+  /** Verticals this one shares resources with, by name. */
+  shared: string[];
+  python_requirements: string[];
+  /** Python distributions not importable from the environment Argus runs in. */
+  missing_python: string[];
+  tags: string[];
+  size_bytes: number | null;
+  /** Project sids currently bound to this vertical. */
+  used_by: string[];
+  operation: VerticalOperation | null;
+  managed_by_host: boolean;
+  /** The only actions the server accepts right now; the UI offers nothing else. */
+  actions: VerticalAction[];
+}
+
+export interface VerticalCatalogStatus {
+  source: string;
+  /** ISO-8601 UTC, or null when the catalog was never fetched. */
+  fetched_at: string | null;
+  release_tag: string | null;
+  error: string | null;
+}
+
+export interface VerticalsPayload {
+  verticals: VerticalRow[];
+  catalog: VerticalCatalogStatus;
+  host: {
+    managed_by_host: boolean;
+    store_root: string;
+  };
+}
+
+/** 202 for install/update/uninstall jobs, 200 for enable/disable. */
+export interface VerticalManageResult {
+  name: string;
+  action: VerticalAction;
+  operation: VerticalOperation | null;
+}
