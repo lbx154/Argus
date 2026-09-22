@@ -36,6 +36,14 @@ export interface MapComposerProps {
   routeOverride?: MessageRouteOverride;
   onRouteOverrideChange?: (route: MessageRouteOverride) => void;
 }
+
+// A wide screen with a mouse has room for the editor; only touch and narrow
+// layouts start from the pill. Tests and servers have no matchMedia.
+function desktopPointer(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.innerWidth >= 1024 && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
 export function MapComposer({
   footer,
   value,
@@ -68,7 +76,7 @@ export function MapComposer({
   // the pill click, the "c" key, an app focus request, or a fresh reference
   // chip. Focusing a card flips the camera to detail view and must never
   // expand the editor on its own. A draft present at mount stays visible.
-  const [expanded, setExpanded] = useState(() => Boolean(value.trim() || attachments.length));
+  const [expanded, setExpanded] = useState(() => Boolean(value.trim() || attachments.length) || desktopPointer());
   const [inputHeight, setInputHeight] = useState(44);
   const currentValue = useRef(value);
   currentValue.current = value;

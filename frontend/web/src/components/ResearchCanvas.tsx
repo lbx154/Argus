@@ -415,7 +415,7 @@ export function ResearchCanvas({
               {missionView ? <option value={LIVE_PROGRESS_PATH}>{t('research.liveProgress')}</option> : null}
               {previewArtifacts.map((item) => (
                 <option key={item.path} value={item.path} disabled={!item.exists} title={item.storage_path || item.path}>
-                  {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : item.source === 'manager_live' ? `${t('research.optionCheckpoint')} · ` : ''}{artifactLabel(item)}{item.exists ? '' : ` · ${t('research.optionPending')}`}
+                  {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : ''}{artifactLabel(item)}{item.exists ? '' : ` · ${t('research.optionPending')}`}
                 </option>
               ))}
             </select>

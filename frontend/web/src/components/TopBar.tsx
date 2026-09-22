@@ -60,10 +60,15 @@ export function TopBar({
   const degraded = Boolean(snap.partial || snap.observability?.slo.status === 'degraded');
   const spendUsd = typeof snap.spend_usd === 'number' ? snap.spend_usd : snap.usage_summary?.known_cost_usd ?? 0;
   const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
+  // A foreground request (a direct answer or a one-agent task) runs without
+  // the daemon; offering "Run" then reads as if nothing had started.
+  const foregroundWork = !snap.daemon.alive && ['running', 'waiting'].includes(currentWorkStatus(snap, missionView, events).state);
   const daemonActionLabel = externalDaemon
     ? t('topbar.externallyManaged')
     : snap.daemon.alive
     ? t('topbar.pauseDaemon')
+    : foregroundWork
+    ? t('topbar.working')
     : t('topbar.runDaemon');
   const healthTitle = degraded
     ? [
@@ -140,14 +145,14 @@ export function TopBar({
         <>
           <button
             type="button"
-            disabled={busy || externalDaemon}
+            disabled={busy || externalDaemon || foregroundWork}
             onClick={snap.daemon.alive ? onStop : onStart}
             aria-label={daemonActionLabel}
             title={externalDaemon ? t('topbar.externalDaemonHint') : daemonActionLabel}
             className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 disabled:opacity-40"
           >
             <FontAwesomeIcon icon={snap.daemon.alive ? faPause : faPlay} className="h-3 w-3" />
-            <span className="hidden sm:inline">{externalDaemon ? t('common.external') : snap.daemon.alive ? t('common.pause') : t('common.run')}</span>
+            <span className="hidden sm:inline">{externalDaemon ? t('common.external') : snap.daemon.alive ? t('common.pause') : foregroundWork ? t('common.working') : t('common.run')}</span>
           </button>
           <button
             type="button"

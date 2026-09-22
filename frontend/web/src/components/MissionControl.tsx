@@ -217,9 +217,24 @@ export function MissionControl({
   const activeNode = view.dag.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
   const dagView = compactMissionDag(view);
   const dag = dagView.nodes;
+  // With no mission title the heading used to read "Waiting for a mission"
+  // even while a foreground request was running or right after it delivered
+  // files; say which of those it is.
+  const runtimeNow = snapshot ? currentWorkStatus(snapshot, view, events) : null;
+  const workingNow = runtimeNow ? ['running', 'waiting'].includes(runtimeNow.state) : false;
+  const zhHeading = locale === 'zh-CN';
   const objective = displayObjective(
-    view.mission.objective || view.mission.title || t('mission.waiting'),
+    view.mission.objective || view.mission.title
+      || (workingNow
+        ? (zhHeading ? '正在处理你的请求' : 'Working on your request')
+        : view.artifacts.length
+          ? (zhHeading ? '已完成，成果在下方' : 'Completed; results below')
+          : t('mission.waiting')),
   );
+  // Records open by themselves while work is running so the reader sees what
+  // is happening; the operator's own toggle wins afterwards.
+  const [recordsOpen, setRecordsOpen] = useState(workingNow);
+  useEffect(() => { if (workingNow) setRecordsOpen(true); }, [workingNow]);
   const finalOutput = view.mission.final_output?.trim() || '';
   const hasFullOutput = Boolean(
     finalOutput && finalOutput !== view.mission.summary.trim(),
@@ -522,7 +537,7 @@ export function MissionControl({
         </div>
       )}
 
-      <details className="mission-detail-records mx-5 mb-8 border-t border-line sm:mx-8">
+      <details className="mission-detail-records mx-5 mb-8 border-t border-line sm:mx-8" open={recordsOpen} onToggle={(event) => setRecordsOpen((event.currentTarget as HTMLDetailsElement).open)}>
         <summary className="cursor-pointer py-4 text-sm text-ink-dim">{locale === 'zh-CN' ? '执行过程与记录' : 'Execution details and records'}{view.dag.length ? ` · ${view.dag.length}` : ''}</summary>
       <Achievement view={view} />
 
