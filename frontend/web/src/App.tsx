@@ -1277,7 +1277,7 @@ export default function App() {
         {overlay === 'skills' && <SkillLibrary sid={activeSid} projectName={projects.find(project => project.id === activeSid)?.display_name} initialSelection={skillSelection} initialScope={skillScope} />}
       </Modal>
       <Modal open={overlay === 'wiki'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识库' : 'Knowledge base'} width="max-w-6xl">
-        {overlay === 'wiki' && <WikiLibrary sid={activeSid} projectName={projects.find(project => project.id === activeSid)?.display_name} initialSelection={wikiSelection} />}
+        {overlay === 'wiki' && <WikiLibrary sid={activeSid} projectName={projects.find(project => project.id === activeSid)?.display_name} projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} initialSelection={wikiSelection} />}
       </Modal>
       <Modal open={overlay === 'reading'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}>
         <ModalHeader title={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'} />
