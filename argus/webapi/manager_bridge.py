@@ -44,6 +44,7 @@ from .manager_session_intent import contextualize_operator_turn
 from .manager_state import (
     _chat_state_for,
     _lock_for,
+    answer_learning_backend,
     interrupt_manager_turns,
     manager_control_generation,
 )
@@ -87,6 +88,7 @@ def _schedule_answer_learning(
         return enqueue_answer(
             root=Path(global_root), sid=sid, operator_text=operator_text,
             reply=reply, vertical=vertical, backend=backend, turn_id=turn_id, evidence=evidence,
+            backend_factory=answer_learning_backend,
         )
     except Exception:  # learning never prevents delivery of an already completed reply
         log.exception("could not queue answer learning for %s", sid)

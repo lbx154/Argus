@@ -6,7 +6,28 @@ let prompt = '';
 process.stdin.setEncoding('utf8');
 for await (const chunk of process.stdin) prompt += chunk;
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
-if (mode === 'hang') {
+if (mode.startsWith('accounting-')) {
+  const usage = { input: 150_000, output: 100, cacheRead: 0, cacheWrite: 0 };
+  const message = { role: 'assistant', model: 'gpt-5.6-sol', provider: 'openai', stopReason: 'stop' };
+  const first = { ...usage };
+  if (mode === 'accounting-provider' || mode === 'accounting-mixed') first.cost = { total: 0.07 };
+  send({ type: 'message_end', message: { ...message, usage: first } });
+  if (mode === 'accounting-cancel') {
+    send({ type: 'ready', pid: process.pid });
+    setInterval(() => {}, 1000);
+  } else {
+    const second = { ...usage };
+    if (mode === 'accounting-provider') second.cost = { total: 0.08 };
+    if (mode === 'accounting-unsafe') second.input = '9007199254740993';
+    send({ type: 'message_end', message: {
+      ...message, usage: mode === 'accounting-missing' ? undefined : second,
+      provider: mode === 'accounting-model-switch' ? 'openrouter' : message.provider,
+      stopReason: mode === 'accounting-failure' ? 'error' : 'stop',
+      content: mode === 'accounting-text-limit' ? [{ type: 'text', text: 'x'.repeat(2048) }] : [],
+    } });
+    send({ type: 'agent_settled' });
+  }
+} else if (mode === 'hang') {
   process.on('SIGTERM', () => {});
   send({ type: 'ready', pid: process.pid });
   setInterval(() => {}, 1000);

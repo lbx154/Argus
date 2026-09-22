@@ -410,6 +410,9 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     from argus.skills.layered import LayeredSkillStore
     from argus.webapi import manager_state, server
 
+    # This check counts foreground routing calls; background learning has its own suite.
+    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "0")
+
     class Backend(_FakeBackend):
         def run_exec(self, **kwargs):
             if kwargs["run_label"] == "manager-frontdoor-classify":

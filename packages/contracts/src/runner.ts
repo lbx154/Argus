@@ -1,4 +1,6 @@
 /** Provider transport receipts, distinct from Argus mission/domain events. */
+import type { RunnerAccounting } from './accounting.js';
+
 export type JsonObject = { [key: string]: unknown };
 
 export type RunnerStopKind = 'cancelled' | 'wall_timeout' | 'idle_timeout' | 'output_limit' | 'transport_error';
@@ -18,6 +20,7 @@ export interface RunnerResult {
   jsonEventCount: number;
   providerTurns: number;
   toolActivityObserved: boolean;
+  accounting: RunnerAccounting;
 }
 
 export type RunnerStreamEvent =
