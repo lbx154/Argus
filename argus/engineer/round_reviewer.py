@@ -1,8 +1,8 @@
 """Round-loop phase: Reviewer invocation and infra-only retry.
 
 Owns calling the independent Reviewer for the current round and retrying
-ONLY the reviewer leg on an infra flake (subprocess crash or missing verdict
-schema) — never discarding the Engineer's already-valid output and never
+ONLY the reviewer leg on a failed call or an unsubmitted review action —
+never discarding the Engineer's already-valid output and never
 re-running the (expensive) Engineer turn just because the cheap Reviewer call
 hiccuped. Reviewer backend death must never be laundered
 into a silent ``continue``: it is routed through the same transient-backoff +
@@ -71,8 +71,10 @@ def _background_launch_block(state: RoundLoopState, engineer_message: str) -> st
         "the host is already waiting. You are judging what was launched: the code "
         "that will produce the result, its configuration, the launch itself, and "
         "what the numbers will decide once they arrive. Give that judgment in the "
-        "ordinary Decision block. The closing wait line is the Engineer's request "
-        "to the host, not a judgment; do not repeat it and do not wait yourself. "
+        "native review action tool, with your explanation in ordinary prose. "
+        "Use defer_review if the judgment depends on the pending result. "
+        "The closing wait line is the Engineer's request to the host, not a judgment "
+        "or a template for your reply; do not repeat it and do not wait yourself. "
         "The mission finishes only after the result is read, whatever you decide here."
     )
 

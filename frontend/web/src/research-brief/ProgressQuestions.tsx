@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen, MessageCircle } from 'lucide-react';
 import type { ProgressSourceRef } from '../../../core/src/types';
+import { ApiError } from '../../../core/src/http';
 import { api, type ArtifactInfo } from '../api';
 import { Button, RawDisclosure } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
@@ -12,32 +13,80 @@ import type { FoundationDraft } from './foundation';
 import { readerFoundationTitle } from '../lib/artifactPresentation';
 import { ReadingQuestionEditor } from './ReadingQuestionEditor';
 import { ReaderExplanationStatus } from './ReaderExplanation';
-import { isProgressSourceRef, progressSourceForCard } from './progressSource';
+import { isProgressSourceRef } from './progressSource';
+import { readerPreview, type ReaderPreview } from '../map/copyMode';
+import { useSelectedFoundation } from './foundation';
 import { useReadingRequest } from './useReadingRequest';
+
+export interface QuestionSourceContext {
+  locale: 'zh-CN' | 'en-US';
+  preview: ReaderPreview;
+  foundationId: string | null;
+}
 
 interface ProgressQuestionsContext {
   sid: string;
   readOnly: boolean;
   hasHistory: boolean;
+  context: QuestionSourceContext;
   open: (source?: ProgressSourceRef) => void;
+  /** Sets aside the explanation being asked about and says where it is kept. */
+  source: (cardKey: string, taskId: string, context: QuestionSourceContext) => Promise<ProgressSourceRef | null>;
 }
 const Questions = createContext<ProgressQuestionsContext | null>(null);
 
-/** Small shared entry; the application owns one question modal, never a chat per card. */
-export function ProgressQuestionButton({ card, cardKey, taskId, readOnly = false }: {
-  card?: CardCopy; cardKey: string; taskId: string; readOnly?: boolean;
+/** Small shared entry; the application owns one question modal, never a chat per card.
+ * Nothing is kept for an explanation until its reader asks about it: the
+ * click is what has the explanation and the step's records set aside. */
+export function ProgressQuestionButton({ card, cardKey, taskId, readOnly = false, context }: {
+  card?: CardCopy; cardKey: string; taskId: string; readOnly?: boolean; context?: QuestionSourceContext;
 }) {
   const questions = useContext(Questions);
   const zh = useI18n().locale === 'zh-CN';
-  if (!questions || questions.readOnly || readOnly) return null;
-  const source = progressSourceForCard(card, cardKey, taskId);
-  const available = source?.path.startsWith(`reader-progress/${questions.sid}/`);
-  return <Button className="inline-flex items-center gap-1 text-xs" disabled={!available}
-    title={!available ? zh ? '这版说明的保存来源尚不可用。' : 'The saved source for this explanation is unavailable.' : undefined}
-    data-testid="progress-question-trigger" data-progress-question-card={cardKey} data-progress-source-id={source?.source_id}
-    onClick={() => { if (available && source) questions.open(source); }}>
+  const [state, setState] = useState<'idle' | 'opening' | 'failed'>('idle');
+  const [unavailable, setUnavailable] = useState(false);
+  const asked = useRef(0);
+  const selected = context ?? questions?.context;
+  const identity = JSON.stringify([questions?.sid, questions?.readOnly, readOnly, selected, cardKey, taskId,
+    card?.copy_revision, card?.generated_at, card?.title]);
+  const currentIdentity = useRef(identity);
+  currentIdentity.current = identity;
+  useEffect(() => {
+    setState('idle');
+    return () => { asked.current += 1; };
+  }, [identity]);
+  if (!questions?.sid || questions.readOnly || readOnly) return null;
+  const available = !!card && Number.isSafeInteger(card.copy_revision) && !!card.title?.trim()
+    && !(selected?.preview === 'question-foundation' && !selected.foundationId);
+  const ask = async () => {
+    if (!available || !selected || state === 'opening') return;
+    const turn = ++asked.current;
+    setState('opening');
+    try {
+      const source = await questions.source(cardKey, taskId, selected);
+      if (turn !== asked.current || currentIdentity.current !== identity) return;
+      if (source && (source.copy_revision !== card.copy_revision || source.generated_at !== card.generated_at || source.title !== card.title)) {
+        throw new ApiError('The selected explanation has changed.', 422, 'POST', '/map-question-source', 'reader_source_unavailable');
+      }
+      setState('idle');
+      if (source) questions.open(source);
+    } catch (error) {
+      if (turn === asked.current && currentIdentity.current === identity) {
+        setUnavailable(error instanceof ApiError && error.code === 'reader_source_unavailable');
+        setState('failed');
+      }
+    }
+  };
+  return <span className="inline-flex flex-col items-start gap-1"><Button className="inline-flex items-center gap-1 text-xs" disabled={!available || state === 'opening'}
+    title={!available ? zh ? '这一步的说明写好后就可以提问。' : 'Questions open once this step has an explanation.' : undefined}
+    data-testid="progress-question-trigger" data-progress-question-card={cardKey} data-progress-question-state={state}
+    onClick={() => void ask()}>
     <MessageCircle size={12} />{zh ? '问这一步' : 'Ask about this step'}
-  </Button>;
+  </Button>
+    {state === 'failed' ? <span role="alert" className="text-xs text-ink-dim">{unavailable
+      ? zh ? '这版说明暂不可用或已变化，未打开提问。请刷新页面后再试。' : 'This explanation is unavailable or has changed. No question was opened. Reload this page and try again.'
+      : zh ? '暂时无法读取这一步的提问材料，未打开提问。请再试一次。' : 'The question material could not be loaded. No question was opened. Please try again.'}</span> : null}
+  </span>;
 }
 
 export function ProgressQuestionHistoryButton() {
@@ -84,6 +133,19 @@ export function ProgressQuestionsProvider({ sid, readOnly = false, children }: {
   const language = locale === 'zh-CN' ? 'zh-CN' : 'en-US';
   const zh = language === 'zh-CN';
   const request = useReadingRequest(sid ?? '', language, !!sid);
+  const foundationId = useSelectedFoundation(sid ?? '', language).id;
+  const sourceRequest = useRef(0);
+  const questionSource = async (cardKey: string, taskId: string, context: QuestionSourceContext) => {
+    const turn = ++sourceRequest.current;
+    const { preview, foundationId, locale } = context;
+    const ref = await api.mapQuestionSource(sid ?? '', { card_key: cardKey, task_id: taskId, locale,
+      ...(preview ? { preview } : {}), ...(preview === 'question-foundation' && foundationId ? { foundation_id: foundationId } : {}) });
+    if (turn !== sourceRequest.current) return null;
+    if (!isProgressSourceRef(ref) || ref.card_key !== cardKey || ref.task_id !== taskId || !ref.path.startsWith(`reader-progress/${sid}/`)) {
+      throw new ApiError('The reading source does not match this step.', 422, 'POST', '/map-question-source', 'reader_source_unavailable');
+    }
+    return ref;
+  };
   const [selection, setSelection] = useState<{ sid: string; locale: string; source: ProgressSourceRef } | null>(null);
   const [draft, setDraft] = useState<FoundationDraft | null>(null);
   const [answerId, setAnswerId] = useState<string | null>(null);
@@ -91,6 +153,7 @@ export function ProgressQuestionsProvider({ sid, readOnly = false, children }: {
   const [linkedPath, setLinkedPath] = useState<string | null>(null);
   useEffect(() => {
     setSelection(null); setDraft(null); setAnswerId(null); setShowSource(false); setLinkedPath(null);
+    return () => { sourceRequest.current += 1; };
   }, [sid, language]);
   const current = selection && selection.sid === sid && selection.locale === language ? selection : null;
   const source = current?.source;
@@ -118,6 +181,7 @@ export function ProgressQuestionsProvider({ sid, readOnly = false, children }: {
   const rejectedHere = !!pendingHere && pendingHere.rejected === 'reader_source_unavailable';
   const unknownHere = !!pendingHere && !rejectedHere && !confirmed && !request.creating;
   const open = (ref?: ProgressSourceRef) => {
+    sourceRequest.current += 1;
     const chosen = ref ?? pending?.draft.progressSource ?? [...sources.values()].at(-1);
     if (!sid || !isProgressSourceRef(chosen) || !chosen.path.startsWith(`reader-progress/${sid}/`)) return;
     setSelection({ sid, locale: language, source: { ...chosen } });
@@ -142,7 +206,8 @@ export function ProgressQuestionsProvider({ sid, readOnly = false, children }: {
     if (id) { setAnswerId(id); setDraft(null); }
   };
   const questionIsBusy = !!pendingHere && request.creating || notes.some(item => item.reader_foundation?.state === 'generating');
-  return <Questions.Provider value={{ sid: sid ?? '', readOnly, hasHistory: sources.size > 0, open }}>
+  return <Questions.Provider value={{ sid: sid ?? '', readOnly, hasHistory: sources.size > 0, open, source: questionSource,
+    context: { locale: language, preview: readerPreview(), foundationId } }}>
     {children}
     <Modal open={!!current} onClose={close} label={zh ? '进展阅读问答' : 'Questions about this progress'}>
       {current && source ? <>

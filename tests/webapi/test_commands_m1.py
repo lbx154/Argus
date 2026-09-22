@@ -2217,3 +2217,60 @@ def test_the_default_localhost_bind_stays_open(ctx) -> None:
     client = TestClient(server.create_app(global_root=root))
     for path in ("/api/projects", f"/api/projects/{sid}/journal"):
         assert client.get(path).status_code == 200
+
+
+def test_choosing_the_shared_model_for_every_role_releases_the_role_pins(ctx, monkeypatch) -> None:
+    """A role knob wins over ARGUS_SKILL_MODEL, so a picker that sets only the
+    shared knob changes nothing on a host whose roles were pinned at setup."""
+    root, sid, _ = ctx
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_MODEL", raising=False)
+    (root / "config.json").write_text(json.dumps({
+        "ARGUS_SKILL_MODEL": "old-shared", "ARGUS_SKILL_ENGINEER_MODEL": "pinned-a",
+        "ARGUS_SKILL_REVIEWER_MODEL": "pinned-b", "ARGUS_SKILL_FIGURE_MODEL": "sees-pictures",
+    }))
+    client = TestClient(server.create_app(global_root=root))
+
+    plain = client.post(f"/api/projects/{sid}/config/set", json={"name": "model", "value": "new-shared"}).json()
+    assert plain["released_role_pins"] == [] and set(plain["role_pins"]) == {"ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL"}
+
+    body = client.post(
+        f"/api/projects/{sid}/config/set",
+        json={"name": "model", "value": "new-shared", "apply_to_roles": True},
+    ).json()
+    assert body["released_role_pins"] == ["ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL"]
+    assert body["role_pins"] == {}
+    stored = json.loads((root / "config.json").read_text())
+    assert stored["ARGUS_SKILL_MODEL"] == "new-shared"
+    assert stored["ARGUS_SKILL_ENGINEER_MODEL"] == "" and stored["ARGUS_SKILL_REVIEWER_MODEL"] == ""
+    # A route override is not a role pin and stays.
+    assert stored["ARGUS_SKILL_FIGURE_MODEL"] == "sees-pictures"
+    from argus.core.knobs import resolve_role_model
+
+    assert resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL", env={}) == "new-shared"
+
+
+def test_the_config_snapshot_offers_model_options_from_catalog_usage_and_knobs(ctx, monkeypatch, tmp_path) -> None:
+    root, sid, _ = ctx
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    catalog = tmp_path / "pi"
+    catalog.mkdir()
+    (catalog / "models.json").write_text(json.dumps({"providers": {"argus": {"models": [{"id": "cat-a"}, {"id": "cat-b"}]}}}))
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(catalog))
+    (root / "config.json").write_text(json.dumps({"ARGUS_SKILL_MODEL": "cat-a", "ARGUS_SKILL_MAP_MODEL": "auto"}))
+    import time as _time
+
+    usage = root / "projects" / sid / "usage.jsonl"
+    usage.parent.mkdir(parents=True, exist_ok=True)
+    usage.write_text(
+        json.dumps({"model": "seen-x", "completed_at": _time.time() - 60, "output_tokens": 5}) + "\n"
+        + json.dumps({"model": "failed-only", "completed_at": _time.time() - 30, "error": "429", "output_tokens": 0}) + "\n"
+        + json.dumps({"model": "ancient", "completed_at": _time.time() - 90 * 86400, "output_tokens": 5}) + "\n"
+    )
+    client = TestClient(server.create_app(global_root=root))
+    body = client.get(f"/api/projects/{sid}/config").json()
+    options = {row["model"]: row["source"] for row in body["model_options"]}
+    assert options["cat-a"] == "catalog" and options["cat-b"] == "catalog"
+    assert options["seen-x"] == "seen"
+    assert "failed-only" not in options and "ancient" not in options
+    assert body["model_options"][0]["model"] == "seen-x"  # most recently used first

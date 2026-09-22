@@ -131,7 +131,13 @@ def project_task_outcome(task: dict, events: list[dict]) -> dict:
                           or (attempt is not None and source["attempt"] is not None and source["attempt"] != attempt))
             recorded_source = {**source, "status": "current_attempt" if event is selected
                                else "historical_attempt" if historical else "unbound"}
-    return {**task, "outcome": _event_outcome(selected) if selected else {},
+    current = _event_outcome(selected) if selected else {}
+    if selected:
+        reviews = [event for event in owned if event.get("type") == "round.review.completed"
+                   and floor <= event["ts"] <= selected["ts"]]
+        if reviews and reviews[-1].get("backend_unavailable") is True:
+            current["review_status"] = "unavailable"
+    return {**task, "outcome": current,
             "outcome_source": current_source, "recorded_outcome": recorded,
             "recorded_outcome_source": recorded_source}
 

@@ -44,7 +44,7 @@ it("keeps completion scope across event-only pages without leaking an earlier at
     success: true, overall_complete: false, campaign_continues: true, attempt: 1 };
   const page = mergeMapProgress(done, { ...done, incremental: true, tasks: [], events: [partial] });
   const next = mergeMapProgress(page, { ...done, incremental: true, tasks: [], events: first.events });
-  expect(layoutScene(buildMap(next.tasks), next.events, false).cards[0].completionScope).toContain("further work remains");
+  expect(layoutScene(buildMap(next.tasks), next.events, false).cards[0].completionScope).toContain("further work remained");
   expect(next.tasks[0].status).toBe("done");
 
   const retried = { ...next.tasks[0], started_ts: 10, finished_ts: 12, attempt: 2 };

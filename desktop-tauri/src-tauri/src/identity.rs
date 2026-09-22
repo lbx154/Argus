@@ -352,7 +352,13 @@ mod tests {
             manifest_source_digest: ownership.manifest_source_digest.clone(),
             token_sha256: ownership.token_sha256.clone(),
         };
-        assert!(backend_ownership_matches(&ownership, &probe(), &expected));
+        // `same_path` only folds the verbatim prefix and letter case on
+        // Windows; elsewhere the strings are compared as written.
+        if cfg!(windows) {
+            assert!(backend_ownership_matches(&ownership, &probe(), &expected));
+        } else {
+            assert!(!backend_ownership_matches(&ownership, &probe(), &expected));
+        }
     }
 
     #[test]

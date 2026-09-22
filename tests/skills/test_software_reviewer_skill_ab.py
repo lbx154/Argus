@@ -16,31 +16,31 @@ class _LibraryAwareBackend:
         self.library_root = library_root.resolve() if library_root else None
         self.reviewer_prompts: list[str] = []
 
-    def run_exec(self, *, prompt: str, run_label: str, **_kwargs) -> RunnerResult:
+    def run_exec(self, *, prompt: str, run_label: str, **kwargs) -> RunnerResult:
         assert run_label == "reviewer"
         self.reviewer_prompts.append(prompt)
         library_available = bool(
             self.library_root and f"`{self.library_root}`" in prompt
         )
-        return RunnerResult(
-            exit_code=0,
-            agent_messages=[
-                "\n".join(
-                    (
-                        f"STATUS={'continue' if library_available else 'done'}",
-                        "REASON=The Reviewer can inspect its software review library."
-                        if library_available
-                        else "REASON=No Reviewer library was supplied.",
-                        "NEXT_ACTION=Trace the changed signature through unchanged callers."
-                        if library_available
-                        else "NEXT_ACTION=",
-                        "OPERATOR_QUESTION=none",
-                        "FORWARD_PROGRESS=true",
-                        "PLAN_SIGNAL=continue",
-                    )
-                )
-            ],
-        )
+        # The Reviewer submits its judgment through a native review action;
+        # prose is never parsed for a decision.
+        from argus.core.role_tool_bridge import bridge_request
+
+        env = kwargs["options"].extension_env
+        if library_available:
+            bridge_request("ARGUS_PLUGIN_REVIEW", "revise_review", {
+                "review": (
+                    "The Reviewer can inspect its software review library. "
+                    "Trace the changed signature through unchanged callers."
+                ),
+                "forward_progress": True,
+            }, env=env)
+        else:
+            bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
+                "review": "No Reviewer library was supplied.",
+                "forward_progress": True,
+            }, env=env)
+        return RunnerResult(exit_code=0, agent_messages=["Review submitted."])
 
 
 def _evaluate(reviewer: Reviewer, project: Path) -> object:

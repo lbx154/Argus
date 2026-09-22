@@ -28,3 +28,12 @@
 .map-reference-chips > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 640px) { .map-composer { padding: 10px; gap: 8px; } .map-composer textarea { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) { .conversation-composer, .map-composer, .map-send { transition: none; } .composer-surface .argus-mark-eye { animation: none !important; } }
+/* Per-message route: Auto / Task / Chat as one segmented pill. */
+.route-seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid rgb(var(--line)); border-radius: 999px; background: rgb(var(--bg)); flex-shrink: 0; }
+.route-seg button, .composer-controls .route-seg button { min-height: 0; border: 0; border-radius: 999px; padding: 3px 10px; font-size: 12px; line-height: 16px; color: rgb(var(--ink-faint)); background: transparent; transition: background-color 120ms ease, color 120ms ease; }
+.route-seg button:hover, .composer-controls .route-seg button:hover { color: rgb(var(--ink)); background: rgb(var(--line) / .45); }
+.route-seg button[aria-checked='true'], .composer-controls .route-seg button[aria-checked='true'] { background: rgb(var(--surface)); color: rgb(var(--ink)); font-weight: 500; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+.route-seg button:disabled { opacity: .55; cursor: default; }
+.route-seg button:focus-visible { outline: 2px solid rgb(var(--blue) / .45); outline-offset: 1px; }
+.composer-controls .route-seg { margin-right: auto; }
+.map-island-dock .route-seg { margin-right: auto; }

@@ -117,7 +117,7 @@ it("keeps the explicitly opened task reader when new copy changes relations and 
   expect(reader().props['data-task-id']).toBe('failed');
   const positions = nodes().map(node => node.position);
   const updated: MapCopy = { ...retained, cards: { failed: { ...retained.cards.failed, title: 'Updated task explanation', generated_at: 2 } },
-    relations: [{ source: 'parent', target: 'unrelated', kind: 'semantic', label: 'Explains', evidence: 'Recorded relation' }] };
+    relations: [{ source: 'parent', target: 'unrelated', kind: 'semantic', label: 'Explains' }] };
   await act(async () => { client.setQueryData(key, updated); await new Promise(resolve => setTimeout(resolve, 0)); });
   expect(nodes().map(node => node.position)).not.toEqual(positions);
 
@@ -143,6 +143,7 @@ it.each([false, true])('shares selected error status between task and step reade
   const failure = new Error('Explanation did not finish');
   const generation = {
     copy: undefined, ready: true, generating: false, foundationRequired: false, readingGenerating: false, generationPhase: undefined, readingNeedsUpdate: true,
+    questionContext: { locale: 'en-US' as const, preview: null, foundationId: null },
     readingRequest: { key: 'failed', task_id: 'failed', kind: 'task', event_ids: ['failure'] },
     generationError: failure, generationUnavailable: false, retry,
   };
@@ -191,7 +192,36 @@ it("does not count a partial research execution as a completed overall goal", ()
   // The header no longer carries a progress strip; the sentence is the only tally.
   expect(renderer.root.findAllByProps({ className: "map-progress-strip" })).toHaveLength(0);
   expect(nodes()[0].data.task.status).toBe("done");
-  expect(nodes()[0].data.completionScope).toContain("further work remains");
+  expect(nodes()[0].data.completionScope).toContain("further work remained");
+});
+
+it("connects a historical review error to the project's final review and deliverables", () => {
+  const failed = { ...data.tasks[1], outcome: { review_status: "unavailable" }, finished_ts: 10 };
+  const final = { ...data.tasks[0], id: "final", started_ts: 11, finished_ts: 12,
+    outcome: { execution_status: "completed", review_status: "done", stage_certification: "certified" } };
+  const complete = { ...data, tasks: [failed, final], events: [
+    { id: "end", item_id: "final", type: "life.mission.completed", ts: 13, text: "", overall_complete: true },
+  ] };
+  const onOpenDelivery = vi.fn();
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={complete}
+    actions={{ ...props.actions, deliveryCount: 1, onOpenDelivery }} /></QueryClientProvider>));
+  act(() => nodes().find(node => node.id === failed.id)!.data.open(failed.id));
+  const banner = renderer.root.findByProps({ className: "map-final-review" });
+  expect(banner.findByType("strong").children).toEqual(["Final delivery passed review"]);
+  expect(banner.findAllByType("span").some(span => span.children.includes(
+    " · This project was delivered later; this card retains its earlier review error."))).toBe(true);
+  act(() => banner.findAllByType("button")[0].props.onClick());
+  expect(focused()).toBe("final");
+  act(() => banner.findAllByType("button")[1].props.onClick());
+  expect(onOpenDelivery).toHaveBeenCalledOnce();
+  expect(nodes().find(node => node.id === failed.id)!.data.task.status).toBe("failed");
+  act(() => nodes().find(node => node.id === failed.id)!.data.readCopy!(failed.id, failed.id));
+  const reader = renderer.root.findByProps({ "data-testid": "map-task-reading" });
+  const laterReview = reader.findAllByType("button").find(item =>
+    item.children.includes("View this project's later accepted final review"))!;
+  act(() => laterReview.props.onClick());
+  expect(renderer.root.findAllByProps({ "data-testid": "map-task-reading" })).toHaveLength(0);
+  expect(focused()).toBe("final");
 });
 
 it("measures offscreen cards before fitting and after graph growth", () => {

@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api, type KnowledgeEvent, type KnowledgeEventKind, type WikiLibraryItem, type WikiScope } from '../api';
 import { useI18n } from '../i18n';
 import { formatRelativeTime } from '../lib/format';
+import { roleLabel } from '../lib/enumLabels';
+import { libraryVertical } from '../lib/libraryPresentation';
 
 /**
  * The host's knowledge journal as a live feed: what Argus learned after a
@@ -87,7 +89,7 @@ export function KnowledgeFeedList({ events, items, sid, query = '', onSelect, se
   onSelect: (item: WikiLibraryItem) => void;
   selected?: WikiLibraryItem | null;
 }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
   const kinds = knowledgeKindLabels[zh ? 'zh' : 'en'];
   const scopes = scopeLabels[zh ? 'zh' : 'en'];
@@ -99,9 +101,9 @@ export function KnowledgeFeedList({ events, items, sid, query = '', onSelect, se
   const rows = groupKnowledgeEvents(visible);
   const where = (event: KnowledgeEvent) => [
     scopes[event.scope] ?? event.scope,
-    event.vertical,
+    libraryVertical(event.vertical, locale),
     event.source_project ? `${zh ? '来自 ' : 'from '}${event.source_project}` : '',
-    event.role,
+    zh && event.role ? roleLabel(event.role, t) : event.role,
   ].filter(Boolean).join(' · ');
   const isSelected = (item: WikiLibraryItem | null) => Boolean(item && selected && item.scope === selected.scope && item.vertical === selected.vertical && item.path === selected.path);
   const titleButton = (event: KnowledgeEvent, className: string) => {

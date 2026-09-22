@@ -2,7 +2,7 @@ import type { DispatchObserver } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useGitDiff } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem } from './api';
+import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { SkillLibrary } from './components/SkillLibrary';
 import { WikiLibrary } from './components/WikiLibrary';
 import { TopBar } from './components/TopBar';
@@ -47,7 +47,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { buildWebCommandHandlers } from './lib/commandHandlers';
 import { finishManagerMessage } from './lib/messageResult';
-import { COMMANDS } from '../../core/src/commands';
+import { COMMANDS, parseCommand } from '../../core/src/commands';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
 import {
@@ -62,7 +62,9 @@ import { useCreateDaemonSession } from './useCreateDaemonSession';
 import { useProjectDaemonActions } from './useProjectDaemonActions';
 import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
-import { useProjectSelection } from './useProjectSelection';
+import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
+import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
+import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
 import { PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from './lib/previewLayout';
 import { useI18n } from './i18n';
@@ -74,7 +76,6 @@ import {
   completionNotificationPayload,
   installDesktopExternalLinkBridge,
   notifyDesktopCompletion,
-  subscribeDesktopDelivery,
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
@@ -134,6 +135,9 @@ function useThrottledValue<T>(value: T, ms: number): T {
 
 export default function App() {
   const { locale, t } = useI18n();
+  // The pairing error carries a fixed English message; show the localized copy instead.
+  const landingErrorText = (error: unknown): string =>
+    error instanceof PairingRequiredError ? t('connection.pairingDetail') : errorText(error);
   const queryClient = useQueryClient();
   const projectsQ = useProjects();
   const projectCostsQ = useProjectCosts();
@@ -201,11 +205,6 @@ export default function App() {
   // Share the visible-height decision with the reading card and composer.
   const compactViewport = useVisualViewport();
   const [composerFocus, setComposerFocus] = useState(0);
-  const [composerDraft, setComposerDraft] = useState('');
-  const [composerAttachments, setComposerAttachments] = useState<File[]>([]);
-  const composerDraftRef = useRef(composerDraft);
-  composerDraftRef.current = composerDraft;
-  const [rewriting, setRewriting] = useState(false);
   const [slashSelection, setSlashSelection] = useState(0);
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>('auto');
   const [chatPending, setChatPending] = useState(false);
@@ -228,7 +227,7 @@ export default function App() {
     view: null,
     artifacts: [],
   });
-  const deliveryRef = useRef<DeliveryReceipt | null>(null);
+  const cancelDeliveryNavigationRef = useRef<() => void>(() => undefined);
   const [notice, setNotice] = useState<UiNotice | null>(null);
   const [eventView, dispatchEventView] = useReducer(eventViewReducer, initialEventViewState);
   const [eventFilter, setEventFilter] = useState<EventViewFilter>('all');
@@ -264,13 +263,17 @@ export default function App() {
   }, [cancelActiveMessage, notify, t]);
   const {
     activeSid,
-    clearProjectSelection,
+    clearProjectSelection: clearSelectedProject,
     prefetchProject,
-    selectProject,
+    selectProject: selectProjectBase,
+    sid: selectedSid,
     sidRef,
   } = useProjectSelection({
     cancelActiveMessage,
     notify,
+    formatProjectMissing: (requested, fallback) => fallback
+      ? t('project.missingSwitched', { requested: requested ?? '', fallback })
+      : t('project.missingCreate', { requested: requested ?? '' }),
     projects,
     projectsError: projectsQ.isError,
     projectsReady: projectsQ.isSuccess,
@@ -279,9 +282,26 @@ export default function App() {
     setSidebarOpen,
     setTaskItemId,
   });
+  const {
+    draft: { text: composerDraft, attachments: composerAttachments },
+    rewriting, setText: setComposerDraft, setAttachments: setComposerAttachments,
+    capture: captureDraft, consume: consumeDraft, restore: restoreDraft,
+    beginRewrite, finishRewrite, drop: dropSessionDraft,
+  } = useSessionComposer(selectedSid);
+  const selectProject = useCallback((id: string, mode?: ProjectHistoryMode) => {
+    cancelDeliveryNavigationRef.current();
+    selectProjectBase(id, mode);
+  }, [selectProjectBase]);
+  const clearProjectSelection = useCallback((mode?: ProjectHistoryMode) => {
+    cancelDeliveryNavigationRef.current();
+    clearSelectedProject(mode);
+  }, [clearSelectedProject]);
   // A message category belongs to this conversation, never another project
   // or a preference left in storage by an older browser tab.
   useEffect(() => setRouteOverride('auto'), [activeSid]);
+  useEffect(() => {
+    setPreviewPathRequest(current => current.path ? { path: '', token: current.token + 1 } : current);
+  }, [selectedSid]);
 
   useEffect(() => () => {
     messageEpochRef.current += 1;
@@ -302,16 +322,18 @@ export default function App() {
   const rewriteDraft = useCallback((draft: string) => {
     const body = (draft || '').trim();
     const sid = sidRef.current;
-    if (!body || !sid || rewriting) return;
-    setRewriting(true);
+    if (!body || !sid) return;
+    const operation = beginRewrite(sid);
+    if (!operation) return;
     void api.rewritePrompt(sid, body).then(
       (result) => {
-        setRewriting(false);
         if (result.error || !result.rewritten.trim()) {
-          notify('error', `Rewrite failed: ${result.error || 'empty rewrite'} — your prompt is unchanged`);
+          if (finishRewrite(operation) && sidRef.current === sid) {
+            notify('error', `Rewrite failed: ${result.error || 'empty rewrite'} — your prompt is unchanged`);
+          }
           return;
         }
-        setComposerDraft(result.rewritten);
+        if (!finishRewrite(operation, result.rewritten) || sidRef.current !== sid) return;
         setComposerFocus((x) => x + 1);
         const open = result.questions.length
           ? ` Manager asks: ${result.questions.join(' · ')}`
@@ -319,11 +341,12 @@ export default function App() {
         notify('success', `Prompt rewritten — review it, then send.${open}`);
       },
       (error) => {
-        setRewriting(false);
-        notify('error', `Rewrite failed: ${errorText(error)} — your prompt is unchanged`);
+        if (finishRewrite(operation) && sidRef.current === sid) {
+          notify('error', `Rewrite failed: ${errorText(error)} — your prompt is unchanged`);
+        }
       },
     );
-  }, [notify, rewriting, sidRef]);
+  }, [beginRewrite, finishRewrite, notify, sidRef]);
 
 
   const { createDaemon, creatingDaemon } = useCreateDaemonSession({
@@ -455,7 +478,6 @@ export default function App() {
   const completionId = loadedSid && operatorTaskComplete && missionView?.mission.id
     ? `completion:${loadedSid}:${missionView.mission.id}`
     : '';
-  deliveryRef.current = delivery;
   completionContextRef.current = {
     sid: loadedSid || '',
     completionId,
@@ -515,6 +537,7 @@ export default function App() {
       const artifact = selectCompletionArtifact(current.artifacts);
       const payload = completionNotificationPayload({
         completionId,
+        sessionId: loadedSid,
         title: receipt?.title || current.view.mission.title || t('mission.taskCompleted'),
         summary: receipt?.summary || current.view.mission.summary,
         path: receipt?.primary_target?.path || artifact?.path,
@@ -524,17 +547,24 @@ export default function App() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [completionId, loadedSid, t]);
-  useEffect(() => subscribeDesktopDelivery((payload) => {
-    const current = deliveryRef.current;
-    if (current && current.delivery_id === payload.deliveryId) {
-      openDelivery(current);
-    } else if (payload.path) {
-      focusDeliveryPath(payload.path);
-    } else {
-      setMobileView('activity');
-      setWorkspaceView('map');
-    }
-  }), [focusDeliveryPath, openDelivery, setMobileView, setWorkspaceView]);
+  cancelDeliveryNavigationRef.current = useDesktopDeliveryNavigation({
+    selectedSid, loadedSid, sidRef, snapshotError: snapQ.error, queryClient,
+    receipts: transcriptQ.isPending ? [] : deliveryHistory,
+    completionId,
+    // Notification navigation uses the same selection path but is not a new
+    // manual intent. Ordinary sidebar/palette/command selections cancel it.
+    selectProject: (id) => { selectProjectBase(id); setSidebarOpen(false); },
+    openDelivery,
+    focusPath: (path) => {
+      // A verified file can precede its listing refresh. The side preview only
+      // selects listed files; use the existing direct modal rather than its
+      // default-file fallback when the target has not reached that index yet.
+      if (artifactsQ.data?.some(file => file.path === path && file.exists)) focusDeliveryPath(path);
+      else setArtifactPath(path);
+    },
+    noPath: () => { setMobileView('activity'); setWorkspaceView('map'); },
+    notify,
+  });
   // Keep a ref so the /clear handler can read the current length without being
   // listed as a reactive dependency of commandHandlers.
   const activityEventsRef = useRef(activityEvents);
@@ -629,6 +659,7 @@ export default function App() {
     renameCurrentProject,
     requestDispose,
     requestStopIteration,
+    rewriteDraft,
     selectProject,
     snapQ.refetch,
     stopWaiting,
@@ -645,7 +676,8 @@ export default function App() {
 
   const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver): Promise<boolean> => {
     const requestSid = activeSid;
-    if (!requestSid || messageSubmitLockRef.current || messageRequestRef.current) return false;
+    if (!requestSid || requestSid !== sidRef.current || messageSubmitLockRef.current || messageRequestRef.current) return false;
+    const requestEpoch = messageEpochRef.current;
 
     messageSubmitLockRef.current = true;
     let requestId: number;
@@ -661,6 +693,9 @@ export default function App() {
         }
       }
 
+      // Command dispatch yields even for ordinary text. A switch during that
+      // yield must not create a new request after the old wait was cancelled.
+      if (sidRef.current !== requestSid || messageEpochRef.current !== requestEpoch) return false;
       requestId = ++messageEpochRef.current;
       serverRequestId = newRequestId();
       controller = new AbortController();
@@ -872,21 +907,21 @@ export default function App() {
   sendMessageRef.current = sendMessage;
 
   const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver): Promise<boolean> => {
-    const draft = composerDraftRef.current;
-    const sid = sidRef.current;
+    const draft = captureDraft(sidRef.current);
+    if (!draft) return false;
+    let cleared: DraftSnapshot | null = null;
     let failedBeforeAcceptance = false;
+    // /rewrite owns its pending revision until its preview lands, not a send.
+    const rewriteCommand = !files.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
     const accepted = await sendMessage(text, files, (result) => {
-      if (sidRef.current !== sid) return;
       if (result.type === 'settled' && result.outcome === 'error') {
         failedBeforeAcceptance = true;
-        setComposerDraft((current) => current.trim() ? current : draft || text);
-        setComposerAttachments((current) => current.length ? current : files);
+        if (cleared) restoreDraft(cleared, draft);
       }
-      observe?.(result);
+      if (sidRef.current === draft.sid) observe?.(result);
     });
-    if (accepted && !failedBeforeAcceptance && sidRef.current === sid) {
-      setComposerDraft((current) => current === draft ? '' : current);
-      setComposerAttachments((current) => current.filter((file) => !files.includes(file)));
+    if (accepted && !failedBeforeAcceptance && !rewriteCommand) {
+      cleared = consumeDraft(draft, files);
     }
     return accepted;
   };
@@ -955,7 +990,7 @@ export default function App() {
     }));
     return [...nav, ...acts, ...commandRows, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, messagePending, stopWaiting, locale, t]);
+  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, messagePending, stopWaiting, setComposerDraft, locale, t]);
 
   return (
     <ProgressQuestionsProvider sid={activeSid} readOnly={kiosk}>
@@ -1206,7 +1241,7 @@ export default function App() {
                 onOpenFile={openPreview}
                 className="min-h-0 flex-1 mobile-scroll-region"
                 embedded
-                onCollapse={() => setRightPanelOpen(false)}
+                onCollapse={() => { setRightPanelOpen(false); setMobileView('activity'); }}
                 missionView={missionView}
                 activityEvents={activityEvents}
                 requestedPath={previewPathRequest.path}
@@ -1221,9 +1256,9 @@ export default function App() {
             hasProjects={projects.length > 0}
             error={
               projectsQ.isError && projects.length === 0
-                ? errorText(projectsQ.error)
+                ? landingErrorText(projectsQ.error)
                 : snapQ.isError && !snap
-                ? errorText(snapQ.error)
+                ? landingErrorText(snapQ.error)
                 : undefined
             }
             onRetry={() => {
@@ -1336,7 +1371,12 @@ export default function App() {
           onRename={manageRenameProject}
           onStart={manageStartDaemon}
           onStop={manageStopDaemon}
-          onDelete={manageDeleteProject}
+          onDelete={async () => {
+            const deletedSid = manageTargetSid;
+            const deleted = await manageDeleteProject();
+            if (deleted && deletedSid) dropSessionDraft(deletedSid);
+            return deleted;
+          }}
         />
       ) : null}
       <ActionNotice notice={notice} onClose={dismissNotice} />

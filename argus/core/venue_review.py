@@ -182,6 +182,9 @@ def enforce_venue_acceptance(
     decision.venue_review_passed = False
     decision.venue_review_snapshot = before
     assessment = normalize_venue_review(decision.venue_review)
+    if decision.venue_review is None and decision.status != "done":
+        _keep_final_repairs_in_place(decision)
+        return
     if assessment is None or (venue and _venue_key(assessment["venue"]) != _venue_key(venue)):
         # An incomplete/wrong-venue response is a Reviewer failure. Retry that
         # read-only leg; do not ask Engineer to alter a paper to fix the protocol.
@@ -189,7 +192,7 @@ def enforce_venue_acceptance(
         decision.backend_unavailable = True
         decision.backend_stop_kind = "backend_unavailable"
         decision.reason = "Final Reviewer omitted a valid assessment for the selected venue."
-        decision.next_action = "Retry the independent Reviewer on the same paper and clarify its actual recommendation for the selected venue in ordinary prose."
+        decision.next_action = "Retry the independent Reviewer on the same paper and submit a review action with its actual recommendation for the selected venue."
         return
     current = paper_review_snapshot(artifact_root)
     issue = venue_review_issue(assessment, venue=venue, minimum=minimum)

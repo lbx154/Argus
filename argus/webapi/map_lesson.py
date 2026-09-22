@@ -115,10 +115,9 @@ Retained sources:
 def generate_source_first(documents: list[dict], tasks: list[dict], locale: str, *,
                           config: MapModel, project_root, global_root, learning_path: bool = False,
                           on_progress: MapProgress | None = None) -> dict:
-    from .map_narrative import SOURCE_SNAPSHOT_VERSION, _reader_brief
+    from .map_narrative import _reader_brief
 
     deadline = time.monotonic() + 170
-    captured_at = time.time()
     contexts = {document["key"]: teaching_context({
         "task": document.get("task", {}), "events": document.get("events", []),
         "related_tasks": [task for task in tasks if task.get("id") != document["task_id"]],
@@ -148,10 +147,6 @@ def generate_source_first(documents: list[dict], tasks: list[dict], locale: str,
         if learning_path:
             card["learning_path"] = copy.deepcopy(map_learning.checked_learning_path(candidate["learning_path"]))
         card["key"] = key
-        card["source_snapshot"] = {
-            "version": SOURCE_SNAPSHOT_VERSION, "card_key": key, "task_id": document["task_id"],
-            "captured_at": captured_at, **copy.deepcopy(contexts[key]),
-        }
         card["teaching_process"] = {
             "kind": "learning_plan_then_lesson" if learning_path else "source_outline_then_lesson",
             "version": map_learning.PROCESS_VERSION if learning_path else PROCESS_VERSION,

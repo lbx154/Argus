@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BookOpen, MessageCircle, RefreshCw } from 'lucide-react';
 import type { MissionView, Snapshot } from '../../../core/src/types';
-import { Button, RawDisclosure } from '../components/primitives';
+import { Button } from '../components/primitives';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Modal, ModalHeader } from '../components/Modal';
 import { useI18n } from '../i18n';
@@ -11,10 +11,8 @@ import { useResearchBrief, type ResearchBriefOptions } from './useResearchBrief'
 import { readerPreview } from '../map/copyMode';
 import { MapReaderContent } from '../map/MapReaderContent';
 import { ReaderExplanation, ReaderExplanationStatus, ShortText } from './ReaderExplanation';
-import { ReaderEvidence, ReaderTaskFacts } from './ReaderEvidence';
-import { selectReaderEvidence } from './evidence';
-import { currentWorkStatus } from '../lib/workStatus';
 import { ProgressQuestionButton } from './ProgressQuestions';
+import { PendingQuestion } from './PendingQuestion';
 import { MethodCard } from './MethodCard';
 
 export interface ResearchBriefProps {
@@ -30,11 +28,11 @@ export interface ResearchBriefProps {
 
 type ReadingSelection = Pick<ResearchBriefOptions, 'sid' | 'snapshot' | 'view' | 'locale' | 'preview' | 'foundationId'>;
 
-/** Observe the selected task's existing queries; opening a reader adds no work. */
+/** Only an explicitly opened reader may request a full explanation. */
 function SelectedResearchReading({ selection, onOpenArtifact, readOnly }: { selection: ReadingSelection; onOpenArtifact?: (path: string) => void; readOnly?: boolean }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
-  const result = useResearchBrief({ ...selection, active: false, readOnly: true });
+  const result = useResearchBrief({ ...selection, active: true, readOnly });
   const taskId = selection.view.mission.id;
   const task = result.task || { id: taskId, title: selection.view.mission.title,
     objective: selection.view.mission.objective, status: selection.view.mission.status };
@@ -46,9 +44,10 @@ function SelectedResearchReading({ selection, onOpenArtifact, readOnly }: { sele
         readOnly={readOnly}
         onOpenArtifact={onOpenArtifact}
         originalDetail={task.objective || selection.snapshot.session.objective || ''}
-        selection={{ request: briefRequest(task, result.evidence), evidence: result.loadedEvents ?? [],
+        selection={{ request: briefRequest(task, result.evidence), questionContext: result.questionContext,
           pending: result.needsUpdate, generating: result.generating, phase: result.generationPhase,
           error: result.generationError, foundationRequired: result.foundationRequired,
+          retry: readOnly ? undefined : result.retry, retryDisabled: result.generating,
           unavailable: !result.foundationRequired && (result.legacy || result.generationUnavailable || (!result.loading && !result.generationAvailable)) }} />
       {result.readError ? <p className="mt-2 text-xs text-ink-faint" role="status">{zh
         ? '记录暂时读取失败；已显示内容仍保留。'
@@ -64,30 +63,20 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   const compact = props.compact === true;
   const [readingSelection, setReadingSelection] = useState<ReadingSelection | null>(null);
   const selectedReading = readingSelection?.sid === props.sid ? readingSelection : null;
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    setEvidenceOpen(false);
     if (body.current) body.current.scrollTop = 0;
   }, [props.sid, props.view.mission.id]);
   useEffect(() => setReadingSelection(null), [props.sid]);
-  const result = useResearchBrief({ ...props, locale: zh ? 'zh-CN' : 'en-US' });
+  const result = useResearchBrief({ ...props, allowGeneration: false, locale: zh ? 'zh-CN' : 'en-US' });
   const { task, evidence, brief, card } = result;
   const title = (brief ? card?.title : undefined) || task?.title || props.view.mission.title || text('当前任务', 'Current task');
   const objective = task?.objective || props.view.mission.objective || props.snapshot.session.objective;
-  const sources = selectReaderEvidence({ cardKey: props.view.mission.id, taskId: props.view.mission.id, card, task,
-    loadedEvents: result.loadedEvents, currentEvents: evidence });
   const generatedDate = dateOf({ ts: card?.generated_at });
   const generatedAt = generatedDate?.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? '';
   const unavailable = !result.foundationRequired && (result.legacy || result.generationUnavailable || (!result.loading && !result.generationAvailable));
   const hasProblem = !!result.readError || !!result.generationError || unavailable;
   const explanationStatus = <ReaderExplanationStatus generatedAt={card?.generated_at} pending={result.needsUpdate} generating={result.generating} phase={result.generationPhase} hasExplanation={!!brief} />;
-  const snapshotTask = props.snapshot.backlog.find(item => item.id === task?.id);
-  const sameAttempt = task && snapshotTask?.status === task.status
-    && (snapshotTask.started_ts ?? null) === (task.started_ts ?? null);
-  // Map records and runtime snapshots refresh independently. A previous
-  // attempt's status must not stand in for the task currently being read.
-  const runtimeStatus = sameAttempt ? currentWorkStatus(props.snapshot, props.view, props.snapshot.recent_events ?? []) : undefined;
   const sameGoal = (value: string | undefined) => (value || '').trim();
   const problem = result.readError ? text('任务记录暂时无法更新。', 'Task records could not be refreshed.')
     : result.generationError ? text('说明生成失败。', 'The explanation could not be prepared.')
@@ -96,9 +85,10 @@ export default function ResearchBrief(props: ResearchBriefProps) {
     : result.generating ? text('正在根据任务记录整理说明。', 'Preparing an explanation from the task records.')
       : result.foundationRequired ? text('先在“问题基础”选择说明。', 'Choose a saved foundation for this explanation.')
         : text('尚未生成说明。', 'No explanation has been saved yet.'));
+  const canRetryRead = !!result.readError || !result.generationAvailable || result.legacy || !task;
   const noticeRow = <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-faint" role={hasProblem ? 'status' : undefined}>
     <span>{notice}</span>
-    {hasProblem && props.active && (!props.readOnly || result.readError) ? <Button className="inline-flex items-center gap-1 text-xs" disabled={result.generating || result.loading} onClick={() => void result.retry()}><RefreshCw size={12} />{text('重试', 'Retry')}</Button> : null}
+    {hasProblem && canRetryRead && props.active && (!props.readOnly || result.readError) ? <Button className="inline-flex items-center gap-1 text-xs" disabled={result.generating || result.loading} onClick={() => void result.retry()}><RefreshCw size={12} />{text('重试', 'Retry')}</Button> : null}
   </div>;
 
   const explanation = <>
@@ -107,7 +97,7 @@ export default function ResearchBrief(props: ResearchBriefProps) {
       {noticeRow}
     </div>}
     {result.generating && brief ? <p className="mt-2 text-[11px] text-ink-faint">{text('正在依据新记录更新；上方暂时保留之前的说明。', 'Updating from new records; the previous explanation remains visible above.')}{generatedAt ? ` ${generatedAt}` : ''}</p> : null}
-    <ReaderTaskFacts selection={sources} runtimeStatus={runtimeStatus} hideEmptyReports={!brief} onOpenArtifact={props.onOpenArtifact} />
+    <PendingQuestion task={task} onOpenArtifact={props.onOpenArtifact} />
     {brief && hasProblem ? noticeRow : null}
   </>;
 
@@ -130,8 +120,7 @@ export default function ResearchBrief(props: ResearchBriefProps) {
         <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setReadingSelection({
           sid: props.sid, snapshot: props.snapshot, view: props.view, locale: zh ? 'zh-CN' : 'en-US', preview: readerPreview(), foundationId: result.foundationId,
         })}><BookOpen size={12} />{text('阅读说明', 'Read explanation')}</Button>
-        <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setEvidenceOpen(true)}><BookOpen size={12} />{text('查看依据', 'View evidence')}</Button>
-        <ProgressQuestionButton card={card} cardKey={props.view.mission.id} taskId={props.view.mission.id} readOnly={props.readOnly} />
+        <ProgressQuestionButton card={card} cardKey={props.view.mission.id} taskId={props.view.mission.id} readOnly={props.readOnly} context={result.questionContext} />
         {props.onAsk && task && !props.readOnly ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => props.onAsk?.(referenceAboutStep(props.sid, task, evidence, zh))}><MessageCircle size={12} />{text('引用任务', 'Reference task')}</Button> : null}
       </div>
       {compact && result.generating ? <div className="mt-2">{explanationStatus}</div> : null}
@@ -139,13 +128,6 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   </section>
     <Modal open={!!selectedReading} onClose={() => setReadingSelection(null)} label={text('任务说明', 'Task explanation')}>
       {selectedReading ? <SelectedResearchReading selection={selectedReading} onOpenArtifact={props.onOpenArtifact} readOnly={props.readOnly} /> : null}
-    </Modal>
-    <Modal open={evidenceOpen} onClose={() => setEvidenceOpen(false)} label={text('这一步的依据', 'Evidence for this step')}>
-      <ModalHeader title={text('这一步的依据', 'Evidence for this step')} sub={card?.title || task?.title || props.view.mission.title} />
-      <div className="space-y-4 px-6 pb-6 text-[13px] leading-6 text-ink-dim">
-        <ReaderEvidence selection={sources} />
-        <RawDisclosure label={text('任务标识', 'Task identifiers')}><code className="block break-all text-xs">{props.sid} / {props.view.mission.id || text('任务 ID 未记录', 'Task ID not recorded')}</code></RawDisclosure>
-      </div>
     </Modal>
   </>;
 }

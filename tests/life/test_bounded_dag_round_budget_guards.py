@@ -1,14 +1,12 @@
 """Small round budgets must retain the guards that can meaningfully fire.
 
-The semantic-stall guard is driven only by the Reviewer's structured
-``FORWARD_PROGRESS=false`` judgment. These tests exercise the real
+The semantic-stall guard is driven only by the Reviewer's native action
+with ``forward_progress=False``. These tests exercise the real
 Engineer -> Reviewer -> settlement path so arithmetic-only tests cannot hide a
 disconnected runtime counter again.
 """
 
 from __future__ import annotations
-
-import json
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.models import ReviewDecision, RunnerResult
@@ -22,24 +20,18 @@ from argus.engineer.runner import (
 from argus.reviewer import Reviewer, ReviewerConfig
 
 
-def _review_json(
+def _review_action(
     status: str,
     *,
     forward_progress: bool | None,
     reason: str = "Residual still open.",
-) -> str:
+) -> tuple[str, dict]:
     payload: dict[str, object] = {
-        "status": status,
-        "reason": reason,
-        "next_action": "Discharge the next conjunct." if status == "continue" else "",
-        "operator_question": None,
+        "review": reason + ("\nDischarge the next conjunct." if status == "continue" else ""),
     }
     if forward_progress is not None:
-        payload["planner_report"] = {
-            "forward_progress": forward_progress,
-            "plan_signal": "continue",
-        }
-    return json.dumps(payload)
+        payload["forward_progress"] = forward_progress
+    return ("approve_review" if status == "done" else "revise_review"), payload
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -65,7 +57,7 @@ def _queue_round(
     backend.queue(
         "reviewer",
         CannedResponse(
-            message=_review_json(
+            review_action=_review_action(
                 status,
                 forward_progress=forward_progress,
                 reason=(

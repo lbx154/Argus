@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "argus"
-version = "0.1.7"
+version = "0.1.8"
 description = "Argus — a persistent, reviewed runtime for autonomous research and engineering."
 readme = "README.md"
 license = { text = "MIT" }
@@ -102,6 +102,7 @@ dev = [
   "build>=1",
   "mypy>=1.8,<2",
   "pytest>=7",
+  "pytest-xdist>=3",
   "qrcode>=7.4,<9",
   "ruff>=0.4",
   "cryptography>=41",

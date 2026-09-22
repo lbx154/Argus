@@ -1,7 +1,6 @@
 """Integration coverage for the direct-edit CHECKPOINT.md baton."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
@@ -19,14 +18,8 @@ SKILL_MD = (
 )
 
 
-def _review(status: str) -> str:
-    return json.dumps({
-        "status": status,
-        "reason": "reviewed",
-        "next_action": "continue" if status == "continue" else "—",
-        "round_summary_markdown": "# review\n",
-        "completion_summary_markdown": "done" if status == "done" else "",
-    })
+def _review(status: str) -> tuple[str, dict]:
+    return (('approve_review' if status == 'done' else 'revise_review'), {'review': ('reviewed') + '\n\n' + ('continue' if status == 'continue' else '—')})
 
 
 def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
@@ -49,7 +42,7 @@ def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
             "# Open Questions / Blockers\n\nOne reviewed question remains\n",
             encoding="utf-8",
         )
-        return _review("continue")
+        return "Reviewed round 1."
 
     def engineer_two(_prompt, _options) -> str:
         text = checkpoint.read_text(encoding="utf-8")
@@ -66,12 +59,12 @@ def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
             "# Current State\n\nReviewer certified completion\n",
             encoding="utf-8",
         )
-        return _review("done")
+        return "Reviewed round 2."
 
     backend.queue("engineer-r1", CannedResponse(message_factory=engineer_one))
-    backend.queue("reviewer", CannedResponse(message_factory=reviewer_one))
+    backend.queue("reviewer", CannedResponse(message_factory=reviewer_one, review_action=_review("continue")))
     backend.queue("engineer-r2", CannedResponse(message_factory=engineer_two))
-    backend.queue("reviewer", CannedResponse(message_factory=reviewer_two))
+    backend.queue("reviewer", CannedResponse(message_factory=reviewer_two, review_action=_review("done")))
 
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
@@ -109,7 +102,7 @@ def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
     assert str(checkpoint.resolve()) in prompts["engineer-r2"]
     reviewer_prompts = [p for label, p, _ in backend.history if label == "reviewer"]
     assert all(str(checkpoint.resolve()) not in prompt for prompt in reviewer_prompts)
-    assert all("NEXT_ACTION" in prompt for prompt in reviewer_prompts)
+    assert all("revise_review" in prompt for prompt in reviewer_prompts)
 
 
 def test_reviewer_output_does_not_need_checkpoint_json(tmp_path: Path) -> None:
@@ -118,7 +111,7 @@ def test_reviewer_output_does_not_need_checkpoint_json(tmp_path: Path) -> None:
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="work"))
-    backend.queue("reviewer", CannedResponse(message=_review("done")))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done")))
 
     outcome = SkillLoop(
         skills_dir=tmp_path / "skills",

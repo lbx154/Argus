@@ -31,7 +31,7 @@ let client: QueryClient;
 let renderer: ReactTestRenderer | undefined;
 
 function Probe({ focused, prewarm, readingKey, dataset = data }: { focused: string | null; prewarm: boolean; readingKey?: string | null; dataset?: Dataset }) {
-  useMapCopy(dataset, focused, false, true, undefined, "session", false, prewarm, readingKey);
+  useMapCopy(dataset, focused, false, true, undefined, "session", prewarm, readingKey);
   return null;
 }
 const tree = (focused: string | null, prewarm = true, readingKey?: string | null, dataset = data) => (

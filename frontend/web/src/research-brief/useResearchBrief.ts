@@ -7,7 +7,7 @@ import { mergeMapProgress } from '../map/incremental';
 import type { Dataset } from '../map/model';
 import { mergeMapCopy, needsCardCopy, type MapCopy } from '../map/presentation';
 import {
-  briefCopyKey, briefEvidence, briefInputSignature, briefLiveKey, briefRelatedInputSignature, briefRequest, briefSelection,
+  briefCopyKey, briefEvidence, briefInputSignature, briefLiveKey, briefRequest, briefSelection,
   currentBriefData, isReaderBrief, needsBrief, oldBriefService, READER_BRIEF_VERSION,
 } from './model';
 import { beginExplanationProgress, explanationRunStart, useExplanationProgress } from './progress';
@@ -19,13 +19,14 @@ export interface ResearchBriefOptions {
   view: MissionView;
   active: boolean;
   readOnly?: boolean;
+  allowGeneration?: boolean;
   locale: string;
   /** A reader opened earlier keeps the cache mode selected at that time. */
   preview?: ReaderPreview;
   foundationId?: string | null;
 }
 
-export function useResearchBrief({ sid, snapshot, view, active, readOnly = false, locale, preview = readerPreview(), foundationId: pinnedFoundationId }: ResearchBriefOptions) {
+export function useResearchBrief({ sid, snapshot, view, active, readOnly = false, allowGeneration = true, locale, preview = readerPreview(), foundationId: pinnedFoundationId }: ResearchBriefOptions) {
   const client = useQueryClient();
   const taskId = view.mission.id;
   const selection = briefSelection(snapshot, view);
@@ -66,16 +67,14 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
   const card = taskId ? copy.data?.cards[taskId] : undefined;
   const brief = (card?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(card?.reader_brief)
     ? card!.reader_brief : undefined;
-  const relatedInput = briefRelatedInputSignature(live.data, card);
-  const needsUpdate = needsBrief(live.data, task, evidence, copy.data) || relatedInput !== null;
+  const needsUpdate = needsBrief(live.data, task, evidence, copy.data);
   const legacy = oldBriefService(copy.data);
-  const canGenerate = enabled && !readOnly && !foundationRequired && !!task && copy.data?.available === true
+  const canGenerate = enabled && allowGeneration && !readOnly && !foundationRequired && !!task && copy.data?.available === true
     && !legacy && !live.isError && !copy.isError;
   const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince, preview, ...(preview === 'question-foundation' ? [foundationId] : [])] as const;
   const generationVersion = Math.max(READER_BRIEF_VERSION, copy.data?.version ?? 0);
   // An earlier success or failure only applies to the draft/review settings used for that attempt.
-  const generationPrefix = [...generationScope, generationVersion, copy.data?.model_revision ?? null, inputSignature] as const;
-  const generationKey = [...generationPrefix, relatedInput] as const;
+  const generationKey = [...generationScope, generationVersion, copy.data?.model_revision ?? null, inputSignature] as const;
   // A task can receive its final review/certification while its first explanation
   // is still being written. Finish that request before generating the latest
   // input; intermediate states should not create parallel model calls.
@@ -104,14 +103,6 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
         (returned?.version ?? 0) >= generationVersion && !!live.data && !needsCardCopy(briefRequest(task, evidence), live.data, result,
         new Map(evidence.map(event => [event.id, event])));
       const receipt = { available: current, retryAfter: result.retry_after ?? null, inputSignature };
-      const returnedRelatedInput = briefRelatedInputSignature(live.data, returned);
-      if (returnedRelatedInput !== relatedInput) {
-        // Updating the card stamp must not immediately buy another explanation.
-        // This receipt covers only the cursor captured by this request and its
-        // returned card, never a newer cursor/card from another reader. An
-        // unavailable receipt keeps the existing explicit retry behavior.
-        client.setQueryData([...generationPrefix, returnedRelatedInput], receipt);
-      }
       client.setQueryData<MapCopy>(copyKey, previous => mergeMapCopy(previous, result, requestedRevision));
       return receipt;
     },
@@ -144,7 +135,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     }
   };
   return {
-    foundationId, foundationRequired,
+    foundationId, foundationRequired, questionContext: { locale: locale === 'zh-CN' ? 'zh-CN' as const : 'en-US' as const, preview, foundationId },
     task, evidence, loadedEvents: live.data?.events, card, brief, inputSignature,
     needsUpdate: needsUpdate && generation.data?.available !== true,
     legacy,

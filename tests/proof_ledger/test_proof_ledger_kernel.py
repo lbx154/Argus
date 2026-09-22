@@ -970,3 +970,90 @@ def test_the_state_file_is_json_because_nothing_here_uses_a_database() -> None:
     payload = json.loads(json.dumps(state.as_dict()))
     assert payload["schema_version"] == 1
     assert payload["claims"][0]["content_hash"] == claim.content_hash
+
+
+# -- retired routes are history (lbx154/Argus#127) --------------------------
+
+def _retired(goal: SubjectRef, obligations: tuple[SubjectRef, ...], reason: str = "Replaced by a stronger claim.") -> ProofRoute:
+    return ProofRoute(route_id="r-old", goal=goal, obligations=obligations, retired_because=reason)
+
+
+def test_a_retired_route_may_aim_at_a_superseded_claim_version() -> None:
+    """Retire a route, revise its goal, open a replacement: the check passes.
+
+    The retired route is immutable evidence of an attempt made against the
+    claim as it then stood. The active replacement still has to target the
+    current statement, and both versions of the claim stay in the ledger.
+    """
+    state, context, goal = _seeded_state()
+    lemma = state.add_claim(
+        ClaimVersion(
+            claim_id="lemma-a", version=1, context=context.ref(),
+            natural_statement="Lemma A.", formal_statement="theorem lemma_a : ...",
+        )
+    )
+    old_goal = goal.ref()
+    state.add_route(_retired(old_goal, (lemma.ref(),)))
+    revised = state.revise_claim("c1", natural_statement="A sharper statement.")
+    assert revised.ref() != old_goal
+    state.add_route(ProofRoute(route_id="r-new", goal=revised.ref(), obligations=(lemma.ref(),), retired_because=""))
+
+    codes = [issue.code for issue in state.validate()]
+    assert "route_goal_stale" not in codes and "route_goal_unknown" not in codes
+    assert {item.content_hash for item in state.claims if item.claim_id == "c1"} == {old_goal.content_hash, revised.content_hash}
+
+
+def test_an_active_route_over_a_superseded_goal_is_still_stale() -> None:
+    state, context, goal = _seeded_state()
+    lemma = state.add_claim(
+        ClaimVersion(
+            claim_id="lemma-a", version=1, context=context.ref(),
+            natural_statement="Lemma A.", formal_statement="theorem lemma_a : ...",
+        )
+    )
+    state.add_route(ProofRoute(route_id="r1", goal=goal.ref(), obligations=(lemma.ref(),), retired_because=""))
+    state.revise_claim("c1", natural_statement="A sharper statement.")
+    assert [issue.code for issue in state.validate()] == ["route_goal_stale"]
+
+
+def test_a_blank_retirement_reason_does_not_make_a_route_historical() -> None:
+    state, context, goal = _seeded_state()
+    lemma = state.add_claim(
+        ClaimVersion(
+            claim_id="lemma-a", version=1, context=context.ref(),
+            natural_statement="Lemma A.", formal_statement="theorem lemma_a : ...",
+        )
+    )
+    state.add_route(_retired(goal.ref(), (lemma.ref(),), reason="   "))
+    state.revise_claim("c1", natural_statement="A sharper statement.")
+    assert [issue.code for issue in state.validate()] == ["route_goal_stale"]
+
+
+@pytest.mark.parametrize(
+    "goal",
+    [
+        SubjectRef(SubjectKind.CLAIM, "never-recorded", "0" * 64),
+        None,  # filled in below: right id, wrong hash
+    ],
+)
+def test_a_retired_route_must_still_name_a_recorded_claim_version(goal: SubjectRef | None) -> None:
+    state, context, real = _seeded_state()
+    lemma = state.add_claim(
+        ClaimVersion(
+            claim_id="lemma-a", version=1, context=context.ref(),
+            natural_statement="Lemma A.", formal_statement="theorem lemma_a : ...",
+        )
+    )
+    target = goal or SubjectRef(SubjectKind.CLAIM, real.claim_id, "f" * 64)
+    state.add_route(_retired(target, (lemma.ref(),)))
+    issues = state.validate()
+    assert [issue.code for issue in issues] == ["route_goal_unknown"]
+    assert issues[0].path == "$.routes[0].goal"
+
+
+def test_a_retired_self_dependent_route_is_kept_but_an_active_one_is_reported() -> None:
+    state, _, goal = _seeded_state()
+    state.add_route(_retired(goal.ref(), (goal.ref(),), reason="B needed A; that is the circle."))
+    assert list(state.validate()) == []
+    state.routes.append(ProofRoute(route_id="r-live", goal=goal.ref(), obligations=(goal.ref(),), retired_because=""))
+    assert "route_circular" in [issue.code for issue in state.validate()]

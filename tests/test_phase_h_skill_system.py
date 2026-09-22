@@ -1,20 +1,11 @@
-import json
 from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 
 
-def _done_review() -> str:
-    return json.dumps(
-        {
-            "status": "done",
-            "reason": "Work completed.",
-            "next_action": "No further action.",
-            "round_summary_markdown": "# Review\n\n- done\n",
-            "completion_summary_markdown": "Done.",
-        }
-    )
+def _done_review() -> tuple[str, dict]:
+    return ('approve_review', {'review': ('Work completed.') + '\n\n' + ('No further action.')})
 
 
 def test_skill_loop_supplies_library_path_without_matcher_or_cost_event(
@@ -29,7 +20,7 @@ def test_skill_loop_supplies_library_path_without_matcher_or_cost_event(
     )
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="done"))
-    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    backend.queue("reviewer", CannedResponse(review_action=_done_review()))
     events: list[dict] = []
 
     loop = SkillLoop(

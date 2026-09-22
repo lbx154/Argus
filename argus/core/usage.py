@@ -7,6 +7,7 @@ represented by several overlapping events.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import tempfile
@@ -55,6 +56,118 @@ _CALL_ID_CACHE: dict[str, tuple[tuple[int, int, int] | None, set[str]]] = {}
 _CALL_ID_CACHE_LOCK = threading.Lock()
 _CALL_ID_CACHE_MAX_PROJECTS = 64
 _CALL_ID_CACHE_MAX_IDS = 50_000
+_SUFFIX_PROBE_LIMIT = 256
+
+
+class UsageJournalIntegrityError(RuntimeError):
+    """``usage.jsonl`` holds a malformed physical line that must not be skipped.
+
+    A truncated record (an interrupted append, e.g. ENOSPC) hides real spend.
+    Readers report the damaged line instead of dropping it, so admission
+    fails closed until the journal is repaired. When a complete record follows
+    the truncated prefix on the same line, its call ID is exposed for the
+    repair report only; the line is never accepted as clean.
+    """
+
+    reason_code = "corrupt_accounting_journal"
+
+    def __init__(
+        self, path: Path, line_number: int, detail: str, *,
+        recovered_call_id: str | None = None,
+    ) -> None:
+        self.path = Path(path)
+        self.line_number = int(line_number)
+        self.detail = detail
+        self.recovered_call_id = recovered_call_id
+        super().__init__(f"{self.reason_code}: {self.path} line {self.line_number}: {detail}")
+
+
+def _usage_writer_active(lock_path: Path) -> bool:
+    """Whether another append currently holds the usage lock.
+
+    Only then may a final line without its newline be an in-progress write
+    rather than a truncated record.
+    """
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
+        return False
+    try:
+        if fcntl is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                # Only contention proves a live writer; other lock failures
+                # must not turn a truncated record into a tolerated one.
+                return exc.errno in {errno.EAGAIN, errno.EWOULDBLOCK}
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        else:
+            try:
+                portalocker.lock(fd, portalocker.LOCK_EX | portalocker.LOCK_NB)
+            except portalocker.exceptions.LockException:
+                return True
+            portalocker.unlock(fd)
+        return False
+    finally:
+        os.close(fd)
+
+
+def _complete_suffix_call_id(raw: bytes) -> str | None:
+    """Call ID of a complete record concatenated after a truncated prefix."""
+    text = raw.decode("utf-8", errors="replace")
+    position = len(text)
+    for _ in range(_SUFFIX_PROBE_LIMIT):
+        position = text.rfind("{", 0, position)
+        if position <= 0:
+            return None
+        try:
+            value = json.loads(text[position:])
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            return str(value.get("call_id") or "") or None
+    return None
+
+
+def _iter_usage_json_rows(path: Path, *, writer_excluded: bool = False) -> Iterator[dict[str, Any]]:
+    """Yield every physical record, failing closed on a malformed line.
+
+    Blank lines are benign. A final line without a newline is tolerated only
+    while another writer holds the usage lock (an append in progress);
+    ``writer_excluded`` callers already hold that lock, so for them it is a
+    truncated record. Any unparsable line followed by more data is corruption.
+    """
+    try:
+        handle = path.open("rb")
+    except OSError:
+        return
+    lock_path = path.parent / USAGE_LOCK_FILE
+    with handle:
+        for line_number, raw in enumerate(handle, start=1):
+            if not raw.strip():
+                continue
+            try:
+                row = json.loads(raw)
+            except (UnicodeDecodeError, ValueError):
+                row = None
+            if isinstance(row, dict):
+                yield row
+                continue
+            if row is not None:
+                raise UsageJournalIntegrityError(path, line_number, "record is not a JSON object")
+            if not raw.endswith(b"\n") and not writer_excluded and _usage_writer_active(lock_path):
+                return
+            recovered = _complete_suffix_call_id(raw)
+            if recovered is not None:
+                detail = (
+                    "truncated record prefix is concatenated with a complete record "
+                    f"(call_id={recovered}); repair the journal before it is trusted"
+                )
+            elif not raw.endswith(b"\n"):
+                detail = "truncated final record without a newline and no active writer"
+            else:
+                detail = "malformed record"
+            raise UsageJournalIntegrityError(path, line_number, detail, recovered_call_id=recovered)
 
 
 @dataclass(frozen=True)
@@ -509,33 +622,22 @@ class UsageLedger:
             self.ensure_copilot_usage_reconciled()
         out: list[UsageRecord] = []
         seen: set[str] = set()
-        try:
-            handle = self.path.open("r", encoding="utf-8")
-        except OSError:
-            return out
         startup_receipts = None
-        with handle:
-            for raw in handle:
-                try:
-                    row = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if not isinstance(row, dict):
-                    continue
-                receipt = None
-                if is_local_startup_parser_error(row.get("error")):
-                    if startup_receipts is None:
-                        startup_receipts = _startup_completion_receipts(self.project_root)
-                    receipt = startup_receipts.get(str(row.get("call_id") or ""))
-                record = UsageRecord.from_jsonable(row, startup_receipt=receipt)
-                if not record.call_id or record.call_id in seen:
-                    continue
-                seen.add(record.call_id)
-                if record.completed_at < since:
-                    continue
-                if mission_id is not None and record.mission_id != mission_id:
-                    continue
-                out.append(record)
+        for row in _iter_usage_json_rows(self.path):
+            receipt = None
+            if is_local_startup_parser_error(row.get("error")):
+                if startup_receipts is None:
+                    startup_receipts = _startup_completion_receipts(self.project_root)
+                receipt = startup_receipts.get(str(row.get("call_id") or ""))
+            record = UsageRecord.from_jsonable(row, startup_receipt=receipt)
+            if not record.call_id or record.call_id in seen:
+                continue
+            seen.add(record.call_id)
+            if record.completed_at < since:
+                continue
+            if mission_id is not None and record.mission_id != mission_id:
+                continue
+            out.append(record)
         if self._reconcile_token_pricing(out):
             return self.records(since=since, mission_id=mission_id)
         return out
@@ -806,21 +908,10 @@ class UsageLedger:
 
     def _existing_mission_ids(self) -> set[str]:
         mission_ids: set[str] = set()
-        try:
-            handle = self.path.open("r", encoding="utf-8")
-        except OSError:
-            return mission_ids
-        with handle:
-            for raw in handle:
-                try:
-                    row = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if not isinstance(row, dict):
-                    continue
-                mission_id = _optional_text(row.get("mission_id"))
-                if mission_id:
-                    mission_ids.add(mission_id)
+        for row in _iter_usage_json_rows(self.path):
+            mission_id = _optional_text(row.get("mission_id"))
+            if mission_id:
+                mission_ids.add(mission_id)
         return mission_ids
 
     @contextmanager
@@ -857,18 +948,11 @@ class UsageLedger:
             if cached is not None and cached[0] == signature:
                 return set(cached[1])
         ids: set[str] = set()
-        try:
-            handle = self.path.open("r", encoding="utf-8")
-        except OSError:
-            return ids
-        with handle:
-            for raw in handle:
-                try:
-                    row = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if isinstance(row, dict) and row.get("call_id"):
-                    ids.add(str(row["call_id"]))
+        # The append lock is held here: a partial final line cannot be a
+        # concurrent write, and appending after it would compound the damage.
+        for row in _iter_usage_json_rows(self.path, writer_excluded=True):
+            if row.get("call_id"):
+                ids.add(str(row["call_id"]))
         self._store_call_id_cache(key, signature, ids)
         return ids
 
@@ -1431,20 +1515,12 @@ def _copilot_reconcile_enabled_for(project_root: Path) -> bool:
 
 
 def _read_usage_json_rows(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    try:
-        handle = path.open("r", encoding="utf-8")
-    except OSError:
-        return rows
-    with handle:
-        for raw in handle:
-            try:
-                row = json.loads(raw)
-            except (json.JSONDecodeError, ValueError):
-                continue
-            if isinstance(row, dict):
-                rows.append(row)
-    return rows
+    """Rows for a locked reconciliation rewrite.
+
+    Raises :class:`UsageJournalIntegrityError` so no rewrite can drop malformed
+    bytes: callers rewrite only after every physical line parsed.
+    """
+    return list(_iter_usage_json_rows(path, writer_excluded=True))
 
 
 def _rewrite_usage_rows(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -1630,6 +1706,7 @@ __all__ = [
     "USAGE_FILE",
     "UsageLedger",
     "UsageRecord",
+    "UsageJournalIntegrityError",
     "UsageSummary",
     "build_usage_record",
     "ensure_project_events_standardized",

@@ -1,8 +1,6 @@
 import type { Dataset, MapEvent, MapTask } from "./model";
 import type { SubmapStep } from "./submap";
 import { humanizeHarnessNote, readableRecord } from "./submap";
-import type { ProgressSourceRef } from '../../../core/src/types';
-import { attachProgressSource } from '../research-brief/progressSource';
 
 /** Why a task waits on the reader: its open question, or the reason its last
  * attempt failed, said the way the cards say it. A record that is only a
@@ -40,22 +38,7 @@ export interface ReaderLearningPath {
   }>;
 }
 
-/** The bounded task/event material actually supplied to the explanation models. */
-export interface CardSourceSnapshot {
-  version: 1 | 2;
-  card_key: string;
-  task_id: string;
-  captured_at: number;
-  task: Record<string, unknown>;
-  events: Record<string, unknown>[];
-  source_ids: string[];
-  events_truncated?: boolean;
-  related_tasks?: Array<Record<string, unknown> & { id: string }>;
-  related_tasks_truncated?: boolean;
-}
-
 export interface CardCopy {
-  progress_source?: ProgressSourceRef;
   copy_revision?: number;
   version?: number;
   model_revision?: string;
@@ -86,13 +69,11 @@ export interface CardCopy {
   event_ids?: string[];
   event_revisions?: string[];
   input_revision?: string;
-  source_snapshot?: CardSourceSnapshot;
 }
 export interface MapRelation {
   source: string;
   target: string;
   label: string;
-  evidence: string;
   kind: "semantic";
 }
 export interface MapCopy {
@@ -113,15 +94,10 @@ export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, req
     if (settingsChanged && cards[key]?.model_revision === previous.model_revision) continue;
     const old = cards[key];
     if (old?.version && (card.version ?? 0) < old.version) continue;
-    if (old && card.progress_source && old.copy_revision === card.copy_revision && old.generated_at === card.generated_at) {
-      cards[key] = attachProgressSource(old, card, key);
-      continue;
-    }
     if (!old || (card.copy_revision ?? 0) > (old.copy_revision ?? 0) ||
       ((card.copy_revision ?? 0) === (old.copy_revision ?? 0) &&
         (card.generated_at > old.generated_at ||
           (card.generated_at === old.generated_at && !old.input_revision)))) cards[key] = card;
-    else if (old) cards[key] = attachProgressSource(old, card, key);
   }
   const older = (result.cache_revision ?? 0) < (previous?.cache_revision ?? 0);
   return {
@@ -137,37 +113,6 @@ export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, req
   };
 }
 
-function relatedSourcesChanged(saved: CardCopy, data: Dataset): boolean {
-  const snapshot = saved.source_snapshot;
-  if (snapshot?.version !== 2) return false;
-  // Match teaching_context's v2 related-task projection, including Unicode
-  // code-point limits and loss markers. Progress and unprovided fields do not
-  // change these sources; selecting a new neighborhood here would churn copy.
-  const limits = { id: 160, title: 160, objective: 500, status: 80 } as const;
-  const tasks = new Map(data.tasks.map(task => [Array.from(task.id).slice(0, limits.id).join(''), task]));
-  return (snapshot.related_tasks ?? []).some(source => {
-    const task = tasks.get(source.id);
-    if (!task) {
-      // A current-range view can omit an existing neighbor. Infer deletion
-      // only from a full history inventory or an explicit feed removal.
-      return data.removed_task_ids?.some(id => Array.from(id).slice(0, limits.id).join('') === source.id) === true ||
-        data.history_cursor != null || data.tasks_complete === true;
-    }
-    for (const [field, limit] of Object.entries(limits)) {
-      const raw = task[field as keyof typeof limits];
-      const points = typeof raw === 'string' ? Array.from(raw) : undefined;
-      if (source[field] !== points?.slice(0, limit).join('') ||
-        (source[field + '_truncated'] === true) !==
-        (Boolean(points && points.length > limit) || (task as unknown as Record<string, unknown>)[field + '_truncated'] === true)) return true;
-    }
-    const deps = task.deps?.slice(0, 24).filter(dep => typeof dep === 'string')
-      .map(dep => Array.from(dep).slice(0, 160).join(''));
-    return JSON.stringify(source.deps) !== JSON.stringify(deps) ||
-      (source.deps_truncated === true) !== ((task.deps?.length ?? 0) > 24 ||
-        (task as unknown as Record<string, unknown>).deps_truncated === true);
-  });
-}
-
 export function needsCardCopy(
   card: CardRequest,
   data: Dataset,
@@ -179,7 +124,6 @@ export function needsCardCopy(
   if (!saved || !task) return true;
   if ((saved.version ?? 0) < (copy?.version ?? 0)) return true;
   if (copy?.model_revision && saved.model_revision !== copy.model_revision) return true;
-  if (relatedSourcesChanged(saved, data)) return true;
   const dynamic = [task.id, task.id + ":active", task.id + ":outcome"].includes(card.key);
   if (dynamic || !saved.task_content_revision || !task.content_revision) {
     if (task.revision && saved.task_revision !== task.revision) return true;

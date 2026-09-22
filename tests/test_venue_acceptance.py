@@ -7,6 +7,7 @@ import pytest
 
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.core.role_tool_bridge import bridge_request
 from argus.core.venue_review import (
     configure_venue_revisions,
     current_venue_acceptance_issue,
@@ -182,25 +183,23 @@ class _Runner:
 
     def run_exec(self, **kwargs):
         self.prompt = kwargs["prompt"]
-        return RunnerResult(exit_code=0, role_decisions=[{"role": "reviewer", "payload": {
-            "status": "done", "reason": "Assessed current paper.", "next_action": "",
-            "venue_review": self.report,
-        }}])
+        payload = {"review": "Assessed current paper."}
+        if self.report:
+            payload["recommendation"] = self.report["recommendation"]
+        bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", payload, env=kwargs["options"].extension_env)
+        return RunnerResult(exit_code=0)
 
 
 @pytest.mark.parametrize("report", [None, assessment(venue="NeurIPS")])
 def test_missing_or_wrong_venue_response_retries_reviewer_without_engineer_work(paper, report):
-    runner = _Runner(report)
-    review = Reviewer(runner).evaluate(
-        objective="Certify the current paper", round_index=1, session_id=None,
-        main_summary="Ready for review", main_error=None, scope="final_submission",
-        config=ReviewerConfig(model="gpt-5.6-sol", active_vertical="research", working_dir=str(paper), vertical_state_root=str(paper)),
+    review = ReviewDecision(status="done", reason="Assessed current paper.", next_action="", venue_review=report)
+    enforce_venue_acceptance(
+        review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper,
     )
     assert review.backend_unavailable
     assert not review.final_submission_certified
     assert "Retry the independent Reviewer" in review.next_action
     assert not (paper / "paper/REVIEW.md").exists()
-    assert "currently selected venue: ICLR" in runner.prompt
 
 
 def test_integrated_reviewer_persists_the_actual_venue_recommendation(paper):

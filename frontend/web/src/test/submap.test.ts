@@ -31,6 +31,24 @@ const event = (
 });
 
 describe("task submap evidence", () => {
+  it("shows reviewer failure as an error rather than rejection and keeps later review independent", () => {
+    const rows = buildSubmap({ ...task, status: "failed" }, [
+      event("e1", "life.mission.started"),
+      event("e2", "round.review.completed", {
+        status: "blocked", review_skipped: true, backend_unavailable: true, round_index: 1,
+        text: "No readable STATUS line", next_action: "Retry Reviewer",
+      }),
+      event("e3", "life.mission.completed", { status: "error", success: false, overall_complete: false }),
+      event("e4", "life.mission.started"),
+      event("e5", "round.review.completed", { status: "done", round_index: 1 }),
+      event("e6", "life.mission.completed", { status: "done", success: true }),
+    ], true);
+    expect(rows.find(row => row.id === "e2")).toMatchObject({ title: "当次审查异常", status: "review_unavailable" });
+    expect(rows.find(row => row.id === "e2")?.detail).toContain("No readable STATUS line");
+    expect(rows.find(row => row.id === "e3")).toMatchObject({ status: "review_unavailable", completionScope: undefined });
+    expect(rows.find(row => row.id === "e6")?.status).toBe("done");
+    expect(rows.some(row => row.kind === "revision")).toBe(false);
+  });
   it("leaves missing execution and review stages absent", () => {
     const rows = buildSubmap(task, [], true);
     expect(rows.map((r) => r.kind)).toEqual(["plan", "result"]);
@@ -93,7 +111,7 @@ describe("task submap evidence", () => {
       }),
     ], true);
     expect(rows.find((row) => row.kind === "review")).toMatchObject({
-      title: "这一轮没有审阅", status: "skipped", eventIds: ["e1", "e2"],
+      title: "本轮未审阅", status: "skipped", eventIds: ["e1", "e2"],
     });
     expect(rows.find((row) => row.kind === "review")?.detail).toContain("Resume from the saved checkpoint.");
     expect(rows.some((row) => row.kind === "revision")).toBe(false);
@@ -376,7 +394,8 @@ describe("work segments and single-agent turns", () => {
       },
     ], true);
     const segment = steps.find((step) => step.id === "e2");
-    expect(segment).toMatchObject({ kind: "execution", title: "先读取设计规范", status: "failed" });
+    // The fetch that failed is marked on its own line; it is not a verdict on the step.
+    expect(segment).toMatchObject({ kind: "execution", title: "先读取设计规范", status: "recorded", workCount: 4 });
     expect(segment?.summary).toBe("先读取设计规范，再生成八页幻灯片。");
     expect(segment?.detail).toBe([
       "先读取设计规范，再生成八页幻灯片。",
@@ -417,24 +436,88 @@ describe("work segments and single-agent turns", () => {
   });
 });
 
+describe("what a reader is shown of a step's tool activity", () => {
+  it("never shows raw JSON, and lists a few actions instead of all of them", () => {
+    const calls = Array.from({ length: 12 }, (_, i) => ({ kind: "tool_use", label: `view: {"cells": null, "limit": 100, "path": "src/f${i}.py", "offs`, ts: i, tool: "view" }));
+    const steps = buildSubmap(task, [
+      event("e1", "round.start", { round_index: 1 }),
+      { ...event("e2", "work.segment"), text: "", overflow: 5, steps: [
+        { kind: "tool_use", label: 'view: {"cells": null, "includeOutputs": false, "limit": 10', ts: 1, tool: "view" },
+        ...calls,
+      ] },
+      event("e3", "round.main.completed", { round_index: 1, text: 'Evaluation submitted.\n{"wait_for":"subagent","wait_id":"eval-01"}' }),
+    ], true);
+    const round = steps.find((step) => step.id === "e1")!;
+    expect(round.workCount).toBe(18);
+    expect(round.detail).not.toMatch(/[{}]/);
+    expect(round.detail).toContain("Evaluation submitted.");
+    expect(round.detail).toContain("· 查看 一份文件");
+    expect(round.detail).toContain("· 查看 src/f0.py");
+    expect(round.detail.split("\n").filter((line) => line.startsWith("· "))).toHaveLength(9);
+    expect(round.detail).toContain("· 另有 10 步未列出");
+  });
+});
+
 describe("work segments inside a round", () => {
-  it("keeps the round's closing node after the segments recorded within it", () => {
+  const view = (path: string, ts: number) => ({ kind: "tool_use", label: `view: ${path}`, ts, tool: "view" });
+
+  it("tells a task as its stages and keeps tool activity inside the round it happened in", () => {
     const steps = buildSubmap(task, [
       event("e1", "life.mission.started"),
       event("e2", "round.start", { round_index: 1 }),
-      { ...event("e3", "work.segment"), text: "先读文档。", steps: [{ kind: "tool_use", label: "view: a", ts: 3, tool: "view" }] },
-      { ...event("e4", "work.segment", { role: "reviewer" }), text: "核对结果。", steps: [{ kind: "tool_use", label: "view: b", ts: 4, tool: "view" }] },
+      { ...event("e3", "work.segment"), text: "", steps: [view("a", 3), view("b", 3)], overflow: 1 },
+      { ...event("e4", "work.segment"), text: "做完了。", steps: [] },
       event("e5", "round.main.completed", { round_index: 1, text: "做完了。" }),
+      event("e6", "round.review.started", { role: "reviewer", round_index: 1 }),
+      { ...event("e7", "work.segment", { role: "reviewer" }), text: "先核对 a 的数字。", steps: [view("a", 7)] },
+      event("e8", "round.review.completed", { role: "reviewer", round_index: 1, status: "done", text: "数字对得上。" }),
     ], true);
-    expect(steps.map((step) => [step.kind, step.id])).toEqual([
-      ["plan", "a:brief"],
-      ["execution", "e1"],
-      ["execution", "e3"],
-      ["review", "e4"],
-      ["execution", "e2"],
-      ["result", "a:outcome"],
+    expect(steps.map((step) => [step.kind, step.id, step.title])).toEqual([
+      ["plan", "a:brief", "任务目标"],
+      ["execution", "e1", "开始执行"],
+      ["execution", "e2", "本轮执行记录"],
+      ["review", "e6", "审阅通过"],
+      ["result", "a:outcome", "任务的最终状态"],
     ]);
-    expect(steps[4].eventIds).toEqual(["e2", "e5"]);
+    const round = steps[2], review = steps[3];
+    expect(round.eventIds).toEqual(["e2", "e3", "e4", "e5"]);
+    expect(round.workCount).toBe(3);
+    // The round's own record is the story; what it repeats is not said twice.
+    expect(round.detail).toBe([
+      "做完了。",
+      ["这一步里做的操作（3 步）：查看了2处。", "· 查看 a", "· 查看 b", "· 另有 1 步未列出"].join("\n"),
+    ].join("\n\n"));
+    expect(review.summary).toBe("数字对得上。");
+    expect(review.detail).toContain("先核对 a 的数字。");
+    expect(review.detail).toContain("· 查看 a");
+    expect(steps.some((step) => "work" in step || "segment" in step)).toBe(false);
+    // With the stages adjacent again, each link can say what it stands for.
+    expect(submapLinks(steps, true).map((link) => link.label)).toEqual(["执行此任务", "进入第 1 轮", "提交审阅", "最终状态"]);
+  });
+
+  it("reports a round still under way by the latest thing its agent said", () => {
+    const steps = buildSubmap({ ...task, status: "running" }, [
+      event("e1", "life.mission.started"),
+      event("e2", "round.start", { round_index: 1, text: "engineer round 1 (fresh session)" }),
+      { ...event("e3", "work.segment"), text: "先读文档。", steps: [view("a", 3)] },
+      { ...event("e4", "work.segment"), text: "正在跑长文本评测，已完成一半。", steps: [view("b", 4)] },
+    ], true);
+    const round = steps.find((step) => step.id === "e2")!;
+    expect(round.title).toBe("正在跑长文本评测");
+    expect(round.summary).toBe("正在跑长文本评测，已完成一半。");
+    expect(round.workCount).toBe(2);
+    expect(steps.map((step) => step.id)).toEqual(["a:brief", "e1", "e2"]);
+  });
+
+  it("joins stretches of activity that have no round into one step", () => {
+    const steps = buildSubmap(task, [
+      event("e1", "life.mission.started"),
+      { ...event("e2", "work.segment"), text: "", steps: [view("a", 2)] },
+      { ...event("e3", "work.segment"), text: "", steps: [view("b", 3), view("c", 3)] },
+    ], true);
+    const work = steps.find((step) => step.id === "e2")!;
+    expect(steps.map((step) => step.id)).toEqual(["a:brief", "e1", "e2", "a:outcome"]);
+    expect(work).toMatchObject({ title: "做了 3 步操作", workCount: 3, eventIds: ["e2", "e3"] });
   });
 });
 
@@ -473,4 +556,26 @@ it('shows question and answer without inventing work or review stages', () => {
   const running = buildSubmap({ ...task, status: 'running' }, [], true);
   expect(running.map(row => row.kind)).toEqual(['plan', 'result']);
   expect(running[1].title).toBe('正在回答');
+});
+
+it("stacks a short card into one column on a narrow canvas so the answer is not cut off", () => {
+  const task: MapTask = { id: "qa", title: "在吗?", objective: "在吗?", status: "done", deps: [], kind: "turn", turn_kind: "qa" };
+  const rows = [{ id: "answer", item_id: "qa", type: "turn.replied", ts: 5, text: "在的，你说。" }] as MapEvent[];
+  const wide = layoutSubmap(task, rows, true);
+  const narrow = layoutSubmap(task, rows, true, undefined, 0, true);
+  expect(wide.stacked).toBeUndefined();
+  expect(narrow.stacked).toBe(true);
+  expect(narrow.steps.map((s) => s.id)).toEqual(wide.steps.map((s) => s.id));
+  // One column: every step shares an x and reads downward.
+  expect(new Set(Object.values(narrow.positions).map((p) => p.x)).size).toBe(1);
+  expect(narrow.columns).toHaveLength(1);
+  expect(narrow.width).toBeLessThan(wide.width);
+  // At the 0.6 reading scale a phone keeps, the whole card fits a 390px screen with its 20px margins.
+  const frame = frameForSubmap(narrow);
+  expect(narrow.width * 0.6).toBeLessThanOrEqual(390 - 40);
+  expect(frame.width).toBe(900);
+  // A card with more steps than fit one screen keeps the wide layout and pans.
+  const long = { id: "t", title: "T", objective: "T", status: "done", deps: [] } as MapTask;
+  const rounds = Array.from({ length: 7 }, (_, i) => ({ id: `r${i + 1}`, type: "round.start", ts: i + 1, item_id: "t", round_index: i + 1, text: "" }) as MapEvent);
+  expect(layoutSubmap(long, rounds, true, undefined, 0, true)).toEqual(layoutSubmap(long, rounds, true));
 });

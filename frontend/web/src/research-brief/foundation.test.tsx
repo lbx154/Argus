@@ -81,7 +81,7 @@ it('never falls back to default or another preview generation when no foundation
   expect(foundation).not.toHaveBeenCalled();
 });
 
-it('keeps a pinned current reader on foundation A while the main reader generates against selected foundation B', async () => {
+it('keeps the opened reader on foundation A and generates foundation B only after explicitly opening it', async () => {
   const a = completedCopy(source.tasks[0], ['start-a']);
   const b = completedCopy(source.tasks[0], ['start-a']);
   a.cards.a.reader_brief = { ...a.cards.a.reader_brief!, why: 'Application using foundation A.' };
@@ -96,9 +96,28 @@ it('keeps a pinned current reader on foundation A while the main reader generate
   const foundation = vi.spyOn(api, 'generateReaderFoundation');
   await act(async () => { renderer = create(<QueryClientProvider client={client}><ResearchBrief {...props} /></QueryClientProvider>); });
   await flush();
-  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
+  expect(generate).not.toHaveBeenCalled();
   act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
+  await flush();
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
   act(() => { selectFoundation(client, props.sid, 'en-US', 'foundation-b'); });
+  await flush();
+  expect(generate).toHaveBeenCalledTimes(1);
+  const reading = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
+  const body = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-body' });
+  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation A.');
+  expect(reading().findByProps({ 'data-explanation-phase': 'planning' })).toBeTruthy();
+  expect(body().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation B.');
+  expect(reading().findByType(MapReaderContent).props.selection.foundationRequired).toBe(false);
+  expect(reading().findByType(MapReaderContent).props.selection.questionContext).toEqual({
+    locale: 'en-US', preview, foundationId: 'foundation-a',
+  });
+  const doneA = completedCopy(source.tasks[0], ['start-a', 'main-a'], 30);
+  doneA.cards.a.reader_brief = { ...doneA.cards.a.reader_brief!, why: 'Finished application A.' };
+  await act(async () => { finishA(doneA); await vi.advanceTimersByTimeAsync(25); });
+  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Finished application A.');
+  expect(body().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation B.');
+  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
   await flush();
   expect(generate).toHaveBeenCalledTimes(2);
   expect(generate.mock.calls.map(call => ({ foundation: call[2].foundation_id, cards: call[2].cards, preview: call[5] }))).toEqual([
@@ -106,21 +125,12 @@ it('keeps a pinned current reader on foundation A while the main reader generate
     { foundation: 'foundation-b', cards: [{ key: 'a', task_id: 'a', kind: 'task', event_ids: ['start-a', 'main-a'] }], preview },
   ]);
   await act(async () => { generate.mock.calls[1][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
-  const reading = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
-  const body = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-body' });
-  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation A.');
-  expect(reading().findByProps({ 'data-explanation-phase': 'planning' })).toBeTruthy();
-  expect(body().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation B.');
-  expect(reading().findByType(MapReaderContent).props.selection.foundationRequired).toBe(false);
-  const doneA = completedCopy(source.tasks[0], ['start-a', 'main-a'], 30);
-  doneA.cards.a.reader_brief = { ...doneA.cards.a.reader_brief!, why: 'Finished application A.' };
-  await act(async () => { finishA(doneA); await vi.advanceTimersByTimeAsync(25); });
-  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Finished application A.');
-  expect(body().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation B.');
+  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation B.');
+  expect(reading().findByProps({ 'data-explanation-phase': 'writing' })).toBeTruthy();
   const doneB = completedCopy(source.tasks[0], ['start-a', 'main-a'], 40);
   doneB.cards.a.reader_brief = { ...doneB.cards.a.reader_brief!, why: 'Finished application B.' };
   await act(async () => { finishB(doneB); await vi.advanceTimersByTimeAsync(25); });
-  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Finished application A.');
+  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Finished application B.');
   expect(body().findByType(ReaderExplanation).props.brief.why).toBe('Finished application B.');
   expect(generate).toHaveBeenCalledTimes(2);
   expect(foundation).not.toHaveBeenCalled();
@@ -131,7 +141,7 @@ it('binds map application requests and caches to the reader’s pinned foundatio
   selectFoundation(client, props.sid, 'en-US', 'foundation-a');
   let pinned: string | undefined = 'foundation-a';
   let latest!: ReturnType<typeof useMapCopy>;
-  function Reader() { latest = useMapCopy(source, 'a', false, true, undefined, props.sid, false, false, 'a', pinned); return null; }
+  function Reader() { latest = useMapCopy(source, 'a', false, true, undefined, props.sid, false, 'a', pinned); return null; }
   const render = () => <QueryClientProvider client={client}><Reader /></QueryClientProvider>;
   let finishA!: (copy: MapCopy) => void, finishB!: (copy: MapCopy) => void;
   const generate = vi.spyOn(api, 'generateMapCopy')

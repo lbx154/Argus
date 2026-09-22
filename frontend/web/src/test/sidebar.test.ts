@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { ProjectRow } from '../api';
 import { recommendedSidebarScope, Sidebar } from '../components/Sidebar';
 import type { WorkStatus } from '../lib/workStatus';
+
+let queryClient: QueryClient;
+beforeEach(() => {
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+});
+afterEach(() => queryClient.clear());
 
 const rows: ProjectRow[] = [
   {
@@ -38,7 +45,7 @@ function sidebarMarkup(
   activeWork?: { sessionId: string; status: WorkStatus; connected: boolean },
 ): string {
   return renderToStaticMarkup(
-    createElement(Sidebar, {
+    createElement(QueryClientProvider, { client: queryClient }, createElement(Sidebar, {
       projects: projects.map((project) => ({ ...project, launch_cwd: '/workspace/test', workdir: '/workspace/test' })),
       activeId: projects[0]?.id ?? null,
       activeWork,
@@ -52,7 +59,7 @@ function sidebarMarkup(
       onToggleCollapse: () => undefined,
       themeMode: 'dark',
       onCycleTheme: () => undefined,
-    }),
+    })),
   );
 }
 

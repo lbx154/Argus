@@ -28,7 +28,6 @@ from .map_teaching_review import (
     BRIEF_LIMITS,
     CARD_TEXT_LIMITS,
     CONCEPT_LIMITS,
-    RELATED_TASK_SOURCE_LIMITS,
     TEACHING_GUIDANCE,
     TEACHING_REVIEW_VERSION,
     checked_text_fields,
@@ -39,7 +38,6 @@ from .map_teaching_review import (
 from .map_view import digest, task_content_revision, text
 
 PROMPT_VERSION = 26
-SOURCE_SNAPSHOT_VERSION = 2
 ACTIVE_REFRESH_SECONDS = 600
 Preview = bool | Literal["learning-path", "question-foundation"]
 _LOCK = threading.Lock()
@@ -200,18 +198,36 @@ def _normalize_reader_brief_shape(value) -> object:
     if not isinstance(value, dict):
         return value
     scope = value.get("scope")
-    if not isinstance(scope, dict):
-        return value
     flat = dict(value)
-    inner_scope = scope.get("scope")
-    inner_next = scope.get("next")
-    if isinstance(inner_scope, str):
-        flat["scope"] = inner_scope
-    else:
-        flat.pop("scope", None)
-    if isinstance(inner_next, str) and not isinstance(flat.get("next"), str):
-        flat["next"] = inner_next
+    if isinstance(scope, dict) and (isinstance(scope.get("scope"), str) or isinstance(scope.get("next"), str)):
+        inner_scope = scope.get("scope")
+        inner_next = scope.get("next")
+        if isinstance(inner_scope, str):
+            flat["scope"] = inner_scope
+        else:
+            flat.pop("scope", None)
+        if isinstance(inner_next, str) and not isinstance(flat.get("next"), str):
+            flat["next"] = inner_next
+    # A second wrong shape, from gemini-3.8-flash on 2026-09-20: a section
+    # written as an object of named parts ({"name", "restriction", ...}), the
+    # way `concept` is, where the schema asks for one text. The parts are the
+    # model's own paragraphs in its own order, so they are joined, not dropped;
+    # the length limit is still the schema's to enforce.
+    for key in BRIEF_LIMITS:
+        parts = flat.get(key)
+        if isinstance(parts, dict) and parts and all(isinstance(part, str) and part.strip() for part in parts.values()):
+            flat[key] = "\n\n".join(part.strip() for part in parts.values())
     return flat
+
+
+def _prepare_cards(value: dict) -> dict:
+    """Before the schema check: reader briefs in the shapes known to be text misplaced."""
+    cards = value.get("cards")
+    if isinstance(cards, dict):
+        for card in cards.values():
+            if isinstance(card, dict) and "reader_brief" in card:
+                card["reader_brief"] = _normalize_reader_brief_shape(card["reader_brief"])
+    return value
 
 
 def _reader_brief(value) -> dict:
@@ -263,7 +279,6 @@ def schema(keys: list[str], task_ids: list[str]) -> dict:
                         "source": {"type": "string", "enum": task_ids},
                         "target": {"type": "string", "enum": task_ids},
                         "label": {**string, "maxLength": 32},
-                        "evidence": {**string, "maxLength": 500},
                     }
                 ),
             },
@@ -326,7 +341,6 @@ def generate(
     # Draft and teaching check share the source lock and one bounded deadline.
     deadline = time.monotonic() + map_timeout_seconds()
     documents = [_bounded_document(document) for document in documents]
-    source_captured_at = time.time()
     source_context = {d["key"]: teaching_context({
         "task": d.get("task", {}), "events": d.get("events", []),
         "events_truncated": d.get("events_truncated", False),
@@ -335,12 +349,6 @@ def generate(
     for document in documents:
         if document["evidence_truncated"]:
             source_context[document["key"]]["evidence_truncated"] = True
-    # Keep exactly what both model calls receive, not a later live-data lookup.
-    # Binding and capture time are server metadata, never model-authored facts.
-    source_snapshots = {d["key"]: {
-        "version": SOURCE_SNAPSHOT_VERSION, "card_key": d["key"], "task_id": d["task_id"],
-        "captured_at": source_captured_at, **copy.deepcopy(source_context[d["key"]]),
-    } for d in documents}
     source_documents, related_tasks = compact_related_task_sources({
         d["key"]: {**d, **source_context[d["key"]]} for d in documents
     })
@@ -356,8 +364,9 @@ def generate(
 运行和状态表述：
 - 记录里的“工作段落”是执行者叙述及随后的工具操作，解释在查什么、改什么及原因，不罗列工具清单。内部回执和环境变量名不属于给读者的研究结果；用一句平实的话解释影响，例如“换了个新会话接着做，之前的进展都在”。被停下或额度用完不等于研究结论错误。
 - 保留当前尝试及历史事件的时间关系。review_skipped=true 表示没有该次审阅，review_source=engineer_self_review 表示执行者自检；缺独立复核记录不能改称已独立核验。不能把旧尝试的结果套到新尝试。
+- backend_unavailable=true 或 outcome.review_status=unavailable 表示当次审查器异常，不是科学否决，不能据此声称实验失败或未产出数据。后续交付通过审阅也不改写这次异常；历史尝试的状态不代表项目当前交付结论。
 - 简短不等于删除决定性条件或理由。一般教学例子与本次发现分清；不使用“赋能”“可追溯”等宣传措辞。
-- relations 可为有内容联系的已给定任务输出简短关系词与依据；这是内容关联，不改变执行依赖，不自连、不重复，不能确定就不输出。
+- relations：它会写在地图上两张任务卡之间的连线旁，读者靠它看懂一件事怎样接到下一件事。后一个任务用到了前一个任务的产物、结论或数据，或两者在内容上互相支撑时，用一个具体的短语写出传递的是什么（中文约4-10个字，英文不超过5个词）；相邻的任务尤其值得看一眼。“同一研究”“相关”“后续”这类放在任何两个任务之间都成立的词不写。只是时间上相邻、没有内容联系，或不能确定时不输出。这是内容关联，不改变执行依赖，不自连、不重复。
 必须覆盖每一个 card key。evidence_truncated 为 true 时，只解释提供的片段，不声称已检查完整记录。"""
     output_schema = schema([d["key"] for d in documents], [t["id"] for t in tasks])
     prompt = (
@@ -370,6 +379,7 @@ def generate(
         raise MapGenerationError("map_input_too_large")
     value = run_map_model(
         prompt, output_schema, config, project_root=project_root, global_root=global_root, deadline=deadline,
+        prepare=_prepare_cards,
         **({"on_progress": on_progress, "phase": "writing"} if on_progress is not None else {}),
     )
     if not isinstance(value.get("cards"), dict) or not all(
@@ -398,7 +408,6 @@ def generate(
         model_revision=review_config.revision,
     )
     for key, card in value["cards"].items():
-        card["source_snapshot"] = source_snapshots[key]
         card["reader_brief"]["concept"] = approved.get(key)
         if key in checks:
             receipt = dict(checks[key])
@@ -436,26 +445,6 @@ def generation_context_tasks(all_tasks: list[dict], documents: list[dict], known
     return [by_id[task_id] for task_id in (selected + neighbors)[:16] if task_id in by_id]
 
 
-def _related_sources_changed(saved: dict, current_tasks: dict[str, dict]) -> bool:
-    """The v2 source snapshot is also the exact, bounded dependency contract.
-
-    Recheck only neighbors actually supplied to this card, without selecting a
-    new neighborhood or relabeling historical sources as current evidence.
-    Pre-snapshot cards remain readable until their own inputs need refreshing.
-    """
-    snapshot = saved.get("source_snapshot")
-    if not isinstance(snapshot, dict) or snapshot.get("version") != 2:
-        return False
-    related = snapshot.get("related_tasks")
-    if not isinstance(related, list):
-        return False
-    for source in related:
-        task = current_tasks.get(source.get("id")) if isinstance(source, dict) else None
-        if task is None or teaching_context({"related_tasks": [task]})["related_tasks"] != [source]:
-            return True
-    return False
-
-
 def enrich(
     root: Path, dataset: dict, cards: list[dict], locale: str, *,
     project_root: Path | None = None,
@@ -464,9 +453,6 @@ def enrich(
     foundation: dict | None = None,
 ) -> dict:
     documents = card_evidence(dataset, cards)
-    # generation_context_tasks indexes projected IDs as well. Long IDs must
-    # not make an unchanged supplied source look deleted on every cache read.
-    current_tasks = {task["id"][:RELATED_TASK_SOURCE_LIMITS["id"]]: task for task in dataset["tasks"]}
     foundation_ref = None
     if preview == "question-foundation":
         from .reader_application import PROCESS_VERSION, foundation_reference, generate_application
@@ -514,7 +500,6 @@ def enrich(
             d
             for d in documents
             if existing.get(d["key"], {}).get("input_revision") != fingerprints[d["key"]]
-            or _related_sources_changed(existing.get(d["key"], {}), current_tasks)
         ]
         if not todo:
             return {"cards": existing, "relations": cache.get("relations", []), "cached": True,
@@ -551,7 +536,6 @@ def enrich(
                 and saved.get("version") == version
                 and saved.get("model_revision") == config.revision
                 and saved.get(process_field, {}).get(process_version_field) == review_version
-                and not _related_sources_changed(saved, current_tasks)
                 and remaining > 0
             ):
                 deferred.append(math.ceil(remaining))
@@ -624,21 +608,6 @@ def enrich(
             return {"cards": existing, "relations": cache.get("relations", []),
                     "cached": bool(existing), "available": True,
                     **metadata, **_failure_metadata(cache)}
-        progress_sid = dataset["id"][5:] if dataset["id"].startswith("live:") else None
-        if progress_sid:
-            from .reader_clarification import ReaderSourceUnavailable
-            from .reader_progress import retain_progress_source
-
-            # Preserve the previous version before replacing its cache entry.
-            # This short registry lock never contains a model call.
-            for card in generated:
-                previous = existing.get(card["key"])
-                if previous is not None:
-                    try:
-                        retain_progress_source(root, progress_sid, copy_source=source, card_key=card["key"],
-                                               card=previous, locale=locale, evidence=dataset)
-                    except ReaderSourceUnavailable:
-                        pass  # An old cache without a source snapshot stays unverified.
         for card in generated:
             existing[card["key"]] = {
                 field: card[field] for field in CARD_TEXT_LIMITS
@@ -651,14 +620,13 @@ def enrich(
                 existing[card["key"]]["teaching_review"] = card["teaching_review"]
             if "teaching_process" in card:
                 existing[card["key"]]["teaching_process"] = copy.deepcopy(card["teaching_process"])
-            if "source_snapshot" in card:
-                existing[card["key"]]["source_snapshot"] = copy.deepcopy(card["source_snapshot"])
             if "foundation_ref" in card:
                 existing[card["key"]]["foundation_ref"] = copy.deepcopy(card["foundation_ref"])
             if "application_process" in card:
                 existing[card["key"]]["application_process"] = copy.deepcopy(card["application_process"])
             document = next(d for d in documents if d["key"] == card["key"])
             existing[card["key"]].update(
+                task_id=document["task_id"],
                 copy_revision=cache.get("cache_revision", 0) + 1,
                 version=version,
                 model_revision=config.revision,
@@ -673,14 +641,6 @@ def enrich(
                 event_ids=[e["id"] for e in document["events"]],
                 event_revisions=[e.get("revision", e["id"]) for e in document["events"]],
             )
-            if progress_sid:
-                try:
-                    existing[card["key"]]["progress_source"] = retain_progress_source(
-                        root, progress_sid, copy_source=source, card_key=card["key"],
-                        card=existing[card["key"]], locale=locale, evidence=dataset,
-                    )
-                except ReaderSourceUnavailable:
-                    pass
         ids = [t["id"] for t in dataset["tasks"]]
         relations = []
         seen = set()
@@ -691,7 +651,6 @@ def enrich(
             if (
                 ids.index(pair[0]) >= ids.index(pair[1])
                 or pair in seen
-                or not r.get("evidence")
                 or not isinstance(r.get("label"), str)
                 or not r["label"].strip()
             ):
@@ -701,13 +660,17 @@ def enrich(
                 {
                     "source": pair[0],
                     "target": pair[1],
-                    "label": text(r.get("label"), 18),
-                    "evidence": text(r["evidence"], 500),
+                    # Eighteen characters hold a Chinese phrase and cut an English
+                    # one mid-word; the schema's own limit bounds the English.
+                    "label": text(r.get("label"), 18 if locale == "zh-CN" else 32),
                     "kind": "semantic",
                 }
             )
         old_relations = [
-            r for r in cache.get("relations", [])
+            # Relations saved before 2026-09-20 also carry a model-written
+            # "evidence" sentence nobody reads; it is dropped on the next save.
+            {key: value for key, value in r.items() if key != "evidence"}
+            for r in cache.get("relations", [])
             if r.get("source") in ids and r.get("target") in ids
             and ids.index(r["source"]) < ids.index(r["target"])
         ]

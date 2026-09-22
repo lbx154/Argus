@@ -31,6 +31,41 @@ class _CopilotWriteState:
     # writes the failure record, where the CLI's last stderr lines can
     # accompany the exit code instead of leaving it to stand alone.
     exit_code: int | None = None
+    # The CLI named a session other than the one this call is bound to. Once
+    # set, no later event may bind an identity: usage stays unresolved instead
+    # of being charged to a session Argus cannot prove is this call's.
+    identity_conflict: str | None = None
+
+
+def _bind_copilot_session_identity(
+    thread_id: str | None,
+    reported: object,
+    write_state: _CopilotWriteState | None,
+    *,
+    source: str,
+) -> tuple[str | None, str | None]:
+    """Accept a CLI-reported session id only when it matches the bound one.
+
+    ``thread_id`` is the identity the call is already bound to (pre-allocated
+    for a new session, or the resumed one) or ``None`` when nothing is bound
+    yet. Returns ``(thread_id, conflict)``: a mismatch clears the identity
+    and describes the conflict; binding an identity never implies completion.
+    """
+    if write_state is not None and write_state.identity_conflict:
+        return None, write_state.identity_conflict
+    session_id = reported.strip() if isinstance(reported, str) else ""
+    if not session_id:
+        return thread_id, None
+    if thread_id and session_id != thread_id:
+        conflict = (
+            f"Copilot session identity mismatch: {source} reported "
+            f"sessionId {session_id!r} but this call is bound to {thread_id!r}; "
+            "usage stays unresolved (accounting_pending: session_identity_conflict)."
+        )
+        if write_state is not None:
+            write_state.identity_conflict = conflict
+        return None, conflict
+    return session_id, None
 
 
 @dataclass
@@ -488,6 +523,15 @@ class EventConsumerMixin:
             if type(status) is int and 400 <= status <= 599:
                 message = f"HTTP {status}: {message}"
             return thread_id, False, True, fatal_error or f"{code}: {message}"
+        if event_type == "session.start" and isinstance(data, dict):
+            # Early identity, when the CLI emits one: complementary to the
+            # pre-spawn binding (the observed cold stdout stream had none).
+            thread_id, conflict = _bind_copilot_session_identity(
+                thread_id, data.get("sessionId"), write_state, source="session.start",
+            )
+            if conflict:
+                return None, False, True, fatal_error or conflict
+            return thread_id, turn_completed, turn_failed, fatal_error
         if event_type == "tool.execution_complete" and isinstance(data, dict):
             telemetry = data.get("toolTelemetry")
             properties = telemetry.get("properties") if isinstance(telemetry, dict) else {}
@@ -548,9 +592,13 @@ class EventConsumerMixin:
         if event_type != "result":
             return thread_id, turn_completed, turn_failed, fatal_error
 
-        session_id = event.get("sessionId")
-        if isinstance(session_id, str) and session_id.strip():
-            thread_id = session_id
+        thread_id, conflict = _bind_copilot_session_identity(
+            thread_id, event.get("sessionId"), write_state, source="result",
+        )
+        if conflict:
+            # Fail closed: the terminal receipt belongs to a session this call
+            # was never bound to, so it can neither complete nor bill the call.
+            return None, False, True, fatal_error or conflict
 
         exit_code = event.get("exitCode")
         if type(exit_code) is int and exit_code == 0:

@@ -154,7 +154,7 @@ it("keeps attachments and routing available in the expanded editor", () => {
   act(() => { renderer = create(<MapComposer {...defaults} attachments={[new File(["test"], "report.txt", { type: "text/plain" })]}
     routeOverride="auto" onRouteOverrideChange={route} />, { createNodeMock: nodeMock }); });
   expect(island().props["data-compact"]).toBe(false);
-  act(() => renderer!.root.findByType("select").props.onChange({ target: { value: "task" } }));
+  act(() => renderer!.root.findAll((node) => node.type === "button" && node.props.role === "radio" && node.children.join("") === "Task")[0].props.onClick());
   expect(route).toHaveBeenCalledWith("task");
   expect(renderer!.root.findByProps({ "aria-label": "remove attachment report.txt" })).toBeDefined();
 });

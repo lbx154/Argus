@@ -3,15 +3,16 @@ name: release
 # Release version changes are operator-controlled. Do not bump package versions
 # for a bug fix unless the operator explicitly authorizes that release change.
 # v0.1.2 through v0.1.6 were operator-authorized desktop releases.
-# v0.1.7 is a Windows-only release: build it with workflow_dispatch and an
-# explicit windows-x86_64 target, verify its artifacts, then publish them.
-# Excluding its tag prevents a second all-platform/PyPI publication.
+# v0.1.7 and v0.1.8 are Windows-only releases: build with workflow_dispatch
+# and an explicit windows-x86_64 target, verify the artifacts, then publish.
+# Excluding these tags prevents a second all-platform publication.
 
 on:
   push:
     tags:
       - "v*"
       - "!v0.1.7"
+      - "!v0.1.8"
   workflow_dispatch:
     inputs:
       platform:
@@ -104,7 +105,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'windows-x86_64' && '[{"os":"windows-latest","platform":"windows-x86_64"}]' || inputs.platform == 'darwin-aarch64' && '[{"os":"macos-15","platform":"darwin-aarch64"}]' || inputs.platform == 'darwin-x86_64' && '[{"os":"macos-15-intel","platform":"darwin-x86_64"}]' || inputs.platform == 'linux-x86_64' && '[{"os":"ubuntu-22.04","platform":"linux-x86_64"}]' || '[{"os":"windows-latest","platform":"windows-x86_64"},{"os":"macos-15","platform":"darwin-aarch64"},{"os":"macos-15-intel","platform":"darwin-x86_64"},{"os":"ubuntu-22.04","platform":"linux-x86_64"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'windows-x86_64' && '[{"os":"windows-2022","platform":"windows-x86_64"}]' || inputs.platform == 'darwin-aarch64' && '[{"os":"macos-15","platform":"darwin-aarch64"}]' || inputs.platform == 'darwin-x86_64' && '[{"os":"macos-15-intel","platform":"darwin-x86_64"}]' || inputs.platform == 'linux-x86_64' && '[{"os":"ubuntu-22.04","platform":"linux-x86_64"}]' || '[{"os":"windows-2022","platform":"windows-x86_64"},{"os":"macos-15","platform":"darwin-aarch64"},{"os":"macos-15-intel","platform":"darwin-x86_64"},{"os":"ubuntu-22.04","platform":"linux-x86_64"}]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -113,7 +114,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.12.0'
+          node-version: ${{ runner.os == 'Windows' && '24.19.0' || '22.12.0' }}
           cache: npm
           cache-dependency-path: |
             frontend/web/package-lock.json
@@ -121,10 +122,20 @@ jobs:
             desktop-tauri/package-lock.json
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ runner.os == 'Windows' && '3.11.9' || '3.12' }}
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+            desktop-tauri/scripts/windows-build-requirements.txt
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ runner.os == 'Windows' && '1.98.0-x86_64-pc-windows-msvc' || 'stable' }}
+      - uses: astral-sh/setup-uv@v5
+        if: runner.os == 'Windows'
+        with:
+          version: '0.12.16'
+          enable-cache: false
       # The Tauri shell pulls in several hundred crates; compiling them cold is
       # the single longest step on every platform (10 min on the Intel Mac
       # runner). Keep the compiled dependencies between runs. Only main saves,
@@ -139,9 +150,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf xvfb xauth dbus-x11 libfuse2
-      - name: Install build dependencies
+      - name: Install frozen Windows build dependencies
+        if: runner.os == 'Windows'
+        env:
+          UV_PYTHON_DOWNLOADS: never
         run: |
-          python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
+          uv sync --frozen --extra dev --extra trial --no-install-project --python 3.11.9
+          uv pip install --python .venv/Scripts/python.exe --no-deps -r desktop-tauri/scripts/windows-build-requirements.txt
+          uv pip install --python .venv/Scripts/python.exe --no-deps --no-build-isolation --editable .
+          uv pip check --python .venv/Scripts/python.exe
+          echo "$GITHUB_WORKSPACE/.venv/Scripts" >> "$GITHUB_PATH"
+          echo 'RUSTUP_TOOLCHAIN=1.98.0-x86_64-pc-windows-msvc' >> "$GITHUB_ENV"
+          cargo fetch --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+      - name: Install non-Windows Python build dependencies
+        if: runner.os != 'Windows'
+        run: python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
+      - name: Install frontend build dependencies
+        run: |
           npm --prefix frontend/web ci
           npm --prefix frontend/tui ci
           npm --prefix desktop-tauri ci
@@ -166,6 +191,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./desktop-tauri/scripts/stage-release.ps1
+      - name: Verify reviewed Windows source and artifacts
+        if: runner.os == 'Windows'
+        run: |
+          python -m argus.release_tools.generate_manifest --check
+          python -m argus.release_tools.check_artifacts
+          git diff --exit-code HEAD
+          if [ -n "$(git ls-files --others --exclude-standard -- argus frontend)" ]; then
+            echo 'Unreviewed generated inputs remain; refusing to upload a release candidate.'
+            exit 1
+          fi
       - name: Stage Mac installer and updater
         if: runner.os == 'macOS'
         run: python desktop-tauri/scripts/stage-macos-release.py

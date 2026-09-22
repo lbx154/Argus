@@ -11,6 +11,7 @@ import { addComposerFiles, dataTransferHasFiles, extractFilesFromDataTransfer, M
 import { formatBytes } from '../lib/format';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
 import { ComposerSurface } from './ComposerSurface';
+import { RouteSegment } from './RouteSegment';
 
 interface RewriteShortcutEvent {
   key: string;
@@ -173,10 +174,7 @@ export function ChatBox({
         placeholder: disabled ? t('chat.selectSession') : t('chat.placeholder'),
       }}
       controls={<>
-        {onRouteOverrideChange ? <select value={routeOverride} onChange={(event) => onRouteOverrideChange(event.target.value as MessageRouteOverride)}
-          disabled={disabled || pending} title={t('chat.routeHint')} aria-label={t('chat.routeLabel')}>
-          <option value="task">{t('chat.routeTask')}</option><option value="auto">{t('chat.routeAuto')}</option><option value="chat">{t('chat.routeChat')}</option>
-        </select> : null}
+        {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}
         {onRewrite && value.trim() ? <button type="button" onClick={() => onRewrite(value.trim())} disabled={disabled || pending || rewriting}
           title={`Ctrl/⌘+R · ${t('chat.rewriteHint')}`} aria-label={t('chat.rewriteLabel')} aria-keyshortcuts="Control+R Meta+R">
           {rewriting ? `${spinnerFrame(thinkTick)} ${t('chat.rewriting')}` : t('chat.rewrite')}

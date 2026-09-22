@@ -170,6 +170,7 @@ def selected_source_context():
     ("event", "status", "failed"),
     ("event", "text", "The comparison failed because its hypothesis was not met"),
     ("event", "review_skipped", True),
+    ("event", "backend_unavailable", True),
     ("event", "review_source", "independent_reviewer"),
     ("event", "id", "changed-ninth-source"),
     ("task", "status", "done"),

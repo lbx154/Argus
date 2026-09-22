@@ -1985,9 +1985,12 @@ def test_retired_names_do_not_spread() -> None:
     assert problems == []
 
 
-MEMORY_ROOT_READS = 79
-
-
+# 79 + 2: the runtime-incident store (life/supervisor/_core.py) and the
+# runtime failure circuit (life/supervisor/_mission_execution_runtime.py) from
+# PRs #139/#141 read memory.root like the rest of the supervisor, whose
+# circuit reader (_idle_cycle.py) uses the same root. Phase 8 renames them
+# together with their readers.
+MEMORY_ROOT_READS = 81
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 

@@ -19,11 +19,11 @@ export function SubmapEdges({ layout, growing = {}, activeStep, activeTeamSteps 
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
-          markerWidth="8"
-          markerHeight="8"
+          markerWidth="6.5"
+          markerHeight="6.5"
           orient="auto"
         >
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#91a8bc" />
+          <path d="M 0.6 0.9 L 9.6 5 L 0.6 9.1 L 3 5 z" fill="var(--map-edge-context, #6f8ca8)" />
         </marker>
       </defs>
       {layout.links.map((link) => {
@@ -54,8 +54,9 @@ export function SubmapEdges({ layout, growing = {}, activeStep, activeTeamSteps 
               className="submap-relation-path"
               d={d}
               fill="none"
-              stroke="#91a8bc"
-              strokeWidth="2"
+              stroke="var(--map-edge-context, #6f8ca8)"
+              strokeWidth="1.6"
+              strokeLinecap="round"
               strokeDasharray={link.contextual ? "5 6" : undefined}
               markerEnd={`url(#${marker})`}
             />

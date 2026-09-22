@@ -53,7 +53,7 @@ def run_stub(calls):
     return run
 
 
-def test_application_uses_one_call_and_retains_the_actual_foundation_and_sources(monkeypatch):
+def test_application_uses_one_call_without_copying_foundation_and_sources_into_card(monkeypatch):
     docs = [{"key": "a", "task_id": "a", "task": {"title": "Actual task", "objective": "Compare coverage"},
              "events": [{"id": "e", "text": "x" * 1700, "next_action": "A saved handoff"}]}]
     tasks = [{"id": "a", "title": "Actual task"}, {"id": "b", "objective": "A neighboring goal"}]
@@ -68,12 +68,9 @@ def test_application_uses_one_call_and_retains_the_actual_foundation_and_sources
     assert calls[0]["config"] == model() and phases == ["writing"]
     generated = result["cards"][0]
     sent = calls[0]["sources"]["passages"]["a"]
-    snapshot = generated["source_snapshot"]
-    assert snapshot["task"] == sent["task"] and snapshot["events"] == sent["events"]
-    assert snapshot["events"][0]["text_truncated"] is True
-    assert snapshot["related_tasks"] == calls[0]["sources"]["related_tasks"]
-    assert snapshot["foundation"] == calls[0]["foundation"]
-    assert snapshot["foundation"]["markdown"] == saved["markdown"]
+    assert "source_snapshot" not in generated
+    assert sent["events"][0]["text_truncated"] is True
+    assert calls[0]["foundation"]["markdown"] == saved["markdown"]
     assert generated["foundation_ref"] == {key: saved[key] for key in ("id", "path", "question", "version")}
     assert generated["application_process"]["version"] == 1
     assert not {"learning_path", "teaching_review", "teaching_process"} & generated.keys()
@@ -130,7 +127,7 @@ def test_application_cache_is_question_specific_and_preserves_all_earlier_modes(
     assert coalesced["retry_after"] == 25 and len(calls) == 2
 
 
-def test_failed_application_keeps_prior_copy_and_its_actual_source_snapshot(tmp_path, monkeypatch):
+def test_failed_application_keeps_prior_copy_without_source_snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr(map_narrative, "resolve_map_model", model)
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
     monkeypatch.setattr(reader_application, "run_map_model", run_stub([]))
@@ -155,11 +152,11 @@ def test_failed_application_keeps_prior_copy_and_its_actual_source_snapshot(tmp_
     retained = map_narrative.read_cache(tmp_path, source)
     assert retained["cards"] == first["cards"]
     assert retained["cache_revision"] == first["cache_revision"]
-    assert retained["cards"]["a"]["source_snapshot"]["events"][0]["text"] == "Recorded work"
+    assert "source_snapshot" not in retained["cards"]["a"]
 
 
 @pytest.mark.parametrize("neighbor_id", ["b", "🧪" * 161], ids=["ordinary-id", "bounded-id"])
-def test_application_refreshes_changed_neighbor_without_replacing_the_foundation(
+def test_application_reuses_copy_when_only_neighbor_changes(
     tmp_path, monkeypatch, neighbor_id,
 ):
     now, calls = [1000.0], []
@@ -179,23 +176,21 @@ def test_application_refreshes_changed_neighbor_without_replacing_the_foundation
                                     preview="question-foundation", foundation=foundation())
 
     saved = copy.deepcopy(generate()["cards"]["a"])
-    assert saved["source_snapshot"]["related_tasks"][0]["id"] == neighbor_id[:160]
+    assert calls[0]["sources"]["related_tasks"][0]["id"] == neighbor_id[:160]
+    assert "source_snapshot" not in saved
     assert generate()["cached"] is True and len(calls) == 1
     data["tasks"][1]["objective"] = "A corrected neighboring goal"
     coalesced = generate()
-    assert coalesced["retry_after"] == 25 and coalesced["cards"]["a"] == saved
+    assert coalesced["cached"] is True and coalesced["cards"]["a"] == saved
     assert len(calls) == 1
 
     now[0] += 26
     refreshed = generate()
-    assert refreshed["cached"] is False and len(calls) == 2
+    assert refreshed["cached"] is True and len(calls) == 1
     current = refreshed["cards"]["a"]
-    assert current["source_snapshot"]["related_tasks"][0]["objective"] == "A corrected neighboring goal"
-    assert current["foundation_ref"] == saved["foundation_ref"]
-    assert current["source_snapshot"]["foundation"] == saved["source_snapshot"]["foundation"]
-    assert current["copy_revision"] > saved["copy_revision"]
+    assert current == saved
     assert data["tasks"][0] == own_task
-    assert generate()["cached"] is True and len(calls) == 2
+    assert generate()["cached"] is True and len(calls) == 1
 
 
 @pytest.mark.parametrize("saved", [None, foundation(state="generating"), foundation(state="failed"), foundation(markdown="")])

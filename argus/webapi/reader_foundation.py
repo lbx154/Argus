@@ -344,9 +344,9 @@ def generate_foundation(
             )
             if record["source_snapshot"].get("progress_source") is not None:
                 introduction, question_heading = (
-                    ("这是一份针对所选进展解释的阅读回答，依据保留的解释和记录快照。它不会修改任务或研究指令，也不计作新的研究进展。", "这次问题")
+                    ("这是一份针对所选进展解释的阅读回答，依据选择的说明和为这次提问保留的步骤记录。它不会修改任务或研究指令，也不计作新的研究进展。", "这次问题")
                     if record["locale"] == "zh-CN" else
-                    ("A reading answer about the selected progress explanation and its retained records. It does not change tasks or research instructions and is not new research progress.", "Your question")
+                    ("A reading answer about the selected progress explanation and the step's records kept for the question. It does not change tasks or research instructions and is not new research progress.", "Your question")
                 )
         references = ""
         if clarification:

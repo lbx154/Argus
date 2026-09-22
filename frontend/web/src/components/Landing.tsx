@@ -45,6 +45,10 @@ export function Landing({
           ) : canCreate ? (
             <Button onClick={onNew} variant="primary">{t('landing.new')}</Button>
           ) : null}
+          {/* Phones have no sidebar or tab bar until a project exists; give them the menu. */}
+          {!hasProjects && !error ? (
+            <span className="lg:hidden"><Button onClick={onChoose}>{t('landing.menu')}</Button></span>
+          ) : null}
         </div>
       )}
     </div>

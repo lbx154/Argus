@@ -47,7 +47,6 @@
 .map-card-live i { position: relative; flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #4a86c5; }
 .map-card-live i::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid #4a86c5; opacity: 0; animation: atlas-live-ring 2.2s cubic-bezier(.2, .7, .3, 1) infinite; }
 .map-card-live span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.map-macro:not([data-overview-density="full"]) .map-card-live { display: none; }
 @keyframes atlas-live-ring { 0% { opacity: .9; transform: scale(.55); } 70% { opacity: 0; transform: scale(1.35); } 100% { opacity: 0; transform: scale(1.35); } }
 
 /* The reader names the stage and, underneath, says in one line what that

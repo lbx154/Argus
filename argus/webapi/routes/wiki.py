@@ -48,7 +48,10 @@ def _read_text(path: Path, limit: int) -> tuple[str, bool]:
     """UTF-8 text bounded to ``limit`` bytes plus whether it was cut."""
     data = path.read_bytes()
     truncated = len(data) > limit
-    return data[:limit].decode("utf-8", errors="replace"), truncated
+    # Match text-mode Wiki readers on Windows, but keep the byte cutoff and
+    # truncation flag tied to the original file, not the normalized display.
+    text = data[:limit].decode("utf-8", errors="replace")
+    return text.replace("\r\n", "\n"), truncated
 
 
 def _strip_front_matter(text: str) -> str:

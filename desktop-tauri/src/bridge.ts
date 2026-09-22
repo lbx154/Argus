@@ -84,6 +84,7 @@ export interface DesktopDeliveryNotification {
   title: string;
   summary: string;
   path?: string;
+  sessionId?: string;
 }
 
 export type UpdateState =

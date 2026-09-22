@@ -79,7 +79,7 @@ it('supports browsing without a project and explains empty project and recent li
 
 it('shows a new saved skill directly in the sidebar and opens that document', async () => {
   const onOpen = vi.fn();
-  await act(async () => { renderer = create(<QueryClientProvider client={client}><SkillLibraryEntry sid="one" onOpen={onOpen} /></QueryClientProvider>); });
+  await act(async () => { renderer = create(<QueryClientProvider client={client}><SkillLibraryEntry sid="one" onOpen={onOpen} defaultExpanded /></QueryClientProvider>); });
   await settle();
   expect(content(renderer.root)).toContain('Project learning');
   expect(content(renderer.root)).not.toContain('Default');
@@ -88,7 +88,7 @@ it('shows a new saved skill directly in the sidebar and opens that document', as
   const next = item('global', 'Just produced', 50);
   vi.mocked(api.skillLibrary).mockResolvedValue({ ...fixture, items: [...fixture.items, next] });
   await act(async () => { await client.invalidateQueries({ queryKey: ['skill-library', 'one'] }); }); await settle();
-  const names = renderer.root.findAllByType('button').map(content);
+  const names = renderer.root.findAllByType('button').filter(node => !node.props['data-sidebar-fold']).map(content);
   expect(names[1]).toContain('Just produced');
   act(() => button('Just produced').props.onClick());
   expect(onOpen).toHaveBeenLastCalledWith(next);
@@ -130,4 +130,18 @@ it('shows request failures and offers a retry without pretending the library is 
   vi.mocked(api.skillLibrary).mockResolvedValue(fixture);
   act(() => button('Retry').props.onClick()); await settle();
   expect(button('Project learning')).toBeDefined();
+});
+
+it('folds the recent skills under the chevron and remembers the choice', async () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal('localStorage', { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => { stored.set(key, value); } });
+  await act(async () => { renderer = create(<QueryClientProvider client={client}><SkillLibraryEntry sid="one" onOpen={vi.fn()} /></QueryClientProvider>); });
+  await settle();
+  expect(content(renderer.root)).not.toContain('Project learning');
+  const fold = () => renderer.root.findByProps({ 'data-sidebar-fold': 'skills' });
+  expect(fold().props['aria-expanded']).toBe(false);
+  act(() => fold().props.onClick());
+  expect(content(renderer.root)).toContain('Project learning');
+  expect(stored.get('argus.sidebar.skills.expanded')).toBe('1');
+  vi.unstubAllGlobals();
 });

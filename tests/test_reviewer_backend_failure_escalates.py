@@ -84,20 +84,17 @@ def test_empty_clean_output_is_reviewer_failure_not_engineer_work() -> None:
     assert decision.backend_unavailable is True
 
 
-def test_process_decision_succeeds_without_final_reviewer_message() -> None:
+def test_native_action_succeeds_without_final_reviewer_message() -> None:
     class _DecisionRunner:
         def run_exec(self, **_kwargs):
+            from argus.core.role_tool_bridge import bridge_request
+
+            bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
+                "review": "The focused check passed.",
+            }, env=_kwargs["options"].extension_env)
             return RunnerResult(
                 exit_code=0,
                 agent_messages=[],
-                role_decisions=[{
-                    "role": "reviewer",
-                    "payload": {
-                        "status": "done",
-                        "reason": "The focused check passed.",
-                        "next_action": "",
-                    },
-                }],
             )
 
     decision = _evaluate(Reviewer(runner=_DecisionRunner()))

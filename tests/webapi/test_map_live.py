@@ -187,8 +187,9 @@ def test_copy_stream_returns_the_complete_json_result_with_one_enrichment(tmp_pa
     sid, life = sample(tmp_path)
     body = {"cards": [{"key": "task-a", "task_id": "task-a", "kind": "task"}]}
     result = {
-        "cards": {"task-a": {"title": "覆盖率比较", "source_snapshot": {"version": 1}}},
-        "relations": [], "cached": False, "version": copy.PROMPT_VERSION,
+        "cards": {"task-a": {"title": "覆盖率比较", "source_snapshot": {"version": 1}, "progress_source": {"source_id": "old"}}},
+        "relations": [{"source": "a", "target": "b", "label": "uses", "evidence": "old justification"}],
+        "cached": False, "version": copy.PROMPT_VERSION,
         "cache_revision": 3, "model_revision": "offline-fixture",
     }
     calls = []
@@ -204,6 +205,8 @@ def test_copy_stream_returns_the_complete_json_result_with_one_enrichment(tmp_pa
     monkeypatch.setattr(copy, "enrich", enrich)
     client = TestClient(create_app(global_root=tmp_path))
     path = f"/api/map-copy/project/{sid}"
+    expected = {**result, "cards": {"task-a": {"title": "覆盖率比较"}},
+                "relations": [{"source": "a", "target": "b", "label": "uses"}]}
     response = client.post(path + "?stream=true", json=body)
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -211,12 +214,14 @@ def test_copy_stream_returns_the_complete_json_result_with_one_enrichment(tmp_pa
     assert _copy_stream_frames(response) == [
         {"type": "heartbeat", "quiet_s": 0},
         *[{"type": "progress", "phase": phase} for phase in phases],
-        {"type": "done", "result": result},
+        {"type": "done", "result": expected},
     ]
     assert len(calls) == 1 and callable(calls[0][-1].get("on_progress"))
     assert calls[0][-1] == {"project_root": life, "on_progress": calls[0][-1]["on_progress"]}
     ordinary = client.post(path, json=body)
-    assert ordinary.status_code == 200 and ordinary.json() == result
+    assert ordinary.status_code == 200 and ordinary.json() == expected
+    assert "source_snapshot" in result["cards"]["task-a"]
+    assert "progress_source" in result["cards"]["task-a"] and "evidence" in result["relations"][0]
     assert ordinary.headers["content-type"].startswith("application/json")
     assert len(calls) == 2 and calls[0][:-1] == calls[1][:-1]
     assert calls[1][-1] == {"project_root": life}

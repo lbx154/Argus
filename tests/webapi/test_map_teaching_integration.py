@@ -90,10 +90,7 @@ def test_draft_and_checker_share_actual_task_evidence_and_attribution_without_mu
         original = next(doc for doc in before if doc["key"] == key)
         checked = observed["checker"][key]["context"]
         assert observed["checker"][key]["reading"] == reading_fields(card())
-        snapshot = next(row for row in observed["result"]["cards"] if row["key"] == key)["source_snapshot"]
-        assert snapshot["version"] == map_narrative.SOURCE_SNAPSHOT_VERSION and snapshot["card_key"] == key and snapshot["task_id"] == original["task_id"]
-        assert {field: value for field, value in snapshot.items()
-                if field not in {"version", "card_key", "task_id", "captured_at"}} == checked
+        assert "source_snapshot" not in next(row for row in observed["result"]["cards"] if row["key"] == key)
         assert checked["task"] == sent["task"]
         assert checked["events"] == sent["events"]
         assert checked["source_ids"] == sent["source_ids"] == [event["id"] for event in original["events"][-4:]]
@@ -128,8 +125,7 @@ def test_upstream_evidence_truncation_remains_visible_to_both_draft_and_checker(
     observed = capture_generation_sources(monkeypatch, documents)
     draft = observed["draft"]["cards"][0]
     checked = observed["checker"]["a"]["context"]
-    snapshot = observed["result"]["cards"][0]["source_snapshot"]
-    assert snapshot["task"] == checked["task"] and snapshot["events"] == checked["events"]
+    assert "source_snapshot" not in observed["result"]["cards"][0]
     assert draft["task"] == checked["task"]
     assert draft["events"] == checked["events"]
     assert checked["task"]["objective_truncated"] is True
@@ -141,7 +137,7 @@ def test_upstream_evidence_truncation_remains_visible_to_both_draft_and_checker(
     assert dataset == before and documents == document_snapshot
 
 
-def test_bsd_neighbor_goals_are_shared_once_with_checker_and_retained_by_id(monkeypatch):
+def test_bsd_neighbor_goals_are_shared_once_with_checker_without_saving_sources(monkeypatch):
     # Offline source fixture reproducing the two neighboring goals which the
     # earlier draft saw but its checker and saved evidence did not receive.
     source = document()
@@ -170,16 +166,14 @@ def test_bsd_neighbor_goals_are_shared_once_with_checker_and_retained_by_id(monk
     for sent in draft["cards"]:
         checked = checker["passages"][sent["key"]]["context"]
         assert checked["related_task_ids"] == sent["related_task_ids"]
-        snapshot = next(row["source_snapshot"] for row in observed["result"]["cards"] if row["key"] == sent["key"])
-        assert snapshot["related_tasks"] == [draft_table[key] for key in sent["related_task_ids"]]
         assert {neighbor["id"] for neighbor in neighbors} <= set(sent["related_task_ids"])
-        assert "related_task_ids" not in snapshot  # Saved evidence is self-contained.
+        assert "source_snapshot" not in next(row for row in observed["result"]["cards"] if row["key"] == sent["key"])
     assert tasks == before
     neighbors[0]["objective"] = "A later edited goal"
     assert checker_table["f20a4421fc3f"]["objective"] != neighbors[0]["objective"]
 
 
-def test_source_snapshot_binds_the_pre_generation_material_when_live_task_and_events_change(monkeypatch):
+def test_draft_and_review_share_pre_generation_material_when_live_records_change(monkeypatch):
     source = document()
     source.update(key="start-a", kind="execution")
     source["events"][0].update(item_id="a", revision="event-before", type="life.mission.started", ts=900)
@@ -192,6 +186,7 @@ def test_source_snapshot_binds_the_pre_generation_material_when_live_task_and_ev
         if "cards" in schema["properties"]:
             observed["draft"] = json.loads(prompt.split("\n研究记录：\n", 1)[1])["cards"][0]
             assert "source_snapshot" not in schema["properties"]["cards"]["properties"]["start-a"]["properties"]
+            assert "evidence" not in schema["properties"]["relations"]["items"]["properties"]
             # Simulate progress arriving while the first model call is running.
             source["task"]["objective"] = "A revised task objective"
             source["events"][0].update(text="An updated record", revision="event-after")
@@ -206,20 +201,18 @@ def test_source_snapshot_binds_the_pre_generation_material_when_live_task_and_ev
     monkeypatch.setattr(map_narrative, "run_map_model", run)
     result = map_narrative.generate([source], [{"id": "a"}], "en-US",
                                    config=MapModel("pi", "gpt-5.5", "medium", "argus-pi"), project_root=None, global_root=None)
-    snapshot = result["cards"][0]["source_snapshot"]
-    assert snapshot["card_key"] == "start-a" and snapshot["task_id"] == "a"
-    assert snapshot["captured_at"] == 1000.0 < now["value"]
-    assert snapshot["task"] == observed["draft"]["task"] == observed["checker"]["task"]
-    assert snapshot["events"] == observed["draft"]["events"] == observed["checker"]["events"]
-    assert snapshot["task"]["objective"] == before["task"]["objective"]
-    assert snapshot["events"][0]["revision"] == "event-before"
-    assert snapshot["source_ids"] == ["start-a"]
+    assert "source_snapshot" not in result["cards"][0]
+    assert observed["draft"]["task"] == observed["checker"]["task"]
+    assert observed["draft"]["events"] == observed["checker"]["events"]
+    assert observed["checker"]["task"]["objective"] == before["task"]["objective"]
+    assert observed["checker"]["events"][0]["revision"] == "event-before"
+    assert observed["checker"]["source_ids"] == ["start-a"]
     assert source["events"][-1]["id"] == "completed-a"
-    snapshot["task"]["non_goals"].append("A consumer-local edit")
+    observed["checker"]["task"]["non_goals"].append("A consumer-local edit")
     assert source["task"]["non_goals"] == before["task"]["non_goals"]
 
 
-def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_backfill_it(tmp_path, monkeypatch):
+def test_generated_and_cached_cards_do_not_build_snapshots_or_backfill_legacy_cache(tmp_path, monkeypatch):
     calls = []
     phases = []
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
@@ -246,14 +239,11 @@ def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_bac
     request = [{"key": "a", "task_id": "a", "kind": "task", "event_ids": ["start-a"]}]
     first = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path, on_progress=phases.append)
     saved = copy.deepcopy(first["cards"]["a"])
-    snapshot = saved["source_snapshot"]
-    assert len(calls) == 2 and snapshot["captured_at"] == 1000.0
+    assert len(calls) == 2 and "source_snapshot" not in saved
     assert phases == ["waiting_for_source", "writing", "reviewing"]
-    assert snapshot["task"]["objective"] == "The initial goal" and snapshot["source_ids"] == ["start-a"]
-    assert snapshot["related_tasks"] == dataset["tasks"][1:]
     assert saved["task_revision"] == "task-before" and saved["event_revisions"] == ["event-before"]
     cache_source = "live:snapshots:en-US"
-    assert map_narrative.read_cache(tmp_path, cache_source)["cards"]["a"]["source_snapshot"] == snapshot
+    assert map_narrative.read_cache(tmp_path, cache_source)["cards"]["a"] == saved
     phases.clear()
     again = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path, on_progress=phases.append)
     assert again["cached"] is True and again["cards"]["a"] == saved and len(calls) == 2
@@ -271,13 +261,13 @@ def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_bac
     assert len(calls) == 2 and dataset == before
     assert phases == ["waiting_for_source"]
 
-    # An otherwise current pre-snapshot cache remains readable without a new call.
+    # An otherwise current old cache is not migrated or regenerated.
     legacy = map_narrative.read_cache(tmp_path, cache_source)
-    legacy["cards"]["a"].pop("source_snapshot")
+    legacy["cards"]["a"]["source_snapshot"] = {"version": 2, "task": {"objective": "Legacy source"}}
     map_narrative._write_cache(map_narrative.cache_path(tmp_path, cache_source), legacy)
     legacy_before = copy.deepcopy(legacy)
     cached = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
-    assert cached["cached"] is True and "source_snapshot" not in cached["cards"]["a"]
+    assert cached["cached"] is True and cached["cards"]["a"] == legacy["cards"]["a"]
     assert len(calls) == 2 and map_narrative.read_cache(tmp_path, cache_source) == legacy_before
 
 
@@ -552,7 +542,7 @@ def test_later_focused_cards_can_add_relationships_for_their_own_context(tmp_pat
     def generate(documents, tasks, *_args, **_kwargs):
         seen.append([task["id"] for task in tasks])
         return {"cards": [{**card(), "key": document["key"]} for document in documents],
-                "relations": [{"source": tasks[1]["id"], "target": tasks[0]["id"], "label": "supports", "evidence": "The task uses this input"}]}
+                "relations": [{"source": tasks[1]["id"], "target": tasks[0]["id"], "label": "supports"}]}
 
     monkeypatch.setattr(map_narrative, "generate", generate)
     dataset = {"id": "live:relations", "tasks": [
@@ -567,3 +557,4 @@ def test_later_focused_cards_can_add_relationships_for_their_own_context(tmp_pat
     later = map_narrative.enrich(tmp_path, dataset, request("b"), "en-US", project_root=tmp_path)
     assert seen == [["a", "x"], ["b", "y"]]
     assert {(r["source"], r["target"]) for r in later["relations"]} == {("x", "a"), ("y", "b")}
+    assert all("evidence" not in relation for relation in later["relations"])

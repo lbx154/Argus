@@ -197,8 +197,8 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
         assert 'output file paths' in engineer_prompt
         assert 'decisive checks' in engineer_prompt
         assert 'omit decision or status fields' in engineer_prompt
-    assert "REASON, NEXT_ACTION, and OPERATOR_QUESTION are human-facing" in reviewer
-    assert 'Omit internal values and template names' in reviewer
+    assert "Express the complete review naturally in the operator's language" in reviewer
+    assert "No JSON, fixed fields, named closing lines, or text template" in reviewer
 
 
 def test_role_prompts_are_byte_identical_for_identical_state(tmp_path) -> None:

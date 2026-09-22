@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -74,9 +73,7 @@ def test_teammate_replaces_revised_and_revoked_context_between_role_calls(tmp_pa
     backend.queue("engineer-r2", CannedResponse(message_factory=remove))
     backend.queue("engineer-r3", CannedResponse(message="final implementation"))
     for status in ("continue", "continue", "done"):
-        backend.queue("reviewer", CannedResponse(message=json.dumps({
-            "status": status, "reason": "offline independent review", "next_action": "verify quartz",
-        })))
+        backend.queue("reviewer", CannedResponse(review_action=(('approve_review' if status == 'done' else 'revise_review'), {'review': ('offline independent review') + '\n\n' + ('verify quartz')})))
     monkeypatch.setattr("argus.adapters.agent_cli_backend.AgentCliBackend",
                         lambda **_kwargs: backend)
 
@@ -191,13 +188,8 @@ def test_teammate_enforces_parent_question_policy_at_actual_role_boundary(tmp_pa
     ))
     backend.queue("engineer-r2", CannedResponse(message="follow-up implementation"))
     if role == "reviewer":
-        backend.queue("reviewer", CannedResponse(message=json.dumps({
-            "status": "blocked", "reason": "operator-owned acceptance boundary",
-            "operator_question": question, "next_action": "wait for scope decision",
-        })))
-    backend.queue("reviewer", CannedResponse(message=json.dumps({
-        "status": "done", "reason": "verified", "next_action": "none",
-    })))
+        backend.queue("reviewer", CannedResponse(review_action=('request_review_decision', {'review': ('operator-owned acceptance boundary') + '\n\n' + ('wait for scope decision'), 'question': question})))
+    backend.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': ('verified') + '\n\n' + ('none')})))
     monkeypatch.setattr("argus.adapters.agent_cli_backend.AgentCliBackend", lambda **_kwargs: backend)
 
     class OfflineRunner(runtime._SkillLoopRunner):

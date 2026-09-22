@@ -184,6 +184,9 @@ def _clip(text: str, limit: int = _DESCRIPTION_CHARS) -> str:
 
 def _front_matter(content: str) -> tuple[dict[str, Any], str]:
     """The page's front matter mapping and body; an empty mapping when absent."""
+    # Normalize only this parsing copy. The stored content, digest and byte
+    # budget still describe the original file exactly.
+    content = content.replace("\r\n", "\n")
     if not content.startswith("---\n"):
         return {}, content
     front, separator, body = content[4:].partition("\n---\n")
