@@ -66,3 +66,4 @@ jobs:
           npm --prefix frontend/web run typecheck
           npm --prefix frontend/tui ci
           npm --prefix frontend/tui run typecheck
+          node --import tsx --test frontend/tui/test/protocol.test.ts
