@@ -2,6 +2,7 @@
 from fastapi import Depends, HTTPException
 
 from ...life.answer_learning import learning_status, resume_learning, retry_learning
+from ..manager_state import answer_learning_backend
 from .context import ServerContext
 
 
@@ -13,7 +14,7 @@ def register_learning_routes(app, ctx: ServerContext) -> None:
     @app.post("/api/projects/{sid}/learning/{job_id}/retry", dependencies=[Depends(ctx.require_auth)])
     def _retry(sid: str, job_id: str) -> dict:
         root = ctx.project_root_or_404(sid)
-        if not retry_learning(root, sid, job_id):
+        if not retry_learning(root, sid, job_id, backend_factory=answer_learning_backend):
             raise HTTPException(status_code=409, detail="Only failed learning can be retried")
         return learning_status(root, sid)
 
@@ -21,4 +22,4 @@ def register_learning_routes(app, ctx: ServerContext) -> None:
     def _resume() -> None:
         for root in ctx.roots:
             if (root / "answer-learning.sqlite3").exists():
-                resume_learning(root)
+                resume_learning(root, backend_factory=answer_learning_backend)

@@ -12,6 +12,7 @@ import os
 import sqlite3
 import threading
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,8 @@ log = logging.getLogger(__name__)
 _LOCK = threading.RLock()
 _THREADS: dict[Path, threading.Thread] = {}
 _BACKENDS: dict[tuple[Path, str], Any] = {}
+BackendFactory = Callable[[Path, str], Any]
+_BACKEND_FACTORIES: dict[Path, BackendFactory] = {}
 
 
 @contextmanager
@@ -75,6 +78,7 @@ def learning_status(root: Path, sid: str) -> dict[str, Any]:
 def enqueue_answer(
     *, root: Path, sid: str, operator_text: str, reply: str, vertical: str = "",
     evidence: str = "", turn_id: str = "", backend: Any = None,
+    backend_factory: BackendFactory | None = None,
 ) -> threading.Thread:
     root = root.resolve()
     identity = turn_id or f"{operator_text}\0{reply}"
@@ -90,10 +94,12 @@ def enqueue_answer(
             )
         if backend is not None:
             _BACKENDS[root, sid] = backend
-        return resume_learning(root)
+        return resume_learning(root, backend_factory=backend_factory)
 
 
-def retry_learning(root: Path, sid: str, job_id: str) -> bool:
+def retry_learning(
+    root: Path, sid: str, job_id: str, *, backend_factory: BackendFactory | None = None,
+) -> bool:
     root = root.resolve()
     with _LOCK:
         with _database(root) as db:
@@ -102,13 +108,17 @@ def retry_learning(root: Path, sid: str, job_id: str) -> bool:
                 (time.time(), job_id, sid),
             ).rowcount
         if changed:
-            resume_learning(root)
+            resume_learning(root, backend_factory=backend_factory)
         return bool(changed)
 
 
-def resume_learning(root: Path) -> threading.Thread:
+def resume_learning(
+    root: Path, *, backend_factory: BackendFactory | None = None,
+) -> threading.Thread:
     root = root.resolve()
     with _LOCK:
+        if backend_factory is not None:
+            _BACKEND_FACTORIES[root] = backend_factory
         active = _THREADS.get(root)
         if active is not None:
             return active
@@ -122,17 +132,10 @@ def _backend(root: Path, sid: str) -> Any:
     cached = _BACKENDS.get((root, sid))
     if cached is not None:
         return cached
-    # Reconstruct the configured transport after restart, without sending a
-    # new user turn or running the task again.
-    from ..life.memory import MemoryBundle
-    from ..manager.front_door import _ensure_manager_runner
-    from ..webapi.manager_state import _chat_state_for, _lock_for
-
-    with _lock_for(sid):
-        state = _chat_state_for(sid, manager_activity=False)
-        state.update(session_id=sid, global_root=str(root))
-        runner = _ensure_manager_runner(state, MemoryBundle.for_cwd(fingerprint=sid, global_root=root))
-        backend = getattr(runner, "_backend", None)
+    # The delivery owner reconstructs its configured transport after restart.
+    # This queue must not import WebAPI state or another package's private runner.
+    factory = _BACKEND_FACTORIES.get(root)
+    backend = factory(root, sid) if factory is not None else None
     if backend is None:
         raise RuntimeError("Learning backend is unavailable")
     return backend
@@ -236,3 +239,5 @@ def _drain(root: Path) -> None:
             for key in list(_BACKENDS):
                 if key[0] == root and root not in _THREADS:
                     _BACKENDS.pop(key, None)
+            if root not in _THREADS:
+                _BACKEND_FACTORIES.pop(root, None)
