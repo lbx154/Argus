@@ -400,8 +400,8 @@
     "tui": {
       "counts": {
         "handled": 100,
-        "hidden": 88,
-        "missing": 3
+        "hidden": 91,
+        "missing": 0
       },
       "fallback": "hide",
       "handled": [
@@ -553,6 +553,9 @@
         "life.planner.verdict.discarded",
         "life.planner.waiting_contract.normalized",
         "life.reviewer.backend_resolved",
+        "life.runtime.incident.detected",
+        "life.runtime.incident.escalated",
+        "life.runtime.incident.recovered",
         "life.runtime_failure.canary_passed",
         "life.runtime_failure.circuit_blocked",
         "life.runtime_failure.circuit_opened",
@@ -596,17 +599,13 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": [
-        "life.runtime.incident.detected",
-        "life.runtime.incident.escalated",
-        "life.runtime.incident.recovered"
-      ]
+      "missing": []
     },
     "web": {
       "counts": {
         "handled": 100,
-        "hidden": 88,
-        "missing": 3
+        "hidden": 91,
+        "missing": 0
       },
       "fallback": "hide",
       "handled": [
@@ -758,6 +757,9 @@
         "life.planner.verdict.discarded",
         "life.planner.waiting_contract.normalized",
         "life.reviewer.backend_resolved",
+        "life.runtime.incident.detected",
+        "life.runtime.incident.escalated",
+        "life.runtime.incident.recovered",
         "life.runtime_failure.canary_passed",
         "life.runtime_failure.circuit_blocked",
         "life.runtime_failure.circuit_opened",
@@ -801,11 +803,7 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": [
-        "life.runtime.incident.detected",
-        "life.runtime.incident.escalated",
-        "life.runtime.incident.recovered"
-      ]
+      "missing": []
     }
   },
   "schema_version": 1
