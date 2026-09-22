@@ -177,10 +177,10 @@ def intake_card(state: dict) -> dict | None:
     if phase == "offered":
         options = [
             {"id": "direct", "label": "直接做" if chinese else "Do it directly",
-             "description": "单个 agent 处理这次任务。" if chinese else "One agent handles this request.",
+             "description": "由一个 agent 直接完成，适合一次性的任务。" if chinese else "One agent completes it now; right for a one-off request.",
              "requires_note": False},
-            {"id": "build", "label": "建立可复用的 vertical" if chinese else "Build a reusable vertical",
-             "description": "定义适用范围、输入输出和检查标准，查资料并用实例验证，供后续同类任务复用。" if chinese else
+            {"id": "build", "label": "先建立可复用的流程" if chinese else "Build a reusable workflow first",
+             "description": "先定义适用范围、输入输出和检查标准，查资料并用实例验证；以后同类任务可以直接复用。" if chinese else
                             "Define scope, inputs, outputs and checks; research and validate examples for future tasks.",
              "requires_note": False},
         ]
@@ -189,9 +189,9 @@ def intake_card(state: dict) -> dict | None:
         "id": state.get("question_id") or "intake-" + legacy_id,
         "kind": "domain_intake", "item_id": "", "revision": 1, "status": "pending",
         "title": ("选择处理方式" if chinese else "Choose how to proceed") if phase == "offered" else
-                 ("定义可复用的 vertical" if chinese else "Define a reusable vertical"),
+                 ("定义可复用的流程" if chinese else "Define a reusable workflow"),
         "task_title": state.get("request", ""), "reason": "", "evidence": [],
-        "question": ("这类任务还没有匹配的专门流程，你希望怎么处理？" if chinese else
+        "question": ("这类任务还没有现成的专门流程。直接做，还是先把流程沉淀下来以便复用？" if chinese else
                      "This task has no matching specialist workflow. How would you like to proceed?")
                     if phase == "offered" else state.get("last_question", ""),
         "options_source": "agent" if phase == "clarifying" else "workflow", "options": options,
@@ -262,7 +262,7 @@ def handle_intake(root: Path, message: str, decision: dict, *, route: str, self_
         state = {"phase": "offered", "request": message[:6000], "answers": [],
                  "route": route, "self_mode": self_mode, "consented": False}
         result = {"reply": (
-            "这类任务还没有匹配的专门流程。可以直接由单个 agent 处理，也可以先建立可复用的流程。请在卡片中选择。"
+            "这类任务还没有现成的专门流程。可以直接做，也可以先建立一套可复用的流程。请在弹出的卡片里选择。"
             if uses_cjk(message) else
             "There is no matching specialist workflow for this task. Should I handle it directly "
             "with one agent, or develop a reusable workflow? For the latter, I will clarify the "
@@ -313,7 +313,7 @@ def handle_intake(root: Path, message: str, decision: dict, *, route: str, self_
                 "\n\nAgreed reusable vertical definition:\n" + brief
                 + "\n\nUser request and answers (example context, not reusable instructions):\n" + request
             )
-            objective = ("建立可复用的 vertical：" if uses_cjk(state["request"]) else "Build a reusable vertical: ") + purpose
+            objective = ("建立可复用的流程：" if uses_cjk(state["request"]) else "Build a reusable vertical: ") + purpose
             result = {"task": task, "objective": objective, "route": "complex", "title": title,
                       "display_objective": summary,
                       "decision": VerticalDecision(
