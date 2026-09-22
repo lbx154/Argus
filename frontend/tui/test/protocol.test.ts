@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import test, { mock } from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import {
   type ApiMeta,
@@ -54,6 +58,29 @@ test('repository backend path follows the platform venv layout', () => {
 
   assert.match(windows, /\/repo\/\.venv\/Scripts\/argus\.exe$/);
   assert.match(posix, /\/repo\/\.venv\/bin\/argus$/);
+});
+
+test('source, bundle and compiled TUI entrypoints resolve the same checkout backend', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'argus-tui-entry-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'frontend/tui'), { recursive: true });
+  writeFileSync(join(root, 'pyproject.toml'), '[project]\nname = "argus"\n');
+  writeFileSync(join(root, 'frontend/tui/package.json'), '{"name":"argus-tui"}');
+  const backend = repoBackendPath(root);
+  mkdirSync(dirname(backend), { recursive: true });
+  writeFileSync(backend, 'fixture');
+  for (const path of [
+    'frontend/tui/src/ensureApi.ts',
+    'frontend/tui/bundle/argus.mjs',
+    'frontend/tui/dist/tui/src/ensureApi.js',
+    'frontend/tui/dist/frontend/tui/src/ensureApi.js',
+  ]) {
+    const moduleUrl = pathToFileURL(join(root, path)).href;
+    assert.equal(resolveBin(moduleUrl, {}), backend, path);
+    assert.equal(resolveBin(moduleUrl, { ARGUS_SKILL_BIN: 'explicit-backend' }), 'explicit-backend');
+  }
+  rmSync(backend);
+  assert.equal(resolveBin(pathToFileURL(join(root, 'frontend/tui/src/ensureApi.ts')).href, {}), 'argus');
 });
 
 test('protocol contract accepts the current server and rejects missing capabilities', () => {
@@ -906,4 +933,3 @@ test('ApiClient requests Manager prewarm only when asked', async () => {
     globalThis.fetch = originalFetch;
   }
 });
-

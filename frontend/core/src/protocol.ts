@@ -2,75 +2,11 @@ import type { Snapshot } from './types.js';
 
 import { RELEASE_ID } from './release.generated.js';
 
-export const API_SERVICE = 'argus-skill-webapi';
-export const API_PROTOCOL = {
-  name: 'argus.webapi',
-  major: 1,
-  minServerMinor: 16,
-} as const;
-export const SNAPSHOT_SCHEMA_VERSION = 7;
-export const RELEASE_ARTIFACT_DRIFT_WARNING =
-  'python -m argus.release_tools.build_release';
-export const REQUIRED_API_CAPABILITIES = [
-  'daemon.admission.v1',
-  'daemon.status.protocol.v1',
-  'daemon.command.v1',
-  'daemon.upgrade-schedule.v1',
-  'cost.admission.v1',
-  'event.catalog.v1',
-  'event.payload-schema.v1',
-  'manager.sse.v1',
-  'manager.request-cancel.v1',
-  'advisor.config.v1',
-  'metrics.slo.v2',
-  'mission.view.v1',
-  'mission.abort.v1',
-  'project.attachments.v1',
-  'project.git-diff.v1',
-  'project.cost-feed.v1',
-  'project.counterexamples.v1',
-  'project.workdir.v1',
-  'research.events.v1',
-  'release.identity.v1',
-  'snapshot.budget.v1',
-  'snapshot.schema.v1',
-  'source.update.v1',
-  'usage.recorded.v2',
-  'verticals.store.v1',
-] as const;
-
-export interface ApiRuntimeIdentity {
-  package_version: string;
-  source_root: string;
-  configured_source_root: string | null;
-  source_root_matches_config: boolean | null;
-  revision: string | null;
-  pid: number;
-  python_version: string;
-  executable: string;
-  started_at: string;
-  release_id: string;
-  manifest_source_digest: string | null;
-  runtime_source_digest: string | null;
-  release_matches_source: boolean | null;
-}
-
-export interface ApiMeta {
-  service: string;
-  protocol: {
-    name: string;
-    major: number;
-    minor: number;
-  };
-  snapshot_schema_version: number;
-  capabilities: string[];
-  runtime: ApiRuntimeIdentity;
-  /** Optional for compatibility with pre-handshake-auth servers. */
-  authentication?: {
-    required: boolean;
-    authenticated: boolean;
-  };
-}
+import { API_SERVICE, API_PROTOCOL, SNAPSHOT_SCHEMA_VERSION, REQUIRED_API_CAPABILITIES } from '../../../packages/contracts/src/apiProtocol.generated.js';
+import type { ApiMeta } from '../../../packages/contracts/src/api.js';
+export { API_SERVICE, API_PROTOCOL, SNAPSHOT_SCHEMA_VERSION, REQUIRED_API_CAPABILITIES } from '../../../packages/contracts/src/apiProtocol.generated.js';
+export type { ApiMeta, ApiRuntimeIdentity } from '../../../packages/contracts/src/api.js';
+export const RELEASE_ARTIFACT_DRIFT_WARNING = 'python -m argus.release_tools.build_release';
 
 export interface ApiCompatibility {
   compatible: boolean;

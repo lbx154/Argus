@@ -326,43 +326,45 @@ def record_turn_step(
     steps: list[dict[str, Any]],
     payload: dict[str, Any],
     now: float | None = None,
-) -> None:
+) -> list[dict[str, Any]]:
     """Fold one streamed ``phase`` frame into the turn's durable step list.
 
     A tool result closes the step that started the same call (``call_id``)
     instead of adding a row of its own; a new call closes whatever step was
-    still open, because a single agent works one call at a time. Heartbeats
-    and routing narration are not steps. The list is bounded so a very long
-    turn cannot bloat the transcript.
+    still open, because a single agent works one call at a time, and so does
+    a result from a backend that names no call. Heartbeats and routing
+    narration are not steps. The list is bounded so a very long turn cannot
+    bloat the transcript. Returns the steps the frame closed or opened, in
+    that order, so the caller can persist each change as it happens.
     """
     if not isinstance(payload, dict) or payload.get("heartbeat"):
-        return
+        return []
     kind = str(payload.get("kind") or "").strip()
     if kind not in TURN_STEP_KINDS:
-        return
+        return []
     ts = float(now if now is not None else time.time())
     call_id = str(payload.get("call_id") or "").strip()
     status = str(payload.get("status") or "").strip().lower()
     if kind == "tool_result":
-        if not call_id:
-            return
         for step in reversed(steps):
-            if step.get("call_id") == call_id:
+            if (step.get("call_id") == call_id) if call_id else not step.get("ended_ts"):
                 step["status"] = status or "completed"
                 step["ended_ts"] = ts
                 output = _clip_step_text(payload.get("output"))
                 if output:
                     step["output"] = output
-                return
-        return
+                return [step]
+        return []
+    touched: list[dict[str, Any]] = []
     for step in reversed(steps):
         if not step.get("ended_ts"):
             step["ended_ts"] = ts
             if not step.get("status") or step.get("status") == "running":
                 step["status"] = "completed"
+            touched.append(step)
         break
     if len(steps) >= _TURN_STEP_LIMIT:
-        return
+        return touched
     step: dict[str, Any] = {
         "kind": kind,
         "label": _clip_step_text(payload.get("label")),
@@ -377,6 +379,41 @@ def record_turn_step(
     if call_id:
         step["call_id"] = call_id
     steps.append(step)
+    touched.append(step)
+    return touched
+
+
+def turn_step_event(turn_id: str, step: dict[str, Any], now: float | None = None) -> dict[str, Any]:
+    """The durable twin of one turn step: an ``engineer.progress`` row the
+    Manager owns, attributed to the turn's map card (``turn:<id>``).
+
+    The same step yields the same ``message_id`` when it opens and when it
+    closes, so the mission view keeps one work record per tool call and
+    updates its status in place. ``turn_step`` marks the row for readers that
+    already show the reply's step list and must not show the call twice.
+    """
+    call_id = str(step.get("call_id") or "").strip()
+    label = str(step.get("label") or "")
+    output = str(step.get("output") or "")
+    status = str(step.get("status") or "running")
+    event: dict[str, Any] = {
+        "type": "engineer.progress",
+        "kind": str(step.get("kind") or "tool_use"),
+        "agent_layer": "manager",
+        "actor": "manager",
+        "item_id": f"turn:{turn_id}",
+        "message_id": f"{turn_id}:{call_id or step.get('started_ts') or 0}",
+        "text": label,
+        "action_summary": f"{label} · {output}" if output else label,
+        "status": status,
+        "turn_step": True,
+        "ts": float(now if now is not None else time.time()),
+    }
+    for source, target in (("tool", "tool_name"), ("tool_kind", "tool_kind"), ("call_id", "call_id"), ("detail", "detail")):
+        value = step.get(source)
+        if value not in (None, ""):
+            event[target] = value
+    return event
 
 
 def finish_turn_steps(
@@ -427,6 +464,16 @@ class _TurnEmitter:
         })
         self.task_started = True
 
+    def record_steps(self, steps: list[dict[str, Any]]) -> None:
+        """Persist step changes once the turn has a card to own them."""
+        if not steps or not self.task_started:
+            return
+        from ..life.event_log import JsonlEventSink
+
+        sink = JsonlEventSink(None, life_dir=self.life_dir)
+        for step in steps:
+            sink.append(turn_step_event(self.turn_id, step))
+
     def cancel_task(self) -> None:
         if self.task_started:
             from ..life.event_log import JsonlEventSink
@@ -463,10 +510,12 @@ class _TurnEmitter:
         if self.turn_kind:
             metadata["turn_kind"] = self.turn_kind
         if self.steps:
+            still_open = [step for step in self.steps if not step.get("ended_ts")]
             metadata["steps"] = finish_turn_steps(
                 self.steps, failed=result.get("success") is False,
             )
             result["steps"] = metadata["steps"]
+            self.record_steps(still_open)
         _journal_argus_reply(
             self.life_dir,
             self.turn_id,

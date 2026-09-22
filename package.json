@@ -1,0 +1,20 @@
+{
+  "name": "argus-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/contracts", "packages/runtime"],
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "contracts:generate": "node --experimental-strip-types packages/contracts/scripts/generate.ts",
+    "contracts:check": "node --experimental-strip-types packages/contracts/scripts/generate.ts --check",
+    "build": "npm run contracts:check && npm run build -w @argus/contracts && npm run build -w @argus/runtime",
+    "typecheck": "npm run build && tsc --noEmit -p tsconfig.tests.json",
+    "test": "npm run build && node --import tsx --test packages/contracts/test/*.test.ts packages/runtime/test/*.test.ts",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

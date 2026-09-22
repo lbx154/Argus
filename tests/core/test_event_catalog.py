@@ -234,7 +234,7 @@ def test_event_sink_persists_versioned_envelopes_and_validation_evidence(
 
 def test_frontend_event_catalog_matches_python_catalog_and_groups() -> None:
     source = (
-        Path(__file__).parents[2] / "frontend" / "core" / "src" / "eventCatalog.ts"
+        Path(__file__).parents[2] / "packages" / "contracts" / "src" / "eventCatalog.ts"
     ).read_text(encoding="utf-8")
     object_block = source.split("EVENT_TYPES = {", 1)[1].split("} as const", 1)[0]
     frontend = dict(re.findall(r"^\s+([A-Z0-9_]+): '([^']+)',?$", object_block, re.MULTILINE))
@@ -252,8 +252,9 @@ def test_frontend_event_catalog_matches_python_catalog_and_groups() -> None:
 def test_payload_schema_is_standard_json_schema_and_generated_types_are_current() -> None:
     schema_path = (
         Path(__file__).parents[2]
-        / "argus"
-        / "core"
+        / "packages"
+        / "contracts"
+        / "schemas"
         / "event_payload_schemas.json"
     )
     payload = json.loads(schema_path.read_text(encoding="utf-8"))
@@ -269,8 +270,8 @@ def test_payload_schema_is_standard_json_schema_and_generated_types_are_current(
 
     generated = (
         Path(__file__).parents[2]
-        / "frontend"
-        / "core"
+        / "packages"
+        / "contracts"
         / "src"
         / "eventPayloads.generated.ts"
     ).read_text(encoding="utf-8")

@@ -14,7 +14,7 @@
     "build:bundle": "node scripts/build-bundle.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
-    "start": "node dist/tui/src/cli.js"
+    "start": "node dist/frontend/tui/src/cli.js"
   },
   "engines": {
     "node": ">=22.12.0"

@@ -8,14 +8,14 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import Any, Mapping
 
+from .contract_resources import contract_schema_path
 from .json_codec import is_finite_number
 
 EVENT_ENVELOPE_VERSION = 1
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
-_PAYLOAD_SCHEMA_PATH = Path(__file__).with_name("event_payload_schemas.json")
+_PAYLOAD_SCHEMA_PATH = contract_schema_path("event_payload_schemas.json")
 
 
 def _load_payload_schemas() -> tuple[int, dict[str, dict[str, Any]]]:

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "allowImportingTsExtensions": true },
+  "include": ["packages/*/test/**/*.ts", "packages/*/scripts/**/*.ts"]
+}

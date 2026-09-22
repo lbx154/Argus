@@ -336,9 +336,12 @@ def _manager_message(
         if _cancelled():
             return
         if kind == "phase":
-            record_turn_step(turn_steps, payload)
+            changed = record_turn_step(turn_steps, payload)
             if turn_steps:
                 emitter.start_task()
+            # The Agent activity panel reads persisted work records; the
+            # streamed pill alone would leave it empty for a whole chat turn.
+            emitter.record_steps(changed)
         if not callable(on_fragment):
             return
         if kind == "delta":

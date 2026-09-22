@@ -2,43 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
+from ..core.contract_resources import contract_schema_path
 from ..core.runtime_identity import runtime_identity
 
-API_SERVICE = "argus-skill-webapi"
-API_PROTOCOL_NAME = "argus.webapi"
-API_PROTOCOL_MAJOR = 1
-API_PROTOCOL_MINOR = 16
-SNAPSHOT_SCHEMA_VERSION = 7
-API_CAPABILITIES = (
-    "daemon.admission.v1",
-    "daemon.status.protocol.v1",
-    "daemon.command.v1",
-    "daemon.upgrade-schedule.v1",
-    "cost.admission.v1",
-    "event.catalog.v1",
-    "event.payload-schema.v1",
-    "manager.sse.v1",
-    "manager.request-cancel.v1",
-    "advisor.config.v1",
-    "metrics.slo.v2",
-    "mission.view.v1",
-    "mission.abort.v1",
-    "project.attachments.v1",
-    "project.git-diff.v1",
-    "project.cost-feed.v1",
-    "project.counterexamples.v1",
-    "project.workdir.v1",
-    "research.events.v1",
-    "release.identity.v1",
-    "snapshot.budget.v1",
-    "snapshot.schema.v1",
-    "source.update.v1",
-    "usage.recorded.v2",
-    "verticals.store.v1",
-)
+_CONTRACT = json.loads(contract_schema_path("api_protocol.json").read_text(encoding="utf-8"))
+API_SERVICE = _CONTRACT["API_SERVICE"]
+API_PROTOCOL_NAME = _CONTRACT["API_PROTOCOL_NAME"]
+API_PROTOCOL_MAJOR = _CONTRACT["API_PROTOCOL_MAJOR"]
+API_PROTOCOL_MINOR = _CONTRACT["API_PROTOCOL_MINOR"]
+SNAPSHOT_SCHEMA_VERSION = _CONTRACT["SNAPSHOT_SCHEMA_VERSION"]
+API_CAPABILITIES = tuple(_CONTRACT["API_CAPABILITIES"])
 
 def build_api_meta() -> dict[str, Any]:
     runtime = runtime_identity()
