@@ -100,6 +100,7 @@ harbor = [
 # scikit-learn, lightgbm, mplfinance, torch) left with the vertical.
 dev = [
   "build>=1",
+  "hatchling>=1.27",
   "mypy>=1.8,<2",
   "pytest>=7",
   "pytest-xdist>=3",
