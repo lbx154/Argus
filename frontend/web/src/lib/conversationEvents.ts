@@ -171,10 +171,13 @@ export function mergeOptimisticManagerDelta(
  * acknowledgements whose ids are generated in separate layers.
  */
 export function mergeConversationEvents(
-  liveEvents: EventMsg[],
+  streamedEvents: EventMsg[],
   transcript: TranscriptTurn[],
   localEvents: EventMsg[],
 ): EventMsg[] {
+  // A Manager turn's tool calls are persisted as progress rows for the Agent
+  // activity panel; the reply row already lists them as steps.
+  const liveEvents = streamedEvents.filter((event) => !(event.type === 'engineer.progress' && event.turn_step === true));
   const liveByContent = new Map<string, number[]>();
   const mergedLive = [...liveEvents];
   liveEvents.forEach((event, index) => {
