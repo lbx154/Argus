@@ -31,7 +31,12 @@ async function assertTerminated(pid: number): Promise<void> {
     // Minimal containers may leave reaping to a slow PID 1; a zombie has exited.
     if (process.platform === 'linux') {
       try { if (/^State:\s+Z/m.test(await readFile(`/proc/${pid}/status`, 'utf8'))) return; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        // /proc can disappear after open as well as before it.
+        if (code === 'ENOENT' || code === 'ESRCH') return;
+        throw error;
+      }
     }
     await sleep(20);
   }
