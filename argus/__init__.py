@@ -61,7 +61,7 @@ __all__ = [
     "SkillStore",
 ]
 
-__version__ = "0.1.8"
+__version__ = "0.1.9"
 
 _LAZY_LOOP_NAMES = frozenset({"SkillLoop", "SkillLoopConfig"})
 _LAZY_SKILL_NAMES = frozenset({"Skill", "SkillStore"})

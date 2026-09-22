@@ -7,6 +7,37 @@ import zipfile
 from pathlib import Path
 
 import pytest
+import yaml
+
+
+def test_macos_release_dispatch_builds_only_both_mac_architectures_and_gates_upload():
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.load(
+        (root / ".github/workflows/release.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    assert "!v0.1.9" in workflow["on"]["push"]["tags"]
+    assert "macos" in workflow["on"]["workflow_dispatch"]["inputs"]["platform"]["options"]
+    desktop = workflow["jobs"]["desktop"]
+    selected = re.search(
+        r"inputs.platform == 'macos' && '([^']+)'",
+        desktop["strategy"]["matrix"]["include"],
+    )
+    assert selected is not None
+    assert json.loads(selected.group(1)) == [
+        {"os": "macos-15", "platform": "darwin-aarch64"},
+        {"os": "macos-15-intel", "platform": "darwin-x86_64"},
+    ]
+    steps = desktop["steps"]
+    smoke = next(step for step in steps if step.get("name") == "Verify installed Mac trial with clean PATH")
+    upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v4")
+    assert smoke["if"] == "runner.os == 'macOS'"
+    assert smoke["env"]["ARGUS_TRIAL_SMOKE_KEY"] == "${{ secrets.ARGUS_TRIAL_SMOKE_KEY }}"
+    assert "smoke-trial-release.py desktop-tauri/release/*.dmg" in smoke["run"]
+    assert steps.index(smoke) < steps.index(upload)
+    assert "continue-on-error" not in smoke
 
 
 @pytest.mark.parametrize("machine,bundle_arch,updater_arch", [

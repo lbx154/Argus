@@ -6,6 +6,7 @@ name: release
 # v0.1.7 and v0.1.8 are Windows-only releases: build with workflow_dispatch
 # and an explicit windows-x86_64 target, verify the artifacts, then publish.
 # Excluding these tags prevents a second all-platform publication.
+# v0.1.9 is macOS-only; dispatch with platform=macos and publish after validation.
 
 on:
   push:
@@ -13,6 +14,7 @@ on:
       - "v*"
       - "!v0.1.7"
       - "!v0.1.8"
+      - "!v0.1.9"
   workflow_dispatch:
     inputs:
       platform:
@@ -22,6 +24,7 @@ on:
         options:
           - all
           - windows-x86_64
+          - macos
           - darwin-aarch64
           - darwin-x86_64
           - linux-x86_64
@@ -105,7 +108,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'windows-x86_64' && '[{"os":"windows-2022","platform":"windows-x86_64"}]' || inputs.platform == 'darwin-aarch64' && '[{"os":"macos-15","platform":"darwin-aarch64"}]' || inputs.platform == 'darwin-x86_64' && '[{"os":"macos-15-intel","platform":"darwin-x86_64"}]' || inputs.platform == 'linux-x86_64' && '[{"os":"ubuntu-22.04","platform":"linux-x86_64"}]' || '[{"os":"windows-2022","platform":"windows-x86_64"},{"os":"macos-15","platform":"darwin-aarch64"},{"os":"macos-15-intel","platform":"darwin-x86_64"},{"os":"ubuntu-22.04","platform":"linux-x86_64"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'windows-x86_64' && '[{"os":"windows-2022","platform":"windows-x86_64"}]' || inputs.platform == 'macos' && '[{"os":"macos-15","platform":"darwin-aarch64"},{"os":"macos-15-intel","platform":"darwin-x86_64"}]' || inputs.platform == 'darwin-aarch64' && '[{"os":"macos-15","platform":"darwin-aarch64"}]' || inputs.platform == 'darwin-x86_64' && '[{"os":"macos-15-intel","platform":"darwin-x86_64"}]' || inputs.platform == 'linux-x86_64' && '[{"os":"ubuntu-22.04","platform":"linux-x86_64"}]' || '[{"os":"windows-2022","platform":"windows-x86_64"},{"os":"macos-15","platform":"darwin-aarch64"},{"os":"macos-15-intel","platform":"darwin-x86_64"},{"os":"ubuntu-22.04","platform":"linux-x86_64"}]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -204,6 +207,12 @@ jobs:
       - name: Stage Mac installer and updater
         if: runner.os == 'macOS'
         run: python desktop-tauri/scripts/stage-macos-release.py
+      - name: Verify installed Mac trial with clean PATH
+        if: runner.os == 'macOS'
+        env:
+          ARGUS_TRIAL_SMOKE_KEY: ${{ secrets.ARGUS_TRIAL_SMOKE_KEY }}
+        run: |
+          python desktop-tauri/scripts/smoke-trial-release.py desktop-tauri/release/*.dmg
       - name: Stage Linux installer and updater
         if: runner.os == 'Linux'
         run: python desktop-tauri/scripts/stage-linux-release.py

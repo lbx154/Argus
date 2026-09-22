@@ -1,5 +1,28 @@
 # Windows / Mac / Linux 内部试用版
 
+## macOS 0.1.9 安装包
+
+0.1.9 基于公开 `lbx154/Argus` 的 main，仅发布 macOS 安装包，不包含
+Windows / Linux 新版本。到 [GitHub Releases](https://github.com/lbx154/Argus/releases/tag/v0.1.9)
+选择与“关于本机”匹配的文件：
+
+- Apple M 系列芯片：`Argus-0.1.9-macos-aarch64.dmg`。
+- Intel 处理器：`Argus-0.1.9-macos-x86_64.dmg`。
+
+最低 macOS 13。打开 DMG，把 Argus 拖到“应用程序”，弹出安装磁盘后从
+“应用程序”启动。升级前用旧版的“停止本地后端并退出”，不要只关闭窗口。
+不需要安装 Python、uv 或 Node.js，也不需要在终端运行安装命令。
+
+此版本没有 Apple Developer ID 签名和公证。如果首次启动被系统拦截，先尝试打开
+一次，然后前往 **系统设置 → 隐私与安全性 → 仍要打开**。不要关闭 Gatekeeper。
+随附的 `.app.tar.gz.sig` 是 Argus 自动更新签名，不是 Apple 公证证明。
+
+进入后选择邀请码试用，或选择已安装并登录的个人 Agent CLI。桌面包不包含免费模型
+额度，也不包含任何账户凭据。首次试用仍需联网下载官方 Copilot 并完成真实调用验证；
+账户余额不足、邀请码无效、GitHub 下载受阻都会明确报错，不能仅凭窗口打开判定可用。
+
+## 首次配置
+
 首次启动或 **文件 → 设置** 中可打开 **输入内部测试 Key**。
 启动恢复页也提供 **使用内部测试 Key** 按钮。界面提示：
 
