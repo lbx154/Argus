@@ -41,6 +41,10 @@ jobs:
           python -m pip install -e '.[dev,qr,trial]'
       - name: Lint
         run: python -m ruff check argus argus_skill tests
+      - name: Build Node packages for Python integration tests
+        run: |
+          npm ci
+          npm run build
       - name: Test
         run: python -m pytest -q -n auto
 

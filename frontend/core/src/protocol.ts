@@ -1,187 +1,20 @@
-import type { Snapshot } from './types.js';
-
+/** Frontend release expectations around the shared protocol validators. */
 import { RELEASE_ID } from './release.generated.js';
+import {
+  inspectApiMeta as inspectSharedApiMeta,
+  requireCompatibleApiMeta as requireSharedApiMeta,
+  type ApiRuntimeExpectation,
+} from '../../../packages/contracts/src/protocol.js';
 
-import { API_SERVICE, API_PROTOCOL, SNAPSHOT_SCHEMA_VERSION, REQUIRED_API_CAPABILITIES } from '../../../packages/contracts/src/apiProtocol.generated.js';
-import type { ApiMeta } from '../../../packages/contracts/src/api.js';
-export { API_SERVICE, API_PROTOCOL, SNAPSHOT_SCHEMA_VERSION, REQUIRED_API_CAPABILITIES } from '../../../packages/contracts/src/apiProtocol.generated.js';
-export type { ApiMeta, ApiRuntimeIdentity } from '../../../packages/contracts/src/api.js';
-export const RELEASE_ARTIFACT_DRIFT_WARNING = 'python -m argus.release_tools.build_release';
+export * from '../../../packages/contracts/src/api.js';
+export * from '../../../packages/contracts/src/apiProtocol.generated.js';
+export { describeApiRuntime, requireSnapshotContract, RELEASE_ARTIFACT_DRIFT_WARNING } from '../../../packages/contracts/src/protocol.js';
+export type { ApiCompatibility, ApiRuntimeExpectation } from '../../../packages/contracts/src/protocol.js';
 
-export interface ApiCompatibility {
-  compatible: boolean;
-  reason: string;
-  warning?: string;
-  meta?: ApiMeta;
+export function inspectApiMeta(value: unknown, expected: ApiRuntimeExpectation = { releaseId: RELEASE_ID }) {
+  return inspectSharedApiMeta(value, expected);
 }
 
-export interface ApiRuntimeExpectation {
-  releaseId: string;
-  sourceDigest?: string;
-}
-
-type JsonObject = Record<string, unknown>;
-
-function object(value: unknown): JsonObject | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as JsonObject
-    : null;
-}
-
-function number(value: unknown): number | null {
-  return typeof value === 'number' && Number.isInteger(value) ? value : null;
-}
-
-export function describeApiRuntime(meta: ApiMeta): string {
-  const mismatch = meta.runtime.source_root_matches_config === false
-    ? '; loaded code differs from the configured installation'
-    : '';
-  return `Argus backend is running (pid ${meta.runtime.pid})${mismatch}`;
-}
-
-export function inspectApiMeta(
-  value: unknown,
-  expected: ApiRuntimeExpectation = { releaseId: RELEASE_ID },
-): ApiCompatibility {
-  const root = object(value);
-  const protocol = object(root?.protocol);
-  const runtime = object(root?.runtime);
-  const capabilities = Array.isArray(root?.capabilities)
-    ? root.capabilities.filter((item): item is string => typeof item === 'string')
-    : [];
-  const major = number(protocol?.major);
-  const minor = number(protocol?.minor);
-  if (!root || !protocol || !runtime) {
-    return { compatible: false, reason: 'malformed /api/meta response' };
-  }
-  if (
-    typeof runtime.source_root !== 'string'
-    || number(runtime.pid) === null
-    || typeof runtime.package_version !== 'string'
-    || typeof runtime.release_id !== 'string'
-  ) {
-    return { compatible: false, reason: 'malformed /api/meta runtime identity' };
-  }
-  if (root.service !== API_SERVICE) {
-    return { compatible: false, reason: `unexpected service ${String(root.service || 'unknown')}` };
-  }
-  const meta = value as ApiMeta;
-  if (protocol.name !== API_PROTOCOL.name || major !== API_PROTOCOL.major) {
-    return {
-      compatible: false,
-      reason: `protocol ${String(protocol.name || 'unknown')}/${String(major)} is incompatible with client ${API_PROTOCOL.name}/${API_PROTOCOL.major}`,
-      meta,
-    };
-  }
-  if (minor === null || minor < API_PROTOCOL.minServerMinor) {
-    return {
-      compatible: false,
-      reason: `server protocol minor ${String(minor)} is older than required ${API_PROTOCOL.minServerMinor}`,
-      meta,
-    };
-  }
-  if (root.snapshot_schema_version !== SNAPSHOT_SCHEMA_VERSION) {
-    return {
-      compatible: false,
-      reason: `snapshot schema ${String(root.snapshot_schema_version)} is incompatible with required ${SNAPSHOT_SCHEMA_VERSION}`,
-      meta,
-    };
-  }
-  const missing = REQUIRED_API_CAPABILITIES.filter((capability) => !capabilities.includes(capability));
-  if (missing.length > 0) {
-    return { compatible: false, reason: `missing capabilities: ${missing.join(', ')}`, meta };
-  }
-  if (runtime.source_root_matches_config === false) {
-    return {
-      compatible: false,
-      reason: 'backend is running from a different installation than configured',
-      meta,
-    };
-  }
-  if (runtime.release_id !== expected.releaseId) {
-    return {
-      compatible: false,
-      reason: 'backend and client installations are out of sync; restart or reinstall Argus',
-      meta,
-    };
-  }
-  if (expected.sourceDigest) {
-    if (typeof runtime.runtime_source_digest !== 'string' || !runtime.runtime_source_digest) {
-      return {
-        compatible: false,
-        reason: 'backend cannot verify this local installation; restart it from the current checkout',
-        meta,
-      };
-    }
-    if (runtime.runtime_source_digest !== expected.sourceDigest) {
-      return {
-        compatible: false,
-        reason: 'backend is running code from a different local installation; restart it',
-        meta,
-      };
-    }
-  }
-  // A live source digest is a release-integrity signal, not a wire-contract
-  // version. Editable checkouts keep the last generated release_id while source
-  // changes, so drift cannot prove incompatibility. The versioned protocol,
-  // snapshot schema, and capabilities above remain the compatibility authority;
-  // keep drift visible so operators still know to rebuild before release.
-  const warning = runtime.release_matches_source === false
-    ? RELEASE_ARTIFACT_DRIFT_WARNING
-    : undefined;
-  return { compatible: true, reason: '', warning, meta };
-}
-
-export function requireCompatibleApiMeta(
-  value: unknown,
-  onWarning?: (warning: string) => void,
-): ApiMeta {
-  const result = inspectApiMeta(value);
-  if (!result.compatible || !result.meta) {
-    throw new Error(`incompatible Argus API: ${result.reason}`);
-  }
-  if (result.warning) onWarning?.(result.warning);
-  return result.meta;
-}
-
-export function requireSnapshotContract(value: unknown): Snapshot {
-  const snapshot = object(value);
-  const daemon = object(snapshot?.daemon);
-  if (!snapshot || snapshot.schema_version !== SNAPSHOT_SCHEMA_VERSION) {
-    throw new Error(
-      `incompatible snapshot schema: expected ${SNAPSHOT_SCHEMA_VERSION}, got ${String(snapshot?.schema_version ?? 'missing')}`,
-    );
-  }
-  if (!daemon) throw new Error('invalid snapshot: daemon section is missing');
-  const requiredDaemonFields = [
-    'global_daily_cap_usd',
-    'read_status',
-    'read_error',
-    'protocol_compatible',
-    'protocol_error',
-  ];
-  const missingDaemon = requiredDaemonFields.filter((field) => !Object.hasOwn(daemon, field));
-  if (missingDaemon.length > 0) {
-    throw new Error(`invalid snapshot: daemon fields missing: ${missingDaemon.join(', ')}`);
-  }
-  const requiredSnapshotFields = [
-    'spend_usd',
-    'spend_status',
-    'usage_summary',
-    'request_usage',
-    'cost_control',
-    'daemon_commands',
-    'observability',
-    'mission_view',
-    'partial',
-    'diagnostics',
-  ];
-  const missingSnapshot = requiredSnapshotFields.filter((field) => !Object.hasOwn(snapshot, field));
-  if (missingSnapshot.length > 0) {
-    throw new Error(`invalid snapshot: fields missing: ${missingSnapshot.join(', ')}`);
-  }
-  if (!Array.isArray(snapshot.diagnostics)) {
-    throw new Error('invalid snapshot: diagnostics must be an array');
-  }
-  return value as Snapshot;
+export function requireCompatibleApiMeta(value: unknown, onWarning?: (warning: string) => void) {
+  return requireSharedApiMeta(value, { releaseId: RELEASE_ID }, onWarning);
 }

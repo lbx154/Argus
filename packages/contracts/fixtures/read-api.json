@@ -1,0 +1,134 @@
+{
+  "meta": {
+    "service": "argus-skill-webapi",
+    "protocol": {
+      "name": "argus.webapi",
+      "major": 1,
+      "minor": 16
+    },
+    "snapshot_schema_version": 7,
+    "capabilities": [
+      "daemon.admission.v1",
+      "daemon.status.protocol.v1",
+      "daemon.command.v1",
+      "daemon.upgrade-schedule.v1",
+      "cost.admission.v1",
+      "event.catalog.v1",
+      "event.payload-schema.v1",
+      "manager.sse.v1",
+      "manager.request-cancel.v1",
+      "advisor.config.v1",
+      "metrics.slo.v2",
+      "mission.view.v1",
+      "mission.abort.v1",
+      "project.attachments.v1",
+      "project.git-diff.v1",
+      "project.cost-feed.v1",
+      "project.counterexamples.v1",
+      "project.workdir.v1",
+      "research.events.v1",
+      "release.identity.v1",
+      "snapshot.budget.v1",
+      "snapshot.schema.v1",
+      "source.update.v1",
+      "usage.recorded.v2",
+      "verticals.store.v1"
+    ],
+    "runtime": {
+      "package_version": "0.1.8",
+      "source_root": "/fixture/argus",
+      "configured_source_root": null,
+      "source_root_matches_config": null,
+      "revision": null,
+      "pid": 123,
+      "python_version": "3.11.0",
+      "executable": "/fixture/python",
+      "started_at": "2026-09-22T00:00:00Z",
+      "release_id": "fixture-release",
+      "manifest_source_digest": null,
+      "runtime_source_digest": null,
+      "release_matches_source": null
+    }
+  },
+  "projects": {
+    "projects": [
+      {
+        "id": "s-fixture",
+        "label": "Fixture project",
+        "display_name": "Fixture project",
+        "objective": "Inspect a completed task",
+        "cwd": "/fixture/work",
+        "last_active": 100,
+        "daemon_alive": false,
+        "daemon_pid": null,
+        "uptime_seconds": null
+      }
+    ],
+    "local_cwd": ""
+  },
+  "costs": {
+    "projects": [
+      {
+        "id": "s-fixture",
+        "spend_usd": 0,
+        "known_cost_usd": 0,
+        "spend_status": "empty",
+        "usage_calls": 0,
+        "premium_requests": 0,
+        "updated_at": 100
+      }
+    ],
+    "generated_at": 100
+  },
+  "snapshot": {
+    "schema_version": 7,
+    "session": {
+      "id": "s-fixture",
+      "display_name": "Fixture project",
+      "objective": "Inspect a completed task",
+      "cwd": "/fixture/work",
+      "last_active": 100
+    },
+    "daemon": {
+      "alive": false,
+      "pid": null,
+      "uptime_seconds": null,
+      "backend": null,
+      "global_daily_cap_usd": 10,
+      "read_status": "ok",
+      "read_error": "",
+      "protocol_compatible": null,
+      "protocol_error": ""
+    },
+    "roles": [],
+    "backlog": [],
+    "recent_events": [],
+    "spend_usd": 0,
+    "spend_status": "empty",
+    "usage_summary": {
+      "call_count": 0,
+      "known_cost_usd": 0,
+      "cost_usd": 0,
+      "priced_calls": 0,
+      "partial_calls": 0,
+      "unpriced_calls": 0,
+      "not_billed_calls": 0,
+      "input_tokens": 0,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 0,
+      "reasoning_output_tokens": 0,
+      "premium_requests": 0,
+      "total_nano_aiu": 0,
+      "premium_request_cost_usd": 0,
+      "pricing_status": "empty"
+    },
+    "request_usage": null,
+    "cost_control": null,
+    "daemon_commands": null,
+    "observability": null,
+    "mission_view": null,
+    "partial": false,
+    "diagnostics": []
+  }
+}
