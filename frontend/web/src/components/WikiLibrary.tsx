@@ -48,9 +48,11 @@ type View =
   | { kind: 'index'; scope: WikiScope; vertical: string }
   | { kind: 'principles'; scope: WikiScope; vertical: string };
 
-export function WikiLibrary({ sid, projectName, initialSelection = null, initialScope }: {
+export function WikiLibrary({ sid, projectName, projectNames, initialSelection = null, initialScope }: {
   sid: string | null;
   projectName?: string;
+  /** Session id → display name for the feed's "from" label. */
+  projectNames?: Record<string, string>;
   initialSelection?: WikiLibraryItem | null;
   /** Defaults to the learning feed; a page handed over from the sidebar opens beside the recent list instead. */
   initialScope?: WikiTab;
@@ -58,11 +60,11 @@ export function WikiLibrary({ sid, projectName, initialSelection = null, initial
   // A project change remounts the browser, including its page selection.
   const initialSid = useRef(sid);
   const selection = initialSid.current === sid ? initialSelection : null;
-  return <LibraryBrowser key={sid ?? 'no-project'} sid={sid} projectName={projectName} initialSelection={selection} initialScope={initialScope ?? (selection ? 'recent' : 'feed')} />;
+  return <LibraryBrowser key={sid ?? 'no-project'} sid={sid} projectName={projectName} projectNames={projectNames} initialSelection={selection} initialScope={initialScope ?? (selection ? 'recent' : 'feed')} />;
 }
 
-function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
-  sid: string | null; projectName?: string; initialSelection: WikiLibraryItem | null; initialScope: WikiTab;
+function LibraryBrowser({ sid, projectName, projectNames, initialSelection, initialScope }: {
+  sid: string | null; projectName?: string; projectNames?: Record<string, string>; initialSelection: WikiLibraryItem | null; initialScope: WikiTab;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -146,7 +148,7 @@ function LibraryBrowser({ sid, projectName, initialSelection, initialScope }: {
           {scope === 'feed' && <>
             {feed.isPending && <p className="p-3 text-sm text-ink-faint">{zh ? '正在加载动态…' : 'Loading the feed…'}</p>}
             {feed.isError && <div role="alert" className="p-3 text-sm text-err">{zh ? '无法加载学习动态。' : 'Could not load the learning feed.'} <button type="button" className="underline" onClick={() => void feed.refetch()}>{zh ? '重试' : 'Retry'}</button></div>}
-            {feed.data && <KnowledgeFeedList events={events} items={all} sid={sid} query={search} selected={selected} onSelect={item => setView({ kind: 'page', item })} />}
+            {feed.data && <KnowledgeFeedList events={events} items={all} sid={sid} projectNames={projectNames} query={search} selected={selected} onSelect={item => setView({ kind: 'page', item })} />}
           </>}
           {scope === 'principles' && <>
             {catalog.isPending && <p className="p-3 text-sm text-ink-faint">{zh ? '正在加载页面…' : 'Loading pages…'}</p>}

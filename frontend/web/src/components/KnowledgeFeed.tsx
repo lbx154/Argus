@@ -81,10 +81,12 @@ const badgeTone: Record<KnowledgeEventKind, string> = {
   promoted: 'bg-ok/10 text-ok',
 };
 
-export function KnowledgeFeedList({ events, items, sid, query = '', onSelect, selected }: {
+export function KnowledgeFeedList({ events, items, sid, projectNames = {}, query = '', onSelect, selected }: {
   events: KnowledgeEvent[];
   items: WikiLibraryItem[];
   sid: string | null;
+  /** Session id → display name; only the "from" label uses it, matching still runs on the raw id. */
+  projectNames?: Record<string, string>;
   query?: string;
   onSelect: (item: WikiLibraryItem) => void;
   selected?: WikiLibraryItem | null;
@@ -102,7 +104,7 @@ export function KnowledgeFeedList({ events, items, sid, query = '', onSelect, se
   const where = (event: KnowledgeEvent) => [
     scopes[event.scope] ?? event.scope,
     libraryVertical(event.vertical, locale),
-    event.source_project ? `${zh ? '来自 ' : 'from '}${event.source_project}` : '',
+    event.source_project ? `${zh ? '来自 ' : 'from '}${projectNames[event.source_project] || event.source_project}` : '',
     zh && event.role ? roleLabel(event.role, t) : event.role,
   ].filter(Boolean).join(' · ');
   const isSelected = (item: WikiLibraryItem | null) => Boolean(item && selected && item.scope === selected.scope && item.vertical === selected.vertical && item.path === selected.path);
