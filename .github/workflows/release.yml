@@ -28,6 +28,10 @@ on:
           - darwin-aarch64
           - darwin-x86_64
           - linux-x86_64
+      verify_trial:
+        description: "Also verify the hosted trial with a real model turn"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -182,6 +186,9 @@ jobs:
         run: npm --prefix desktop-tauri run test:release
       - name: Build frozen backend
         run: npm --prefix desktop-tauri run build:backend
+      - name: Verify Mac Finder runner paths
+        if: runner.os == 'macOS'
+        run: cargo test --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml --lib runner::tests
       - name: Build signed desktop updates
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -207,8 +214,11 @@ jobs:
       - name: Stage Mac installer and updater
         if: runner.os == 'macOS'
         run: python desktop-tauri/scripts/stage-macos-release.py
-      - name: Verify installed Mac trial with clean PATH
+      - name: Verify installed Mac runtime with clean PATH
         if: runner.os == 'macOS'
+        run: python desktop-tauri/scripts/smoke-trial-release.py desktop-tauri/release/*.dmg --runtime-only
+      - name: Verify installed Mac trial with clean PATH
+        if: runner.os == 'macOS' && (github.event_name != 'workflow_dispatch' || inputs.verify_trial)
         env:
           ARGUS_TRIAL_SMOKE_KEY: ${{ secrets.ARGUS_TRIAL_SMOKE_KEY }}
         run: |

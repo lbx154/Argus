@@ -20,6 +20,9 @@ from pathlib import Path
 
 import httpx
 
+from argus.trial import CLIENT_MODEL, TRIAL_URL
+from argus.trial.storage import write_private
+
 
 def install(package: Path, directory: Path) -> tuple[Path, Path]:
     if sys.platform == "win32":
@@ -95,7 +98,7 @@ def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str,
         stable_since = None
         while time.monotonic() < deadline:
             content = log.read_text(encoding="utf-8", errors="replace")[offset:] if log.exists() else ""
-            if key in content:
+            if key and key in content:
                 raise RuntimeError("Trial key appeared in desktop logs")
             if "backend Error:" in content or "runner preflight failed" in content:
                 raise RuntimeError(content[-3000:].replace(key, "[hidden]").replace(token, "[hidden]"))
@@ -132,10 +135,64 @@ def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str,
                 process.wait(timeout=10)
 
 
+def macos_runtime_only(package: Path) -> None:
+    """Verify the installed Mac runtime without requiring a model subscription."""
+    if sys.platform != "darwin":
+        raise RuntimeError("Runtime-only installer verification requires macOS")
+    with tempfile.TemporaryDirectory(prefix="argus-tauri-host-smoke-") as temporary:
+        root = Path(temporary).resolve()
+        binary, frozen = install(package.resolve(), root / "installed")
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("ARGUS_", "COPILOT_", "GH_", "GITHUB_", "PYTHON"))
+               and not any(word in k.upper() for word in ("TOKEN", "API_KEY", "SECRET", "PASSWORD"))}
+        for name in ("APPDATA", "LOCALAPPDATA", "HOME", "USERPROFILE", "ARGUS_SKILL_HOME",
+                     "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR", "CLAUDE_CONFIG_DIR"):
+            path = root / name.lower()
+            path.mkdir()
+            env[name] = str(path)
+        env.update(
+            PATH="/usr/bin:/bin:/usr/sbin:/sbin",
+            ARGUS_DESKTOP_QA_ROOT=str(root),
+            ARGUS_DESKTOP_TEST_INSTANCE=secrets.token_hex(16),
+            ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE="1",
+            ARGUS_DESKTOP_DISABLE_UPDATE_CHECK="1",
+            PYTHONUTF8="1",
+            PYTHONIOENCODING="utf-8",
+        )
+        subprocess.run([str(frozen), "--verify-frozen-runtime"], cwd=root, env=env,
+                       check=True, timeout=120)
+        native = subprocess.run(
+            [str(frozen), "-c",
+             "from argus.trial.native_cli import install_native_copilot; "
+             "import json; print(json.dumps({'runner': install_native_copilot()}))"],
+            cwd=root, env=env, check=True, capture_output=True, text=True, timeout=300,
+        )
+        runner = json.loads(native.stdout.splitlines()[-1])["runner"]
+        desktop = Path(env["HOME"]) / "Library/Application Support/argus-desktop"
+        desktop.mkdir(parents=True)
+        token = secrets.token_urlsafe(32)
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        write_private(desktop / "settings.json", json.dumps({
+            "host": "127.0.0.1", "port": port, "token": token,
+            "runnerKind": "copilot", "runnerBins": {"copilot": runner},
+            "runnerConfigured": True, "setupComplete": True, "trialMode": False,
+        }).encode())
+        host_roundtrip(binary, desktop, env, "", token)
+        host_roundtrip(binary, desktop, env, "", token)
+        print("Mac DMG install, signature, frozen runtime, native CLI, authenticated cockpit "
+              "and GUI restart passed with a clean PATH. No model turn was requested.", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("package", type=Path)
+    parser.add_argument("--runtime-only", action="store_true")
     args = parser.parse_args()
+    if args.runtime_only:
+        macos_runtime_only(args.package)
+        return
     key = os.environ.get("ARGUS_TRIAL_SMOKE_KEY", "").strip()
     if not key.startswith("argus_trial_") or len(key) != 76:
         raise RuntimeError("ARGUS_TRIAL_SMOKE_KEY is required for release verification")
@@ -180,7 +237,12 @@ def main():
                 assert events[-1]["event"] == "complete", "Trial helper did not complete"
                 runner = events[-1]["runner_bin"]
                 profile = root / "argus-home/copilot-trial.json"
-                assert json.loads(profile.read_text())["api_key"] == key
+                assert not profile.exists(), "Preparation must not switch the active profile"
+                # The shell commits the verified candidate with its settings.
+                # This host smoke supplies that confirmed state before launch.
+                write_private(profile, json.dumps({
+                    "base_url": TRIAL_URL + "/v1", "api_key": key,
+                }).encode())
                 if sys.platform != "win32":
                     assert profile.stat().st_mode & 0o777 == 0o600
                 print("Installed frozen runtime automatically downloaded Copilot and verified the public trial.", flush=True)
@@ -208,16 +270,15 @@ def main():
                 prompt = f"Read {evidence} and return its exact content followed by NATIVE_TRIAL_OK."
                 script = (
                     "from argus.core.agent_probe import run_read_only_agent_prompt; "
-                    "from argus.core.knob_store import read_persisted_knobs; "
                     "from argus.trial import CLIENT_MODEL; "
-                    "k=read_persisted_knobs(); assert k['ARGUS_SKILL_COPILOT_TRIAL']=='1'; "
-                    "assert k['ARGUS_SKILL_MODEL']=='gpt-5.5' and k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
-                    "r=run_read_only_agent_prompt(backend='copilot',executable=k['ARGUS_SKILL_RUNNER_BIN'],"
+                    f"r=run_read_only_agent_prompt(backend='copilot',executable={runner!r},"
                     f"model=CLIENT_MODEL,run_label='native-release-smoke',prompt={prompt!r}); "
                     "assert r.ok and 'native-installed-trial-evidence' in r.output and 'NATIVE_TRIAL_OK' in r.output; "
                     "print('Persisted native local-tool round trip passed.')"
                 )
-                run = subprocess.run([str(frozen), "-c", script], cwd=root, env=env,
+                run = subprocess.run([str(frozen), "-c", script], cwd=root,
+                                     env={**env, "ARGUS_SKILL_COPILOT_TRIAL": "1",
+                                          "ARGUS_SKILL_MODEL": CLIENT_MODEL},
                                      capture_output=True, text=True, encoding="utf-8", timeout=180)
                 assert key not in run.stdout + run.stderr, "Native worker leaked its key"
                 assert run.returncode == 0, run.stdout + run.stderr

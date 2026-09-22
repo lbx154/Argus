@@ -234,6 +234,15 @@ fn first_node_runtime_dir(paths: impl IntoIterator<Item = PathBuf>) -> Option<Pa
         .find(|directory| node_in_directory(directory))
 }
 
+#[cfg(target_os = "macos")]
+fn macos_bin_dirs() -> [PathBuf; 3] {
+    [
+        home_dir().join(".local/bin"),
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ]
+}
+
 fn node_runtime_candidates(runner: &Path) -> Vec<PathBuf> {
     let home = home_dir();
     let app_data = app_data_dir();
@@ -245,6 +254,8 @@ fn node_runtime_candidates(runner: &Path) -> Vec<PathBuf> {
     if let Some(path) = env::var_os("PATH") {
         candidates.extend(env::split_paths(&path));
     }
+    #[cfg(target_os = "macos")]
+    candidates.extend(macos_bin_dirs());
     for name in ["NVM_SYMLINK", "NVM_HOME"] {
         if let Some(path) = env::var_os(name).filter(|path| !path.is_empty()) {
             candidates.push(PathBuf::from(path));
@@ -280,12 +291,22 @@ fn node_runtime_candidates(runner: &Path) -> Vec<PathBuf> {
     candidates
 }
 
-/// Return PATH entries needed to launch an npm batch wrapper.  The returned
+/// Return PATH entries needed to launch an npm wrapper. The returned
 /// directory is verified to contain Node, so prepending it cannot mask a
 /// missing/foreign command with an arbitrary PATH element.
 pub fn runner_runtime_path_entries(runner: &str) -> Vec<PathBuf> {
     let runner = Path::new(runner);
-    if !is_node_batch_wrapper(runner) {
+    let needs_node = is_node_batch_wrapper(runner);
+    #[cfg(target_os = "macos")]
+    let needs_node = needs_node || {
+        use std::io::Read;
+        // Finder does not inherit the shell PATH used by npm's env-node scripts.
+        let mut header = [0; 128];
+        fs::File::open(runner)
+            .and_then(|mut file| file.read(&mut header))
+            .is_ok_and(|size| header[..size].starts_with(b"#!/usr/bin/env node"))
+    };
+    if !needs_node {
         return Vec::new();
     }
     first_node_runtime_dir(node_runtime_candidates(runner))
@@ -323,6 +344,8 @@ pub fn resolve_runner_binary(kind: &RunnerKind) -> Option<String> {
                 .contains("windowsapps")
         }));
     }
+    #[cfg(target_os = "macos")]
+    candidates.extend(macos_bin_dirs());
 
     candidates
         .iter()
@@ -419,6 +442,43 @@ mod tests {
     };
     use crate::models::{DesktopSettings, RunnerKind};
     use std::{collections::BTreeMap, fs, path::Path};
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn finder_launch_supplies_node_for_an_npm_runner() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let directory = tempfile::tempdir().unwrap();
+        let runner = directory.path().join("copilot");
+        let node = directory.path().join("node");
+        fs::write(&runner, "#!/usr/bin/env node\n").unwrap();
+        fs::write(&node, "#!/bin/sh\nprintf 'node-runtime-found'\n").unwrap();
+        for file in [&runner, &node] {
+            fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let minimal_path = "/usr/bin:/bin:/usr/sbin:/sbin";
+        let missing = Command::new(&runner).env("PATH", minimal_path).output().unwrap();
+        assert!(!missing.status.success());
+        let mut paths = super::runner_runtime_path_entries(runner.to_str().unwrap());
+        assert_eq!(paths, vec![directory.path().to_path_buf()]);
+        paths.extend(std::env::split_paths(minimal_path));
+        let result = Command::new(&runner)
+            .env("PATH", std::env::join_paths(paths).unwrap())
+            .output()
+            .unwrap();
+        assert!(result.status.success());
+        assert_eq!(result.stdout, b"node-runtime-found");
+        assert!(super::runner_runtime_path_entries("/usr/bin/true").is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn finder_discovery_includes_both_homebrew_prefixes() {
+        let directories = super::macos_bin_dirs();
+        assert!(directories.contains(&Path::new("/opt/homebrew/bin").to_path_buf()));
+        assert!(directories.contains(&Path::new("/usr/local/bin").to_path_buf()));
+    }
 
     #[test]
     fn missing_shared_configuration_is_an_unconfigured_installation() {

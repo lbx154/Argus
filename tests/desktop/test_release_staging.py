@@ -31,13 +31,17 @@ def test_macos_release_dispatch_builds_only_both_mac_architectures_and_gates_upl
         {"os": "macos-15-intel", "platform": "darwin-x86_64"},
     ]
     steps = desktop["steps"]
-    smoke = next(step for step in steps if step.get("name") == "Verify installed Mac trial with clean PATH")
+    smoke = next(step for step in steps if step.get("name") == "Verify installed Mac runtime with clean PATH")
     upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v4")
     assert smoke["if"] == "runner.os == 'macOS'"
-    assert smoke["env"]["ARGUS_TRIAL_SMOKE_KEY"] == "${{ secrets.ARGUS_TRIAL_SMOKE_KEY }}"
-    assert "smoke-trial-release.py desktop-tauri/release/*.dmg" in smoke["run"]
+    assert "smoke-trial-release.py desktop-tauri/release/*.dmg --runtime-only" in smoke["run"]
     assert steps.index(smoke) < steps.index(upload)
     assert "continue-on-error" not in smoke
+    trial = next(step for step in steps if step.get("name") == "Verify installed Mac trial with clean PATH")
+    assert "inputs.verify_trial" in trial["if"]
+    assert trial["env"]["ARGUS_TRIAL_SMOKE_KEY"] == "${{ secrets.ARGUS_TRIAL_SMOKE_KEY }}"
+    assert steps.index(trial) < steps.index(upload)
+    assert "continue-on-error" not in trial
 
 
 @pytest.mark.parametrize("machine,bundle_arch,updater_arch", [

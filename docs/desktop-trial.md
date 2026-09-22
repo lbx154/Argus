@@ -21,6 +21,10 @@ Windows / Linux 新版本。到 [GitHub Releases](https://github.com/lbx154/Argu
 额度，也不包含任何账户凭据。首次试用仍需联网下载官方 Copilot 并完成真实调用验证；
 账户余额不足、邀请码无效、GitHub 下载受阻都会明确报错，不能仅凭窗口打开判定可用。
 
+修复 Finder 启动不继承终端 PATH 时无法发现 Homebrew CLI、以及 npm 安装的 CLI
+找不到 Node 的问题。会检测两种 Mac 的 Homebrew 路径；仅为实际需要 Node 的启动脚本
+加入已找到的 Node 目录，不修改用户的 shell 配置。
+
 ## 首次配置
 
 首次启动或 **文件 → 设置** 中可打开 **输入内部测试 Key**。

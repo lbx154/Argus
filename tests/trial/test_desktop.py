@@ -155,6 +155,33 @@ def test_desktop_protocol_never_relays_key_or_setup_stdout(monkeypatch):
     assert {"event": "download", "downloaded_bytes": 1024, "total_bytes": 2048} in events
 
 
+def test_failed_desktop_probe_reports_redacted_reason_without_changing_profile(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from argus.core import backend_readiness
+    from argus.tools import setup
+
+    key = "argus_trial_" + "b" * 64
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    profile = client.profile_path()
+    profile.write_bytes(b"existing-profile")
+    monkeypatch.setattr(desktop, "validate_role_overrides", lambda: None)
+    monkeypatch.setattr(desktop, "query_status", lambda *_: {"tokens_remaining": 100})
+    monkeypatch.setattr(native_cli, "install_native_copilot", lambda **_: "/test/copilot")
+    monkeypatch.setattr(backend_readiness, "check_backend_readiness", lambda *_, **__: SimpleNamespace(ok=True))
+
+    def failed(*_, **__):
+        print(f"Error: provider connection timed out; key={key}")
+        return False
+
+    monkeypatch.setattr(setup, "_verify_setup_smoke", failed)
+    with pytest.raises(ValueError, match="provider connection timed out") as error:
+        desktop.prepare(key, progress=lambda _: None)
+    assert key not in str(error.value)
+    assert profile.read_bytes() == b"existing-profile"
+    assert "ARGUS_DESKTOP_TRIAL_PROFILE" not in os.environ
+
+
 @pytest.mark.skipif(os.environ.get("ARGUS_TEST_NATIVE_COPILOT") != "1", reason="Native asset smoke is opt-in")
 def test_actual_native_cli_needs_no_node_install(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))

@@ -63,8 +63,14 @@ def prepare(api_key: str, progress=print, *, download_progress=None) -> tuple[st
             report = check_backend_readiness("copilot", runner_bin=executable, probe_auth=False)
             if not report.ok:
                 raise ValueError("Copilot 运行检查未通过，请检查程序或科学角色配置后重试。")
-            if not _verify_setup_smoke("copilot", model=CLIENT_MODEL):
-                raise ValueError("真实模型回复验证未通过，请检查网络或稍后重试；原设置未更改。")
+            smoke_output = io.StringIO()
+            with contextlib.redirect_stdout(smoke_output):
+                verified = _verify_setup_smoke("copilot", model=CLIENT_MODEL)
+            if not verified:
+                detail = smoke_output.getvalue().replace(api_key, "[隐藏]").strip()
+                raise ValueError(
+                    "真实模型回复验证未通过；原设置未更改。\n" + detail
+                )
         finally:
             for key, value in saved.items():
                 if value is None:
