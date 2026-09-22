@@ -25,6 +25,7 @@ def optional_source(path):
 
 datas = [(source, target) for source, target in collect_data_files("argus", include_py_files=True)
          if not optional_source(source)]
+datas.append((str(ROOT / "packages/contracts/schemas"), "argus/_contracts"))
 # Windows does not ship an IANA timezone database. Keep named ZoneInfo keys
 # available to the frozen Python-compatible runtime and extension tools.
 datas += collect_data_files("tzdata")

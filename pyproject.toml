@@ -131,11 +131,15 @@ packages = ["argus", "argus_skill"]
 # Package Markdown and JSON files are runtime Skill data.
 
 [tool.hatch.build.targets.wheel.force-include]
+"packages/contracts/schemas" = "argus/_contracts"
 "argus_doctor.py" = "argus_doctor.py"
 "frontend/tui/bundle/argus.mjs" = "argus/_frontend/tui/bundle/argus.mjs"
 "frontend/web/dist" = "argus/_frontend/web/dist"
 
 [tool.hatch.build.targets.sdist]
+# npm workspace links must not be traversed before their real package paths.
+exclude = ["**/node_modules/**", "packages/*/dist/**"]
+skip-excluded-dirs = true
 # Include checked-in frontend artifacts in source distributions.
 artifacts = [
   "frontend/web/dist/**",
@@ -144,6 +148,8 @@ include = [
   "argus_doctor.py",
   "argus/**",
   "argus_skill/**",
+  "packages/contracts/**",
+  "packages/runtime/fixtures/**",
   "tests/**",
   "frontend/tui/bundle/**",
   "README.md",

@@ -1,11 +1,10 @@
 name: tests
 
-# One check on every push and pull request: lint, then the whole pytest suite
-# in parallel on Linux. Linux is the development platform and this job is the
-# one that decides whether a change is green.
+# Python lint/tests on Linux and the TypeScript runtime on all supported hosts.
+# The TypeScript job also checks the existing frontend contract consumers.
 #
 # Everything else -- the mypy type gate, the platform-portability, frontend
-# and Windows desktop-package checks -- lives in extended.yml and runs only on
+# and Windows desktop-package checks -- live in extended.yml and run only on
 # demand (workflow_dispatch): before a release, or when a change touches the
 # chat bridges, the pairing/QR path, the cockpits or the Tauri host.
 
@@ -25,6 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -41,3 +43,26 @@ jobs:
         run: python -m ruff check argus argus_skill tests
       - name: Test
         run: python -m pytest -q -n auto
+
+  typescript:
+    name: typescript · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Check existing frontend consumers
+        if: runner.os == 'Linux'
+        run: |
+          npm --prefix frontend/web ci
+          npm --prefix frontend/web run typecheck
+          npm --prefix frontend/tui ci
+          npm --prefix frontend/tui run typecheck

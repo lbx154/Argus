@@ -7,7 +7,6 @@ Skips cleanly if the ``[web]`` extra (fastapi) is not installed.
 from __future__ import annotations
 
 import json
-import re
 import threading
 import time
 from dataclasses import replace
@@ -593,17 +592,17 @@ def test_static_web_assets_are_gzip_compressed(tmp_path: Path) -> None:
 
 
 def test_frontend_protocol_constants_match_backend_contract() -> None:
-    source = (Path(__file__).parents[2] / "frontend" / "core" / "src" / "protocol.ts").read_text(
+    source = (Path(__file__).parents[2] / "packages/contracts/src/apiProtocol.generated.ts").read_text(
         encoding="utf-8"
     )
-    assert f"name: '{API_PROTOCOL_NAME}'" in source
+    assert f"name: {json.dumps(API_PROTOCOL_NAME)}" in source
     assert f"major: {API_PROTOCOL_MAJOR}" in source
     assert f"minServerMinor: {API_PROTOCOL_MINOR}" in source
     assert f"SNAPSHOT_SCHEMA_VERSION = {SNAPSHOT_SCHEMA_VERSION}" in source
     capabilities_block = source.split("REQUIRED_API_CAPABILITIES = [", 1)[1].split("] as const", 1)[
         0
     ]
-    assert tuple(re.findall(r"'([^']+)'", capabilities_block)) == API_CAPABILITIES
+    assert tuple(json.loads(f"[{capabilities_block}]")) == API_CAPABILITIES
 
 
 def test_build_snapshot_shape_and_failsoft(

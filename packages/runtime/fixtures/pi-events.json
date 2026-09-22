@@ -1,0 +1,285 @@
+[
+  {
+    "id": "settled-unicode",
+    "events": [
+      {
+        "type": "session",
+        "id": "pi-1"
+      },
+      {
+        "type": "message_update",
+        "assistantMessageEvent": {
+          "type": "text_delta",
+          "delta": "hello "
+        }
+      },
+      {
+        "type": "message_update",
+        "assistantMessageEvent": {
+          "type": "text_delta",
+          "delta": "世界"
+        }
+      },
+      {
+        "type": "message_end",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello 世界"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      },
+      {
+        "type": "agent_end"
+      },
+      {
+        "type": "agent_settled"
+      }
+    ],
+    "expected": {
+      "threadId": "pi-1",
+      "agentMessages": [
+        "hello 世界"
+      ],
+      "turnCompleted": true,
+      "turnFailed": false,
+      "fatalError": null
+    }
+  },
+  {
+    "id": "partial-before-interrupt",
+    "events": [
+      {
+        "type": "message_update",
+        "assistantMessageEvent": {
+          "type": "text_delta",
+          "delta": "partial-before-interrupt"
+        }
+      }
+    ],
+    "expected": {
+      "threadId": null,
+      "agentMessages": [
+        "partial-before-interrupt"
+      ],
+      "turnCompleted": false,
+      "turnFailed": false,
+      "fatalError": null
+    }
+  },
+  {
+    "id": "retry-replaces-draft",
+    "events": [
+      {
+        "type": "message_update",
+        "assistantMessageEvent": {
+          "type": "text_delta",
+          "delta": "incorrect draft"
+        }
+      },
+      {
+        "type": "message_end",
+        "message": {
+          "role": "assistant",
+          "content": [],
+          "stopReason": "pending"
+        }
+      },
+      {
+        "type": "message_update",
+        "assistantMessageEvent": {
+          "type": "text_delta",
+          "delta": "stale recovered draft"
+        }
+      },
+      {
+        "type": "message_end",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "authoritative recovery\nSTATUS=blocked"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      },
+      {
+        "type": "message_update",
+        "assistantMessageEvent": {
+          "type": "text_delta",
+          "delta": "next draft"
+        }
+      },
+      {
+        "type": "message_end",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "authoritative recovery\nSTATUS=blocked"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      }
+    ],
+    "expected": {
+      "threadId": null,
+      "agentMessages": [
+        "authoritative recovery\nSTATUS=blocked"
+      ],
+      "turnCompleted": false,
+      "turnFailed": false,
+      "fatalError": null
+    }
+  },
+  {
+    "id": "stream-error-sticky",
+    "events": [
+      {
+        "type": "message_update",
+        "assistantMessageEvent": {
+          "type": "error",
+          "errorMessage": "provider failed"
+        }
+      },
+      {
+        "type": "agent_settled"
+      }
+    ],
+    "expected": {
+      "threadId": null,
+      "agentMessages": [],
+      "turnCompleted": false,
+      "turnFailed": true,
+      "fatalError": "provider failed"
+    }
+  },
+  {
+    "id": "aborted",
+    "events": [
+      {
+        "type": "message_end",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "partial"
+            }
+          ],
+          "stopReason": "aborted"
+        }
+      }
+    ],
+    "expected": {
+      "threadId": null,
+      "agentMessages": [
+        "partial"
+      ],
+      "turnCompleted": false,
+      "turnFailed": true,
+      "fatalError": "Pi runner reported aborted."
+    }
+  },
+  {
+    "id": "extension-failed",
+    "events": [
+      {
+        "type": "extension_error",
+        "error": "extension failed"
+      },
+      {
+        "type": "agent_settled"
+      }
+    ],
+    "expected": {
+      "threadId": null,
+      "agentMessages": [],
+      "turnCompleted": false,
+      "turnFailed": true,
+      "fatalError": "extension failed"
+    }
+  },
+  {
+    "id": "retry-exhausted",
+    "events": [
+      {
+        "type": "auto_retry_end",
+        "success": false,
+        "finalError": "quota"
+      },
+      {
+        "type": "agent_settled"
+      }
+    ],
+    "expected": {
+      "threadId": null,
+      "agentMessages": [],
+      "turnCompleted": false,
+      "turnFailed": true,
+      "fatalError": "quota"
+    }
+  },
+  {
+    "id": "agent-end-is-not-settled",
+    "events": [
+      {
+        "type": "message_end",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "partial"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      },
+      {
+        "type": "agent_end"
+      }
+    ],
+    "expected": {
+      "threadId": null,
+      "agentMessages": [
+        "partial"
+      ],
+      "turnCompleted": false,
+      "turnFailed": false,
+      "fatalError": null
+    }
+  },
+  {
+    "id": "user-ignored",
+    "events": [
+      {
+        "type": "message_end",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "ignored"
+            }
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "threadId": null,
+      "agentMessages": [],
+      "turnCompleted": false,
+      "turnFailed": false,
+      "fatalError": null
+    }
+  }
+]
