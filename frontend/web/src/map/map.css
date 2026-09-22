@@ -709,6 +709,7 @@
 .map-conversation-empty { margin: auto; max-width: 300px; padding: 24px; font-size: 13px; line-height: 1.8; color: rgb(var(--ink-dim)); }
 .map-conversation-pending { padding: 10px 16px; font-size: 12px; color: rgb(var(--blue)); border-top: 1px solid rgb(var(--line)); }
 .map-starters { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.map-starters-label { flex-basis: 100%; text-align: center; font-size: 12px; color: rgb(var(--ink-faint)); }
 .map-starters button { padding: 9px 12px; border: 1px solid rgb(var(--line)); background: rgb(var(--panel)); border-radius: 10px; font-size: 12px; color: rgb(var(--blue)); pointer-events: auto; }
 .map-empty p { max-width: 450px; }
 @media(max-width:640px) { .map-workspace-actions { gap: 4px; } .map-workspace-actions button { padding: 0; width: 36px; justify-content: center; } .map-agent-toggle i { left: 20px; } .map-delivery-toggle b { position: absolute; right: -5px; top: -6px; padding: 0 4px; font-size: 11px; line-height: 15px; } .map-conversation { top: 56px; right: 10px; width: calc(100% - 20px); bottom: 148px; } .map-starters { margin-top: 12px; } .map-starters button { padding: 9px; font-size: 12px; } }
