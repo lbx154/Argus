@@ -1,10 +1,13 @@
 """Shared token pricing helpers."""
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
+
+from .contract_resources import contract_schema_path
 
 PriceLookup = Callable[[str], tuple[float, float]]
 PricingStatus = Literal["priced", "partial", "unpriced", "not_billed"]
@@ -30,31 +33,12 @@ class PricingQuote:
     reason: str = ""
 
 
+# Both runtimes use the same reference rates; packaged wheels carry this JSON.
+_PRICE_CATALOG = json.loads(contract_schema_path("model_pricing.json").read_text(encoding="utf-8"))
 MODEL_PRICES_USD_PER_MTOK: dict[str, ModelPrice] = {
-    # Standard public API reference, 2026-09-09. A proxy's actual bill may differ.
-    # https://developers.openai.com/api/docs/pricing
-    "gpt-5.6-luna": ModelPrice(0.20, 0.02, 1.20,
-        long_context_threshold=272_000, long_input_multiplier=2.0,
-        long_cached_input_multiplier=2.0, long_output_multiplier=1.5),
-    # Official GPT-5.6 Sol API pricing.  Requests whose input exceeds 272K
-    # tokens price the full request at 2x input (including cached input) and
-    # 1.5x output.
-    "gpt-5.6-sol": ModelPrice(
-        input_usd_per_mtok=5.0,
-        cached_input_usd_per_mtok=0.5,
-        output_usd_per_mtok=30.0,
-        long_context_threshold=272_000,
-        long_input_multiplier=2.0,
-        long_cached_input_multiplier=2.0,
-        long_output_multiplier=1.5,
-    ),
-    "gpt-5.5": ModelPrice(1.25, 0.125, 10.0),
-    "gpt-5.5-mini": ModelPrice(0.25, 0.025, 2.0),
-    "gpt-5.4": ModelPrice(1.25, 0.125, 10.0),
-    "gpt-5.4-mini": ModelPrice(0.25, 0.025, 2.0),
-    "gpt-5.2": ModelPrice(1.25, 0.125, 10.0),
-    "gpt-5.2-codex": ModelPrice(1.25, 0.125, 10.0),
+    name: ModelPrice(**price) for name, price in _PRICE_CATALOG["models"].items()
 }
+_COPILOT_DEFAULT_PRICE: float = _PRICE_CATALOG["copilot_usd_per_premium_request"]
 
 DEFAULT_PRICES_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     name: (price.input_usd_per_mtok, price.output_usd_per_mtok)
@@ -176,12 +160,12 @@ def quote_token_usage(
 def copilot_usd_per_premium_request() -> float:
     raw = os.environ.get("ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST", "").strip()
     if not raw:
-        return 0.04
+        return _COPILOT_DEFAULT_PRICE
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        return 0.04
-    return value if value >= 0.0 else 0.04
+        return _COPILOT_DEFAULT_PRICE
+    return value if value >= 0.0 else _COPILOT_DEFAULT_PRICE
 
 
 def quote_copilot_usage(premium_requests: float | None) -> PricingQuote:

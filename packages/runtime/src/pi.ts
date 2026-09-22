@@ -1,5 +1,6 @@
 import { isJsonObject, type RunnerResult, type RunnerStreamEvent } from '@argus/contracts';
 import { PiEventConsumer } from './piEvents.js';
+import { PiAccountingAccumulator } from './piAccounting.js';
 import { executeProcess, type ProcessOptions } from './process.js';
 
 export interface PiRunRequest {
@@ -63,6 +64,7 @@ export class PiBackend implements RunnerBackend {
     const limit = request.maxRetainedTextBytes ?? 1_048_576;
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error('maxRetainedTextBytes must be a positive integer');
     const consumer = new PiEventConsumer();
+    const accounting = new PiAccountingAccumulator(request.model?.trim(), request.provider?.trim());
     consumer.threadId = request.resumeSession ?? null;
     const controller = new AbortController();
     const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
@@ -85,6 +87,7 @@ export class PiBackend implements RunnerBackend {
         try { parsed = JSON.parse(item.line); } catch { continue; }
         if (!isJsonObject(parsed)) continue;
         jsonEventCount += 1;
+        accounting.consume(parsed);
         consumer.consume(parsed);
         if (consumer.agentMessages.reduce((bytes, message) => bytes + Buffer.byteLength(message), 0) > limit) {
           textLimit = true;
@@ -104,6 +107,7 @@ export class PiBackend implements RunnerBackend {
             : item.error ?? consumer.fatalError ?? (failed ? `Pi exited ${item.code ?? item.signal ?? 'without an exit code'} without a successful settled turn.` : null),
           stopKind, stdoutLineCount, stderrLineCount, jsonEventCount,
           providerTurns: consumer.providerTurns, toolActivityObserved: consumer.toolActivityObserved,
+          accounting: accounting.snapshot(consumer.turnCompleted && !failed),
         };
         yield { type: 'result', result };
       }

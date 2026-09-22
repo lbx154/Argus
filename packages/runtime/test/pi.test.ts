@@ -159,3 +159,54 @@ test('independent forks do not share parser state', async () => {
   assert.deepEqual(first.result.agentMessages, ['answer: first']);
   assert.deepEqual(second.result.agentMessages, ['answer: second']);
 });
+
+test('Pi receipt prices each turn before adding costs across the context threshold', async () => {
+  const { result } = await collect(backend('accounting-tokens'));
+  assert.equal(result.turnCompleted, true);
+  assert.equal(result.accounting.error, null);
+  assert.equal(result.accounting.usage?.input_tokens, 300_000);
+  assert.equal(result.accounting.usage?.output_tokens, 200);
+  assert.deepEqual(result.accounting.pricing, { cost_usd: 1.506, status: 'priced', tier: 'default', reason: '' });
+});
+
+test('Pi uses reported costs per turn and estimates only the turns missing them', async () => {
+  const reported = (await collect(backend('accounting-provider'))).result.accounting;
+  assert.ok(Math.abs(reported.pricing.cost_usd! - 0.15) < 1e-12);
+  assert.equal(reported.pricing.tier, 'provider_reported');
+  const mixed = (await collect(backend('accounting-mixed'))).result.accounting;
+  assert.equal(mixed.usage?.provider_cost_usd, 0.07);
+  assert.ok(Math.abs(mixed.pricing.cost_usd! - 0.823) < 1e-12);
+  assert.equal(mixed.pricing.tier, 'mixed');
+  assert.equal(mixed.pricing.status, 'priced');
+});
+
+for (const mode of ['missing', 'model-switch', 'failure', 'text-limit']) {
+  test(`Pi ${mode} receipt preserves known spending as partial`, async () => {
+    const { result } = await collect(backend(`accounting-${mode}`), { ...request, maxRetainedTextBytes: 100 });
+    assert.equal(result.accounting.pricing.status, 'partial');
+    assert.equal(result.accounting.pricing.cost_usd, mode === 'missing' || mode === 'model-switch' ? 0.753 : 1.506);
+    assert.equal(result.turnCompleted, mode === 'missing' || mode === 'model-switch');
+  });
+}
+
+test('Pi cancellation preserves spending observed before the process was stopped', async () => {
+  const controller = new AbortController();
+  let result: RunnerResult | undefined;
+  for await (const event of backend('accounting-cancel').run({ ...request, signal: controller.signal })) {
+    if (event.type === 'provider_event' && event.event.type === 'ready') controller.abort();
+    if (event.type === 'result') result = event.result;
+  }
+  assert.equal(result?.stopKind, 'cancelled');
+  assert.equal(result?.accounting.usage?.input_tokens, 150_000);
+  assert.equal(result?.accounting.pricing.cost_usd, 0.753);
+  assert.equal(result?.accounting.pricing.status, 'partial');
+});
+
+test('Pi numeric overflow invalidates accounting without losing the transport receipt', async () => {
+  const { result } = await collect(backend('accounting-unsafe'));
+  assert.equal(result.turnCompleted, true);
+  assert.equal(result.accounting.usage, null);
+  assert.match(result.accounting.error!, /safe-integer/);
+  assert.equal(result.accounting.pricing.cost_usd, null);
+  assert.equal(result.accounting.pricing.status, 'partial');
+});

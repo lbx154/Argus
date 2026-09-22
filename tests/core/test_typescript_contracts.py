@@ -49,15 +49,16 @@ def test_api_protocol_comes_from_the_shared_contract() -> None:
     }
 
 
-def test_installed_schema_location_takes_precedence(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("name", ["api_protocol.json", "model_pricing.json"])
+def test_installed_schema_location_takes_precedence(tmp_path: Path, monkeypatch, name: str) -> None:
     from argus.core import contract_resources
 
     module = tmp_path / "argus/core/contract_resources.py"
-    resource = tmp_path / "argus/_contracts/api_protocol.json"
+    resource = tmp_path / "argus/_contracts" / name
     resource.parent.mkdir(parents=True)
     resource.write_text("{}")
     monkeypatch.setattr(contract_resources, "__file__", str(module))
-    assert contract_resources.contract_schema_path("api_protocol.json") == resource
+    assert contract_resources.contract_schema_path(name) == resource
 
 
 def test_shared_sources_participate_in_release_identity(tmp_path: Path) -> None:

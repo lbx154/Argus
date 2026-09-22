@@ -29,6 +29,10 @@ budgets and stage transitions during the staged migration.
   stdin prompts, explicit model/provider and tool policy, session directories and
   resume, UTF-8 streaming, final receipts, cancellation, idle/wall deadlines,
   bounded output buffers and isolated execution handles.
+- Token extraction and strict reference pricing now run in TypeScript. Pi
+  receipts include usage and a per-turn cost quote. Python and TypeScript load
+  one price catalog from `packages/contracts/schemas/model_pricing.json`; this
+  migration preserves the existing rates and model lookup order.
 - CI runs the Node packages on Linux, macOS and Windows, and checks the existing
   frontend consumers. The Python suite reads the same compatibility fixtures.
 
@@ -163,6 +167,51 @@ the POSIX orphan tests are explicitly skipped on Windows. A nonzero exit,
 missing `agent_settled`, provider error or transport stop cannot produce a
 successful TS receipt.
 
+## Usage and pricing
+
+`extractTokenUsage(events)` and the constant-memory `TokenUsageAccumulator`
+preserve Python's source precedence and field-presence flags: cumulative Codex
+usage replaces earlier tuples; Claude, Copilot, Pi and OpenCode deltas are added
+according to their existing provider formats. Explicit zero remains distinct
+from absent usage. Claude request-unit placeholders and Pi empty-error sentinels
+retain their existing interpretation.
+
+`quoteTokenUsage(model, counts)` ports strict per-call pricing, including cache
+reads/writes, reasoning output and the long-context threshold. Unknown models
+stay unpriced. `quoteCopilotUsage` covers legacy premium requests only; modern
+Copilot AIU billing, receipt deduplication and reconciliation remain Python.
+
+Each Pi `result.accounting` has `usage`, `pricing` and `error`. The adapter prices
+each assistant `message_end` separately, using its reported model/provider when
+available and the requested model/provider otherwise. A turn's reported cost
+takes precedence; missing costs use the shared reference table. Summing these
+per-turn quotes avoids applying a long-context multiplier just because the
+whole conversation crossed the threshold. The raw `usage.provider_cost_usd`
+contains only observed provider totals and may cover fewer turns than `pricing`.
+
+Missing turn usage, unknown prices, cancellation and unsuccessful settlement
+leave a partial/unpriced quote and preserve any known cost. These observations
+are estimates, not durable settlements or permission to spend. The production
+Python accounting path and budget policy remain unchanged.
+
+Node counts and their sums must fit nonnegative safe integers. Out-of-range
+counts or overflowing cost sums raise `UsageAccountingError` in the standalone
+helpers. Pi catches that error and returns null usage/cost with a partial quote
+and a diagnostic, alongside the normal transport receipt. It never silently
+rounds oversized counts. The TS premium-request override also rejects infinite
+rates. These are explicit numeric boundaries versus Python's arbitrary-size
+integers; finite supported inputs are checked against Python.
+
+The Node suite and Python suite read shared usage/pricing fixtures. Python CI
+also compares generated streams (including every prefix) and threshold cases
+against the built Node implementation. Real subprocess tests exercise multi-turn
+pricing, partially reported costs, model changes, interruption and overflow:
+
+```sh
+npm run check
+python -m pytest tests/core/test_typescript_accounting.py
+```
+
 ## State ownership during migration
 
 | State | Current writer | TS behaviour in this step |
@@ -170,7 +219,7 @@ successful TS receipt.
 | Backlog live/archive/commit files | Python `LifeMemory` | Read through the Python query bridge |
 | Event journal and mission projections | Python event sink | Read through Python; no TS writes |
 | Continuous configuration and daemon controls | Python daemon | Snapshot reads through Python; no commands |
-| Budget reservations, usage and settlement | Python cost-control layer | Cost/snapshot reads through Python; no reservations |
+| Budget reservations, usage and settlement | Python cost-control layer | Cost/snapshot reads through Python; standalone Pi observations/quotes in TS, no ledger writes or reservations |
 | Pipeline stages, Manager session and verdict outbox | Python orchestration | No access |
 | Explicit standalone Pi session directory | The invoked Pi process | Caller controls access |
 
@@ -186,7 +235,8 @@ crash-recovery checks and a rollback plan that accounts for newly incurred costs
    the explicit read-only profile. Snapshot types and the read API are in place.
 2. Verify the Pi adapter against a configured live provider, complete missing
    production runner capabilities, and implement Windows process ownership.
-3. Port storage and budget primitives with fault injection, then complete one
+3. Port storage and budget primitives with fault injection (usage parsing and
+   reference pricing are now available), then complete one
    Planner → Engineer → Reviewer → Manager task with restart/cancellation tests.
 4. Expand to continuous scheduling, remaining CLI backends and write APIs.
 5. Add Python plugin workers and converge installation/desktop delivery.
