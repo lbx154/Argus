@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from argus.apps import _runtime
+from argus.apps import _runtime_supervisor
 from argus.apps._life_actions import (
     render_backend_cmd,
     render_run_command,
@@ -35,7 +35,7 @@ def test_remote_run_accepts_opencode(
         calls.append(kwargs)
         return {}, None
 
-    monkeypatch.setattr(_runtime, "_invoke_supervisor", fake_invoke_supervisor)
+    monkeypatch.setattr(_runtime_supervisor, '_invoke_supervisor', fake_invoke_supervisor)
     output = render_run_command(
         object(),
         ["--backend", "opencode", "--once"],

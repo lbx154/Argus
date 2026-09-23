@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 
 from argus.life.supervisor import _core as sup_core
-from argus.life.supervisor._core import _idle_exit_seconds
+from argus.life.supervisor._idle_cycle import _idle_exit_seconds
 
 
 class _Cfg:

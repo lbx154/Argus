@@ -1152,7 +1152,7 @@ class MissionExecutionSettlementMixin:
         success = state.success
         status = state.status
 
-        state.usage_summary = cost_sink.usage_summary()
+        state.usage_summary, cost_breakdown = cost_sink.completion_usage()
         state.usd = state.usage_summary.cost_usd
         state.known_usd = state.usage_summary.known_cost_usd
 
@@ -1304,8 +1304,6 @@ class MissionExecutionSettlementMixin:
                 delivery["manuscript_snapshot"] = final_submission_manuscript_snapshot
         except Exception:  # noqa: BLE001 - delivery presentation never owns settlement
             log.debug("mission delivery receipt could not be built", exc_info=True)
-        scientist_totals = cost_sink.scientist_totals()
-        scientist_usage_by_model = cost_sink.scientist_usage_by_model_snapshot()
         event = {
             "type": EventType.LIFE_MISSION_COMPLETED,
             "item_id": item.id,
@@ -1366,35 +1364,13 @@ class MissionExecutionSettlementMixin:
             "agent_layer": "engineer",
             "engineer_model": self.engineer_model,
             "reviewer_model": self.reviewer_model,
-            "scientist_cost_usd": cost_sink.scientist_usd(),
-            "engineer_cost_usd": cost_sink.engineer_usd(),
-            "reviewer_cost_usd": cost_sink.reviewer_usd(),
-            # util (manager/classify) + copilot premium-request cost were folded
-            # into total_usd() but never surfaced in the breakdown — emit them so
-            # the cost is fully auditable. copilot_premium_requests is the raw
-            # count (GitHub bills per premium request, flat $/req — NOT per token,
-            # so a copilot mission's whole dollar cost is this count * rate).
-            "util_cost_usd": cost_sink.util_usd(),
-            "copilot_cost_usd": cost_sink.copilot_usd(),
-            "copilot_premium_requests": cost_sink.copilot_premium_request_total(),
-            "scientist_input_tokens": scientist_totals[0],
-            "scientist_cached_input_tokens": scientist_totals[1],
-            "scientist_output_tokens": scientist_totals[2],
-            "scientist_reasoning_output_tokens": scientist_totals[3],
-            "scientist_usage_by_model": {
-                model: {
-                    "input_tokens": values[0],
-                    "cached_input_tokens": values[1],
-                    "output_tokens": values[2],
-                    "reasoning_output_tokens": values[3],
-                }
-                for model, values in scientist_usage_by_model.items()
-            },
-            "input_tokens": cost_sink.total_input_tokens(),
-            "cached_input_tokens": cost_sink.total_cached_input_tokens(),
-            "cache_write_tokens": cost_sink.total_cache_write_tokens(),
-            "output_tokens": cost_sink.total_output_tokens(),
-            "reasoning_output_tokens": cost_sink.total_reasoning_output_tokens(),
+            **cost_breakdown,
+            "copilot_premium_requests": state.usage_summary.premium_requests,
+            "input_tokens": state.usage_summary.input_tokens,
+            "cached_input_tokens": state.usage_summary.cached_input_tokens,
+            "cache_write_tokens": state.usage_summary.cache_write_tokens,
+            "output_tokens": state.usage_summary.output_tokens,
+            "reasoning_output_tokens": state.usage_summary.reasoning_output_tokens,
             "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
             "context_packet": (
                 str(state.context_packet_path.parent / "latest.json")

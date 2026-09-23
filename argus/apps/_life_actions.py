@@ -161,7 +161,7 @@ def render_run_command(
     chat_state: dict[str, Any],
 ) -> str:
     """Run the shared foreground supervisor flow for remote command clients."""
-    from ._runtime import _invoke_supervisor
+    from ._runtime_supervisor import _invoke_supervisor
 
     cfg = chat_state.get("config", {})
     from ..core.knobs import resolve_budget_caps

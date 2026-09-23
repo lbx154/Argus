@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from argus.apps._runtime import (
+from argus.apps._runtime_supervisor import (
     _build_supervisor_config as _build_runtime_supervisor_config,
 )
 from argus.daemon.life_worker import (

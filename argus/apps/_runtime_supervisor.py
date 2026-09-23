@@ -2,10 +2,6 @@
 root, ``run_life_supervisor`` (the non-interactive drain-a-backlog driver),
 and ``_invoke_supervisor`` (assemble a runtime context + run the supervisor
 for a single backend — used by both ``life run`` and chat-mode free text).
-
-Split out of ``_runtime.py`` so that module stays under the maintainability
-line-count target. Every name here is re-exported from ``_runtime.py`` (see
-its module docstring and ``__all__``) so external imports are unaffected.
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus.life.supervisor import (
+from argus.life.supervisor._helpers import (
     _operator_only_blocker_paths_for_project,
     _operator_only_external_blocker_wait_reason_for_project,
 )

@@ -999,14 +999,18 @@ def test_self_retries_empty_success_then_returns_explicit_error() -> None:
     ],
 )
 def test_self_never_retries_explicit_interrupts(fatal_error: str) -> None:
-    from argus.apps._runtime import _self_retryable_transport_failure
+    from argus.apps._self_reply import (
+        self_retryable_transport_failure as _self_retryable_transport_failure,
+    )
 
     result = RunnerResult(exit_code=1, fatal_error=fatal_error)
     assert _self_retryable_transport_failure(result) is False
 
 
 def test_self_does_not_retry_after_tool_activity() -> None:
-    from argus.apps._runtime import _self_retryable_transport_failure
+    from argus.apps._self_reply import (
+        self_retryable_transport_failure as _self_retryable_transport_failure,
+    )
 
     result = RunnerResult(
         exit_code=1,
@@ -1087,7 +1091,7 @@ def test_self_does_not_blindly_redo_tools_after_a_stall_without_a_thread() -> No
 
 
 def test_stall_predicate_ignores_answered_turns_and_other_errors() -> None:
-    from argus.apps._runtime import _self_stalled_model_turn
+    from argus.apps._self_reply import self_stalled_model_turn as _self_stalled_model_turn
 
     stalled = RunnerResult(exit_code=1, fatal_error="Forced restart after hard idle timeout (120s without a model stream event).")
     assert _self_stalled_model_turn(stalled) is True
@@ -1240,16 +1244,16 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert loop_kwargs[0]["config"].auto_init_wiki is True
     assert loop_kwargs[0]["config"].session_id == "mission-tree"
 
-    from argus.apps import _runtime
+    from argus.apps import _runtime_supervisor
 
     monkeypatch.setattr(
-        _runtime,
-        "_workflow_mode_for_project_root",
+        _runtime_supervisor,
+        '_workflow_mode_for_project_root',
         lambda root: "direct",
     )
     monkeypatch.setattr(
-        _runtime,
-        "_paper_mission_for_project_root",
+        _runtime_supervisor,
+        '_paper_mission_for_project_root',
         lambda root: True,
     )
     backend.calls.clear()

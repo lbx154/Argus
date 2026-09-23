@@ -6,7 +6,7 @@ import pytest
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.apps._runtime import _workflow_mode_for_project_root
+from argus.apps._runtime_supervisor import _workflow_mode_for_project_root
 from argus.manager import Manager
 from argus.manager.domain_author import build_vertical_decision_prompt
 from argus.reviewer import Reviewer, ReviewerConfig
