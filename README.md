@@ -476,6 +476,10 @@ argus --web --web-port 8800  # use another port
 
 #### Remote server over SSH
 
+Background project daemons continue after the client disconnects. For unattended
+operation, automatic restart and boot startup, see [daemon lifecycle and service
+supervision](docs/daemon-lifecycle.md).
+
 On the server:
 
 ```bash

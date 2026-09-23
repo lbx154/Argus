@@ -1,7 +1,7 @@
 import { isJsonObject, type RunnerResult, type RunnerStreamEvent } from '@argus/contracts';
 import { PiEventConsumer } from './piEvents.js';
 import { PiAccountingAccumulator } from './piAccounting.js';
-import { executeProcess, type ProcessOptions } from './process.js';
+import { executeProcess, type ProcessOptions, type ProcessGuardianOptions } from './process.js';
 
 export interface PiRunRequest {
   prompt: string;
@@ -27,6 +27,7 @@ export interface PiBackendOptions {
   terminateGraceMs?: number;
   maxLineBytes?: number;
   maxBufferedBytes?: number;
+  guardian?: ProcessGuardianOptions;
 }
 
 export interface RunnerBackend {
