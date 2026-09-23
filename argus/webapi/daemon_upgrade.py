@@ -1,9 +1,4 @@
-"""Daemon upgrade scheduling and reconciliation for the webapi server.
-
-Extracted from ``server.py`` / ``daemon_lifecycle.py`` as part of a
-behavior-preserving decomposition. Public/private names remain re-exported
-from ``server`` for backward compatibility.
-"""
+"""Schedule and reconcile daemon upgrades using process ownership checks."""
 
 from __future__ import annotations
 
@@ -18,8 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths
-from . import project_state
-from ._server_module import server_module as _srv
+from ..core import runtime_identity as runtime_identity_module
+from ..daemon import commands as daemon_commands
+from ..daemon import life_worker as daemon_worker
+from ..daemon import protocol as daemon_protocol
+from . import daemon_lifecycle, project_state
 
 log = logging.getLogger(__name__)
 
@@ -40,9 +38,9 @@ def upgrade_project_daemon(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
-    status = _srv().read_daemon_status(life_dir)
+    status = daemon_worker.read_daemon_status(life_dir)
     if not status.alive or status.pid is None:
-        started = _srv().start_project_daemon(
+        started = daemon_lifecycle.start_project_daemon(
             sid,
             global_root=global_root,
             resume_continuous=True,
@@ -50,8 +48,8 @@ def upgrade_project_daemon(
         return None if started is None else {**started, "upgraded": True}
 
     root = _global_root(global_root)
-    continuous = _srv().read_continuous_state(life_dir)
-    stop_rc = _srv().stop_daemon(
+    continuous = daemon_worker.read_continuous_state(life_dir)
+    stop_rc = daemon_worker.stop_daemon(
         life_dir,
         drain=True,
         drain_timeout=0.0,
@@ -64,7 +62,7 @@ def upgrade_project_daemon(
                 "schema_version": 1,
                 "sid": sid,
                 "expected_pid": status.pid,
-                "source_root": str(_srv().runtime_identity().get("source_root") or ""),
+                "source_root": str(runtime_identity_module.runtime_identity().get("source_root") or ""),
                 "resume_continuous": bool(continuous.enabled),
                 "objective": str(continuous.objective or ""),
                 "reason": "operator requested current-release restart",
@@ -72,7 +70,7 @@ def upgrade_project_daemon(
                 "legacy_drain_timeout": drain_timeout,
             },
         )
-        scheduled = _srv().schedule_project_daemon_upgrade(
+        scheduled = schedule_project_daemon_upgrade(
             sid,
             global_root=global_root,
         )
@@ -86,12 +84,12 @@ def upgrade_project_daemon(
             "error": "daemon is still draining active work; retry upgrade after it exits",
         }
     if continuous.enabled:
-        _srv().write_continuous_config(
+        daemon_worker.write_continuous_config(
             life_dir,
             enabled=True,
             objective=continuous.objective,
         )
-    started = _srv().start_project_daemon(
+    started = daemon_lifecycle.start_project_daemon(
         sid,
         global_root=root,
         resume_continuous=continuous.enabled,
@@ -132,7 +130,7 @@ def _write_daemon_upgrade_request(
 
 def _upgrade_request_matches_current_source(request: dict[str, Any]) -> bool:
     requested = str(request.get("source_root") or "").strip()
-    current = str(_srv().runtime_identity().get("source_root") or "").strip()
+    current = str(runtime_identity_module.runtime_identity().get("source_root") or "").strip()
     if not requested or not current:
         return False
     try:
@@ -171,18 +169,18 @@ def _complete_scheduled_daemon_upgrade(
             "error": "upgrade request belongs to a different Argus installation",
         }
 
-    status = _srv().read_daemon_status(life_dir)
+    status = daemon_worker.read_daemon_status(life_dir)
     if status.alive and status.pid is not None:
-        compatible, _ = _srv().daemon_protocol_compatibility(status)
-        if _srv().daemon_runtime_owned_by_current_source(status) and compatible is True:
+        compatible, _ = daemon_protocol.daemon_protocol_compatibility(status)
+        if daemon_protocol.daemon_runtime_owned_by_current_source(status) and compatible is True:
             _daemon_upgrade_request_path(life_dir).unlink(missing_ok=True)
             return {"rc": 0, "upgraded": False, "reason": "daemon is already current"}
         expected_pid = int(request.get("expected_pid") or 0)
-        if status.pid != expected_pid or not _srv().daemon_runtime_owned_by_current_source(status):
+        if status.pid != expected_pid or not daemon_protocol.daemon_runtime_owned_by_current_source(status):
             error = "daemon identity changed before the scheduled drain"
             _record_daemon_upgrade_error(life_dir, request, error)
             return {"rc": 2, "error": error}
-        stop_rc = _srv().stop_daemon(
+        stop_rc = daemon_worker.stop_daemon(
             life_dir,
             drain=True,
             drain_timeout=0.0,
@@ -202,7 +200,7 @@ def _complete_scheduled_daemon_upgrade(
             _record_daemon_upgrade_error(life_dir, request, error)
             return {"rc": 2, "error": error}
 
-    with _srv().daemon_command_execution_lock(life_dir) as acquired:
+    with daemon_commands.daemon_command_execution_lock(life_dir) as acquired:
         if not acquired:
             return {"rc": 2, "error": "daemon command lock unavailable"}
         request = _read_daemon_upgrade_request(life_dir)
@@ -212,10 +210,10 @@ def _complete_scheduled_daemon_upgrade(
                 "upgraded": False,
                 "reason": "upgrade was cancelled by a newer daemon command",
             }
-        status = _srv().read_daemon_status(life_dir)
+        status = daemon_worker.read_daemon_status(life_dir)
         if status.alive:
-            compatible, _ = _srv().daemon_protocol_compatibility(status)
-            if _srv().daemon_runtime_owned_by_current_source(status) and compatible is True:
+            compatible, _ = daemon_protocol.daemon_protocol_compatibility(status)
+            if daemon_protocol.daemon_runtime_owned_by_current_source(status) and compatible is True:
                 _daemon_upgrade_request_path(life_dir).unlink(missing_ok=True)
                 return {
                     "rc": 0,
@@ -229,12 +227,12 @@ def _complete_scheduled_daemon_upgrade(
         resume_continuous = bool(request.get("resume_continuous"))
         objective = str(request.get("objective") or "")
         if resume_continuous:
-            _srv().write_continuous_config(
+            daemon_worker.write_continuous_config(
                 life_dir,
                 enabled=True,
                 objective=objective,
             )
-        started = _srv().start_project_daemon(
+        started = daemon_lifecycle.start_project_daemon(
             sid,
             global_root=_global_root(global_root),
             resume_continuous=resume_continuous,
@@ -270,24 +268,24 @@ def schedule_project_daemon_upgrade(
             }
         reason = str(request.get("reason") or "pending daemon upgrade")
     else:
-        status = _srv().read_daemon_status(life_dir)
-        compatible, reason = _srv().daemon_protocol_compatibility(status)
+        status = daemon_worker.read_daemon_status(life_dir)
+        compatible, reason = daemon_protocol.daemon_protocol_compatibility(status)
         if not status.alive or status.pid is None:
             return {"rc": 0, "scheduled": False, "reason": "daemon is not running"}
         if compatible is not False:
             return {"rc": 0, "scheduled": False, "reason": "daemon is current"}
-        if not _srv().daemon_runtime_owned_by_current_source(status):
+        if not daemon_protocol.daemon_runtime_owned_by_current_source(status):
             return {
                 "rc": 0,
                 "scheduled": False,
                 "reason": "daemon belongs to a different Argus installation",
             }
-        continuous = _srv().read_continuous_state(life_dir)
+        continuous = daemon_worker.read_continuous_state(life_dir)
         request = {
             "schema_version": 1,
             "sid": sid,
             "expected_pid": status.pid,
-            "source_root": str(_srv().runtime_identity().get("source_root") or ""),
+            "source_root": str(runtime_identity_module.runtime_identity().get("source_root") or ""),
             "resume_continuous": bool(continuous.enabled),
             "objective": str(continuous.objective or ""),
             "reason": reason,
@@ -311,7 +309,7 @@ def schedule_project_daemon_upgrade(
             if result.get("draining") is True:
                 timer = threading.Timer(
                     5.0,
-                    lambda: _srv().schedule_project_daemon_upgrade(
+                    lambda: schedule_project_daemon_upgrade(
                         sid,
                         global_root=global_root,
                     ),
@@ -358,7 +356,7 @@ def reconcile_pending_daemon_upgrades(
             if not project_state.daemon_upgrade_pending(life_dir):
                 continue
             try:
-                result = _srv().schedule_project_daemon_upgrade(
+                result = schedule_project_daemon_upgrade(
                     life_dir.name,
                     global_root=root,
                 )

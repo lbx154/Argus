@@ -9,9 +9,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from argus.core.session import SessionMeta, write_session_meta
+from argus.daemon import life_worker as daemon_worker
 from argus.daemon.state import DaemonStatus
 from argus.life.memory import LifeMemory
-from argus.webapi import manager_dispatch, mission_items, project_crud, server
+from argus.webapi import (
+    daemon_lifecycle,
+    manager_dispatch,
+    mission_items,
+    project_crud,
+    project_state,
+    server,
+)
 from argus.webapi.daemon_services import DaemonServices
 from argus.webapi.index_cache import CacheWaitTimeout
 
@@ -52,8 +60,8 @@ def test_two_apps_keep_independent_status_delete_and_start_services(tmp_path, mo
     def wrong_global(*_args, **_kwargs):
         pytest.fail("request consulted a mutable server service instead of its app dependency")
 
-    monkeypatch.setattr(server, "read_daemon_status", wrong_global)
-    monkeypatch.setattr(server, "start_project_daemon", wrong_global)
+    monkeypatch.setattr(daemon_worker, 'read_daemon_status', wrong_global)
+    monkeypatch.setattr(daemon_lifecycle, 'start_project_daemon', wrong_global)
     # Interleave requests to expose process-global injection, including the
     # actual start command receipt and the real trash move.
     for index in (1, 0, 1):
@@ -98,7 +106,7 @@ def test_task_enqueue_passes_app_starter_and_persists_real_backlog(tmp_path, mon
     def wrong_global(*_args, **_kwargs):
         pytest.fail("task command bypassed its injected starter")
 
-    monkeypatch.setattr(server, "start_project_daemon", wrong_global)
+    monkeypatch.setattr(daemon_lifecycle, 'start_project_daemon', wrong_global)
     response = client.post(
         f"/api/projects/{sid}/tasks",
         json={"text": "Verify the local service boundary", "autostart_daemon": autostart},
@@ -124,7 +132,7 @@ def test_direct_business_calls_use_concrete_defaults_without_server_lookup(tmp_p
     def wrong_global(*_args, **_kwargs):
         pytest.fail("direct business call looked up the server module")
 
-    monkeypatch.setattr(server, "read_daemon_status", wrong_global)
+    monkeypatch.setattr(daemon_worker, 'read_daemon_status', wrong_global)
     assert mission_items.get_status(sid, global_root=tmp_path)["daemon"]["alive"] is False
     result = project_crud.delete_project(sid, global_root=tmp_path)
     assert result["ok"] is True
@@ -149,7 +157,7 @@ def test_cache_wait_timeout_returns_retryable_http_response(tmp_path, monkeypatc
     def timed_out(**kwargs):
         raise CacheWaitTimeout()
 
-    monkeypatch.setattr(server, "list_projects", timed_out)
+    monkeypatch.setattr(project_state, 'list_projects', timed_out)
     response = TestClient(server.create_app(global_root=tmp_path)).get("/api/projects")
     assert response.status_code == 503
     assert response.json() == {"detail": "Snapshot refresh timed out; retry shortly."}

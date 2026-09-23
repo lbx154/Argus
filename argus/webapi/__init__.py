@@ -23,7 +23,10 @@ __all__ = ["create_app", "serve", "build_snapshot", "project_life_dir"]
 
 
 def __getattr__(name: str):  # lazy re-export so importing the package never needs fastapi
-    if name in __all__:
+    if name in {"build_snapshot", "project_life_dir"}:
+        from . import project_state
+        return getattr(project_state, name)
+    if name in {"create_app", "serve"}:
         from . import server
         return getattr(server, name)
     raise AttributeError(name)

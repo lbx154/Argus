@@ -11,6 +11,7 @@ from argus.core.operator_decision import build_operator_decision
 from argus.core.session import SessionMeta, write_session_meta
 from argus.daemon.state import GRACEFUL_STOP_REASON, write_continuous_config
 from argus.life.memory import BacklogItem, MemoryBundle
+from argus.webapi import daemon_lifecycle
 from argus.webapi.manager_pending_question import manager_resolve_operator_decision
 
 
@@ -273,7 +274,7 @@ def test_http_decline_does_not_start_a_daemon(
     before = (mem.project_root / "continuous.json").read_bytes()
     starts = []
     monkeypatch.setattr(
-        server, "start_project_daemon",
+        daemon_lifecycle, 'start_project_daemon',
         lambda *args, **kwargs: starts.append((args, kwargs)) or {"rc": 0},
     )
     prefix = f"/api/projects/{mem.project.fingerprint}"

@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from argus.core.session import SessionMeta, read_session_meta, write_session_meta
+from argus.daemon import life_worker as daemon_worker
 from argus.life.memory import Backlog
 from argus.manager import Manager, config_intent, front_door
 from argus.manager.domain_author import VerticalDecision, parse_domain_proposal
@@ -72,7 +73,7 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
         return {"rc": 0, "alive": True, "pid": 77, "control_available": True}
 
     app = server.create_app(global_root=tmp_path, daemon_services=DaemonServices(
-        read_status=server.read_daemon_status, start=start,
+        read_status=daemon_worker.read_daemon_status, start=start,
     ))
     with TestClient(app) as client:
         url = f"/api/projects/{sid}/message"
@@ -176,7 +177,7 @@ def test_direct_card_retries_failure_without_losing_question_or_repeating_succes
     monkeypatch.setattr(config_intent, '_front_door_classify', unexpected)
     monkeypatch.setattr(front_door, 'manager_triage', execute)
     app = server.create_app(global_root=tmp_path, daemon_services=DaemonServices(
-        read_status=server.read_daemon_status, start=unexpected,
+        read_status=daemon_worker.read_daemon_status, start=unexpected,
     ))
     payload = {'text': '/stop', 'domain_answer': {'id': card['id'], 'option_id': 'direct', 'note': 'Show the result'}}
     with TestClient(app) as client:

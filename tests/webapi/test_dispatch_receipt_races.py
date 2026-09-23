@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import read_turns
+from argus.daemon import life_worker as daemon_worker
 from argus.daemon.commands import daemon_command_execution_lock
 from argus.webapi import manager_bridge, server
 from argus.webapi.daemon_services import DaemonServices
@@ -61,7 +62,7 @@ def test_cancel_during_receipt_io_suppresses_late_delivery(
         return real_open(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", delayed_open)
-    services = DaemonServices(read_status=server.read_daemon_status,
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status,
                              start=lambda *_args, **_kwargs: {"rc": 0, "alive": True})
     with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
         with ThreadPoolExecutor(max_workers=1) as pool:
@@ -105,7 +106,7 @@ def test_duplicate_without_pending_work_ignores_unrelated_control_lock(
     def forbidden(*_args, **_kwargs):
         raise AssertionError("A completed or operator-paused task must not restart")
 
-    services = DaemonServices(read_status=server.read_daemon_status, start=forbidden)
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status, start=forbidden)
     with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
         # The actual lifecycle lock is owned by this test thread while the
         # unrelated HTTP worker handles a completed/paused task replay.
@@ -135,7 +136,7 @@ def test_cancel_during_chat_status_read_suppresses_the_stale_terminal_result(
     life.mkdir(parents=True)
     write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
     entered, release = threading.Event(), threading.Event()
-    real_read = server.read_daemon_status
+    real_read = daemon_worker.read_daemon_status
     historical_reply = "这是已经完成并保存的回复。"
 
     def manager(*_args, **_kwargs):
@@ -148,7 +149,7 @@ def test_cancel_during_chat_status_read_suppresses_the_stale_terminal_result(
         return real_read(root)
 
     monkeypatch.setattr(manager_bridge, "manager_message", manager)
-    monkeypatch.setattr(server, "read_daemon_status", read_status)
+    monkeypatch.setattr(daemon_worker, 'read_daemon_status', read_status)
     with TestClient(server.create_app(global_root=tmp_path)) as client:
         with ThreadPoolExecutor(max_workers=1) as pool:
             pending = pool.submit(client.post, f"/api/projects/{sid}/message" + ("/stream" if streaming else ""),
@@ -189,7 +190,7 @@ def test_natural_pause_keeps_its_own_control_confirmation(tmp_path, monkeypatch,
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
     monkeypatch.setattr(config_intent, "_front_door_classify",
                         lambda *_args, **_kwargs: (None, "pause", "simple"))
-    services = DaemonServices(read_status=server.read_daemon_status, start=forbidden)
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status, start=forbidden)
     with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
         response = client.post(f"/api/projects/{sid}/message" + ("/stream" if streaming else ""),
                                json={"text": "先暂停一下"})

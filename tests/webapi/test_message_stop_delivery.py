@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from argus.core.models import RunnerOptions, RunnerResult
 from argus.core.run_gateway import run_exec
 from argus.core.session import SessionMeta, write_session_meta
+from argus.daemon import life_worker as daemon_worker
 from argus.manager import config_intent
 from argus.webapi import manager_bridge, server
 from argus.webapi.daemon_services import DaemonServices
@@ -65,7 +66,7 @@ def test_stop_between_handoff_and_http_delivery_cannot_restart_executor(
     write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
     entered, release = threading.Event(), threading.Event()
     starts, acknowledgements = [], []
-    real_read = server.read_daemon_status
+    real_read = daemon_worker.read_daemon_status
 
     def read_status(root):
         # Hold only the delivery's status read. Stop uses the actual route,
@@ -80,8 +81,8 @@ def test_stop_between_handoff_and_http_delivery_cannot_restart_executor(
         return {"kind": "task", "item": {"id": "item-1", "status": "pending"}}
 
     monkeypatch.setattr(manager_bridge, "manager_message", handoff)
-    monkeypatch.setattr(server, "read_daemon_status", read_status)
-    monkeypatch.setattr(server, "stop_daemon", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(daemon_worker, 'read_daemon_status', read_status)
+    monkeypatch.setattr(daemon_worker, 'stop_daemon', lambda *args, **kwargs: 0)
     monkeypatch.setattr("argus.webapi.manager_pending_question.record_task_dispatch_ack",
                         lambda *args, **kwargs: acknowledgements.append(True))
     services = DaemonServices(read_status=real_read,
@@ -120,7 +121,7 @@ def test_replayed_message_only_starts_work_still_pending(tmp_path, monkeypatch, 
         "kind": "task", "dispatch_state": "already_queued", "item": {"id": "item-1", "status": status},
     })
     starts = []
-    services = DaemonServices(read_status=server.read_daemon_status,
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status,
         start=lambda *args, **kwargs: starts.append(True) or {"rc": 0})
     with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
         response = client.post(f"/api/projects/{sid}/message" + ("/stream" if streaming else ""), json={"text": "Continue"})
@@ -151,7 +152,7 @@ def test_message_cancel_reaches_provider_without_waiting_for_manager_lock(tmp_pa
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     starts = []
-    services = DaemonServices(read_status=server.read_daemon_status,
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status,
         start=lambda *args, **kwargs: starts.append(True) or {"rc": 0})
     with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
         with ThreadPoolExecutor(max_workers=1) as pool:

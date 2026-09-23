@@ -1,10 +1,4 @@
-"""Daemon lifecycle and upgrade orchestration for the webapi server.
-
-Extracted from ``server.py`` as part of a behavior-preserving decomposition.
-Public/private names remain re-exported from ``server`` for backward
-compatibility (tests and ``webapi/routes/*`` reach them via ``server.*`` /
-``server_mod.*``).
-"""
+"""Daemon lifecycle operations over shared session, state, and process controls."""
 
 from __future__ import annotations
 
@@ -30,17 +24,20 @@ from ..core.session import (
     update_session_meta,
     write_session_meta,
 )
+from ..daemon import life_worker as daemon_worker
 from ..daemon.life_worker import (
     LifeWorkerConfig,
     _acquire_daemon_spawn_lock,
+    _active_daemon_count,
+    _active_workspace_owner,
     _launcher_failure_message,
+    _max_active_daemons,
     _release_daemon_spawn_lock,
     _workspace_start_error,
 )
 from ..life.memory import LifeMemory
 from ..life.role_activity import role_activity
 from . import project_state
-from ._server_module import server_module as _srv
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +68,7 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
     )
     meta = read_session_meta(global_root, life_dir.name)
     if not session_workdir_is_bound(meta):
-        prior = _srv().read_daemon_status(life_dir).project_workdir
+        prior = daemon_worker.read_daemon_status(life_dir).project_workdir
         project_workdir = migrate_legacy_session_workdir(
             global_root,
             life_dir.name,
@@ -172,7 +169,7 @@ def list_running_daemons(
             roles = []
         active_role = next((role for role in roles if role.get("active")), None)
         try:
-            continuous = _srv().read_continuous_state(life_dir)
+            continuous = daemon_worker.read_continuous_state(life_dir)
         except Exception:  # noqa: BLE001
             continuous = None
         rows.append({
@@ -197,7 +194,7 @@ def _admission_required(
     active_count: int,
     resume_continuous: bool,
 ) -> dict[str, Any]:
-    running = _srv().list_running_daemons(global_root=root, exclude_sid=sid)
+    running = list_running_daemons(global_root=root, exclude_sid=sid)
     admission = {
         "rc": 2,
         "already_alive": False,
@@ -244,7 +241,7 @@ def start_project_daemon(
     if life_dir is None:
         return None
     root = _global_root(global_root)
-    st = _srv().read_daemon_status(life_dir)
+    st = daemon_worker.read_daemon_status(life_dir)
     if st.alive:
         _clear_daemon_admission(life_dir)
         return {"rc": 0, "already_alive": True, "daemon": _daemon_dict(st)}
@@ -255,7 +252,7 @@ def start_project_daemon(
             "rc": 3,
             "already_alive": False,
             "error": f"daemon workdir is unavailable: {exc}",
-            "daemon": _daemon_dict(_srv().read_daemon_status(life_dir)),
+            "daemon": _daemon_dict(daemon_worker.read_daemon_status(life_dir)),
         }
     # Web project workers are finite unless they adopt a persisted campaign
     # that is explicitly both enabled and open-ended. Otherwise the dataclass's
@@ -263,27 +260,27 @@ def start_project_daemon(
     # including one started with the cockpit's Resume button.
     config.continuous_open_ended = False
     if resume_continuous:
-        continuous = _srv().read_continuous_state(life_dir)
+        continuous = daemon_worker.read_continuous_state(life_dir)
         if (
             not continuous.enabled
             and continuous.objective.strip()
             and continuous.done_reason.strip().lower().startswith("operator ")
         ):
-            _srv().write_continuous_config(
+            daemon_worker.write_continuous_config(
                 life_dir,
                 enabled=True,
                 objective=continuous.objective,
             )
-            continuous = _srv().read_continuous_state(life_dir)
+            continuous = daemon_worker.read_continuous_state(life_dir)
         if continuous.enabled:
             config.continuous_objective = continuous.objective
             config.resume_continuous = True
             config.continuous_open_ended = continuous.open_ended
-    daemon_limit = _srv()._max_active_daemons(config)
-    active_count = _srv()._active_daemon_count(config)
+    daemon_limit = _max_active_daemons(config)
+    active_count = _active_daemon_count(config)
     if daemon_limit > 0 and active_count >= daemon_limit:
         if reclaim_idle:
-            running = _srv().list_running_daemons(global_root=root, exclude_sid=sid)
+            running = list_running_daemons(global_root=root, exclude_sid=sid)
             idle = [
                 row for row in running
                 if int(row.get("unfinished_tasks") or 0) == 0
@@ -295,7 +292,7 @@ def start_project_daemon(
                     idle,
                     key=lambda row: float(row.get("last_active") or 0.0),
                 )
-                replaced = _srv().replace_project_daemon(
+                replaced = replace_project_daemon(
                     sid,
                     str(victim.get("id") or ""),
                     global_root=root,
@@ -312,18 +309,18 @@ def start_project_daemon(
                 active_count=active_count,
                 resume_continuous=resume_continuous,
             ),
-            "daemon": _daemon_dict(_srv().read_daemon_status(life_dir)),
+            "daemon": _daemon_dict(daemon_worker.read_daemon_status(life_dir)),
         }
     startup_diagnostic = ""
     startup_recovery_diagnostic = ""
     try:
-        rc = _srv().spawn_detached_daemon(config, quiet=True)
+        rc = daemon_worker.spawn_detached_daemon_clean(config, quiet=True)
         startup_diagnostic = config.last_spawn_error.strip()
         if _retryable_windows_spawn_failure(rc, startup_diagnostic):
             # The first launcher can finish just as its runtime publishes
             # status. Never create a second worker if that happened; otherwise
             # retry one known-transient Win32 sharing/lock failure exactly once.
-            after_first = _srv().read_daemon_status(life_dir)
+            after_first = daemon_worker.read_daemon_status(life_dir)
             if after_first.alive:
                 startup_recovery_diagnostic = startup_diagnostic
                 startup_diagnostic = ""
@@ -334,7 +331,7 @@ def start_project_daemon(
                     sid,
                     startup_diagnostic,
                 )
-                rc = _srv().spawn_detached_daemon(config, quiet=True)
+                rc = daemon_worker.spawn_detached_daemon_clean(config, quiet=True)
                 second_diagnostic = config.last_spawn_error.strip()
                 if rc == 0:
                     startup_recovery_diagnostic = startup_diagnostic
@@ -351,12 +348,12 @@ def start_project_daemon(
                 "Check the startup diagnostic and try again."
             ),
             "startup_diagnostic": f"{type(exc).__name__}: {exc}",
-            "daemon": _daemon_dict(_srv().read_daemon_status(life_dir)),
+            "daemon": _daemon_dict(daemon_worker.read_daemon_status(life_dir)),
         }
     result = {
         "rc": rc,
         "already_alive": False,
-        "daemon": _daemon_dict(_srv().read_daemon_status(life_dir)),
+        "daemon": _daemon_dict(daemon_worker.read_daemon_status(life_dir)),
     }
     if startup_diagnostic:
         result["startup_diagnostic"] = startup_diagnostic
@@ -385,7 +382,7 @@ def start_project_daemon(
         )
         return result
     if rc != 0:
-        active_count = _srv()._active_daemon_count(config)
+        active_count = _active_daemon_count(config)
         if daemon_limit > 0 and active_count >= daemon_limit:
             return {
                 **_admission_required(
@@ -395,7 +392,7 @@ def start_project_daemon(
                     active_count=active_count,
                     resume_continuous=resume_continuous,
                 ),
-                "daemon": _daemon_dict(_srv().read_daemon_status(life_dir)),
+                "daemon": _daemon_dict(daemon_worker.read_daemon_status(life_dir)),
             }
         result["error"] = (
             "The background worker could not start. "
@@ -482,22 +479,22 @@ def replace_project_daemon(
         return {"rc": 2, "error": "target and replacement victim are the same session"}
 
     with _DAEMON_REPLACEMENT_LOCK:
-        victim_status = _srv().read_daemon_status(victim_dir)
+        victim_status = daemon_worker.read_daemon_status(victim_dir)
         if not victim_status.alive:
             return {
                 "rc": 2,
                 "error": f"session {victim_sid} is no longer running; refresh the list",
             }
-        stop_rc = _srv().stop_daemon(victim_dir, timeout=2.0, force=True)
+        stop_rc = daemon_worker.stop_daemon(victim_dir, timeout=2.0, force=True)
         if stop_rc not in {0, 1}:
             return {
                 "rc": 2,
                 "error": f"could not park {victim_sid} (stop rc={stop_rc})",
             }
         deadline = time.monotonic() + 5.0
-        while _srv().read_daemon_status(victim_dir).alive and time.monotonic() < deadline:
+        while daemon_worker.read_daemon_status(victim_dir).alive and time.monotonic() < deadline:
             time.sleep(0.05)
-        if _srv().read_daemon_status(victim_dir).alive:
+        if daemon_worker.read_daemon_status(victim_dir).alive:
             return {
                 "rc": 2,
                 "error": f"session {victim_sid} did not release its daemon slot",
@@ -508,7 +505,7 @@ def replace_project_daemon(
             target_sid=sid,
             previous_pid=victim_status.pid,
         )
-        started = _srv().start_project_daemon(
+        started = start_project_daemon(
             sid,
             global_root=root,
             resume_continuous=resume_continuous,
@@ -605,7 +602,7 @@ def create_daemon(
         update_session_meta(root, sid, _finish_session, create=True)
         # Explicit objective → arm the self-directed campaign + start the daemon
         # now. The daemon hot-reloads continuous.json.
-        start_result = _srv().start_project_daemon(
+        start_result = start_project_daemon(
             sid,
             global_root=root,
             resume_continuous=True,
@@ -613,7 +610,7 @@ def create_daemon(
     # else: idle session — no continuous, no eager spawn. The Manager (via
     # /message) writes objectives and lazily spawns the executor when needed.
 
-    daemon = _daemon_dict(_srv().read_daemon_status(life_dir))
+    daemon = _daemon_dict(daemon_worker.read_daemon_status(life_dir))
     rc = int((start_result or {}).get("rc") or 0)
     response = {
         "sid": sid,
@@ -698,7 +695,7 @@ def set_project_workdir(
         try:
             meta = read_session_meta(root, sid)
             current = resolve_session_workdir(meta, state_dir=life_dir)
-            status = _srv().read_daemon_status(life_dir)
+            status = daemon_worker.read_daemon_status(life_dir)
             if status.alive:
                 if current == target:
                     return {"ok": True, "workdir": str(target), "unchanged": True}
@@ -706,7 +703,7 @@ def set_project_workdir(
                     "ok": False,
                     "error": "cannot change workdir while this daemon is running",
                 }
-            owner = _srv()._active_workspace_owner(config, target_workdir=target)
+            owner = _active_workspace_owner(config, target_workdir=target)
             if owner is not None:
                 return {
                     "ok": False,
@@ -771,7 +768,7 @@ def stop_project_daemon(
         from .manager_state import interrupt_manager_turns
 
         interrupt_manager_turns(sid, clear_continuous=False)
-    rc = _srv().stop_daemon(
+    rc = daemon_worker.stop_daemon(
         life_dir,
         timeout=1.0 if force else 10.0,
         drain=drain,

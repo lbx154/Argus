@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from argus.core.session import SessionMeta, write_session_meta
-from argus.webapi import server
+from argus.webapi import project_crud, project_state, server
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -123,13 +123,13 @@ def test_repeated_polls_reuse_one_scan(home: Path, monkeypatch: pytest.MonkeyPat
 
 def test_repeated_trash_polls_reuse_one_scan(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     scans: list[int] = []
-    original = server.list_trashed_projects
+    original = project_crud.list_trashed_projects
 
     def counting(*, global_root):  # noqa: ANN001
         scans.append(1)
         return original(global_root=global_root)
 
-    monkeypatch.setattr(server, "list_trashed_projects", counting)
+    monkeypatch.setattr(project_crud, 'list_trashed_projects', counting)
     client = TestClient(server.create_app(global_root=home))
 
     for _ in range(10):
@@ -142,13 +142,13 @@ def test_repeated_snapshot_polls_reuse_one_build(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     builds: list[int] = []
-    original = server.build_snapshot
+    original = project_state.build_snapshot
 
     def counting(*args, **kwargs):  # noqa: ANN002, ANN003
         builds.append(1)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(server, "build_snapshot", counting)
+    monkeypatch.setattr(project_state, 'build_snapshot', counting)
     client = TestClient(server.create_app(global_root=home))
 
     for _ in range(10):

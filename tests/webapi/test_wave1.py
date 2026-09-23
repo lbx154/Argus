@@ -16,13 +16,16 @@ from types import SimpleNamespace
 import pytest
 
 from argus.core.session import SessionMeta, read_session_meta, write_session_meta
+from argus.daemon import life_worker as daemon_worker
 from argus.life.memory import LifeMemory
 from argus.manager import config_intent, front_door
 from argus.webapi import (
     artifacts,
+    daemon_lifecycle,
     manager_bridge,
     manager_pending_question,
     manager_state,
+    project_crud,
     server,
 )
 
@@ -88,7 +91,7 @@ def test_create_daemon_separates_launch_cwd_from_execution_workdir(
 ) -> None:
     launch = tmp_path / "workspace"
     launch.mkdir()
-    created = server.create_daemon("", launch_cwd=str(launch), global_root=tmp_path)
+    created = daemon_lifecycle.create_daemon("", launch_cwd=str(launch), global_root=tmp_path)
     meta = read_session_meta(tmp_path, created["sid"])
     assert meta is not None
     assert meta.launch_cwd == str(launch.resolve())
@@ -102,7 +105,7 @@ def test_create_daemon_honours_explicit_execution_workdir(tmp_path: Path) -> Non
     launch.mkdir()
     workdir.mkdir()
 
-    created = server.create_daemon(
+    created = daemon_lifecycle.create_daemon(
         "",
         launch_cwd=str(launch),
         workdir=str(workdir),
@@ -131,13 +134,13 @@ def test_create_daemon_rejects_an_unavailable_workdir_before_command_submission(
 
 
 def test_launch_cwd_update_preserves_existing_session_name(tmp_path: Path) -> None:
-    created = server.create_daemon(name="Existing name", global_root=tmp_path)
+    created = daemon_lifecycle.create_daemon(name="Existing name", global_root=tmp_path)
     original = read_session_meta(tmp_path, created["sid"])
     assert original is not None
     launch = tmp_path / "new-workspace"
     launch.mkdir()
 
-    assert server.set_project_launch_cwd(
+    assert daemon_lifecycle.set_project_launch_cwd(
         created["sid"],
         str(launch),
         global_root=tmp_path,
@@ -151,11 +154,11 @@ def test_launch_cwd_update_preserves_existing_session_name(tmp_path: Path) -> No
 
 
 def test_workdir_update_preserves_state_root_and_session_name(tmp_path: Path) -> None:
-    created = server.create_daemon(name="Existing name", global_root=tmp_path)
+    created = daemon_lifecycle.create_daemon(name="Existing name", global_root=tmp_path)
     workspace = tmp_path / "new-workspace"
     workspace.mkdir()
 
-    result = server.set_project_workdir(
+    result = daemon_lifecycle.set_project_workdir(
         created["sid"],
         str(workspace),
         global_root=tmp_path,
@@ -177,7 +180,7 @@ def test_set_project_workdir_uses_pipeline_then_session_lock_order(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    created = server.create_daemon(global_root=tmp_path)
+    created = daemon_lifecycle.create_daemon(global_root=tmp_path)
     workspace = tmp_path / "ordered-workspace"
     workspace.mkdir()
     order: list[str] = []
@@ -201,7 +204,7 @@ def test_set_project_workdir_uses_pipeline_then_session_lock_order(
         session_lock,
     )
 
-    result = server.set_project_workdir(
+    result = daemon_lifecycle.set_project_workdir(
         created["sid"],
         str(workspace),
         global_root=tmp_path,
@@ -237,7 +240,7 @@ def test_set_project_workdir_claims_legacy_session(tmp_path: Path) -> None:
     life = _make_project(tmp_path, sid="s-legacy1")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    result = server.set_project_workdir(
+    result = daemon_lifecycle.set_project_workdir(
         "s-legacy1",
         str(workspace),
         global_root=tmp_path,
@@ -253,16 +256,16 @@ def test_set_project_workdir_rejects_live_daemon_change(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    created = server.create_daemon(global_root=tmp_path)
+    created = daemon_lifecycle.create_daemon(global_root=tmp_path)
     workspace = tmp_path / "new-workspace"
     workspace.mkdir()
     monkeypatch.setattr(
-        server,
-        "read_daemon_status",
+        daemon_worker,
+        'read_daemon_status',
         lambda _path: SimpleNamespace(alive=True, pid=123),
     )
 
-    result = server.set_project_workdir(
+    result = daemon_lifecycle.set_project_workdir(
         created["sid"],
         str(workspace),
         global_root=tmp_path,
@@ -280,18 +283,18 @@ def test_set_project_workdir_allows_live_idempotent_rebind(
 ) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    created = server.create_daemon(
+    created = daemon_lifecycle.create_daemon(
         launch_cwd=str(workspace),
         workdir=str(workspace),
         global_root=tmp_path,
     )
     monkeypatch.setattr(
-        server,
-        "read_daemon_status",
+        daemon_worker,
+        'read_daemon_status',
         lambda _path: SimpleNamespace(alive=True, pid=123),
     )
 
-    result = server.set_project_workdir(
+    result = daemon_lifecycle.set_project_workdir(
         created["sid"],
         str(workspace),
         global_root=tmp_path,
@@ -310,10 +313,10 @@ def test_set_project_workdir_rejects_workspace_owned_by_other_daemon(
 ) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    created = server.create_daemon(global_root=tmp_path)
+    created = daemon_lifecycle.create_daemon(global_root=tmp_path)
     monkeypatch.setattr(
-        server,
-        "_active_workspace_owner",
+        daemon_lifecycle,
+        '_active_workspace_owner',
         lambda *_args, **_kwargs: {
             "sid": "s-other",
             "pid": 456,
@@ -321,7 +324,7 @@ def test_set_project_workdir_rejects_workspace_owned_by_other_daemon(
         },
     )
 
-    result = server.set_project_workdir(
+    result = daemon_lifecycle.set_project_workdir(
         created["sid"],
         str(workspace),
         global_root=tmp_path,
@@ -442,7 +445,7 @@ def test_project_picker_uses_campaign_objective_before_greeting(
     monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
     monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
     assert (
-        server.set_continuous(
+        project_crud.set_continuous(
             sid,
             enabled=True,
             objective="Write the CO2 paper",

@@ -25,7 +25,7 @@ def endpoints(root):
         resolve_or_404=lambda sid: root,
         daemon_services=SimpleNamespace(start=lambda *args, **kwargs: starts.append(True)),
     )
-    manager_routes.register_manager_routes(app, context, SimpleNamespace())
+    manager_routes.register_manager_routes(app, context)
     message = next(route.endpoint for route in app.routes if getattr(route, "path", "") == "/api/projects/{sid}/message")
     cancel = next(route.endpoint for route in app.routes if getattr(route, "path", "") == "/api/projects/{sid}/message/cancel")
     return message, cancel, starts

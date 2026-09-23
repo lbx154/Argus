@@ -15,7 +15,7 @@ from fastapi import Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from ...manager.front_door import ManagerHandoffError, ManagerHandoffSupersededError
-from .. import mission_items
+from .. import manager_pending_question, mission_items
 from .context import ServerContext
 from .models import (
     AbortMissionIn,
@@ -30,7 +30,7 @@ from .models import (
 )
 
 
-def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
+def register_workitem_routes(app, ctx: ServerContext) -> None:
     @app.post("/api/projects/{sid}/tasks", dependencies=[Depends(ctx.require_auth)])
     async def _post_task(sid: str, body: TaskIn) -> dict[str, Any]:
         if not body.text.strip():
@@ -94,7 +94,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
             raise HTTPException(status_code=400, detail="empty answer")
         project_root = ctx.project_root_or_404(sid)
         result = await run_in_threadpool(
-            server_mod.answer_pending_question,
+            manager_pending_question.manager_answer_pending_question,
             sid,
             item_id,
             body.text,
@@ -124,7 +124,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
     ) -> dict[str, Any]:
         project_root = ctx.project_root_or_404(sid)
         result = await run_in_threadpool(
-            server_mod.resolve_operator_decision,
+            manager_pending_question.manager_resolve_operator_decision,
             sid,
             decision_id,
             body.option_id,

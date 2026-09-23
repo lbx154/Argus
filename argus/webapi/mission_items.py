@@ -1,8 +1,4 @@
-"""Work-item queueing, config, and read-only diagnostic queries.
-
-Extracted from ``server.py`` as part of a behavior-preserving decomposition.
-Public names remain re-exported from ``server`` for backward compatibility.
-"""
+"""Work-item queueing, configuration, and read-only diagnostic queries."""
 
 from __future__ import annotations
 

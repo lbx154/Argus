@@ -11,6 +11,7 @@ from argus.trial import journey_journal as journal_module
 from argus.trial.analytics import Analytics, AnalyticsError
 from argus.trial.interaction_capture import Capture
 from argus.trial.journey_journal import Journal
+from argus.webapi import daemon_lifecycle
 
 
 @pytest.fixture
@@ -709,7 +710,7 @@ def test_real_message_http_contract_links_input_response_and_runtime(setup, monk
     task = BacklogItem.new(title="Synthetic task", objective="Make a plot", item_id="task-http-contract")
     result = {"kind": "task", "reply": None, "item": _item_to_dict(task, "Synthetic task")}
     monkeypatch.setattr(manager_bridge, "manager_message", lambda *args, **kwargs: dict(result))
-    monkeypatch.setattr(server, "start_project_daemon", lambda *args, **kwargs: {"alive": True})
+    monkeypatch.setattr(daemon_lifecycle, 'start_project_daemon', lambda *args, **kwargs: {"alive": True})
     monkeypatch.setattr(manager_pending_question, "record_task_dispatch_ack", lambda *args, **kwargs: None)
     route = "/api/projects/s-project/message" + ("/stream" if stream else "")
     captured = Capture(analytics, "tenant-one", "s-project", route, {"text": "Make a plot"})

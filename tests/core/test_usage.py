@@ -21,7 +21,7 @@ from argus.core.usage import (
 )
 from argus.life.supervisor import global_daily_spend
 from argus.life.supervisor._cost import _CostTrackingSink
-from argus.webapi.server import _settled_spend
+from argus.webapi.project_state import settled_spend as _settled_spend
 
 
 class _Sink:

@@ -1,99 +1,36 @@
-"""``argus`` web/TUI backend API — thin FastAPI layer over the daemon.
+"""FastAPI application, event streaming, and HTTP middleware for Web and TUI.
 
-The 7×24 daemon is a file-based pub/sub: it appends events to
-``<life_dir>/events.jsonl`` and reads commands from ``backlog.jsonl`` /
-``inbox.jsonl``. Both new frontends — the Ink terminal UI (``frontend/tui/``)
-and the React web UI (``frontend/web/``) — are **clients of this one API**, so
-neither reimplements backend logic.
-
-Design rules (keep this layer dumb):
-- Read-only project aggregation lives in :mod:`.project_state`; this module
-  re-exports its stable API for compatibility.
-- Every endpoint DELEGATES to an existing ``argus`` function. This module
-  never parses event semantics or backlog schemas itself — it forwards dicts and
-  calls the reused helpers (``list_sessions``, ``read_daemon_status``,
-  ``role_activity``, ``resolve_all_roles``, ``_read_recent_jsonl_events``,
-  ``LifeMemory.backlog``).
-- Defaults to a ``127.0.0.1`` bind — unlike ``tools/dashboard.py`` which binds
-  ``0.0.0.0`` with no auth. Expose to a LAN only via an explicit ``--web-host``.
-- ``fastapi`` / ``uvicorn`` are the optional ``[web]`` extra; import them lazily
-  inside :func:`create_app` / :func:`serve` so importing this module never
-  hard-requires them.
-
-M0 scope: ``GET /api/projects``, ``GET /api/projects/{sid}/snapshot``,
-``GET /api/projects/{sid}/events``, ``WS /api/projects/{sid}/stream``.
-Command POSTs (task/nudge/daemon start-stop/config) land in M1.
+Routes call their owning services directly. The daemon owns persistent work;
+closing a browser or terminal connection does not stop it.
 """
 
-# NB: deliberately NO ``from __future__ import annotations`` here — the nested
-# FastAPI route handlers in create_app() annotate params with the locally-
-# imported ``WebSocket``/``Query`` types, and stringized annotations would make
-# FastAPI fail to resolve them (it reads annotations against module globals,
-# where the lazily-imported fastapi symbols do not live). Runtime ``X | None``
-# unions are fine on the required Python >=3.11.
 
 import asyncio
 import logging
 import os
 import queue
 import re
-import threading  # noqa: F401 - used via server.threading in tests/webapi/test_commands_m1.py
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 from ..apps.cli._follow import (
     _merge_recent_event_rows,
-    _read_recent_project_events,  # noqa: F401 - used via server_mod._read_recent_project_events in webapi/routes/projects.py
 )
 from ..core.event_catalog import EventType, canonical_event_type
 from ..core.metrics import (
     http_route_template,
-    metrics_snapshot,  # noqa: F401 - used via server_mod.metrics_snapshot in webapi/routes/meta.py
     record_metric,
-    render_prometheus,  # noqa: F401 - used via server_mod.render_prometheus in webapi/routes/meta.py
 )
-from ..core.runtime_identity import (
-    runtime_identity,  # noqa: F401 - monkeypatched via server.runtime_identity; read by daemon_upgrade._srv()
+from ..daemon import life_worker as daemon_worker
+from . import (
+    daemon_lifecycle,
+    daemon_upgrade,
+    project_crud,
+    project_state,
 )
-from ..daemon.commands import (
-    DaemonCommandReceipt,
-    daemon_command_execution_lock,  # noqa: F401 - monkeypatched via server.daemon_command_execution_lock; read by daemon_upgrade._srv()
-    execute_daemon_command,  # noqa: F401 - used via server_mod.execute_daemon_command in webapi/routes/daemon.py
-)
-from ..daemon.life_worker import (
-    DaemonStatus,
-    _active_daemon_count,  # noqa: F401 - monkeypatched via server._active_daemon_count; read by daemon_lifecycle._srv()
-    _active_workspace_owner,  # noqa: F401 - monkeypatched via server._active_workspace_owner; read by daemon_lifecycle._srv()
-    _max_active_daemons,  # noqa: F401 - monkeypatched via server._max_active_daemons; read by daemon_lifecycle._srv()
-    read_continuous_state,  # noqa: F401 - used via server.read_continuous_state in tests/webapi/test_commands_m1.py
-    read_daemon_status,  # also retained for daemon_lifecycle/daemon_upgrade compatibility
-    stop_daemon,  # noqa: F401 - monkeypatched via server.stop_daemon; read by daemon_lifecycle/daemon_upgrade._srv()
-    write_continuous_config,  # noqa: F401 - compatibility export
-)
-from ..daemon.life_worker import (
-    spawn_detached_daemon_clean as spawn_detached_daemon,  # noqa: F401 - monkeypatched via server.spawn_detached_daemon; read by daemon_lifecycle._srv()
-)
-from ..daemon.protocol import (
-    daemon_protocol_compatibility,  # noqa: F401 - monkeypatched via server.daemon_protocol_compatibility; read by daemon_upgrade._srv()
-    daemon_runtime_owned_by_current_source,  # noqa: F401 - monkeypatched via server.daemon_runtime_owned_by_current_source; read by daemon_upgrade._srv()
-)
-from ..life.memory import (
-    _read_jsonl_tail_history,  # noqa: F401 - used via server_mod._read_jsonl_tail_history in webapi/routes/projects.py
-)
-from ..manager.front_door import (
-    ManagerHandoffError,  # noqa: F401 - used via server_mod.ManagerHandoffError in webapi/routes/{daemon,workitems}.py
-    ManagerHandoffSupersededError,  # noqa: F401 - used via server_mod.ManagerHandoffSupersededError in webapi/routes/{daemon,workitems}.py
-)
-from . import artifacts, project_state
-from .counterexample_dashboard import (  # noqa: F401 - route delegation export
-    build_counterexample_dashboard,
-)
+from .daemon_services import DaemonServices
 from .protocol import build_api_meta, protocol_header
-from .source_update import (  # noqa: F401 - used by routes/meta.py through server_mod
-    read_source_update_status,
-    start_source_update,
-)
 
 log = logging.getLogger(__name__)
 
@@ -135,64 +72,7 @@ def _uvicorn_log_config(uvicorn_module: Any) -> dict[str, Any]:
     return config
 
 
-_global_root = project_state.resolve_global_root
-_settled_spend = project_state.settled_spend
-build_snapshot = project_state.build_snapshot
-list_projects = project_state.list_projects
-list_project_costs = project_state.list_project_costs
-project_life_dir = project_state.project_life_dir
-_artifact_metadata = artifacts.artifact_metadata
-_manager_live_view_files = artifacts.manager_live_view_files
-_project_git_diff = artifacts.project_git_diff
-_project_workspace = artifacts.project_workspace
-_resolved_project_artifact = artifacts.resolved_project_artifact
-_safe_artifact_path = artifacts.safe_artifact_path
-get_project_artifact = artifacts.get_project_artifact
-list_project_artifacts = artifacts.list_project_artifacts
-
-__all__ = [
-    "DaemonStatus",
-    "create_app",
-    "serve",
-    "project_life_dir",
-    "build_snapshot",
-    "list_projects",
-    "list_project_costs",
-    "enqueue_task",
-    "enqueue_nudge",
-    "answer_pending_question",
-    "start_project_daemon",
-    "stop_project_daemon",
-    "replace_project_daemon",
-    "list_running_daemons",
-    "update_project",
-    "delete_project",
-    "list_trashed_projects",
-    "restore_trashed_project",
-    "upgrade_project_daemon",
-    "schedule_project_daemon_upgrade",
-    "set_project_workdir",
-    "set_continuous",
-    "get_status",
-    "get_journal",
-    "add_project_note",
-    "abort_project_mission",
-    "dispose_backlog",
-    "stop_backlog_iteration",
-    "get_doctor",
-    "get_config",
-    "get_identity",
-    "get_transcript",
-    "get_backlog_item",
-    "set_operator_config",
-    "set_identity",
-    "run_skill_command",
-    "read_source_update_status",
-    "start_source_update",
-    "build_counterexample_dashboard",
-    "list_project_artifacts",
-    "get_project_artifact",
-]
+__all__ = ["create_app", "serve", "tail_events"]
 
 EVENT_FILE = "events.jsonl"
 _WEB_UI_DROPPED_EVENT_TYPES = frozenset(
@@ -230,24 +110,8 @@ def _web_cache_control(path: str) -> str:
     return ""
 
 
-def _command_response(receipt: DaemonCommandReceipt) -> dict[str, Any]:
-    result = dict(receipt.result)
-    if receipt.status in {"failed", "rejected"}:
-        result.setdefault("rc", 3)
-        result.setdefault("error", receipt.error)
-    result.update(
-        {
-            "command_id": receipt.command_id,
-            "command_status": receipt.status,
-            "command_revision": receipt.revision,
-            "command": receipt.to_jsonable(),
-        }
-    )
-    return result
-
-
 # ---------------------------------------------------------------------------
-# Pure helpers (no FastAPI import — unit-testable without the [web] extra)
+# Event streaming helpers
 # ---------------------------------------------------------------------------
 
 
@@ -306,75 +170,6 @@ def _iter_manager_stream_items(
         if item.get("type") == "phase" and not item.get("heartbeat"):
             active_role = str(item.get("role") or "manager").strip().lower()
         yield item
-
-
-# ---------------------------------------------------------------------------
-# Command helpers (write side) — all go through the SAME reused functions the
-# CLI uses, so the flock CAS / atomic writes are shared. Never write the
-# backlog/inbox files directly. Each returns None if the project is unknown.
-# ---------------------------------------------------------------------------
-
-from . import (
-    daemon_lifecycle,
-    daemon_upgrade,
-    manager_pending_question,
-    mission_items,
-    project_crud,
-)
-from .daemon_services import DaemonServices
-
-_SCHEDULED_DAEMON_UPGRADES = daemon_upgrade._SCHEDULED_DAEMON_UPGRADES
-_SCHEDULED_DAEMON_UPGRADES_LOCK = daemon_upgrade._SCHEDULED_DAEMON_UPGRADES_LOCK
-_worker_config_from_env = daemon_lifecycle._worker_config_from_env
-list_running_daemons = daemon_lifecycle.list_running_daemons
-_admission_required = daemon_lifecycle._admission_required
-_clear_daemon_admission = daemon_lifecycle._clear_daemon_admission
-start_project_daemon = daemon_lifecycle.start_project_daemon
-_write_parked_state = daemon_lifecycle._write_parked_state
-replace_project_daemon = daemon_lifecycle.replace_project_daemon
-create_daemon = daemon_lifecycle.create_daemon
-set_project_launch_cwd = daemon_lifecycle.set_project_launch_cwd
-set_project_workdir = daemon_lifecycle.set_project_workdir
-stop_project_daemon = daemon_lifecycle.stop_project_daemon
-upgrade_project_daemon = daemon_upgrade.upgrade_project_daemon
-
-_daemon_upgrade_request_path = daemon_upgrade._daemon_upgrade_request_path
-_read_daemon_upgrade_request = daemon_upgrade._read_daemon_upgrade_request
-_write_daemon_upgrade_request = daemon_upgrade._write_daemon_upgrade_request
-_upgrade_request_matches_current_source = daemon_upgrade._upgrade_request_matches_current_source
-_record_daemon_upgrade_error = daemon_upgrade._record_daemon_upgrade_error
-_complete_scheduled_daemon_upgrade = daemon_upgrade._complete_scheduled_daemon_upgrade
-schedule_project_daemon_upgrade = daemon_upgrade.schedule_project_daemon_upgrade
-reconcile_pending_daemon_upgrades = daemon_upgrade.reconcile_pending_daemon_upgrades
-
-update_project = project_crud.update_project
-delete_project = project_crud.delete_project
-list_trashed_projects = project_crud.list_trashed_projects
-restore_trashed_project = project_crud.restore_trashed_project
-set_continuous = project_crud.set_continuous
-
-_enqueue_task_unlocked = mission_items._enqueue_task_unlocked
-enqueue_task = mission_items.enqueue_task
-enqueue_task_command = mission_items.enqueue_task_command
-enqueue_nudge = mission_items.enqueue_nudge
-answer_pending_question = manager_pending_question.manager_answer_pending_question
-resolve_operator_decision = manager_pending_question.manager_resolve_operator_decision
-get_status = mission_items.get_status
-get_journal = mission_items.get_journal
-add_project_note = mission_items.add_project_note
-get_backlog_item = mission_items.get_backlog_item
-abort_project_mission = mission_items.abort_project_mission
-dispose_backlog = mission_items.dispose_backlog
-stop_backlog_iteration = mission_items.stop_backlog_iteration
-_daemon_log_tail = mission_items._daemon_log_tail
-get_doctor = mission_items.get_doctor
-get_config = mission_items.get_config
-get_identity = mission_items.get_identity
-set_operator_config = mission_items.set_operator_config
-set_budget_config = mission_items.set_budget_config
-set_identity = mission_items.set_identity
-run_skill_command = mission_items.run_skill_command
-get_transcript = mission_items.get_transcript
 
 
 def _hides_inner_monologue() -> bool:
@@ -458,11 +253,10 @@ def create_app(
     from starlette.middleware.gzip import GZipMiddleware
     from starlette.responses import JSONResponse
 
-    from . import server as server_mod
     from .index_cache import CacheWaitTimeout, QueryExecutor, QueryUnavailable
 
     token = auth_token if auth_token is not None else os.environ.get("ARGUS_SKILL_WEB_TOKEN")
-    primary_root = _global_root(global_root).expanduser().resolve()
+    primary_root = project_state.resolve_global_root(global_root).expanduser().resolve()
     roots: list[Path] = [primary_root]
     if session_roots is not None:
         candidates = [Path(root).expanduser() for root in session_roots]
@@ -513,7 +307,7 @@ def create_app(
             response = await call_next(request)
         except Exception:
             record_metric(
-                _global_root(global_root),
+                project_state.resolve_global_root(global_root),
                 "web.request",
                 labels={
                     "method": request.method,
@@ -524,7 +318,7 @@ def create_app(
             )
             raise
         record_metric(
-            _global_root(global_root),
+            project_state.resolve_global_root(global_root),
             "web.request",
             labels={
                 "method": request.method,
@@ -554,7 +348,7 @@ def create_app(
 
     @app.on_event("startup")
     def _resume_pending_daemon_upgrades() -> None:
-        reconcile_pending_daemon_upgrades(roots)
+        daemon_upgrade.reconcile_pending_daemon_upgrades(roots)
         # Prime host-wide cost/usage projections before the first compact
         # snapshot. Otherwise a completed inline Manager call can momentarily
         # show project spend while global spend incorrectly appears empty.
@@ -623,14 +417,14 @@ def create_app(
         token=token,
         roots=roots,
         api_meta=api_meta,
-        list_projects=list_projects,
-        list_project_costs=list_project_costs,
-        list_trashed_projects=list_trashed_projects,
-        project_life_dir=project_life_dir,
+        list_projects=project_state.list_projects,
+        list_project_costs=project_state.list_project_costs,
+        list_trashed_projects=project_crud.list_trashed_projects,
+        project_life_dir=project_state.project_life_dir,
         daemon_services=(
             daemon_services if daemon_services is not None else DaemonServices(
-                read_status=read_daemon_status,
-                start=start_project_daemon,
+                read_status=daemon_worker.read_daemon_status,
+                start=daemon_lifecycle.start_project_daemon,
             )
         ),
         query_executor=QueryExecutor(query_limits),
@@ -650,20 +444,18 @@ def create_app(
     # config/diagnostics (meta, metrics, per-project config/identity/doctor,
     # operator config/budget/identity/reset/skills). Registrars share this
     # app's auth/root helpers and narrow daemon services through ``ctx``.
-    # Project/work-item operations call their owning modules directly. The
-    # remaining legacy services still receive the server compatibility facade.
-    register_project_routes(app, ctx, server_mod)
-    register_workitem_routes(app, ctx, server_mod)
-    register_counterexample_routes(app, ctx, server_mod)
-    register_daemon_routes(app, ctx, server_mod)
-    register_artifact_routes(app, ctx, server_mod)
+    register_project_routes(app, ctx)
+    register_workitem_routes(app, ctx)
+    register_counterexample_routes(app, ctx)
+    register_daemon_routes(app, ctx)
+    register_artifact_routes(app, ctx)
     from .routes.reader_foundation import register_reader_foundation_routes
 
     register_reader_foundation_routes(app, ctx)
-    register_manager_routes(app, ctx, server_mod)
-    register_meta_routes(app, ctx, server_mod)
+    register_manager_routes(app, ctx)
+    register_meta_routes(app, ctx)
     register_advisor_routes(app, ctx)
-    register_workspace_v2_routes(app, ctx, server_mod)
+    register_workspace_v2_routes(app, ctx)
     from .routes.map_datasets import register_map_dataset_routes
 
     register_map_dataset_routes(app, ctx)

@@ -1,22 +1,9 @@
-"""Shared per-request helpers threaded into every route domain registrar.
-
-``ServerContext`` bundles the small pool of closures that ``create_app`` used
-to define inline (auth check, project-root resolution, machine-wide project
-listing) so each domain module gets identical behavior without duplicating
-it. Built once per ``create_app`` call and passed by reference — cheap and
-side-effect free to construct.
-
-This module imports ``fastapi`` at module scope. That is safe here because it
-is only ever imported lazily, from inside ``create_app`` (see
-:mod:`argus.webapi.server`), well after FastAPI has already been
-imported there — never from top-level package/module import, so the optional
-``[web]`` extra contract is preserved.
-"""
+"""Per-app authentication, root resolution, caches, and query services."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from fastapi import Header, HTTPException
 
@@ -52,31 +39,8 @@ class ServerContext:
         self._list_project_costs = list_project_costs
         self._list_trashed_projects = list_trashed_projects
         self._project_life_dir = project_life_dir
-        self._index_cache = IndexCache()
-        self._snapshot_cache = IndexCache(ttl_seconds=resolve_snapshot_ttl_seconds())
-
-    @property
-    def index_cache(self) -> IndexCache:
-        """Coalescing cache for the whole-home listings the cockpit polls.
-
-        Real app contexts build this eagerly so concurrent first requests
-        cannot race into separate caches. The fallback keeps listing helpers
-        usable from lightweight test subclasses that predate this shared state.
-        """
-        cache = getattr(self, "_index_cache", None)
-        if cache is None:
-            cache = IndexCache()
-            self._index_cache = cache
-        return cache
-
-    @property
-    def snapshot_cache(self) -> IndexCache:
-        """Coalescing cache for expensive per-session cockpit snapshots."""
-        cache = getattr(self, "_snapshot_cache", None)
-        if cache is None:
-            cache = IndexCache(ttl_seconds=resolve_snapshot_ttl_seconds())
-            self._snapshot_cache = cache
-        return cache
+        self.index_cache = IndexCache()
+        self.snapshot_cache = IndexCache(ttl_seconds=resolve_snapshot_ttl_seconds())
 
     def invalidate_read_caches(self) -> None:
         """Detach cached and in-flight reads after a successful mutation."""
@@ -150,41 +114,19 @@ class ServerContext:
         limit: int,
         include_empty: bool,
     ) -> list[dict[str, Any]]:
-        projects: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for root in self.roots:
-            try:
-                root_session_ids = {
-                    path.name
-                    for path in core_paths.session_states_root(root).iterdir()
-                    if path.is_dir()
-                }
-            except OSError:
-                root_session_ids = set()
-            root_limit = limit + len(seen.intersection(root_session_ids))
-            for project in self._list_projects(
-                global_root=root,
-                limit=root_limit,
-                include_empty=include_empty,
+        projects = []
+        for root, project in self._project_rows(
+            self._list_projects, limit=limit, include_empty=include_empty,
+        ):
+            # Hide metadata-free legacy directories unless their daemon is live.
+            sid = str(project["id"])
+            if (
+                not sid.startswith("s-")
+                and not (core_paths.session_state_root(sid, root=root) / "session.json").is_file()
+                and not bool(project.get("daemon_alive"))
             ):
-                sid = str(project.get("id") or "")
-                if not sid or sid in seen:
-                    continue
-                # The sidebar lists sessions with stable metadata. Keep a
-                # metadata-free entry only while its daemon is live, because
-                # hiding active work would also hide its stop controls.
-                if (
-                    not sid.startswith("s-")
-                    and not (
-                        core_paths.session_state_root(sid, root=root) / "session.json"
-                    ).is_file()
-                    and not bool(project.get("daemon_alive"))
-                ):
-                    continue
-                projects.append(project)
-            # Routing uses the first root containing an ID, so reserve every ID
-            # from that root even when its session is empty or outside `limit`.
-            seen.update(root_session_ids)
+                continue
+            projects.append(project)
         projects.sort(
             key=lambda project: float(project.get("last_active") or 0.0),
             reverse=True,
@@ -205,29 +147,34 @@ class ServerContext:
         )
 
     def _machine_project_costs_uncached(self, *, limit: int) -> list[dict[str, Any]]:
-        costs: list[dict[str, Any]] = []
+        return [
+            row for _root, row in self._project_rows(
+                self._list_project_costs, limit=limit, include_empty=False,
+            )
+        ][:limit]
+
+    def _project_rows(
+        self, read: Callable[..., list[dict[str, Any]]], *, limit: int, include_empty: bool,
+    ) -> Iterator[tuple[Path, dict[str, Any]]]:
+        """Apply the same first-root ownership rule to project and cost lists."""
         seen: set[str] = set()
         for root in self.roots:
             try:
-                root_session_ids = {
-                    path.name
-                    for path in core_paths.session_states_root(root).iterdir()
+                root_ids = {
+                    path.name for path in core_paths.session_states_root(root).iterdir()
                     if path.is_dir()
                 }
             except OSError:
-                root_session_ids = set()
-            root_limit = limit + len(seen.intersection(root_session_ids))
-            for row in self._list_project_costs(
-                global_root=root,
-                limit=root_limit,
-                include_empty=False,
+                root_ids = set()
+            for row in read(
+                global_root=root, limit=limit + len(seen.intersection(root_ids)),
+                include_empty=include_empty,
             ):
                 sid = str(row.get("id") or "")
-                if not sid or sid in seen:
-                    continue
-                costs.append(row)
-            seen.update(root_session_ids)
-        return costs[:limit]
+                if sid and sid not in seen:
+                    yield root, row
+            # Reserve even empty/limited-out sessions: routing also picks the first root.
+            seen.update(root_ids)
 
     def machine_trash(self) -> list[dict[str, Any]]:
         return self.index_cache.get(

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi.mission_items import abort_project_mission
 from argus.webapi.protocol import API_CAPABILITIES
-from argus.webapi.server import abort_project_mission
 
 
 def test_abort_endpoint_helper_targets_running_item(tmp_path) -> None:

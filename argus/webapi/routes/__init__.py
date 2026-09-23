@@ -1,10 +1,4 @@
-"""Per-domain FastAPI route registrars used by :func:`argus.webapi.server.create_app`.
+"""HTTP route registrars accept the app and its ServerContext.
 
-Each sibling module exposes a single ``register_*_routes(app, ctx, server_mod)``
-function that attaches one API domain's endpoints to the app. This package is
-only ever imported lazily from inside ``create_app`` (after FastAPI has
-already been imported there), so its modules are free to import ``fastapi`` /
-``pydantic`` at module scope without breaking the optional ``[web]`` extra
-contract described in :mod:`argus.webapi.server` — importing this
-package itself (with no submodule touched) stays free of that requirement.
-"""
+Routes call the owning service modules directly; daemon services and query
+workers remain isolated in the context constructed by create_app."""

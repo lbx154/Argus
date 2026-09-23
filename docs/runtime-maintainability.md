@@ -22,6 +22,13 @@ CLI adapter 在构造时直接导入仓库内的 `AgentCliRunner`，使用真实
 使用的兼容入口。任务完成时，`_CostTrackingSink.completion_usage()` 一次读取账本，
 同时生成总量与角色明细；完成事件复用该结果，避免分别读取字段时混入后来的记账。
 
+Web API 路由只接收 `app` 和 `ServerContext`，直接调用 `daemon_lifecycle`、
+`daemon_upgrade`、`mission_items`、`project_crud`、`project_state` 等实现模块。
+`server.py` 保留 app 构建、运行入口和事件流；原先从 server 转出的业务函数改从
+所属模块导入。包级 `argus.webapi.build_snapshot` 和 `project_life_dir` 入口保留。
+命令 ID、版本校验和收据通过 daemon 路由内的同一个执行入口处理；多根目录的项目
+列表与费用列表共用目录归属规则，缓存和 daemon 服务仍由各 app 独立持有。
+
 ## 阅读入口
 
 ```mermaid

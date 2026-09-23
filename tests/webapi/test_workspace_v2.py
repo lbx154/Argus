@@ -10,7 +10,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from argus.webapi import server
+from argus.webapi import daemon_lifecycle, server
 from argus.webapi.routes.workspace_v2 import _git, _open_confined_file, _workspace_profiles
 
 
@@ -227,7 +227,7 @@ def test_final_review_uses_existing_request_id_without_content_hashes(
     manuscript.parent.mkdir(parents=True)
     manuscript.write_text("# Manuscript\n", encoding="utf-8")
     state = tmp_path / "state"
-    created = server.create_daemon(workdir=str(workspace), global_root=state)
+    created = daemon_lifecycle.create_daemon(workdir=str(workspace), global_root=state)
     sid = created["sid"]
     monkeypatch.setattr(
         "argus.webapi.mission_items.enqueue_task_command",

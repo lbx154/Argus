@@ -1,14 +1,4 @@
-"""config/diagnostics API domain: ``/api/meta``, metrics, per-project config,
-identity, doctor, and the operator config/budget/identity/reset/skills
-command endpoints.
-
-Registered by :func:`argus.webapi.server.create_app`. Every handler
-below is a straight extraction of the corresponding nested function that used
-to live inside ``create_app`` — bodies are unchanged; only the enclosing
-scope moved from a closure over ``create_app`` locals to parameters passed
-in explicitly (``ctx`` for shared auth/root helpers, ``server_mod`` for the
-module-level functions ``create_app`` re-exports/defines).
-"""
+"""HTTP configuration, metrics, identity, diagnostics, and operator settings."""
 
 from __future__ import annotations
 
@@ -19,6 +9,8 @@ from typing import Any
 
 from fastapi import Depends, Header, HTTPException, Request, Response
 
+from ...core import metrics
+from .. import mission_items, project_state, source_update
 from .context import ServerContext
 from .models import BudgetSetIn, ConfigSetIn, CostAcknowledgeIn, IdentitySetIn, SkillsIn
 
@@ -88,7 +80,7 @@ def _resource_status_payload(snapshot: dict[str, Any], *, now: float) -> dict[st
     })
 
 
-def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
+def register_meta_routes(app, ctx: ServerContext) -> None:
     token = ctx.token
     api_meta = ctx.api_meta
 
@@ -122,13 +114,13 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
 
     @app.get("/api/metrics", dependencies=[Depends(ctx.require_auth)])
     def _metrics() -> dict[str, Any]:
-        return server_mod.metrics_snapshot(root=server_mod._global_root(ctx.global_root))
+        return metrics.metrics_snapshot(root=project_state.resolve_global_root(ctx.global_root))
 
     @app.get("/metrics", dependencies=[Depends(ctx.require_auth)])
     def _prometheus_metrics() -> Response:
-        snapshot = server_mod.metrics_snapshot(root=server_mod._global_root(ctx.global_root))
+        snapshot = metrics.metrics_snapshot(root=project_state.resolve_global_root(ctx.global_root))
         return Response(
-            server_mod.render_prometheus(snapshot),
+            metrics.render_prometheus(snapshot),
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
 
@@ -137,7 +129,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         dependencies=[Depends(ctx.require_auth)],
     )
     def _config(sid: str) -> dict[str, Any]:
-        return server_mod.get_config(
+        return mission_items.get_config(
             project_state_dir=ctx.resolve_or_404(sid),
             global_root=ctx.project_root_or_404(sid),
         )
@@ -149,7 +141,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
     def _identity(sid: str) -> dict[str, Any]:
         return {
             "identity": ctx.not_found_if_none(
-                server_mod.get_identity(sid, global_root=ctx.project_root_or_404(sid)), sid
+                mission_items.get_identity(sid, global_root=ctx.project_root_or_404(sid)), sid
             )
         }
 
@@ -159,7 +151,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
     )
     def _doctor(sid: str) -> dict[str, Any]:
         return ctx.not_found_if_none(
-            server_mod.get_doctor(sid, global_root=ctx.project_root_or_404(sid)), sid
+            mission_items.get_doctor(sid, global_root=ctx.project_root_or_404(sid)), sid
         )
 
     @app.get("/api/system/doctor", dependencies=[Depends(ctx.require_auth)])
@@ -171,7 +163,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         from ...core.runtime_identity import source_root
         from ...maintenance.doctor import DoctorContext, run_full_doctor
 
-        root = server_mod._global_root(ctx.global_root)
+        root = project_state.resolve_global_root(ctx.global_root)
         source = source_root()
         checkout = source if (source / "pyproject.toml").is_file() else None
         web_host, web_port = request.scope["server"]
@@ -195,8 +187,8 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
 
     @app.get("/api/runtime/source-update", dependencies=[Depends(ctx.require_auth)])
     def _source_update_status() -> dict[str, Any]:
-        return server_mod.read_source_update_status(
-            server_mod._global_root(ctx.global_root)
+        return source_update.read_source_update_status(
+            project_state.resolve_global_root(ctx.global_root)
         )
 
     @app.post(
@@ -204,8 +196,8 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         dependencies=[Depends(ctx.require_auth)],
     )
     def _source_update_check() -> dict[str, Any]:
-        return server_mod.start_source_update(
-            server_mod._global_root(ctx.global_root),
+        return source_update.start_source_update(
+            project_state.resolve_global_root(ctx.global_root),
             action="check",
         )
 
@@ -214,8 +206,8 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         dependencies=[Depends(ctx.require_auth)],
     )
     def _source_update_apply() -> dict[str, Any]:
-        return server_mod.start_source_update(
-            server_mod._global_root(ctx.global_root),
+        return source_update.start_source_update(
+            project_state.resolve_global_root(ctx.global_root),
             action="apply",
         )
 
@@ -231,7 +223,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         project_state_dir = ctx.resolve_or_404(sid)
         root = ctx.project_root_or_404(sid)
         try:
-            return server_mod.set_operator_config(
+            return mission_items.set_operator_config(
                 body.name,
                 body.value,
                 project_state_dir=project_state_dir,
@@ -251,7 +243,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         project_state_dir = ctx.resolve_or_404(sid)
         root = ctx.project_root_or_404(sid)
         try:
-            return server_mod.set_budget_config(
+            return mission_items.set_budget_config(
                 body.values,
                 project_state_dir=project_state_dir,
                 global_root=root,
@@ -303,7 +295,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
     @app.post("/api/projects/{sid}/identity", dependencies=[Depends(ctx.require_auth)])
     def _identity_set(sid: str, body: IdentitySetIn) -> dict[str, Any]:
         ctx.not_found_if_none(
-            server_mod.set_identity(
+            mission_items.set_identity(
                 sid, body.text, global_root=ctx.project_root_or_404(sid)
             ),
             sid,
@@ -326,7 +318,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
             tokens = shlex.split(body.args)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"invalid skill arguments: {exc}") from exc
-        return {"text": server_mod.run_skill_command(
+        return {"text": mission_items.run_skill_command(
             tokens, global_root=root, project_state=state,
             workdir=project_workspace(sid, global_root=root),
         )}
