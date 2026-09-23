@@ -108,6 +108,7 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_intake", None)
     chat_state.pop("_frontdoor_domain", None)
     chat_state.pop("_frontdoor_skill_vertical", None)
+    chat_state.pop("_frontdoor_lookup_subject", None)
     chat_state.pop("_frontdoor_is_task", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
@@ -188,6 +189,8 @@ def _front_door_classify(
             chat_state["_frontdoor_domain"] = domain_decisions[-1]
             if "vertical" in domain_decisions[-1]:
                 chat_state["_frontdoor_skill_vertical"] = domain_decisions[-1]["vertical"]
+            if domain_decisions[-1].get("lookup_subject"):
+                chat_state["_frontdoor_lookup_subject"] = domain_decisions[-1]["lookup_subject"]
         if intake_decisions:
             chat_state["_frontdoor_intake"] = intake_decisions[-1]
             chat_state["_frontdoor_is_task"] = intake_decisions[-1].get("kind") == "objective_amendment"

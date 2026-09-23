@@ -30,6 +30,30 @@ class _FakeResult:
         self.fatal_error = fatal_error
 
 
+def test_subject_lookup_overrides_speculative_domain_and_fast_reply():
+    domains, modes, replies = [], [], []
+    answer = """ROUTE: SELF
+SELF_MODE: REPLY
+REPLY: This must be a virus.
+DOMAIN_ACTION: OFFER
+SKILL_VERTICAL: medical
+LOOKUP_SUBJECT: Jev
+"""
+    decision = classify_front_door("调研一下 Jev", run_exec=_exec(answer),
+                                   domain_sink=domains.append, self_mode_sink=modes.append, reply_sink=replies.append)
+    assert decision == (None, None, "simple")
+    assert domains == [{"action": "none", "vertical": "", "lookup_subject": "Jev"}]
+    assert modes == ["inspect"] and replies == []
+
+
+def test_subject_lookup_cannot_silently_replace_the_user_spelling():
+    domains = []
+    classify_front_door("调研一下 Jev", run_exec=_exec("ROUTE: SELF\nDOMAIN_ACTION: NONE\nSKILL_VERTICAL: medical\nLOOKUP_SUBJECT: JEPA"),
+                        domain_sink=domains.append)
+    assert not any(row.get("lookup_subject") for row in domains)
+    assert not any(row.get("vertical") for row in domains)
+
+
 def _exec(answer: str, exit_code: int = 0, fatal_error: str | None = None):
     def run_exec(prompt: str):
         assert all(

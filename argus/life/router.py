@@ -77,6 +77,7 @@ _FRONT_DOOR_FIELDS = (
     "name",
     "domain_action",
     "skill_vertical",
+    "lookup_subject",
 )
 
 
@@ -410,7 +411,17 @@ def classify_front_door(
         return None, None, "complex"
     fields = _front_door_fields(result)
     intent = _parse_config_decision(fields["config"])
-    if callable(domain_sink) and fields["domain_action"].lower() in {"none", "offer", "ask", "prepare", "skip", "cancel"}:
+    subject = fields["lookup_subject"].strip().strip('"`')
+    lookup_requested = bool(subject and subject.upper() != "NONE")
+    if subject.upper() == "NONE" or not 1 <= len(subject) <= 160 or subject.casefold() not in cleaned.casefold():
+        subject = ""
+    if lookup_requested:
+        # A source lookup is deterministic precedence over speculative routing.
+        # Even a contradictory classifier cannot force a specialist or fast reply.
+        fields.update(domain_action="NONE", skill_vertical="", self_mode="INSPECT", reply="NONE", greeting="NONE")
+    if callable(domain_sink) and subject:
+        domain_sink({"action": "none", "vertical": "", "lookup_subject": subject})
+    elif callable(domain_sink) and fields["domain_action"].lower() in {"none", "offer", "ask", "prepare", "skip", "cancel"}:
         domain_sink({"action": fields["domain_action"].lower(),
                      **({"vertical": fields["skill_vertical"].strip()}
                         if fields["skill_vertical"].strip() else {})})

@@ -8,6 +8,7 @@ import io
 import json
 import re
 import sys
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -27,6 +28,37 @@ REVIEWER_SOURCE_HANDOFF = (
     "`/tmp`. Return the exact claim and missing URL/path if essential evidence "
     "is absent."
 )
+
+
+def source_read_receipts(paths: Iterable[str], workdir: Path) -> list[dict[str, str]]:
+    """Identify retained source text that the current turn actually read.
+
+    These are access receipts, not independent validation of a publisher's claims.
+    Do not scan unrelated files or infer reading from a citation in an answer.
+    """
+    try:
+        directory = (workdir / ".argus" / "sources").resolve()
+    except (OSError, RuntimeError):
+        return []
+    receipts: dict[str, dict[str, str]] = {}
+    for raw_path in list(paths)[:32]:
+        try:
+            path = Path(raw_path)
+            path = (workdir / path).resolve() if not path.is_absolute() else path.resolve()
+            if path.parent != directory or not re.fullmatch(r"[a-f0-9]{24}\.txt", path.name):
+                continue
+            with path.open(encoding="utf-8") as handle:
+                header = handle.readline(8192)
+            metadata = json.loads(header)
+            url = metadata["url"]
+            if not isinstance(url, str) or len(url) > 2000 or urlsplit(url).scheme not in {"http", "https"}:
+                continue
+            receipts[url] = {"url": url, "accessed_at": str(metadata["accessed_at"])[:80]}
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            continue
+        if len(receipts) == 4:
+            break
+    return list(receipts.values())
 
 
 class _PageText(HTMLParser):

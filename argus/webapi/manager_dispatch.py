@@ -744,6 +744,7 @@ def _classify_operator_turn(
             "_frontdoor_intake",
             "_frontdoor_domain",
             "_frontdoor_skill_vertical",
+            "_frontdoor_lookup_subject",
             "_frontdoor_is_task",
         ):
             chat_state.pop(stale, None)
