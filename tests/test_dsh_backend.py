@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -32,26 +33,6 @@ def _overlay_path() -> Path:
     from argus.agent_cli._sandbox_commands import _dsh_overlay_patch_path
 
     return Path(_dsh_overlay_patch_path())
-
-
-class _FakeProcess:
-    def __init__(
-        self,
-        *,
-        returncode: int,
-        stdout_lines: list[str],
-        stderr_lines: list[str],
-    ) -> None:
-        self.returncode = returncode
-        self.stdout = iter(stdout_lines)
-        self.stderr = iter(stderr_lines)
-        self.stdin = None
-
-    def poll(self) -> int:
-        return self.returncode
-
-    def wait(self, timeout: float | None = None) -> int:  # noqa: ARG002
-        return self.returncode
 
 
 # ---------------------------------------------------------------- registration
@@ -242,112 +223,41 @@ def _state(
     return state
 
 
-def test_dsh_finalize_synthesizes_completion_from_stdout() -> None:
-    runner = _runner()
-    state = _state(
-        stdout_lines=["", "  final answer  ", ""],
-        stderr_lines=[],
+@pytest.mark.parametrize(("stdout", "stderr", "exit_code", "completed", "messages", "error"), [
+    pytest.param(["", "  final answer  ", ""], [], 0, False, ["final answer"], None, id="stdout-completion"),
+    pytest.param([""], [], 0, False, [], "no assistant output", id="empty-output"),
+    pytest.param([], ["dsh: MISSING_CREDENTIAL: llm-deepseek: no API key"], 1, False, [], "MISSING_CREDENTIAL", id="nonzero-exit"),
+    pytest.param(["legacy"], [], 0, True, ["legacy"], None, id="already-completed"),
+])
+def test_dsh_finalize_terminal_receipts(stdout, stderr, exit_code, completed, messages, error) -> None:
+    state = _state(stdout_lines=stdout, stderr_lines=stderr)
+    if completed:
+        state.turn_completed = True
+        state.agent_messages = list(messages)
+    result = _runner()._finalize_turn_result(
+        process=SimpleNamespace(returncode=exit_code), command=["dsh"], options=RunnerOptions(), state=state,
     )
-    process = _FakeProcess(returncode=0, stdout_lines=[], stderr_lines=[])
-
-    result = runner._finalize_turn_result(
-        process=process,
-        command=["dsh"],
-        options=RunnerOptions(),
-        state=state,
-    )
-
-    assert result.turn_completed is True
-    assert result.turn_failed is False
-    assert result.agent_messages == ["final answer"]
+    assert result.turn_completed is (error is None)
+    assert result.turn_failed is (error is not None)
+    assert result.agent_messages == messages
     assert result.thread_id is None
+    if error:
+        assert error in (result.fatal_error or "")
+    else:
+        assert result.fatal_error is None
 
 
-def test_dsh_finalize_empty_output_fails_closed() -> None:
-    runner = _runner()
-    state = _state(stdout_lines=[""], stderr_lines=[])
-    process = _FakeProcess(returncode=0, stdout_lines=[], stderr_lines=[])
-
-    result = runner._finalize_turn_result(
-        process=process,
-        command=["dsh"],
-        options=RunnerOptions(),
-        state=state,
-    )
-
-    assert result.turn_completed is False
-    assert result.turn_failed is True
-    assert "no assistant output" in (result.fatal_error or "")
-
-
-def test_dsh_finalize_nonzero_exit_fails_closed_with_stderr() -> None:
-    runner = _runner()
-    state = _state(
-        stdout_lines=[],
-        stderr_lines=["dsh: MISSING_CREDENTIAL: llm-deepseek: no API key"],
-    )
-    process = _FakeProcess(returncode=1, stdout_lines=[], stderr_lines=[])
-
-    result = runner._finalize_turn_result(
-        process=process,
-        command=["dsh"],
-        options=RunnerOptions(),
-        state=state,
-    )
-
-    assert result.turn_completed is False
-    assert result.turn_failed is True
-    assert "MISSING_CREDENTIAL" in (result.fatal_error or "")
-
-
-def test_dsh_readiness_accepts_key_from_dsh_home_env_file(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+@pytest.mark.parametrize("has_key", [True, False], ids=["home-env-key", "missing-key"])
+def test_dsh_readiness_from_home_env_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, has_key) -> None:
     from argus.core.backend_readiness import _probe_cli_auth
 
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("DSH_HOME", str(tmp_path))
-    (tmp_path / ".env").write_text(
-        "# comment\nDEEPSEEK_API_KEY=sk-from-env-file\n",
-        encoding="utf-8",
-    )
-
+    if has_key:
+        (tmp_path / ".env").write_text("# comment\nDEEPSEEK_API_KEY=sk-from-env-file\n", encoding="utf-8")
     ready, detail = _probe_cli_auth("dsh", "dsh", timeout_s=5.0)
-
-    assert ready is True
-    assert detail == ""
-
-
-def test_dsh_readiness_rejects_without_any_key(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    from argus.core.backend_readiness import _probe_cli_auth
-
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("DSH_HOME", str(tmp_path))
-
-    ready, detail = _probe_cli_auth("dsh", "dsh", timeout_s=5.0)
-
-    assert ready is False
-    assert "DEEPSEEK_API_KEY" in detail
-
-
-def test_dsh_finalize_does_not_touch_completed_state() -> None:
-    """A turn that already completed through the normal path is left alone."""
-    runner = _runner()
-    state = _state(stdout_lines=["legacy"], stderr_lines=[])
-    state.turn_completed = True
-    state.agent_messages = ["legacy"]
-    process = _FakeProcess(returncode=0, stdout_lines=[], stderr_lines=[])
-
-    result = runner._finalize_turn_result(
-        process=process,
-        command=["dsh"],
-        options=RunnerOptions(),
-        state=state,
-    )
-
-    assert result.turn_completed is True
-    assert result.agent_messages == ["legacy"]
+    assert ready is has_key
+    if has_key:
+        assert detail == ""
+    else:
+        assert "DEEPSEEK_API_KEY" in detail

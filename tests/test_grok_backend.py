@@ -86,96 +86,35 @@ def test_grok_prompt_uses_private_temporary_file() -> None:
 def test_grok_messages_stream_tracks_session_text_and_completion() -> None:
     runner = _runner()
     messages: list[str] = []
-    state = runner._consume_event(
-        event={
-            "type": "system",
-            "subtype": "init",
-            "session_id": "grok-session",
-            "model": "grok-build",
-        },
-        thread_id=None,
-        agent_messages=messages,
-        turn_completed=False,
-        turn_failed=False,
-        fatal_error=None,
-    )
-    state = runner._consume_event(
-        event={
-            "type": "assistant",
-            "session_id": "grok-session",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "done"}],
-            },
-        },
-        thread_id=state[0],
-        agent_messages=messages,
-        turn_completed=state[1],
-        turn_failed=state[2],
-        fatal_error=state[3],
-    )
-    state = runner._consume_event(
-        event={
-            "type": "result",
-            "subtype": "success",
-            "is_error": False,
-            "session_id": "grok-session",
-            "result": "done",
-            "stop_reason": "end_turn",
-        },
-        thread_id=state[0],
-        agent_messages=messages,
-        turn_completed=state[1],
-        turn_failed=state[2],
-        fatal_error=state[3],
-    )
-
+    state = (None, False, False, None)
+    events = [
+        {"type": "system", "subtype": "init", "session_id": "grok-session", "model": "grok-build"},
+        {"type": "assistant", "session_id": "grok-session", "message": {
+            "role": "assistant", "content": [{"type": "text", "text": "done"}]}},
+        {"type": "result", "subtype": "success", "is_error": False,
+         "session_id": "grok-session", "result": "done", "stop_reason": "end_turn"},
+    ]
+    for event in events:
+        state = runner._consume_event(
+            event=event, thread_id=state[0], agent_messages=messages,
+            turn_completed=state[1], turn_failed=state[2], fatal_error=state[3],
+        )
     assert messages == ["done"]
     assert state == ("grok-session", True, False, None)
 
 
-def test_grok_error_result_fails_closed() -> None:
+@pytest.mark.parametrize(("fields", "error"), [
+    pytest.param({"subtype": "error_during_execution", "is_error": True,
+                  "result": "authentication failed"}, "authentication failed", id="provider-error"),
+    pytest.param({"subtype": "success", "is_error": False, "result": "partial",
+                  "stop_reason": "max_tokens"}, "Grok Build stopped with max_tokens.", id="nonterminal-stop"),
+])
+def test_grok_unsuccessful_result_fails_closed(fields, error) -> None:
     state = _runner()._consume_event(
-        event={
-            "type": "result",
-            "subtype": "error_during_execution",
-            "is_error": True,
-            "session_id": "grok-session",
-            "result": "authentication failed",
-        },
-        thread_id=None,
-        agent_messages=[],
-        turn_completed=False,
-        turn_failed=False,
-        fatal_error=None,
+        event={"type": "result", "session_id": "grok-session", **fields},
+        thread_id=None, agent_messages=[], turn_completed=False, turn_failed=False, fatal_error=None,
     )
-
-    assert state == ("grok-session", False, True, "authentication failed")
-
-
-def test_grok_non_terminal_stop_reason_fails_closed() -> None:
-    state = _runner()._consume_event(
-        event={
-            "type": "result",
-            "subtype": "success",
-            "is_error": False,
-            "session_id": "grok-session",
-            "result": "partial",
-            "stop_reason": "max_tokens",
-        },
-        thread_id=None,
-        agent_messages=[],
-        turn_completed=False,
-        turn_failed=False,
-        fatal_error=None,
-    )
-
-    assert state == (
-        "grok-session",
-        False,
-        True,
-        "Grok Build stopped with max_tokens.",
-    )
+    assert state == ("grok-session", False, True, error)
 
 
 def test_grok_result_usage_is_accounted() -> None:

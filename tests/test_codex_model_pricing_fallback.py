@@ -37,46 +37,37 @@ def _isolate_codex_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_CODEX_CONFIG", raising=False)
 
 
+@pytest.fixture
+def codex_config_dir(tmp_path, monkeypatch):
+    directory = tmp_path / "codex"
+    directory.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(directory))
+    return directory
+
+
 # --- pure helper: model selection + traceable fallback source ---------------
 
-def test_resolve_pricing_model_prefers_response_model() -> None:
-    assert resolve_pricing_model("gpt-5.5", "req", "def") == ("gpt-5.5", "")
-
-
-def test_resolve_pricing_model_falls_back_to_request_when_response_empty() -> None:
-    assert resolve_pricing_model("", "req-model", "def") == ("req-model", "request")
-    # whitespace-only response is treated as empty
-    assert resolve_pricing_model("   ", "req-model", "def") == ("req-model", "request")
-
-
-def test_resolve_pricing_model_falls_back_to_configured_default() -> None:
-    assert resolve_pricing_model("", "", "gpt-5.5") == (
-        "gpt-5.5",
-        "configured_default",
-    )
-    assert resolve_pricing_model(None, None, "gpt-5.5") == (
-        "gpt-5.5",
-        "configured_default",
-    )
-
-
-def test_resolve_pricing_model_empty_when_nothing_usable() -> None:
-    # No reliable fallback -> stay empty rather than invent a priced model.
-    assert resolve_pricing_model("", "", "") == ("", "none")
-    assert resolve_pricing_model(None, None, None) == ("", "none")
+@pytest.mark.parametrize(("response", "requested", "configured", "expected"), [
+    pytest.param("gpt-5.5", "req", "def", ("gpt-5.5", ""), id="response"),
+    pytest.param("", "req-model", "def", ("req-model", "request"), id="request"),
+    pytest.param("   ", "req-model", "def", ("req-model", "request"), id="blank-response"),
+    pytest.param("", "", "gpt-5.5", ("gpt-5.5", "configured_default"), id="configured"),
+    pytest.param(None, None, "gpt-5.5", ("gpt-5.5", "configured_default"), id="unset-request"),
+    pytest.param("", "", "", ("", "none"), id="empty"),
+    pytest.param(None, None, None, ("", "none"), id="unset"),
+])
+def test_resolve_pricing_model_precedence(response, requested, configured, expected) -> None:
+    assert resolve_pricing_model(response, requested, configured) == expected
 
 
 def test_configured_pricing_model_is_codex_only(
-    tmp_path,
+    codex_config_dir,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    codex_home = tmp_path / "codex"
-    codex_home.mkdir()
-    (codex_home / "config.toml").write_text(
+    (codex_config_dir / "config.toml").write_text(
         'model = "gpt-5.6-sol"\n',
         encoding="utf-8",
     )
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
     monkeypatch.setenv("ARGUS_SKILL_MODEL", "claude-sonnet-5")
     backend = AgentCliBackend(backend="codex")
     assert backend._configured_pricing_model() == "gpt-5.6-sol"
@@ -102,16 +93,12 @@ def test_codex_execution_model_honors_final_cli_override() -> None:
 
 
 def test_codex_model_args_normalize_to_one_direct_flag(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
+    codex_config_dir,
 ) -> None:
-    codex_home = tmp_path / "codex"
-    codex_home.mkdir()
-    (codex_home / "config.toml").write_text(
+    (codex_config_dir / "config.toml").write_text(
         'model = "gpt-5.6-sol"\n',
         encoding="utf-8",
     )
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
     backend = AgentCliBackend(
         backend="codex",
         default_extra_args=["--model", "gpt-5.5"],
@@ -131,20 +118,16 @@ def test_codex_model_args_normalize_to_one_direct_flag(
 
 
 def test_codex_profile_model_is_pinned_without_dropping_profile(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
+    codex_config_dir,
 ) -> None:
-    codex_home = tmp_path / "codex"
-    codex_home.mkdir()
-    (codex_home / "config.toml").write_text(
+    (codex_config_dir / "config.toml").write_text(
         'model = "gpt-5.5"\n',
         encoding="utf-8",
     )
-    (codex_home / "research.config.toml").write_text(
+    (codex_config_dir / "research.config.toml").write_text(
         'model = "gpt-5.6-sol"\n',
         encoding="utf-8",
     )
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
     backend = AgentCliBackend(
         backend="codex",
         default_extra_args=["--profile", "research"],
@@ -161,24 +144,20 @@ def test_codex_profile_model_is_pinned_without_dropping_profile(
 
 
 def test_call_profile_replaces_default_profile_once(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
+    codex_config_dir,
 ) -> None:
-    codex_home = tmp_path / "codex"
-    codex_home.mkdir()
-    (codex_home / "config.toml").write_text(
+    (codex_config_dir / "config.toml").write_text(
         'model = "gpt-5.4"\n',
         encoding="utf-8",
     )
-    (codex_home / "default.config.toml").write_text(
+    (codex_config_dir / "default.config.toml").write_text(
         'model = "gpt-5.5"\n',
         encoding="utf-8",
     )
-    (codex_home / "call.config.toml").write_text(
+    (codex_config_dir / "call.config.toml").write_text(
         'model = "gpt-5.6-sol"\n',
         encoding="utf-8",
     )
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
     backend = AgentCliBackend(
         backend="codex",
         default_extra_args=["--profile", "default", "--strict-config"],

@@ -522,10 +522,6 @@ def _with_preflight_pdf(tmp_path: Path) -> Path:
     return project_root
 
 
-def _journal_kinds(stub: _GateStub) -> list[str]:
-    return [getattr(e, "kind", None) for e in stub.journal_entries]
-
-
 def test_gate_suppresses_premature_done_for_uncertified_emnlp(tmp_path: Path) -> None:
     # main.pdf exists but reviewer has NOT certified → no DONE, dispatch
     # proceeds, and the suppressed transition is never journaled/persisted.

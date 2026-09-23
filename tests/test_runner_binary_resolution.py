@@ -80,35 +80,23 @@ def test_persisted_runner_bin_stays_bound_to_its_backend() -> None:
     )
 
 
-def test_runner_resolves_user_local_bin_when_service_path_omits_it(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    executable = tmp_path / ".local" / "bin" / "copilot"
-    executable.parent.mkdir(parents=True)
-    executable = _write_runner_executable(executable)
+@pytest.mark.parametrize(("backend", "binary", "install_dir"), [
+    pytest.param(BACKEND_COPILOT, "copilot", ".local/bin", id="copilot-user-local"),
+    pytest.param(BACKEND_OPENCODE, "opencode", ".opencode/bin", id="opencode-standard-install"),
+    pytest.param(BACKEND_OPENCODE, "opencode", "", id="opencode-path"),
+    pytest.param(BACKEND_PI, "pi", "", id="pi-path"),
+    pytest.param(BACKEND_GROK, "grok", "", id="grok-path"),
+    pytest.param(BACKEND_QODER, "qodercli", "", id="qoder-path"),
+])
+def test_backend_binary_resolution(tmp_path: Path, monkeypatch, backend, binary, install_dir) -> None:
+    directory = tmp_path / install_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    executable = _write_runner_executable(directory / binary)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    monkeypatch.setenv("PATH", str(tmp_path / "service-bin"))
-
-    _assert_same_path(resolve_runner_bin(BACKEND_COPILOT), executable)
-    _assert_same_path(AgentCliRunner(backend=BACKEND_COPILOT).agent_bin, executable)
-
-
-def test_opencode_runner_uses_opencode_binary(tmp_path: Path, monkeypatch) -> None:
-    executable = _write_runner_executable(tmp_path / "opencode")
-    monkeypatch.setenv("PATH", str(tmp_path))
-
-    _assert_same_path(resolve_runner_bin(BACKEND_OPENCODE), executable)
-    _assert_same_path(AgentCliRunner(backend=BACKEND_OPENCODE).agent_bin, executable)
-
-
-def test_pi_runner_uses_pi_binary(tmp_path: Path, monkeypatch) -> None:
-    executable = _write_runner_executable(tmp_path / "pi")
-    monkeypatch.setenv("PATH", str(tmp_path))
-
-    _assert_same_path(resolve_runner_bin(BACKEND_PI), executable)
-    _assert_same_path(AgentCliRunner(backend=BACKEND_PI).agent_bin, executable)
+    monkeypatch.setenv("PATH", str(tmp_path / "service-bin" if install_dir else tmp_path))
+    _assert_same_path(resolve_runner_bin(backend), executable)
+    _assert_same_path(AgentCliRunner(backend=backend).agent_bin, executable)
 
 
 @pytest.mark.parametrize("suffix", [".CMD", ".EXE"])
@@ -151,22 +139,6 @@ def test_posix_runner_fallback_keeps_literal_path_quotes(tmp_path: Path, monkeyp
 
     assert resolve_runner_bin(BACKEND_PI) == str(expected)
     assert inspected == [expected]
-
-
-def test_grok_runner_uses_grok_binary(tmp_path: Path, monkeypatch) -> None:
-    executable = _write_runner_executable(tmp_path / "grok")
-    monkeypatch.setenv("PATH", str(tmp_path))
-
-    _assert_same_path(resolve_runner_bin(BACKEND_GROK), executable)
-    _assert_same_path(AgentCliRunner(backend=BACKEND_GROK).agent_bin, executable)
-
-
-def test_qoder_runner_uses_qodercli_binary(tmp_path: Path, monkeypatch) -> None:
-    executable = _write_runner_executable(tmp_path / "qodercli")
-    monkeypatch.setenv("PATH", str(tmp_path))
-
-    _assert_same_path(resolve_runner_bin(BACKEND_QODER), executable)
-    _assert_same_path(AgentCliRunner(backend=BACKEND_QODER).agent_bin, executable)
 
 
 def test_runner_skips_inaccessible_path_candidate(
@@ -246,21 +218,6 @@ def test_windows_runner_fallback_rejects_directories_without_probing_unrelated_f
 
     assert runner_backend._resolve_explicit_candidate(candidate) is None
     assert inspected == [candidate, matching_directory]
-
-
-def test_opencode_runner_resolves_standard_install_directory(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    executable = tmp_path / ".opencode" / "bin" / "opencode"
-    executable.parent.mkdir(parents=True)
-    executable = _write_runner_executable(executable)
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    monkeypatch.setenv("PATH", str(tmp_path / "service-bin"))
-
-    _assert_same_path(resolve_runner_bin(BACKEND_OPENCODE), executable)
-    _assert_same_path(AgentCliRunner(backend=BACKEND_OPENCODE).agent_bin, executable)
 
 
 def test_missing_codex_falls_back_to_available_copilot(
