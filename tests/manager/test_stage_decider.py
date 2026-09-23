@@ -467,13 +467,9 @@ def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
 def test_kernel_direct_vertical_has_no_process_completion_hook(
     tmp_path,
 ) -> None:
-    from argus.verticals._base import (
-        load_vertical,
-        vertical_stage_completion_issues,
-    )
+    from argus.verticals._base import load_vertical_contract
 
-    issues = vertical_stage_completion_issues(
-        load_vertical("kernel_engineering"),
+    issues = load_vertical_contract("kernel_engineering").completion_issues(
         stage="optimize",
         project_root=tmp_path,
     )
@@ -493,10 +489,7 @@ def test_final_stage_completion_requires_manager_decision(
     from argus.manager import Manager
     from argus.skills.stage_machine import completion_contract_fingerprint
     from argus.skills.vertical_select import persist_vertical
-    from argus.verticals._base import (
-        load_vertical,
-        vertical_completion_contract_version,
-    )
+    from argus.verticals._base import load_vertical_contract
 
     persist_vertical(tmp_path, "software", workflow_mode="staged")
     state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
@@ -504,9 +497,7 @@ def test_final_stage_completion_requires_manager_decision(
     state["current_stage"] = "delivery"
     state["stages"] = {"delivery": {"status": "in_progress"}}
     state_path.write_text(json.dumps(state), encoding="utf-8")
-    version = vertical_completion_contract_version(
-        load_vertical("software", project_root=tmp_path)
-    )
+    version = load_vertical_contract("software", project_root=tmp_path).completion_contract_version
     state["stages"]["delivery"].update({
         "completion_contract_version": version,
         "completion_contract_sha256": completion_contract_fingerprint(

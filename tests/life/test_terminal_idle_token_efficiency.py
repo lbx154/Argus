@@ -13,10 +13,7 @@ from argus.life.supervisor._constants import PLAN_RETRY
 from argus.planner import PlannerVerdict
 from argus.skills.stage_machine import completion_contract_fingerprint
 from argus.skills.vertical_select import persist_vertical
-from argus.verticals._base import (
-    load_vertical,
-    vertical_completion_contract_version,
-)
+from argus.verticals._base import load_vertical_contract
 
 
 class _Runner:
@@ -51,7 +48,7 @@ def _supervisor(project: Path, life: Path) -> LifeSupervisor:
     state["current_stage"] = "delivery"
     state["stages"] = {"delivery": {"status": "done"}}
     state_path.write_text(json.dumps(state), encoding="utf-8")
-    version = vertical_completion_contract_version(load_vertical("software", project_root=project))
+    version = load_vertical_contract("software", project_root=project).completion_contract_version
     state["stages"]["delivery"].update(
         {
             "completion_contract_version": version,

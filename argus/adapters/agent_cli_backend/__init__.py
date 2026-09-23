@@ -21,7 +21,6 @@ them across the run when present. When unavailable we leave them at 0
 Split into small internal modules by responsibility so no single file
 mixes concerns:
 
-  * ``_runtime`` — loads the bundled ``argus.agent_cli`` runtime.
   * ``_options`` — Codex CLI arg/model-selection parsing and normalization.
   * ``_io_log``  — per-call JSONL event logging and raw stream batching.
   * ``_result``  — stop-kind classification and result/usage normalization.

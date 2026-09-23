@@ -165,12 +165,11 @@ def test_iteration_budget_exhaustion_settles_with_visible_reason(
 ) -> None:
     """The generic iteration budget still settles visibly when a vertical
     that does re-arm missions runs out of cycles."""
-    from argus.core.vertical_contract import IterationAssessment
-    from argus.verticals import _base
+    from argus.core.vertical_contract import IterationAssessment, VerticalContract
 
     monkeypatch.setattr(
-        _base,
-        "vertical_iteration_assessment",
+        VerticalContract,
+        "assess_iteration",
         lambda *_args, **_kwargs: IterationAssessment(
             shortfall="score below charter",
             objective="Close the 0.020 score gap.",

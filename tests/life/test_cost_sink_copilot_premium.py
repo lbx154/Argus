@@ -53,27 +53,27 @@ def test_extract_copilot_premium_requests_takes_last_cumulative() -> None:
 
 def test_premium_delta_per_thread_decumulates() -> None:
     be = AgentCliBackend(backend="copilot")
-    assert be._premium_delta_for_thread(thread_id="t1", raw_total=7.5) == 7.5
-    assert be._premium_delta_for_thread(thread_id="t1", raw_total=15.0) == 7.5
-    assert be._premium_delta_for_thread(thread_id="t1", raw_total=15.0) == 0.0  # no new spend
+    assert be._usage.premium_delta_for_thread(thread_id="t1", raw_total=7.5) == 7.5
+    assert be._usage.premium_delta_for_thread(thread_id="t1", raw_total=15.0) == 7.5
+    assert be._usage.premium_delta_for_thread(thread_id="t1", raw_total=15.0) == 0.0  # no new spend
     # no thread id → cannot de-cumulate; charge the raw total once
-    assert be._premium_delta_for_thread(thread_id=None, raw_total=3.0) == 3.0
+    assert be._usage.premium_delta_for_thread(thread_id=None, raw_total=3.0) == 3.0
     # counter reset (new session reuses id) → charge current total, never negative
-    assert be._premium_delta_for_thread(thread_id="t2", raw_total=5.0) == 5.0
-    assert be._premium_delta_for_thread(thread_id="t2", raw_total=2.0) == 2.0
+    assert be._usage.premium_delta_for_thread(thread_id="t2", raw_total=5.0) == 5.0
+    assert be._usage.premium_delta_for_thread(thread_id="t2", raw_total=2.0) == 2.0
     # zero/absent premium → 0.0 (codex/claude)
-    assert be._premium_delta_for_thread(thread_id="t3", raw_total=0.0) == 0.0
+    assert be._usage.premium_delta_for_thread(thread_id="t3", raw_total=0.0) == 0.0
 
 
 def test_premium_delta_after_restart_fails_closed_then_recovers() -> None:
     be = AgentCliBackend(backend="copilot")
 
-    assert be._premium_delta_for_thread(
+    assert be._usage.premium_delta_for_thread(
         thread_id="resumed",
         raw_total=15.0,
         resume_baseline_unknown=True,
     ) is None
-    assert be._premium_delta_for_thread(
+    assert be._usage.premium_delta_for_thread(
         thread_id="resumed",
         raw_total=22.5,
         resume_baseline_unknown=True,

@@ -141,13 +141,13 @@ def _active_vertical_stage_aliases(project_root) -> dict[str, str]:
     if project_root is None:
         project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
     try:
-        from ..verticals._base import load_vertical, vertical_stage_aliases
+        from ..verticals._base import load_vertical_contract
         from .vertical_select import resolve_checklist_vertical
 
         vertical = resolve_checklist_vertical(project_root)
         if vertical is None:
             return {}
-        return vertical_stage_aliases(load_vertical(vertical, project_root=project_root))
+        return dict(load_vertical_contract(vertical, project_root=project_root).stage_aliases or {})
     except Exception:  # noqa: BLE001
         return {}
 
@@ -260,13 +260,12 @@ def _ensure_stage_completion(
     evidence_root: Path | str | None = None,
 ) -> None:
     """Fail closed on the active vertical's deterministic completion hook."""
-    from ..verticals._base import load_vertical, vertical_stage_completion_issues
+    from ..verticals._base import load_vertical_contract
     from .vertical_select import resolve_vertical
 
     try:
         vertical = resolve_vertical(project_root)
-        issues = vertical_stage_completion_issues(
-            load_vertical(vertical, project_root=project_root),
+        issues = load_vertical_contract(vertical, project_root=project_root).completion_issues(
             stage=_normalize_stage(stage),
             project_root=Path(evidence_root or project_root),
             state_root=Path(project_root),
@@ -744,15 +743,11 @@ def complete_final_stage(
             cur,
             evidence_root=evidence_root,
         )
-    from ..verticals._base import (
-        load_vertical,
-        vertical_completion_contract_version,
-    )
+    from ..verticals._base import load_vertical_contract
 
     try:
-        completion_contract_version = vertical_completion_contract_version(
-            load_vertical(vertical, project_root=project_root)
-        )
+        contract = load_vertical_contract(vertical, project_root=project_root)
+        completion_contract_version = contract.completion_contract_version
     except Exception as exc:  # noqa: BLE001 — completion authority fails closed
         raise ValueError("completion contract unavailable") from exc
     completion_contract_sha256 = ""
@@ -810,17 +805,12 @@ def _augment(body: str, role: str, project_root, *, overlay_present: bool = Fals
 
 
 def _research_checklist_defs():
-    from ..verticals._base import (
-        DEFAULT_VERTICAL,
-        load_vertical,
-        vertical_checklist_items,
-        vertical_checklist_stage_order,
-    )
+    from ..verticals._base import DEFAULT_VERTICAL, load_vertical_contract
 
-    provider = load_vertical(DEFAULT_VERTICAL)
+    contract = load_vertical_contract(DEFAULT_VERTICAL)
     return (
-        vertical_checklist_stage_order(provider),
-        vertical_checklist_items(provider),
+        contract.stage_order,
+        contract.checklist_items,
     )
 
 
@@ -828,7 +818,7 @@ def _active_vertical_checklist_defs(project_root):
     """Return ``(stage_order, items_dict)`` for the ACTIVE vertical.
 
     Resolves the active vertical via ``vertical_select.resolve_vertical`` +
-    ``verticals._base.load_vertical`` and returns that vertical's
+    ``verticals._base.load_vertical_contract`` and returns that vertical's
     ``CHECKLIST_STAGE_ORDER`` + ``CHECKLIST_ITEMS``. ``project_root`` may be
     None (resolved from env/cwd, matching how the overlay/venue resolution
     locate the project). An entirely undecided legacy/empty project keeps the
@@ -843,20 +833,16 @@ def _active_vertical_checklist_defs(project_root):
     if project_root is None:
         project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
     try:
-        from ..verticals._base import (
-            load_vertical,
-            vertical_checklist_items,
-            vertical_checklist_stage_order,
-        )
+        from ..verticals._base import load_vertical_contract
         from .vertical_select import resolve_checklist_vertical
 
         vertical = resolve_checklist_vertical(project_root)
         if vertical is None:
             return _research_checklist_defs()
-        mod = load_vertical(vertical, project_root=project_root)
+        contract = load_vertical_contract(vertical, project_root=project_root)
         return (
-            vertical_checklist_stage_order(mod),
-            vertical_checklist_items(mod),
+            contract.stage_order,
+            contract.checklist_items,
         )
     except Exception:  # noqa: BLE001 - vertical resolution must never break prompts
         return _research_checklist_defs()
@@ -868,17 +854,14 @@ def _active_vertical_optional_stages(project_root) -> frozenset[str]:
     if project_root is None:
         project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
     try:
-        from ..verticals._base import (
-            load_vertical,
-            vertical_checklist_optional_stages,
-        )
+        from ..verticals._base import load_vertical_contract
         from .vertical_select import resolve_checklist_vertical
 
         vertical = resolve_checklist_vertical(project_root)
         if vertical is None:
             return frozenset()
-        mod = load_vertical(vertical, project_root=project_root)
-        return vertical_checklist_optional_stages(mod)
+        contract = load_vertical_contract(vertical, project_root=project_root)
+        return contract.checklist_optional_stages
     except Exception:  # noqa: BLE001
         return frozenset()
 
@@ -1151,15 +1134,13 @@ def _full_pipeline_title(project_root) -> str:
     if project_root is None:
         project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
     try:
-        from ..verticals._base import load_vertical, vertical_completion_gate
+        from ..verticals._base import load_vertical_contract
         from .vertical_select import resolve_checklist_vertical
 
         vertical = resolve_checklist_vertical(project_root)
         if vertical is None:
             return "## Full pipeline checklist (final submission gate)\n"
-        if vertical_completion_gate(
-            load_vertical(vertical, project_root=project_root)
-        ) != "certified":
+        if load_vertical_contract(vertical, project_root=project_root).completion_gate != "certified":
             return f"## Full pipeline checklist ({vertical})\n"
     except Exception:  # noqa: BLE001 — title must never break prompt building
         pass

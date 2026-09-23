@@ -55,7 +55,7 @@ _SOURCE_RANK: dict[str, int] = {
 }
 
 # What each vertical-declared completion gate demands. Keys are the values
-# ``vertical_completion_gate()`` can return; the vertical chooses, not us.
+# ``VerticalContract.completion_gate`` can declare; the vertical chooses, not us.
 _GATE_REQUIRED_RANK: dict[str, int] = {
     "none": 1,
     "metric": 2,

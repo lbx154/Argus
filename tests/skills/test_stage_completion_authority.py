@@ -164,12 +164,9 @@ def _forge(root: Path, *, mode: str) -> None:
     before it did.
     """
     from argus.skills.stage_machine import completion_contract_fingerprint
-    from argus.verticals._base import (
-        load_vertical,
-        vertical_completion_contract_version,
-    )
+    from argus.verticals._base import load_vertical_contract
 
-    version = vertical_completion_contract_version(load_vertical("math", project_root=root))
+    version = load_vertical_contract("math", project_root=root).completion_contract_version
     fingerprint = completion_contract_fingerprint(root, "scope", version=version)
     state = root / ".argus" / "PIPELINE_STATE.json"
     payload = json.loads(state.read_text(encoding="utf-8"))

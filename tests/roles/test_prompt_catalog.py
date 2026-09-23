@@ -49,7 +49,7 @@ from argus.skills.stage_machine import (
     format_stage_checklist,
 )
 from argus.skills.vertical_select import persist_vertical
-from argus.verticals._base import load_vertical, vertical_role_banner
+from argus.verticals._base import load_vertical_contract
 
 
 def _set_stage(project_root, stage: str) -> None:
@@ -264,12 +264,12 @@ def test_consecutive_role_cycles_keep_a_large_common_prefix(tmp_path) -> None:
 
 def test_engineer_banner_resolves_through_role_catalog(tmp_path) -> None:
     persist_vertical(tmp_path, "math_synth")
-    vertical = load_vertical("math_synth", project_root=tmp_path)
+    contract = load_vertical_contract("math_synth", project_root=tmp_path)
 
     engineer = resolve_role_prompt(mission_request(tmp_path))
 
     assert engineer.vertical == "math_synth"
-    assert engineer.role_banner == vertical_role_banner(vertical, "engineer")
+    assert engineer.role_banner == contract.banner("engineer")
     assert engineer.stage_checklist == ""
     assert engineer.fragment_ids == (
         "vertical:math_synth:banner:engineer",

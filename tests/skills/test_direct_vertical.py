@@ -15,11 +15,7 @@ from argus.skills.vertical_select import (
     VERTICALS,
     persist_vertical,
 )
-from argus.verticals._base import (
-    load_vertical,
-    vertical_role_banner,
-    vertical_workflow_mode,
-)
+from argus.verticals._base import _contract, load_vertical, load_vertical_contract
 
 
 def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
@@ -29,7 +25,7 @@ def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
     module = load_vertical("software", project_root=tmp_path)
     assert module.STAGE_ORDER == ["delivery"]
     assert module.completion_gate == "none"
-    assert vertical_workflow_mode(module) == "staged"
+    assert _contract(module).workflow_mode == "staged"
 
 
 def test_runtime_resolves_direct_workflow(tmp_path) -> None:
@@ -233,8 +229,8 @@ def test_direct_engineer_and_reviewer_keep_selected_vertical_banners(
     from argus.roles.prompts.engineer import build_mission_prompt
 
     persist_vertical(tmp_path, "kernel_engineering", workflow_mode="direct")
-    vertical = load_vertical("kernel_engineering", project_root=tmp_path)
-    engineer_banner = vertical_role_banner(vertical, "engineer")
+    contract = load_vertical_contract("kernel_engineering", project_root=tmp_path)
+    engineer_banner = contract.banner("engineer")
     engineer_prompt = build_mission_prompt(
         task="Profile one decode and patch the measured hot path.",
         skill_text="",

@@ -617,18 +617,14 @@ class _StageDecisionMixin:
             _research_target_level in {"publishable", "doctoral"}
             and not _allow_early_completion
         ):
-            from ..verticals._base import (
-                load_vertical,
-                vertical_stage_completion_issues,
-            )
+            from ..verticals._base import load_vertical_contract
 
             # Final completion must re-run the active provider's own strongest
             # stage validator, but Manager must not import a named vertical to
             # do it. The contract keeps this path domain-blind and also lets
             # project-local/plugin research providers enforce equivalent gates.
             _completion_blockers.extend(
-                vertical_stage_completion_issues(
-                    load_vertical(_completion_vertical, project_root=root),
+                load_vertical_contract(_completion_vertical, project_root=root).completion_issues(
                     stage=order[-1],
                     project_root=self.execution_workdir,
                     state_root=root,

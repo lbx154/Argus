@@ -45,7 +45,7 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
     """
     try:
         from ..skills.vertical_select import _persisted_vertical, resolve_workflow_mode
-        from ..verticals._base import load_vertical, vertical_is_paper_mission
+        from ..verticals._base import load_vertical_contract
 
         root = Path(project_root).expanduser()
         persisted = _persisted_vertical(root)
@@ -58,9 +58,7 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
         if resolve_workflow_mode(root) == "direct":
             return False
         vertical = persisted
-        return vertical_is_paper_mission(
-            load_vertical(vertical, project_root=root)
-        )
+        return load_vertical_contract(vertical, project_root=root).paper_mission
     except Exception:  # noqa: BLE001 — mission typing must fail safe
         return False
 
@@ -69,16 +67,14 @@ def _final_certification_for_project_root(project_root: Path | str) -> bool:
     """Return whether the persisted non-direct vertical has a certified gate."""
     try:
         from ..skills.vertical_select import _persisted_vertical, resolve_workflow_mode
-        from ..verticals._base import load_vertical, vertical_completion_gate
+        from ..verticals._base import load_vertical_contract
 
         root = Path(project_root).expanduser()
         persisted = _persisted_vertical(root)
         if persisted is None or resolve_workflow_mode(root) == "direct":
             return False
         return (
-            vertical_completion_gate(
-                load_vertical(persisted, project_root=root)
-            )
+            load_vertical_contract(persisted, project_root=root).completion_gate
             == "certified"
         )
     except Exception:  # noqa: BLE001 — mission typing must fail safe
@@ -117,14 +113,9 @@ def _independent_review_required_for_project_root(
     if persisted is None:
         return False
     try:
-        from ..verticals._base import (
-            load_vertical,
-            vertical_requires_independent_review,
-        )
+        from ..verticals._base import load_vertical_contract
 
-        return vertical_requires_independent_review(
-            load_vertical(persisted, project_root=root)
-        )
+        return load_vertical_contract(persisted, project_root=root).requires_independent_review
     except Exception:  # noqa: BLE001 — a resolved vertical fails closed
         return True
 

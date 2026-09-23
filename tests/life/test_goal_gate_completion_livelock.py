@@ -31,11 +31,7 @@ from __future__ import annotations
 import pytest
 
 from argus.manager.stage_decider import final_stage_completion_decision
-from argus.verticals._base import (
-    load_vertical,
-    vertical_checklist_stage_order,
-    vertical_completion_gate,
-)
+from argus.verticals._base import load_vertical_contract
 
 
 class _CertifiedReview:
@@ -52,7 +48,7 @@ def _every_vertical() -> list[str]:
 
 
 def _decide(vertical: str, *, scope: str):
-    order = vertical_checklist_stage_order(load_vertical(vertical))
+    order = load_vertical_contract(vertical).stage_order
     if not order:
         return None, ()
     decision = final_stage_completion_decision(
@@ -77,7 +73,7 @@ def test_every_vertical_can_complete_with_the_scope_it_can_actually_carry() -> N
     """
     unable: list[str] = []
     for vertical in _every_vertical():
-        gate = vertical_completion_gate(load_vertical(vertical))
+        gate = load_vertical_contract(vertical).completion_gate
         # The scope the enqueue boundary will actually persist for this
         # vertical: `final_submission` survives only on the paper track.
         carried = "final_submission" if gate == "certified" else "bounded"
@@ -122,7 +118,7 @@ def test_the_verticals_seen_livelocked_now_complete(vertical: str) -> None:
 
 def test_a_non_final_stage_never_completes() -> None:
     """Widening the scope rule must not let a mid-pipeline mission end anything."""
-    order = vertical_checklist_stage_order(load_vertical("research"))
+    order = load_vertical_contract("research").stage_order
     assert len(order) > 1
 
     decision = final_stage_completion_decision(

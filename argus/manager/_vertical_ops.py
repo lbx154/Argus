@@ -524,17 +524,12 @@ class _VerticalDecisionMixin:
                 or "[BOUNDED TASK CONTEXT" in task
             )
         )
-        from ..verticals._base import (
-            load_vertical,
-            vertical_research_target_levels,
-        )
+        from ..verticals._base import load_vertical_contract
 
         research_target_verticals = tuple(
             name
             for name in vertical_select.available_verticals()
-            if vertical_research_target_levels(
-                load_vertical(name, project_root=self.project_root)
-            )
+            if load_vertical_contract(name, project_root=self.project_root).research_target_levels
         )
         backend_name = str(
             getattr(backend, "_backend_name", "")
@@ -1214,10 +1209,7 @@ class _VerticalDecisionMixin:
         unresolved-objective message, which is the state this hook exists to
         improve on, not a silent wrong answer.
         """
-        from ..verticals._base import (
-            load_vertical,
-            vertical_adopt_operator_objective,
-        )
+        from ..verticals._base import load_vertical_contract
 
         request = decision.execution_task.strip() or task
         roots = [self.project_root]
@@ -1226,8 +1218,7 @@ class _VerticalDecisionMixin:
             roots.append(Path(workdir))
         for root in roots:
             try:
-                vertical_adopt_operator_objective(
-                    load_vertical(vertical, project_root=self.project_root),
+                load_vertical_contract(vertical, project_root=self.project_root).adopt_operator_objective(
                     project_root=Path(root),
                     request=request,
                 )

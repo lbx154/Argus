@@ -47,7 +47,7 @@ def self_skill_context(
     None reuses the project's decision for legacy/direct callers. An explicit
     empty selection means no match on this turn, never the previous vertical.
     """
-    from ..verticals._base import load_vertical, vertical_role_banner
+    from ..verticals._base import load_vertical_contract
     from ..verticals._data_domain import (
         list_selectable_data_domain_summaries,
         materialize_learned_data_domain,
@@ -66,7 +66,7 @@ def self_skill_context(
     banner = ""
     if selected:
         materialize_learned_data_domain(learned, root, selected)
-        banner = vertical_role_banner(load_vertical(selected, project_root=root), role)
+        banner = load_vertical_contract(selected, project_root=root).banner(role)
     if store is not None and (selected or isinstance(store, LayeredSkillStore)):
         layered = isinstance(store, LayeredSkillStore)
         global_dir = store.global_.skills_dir if layered else store.skills_dir

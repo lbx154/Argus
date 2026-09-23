@@ -574,7 +574,7 @@ def test_agent_io_persistence_and_stream_callback_are_redacted(
         "copilot.stdout",
         "Authorization: Bearer live-secret-value-123",
     )
-    backend._close_io_context("call")
+    backend._io_logger.close("call")
 
     rendered = path.read_text(encoding="utf-8")
     raw_rendered = path.with_name("agent_io.jsonl").read_text(encoding="utf-8")

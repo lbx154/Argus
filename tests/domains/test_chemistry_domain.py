@@ -29,11 +29,7 @@ from argus.skills.vertical_select import (
     resolve_domain_if_decided,
     resolve_skill_scope,
 )
-from argus.verticals._base import (
-    load_vertical,
-    vertical_checklist_stage_order,
-    vertical_completion_gate,
-)
+from argus.verticals._base import load_vertical_contract
 
 CORE_CHEMISTRY_SKILLS = {
     "manager/chemistry-manager.md",
@@ -166,20 +162,20 @@ def test_research_owns_workflow_when_chemistry_is_active(tmp_path: Path) -> None
     payload = json.loads(
         (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
-    research = load_vertical("research", project_root=tmp_path)
+    contract = load_vertical_contract("research", project_root=tmp_path)
 
     assert payload["vertical"] == "research"
     assert payload["domain"] == "chemistry"
     assert payload["current_stage"] == "idea"
     assert resolve_domain_if_decided(tmp_path) == "chemistry"
     assert resolve_skill_scope(tmp_path) == "chemistry"
-    assert vertical_checklist_stage_order(research) == (
+    assert contract.stage_order == (
         "idea",
         "experiment",
         "paper",
         "review",
     )
-    assert vertical_completion_gate(research) == "certified"
+    assert contract.completion_gate == "certified"
 
 
 def test_non_research_vertical_rejects_domain(tmp_path: Path) -> None:

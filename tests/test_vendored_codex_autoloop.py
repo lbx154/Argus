@@ -54,29 +54,10 @@ def test_vendored_runner_backend_constants() -> None:
 
 
 def test_agent_cli_backend_resolver_uses_vendored_module() -> None:
-    from argus.adapters.agent_cli_backend._runtime import (
-        load_agent_cli_runtime,
-    )
-    deps = load_agent_cli_runtime()
-    runner_cls = deps["AgentCliRunner"]
-    # The resolver only ever imports the bundled copy that ships with us.
-    assert runner_cls.__module__.startswith("argus.agent_cli"), (
-        f"expected vendored agent_cli_runner; got {runner_cls.__module__}"
-    )
-    for required in (
-        "AgentCliRunner",
-        "CliRunnerOptions",
-        "BACKEND_CLAUDE",
-        "BACKEND_CODEX",
-        "BACKEND_COPILOT",
-        "BACKEND_CURSOR",
-        "BACKEND_OPENCODE",
-        "BACKEND_PI",
-        "DEFAULT_RUNNER_BACKEND",
-        "default_runner_bin",
-        "normalize_runner_backend",
-    ):
-        assert required in deps, f"resolver missing {required}"
+    from argus.adapters.agent_cli_backend import AgentCliBackend
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner
+
+    assert isinstance(AgentCliBackend()._runner, AgentCliRunner)
 
 
 def test_agent_cli_package_init_is_thin() -> None:

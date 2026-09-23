@@ -11,7 +11,7 @@ from argus.core.vertical_contract import (
     vertical_contract,
 )
 from argus.skills.stage_machine import ChecklistItem
-from argus.verticals._base import vertical_automatic_stage_completion_ready
+from argus.verticals._base import _contract
 
 
 def _item(item_id: str) -> ChecklistItem:
@@ -98,8 +98,8 @@ def test_empty_completion_gate_does_not_opt_into_automatic_close(tmp_path: Path)
     contract = vertical_contract("model_reviewed", provider)
 
     assert contract.completion_issues("verify", tmp_path) == ()
-    assert not vertical_automatic_stage_completion_ready(
-        provider, stage="verify", project_root=tmp_path, state_root=tmp_path,
+    assert not _contract(provider).automatic_stage_completion_ready(
+        stage="verify", project_root=tmp_path, state_root=tmp_path,
     )
 
 
@@ -120,8 +120,8 @@ def test_auto_close_policy_receives_separate_state_and_evidence_roots(
     )
     evidence, state = tmp_path / "evidence", tmp_path / "state"
 
-    assert vertical_automatic_stage_completion_ready(
-        provider, stage="verify", project_root=evidence, state_root=state,
+    assert _contract(provider).automatic_stage_completion_ready(
+        stage="verify", project_root=evidence, state_root=state,
     ) is ready
     assert calls == [("verify", evidence, state)]
 
@@ -137,8 +137,8 @@ def test_auto_close_rejects_invalid_policy(policy, tmp_path: Path) -> None:
         completion_gate="none", automatic_stage_completion_ready=policy,
     )
     with pytest.raises(VerticalContractError, match="automatic stage completion"):
-        vertical_automatic_stage_completion_ready(
-            provider, stage="verify", project_root=tmp_path, state_root=tmp_path,
+        _contract(provider).automatic_stage_completion_ready(
+            stage="verify", project_root=tmp_path, state_root=tmp_path,
         )
 
 

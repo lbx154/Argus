@@ -239,7 +239,7 @@ def finalize_result(
             )
         except Exception:  # noqa: BLE001
             log.exception("failed to record provider metric for %s", ctx.call_id)
-    backend._close_io_context(ctx.call_id)
+    backend._io_logger.close(ctx.call_id)
     return result
 
 

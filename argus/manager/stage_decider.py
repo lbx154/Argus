@@ -647,11 +647,9 @@ def _mission_scope_can_complete(
     if normalized == "final_submission":
         return True
     try:
-        from ..verticals._base import load_vertical, vertical_completion_gate
+        from ..verticals._base import load_vertical_contract
 
-        gate = vertical_completion_gate(
-            load_vertical(vertical or "", project_root=project_root)
-        )
+        gate = load_vertical_contract(vertical or "", project_root=project_root).completion_gate
     except Exception:  # noqa: BLE001 — an unreadable vertical keeps the strict rule
         return False
     return gate != "certified"

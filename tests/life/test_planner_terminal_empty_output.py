@@ -205,14 +205,9 @@ def _write_software_state(project: Path, *, done: bool) -> None:
     if not done:
         return
     from argus.skills.stage_machine import completion_contract_fingerprint
-    from argus.verticals._base import (
-        load_vertical,
-        vertical_completion_contract_version,
-    )
+    from argus.verticals._base import load_vertical_contract
 
-    version = vertical_completion_contract_version(
-        load_vertical("software", project_root=project)
-    )
+    version = load_vertical_contract("software", project_root=project).completion_contract_version
     if version <= 0:
         return
     record["completion_contract_version"] = version
@@ -330,10 +325,9 @@ def test_review_purchase_hook_releases_stage_blocker_before_deferring(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus.core.vertical_contract import PlannerReviewPurchaseDecision
+    from argus.core.vertical_contract import PlannerReviewPurchaseDecision, VerticalContract
     from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
     from argus.planner import PlannerVerdict, TaskSpec
-    from argus.verticals import _base
 
     supervisor, _backend, sink = _make_supervisor(
         tmp_path,
@@ -342,14 +336,12 @@ def test_review_purchase_hook_releases_stage_blocker_before_deferring(
     )
     monkeypatch.setenv("ARGUS_SKILL_FORCE_STAGE_CLOSING", "1")
     monkeypatch.setattr(
-        _base,
-        "load_vertical_contract",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            planner_task_issues=lambda *_args: (),
-            review_purchase=lambda **_kwargs: PlannerReviewPurchaseDecision(
-                defer_reason="current review exists",
-                release_stage_closing_blocker=True,
-            ),
+        VerticalContract, "planner_task_issues", lambda *_args: (),
+    )
+    monkeypatch.setattr(
+        VerticalContract, "review_purchase",
+        lambda self, **kwargs: PlannerReviewPurchaseDecision(
+            defer_reason="current review exists", release_stage_closing_blocker=True,
         ),
     )
     monkeypatch.setattr(
@@ -1247,7 +1239,7 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
     project = Path(supervisor.config.project_worktree)
     _write_reviewed_math_scope_state(project)
     monkeypatch.setattr(
-        "argus.verticals._base.vertical_stage_completion_issues",
+        "argus.core.vertical_contract.VerticalContract.completion_issues",
         lambda *_args, **_kwargs: ("scope evidence is incomplete",),
     )
     item = supervisor.memory.backlog.add(

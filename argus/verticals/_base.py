@@ -14,9 +14,7 @@ from types import ModuleType
 from typing import TypeAlias
 
 from ..core.vertical_contract import (
-    IterationAssessment,
     VerticalContract,
-    VerticalContractError,
     vertical_contract,
 )
 from ._data_domain import DataDomain, load_data_domain
@@ -80,108 +78,9 @@ def load_vertical_contract(
     return vertical_contract(cleaned, load_vertical(cleaned, project_root=project_root))
 
 
-# --- contract accessors retained for existing callers ---------------------
-
-
 def _contract(mod: VerticalDefinition) -> VerticalContract:
     name = str(getattr(mod, "__name__", None) or getattr(mod, "name", "vertical"))
     return vertical_contract(name, mod)
-
-
-def vertical_checklist_stage_order(mod: VerticalDefinition) -> tuple[str, ...]:
-    return _contract(mod).stage_order
-
-
-def vertical_checklist_items(mod: VerticalDefinition) -> dict:
-    return _contract(mod).checklist_items
-
-
-def vertical_checklist_optional_stages(
-    mod: VerticalDefinition,
-) -> frozenset[str]:
-    """Return stages whose checklist is explicitly declared optional."""
-    return _contract(mod).checklist_optional_stages
-
-
-def vertical_stage_aliases(mod: VerticalDefinition) -> dict[str, str]:
-    """Return non-canonical stage names mapped to canonical stage names."""
-    return dict(_contract(mod).stage_aliases or {})
-
-
-def vertical_role_banner(mod: VerticalDefinition, role: str) -> str:
-    return _contract(mod).banner(role)
-
-
-def vertical_requires_independent_review(mod: VerticalDefinition) -> bool:
-    """Return whether every mission in this vertical requires a Reviewer."""
-    return _contract(mod).requires_independent_review
-
-
-def vertical_completion_gate(mod: VerticalDefinition) -> str:
-    return _contract(mod).completion_gate
-
-
-def vertical_mission_kind(mod: VerticalDefinition) -> str:
-    return _contract(mod).mission_kind
-
-
-def vertical_is_paper_mission(mod: VerticalDefinition) -> bool:
-    return _contract(mod).paper_mission
-
-
-def vertical_verification_stage_profiles(
-    mod: VerticalDefinition,
-) -> dict[str, str]:
-    return dict(_contract(mod).verification_stage_profiles or {})
-
-
-def vertical_completion_contract_version(mod: VerticalDefinition) -> int:
-    """Return the optional versioned final-stage completion contract."""
-    return _contract(mod).completion_contract_version
-
-
-def vertical_research_target_levels(mod: VerticalDefinition) -> tuple[str, ...]:
-    """Return the research target levels supported by this vertical."""
-    return _contract(mod).research_target_levels
-
-
-def vertical_workflow_mode(mod: VerticalDefinition) -> str:
-    """Return the vertical's supported workflow mode."""
-    return _contract(mod).workflow_mode
-
-
-def vertical_search_altitude(mod: VerticalDefinition, project_root: object) -> str:
-    return _contract(mod).altitude(project_root)
-
-
-def vertical_import_legacy_state(
-    mod: VerticalDefinition,
-    *,
-    source_root: Path,
-    state_root: Path,
-) -> None:
-    """Let the vertical carry over its own pre-isolation state artifacts."""
-    _contract(mod).import_legacy_state(
-        source_root=source_root,
-        state_root=state_root,
-    )
-
-
-def vertical_prepare_mission(
-    mod: VerticalDefinition,
-    *,
-    stage: str,
-    project_root: Path,
-    state_root: Path,
-    mission: object,
-) -> str:
-    """``mission`` is the claimed backlog item; see ``VerticalContract``."""
-    return _contract(mod).prepare_mission(
-        stage=stage,
-        project_root=project_root,
-        state_root=state_root,
-        mission=mission,
-    )
 
 
 def vertical_mission_prelude(
@@ -192,28 +91,11 @@ def vertical_mission_prelude(
     stage: str,
     mission: object,
 ) -> str:
-    """Resolve the active vertical and return its block for *this* mission.
+    """Build the same mission prelude for daemon and dispatched teammate calls.
 
-    One seam, two callers. The daemon's supervisor builds this for a claimed
-    backlog item; ``team/teammate_entry.py`` builds it for the board task a
-    dispatched teammate owns. Both need the identical three steps — resolve the
-    project's persisted vertical, load its contract, forward the hook by
-    keyword — and computing them twice is how the two drift: a teammate that
-    resolved the vertical differently would be reading a different project than
-    the Engineer that dispatched it.
-
-    ``vertical_root`` is where the Manager's ``PIPELINE_STATE.json`` decision
-    lives; ``project_root`` is the tree this mission actually works in. They are
-    separate parameters because the supervisor already passes two different
-    paths (session artifact root vs. adopted mission workdir), and collapsing
-    them here would silently retarget it.
-
-    Deliberately unguarded, and that is the whole point of the hook's contract
-    (see ``VerticalContract.prepare_mission``): a stale out-of-tree provider
-    halts the run with a ``TypeError`` naming the argument to add, rather than
-    being quietly demoted to mission-blind for the life of the project. A caller
-    that cannot afford to die — a single subordinate teammate, say — owns that
-    decision at its own call site, where the trade is visible.
+    ``vertical_root`` owns the persisted pipeline decision; ``project_root``
+    is the execution worktree. Keep both roots and forward the claimed mission
+    by keyword. Provider contract errors propagate to the caller.
     """
     from ..skills.vertical_select import resolve_vertical
 
@@ -228,15 +110,38 @@ def vertical_mission_prelude(
     )
 
 
-def vertical_planner_task_issues(
-    mod: VerticalDefinition,
-    *,
-    stage: str,
-    project_root: Path,
-    task: object,
-) -> tuple[str, ...]:
-    return _contract(mod).planner_task_issues(stage, project_root, task)
+# Compatibility for argus-verticals consumers; runtime uses load_vertical_contract.
 
+
+def vertical_checklist_stage_order(mod: VerticalDefinition) -> tuple[str, ...]:
+    return _contract(mod).stage_order
+
+def vertical_checklist_items(mod: VerticalDefinition) -> dict:
+    return _contract(mod).checklist_items
+
+def vertical_role_banner(mod: VerticalDefinition, role: str) -> str:
+    return _contract(mod).banner(role)
+
+def vertical_requires_independent_review(mod: VerticalDefinition) -> bool:
+    """Return whether every mission in this vertical requires a Reviewer."""
+    return _contract(mod).requires_independent_review
+
+def vertical_completion_gate(mod: VerticalDefinition) -> str:
+    return _contract(mod).completion_gate
+
+def vertical_is_paper_mission(mod: VerticalDefinition) -> bool:
+    return _contract(mod).paper_mission
+
+def vertical_completion_contract_version(mod: VerticalDefinition) -> int:
+    """Return the optional versioned final-stage completion contract."""
+    return _contract(mod).completion_contract_version
+
+def vertical_workflow_mode(mod: VerticalDefinition) -> str:
+    """Return the vertical's supported workflow mode."""
+    return _contract(mod).workflow_mode
+
+def vertical_search_altitude(mod: VerticalDefinition, project_root: object) -> str:
+    return _contract(mod).altitude(project_root)
 
 def vertical_stage_primary_deliverables(
     mod: VerticalDefinition,
@@ -244,7 +149,6 @@ def vertical_stage_primary_deliverables(
     stage: str,
 ) -> tuple[str, ...]:
     return _contract(mod).primary_deliverables(stage)
-
 
 def vertical_stage_completion_issues(
     mod: VerticalDefinition,
@@ -261,93 +165,22 @@ def vertical_stage_completion_issues(
     )
 
 
-def vertical_automatic_stage_completion_ready(
-    mod: VerticalDefinition,
-    *,
-    stage: str,
-    project_root: Path,
-    state_root: Path,
-) -> bool:
-    """Only explicit provider opt-in with a real boolean permits automatic close.
-
-    Empty completion issues may mean no machine gate applies. A missing hook
-    therefore declines automatic closure; malformed values never certify it.
-    """
-    contract = _contract(mod)
-    hook = contract.automatic_stage_completion
-    if hook is None:
-        return False
-    ready = hook(
-        stage=stage,
-        project_root=project_root,
-        state_root=state_root,
-    )
-    if not isinstance(ready, bool):
-        raise VerticalContractError(
-            f"vertical {contract.name!r} automatic stage completion hook returned a non-boolean"
-        )
-    return ready
-
-
-def vertical_iteration_assessment(
-    mod: VerticalDefinition,
-    *,
-    stage: str,
-    scope: str,
-    project_root: Path,
-    state_root: Path,
-    mission: object,
-    outcome: object,
-) -> IterationAssessment | None:
-    """Route a would-be terminal result through the active vertical."""
-    return _contract(mod).assess_iteration(
-        stage=stage,
-        scope=scope,
-        project_root=project_root,
-        state_root=state_root,
-        mission=mission,
-        outcome=outcome,
-    )
-
-
-def vertical_adopt_operator_objective(
-    mod: VerticalDefinition,
-    *,
-    project_root: Path,
-    request: str,
-) -> bool:
-    """Hand the vertical the operator's request so it can record its objective.
-
-    Returns whether the vertical declares an adopter at all. Verticals that
-    have nothing to choose declare none, and this is a no-op for them.
-    """
-    return _contract(mod).adopt_operator_objective(project_root, request)
-
-
 __all__ = [
     "DEFAULT_VERTICAL",
     "VerticalContract",
     "VerticalDefinition",
     "load_vertical",
     "load_vertical_contract",
-    "vertical_adopt_operator_objective",
-    "vertical_checklist_stage_order",
+    "vertical_mission_prelude",
     "vertical_checklist_items",
-    "vertical_checklist_optional_stages",
-    "vertical_role_banner",
-    "vertical_requires_independent_review",
+    "vertical_checklist_stage_order",
     "vertical_completion_contract_version",
     "vertical_completion_gate",
-    "vertical_mission_kind",
     "vertical_is_paper_mission",
-    "vertical_verification_stage_profiles",
-    "vertical_mission_prelude",
-    "vertical_research_target_levels",
-    "vertical_prepare_mission",
-    "vertical_planner_task_issues",
-    "vertical_workflow_mode",
+    "vertical_requires_independent_review",
+    "vertical_role_banner",
     "vertical_search_altitude",
-    "vertical_automatic_stage_completion_ready",
     "vertical_stage_completion_issues",
     "vertical_stage_primary_deliverables",
+    "vertical_workflow_mode",
 ]

@@ -7,6 +7,17 @@
 第二批从 `9885fb19f` 继续，并合并 `origin/main` 的 `1e09263e1`。
 这一批明确 API 服务依赖、完善控制面等待和事件投影恢复，并收敛并发查询的失败行为。
 
+## 2026-09-23 调用路径精简
+
+CLI adapter 在构造时直接导入仓库内的 `AgentCliRunner`，使用真实 `RunnerOptions`；
+不再维护字符串依赖字典或兼容旧测试类型的字段探测。测试只替换执行入口。
+
+领域调用先取 `load_vertical_contract(name, project_root=...)`，随后直接读取
+`stage_order`、`completion_gate` 等字段，或调用 `completion_issues()`、
+`assess_iteration()`、`automatic_stage_completion_ready()`。同一操作复用合同对象，
+自动阶段关闭仍要求 provider 明确返回布尔值。`argus-verticals` 已使用的旧访问入口
+保留兼容；已移除的其余逐字段包装入口应改为对应合同属性或方法。
+
 ## 阅读入口
 
 ```mermaid
