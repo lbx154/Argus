@@ -48,3 +48,32 @@ test('pre-aborted queries do not spawn a process', async t => {
   t.after(() => worker.close());
   await assert.rejects(worker.query('meta', {}, AbortSignal.abort()), { code: 'aborted' });
 });
+
+test('cost queries fold overlapping receipts in Node', async t => {
+  const worker = backend('cost-dedup'); t.after(() => worker.close());
+  const costs = await worker.query('costs', { limit: 1 });
+  assert.equal(costs.projects[0]?.usage_calls, 2);
+  assert.equal(costs.projects[0]?.spend_usd, 0.02);
+  assert.equal(costs.projects[0]?.premium_requests, 3);
+});
+
+for (const mode of ['cost-legacy', 'cost-no-start', 'cost-nested', 'cost-invalid', 'cost-no-terminal',
+  'cost-no-end', 'cost-wrong-project', 'cost-duplicate', 'cost-wrong-id', 'cost-wrong-version', 'cost-wrong-count']) {
+  test(`partial cost results cannot escape after ${mode}`, async t => {
+    const worker = backend(mode); t.after(() => worker.close());
+    await assert.rejects(worker.query('costs', { limit: 1 }), { code: 'invalid_response' });
+  });
+}
+for (const [mode, code] of [['cost-error', 'query_failed'], ['cost-nonzero', 'unavailable'], ['cost-hang', 'timeout']] as const) {
+  test(`cost stream ${mode} discards already observed totals`, async t => {
+    const worker = backend(mode, { timeoutMs: 500 }); t.after(() => worker.close());
+    await assert.rejects(worker.query('costs', { limit: 1 }), { code });
+  });
+}
+
+for (const mode of ['cost-byte-limit', 'cost-frame-limit']) {
+  test(`${mode} bounds the stream without returning accumulated costs`, { timeout: 10_000 }, async t => {
+    const worker = backend(mode); t.after(() => worker.close());
+    await assert.rejects(worker.query('costs', { limit: 1 }), { code: 'response_too_large' });
+  });
+}

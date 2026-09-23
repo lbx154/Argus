@@ -47,8 +47,12 @@ def test_read_bridge_uses_existing_projections_and_preserves_authoritative_files
     assert snapshot["ok"] is True
     assert snapshot["result"]["session"] == baseline["session"]
     assert snapshot["result"]["backlog"] == baseline["backlog"]
-    costs = read_bridge.reply(request("costs"), global_root=root)
-    assert costs["result"]["projects"] == project_state.list_project_costs(global_root=root)
+    frames = []
+    costs = read_bridge.reply(request("costs"), global_root=root, emit_cost_frame=frames.append)
+    assert costs["ok"] is True
+    assert costs["result"]["project_count"] == 1
+    assert [frame["kind"] for frame in frames] == ["cost_project", "cost_project_end"]
+    assert all(frame["project_id"] == "s-read" for frame in frames)
     assert {path: path.read_bytes() for path in watched} == before
 
 
@@ -98,3 +102,66 @@ def test_library_diagnostics_do_not_corrupt_the_receipt(tmp_path: Path, monkeypa
     assert result["ok"] is True
     assert captured.out == ""
     assert "library diagnostic" in captured.err
+
+
+def test_cost_stream_exports_only_normalized_inputs(project, monkeypatch) -> None:
+    from argus.core.usage import UsageLedger, UsageRecord
+
+    root, life_dir = project
+    record = UsageRecord.from_jsonable({
+        "call_id": "private-call", "project_id": "s-read", "error": "private diagnostic",
+        "model": "private-model", "thread_id": "private-thread", "cost_basis": "provider_reported",
+        "cost_usd": 0.2, "pricing_status": "priced", "input_tokens": 100,
+    })
+    UsageLedger(life_dir, migrate_legacy=False).append(record)
+    before = (life_dir / "usage.jsonl").read_bytes()
+    monkeypatch.setattr(project_state, "list_project_costs", lambda **_: pytest.fail("Python must not aggregate Node cost queries"))
+    frames = []
+    result = read_bridge.reply(request("costs"), global_root=root, emit_cost_frame=frames.append)
+    assert result["ok"] is True
+    assert [frame["kind"] for frame in frames] == ["cost_project", "cost_record", "cost_project_end"]
+    assert frames[1]["record"]["cost_usd"] == 0.2
+    assert "private" not in json.dumps(frames)
+    assert (life_dir / "usage.jsonl").read_bytes() == before
+
+
+@pytest.mark.parametrize("bound,value", [("max_cost_records", 0), ("max_cost_frame_bytes", 40), ("max_response_bytes", 80)])
+def test_cost_stream_limits_return_a_failed_receipt(project, monkeypatch, bound, value) -> None:
+    from argus.core.usage import UsageLedger, UsageRecord
+
+    root, life_dir = project
+    UsageLedger(life_dir, migrate_legacy=False).append(UsageRecord.from_jsonable({"call_id": "one"}))
+    monkeypatch.setitem(read_bridge.CONTRACT, bound, value)
+    result = read_bridge.reply(request("costs"), global_root=root, emit_cost_frame=lambda _: None)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "response_too_large"
+
+
+def test_corrupt_ledger_does_not_emit_success_or_empty_spending(project) -> None:
+    root, life_dir = project
+    path = life_dir / "usage.jsonl"
+    path.write_bytes(b'{"call_id": "valid", "cost_usd": 1}\n{broken\n')
+    before = path.read_bytes()
+    frames = []
+    result = read_bridge.reply(request("costs"), global_root=root, emit_cost_frame=frames.append)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "query_failed"
+    assert [frame["kind"] for frame in frames] == ["cost_project"]
+    assert path.read_bytes() == before
+
+
+def test_cost_stream_retains_python_token_price_reconciliation(project) -> None:
+    from argus.core.usage import UsageLedger, UsageRecord
+
+    root, life_dir = project
+    ledger = UsageLedger(life_dir, migrate_legacy=False)
+    ledger.append(UsageRecord.from_jsonable({
+        "call_id": "late-price", "project_id": "s-read", "model": "gpt-5.5",
+        "input_tokens": 1000, "output_tokens": 100, "pricing_status": "partial", "cost_basis": "token",
+    }))
+    frames = []
+    result = read_bridge.reply(request("costs"), global_root=root, emit_cost_frame=frames.append)
+    assert result["ok"] is True
+    assert frames[1]["record"]["pricing_status"] == "priced"
+    assert frames[1]["record"]["cost_usd"] == pytest.approx(0.00225)
+    assert ledger.records()[0].cost_usd == pytest.approx(0.00225)
