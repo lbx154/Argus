@@ -189,13 +189,6 @@ def _front_matter(text: str) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def _body_without_front_matter(text: str) -> str:
-    if not text.startswith("---\n"):
-        return text
-    _front, separator, content = text[4:].partition("\n---\n")
-    return content if separator else text
-
-
 def _page_meta(path: Path) -> dict[str, str] | None:
     """Title, description and the optional kind/audience of a page; None when unreadable.
 

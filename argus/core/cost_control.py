@@ -569,35 +569,6 @@ def _global_records(root: Path, day_start: float, *, state_timestamp: float) -> 
     return records
 
 
-def _resolved_unpriced(
-    unresolved: list[dict[str, Any]],
-    *,
-    day_start: float,
-) -> list[dict[str, Any]]:
-    by_project: dict[str, list[dict[str, Any]]] = {}
-    for row in unresolved:
-        project_root = str(row.get("project_root") or "")
-        by_project.setdefault(project_root, []).append(row)
-    kept: list[dict[str, Any]] = []
-    for project_text, rows in by_project.items():
-        if not project_text:
-            kept.extend(rows)
-            continue
-        try:
-            records = _project_records(Path(project_text), day_start)
-        except Exception:  # noqa: BLE001
-            kept.extend(rows)
-            continue
-        settled = {
-            record.call_id
-            for record in records
-            if record.cost_usd is not None
-            and record.pricing_status not in {"partial", "unpriced"}
-        }
-        kept.extend(row for row in rows if str(row.get("call_id") or "") not in settled)
-    return kept
-
-
 def _failed_finalization_dir(root: Path) -> Path:
     return root / COST_CONTROL_FAILED_DIR
 

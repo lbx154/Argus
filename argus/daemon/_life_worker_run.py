@@ -143,20 +143,6 @@ class LifeWorkerRunMixin:
             owned.append((observed_at, task_id, state))
         return sorted(owned, reverse=True)
 
-    @classmethod
-    def _owned_subagent(
-        cls,
-        rf_state: _RunForeverState,
-        mission_id: str,
-    ) -> tuple[str, str] | None:
-        """Compatibility view of the most recently observed owned subagent."""
-
-        owned = cls._owned_subagents(rf_state, mission_id)
-        if not owned:
-            return None
-        _timestamp, task_id, state = owned[0]
-        return task_id, state
-
     @staticmethod
     def _backlog_item(rf_state: _RunForeverState, item_id: str) -> Any | None:
         return next(

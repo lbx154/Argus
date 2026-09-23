@@ -65,17 +65,6 @@ def _truncate(text: str, limit: int) -> str:
     return text[: max(0, limit - 1)] + "…"
 
 
-def _read_inbox_messages(
-    life_dir: Path | str,
-    *,
-    advance: bool,
-    limit: int | None = None,
-    stage: str = "",
-) -> list[str]:
-    """Legacy raw draining cannot prove durable acceptance."""
-    raise InboxProtocolError("raw inbox reads are disabled; use the claim/accept/ACK protocol")
-
-
 def count_pending_inbox_messages(life_dir: Path | str) -> int:
     return count_durable_inbox_messages(life_dir)
 
