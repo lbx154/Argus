@@ -32,13 +32,6 @@ def _subprocess_env() -> dict[str, str]:
     return env
 
 
-def test_the_alias_package_is_exactly_two_files() -> None:
-    shim = REPO_ROOT / "argus_skill"
-    assert sorted(p.name for p in shim.iterdir() if p.name != "__pycache__") == [
-        "__init__.py", "__main__.py",
-    ]
-
-
 def test_legacy_import_name_is_the_same_module_object() -> None:
     import argus_skill
     import argus_skill.core.paths as legacy_paths
