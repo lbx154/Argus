@@ -161,31 +161,6 @@ class PromptDeliveryMixin:
             reader.close()
 
 
-    @staticmethod
-    def _write_prompt(*, process: subprocess.Popen[str], prompt: str) -> None:
-        if process.stdin is None:
-            return
-        try:
-            process.stdin.write(prompt)
-            if not prompt.endswith("\n"):
-                process.stdin.write("\n")
-        except BrokenPipeError:
-            return
-        finally:
-            try:
-                process.stdin.close()
-            except OSError:
-                return
-
-    @staticmethod
-    def _close_stdin(process: subprocess.Popen[str]) -> None:
-        if process.stdin is None:
-            return
-        try:
-            process.stdin.close()
-        except OSError:
-            return
-
     def _prepare_prompt_delivery(
         self,
         command: list[str],

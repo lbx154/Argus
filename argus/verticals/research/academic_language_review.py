@@ -1085,44 +1085,6 @@ def _has_section(section_titles: Sequence[str], synonyms: Sequence[str]) -> bool
     return False
 
 
-def _section_text(text: str, title: str) -> str:
-    stripped = _expand_simple_latex_macros(_strip_latex_comments(text))
-    pattern = re.compile(r"\\section\*?(?:\[[^\]]*\])?\s*\{")
-    matches = list(pattern.finditer(stripped))
-    for index, match in enumerate(matches):
-        raw_title = _balanced_brace_content(stripped, match.end() - 1)
-        if raw_title is None or _normalize_title(title) not in _normalize_title(raw_title):
-            continue
-        start = match.end()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(stripped)
-        return _latex_to_plain_text(stripped[start:end])
-    return ""
-
-
-def _raw_section_text(text: str, title: str) -> str:
-    stripped = _strip_latex_comments(text)
-    pattern = re.compile(r"\\section\*?(?:\[[^\]]*\])?\s*\{")
-    matches = list(pattern.finditer(stripped))
-    for index, match in enumerate(matches):
-        raw_title = _balanced_brace_content(stripped, match.end() - 1)
-        if raw_title is None or _normalize_title(title) not in _normalize_title(raw_title):
-            continue
-        start = match.end() + len(raw_title) + 1
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(stripped)
-        return stripped[start:end]
-    return ""
-
-
-def _citation_keys_from_latex(tex_text: str) -> set[str]:
-    keys: set[str] = set()
-    for match in re.finditer(r"\\cite(?:[a-zA-Z]*)?(?:\[[^\]]*\])*\{([^{}]+)\}", tex_text):
-        for key in match.group(1).split(","):
-            normalized = key.strip()
-            if normalized:
-                keys.add(normalized)
-    return keys
-
-
 def _balanced_brace_content(text: str, opening_brace: int) -> str | None:
     if opening_brace >= len(text) or text[opening_brace] != "{":
         return None

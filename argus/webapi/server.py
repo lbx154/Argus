@@ -393,23 +393,6 @@ def _is_inner_monologue(event: object) -> bool:
     return isinstance(event, dict) and str(event.get("kind") or "").strip() == "reasoning"
 
 
-def _read_replay_snapshot(
-    path: Path,
-    *,
-    limit: int,
-    max_bytes: int = 256 * 1024,
-) -> tuple[list[dict[str, Any]], int, int | None]:
-    """Read replay and its byte boundary from one bounded file snapshot."""
-    from ..core.jsonl_reader import read_jsonl_replay
-
-    try:
-        with path.open("rb") as stream:
-            replay = read_jsonl_replay(stream, limit=limit, max_bytes=max_bytes)
-            return replay.rows, replay.offset, os.fstat(stream.fileno()).st_ino
-    except OSError:
-        return [], 0, None
-
-
 async def tail_events(
     life_dir: Path,
     *,

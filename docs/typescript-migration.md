@@ -466,6 +466,14 @@ Use copied fixtures and isolated temporary directories. State takeover requires
 draining the old owner, a consistent backup, cross-process locking compatibility,
 crash-recovery checks and a rollback plan that accounts for newly incurred costs.
 
+Retired Python helpers can be removed after checking callers, registered hooks
+and build entrypoints. The unused Python event-generator rendering API and old
+runtime helper paths have been removed. The generator's `python -m` CLI remains
+because the Web/TUI and release builds invoke it. Python pricing, Pi transport,
+event validation and storage are still used by the production daemon; a TS
+implementation existing alongside them does not yet make those Python paths
+unused.
+
 ## Next increments
 
 1. Extend shared contracts to write commands, port read projections into Node

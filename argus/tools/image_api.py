@@ -402,14 +402,6 @@ def _atomic_write_json(path: Path, data: dict[str, Any], *, force: bool = True) 
             pass
 
 
-def _restore_optional_file(path: Path, snapshot: bytes | None) -> None:
-    if snapshot is None:
-        if path.exists():
-            path.unlink()
-        return
-    _atomic_write(path, snapshot, force=True)
-
-
 def _sidecar_path(out: Path) -> Path:
     suffix = out.suffix or ".image"
     return out.with_suffix(suffix + ".json")

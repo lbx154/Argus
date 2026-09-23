@@ -295,14 +295,6 @@ class FeishuPoller:
 
     # -- inbound -----------------------------------------------------------
 
-    def _router_for(self, chat_id: str) -> CommandRouter:
-        return CommandRouter(
-            life_dir=self.life_dir,
-            transport=FeishuTransport(
-                app_id=self.app_id, app_secret=self.app_secret, chat_id=chat_id,
-            ),
-        )
-
     def handle_event(self, event: dict[str, Any]) -> None:
         """Process one normalized ``im.message.receive_v1`` payload.
 

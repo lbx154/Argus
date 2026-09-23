@@ -395,9 +395,6 @@ class PlanningCycleMixin(
     def _retry_pending_planner_verdict(self) -> tuple[bool, bool | str | None]:
         raise NotImplementedError
 
-    def _reconcile_open_ended_terminal_stage(self, verdict: Any) -> bool:
-        return self._reconcile_open_ended_terminal_stage_action(verdict) == "rollback"
-
     def _reconcile_open_ended_terminal_stage_action(self, verdict: Any) -> str:
         """Ask the Manager to reopen a completed final stage when work remains.
 

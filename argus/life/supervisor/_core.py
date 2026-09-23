@@ -368,15 +368,6 @@ class LifeSupervisor(
             except Exception:  # noqa: BLE001 - orphan recovery remains authoritative
                 log.exception("life supervisor: orphan incident recording failed")
 
-    @staticmethod
-    def _safe_mode_enabled() -> bool:
-        return os.environ.get("ARGUS_SKILL_SAFE_MODE", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-
     def _configured_worktree(self) -> Path | None:
         configured = getattr(self.config, "project_worktree", None)
         if configured is not None:
