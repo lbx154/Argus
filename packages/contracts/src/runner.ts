@@ -3,7 +3,7 @@ import type { RunnerAccounting } from './accounting.js';
 
 export type JsonObject = { [key: string]: unknown };
 
-export type RunnerStopKind = 'cancelled' | 'wall_timeout' | 'idle_timeout' | 'output_limit' | 'transport_error';
+export type RunnerStopKind = 'cancelled' | 'wall_timeout' | 'idle_timeout' | 'output_limit' | 'transport_error' | 'provider_turn_limit';
 
 export interface RunnerResult {
   command: string[];
@@ -19,6 +19,7 @@ export interface RunnerResult {
   stderrLineCount: number;
   jsonEventCount: number;
   providerTurns: number;
+  providerTurnCapHit: boolean;
   toolActivityObserved: boolean;
   accounting: RunnerAccounting;
 }

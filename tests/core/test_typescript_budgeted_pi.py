@@ -31,9 +31,10 @@ def root(tmp_path, monkeypatch):
     return tmp_path
 
 
-def run(root, mode="accounting-tokens", *, cancel=False):
+def run(root, mode="accounting-tokens", *, cancel=False, request=None):
     result = subprocess.run([shutil.which("node"), str(ENTRY)], input=json.dumps({
         "python": sys.executable, "sourceRoot": str(ROOT), "globalRoot": str(root), "mode": mode, "cancel": cancel,
+        "request": request or {},
     }), capture_output=True, text=True, encoding="utf-8", env=os.environ.copy(), timeout=30, check=True)
     return json.loads(result.stdout)
 
@@ -91,3 +92,32 @@ def test_invalid_late_usage_preserves_the_earlier_durable_lower_bound(root):
     assert "safe-integer" in result["reason"]
     row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
     assert row.cost_usd == pytest.approx(0.753) and row.pricing_status == "partial"
+
+
+def test_provider_turn_allowance_retains_native_cost_and_unresolved_liability(root):
+    result = run(root, "turn-cap-paced", request={"providerTurnCap": 2})
+    assert result["settlement"] == "unresolved"
+    assert result["runner"]["providerTurnCapHit"]
+    assert result["runner"]["stopKind"] == "provider_turn_limit"
+    assert result["runner"]["agentMessages"][:2] == ["checkpoint 1", "checkpoint 2"]
+    row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
+    assert row.cost_usd == pytest.approx(result["runner"]["providerTurns"] * 0.1)
+    assert row.cost_usd >= 0.2 and row.pricing_status == "partial"
+    assert cost_control_snapshot(global_root=root)["blocking_unresolved_calls"] == 1
+
+
+def test_guarded_structured_call_settles_without_persisting_schema_in_cost_files(root):
+    schema = {"type": "object", "description": "private-schema-content-native-fixture"}
+    result = run(root, "structured-completions", request={"outputSchema": schema})
+    assert result["settlement"] == "settled"
+    assert result["runner"]["agentMessages"] == ['{"answer":"fixture"}']
+    row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
+    assert row.cost_usd == pytest.approx(0.1)
+    assert schema["description"] not in json.dumps(row.to_jsonable())
+
+
+def test_rejected_schema_provider_leaves_a_native_unresolved_receipt(root):
+    result = run(root, "structured-unsupported", request={"outputSchema": {"type": "object"}})
+    assert result["settlement"] == "unresolved"
+    assert not result["runner"]["turnCompleted"]
+    assert cost_control_snapshot(global_root=root)["blocking_unresolved_calls"] == 1

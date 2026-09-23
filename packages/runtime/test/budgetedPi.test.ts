@@ -110,3 +110,43 @@ test('a paused output consumer does not pause live budget enforcement', async t 
   assert.equal(result?.settlement, 'unresolved');
   assert.match(result!.reason, /budget exhausted/);
 });
+
+test('invalid native schema does not open a budget session', async t => {
+  const { backend, trace } = await setup(t);
+  await assert.rejects(collect(backend, { ...request, toolPolicy: 'read-only', outputSchema: { type: 'object' } }), /toolPolicy disabled/);
+  await assert.rejects(readFile(trace), { code: 'ENOENT' });
+});
+
+test('schema bindings are snapshotted before asynchronous admission', async t => {
+  const { backend, trace } = await setup(t, 'delayed-reserve', 'structured-completions');
+  const outputSchema = { type: 'object', description: 'original schema' };
+  const stream = backend.run({ ...request, outputSchema });
+  const first = stream.next();
+  const deadline = Date.now() + 5000;
+  while (true) {
+    try { if ((await readFile(trace, 'utf8')).includes('reserve')) break; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    assert.ok(Date.now() < deadline);
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  outputSchema.description = 'mutated during admission';
+  await first;
+  let observed: unknown;
+  let result: BudgetedResult | undefined;
+  for await (const event of stream) {
+    if (event.type === 'provider_event' && event.event.type === 'request_payload') observed = event.event.payload;
+    if (event.type === 'result') result = event.result;
+  }
+  assert.equal(((observed as { response_format: { json_schema: { schema: { description: string } } } }).response_format.json_schema.schema.description), 'original schema');
+  assert.equal(result?.settlement, 'settled');
+  assert.ok(!(await readFile(trace, 'utf8')).includes('original schema'));
+});
+
+test('provider-turn allowance still settles partial usage through the budget owner', async t => {
+  const { backend, calls } = await setup(t, 'success', 'turn-cap-paced');
+  const result = await collect(backend, { ...request, providerTurnCap: 2 });
+  assert.equal(result.settlement, 'unresolved');
+  assert.equal(result.runner?.providerTurnCapHit, true);
+  assert.ok(result.runner!.accounting.pricing.cost_usd! >= 0.2);
+  assert.equal((await calls()).at(-1)?.params.completed, false);
+});

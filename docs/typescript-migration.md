@@ -44,6 +44,9 @@ budgets and stage transitions during the staged migration.
 - Budgeted Pi calls now use an OS process guard. Its private lease belongs to the
   server execution owner, independently of Web/TUI/SSH clients. Native tests cover
   detached-owner survival and cleanup after owner, guard or budget-process death.
+- Pi native schema transport, explicit plugin bindings and observed provider-turn
+  allowances are available in TypeScript. Python loads a checked-in JavaScript
+  extension generated from the same TypeScript schema implementation.
 - CI runs the Node packages on Linux, macOS and Windows, and checks the existing
   frontend consumers. The Python suite reads the same compatibility fixtures.
 
@@ -61,6 +64,18 @@ After changing a contract source:
 npm run contracts:generate
 npm run contracts:check
 ```
+
+After changing the native Pi schema extension, refresh and verify the copy
+shipped in Python wheels. These commands require the root `npm ci` dependencies:
+
+```sh
+npm run runtime:generate
+npm run runtime:check
+```
+
+The normal root build also checks this generated artifact. Python installations
+continue loading `argus/agent_cli/pi_output_schema_extension.mjs` without a build
+step or an installed TypeScript compiler.
 
 Generated files are checked in for the existing standalone frontend builds.
 The root workspace covers only the new packages; Web/TUI retain their current
@@ -192,8 +207,57 @@ The default invocation uses `--no-session`. Persistent sessions require an
 explicit `sessionDirectory`; resuming also requires that directory. Callers
 must serialize access to each persistent session. Ambient extensions, skills,
 context files and templates are disabled, matching the existing Argus command
-construction. Trusted extensions, structured output and provider-turn allowance
-stops still belong to the Python adapter and are not supported here yet.
+construction. The TS library does not yet implement the production training
+capture bindings, role-specific environment resolution, session locking or
+full mission orchestration.
+
+### Native schema and plugin bindings
+
+`outputSchema` accepts a JSON Schema object when `toolPolicy` is `disabled`.
+The runtime sends it through a private child environment value and loads the
+built-in schema extension explicitly. It never puts the schema in process
+arguments, budget RPCs or the parent environment. Calls without a schema remove
+ambient `ARGUS_PI_OUTPUT_SCHEMA` values. The extension consumes and removes that
+value before provider dispatch.
+
+The extension preserves `$defs`/`$ref` and other schema fields. For OpenAI
+Completions it sets `response_format.json_schema`; for Responses it sets
+`text.format` while retaining other text options. Unsupported provider APIs,
+missing payloads and active tools terminate the CLI before a prompt-only
+fallback can be sent. This is native request transport; callers still validate
+the returned application data.
+
+Schemas must contain finite, acyclic JSON values, at most 64 KiB of encoded JSON,
+64 nesting levels and 65,536 values. Operating-system environment limits also
+apply. Invalid schemas or incompatible tool policies fail before budget
+admission. Each call snapshots its schema and plugin bindings before waiting
+for asynchronous admission, so another caller cannot mutate queued settings.
+
+Tool-enabled calls may supply `trustedExtensions` as existing absolute file
+paths. `trustedToolNames` adds explicitly named plugin tools to the `read-only`
+builtin allowlist; commas and builtin `bash`/`write`/`edit` names are rejected.
+`extensionEnv` accepts only `ARGUS_PLUGIN_*` string values and affects that child
+alone. As in Python, tools-disabled calls omit these tool plugins and their
+environment. Ambient extension discovery stays disabled in all cases. Explicit
+plugin tools can execute their own code: a builtin tool allowlist is not an OS
+sandbox or proof that a plugin is read-only.
+
+### Provider-turn allowances
+
+`providerTurnCap` is an explicit nonnegative integer; omitted or zero means no
+allowance. Each assistant `message_end` counts once; tool results and text deltas
+do not count. Reaching the allowance stops a live call and returns
+`stopKind: 'provider_turn_limit'` with `providerTurnCapHit: true`. Retained text,
+session identity and observed usage remain in the receipt. A process which has
+already closed successfully is not stopped merely while its buffered output is
+being consumed.
+
+This is an observed context-rotation boundary, not a provider-side hard quota.
+In-flight work and buffered output may exceed the threshold. The library does
+not choose role-specific allowances, write a checkpoint, declare the mission
+complete or automatically submit a continuation. The daemon/orchestrator owns
+those decisions. A budgeted interrupted call conservatively retains partial
+cost and an unresolved liability until reconciled.
 
 Without a configured guardian, on POSIX the adapter owns and terminates an isolated process group, including
 descendants with redirected or inherited pipes. On Windows it uses `taskkill /T`
@@ -301,8 +365,10 @@ new sessions are outside the group. Explicit durable launchers have independent
 ownership. A service manager's cgroup covers simultaneous loss of both POSIX
 owner and guard. Windows retains the documented narrow unassigned-suspended
 process window if the guard itself is killed during native setup; see
-[Windows process ownership](windows-process-ownership.md). No live paid provider
-call or full mission loop has been validated in this migration step.
+[Windows process ownership](windows-process-ownership.md). The real Pi CLI has
+been exercised with TS transport/guard, native schemas and trusted tools against
+an isolated local HTTP fixture. No paid external provider call or full mission
+loop has been validated in this migration step.
 
 ```sh
 npm run check
@@ -314,6 +380,15 @@ python -m pytest tests/core/test_budget_bridge.py \
 CI exercises the real Python owner and offline Pi chain on Linux, macOS and
 Windows, including killed-owner liability markers, native process trees,
 detached-client survival and interrupted ledger writes.
+
+For the optional native CLI integration check, explicitly select a compatible
+Argus Pi executable. It uses temporary agent configuration and localhost
+provider responses, with no paid model requests:
+
+```sh
+ARGUS_PI_TEST_CLI=/absolute/path/to/argus-pi python -m pytest \
+  tests/core/test_typescript_pi_native.py -o addopts='' -q
+```
 
 ## Usage and pricing
 
@@ -396,9 +471,11 @@ crash-recovery checks and a rollback plan that accounts for newly incurred costs
 1. Extend shared contracts to write commands, port read projections into Node
    where they can preserve storage semantics, and introduce frontend support for
    the explicit read-only profile. Snapshot types and the read API are in place.
-2. Verify the Pi adapter against a configured live provider and complete missing
-   production runner capabilities. Guarded budgeted calls now have native OS
-   ownership; daemon/client separation remains a required integration boundary.
+2. Verify the Pi adapter against a configured external provider and complete
+   remaining production capabilities, especially training capture and role
+   environment/session ownership. Native schemas, tool plugins and turn
+   allowances now have local CLI coverage; daemon/client separation remains a
+   required integration boundary.
 3. Port storage and budget primitives with fault injection (usage parsing and
    reference pricing and ledger cost projections are now available), then complete one
    Planner → Engineer → Reviewer → Manager task with restart/cancellation tests.
