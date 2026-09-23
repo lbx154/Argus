@@ -6,3 +6,5 @@ export { TokenUsageAccumulator, extractTokenUsage } from './tokenUsage.js';
 export { UsageAccountingError } from './accountingNumbers.js';
 export { modelPriceFor, quoteTokenUsage, quoteObservedUsage, quoteCopilotUsage, copilotUsdPerPremiumRequest } from './pricing.js';
 export type { TokenCounts } from './pricing.js';
+export { UsageSummaryAccumulator, summarizeUsage } from './usageSummary.js';
+export type { UsageSummaryLimits } from './usageSummary.js';

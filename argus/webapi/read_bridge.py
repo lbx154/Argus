@@ -2,6 +2,8 @@
 
 The existing Python stores retain their locking and recovery semantics. This
 bridge exposes no command dispatcher, dynamic module/function name or write API.
+Costs stream normalized records followed by a terminal receipt; other methods
+return a single receipt. The Node process folds the cost records.
 """
 from __future__ import annotations
 
@@ -11,10 +13,12 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from ..core.contract_resources import contract_schema_path
+from .cost_inputs import CostInputLimitError
 
 CONTRACT = json.loads(contract_schema_path("read_api_protocol.json").read_text(encoding="utf-8"))
 
@@ -49,7 +53,10 @@ def _project_id(value: Any) -> str:
     return value
 
 
-def dispatch_query(method: str, params: dict, *, global_root: Path) -> Any:
+def dispatch_query(
+    method: str, params: dict, *, global_root: Path,
+    emit_cost_frame: Callable[[dict], None] | None = None,
+) -> Any:
     allowed = {
         "meta": set(), "projects": {"limit", "include_empty"},
         "costs": {"limit"}, "snapshot": {"sid", "events_limit", "compact"},
@@ -70,10 +77,17 @@ def dispatch_query(method: str, params: dict, *, global_root: Path) -> Any:
                 include_empty=_boolean(params, "include_empty", False),
             )
             return {"projects": rows, "local_cwd": ""}
-        return {
-            "projects": project_state.list_project_costs(global_root=global_root, limit=limit),
-            "generated_at": time.time(),
-        }
+        from .cost_inputs import cost_input_frames
+
+        if emit_cost_frame is None:
+            raise InvalidQuery("cost reads require a streaming receiver")
+        projects = 0
+        for frame in cost_input_frames(
+            global_root, limit=limit, max_records=CONTRACT["max_cost_records"], validate_id=_project_id,
+        ):
+            emit_cost_frame(frame)
+            projects += frame["kind"] == "cost_project_end"
+        return {"project_count": projects, "generated_at": time.time()}
     sid = _project_id(params.get("sid"))
     return project_state.build_snapshot(
         sid, global_root=global_root,
@@ -86,10 +100,25 @@ def _reject_constant(value: str) -> None:
     raise InvalidQuery("request must contain finite JSON values")
 
 
-def reply(raw: bytes, *, global_root: Path) -> dict[str, Any]:
+def reply(
+    raw: bytes, *, global_root: Path, emit_cost_frame: Callable[[dict], None] | None = None,
+) -> dict[str, Any]:
     envelope: dict[str, Any] = {
         "protocol": CONTRACT["bridge_protocol"], "version": CONTRACT["bridge_version"], "id": None,
     }
+    emitted_bytes = 0
+
+    def emit(frame: dict) -> None:
+        nonlocal emitted_bytes
+        response = {**envelope, **frame}
+        size = len(json.dumps(response, ensure_ascii=True, allow_nan=False).encode("utf-8")) + 1
+        emitted_bytes += size
+        if size > CONTRACT["max_cost_frame_bytes"] or emitted_bytes > CONTRACT["max_response_bytes"]:
+            raise CostInputLimitError("cost input stream exceeds the response limit")
+        if emit_cost_frame is None:
+            raise InvalidQuery("cost reads require a streaming receiver")
+        emit_cost_frame(response)
+
     try:
         if len(raw) > CONTRACT["max_request_bytes"]:
             raise InvalidQuery("read query exceeds the request limit")
@@ -107,14 +136,18 @@ def reply(raw: bytes, *, global_root: Path) -> dict[str, Any]:
                 or not isinstance(query.get("method"), str)
                 or not isinstance(query.get("params"), dict)):
             raise InvalidQuery("unsupported read query envelope")
-        # Libraries may write diagnostics; stdout is reserved for one receipt.
+        # Libraries may write diagnostics; stdout is reserved for protocol frames.
         with contextlib.redirect_stdout(sys.stderr):
-            result = dispatch_query(query["method"], query["params"], global_root=global_root)
+            result = dispatch_query(
+                query["method"], query["params"], global_root=global_root, emit_cost_frame=emit,
+            )
         response = {**envelope, "ok": True, "result": result}
         encoded = json.dumps(response, ensure_ascii=True, allow_nan=False).encode("utf-8")
-        if len(encoded) > CONTRACT["max_response_bytes"]:
+        if len(encoded) + emitted_bytes + 1 > CONTRACT["max_response_bytes"]:
             return {**envelope, "ok": False, "error": {"code": "response_too_large", "detail": "read response exceeds the response limit"}}
         return response
+    except CostInputLimitError:
+        return {**envelope, "ok": False, "error": {"code": "response_too_large", "detail": "cost input stream exceeds the response limit"}}
     except (InvalidQuery, json.JSONDecodeError, UnicodeError) as exc:
         return {**envelope, "ok": False, "error": {"code": "invalid_query", "detail": str(exc)}}
     except Exception as exc:  # noqa: BLE001 - one failed read never becomes a successful receipt
@@ -130,9 +163,15 @@ def main() -> int:
     os.environ["ARGUS_SKILL_HOME"] = str(root)
     os.environ.pop("ARGUS_DESKTOP_LAUNCH_NONCE", None)
     raw = sys.stdin.buffer.read(CONTRACT["max_request_bytes"] + 1)
-    result = reply(raw, global_root=root)
-    sys.stdout.write(json.dumps(result, ensure_ascii=True, allow_nan=False) + "\n")
-    sys.stdout.flush()
+    # Capture the protocol channel before libraries' stdout is redirected.
+    output = sys.stdout
+
+    def emit(frame: dict) -> None:
+        output.write(json.dumps(frame, ensure_ascii=True, allow_nan=False) + "\n")
+        output.flush()
+
+    result = reply(raw, global_root=root, emit_cost_frame=emit)
+    emit(result)
     return 0
 
 

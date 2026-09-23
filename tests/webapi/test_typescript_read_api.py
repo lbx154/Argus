@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import portalocker
 import pytest
 
 from argus.core.session import SessionMeta, write_session_meta
@@ -110,3 +111,69 @@ def test_node_http_rejects_authentication_writes_prewarm_and_unknown_projects(ru
     assert fetch(url, "/api/projects/missing/snapshot")[0] == 404
     assert fetch(url, "/api/projects/%2fetc%2fpasswd/snapshot")[0] == 422
     assert {path: path.read_bytes() for path in before} == before
+
+
+def test_node_costs_match_real_ledgers_with_cross_call_model_deduplication(running_api) -> None:
+    from argus.core.usage import UsageLedger, UsageRecord
+
+    url, before = running_api
+    life_dir = next(iter(before)).parent
+    root = life_dir.parent.parent
+    cases = json.loads((ROOT / "packages/runtime/fixtures/usage-summary.json").read_text())
+    rows = next(case["records"] for case in cases if case["id"] == "copilot-overlapping-receipts")
+    paths = []
+    for sid in ["s-read", "s-second"]:
+        if sid != "s-read":
+            write_session_meta(root, SessionMeta(id=sid, display_name="Second", workdir=str(root)))
+        ledger = UsageLedger(root / "projects" / sid, migrate_legacy=False)
+        for i, row in enumerate(rows):
+            ledger.append(UsageRecord.from_jsonable({**row, "call_id": f"call-{i}", "cost_basis": "provider_reported"}))
+        # The storage owner removes duplicate call IDs before Node sees them.
+        with ledger.path.open("a") as handle:
+            handle.write(json.dumps({"call_id": "call-0", "cost_usd": 99, "pricing_status": "priced"}) + "\n")
+        paths.append(ledger.path)
+    write_session_meta(root, SessionMeta(id="s-empty", display_name="Empty", workdir=str(root)))
+    expected = project_state.list_project_costs(global_root=root)
+    ledger_before = {path: path.read_bytes() for path in paths}
+    status, result = fetch(url, "/api/projects/costs")
+    assert status == 200
+    assert result["projects"] == expected
+    assert {row["id"]: row["spend_usd"] for row in result["projects"]} == {
+        "s-read": 0.02, "s-second": 0.02, "s-empty": None,
+    }
+    assert {path: path.read_bytes() for path in paths} == ledger_before
+    assert {path: path.read_bytes() for path in before} == before
+    limited = fetch(url, "/api/projects/costs?limit=1")[1]
+    assert limited["projects"] == expected[:1]
+
+
+@pytest.mark.parametrize("suffix,code", [
+    (b'{broken\n', "query_failed"),
+    (b'{"call_id":"unsafe","input_tokens":9007199254740993,"pricing_status":"priced"}\n', "invalid_response"),
+])
+def test_node_costs_reject_corruption_or_unsafe_counts_without_partial_success(running_api, suffix, code) -> None:
+    url, before = running_api
+    ledger = next(iter(before)).parent / "usage.jsonl"
+    contents = b'{"call_id":"settled","cost_usd":0.2,"pricing_status":"priced"}\n' + suffix
+    ledger.write_bytes(contents)
+    status, result = fetch(url, "/api/projects/costs")
+    assert status == 502
+    assert result["code"] == code
+    assert "projects" not in result
+    assert ledger.read_bytes() == contents
+
+
+def test_node_costs_preserve_python_active_writer_tail_rules(running_api) -> None:
+    url, before = running_api
+    life_dir = next(iter(before)).parent
+    ledger = life_dir / "usage.jsonl"
+    contents = b'{"call_id":"settled","cost_usd":0.2,"pricing_status":"priced"}\n{"call_id":'
+    with portalocker.Lock(str(life_dir / "usage.lock"), mode="a", timeout=1):
+        ledger.write_bytes(contents)
+        status, result = fetch(url, "/api/projects/costs")
+        assert status == 200
+        assert result["projects"][0]["spend_usd"] == 0.2
+        assert result["projects"][0]["usage_calls"] == 1
+    # The identical tail without a live writer is corruption, not missing spend.
+    assert fetch(url, "/api/projects/costs")[0] == 502
+    assert ledger.read_bytes() == contents

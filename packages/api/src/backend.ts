@@ -7,6 +7,7 @@ import {
   type ReadMethod, type ReadQueryParams, type ReadQueryResults,
 } from '@argus/contracts';
 import { executeProcess } from '@argus/runtime';
+import { CostProjectionStream } from './costProjection.js';
 
 export class QueryError extends Error {
   constructor(readonly code: 'invalid_query' | 'query_failed' | 'unavailable' | 'timeout' | 'aborted' | 'busy' | 'invalid_response' | 'response_too_large', message: string) {
@@ -80,16 +81,32 @@ export class PythonQueryBackend implements QueryBackend {
     let reply: unknown;
     let received = false;
     let successfulExit = false;
+    let responseBytes = 0;
+    const costs = method === 'costs' ? new CostProjectionStream((params as ReadQueryParams['costs']).limit) : null;
     for await (const event of executeProcess({
       executable: this.options.executable,
       args: [...(this.options.prefixArgs ?? []), '-m', 'argus.webapi.read_bridge', '--global-root', this.options.globalRoot],
       cwd: this.options.sourceRoot, env, input, signal,
       wallTimeoutMs: this.timeoutMs, idleTimeoutMs: this.timeoutMs,
-      maxLineBytes: READ_API.max_response_bytes, maxBufferedBytes: READ_API.max_response_bytes + 1,
+      maxLineBytes: costs ? READ_API.max_cost_frame_bytes : READ_API.max_response_bytes,
+      maxBufferedBytes: READ_API.max_response_bytes + 1,
     })) {
       if (event.type === 'line' && event.stream === 'stdout') {
         if (received || !event.line) throw new QueryError('invalid_response', 'query backend returned unexpected output');
+        responseBytes += Buffer.byteLength(event.line) + 1;
+        if (responseBytes > READ_API.max_response_bytes) throw new QueryError('response_too_large', 'query response exceeds the response limit');
         try { reply = JSON.parse(event.line); } catch { throw new QueryError('invalid_response', 'query backend returned malformed JSON'); }
+        if (!isJsonObject(reply) || reply.protocol !== READ_API.bridge_protocol
+          || reply.version !== READ_API.bridge_version || reply.id !== id) {
+          throw new QueryError('invalid_response', 'query backend returned an incompatible receipt');
+        }
+        if (Object.hasOwn(reply, 'kind')) {
+          if (!costs) throw new QueryError('invalid_response', 'unexpected cost input stream');
+          try { costs.consume(reply); } catch {
+            throw new QueryError('invalid_response', 'query backend returned invalid cost inputs');
+          }
+          continue;
+        }
         received = true;
       } else if (event.type === 'exit') {
         if (event.stopKind === 'cancelled') throw new QueryError('aborted', 'query cancelled');
@@ -119,7 +136,7 @@ export class PythonQueryBackend implements QueryBackend {
           break;
         }
         case 'projects': result = requireProjectList(reply.result); break;
-        case 'costs': result = requireProjectCosts(reply.result); break;
+        case 'costs': result = requireProjectCosts(costs!.finish(reply.result)); break;
         case 'snapshot': result = reply.result === null ? null : requireReadSnapshot(reply.result, (params as ReadQueryParams['snapshot']).sid); break;
       }
       return result as ReadQueryResults[M];

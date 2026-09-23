@@ -17,9 +17,10 @@ budgets and stage transitions during the staged migration.
   `frontend/core` keeps compatibility exports and supplies the frontend's release
   expectation, so Web/TUI retain their existing handshake behaviour.
 - `packages/api` provides a runnable, authenticated Node read API and typed
-  client. A bounded Python process answers each query using the existing project
-  state functions. It exposes metadata, project listings, cost summaries and
-  snapshots, with no command or prewarm operation.
+  client. A bounded Python process reads the existing stores. Metadata, project
+  listings and snapshots use Python projections; project costs are now computed
+  in Node from a stream of normalized usage records. There is no command or
+  prewarm operation.
 - `python -m argus.release_tools.generate_event_types` is a compatibility entry
   point for the Node generator. Python event producers continue using the Python
   validator; the new TS envelope validator has shared behavioural fixtures.
@@ -33,6 +34,10 @@ budgets and stage transitions during the staged migration.
   receipts include usage and a per-turn cost quote. Python and TypeScript load
   one price catalog from `packages/contracts/schemas/model_pricing.json`; this
   migration preserves the existing rates and model lookup order.
+- `UsageSummaryAccumulator` and `summarizeUsage` fold normalized ledger records
+  in TypeScript. They preserve pricing completeness, cached/reasoning counts,
+  premium-request metadata and Copilot model-event deduplication across calls.
+  The Node cost endpoint uses this fold directly.
 - CI runs the Node packages on Linux, macOS and Windows, and checks the existing
   frontend consumers. The Python suite reads the same compatibility fixtures.
 
@@ -110,8 +115,33 @@ timeouts return 504. Client disconnects and shutdown cancel the corresponding
 workers. This favours isolated, bounded lifetimes over throughput; Python's
 process-local caches do not persist between requests, and compact snapshots may
 omit cold host projections. Use full snapshots when those fields are needed.
-These queries may perform the Python stores' existing lock/index initialization
-or crash recovery. TypeScript does not become an owner of Argus state files.
+These queries may perform the Python stores' existing lock/index initialization,
+crash recovery or token-price reconciliation. TypeScript does not become an
+owner of Argus state files.
+
+The internal read bridge is now version **2**. For costs it emits project-start,
+normalized-record and project-end frames, followed by a terminal receipt. Node
+validates the frame sequence, request identity and numeric ranges, then publishes
+the cost response only after the terminal receipt and a successful worker exit.
+The public read API profile and cost response shape remain unchanged. Deploy
+the Node packages and Python bridge from the same checkout; older bridge
+receipts are rejected.
+
+Cost queries stream at most 16 MiB in total, 1 MiB per frame and 100,000 records.
+Deduplication retains at most 100,000 model-event identities for the current
+project, then releases them before reading the next project. Limits fail the
+query instead of evicting identities or returning truncated totals. Node keeps
+totals and identity sets; the Python ledger still materializes one project's
+validated records using its existing reader. Per-query startup and transferring
+records add overhead; this stage makes no throughput improvement claim. Large
+histories can exceed these limits even when their final summary would be small.
+
+Python continues to handle call-ID deduplication, malformed records, active-writer
+tails and existing price reconciliation. Node handles model-event deduplication
+and arithmetic. A corrupt ledger fails this cost query with HTTP 502 and
+`query_failed`; it is not converted to an empty project summary. Numeric range
+or stream-contract failures return `invalid_response`. Other Python snapshot
+projections retain their existing best-effort diagnostics.
 
 The Python CI job builds the Node packages and runs real Node → Python →
 temporary-state HTTP tests. For the same checks locally:
@@ -212,6 +242,21 @@ npm run check
 python -m pytest tests/core/test_typescript_accounting.py
 ```
 
+For normalized ledger summaries, model-usage rows replace their parent record's
+token/cost totals when present. The first `(session_id, usage_event_id)` wins
+across overlapping receipts; rows without a complete identity are not deduplicated.
+Call counts, pricing-status counts and premium-request metadata still count all
+records. Partial/unpriced summaries with no positive known cost retain a null
+total. Invalid inputs, unsafe integer sums and capacity limits latch an error;
+that accumulator cannot later produce a successful summary.
+
+Summary parity and real HTTP/storage checks run with:
+
+```sh
+python -m pytest tests/core/test_typescript_usage_summary.py \
+  tests/webapi/test_read_bridge.py tests/webapi/test_typescript_read_api.py
+```
+
 ## State ownership during migration
 
 | State | Current writer | TS behaviour in this step |
@@ -219,7 +264,7 @@ python -m pytest tests/core/test_typescript_accounting.py
 | Backlog live/archive/commit files | Python `LifeMemory` | Read through the Python query bridge |
 | Event journal and mission projections | Python event sink | Read through Python; no TS writes |
 | Continuous configuration and daemon controls | Python daemon | Snapshot reads through Python; no commands |
-| Budget reservations, usage and settlement | Python cost-control layer | Cost/snapshot reads through Python; standalone Pi observations/quotes in TS, no ledger writes or reservations |
+| Budget reservations, usage and settlement | Python cost-control layer | Python ledger reads/reconciliation; Node project-cost fold and standalone Pi quotes, no TS ledger writes or reservations |
 | Pipeline stages, Manager session and verdict outbox | Python orchestration | No access |
 | Explicit standalone Pi session directory | The invoked Pi process | Caller controls access |
 
@@ -236,7 +281,7 @@ crash-recovery checks and a rollback plan that accounts for newly incurred costs
 2. Verify the Pi adapter against a configured live provider, complete missing
    production runner capabilities, and implement Windows process ownership.
 3. Port storage and budget primitives with fault injection (usage parsing and
-   reference pricing are now available), then complete one
+   reference pricing and ledger cost projections are now available), then complete one
    Planner → Engineer → Reviewer → Manager task with restart/cancellation tests.
 4. Expand to continuous scheduling, remaining CLI backends and write APIs.
 5. Add Python plugin workers and converge installation/desktop delivery.
