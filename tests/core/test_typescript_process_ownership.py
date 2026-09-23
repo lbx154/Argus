@@ -112,7 +112,7 @@ def test_detached_owner_keeps_working_after_launcher_and_terminal_disconnect(lau
     Path(config["release"]).touch()
     wait_until(lambda: Path(config["result"]).exists())
     result = json.loads(Path(config["result"]).read_text())
-    assert result["settlement"] == "settled", result
+    assert result["settlement"] == "settled", json.dumps(result)
     wait_until(lambda: all(not alive(child) for child in tree))
     row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
     assert row.cost_usd == pytest.approx(0.1)
@@ -147,6 +147,6 @@ def test_provider_parent_exit_cannot_abandon_children(launch, mode):
     _owner, tree = start(mode)
     wait_until(lambda: Path(config["result"]).exists())
     result = json.loads(Path(config["result"]).read_text())
-    assert result["settlement"] == ("settled" if mode == "root-exit" else "unresolved"), result
+    assert result["settlement"] == ("settled" if mode == "root-exit" else "unresolved"), json.dumps(result)
     wait_until(lambda: all(not alive(child) for child in tree))
     assert unrelated.poll() is None

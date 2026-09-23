@@ -157,3 +157,7 @@ class Guard:
 
 if __name__ == "__main__":
     Guard().run()
+    # Windows returns here after Job cleanup and the flushed terminal receipt.
+    # Do not run interpreter teardown while the lease thread owns stdin's
+    # buffered-reader lock; CPython otherwise aborts during finalization.
+    os._exit(0)

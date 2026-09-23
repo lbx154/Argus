@@ -40,7 +40,7 @@ def run(root, mode="accounting-tokens", *, cancel=False):
 
 def test_budgeted_node_call_settles_native_per_turn_price(root):
     result = run(root)
-    assert result["admitted"] and result["settlement"] == "settled", result
+    assert result["admitted"] and result["settlement"] == "settled", json.dumps(result)
     row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
     assert row.call_id == result["callId"]
     assert row.cost_usd == pytest.approx(1.506) and row.input_tokens == 300_000
@@ -78,7 +78,7 @@ def test_cap_interrupt_or_operator_cancellation_keeps_partial_cost(root, monkeyp
 
 def test_missing_usage_never_settles_at_zero(root):
     result = run(root, "success")
-    assert result["runner"]["turnCompleted"]
+    assert result["runner"]["turnCompleted"], json.dumps(result)
     assert result["settlement"] == "unresolved"
     row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
     assert row.cost_usd is None and row.pricing_status == "partial"
