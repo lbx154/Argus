@@ -38,6 +38,9 @@ budgets and stage transitions during the staged migration.
   in TypeScript. They preserve pricing completeness, cached/reasoning counts,
   premium-request metadata and Copilot model-event deduplication across calls.
   The Node cost endpoint uses this fold directly.
+- `BudgetedPiBackend` adds an opt-in execution path with Python-owned budget
+  admission, live observations and durable settlement. A locked pending receipt
+  protects calls whose Node caller or budget process disappears before settlement.
 - CI runs the Node packages on Linux, macOS and Windows, and checks the existing
   frontend consumers. The Python suite reads the same compatibility fixtures.
 
@@ -171,8 +174,8 @@ for await (const event of runner.run({
 }
 ```
 
-This invokes the configured provider directly. It is a transport library, not a
-replacement `argus` command or a budgeted mission runner. It does not reserve or
+`PiBackend` invokes the configured provider directly. It is a transport library,
+not a replacement `argus` command or a budgeted mission runner. It does not reserve or
 settle costs, write Argus backlog files, or decide whether a mission is complete.
 Its `turnCompleted` field describes only the provider invocation. Tool policy
 selects Pi's tool allowlist; it is not an operating-system sandbox.
@@ -196,6 +199,93 @@ root has exited remains a prerequisite for replacing the production runner;
 the POSIX orphan tests are explicitly skipped on Windows. A nonzero exit,
 missing `agent_settled`, provider error or transport stop cannot produce a
 successful TS receipt.
+
+## Budgeted Pi preview
+
+`BudgetedPiBackend` wraps the existing TS transport with one local Python budget
+session per call. Select an existing project state directory and a Python
+installation with Argus dependencies; both runtimes must come from this checkout:
+
+```ts
+import { BudgetedPiBackend } from '@argus/runtime';
+
+const backend = new BudgetedPiBackend({
+  python: {
+    executable: '/path/to/venv/bin/python',
+    sourceRoot: '/path/to/Argus',
+    globalRoot: '/path/to/argus-state',
+  },
+  pi: { executable: '/path/to/pi' },
+});
+for await (const event of backend.run({
+  projectId: 'existing-project-id',
+  cwd: '/path/to/workspace',
+  model: 'gpt-5.6-sol', provider: 'openai',
+  prompt: 'Reply with one short greeting.', toolPolicy: 'disabled',
+  wallTimeoutMs: 30_000, idleTimeoutMs: 15_000,
+})) {
+  if (event.type === 'result') console.log(event.result);
+}
+```
+
+This invokes the real configured provider and writes real usage. Tests use an
+offline subprocess fixture and isolated temporary projects. The production
+daemon, full HTTP API and ordinary `PiBackend` entrypoint are unchanged.
+
+The budget owner resolves the existing global USD/token caps, cache weighting
+and unresolved-cost policy. The bridge has no request field for changing those
+policies. It receives project/model identifiers and normalized accounting, never
+the provider prompt, tool arguments or output text. Only a validated existing
+direct child of the selected root's `projects` directory can be used.
+
+Before Pi starts, Python reserves the call and fsyncs a pending marker in
+`cost-control.failed`. It holds that marker's advisory OS lock while the call is
+active. Current admission readers skip locked markers because the reservation
+already accounts for live spend. A lost process releases the lock, so subsequent
+Python or TS admissions see an unresolved liability, including when the call had
+not yet emitted usage. Older Python installations do not understand active
+markers and may conservatively block new calls while this preview runs; use the
+same checkout for cooperating owners.
+
+Node checks observed usage after each provider message and polls shared budget
+state every second. Observations are persisted before their budget check; local
+day rollover counts only new observation deltas. The event pump runs independently
+of the caller reading its output, with a 4 MiB/1024-event queue. Slow consumers
+cannot pause budget checks; exceeding the queue limit cancels the invocation.
+Each budget RPC has a 30-second default deadline and 64 KiB line limit. A dead,
+incompatible or unresponsive budget owner aborts the running TS transport.
+
+On completion, Python writes one idempotent call record before retiring the
+pending marker. The `typescript_pi` cost basis preserves TS per-turn pricing and
+prevents Python from repricing a conversation total as a single long-context
+request. A failed/cancelled invocation or missing usage retains a partial cost
+and an unresolved marker. Existing reconciliation/operator acknowledgement flows
+handle unknown costs; this preview does not invent a zero-dollar settlement.
+An unstarted reservation can be released without a usage row.
+
+The final event contains `callId`, `admitted`, `runner`, `settlement` and `reason`.
+`runner` is null when no transport receipt exists. `settlement` distinguishes
+`not_started`, `settled`, `unresolved` and `failed`; transport completion alone is
+not proof that accounting settled. Closing the iterator cancels the provider and
+waits for cleanup. If acknowledgement is lost after a ledger write, the caller
+reports failure and the call ID permits inspection of the durable record.
+
+Observed-cost limits can overshoot while a provider turn is in flight; they are
+not provider-side spending caps. Abruptly killing the Node owner still has the
+standalone transport's process-ownership limitations, especially on Windows:
+the durable unknown liability survives, but terminating every orphaned provider
+descendant is not guaranteed. Completing that ownership boundary remains a
+prerequisite for production takeover. No live paid provider call or full mission
+loop has been validated in this migration step.
+
+```sh
+npm run check
+python -m pytest tests/core/test_budget_bridge.py \
+  tests/core/test_typescript_budgeted_pi.py tests/core/test_accounting_integrity.py
+```
+
+CI exercises the real Python owner and offline Pi chain on Linux, macOS and
+Windows, including killed-owner liability markers and interrupted ledger writes.
 
 ## Usage and pricing
 
@@ -264,7 +354,7 @@ python -m pytest tests/core/test_typescript_usage_summary.py \
 | Backlog live/archive/commit files | Python `LifeMemory` | Read through the Python query bridge |
 | Event journal and mission projections | Python event sink | Read through Python; no TS writes |
 | Continuous configuration and daemon controls | Python daemon | Snapshot reads through Python; no commands |
-| Budget reservations, usage and settlement | Python cost-control layer | Python ledger reads/reconciliation; Node project-cost fold and standalone Pi quotes, no TS ledger writes or reservations |
+| Budget reservations, usage and settlement | Python cost-control layer | Node project-cost fold and Pi quotes; opt-in budgeted calls use the Python owner for reservations, observations and settlement |
 | Pipeline stages, Manager session and verdict outbox | Python orchestration | No access |
 | Explicit standalone Pi session directory | The invoked Pi process | Caller controls access |
 
