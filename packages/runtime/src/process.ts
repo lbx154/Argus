@@ -1,6 +1,15 @@
 import { execFile, spawn } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import type { RunnerStopKind } from '@argus/contracts';
+import { PROCESS_GUARD, isJsonObject, type RunnerStopKind } from '@argus/contracts';
+
+export interface ProcessGuardianOptions {
+  executable: string;
+  sourceRoot: string;
+  prefixArgs?: string[];
+  env?: NodeJS.ProcessEnv;
+}
 
 export interface ProcessOptions {
   executable: string;
@@ -14,6 +23,8 @@ export interface ProcessOptions {
   terminateGraceMs?: number;
   maxLineBytes?: number;
   maxBufferedBytes?: number;
+  /** Native OS shim. Its private lease belongs to this runtime, never the UI. */
+  guardian?: ProcessGuardianOptions;
 }
 
 type Line = { type: 'line'; stream: 'stdout' | 'stderr'; line: string };
@@ -71,8 +82,26 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     yield { type: 'exit', code: null, signal: null, stopKind: 'cancelled', error: 'Run cancelled before spawn.' };
     return;
   }
-  const child = spawn(options.executable, options.args, {
-    cwd: options.cwd, env: options.env ?? process.env,
+  const guardian = options.guardian;
+  let launchExecutable = options.executable;
+  let launchArgs = options.args;
+  let launchCwd = options.cwd;
+  let launchEnv = options.env ?? process.env;
+  let configuration = '';
+  if (guardian) {
+    if (!isAbsolute(guardian.sourceRoot)) throw new Error('guardian sourceRoot must be absolute');
+    launchExecutable = guardian.executable;
+    launchCwd = realpathSync(guardian.sourceRoot);
+    launchArgs = [...(guardian.prefixArgs ?? []), '-m', 'argus.agent_cli.process_guard'];
+    launchEnv = { ...process.env, ...guardian.env, PYTHONPATH: launchCwd, PYTHONIOENCODING: 'utf-8', PYTHONDONTWRITEBYTECODE: '1' };
+    configuration = JSON.stringify({ protocol: PROCESS_GUARD.protocol, version: PROCESS_GUARD.version,
+      command: [options.executable, ...options.args], cwd: options.cwd, env: options.env ?? process.env,
+      input: options.input, wall_ms: Math.min(2_147_483_647, wallMs + Math.min(graceMs, 10_000)), grace_ms: graceMs,
+    }) + '\n';
+    if (Buffer.byteLength(configuration) > PROCESS_GUARD.max_config_bytes) throw new Error('guarded process configuration exceeds its limit');
+  }
+  const child = spawn(launchExecutable, launchArgs, {
+    cwd: launchCwd, env: launchEnv,
     stdio: ['pipe', 'pipe', 'pipe'], shell: false,
     detached: process.platform !== 'win32', windowsHide: true,
   });
@@ -86,11 +115,18 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
   let escalation: NodeJS.Timeout | undefined;
   let drain: NodeJS.Timeout | undefined;
   let windowsKill: Promise<void> | undefined;
+  let guardReceipt: { code: number | null; signal: string | null; error: string | null } | undefined;
   let resolveClose: () => void = () => {};
   const closePromise = new Promise<void>(resolve => { resolveClose = resolve; });
 
   const killTree = (force: boolean): void => {
     if (!child.pid) return;
+    if (guardian) {
+      // Closing this private pipe means the execution owner cancelled or died.
+      // Closing a browser/TUI connection never closes it in a detached daemon.
+      if (!force) { child.stdin.end(); return; }
+      if (process.platform === 'win32') { if (!exited) child.kill('SIGKILL'); return; }
+    }
     if (process.platform === 'win32') {
       if (exited || windowsKill) return;
       windowsKill = new Promise<void>(resolve => {
@@ -129,6 +165,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
   // Covers cancellation between the preflight and listener installation.
   if (options.signal?.aborted) abort();
 
+  const readers = {} as Record<'stdout' | 'stderr', { data: (chunk: Buffer) => void; end: () => void }>;
   for (const stream of ['stdout', 'stderr'] as const) {
     const decoder = new StringDecoder('utf8');
     let pending = '';
@@ -138,7 +175,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
         requestStop('output_limit', 'Runner output exceeded its bounded buffer.');
       }
     };
-    child[stream].on('data', (chunk: Buffer) => {
+    const data = (chunk: Buffer): void => {
       if (!exited) idle.refresh();
       if (stopKind) return;
       pending += decoder.write(chunk);
@@ -152,13 +189,54 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
         pending = '';
         requestStop('output_limit', 'Runner output line exceeded its byte limit.');
       }
-    });
-    child[stream].on('end', () => {
+    };
+    const end = (): void => {
       pending += decoder.end();
       if (pending) emit(pending);
       pending = '';
-    });
+    };
+    readers[stream] = { data, end };
+    if (!guardian) { child[stream].on('data', data); child[stream].on('end', end); }
     child[stream].on('error', cause => requestStop('transport_error', `${stream}: ${cause.message}`));
+  }
+  if (guardian) {
+    const decoder = new StringDecoder('utf8');
+    let pending = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (stopKind) return;
+      pending += decoder.write(chunk);
+      let newline: number;
+      while ((newline = pending.indexOf('\n')) >= 0) {
+        const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
+        try {
+          if (Buffer.byteLength(line) > PROCESS_GUARD.max_frame_bytes) throw new Error('oversized guard frame');
+          const frame: unknown = JSON.parse(line);
+          if (!isJsonObject(frame) || frame.protocol !== PROCESS_GUARD.protocol || frame.version !== PROCESS_GUARD.version || guardReceipt) {
+            throw new Error('incompatible process guard receipt');
+          }
+          if (frame.type === 'data' && (frame.stream === 'stdout' || frame.stream === 'stderr') && typeof frame.data === 'string') {
+            const bytes = Buffer.from(frame.data, 'base64');
+            if (bytes.length > PROCESS_GUARD.chunk_bytes || bytes.toString('base64') !== frame.data) throw new Error('invalid process data');
+            readers[frame.stream].data(bytes);
+          } else if (frame.type === 'exit'
+            && (frame.code === null || (typeof frame.code === 'number' && Number.isSafeInteger(frame.code) && frame.code >= 0))
+            && (frame.signal === null || typeof frame.signal === 'string') && (frame.error === null || typeof frame.error === 'string')) {
+            guardReceipt = { code: frame.code, signal: frame.signal, error: frame.error };
+            readers.stdout.end(); readers.stderr.end();
+            if (frame.error) requestStop('transport_error', frame.error);
+          } else throw new Error('invalid process guard frame');
+        } catch (cause) { requestStop('transport_error', cause instanceof Error ? cause.message : 'invalid process guard frame'); }
+        if (stopKind) { pending = ''; return; }
+      }
+      if (Buffer.byteLength(pending) > PROCESS_GUARD.max_frame_bytes) {
+        pending = ''; requestStop('output_limit', 'process guard frame exceeds its limit');
+      }
+    });
+    child.stderr.on('data', readers.stderr.data);
+    child.stdout.on('end', () => {
+      pending += decoder.end();
+      if (pending && !stopKind) requestStop('transport_error', 'process guard returned an unterminated frame');
+    });
   }
   child.stdin.on('error', (cause: NodeJS.ErrnoException) => {
     // A short-lived provider can exit before consuming its entire prompt.
@@ -169,6 +247,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     exitCode = code;
     exitSignal = signal;
     exited = true;
+    if (guardian) killTree(true);
     clearTimeout(wall);
     clearTimeout(idle);
     // Descendants may retain inherited pipes after the CLI itself exits.
@@ -189,7 +268,8 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     channel.close();
     resolveClose();
   });
-  child.stdin.end(options.input, 'utf8');
+  if (guardian) child.stdin.write(configuration, 'utf8');
+  else child.stdin.end(options.input, 'utf8');
   try {
     let line: Line | undefined;
     while ((line = await channel.next()) !== undefined) yield line;
@@ -203,6 +283,14 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     clearTimeout(escalation);
     clearTimeout(drain);
     options.signal?.removeEventListener('abort', abort);
+  }
+  if (guardian) {
+    const teardown = exitCode === 0 || (process.platform !== 'win32' && exitSignal === 'SIGKILL');
+    if (!stopKind && (!guardReceipt || !teardown)) {
+      stopKind = 'transport_error'; error ??= 'Process guard exited without a complete provider receipt.';
+    }
+    exitCode = guardReceipt?.code ?? null;
+    exitSignal = guardReceipt?.signal ?? null;
   }
   yield { type: 'exit', code: exitCode, signal: exitSignal, stopKind, error };
 }

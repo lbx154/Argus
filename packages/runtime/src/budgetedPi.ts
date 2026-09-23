@@ -99,7 +99,7 @@ export class BudgetedPiBackend {
       await observe();
       if (budgetError) throw budgetError;
       timer = setInterval(() => { if (!observing && !budgetError) void observe(); }, 1000);
-      for await (const event of new PiBackend(this.options.pi).run({ ...request, signal: ownerSignal })) {
+      for await (const event of new PiBackend({ ...this.options.pi, guardian: this.options.python }).run({ ...request, signal: ownerSignal })) {
         if (event.type === 'result') runner = event.result;
         else {
           if (event.type === 'provider_event') {

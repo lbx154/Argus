@@ -71,7 +71,7 @@ jobs:
         if: runner.os != 'Linux'
         run: |
           python -m pip install -e '.[dev]'
-          python -m pytest tests/core/test_budget_bridge.py tests/core/test_typescript_budgeted_pi.py tests/core/test_accounting_integrity.py -o addopts='' -q
+          python -m pytest tests/core/test_budget_bridge.py tests/core/test_typescript_budgeted_pi.py tests/core/test_typescript_process_ownership.py tests/core/test_process_guard.py tests/core/test_accounting_integrity.py -o addopts='' -q
       - name: Check existing frontend consumers
         if: runner.os == 'Linux'
         run: |

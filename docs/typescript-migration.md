@@ -41,6 +41,9 @@ budgets and stage transitions during the staged migration.
 - `BudgetedPiBackend` adds an opt-in execution path with Python-owned budget
   admission, live observations and durable settlement. A locked pending receipt
   protects calls whose Node caller or budget process disappears before settlement.
+- Budgeted Pi calls now use an OS process guard. Its private lease belongs to the
+  server execution owner, independently of Web/TUI/SSH clients. Native tests cover
+  detached-owner survival and cleanup after owner, guard or budget-process death.
 - CI runs the Node packages on Linux, macOS and Windows, and checks the existing
   frontend consumers. The Python suite reads the same compatibility fixtures.
 
@@ -192,13 +195,15 @@ context files and templates are disabled, matching the existing Argus command
 construction. Trusted extensions, structured output and provider-turn allowance
 stops still belong to the Python adapter and are not supported here yet.
 
-On POSIX the adapter owns and terminates an isolated process group, including
+Without a configured guardian, on POSIX the adapter owns and terminates an isolated process group, including
 descendants with redirected or inherited pipes. On Windows it uses `taskkill /T`
 while the root process is alive. Full Windows Job Object ownership after the
 root has exited remains a prerequisite for replacing the production runner;
 the POSIX orphan tests are explicitly skipped on Windows. A nonzero exit,
 missing `agent_settled`, provider error or transport stop cannot produce a
-successful TS receipt.
+successful TS receipt. Standalone callers can opt into the same OS guard used
+by `BudgetedPiBackend` with `guardian: { executable: '/path/to/python',
+sourceRoot: '/path/to/Argus' }` in `PiBackend` options.
 
 ## Budgeted Pi preview
 
@@ -271,21 +276,44 @@ waits for cleanup. If acknowledgement is lost after a ledger write, the caller
 reports failure and the call ID permits inspection of the durable record.
 
 Observed-cost limits can overshoot while a provider turn is in flight; they are
-not provider-side spending caps. Abruptly killing the Node owner still has the
-standalone transport's process-ownership limitations, especially on Windows:
-the durable unknown liability survives, but terminating every orphaned provider
-descendant is not guaranteed. Completing that ownership boundary remains a
-prerequisite for production takeover. No live paid provider call or full mission
-loop has been validated in this migration step.
+not provider-side spending caps. Budgeted calls now always use an independent
+process guard through the configured Python interpreter. On POSIX it anchors a
+private process group and terminates its members when the execution owner dies;
+Node also reclaims that group if the guard itself fails. On Windows the guard
+reuses the existing suspended-spawn, Job assignment and kill-on-close ownership.
+Ordinary children remain owned after their immediate parent exits.
+
+This guard observes a private runtime pipe, not the operator's terminal or a
+client connection. Closing Web/TUI/SSH leaves a detached daemon and its work
+running. The server must own execution iterators independently of HTTP requests;
+closing an execution iterator still means explicit cancellation. The production
+Python daemon retains its existing detached launch and persistent backlog.
+See [daemon lifecycle and unattended services](daemon-lifecycle.md) for current
+commands, systemd configuration and the client/task cancellation boundary.
+
+The guard's configuration is limited to 16 MiB, including prompt and environment.
+Provider output is carried in bounded base64 frames, separate from its terminal
+exit receipt; Node retains UTF-8 decoding, line limits and output backpressure.
+An incomplete or failed guard cannot produce a successful transport receipt.
+
+Process groups are not a security sandbox: POSIX children deliberately creating
+new sessions are outside the group. Explicit durable launchers have independent
+ownership. A service manager's cgroup covers simultaneous loss of both POSIX
+owner and guard. Windows retains the documented narrow unassigned-suspended
+process window if the guard itself is killed during native setup; see
+[Windows process ownership](windows-process-ownership.md). No live paid provider
+call or full mission loop has been validated in this migration step.
 
 ```sh
 npm run check
 python -m pytest tests/core/test_budget_bridge.py \
-  tests/core/test_typescript_budgeted_pi.py tests/core/test_accounting_integrity.py
+  tests/core/test_typescript_budgeted_pi.py tests/core/test_typescript_process_ownership.py \
+  tests/core/test_accounting_integrity.py
 ```
 
 CI exercises the real Python owner and offline Pi chain on Linux, macOS and
-Windows, including killed-owner liability markers and interrupted ledger writes.
+Windows, including killed-owner liability markers, native process trees,
+detached-client survival and interrupted ledger writes.
 
 ## Usage and pricing
 
@@ -368,8 +396,9 @@ crash-recovery checks and a rollback plan that accounts for newly incurred costs
 1. Extend shared contracts to write commands, port read projections into Node
    where they can preserve storage semantics, and introduce frontend support for
    the explicit read-only profile. Snapshot types and the read API are in place.
-2. Verify the Pi adapter against a configured live provider, complete missing
-   production runner capabilities, and implement Windows process ownership.
+2. Verify the Pi adapter against a configured live provider and complete missing
+   production runner capabilities. Guarded budgeted calls now have native OS
+   ownership; daemon/client separation remains a required integration boundary.
 3. Port storage and budget primitives with fault injection (usage parsing and
    reference pricing and ledger cost projections are now available), then complete one
    Planner → Engineer → Reviewer → Manager task with restart/cancellation tests.

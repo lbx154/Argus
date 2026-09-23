@@ -1,6 +1,9 @@
 import { createInterface } from 'node:readline';
 import { appendFileSync } from 'node:fs';
 const [mode, trace] = process.argv.slice(2);
+if (process.argv.includes('argus.agent_cli.process_guard')) {
+  await import('./fake-process-guard.mjs');
+} else {
 for await (const line of createInterface({ input: process.stdin })) {
   const query = JSON.parse(line);
   appendFileSync(trace, JSON.stringify(query) + '\n');
@@ -17,4 +20,5 @@ for await (const line of createInterface({ input: process.stdin })) {
   const response = { protocol: query.protocol, version: query.version, id: query.id, ok: true, result };
   if (mode === 'wrong-version') response.version = 999;
   process.stdout.write(JSON.stringify(response) + '\n');
+}
 }
