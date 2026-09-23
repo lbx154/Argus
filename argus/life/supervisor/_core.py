@@ -1,31 +1,10 @@
-"""``LifeSupervisor`` — owns the outer process, runs missions back-to-back.
+"""Schedule missions and consume operator input for one persistent daemon.
 
-Per the rubber-duck critique:
-
-- Supervisor (not observer): we OWN the outer loop and call
-  ``runner.execute(...)`` once per backlog item — ``runner`` is the
-  ``_MissionRunner`` from ``_config.py``, in production the
-  ``_SkillLoopRunner`` defined in ``apps._runtime`` and built by
-  ``build_life_runner`` in ``apps._runtime_construction``. We never try to
-  push ``/run`` into a finished single-mission daemon.
-- Single inbox owner: the supervisor is the only consumer of operator
-  input. The optional ``user_inbox`` callable lets a host process feed
-  user-provided high-priority objectives into the supervisor's own queue
-  without two consumers racing on the same offset file.
-- Bounded autonomy: ``LifeBudget`` enforces a per-mission preflight cap
-  AND a daily cap. Defaults are generous enough for long polish runs
-  (max 6 autonomous missions in one supervisor run, $30/mission,
-  $180/day).
-- Memory injection is a separate channel (``prelude_context``) — the
-  objective string passed to the executor is unmodified, so skill
-  matching, mission-id hashing, and reviewer prompts are unaffected.
-- Idle = sleep, not spin. We poll every 5 seconds when there's nothing
-  to do.
-
-The supervisor is intentionally **synchronous**: one mission at a
-time, no thread pool. That matches "an agent with continuity" — the
-agent is doing one thing, then the next, like a person.
+The supervisor owns the outer loop, invokes the mission runner for each
+claimed backlog item, and applies budget and idle-backoff policy. Memory is
+passed as separate context so it does not change the objective or mission ID.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,7 +19,6 @@ from ...core.planner_verdict import (
     build_planner_verdict_event,
 )
 from ...core.ports import EventSink
-from ...core.pricing import price_for
 from ...core.usage import project_usage_summary
 from ..memory import BacklogItem
 from ..mission_outcome import mission_outcome_class
@@ -59,43 +37,22 @@ from ._config import (
     _MissionRunner,
 )
 from ._constants import (
-    FULL_PAPER_GATE_DESCRIPTION as _FULL_PAPER_GATE_DESCRIPTION,  # noqa: F401
-)
-from ._constants import (
-    IDLE_BACKOFF_BASE_SECONDS as _IDLE_BACKOFF_BASE_SECONDS,  # noqa: F401
-)
-from ._constants import (
-    IDLE_BACKOFF_CAP_SECONDS as _IDLE_BACKOFF_CAP_SECONDS,  # noqa: F401
-)
-from ._constants import (
-    LIFECYCLE_BLOCK_HEARTBEAT_SECONDS as _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS,  # noqa: F401
+    IDLE_BACKOFF_CAP_SECONDS as _IDLE_BACKOFF_CAP_SECONDS,
 )
 from ._constants import (
     PLAN_AWAITING as _PLAN_AWAITING,
 )
 from ._constants import (
-    PLAN_ERROR as _PLAN_ERROR,  # noqa: F401
-)
-from ._constants import (
-    PLAN_RETRY as _PLAN_RETRY,  # noqa: F401
+    PLAN_RETRY as _PLAN_RETRY,
 )
 from ._constants import (
     PLAN_TERMINAL_IDLE as _PLAN_TERMINAL_IDLE,
 )
 from ._constants import (
-    PLANNER_DEDUP_STATUSES as _PLANNER_DEDUP_STATUSES,  # noqa: F401
-)
-from ._constants import (
-    PLANNER_RECENT_FAILURE_STATUS as _PLANNER_RECENT_FAILURE_STATUS,  # noqa: F401
-)
-from ._constants import (
-    PLANNER_SCOPE_BOUNDED as _PLANNER_SCOPE_BOUNDED,  # noqa: F401
-)
-from ._constants import (
     PLANNER_SCOPE_FINAL_SUBMISSION as _PLANNER_SCOPE_FINAL_SUBMISSION,
 )
 from ._evolution import EvolutionMixin
-from ._idle_cycle import IdleCycleMixin, _idle_exit_seconds  # noqa: F401
+from ._idle_cycle import IdleCycleMixin
 from ._letters import LettersMixin
 from ._lifecycle import LifecycleMixin
 from ._mission_execution import MissionExecutionMixin
@@ -108,65 +65,10 @@ from .pending_notify import should_report_pending_wait
 
 log = logging.getLogger(__name__)
 
-_price_for = price_for
 
-
-
-
-
-# ---------------------------------------------------------------------------
-# Budget
-# ---------------------------------------------------------------------------
-
-
-
-# ---------------------------------------------------------------------------
-# Cost-tracking sink wrapper
-# ---------------------------------------------------------------------------
-
-
-
-
-# Plan-cycle outcome sentinels returned by ``_plan_next_work`` and consumed
-# by ``run()``. Kept as a small named set (not bare string literals scattered
-# across call sites) so the control flow stays auditable.
+# Outcomes produced by _plan_next_work and consumed by run().
 _PLAN_TASKS_ADDED = "tasks_added"
 _PLAN_PROJECT_DONE = "project_done"
-
-# Idle backoff for the "no new work" outcomes (awaiting-external / planner
-# retry / planner error). Each consecutive idle plan-cycle doubles the host's
-# re-check sleep, capped — so a project correctly waiting on a live external
-# job (or a planner that keeps finding nothing) is polled every few minutes,
-# not continuously. Reset to 0 the moment real work runs.
-
-# Legacy heartbeat used by budget pauses and tests that exercise the old idle
-# gate. Planner waiting/idling is now represented by structured events.
-
-# Stall escalation: after this many consecutive idle planner cycles concluding the
-# same external dependency blocks progress, dispatch ONE domain-agnostic
-# verification-probe mission so the agent TESTS its (possibly stale) belief against
-# CURRENT reality instead of waiting forever on a memory of the blocker. Rate-limit
-# repeat probes with the cooldown below.
-
-# Operator escalation: after this many consecutive missions that COMPLETED but the
-# L2 reviewer judged forward_progress=false (work happened, the goal did NOT
-# advance — e.g. repeated no-score / blocked-archive refuges), surface a loud,
-# operator-notified stall alert. This counts ONLY the reviewer's own signal — the
-# harness never decides what "progress" is; it just refuses to let the agent
-# system loop invisibly without bringing the human in.
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Supervisor
-# ---------------------------------------------------------------------------
-
-
-
-# ----- thin protocol describing what we need from the mission runner ------
 
 
 class LifeSupervisor(

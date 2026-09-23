@@ -3,10 +3,6 @@
 methods (config build, mission-context prep, bounded planning, loop
 invocation, outcome-field extraction, stage-transition decision, outcome
 assembly).
-
-Split out of ``_runtime.py`` so that module stays under the maintainability
-line-count target. Every name here is re-exported from ``_runtime.py`` (see
-its module docstring and ``__all__``) so external imports are unaffected.
 """
 
 from __future__ import annotations
@@ -628,15 +624,7 @@ class SkillLoopExecuteMixin:
         ``SkillLoopConfig`` for this mission.
         """
         args = self._args
-        # Lazy proxy: ``_independent_review_required_for_project_root``,
-        # ``_workflow_mode_for_project_root``, and
-        # ``_paper_mission_for_project_root`` (used below) live in
-        # ``_runtime_supervisor`` but are re-exported on — and monkeypatched
-        # directly against — the ``_runtime`` facade module by tests (e.g.
-        # tests/life/test_chat_fast_path.py). Resolving them here at call
-        # time keeps that monkeypatch effective even though this method
-        # lives in a sibling module.
-        from ._runtime import (
+        from ._runtime_supervisor import (
             _independent_review_required_for_project_root,
             _paper_mission_for_project_root,
             _workflow_mode_for_project_root,

@@ -1,9 +1,5 @@
 """Shared protocols, memory helpers, and scratch state for the lifetime-agent
 runtime.
-
-Split out of ``_runtime.py`` so that module stays under the maintainability
-line-count target. Every name here is re-exported from ``_runtime.py`` (see
-its module docstring and ``__all__``) so external imports are unaffected.
 """
 
 from __future__ import annotations
@@ -17,7 +13,7 @@ from ._env import env_flag as _env_flag
 from ._target_paths import resolve_life_root
 
 
-class _CommonMemory(Protocol):
+class _SplitMemory(Protocol):
     @property
     def identity(self) -> Any: ...
 
@@ -27,8 +23,6 @@ class _CommonMemory(Protocol):
     @property
     def backlog(self) -> Any: ...
 
-
-class _SplitMemory(_CommonMemory, Protocol):
     @property
     def global_mem(self) -> Any: ...
 
@@ -56,10 +50,6 @@ def _memory_global_root(mem: Any) -> Path:
     return _memory_project_root(mem)
 
 
-def _resolve_global_root(args: argparse.Namespace) -> Path:
-    return resolve_life_root(getattr(args, "life_dir", None))
-
-
 def _project_state_dir_for(args: argparse.Namespace, workdir: Path) -> Path | None:
     """Resolve the existing per-project runtime state directory."""
     if not _env_flag("ARGUS_SKILL_CHECKPOINT_PERSIST", True):
@@ -74,7 +64,7 @@ def _project_state_dir_for(args: argparse.Namespace, workdir: Path) -> Path | No
         from ..core.paths import session_state_root
         from ..core.project import project_fingerprint
 
-        global_root = _resolve_global_root(args)
+        global_root = resolve_life_root(getattr(args, "life_dir", None))
         fingerprint = project_fingerprint(workdir).fingerprint
         state_dir = session_state_root(fingerprint, root=global_root)
         state_dir.mkdir(parents=True, exist_ok=True)

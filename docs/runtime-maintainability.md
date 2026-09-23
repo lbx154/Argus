@@ -18,6 +18,10 @@ CLI adapter 在构造时直接导入仓库内的 `AgentCliRunner`，使用真实
 自动阶段关闭仍要求 provider 明确返回布尔值。`argus-verticals` 已使用的旧访问入口
 保留兼容；已移除的其余逐字段包装入口应改为对应合同属性或方法。
 
+内部调用直接访问实现所在模块，runtime 门面只保留实际跨包入口和社区插件
+使用的兼容入口。任务完成时，`_CostTrackingSink.completion_usage()` 一次读取账本，
+同时生成总量与角色明细；完成事件复用该结果，避免分别读取字段时混入后来的记账。
+
 ## 阅读入口
 
 ```mermaid

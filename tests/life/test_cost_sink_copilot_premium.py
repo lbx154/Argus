@@ -1,15 +1,4 @@
-"""Copilot premium-request metering (接入 copilot 成本可控).
-
-Copilot bills flat PREMIUM REQUESTS, not tokens, and reports NO input tokens —
-so the token-based USD meter reads $0 for a copilot run, leaving the F3 breaker /
-daily cap blind. These tests pin the fix end to end:
-
-  * the backend extracts copilot's session-cumulative ``premiumRequests`` and
-    de-cumulates it into a per-call delta (like it already does for codex tokens);
-  * the cost sink folds those deltas into ``copilot_usd()`` (priced per the
-    configurable overage rate) and therefore into ``total_usd()`` — so copilot
-    spend flows through the SAME breaker with no new control surface.
-"""
+"""Copilot premium-request deltas and their contribution to mission cost."""
 from __future__ import annotations
 
 from argus.adapters.agent_cli_backend import AgentCliBackend
@@ -93,8 +82,8 @@ def test_sink_folds_copilot_premium_into_total_usd() -> None:
         "usage_scope": "delta", "status": "continue",
     })
     assert sink.copilot_premium_requests == 15.0     # engineer + reviewer summed
-    assert sink.copilot_usd() == 15.0 * 0.04         # default overage rate
-    assert sink.total_usd() == base + sink.copilot_usd()
+    assert sink.completion_usage()[1]["copilot_cost_usd"] == 15.0 * 0.04         # default overage rate
+    assert sink.total_usd() == base + sink.completion_usage()[1]["copilot_cost_usd"]
 
 
 def test_sink_zero_premium_is_free_for_codex() -> None:
@@ -105,7 +94,7 @@ def test_sink_zero_premium_is_free_for_codex() -> None:
         "usage_scope": "delta",
     })
     assert sink.copilot_premium_requests == 0.0
-    assert sink.copilot_usd() == 0.0
+    assert sink.completion_usage()[1]["copilot_cost_usd"] == 0.0
 
 
 def test_sink_folds_manager_util_and_scientist_premium() -> None:
@@ -122,8 +111,8 @@ def test_sink_folds_manager_util_and_scientist_premium() -> None:
         "premium_requests": 7.5, "usage_scope": "delta",
     })
     assert sink.copilot_premium_requests == 15.0     # manager util + distiller
-    assert sink.copilot_usd() == 15.0 * 0.04
-    assert sink.total_usd() >= sink.copilot_usd()
+    assert sink.completion_usage()[1]["copilot_cost_usd"] == 15.0 * 0.04
+    assert sink.total_usd() >= sink.completion_usage()[1]["copilot_cost_usd"]
 
 
 def test_sink_counts_same_session_skill_maintenance_as_engineer_cost() -> None:
@@ -146,12 +135,12 @@ def test_sink_counts_same_session_skill_maintenance_as_engineer_cost() -> None:
 
 
 def test_copilot_rate_is_configurable(monkeypatch) -> None:
-    from argus.life.supervisor import _cost
+    from argus.core.pricing import copilot_usd_per_premium_request
 
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST", "0.10")
-    assert _cost._copilot_usd_per_premium_request() == 0.10
+    assert copilot_usd_per_premium_request() == 0.10
     # bad / negative input → fail-soft to the published default
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST", "nope")
-    assert _cost._copilot_usd_per_premium_request() == 0.04
+    assert copilot_usd_per_premium_request() == 0.04
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST", "-1")
-    assert _cost._copilot_usd_per_premium_request() == 0.04
+    assert copilot_usd_per_premium_request() == 0.04

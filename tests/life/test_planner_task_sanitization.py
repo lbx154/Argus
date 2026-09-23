@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus.life.supervisor import _sanitize_planner_task_text
+from argus.life.supervisor._helpers import _sanitize_planner_task_text
 
 
 def test_sanitize_planner_task_text_removes_generic_legacy_deployment_paths() -> None:

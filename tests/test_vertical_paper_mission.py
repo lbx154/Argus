@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus.apps._runtime import (
+from argus.apps._runtime_supervisor import (
     _final_certification_for_project_root,
     _paper_mission_for_project_root,
 )

@@ -9,7 +9,8 @@ from typing import Any
 
 import pytest
 
-from argus.apps._runtime import _ExecuteState, _SkillLoopRunner
+from argus.apps._runtime import _SkillLoopRunner
+from argus.apps._runtime_helpers import _ExecuteState
 from argus.core.models import LoopOutcome, ReviewDecision, RoundRecord
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.mission_outcome import (
@@ -1107,7 +1108,7 @@ def test_resumable_mission_is_not_quarantined_from_replanning() -> None:
     next planning cycle — the mechanism that left the queue empty.
     """
     from argus.life.memory import JournalEntry
-    from argus.life.supervisor import _is_recent_no_progress_failure
+    from argus.life.supervisor._helpers import _is_recent_no_progress_failure
 
     def _entry(extra: dict[str, Any]) -> JournalEntry:
         return JournalEntry.new(

@@ -369,7 +369,7 @@ def test_empty_config_path_threads_empty_string(tmp_path: Path) -> None:
 def test_checkpoint_path_is_internal_and_directly_editable(tmp_path: Path) -> None:
     import argparse
 
-    from argus.apps._runtime import _checkpoint_path_for
+    from argus.apps._runtime_helpers import _checkpoint_path_for
 
     session_dir = tmp_path / "projects" / "s-1d7da0e9"
     workdir = tmp_path / "some-worktree"

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import argparse
 
-from argus.apps import _runtime
-from argus.apps._runtime import _resolve_runner_backend_name
+from argus.apps import _runtime_construction
+from argus.apps._runtime_construction import _resolve_runner_backend_name
 
 
 def _ns(backend: object) -> argparse.Namespace:
@@ -76,7 +76,7 @@ def test_persisted_role_backend_overrides_resolved_default(monkeypatch) -> None:
     )
 
     assert (
-        _runtime._resolve_role_runner_backend_name(
+        _runtime_construction._resolve_role_runner_backend_name(
             "engineer", "copilot", env={},
         )
         == "claude"
@@ -90,7 +90,7 @@ def test_explicit_shared_env_overrides_persisted_role_backend(monkeypatch) -> No
     )
 
     assert (
-        _runtime._resolve_role_runner_backend_name(
+        _runtime_construction._resolve_role_runner_backend_name(
             "engineer",
             "copilot",
             env={"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
