@@ -143,10 +143,20 @@ def test_execution_owner_failure_reclaims_temporary_children_and_preserves_cost(
 
 @pytest.mark.parametrize("mode", ["root-exit", "inherited-pipe"])
 def test_provider_parent_exit_cannot_abandon_children(launch, mode):
-    start, config, _root, unrelated = launch
+    start, config, root, unrelated = launch
     _owner, tree = start(mode)
     wait_until(lambda: Path(config["result"]).exists())
     result = json.loads(Path(config["result"]).read_text())
-    assert result["settlement"] == ("settled" if mode == "root-exit" else "unresolved"), json.dumps(result)
+    if mode == "inherited-pipe" and os.name == "nt":
+        # Windows/Node can deliver output EOF before Job cleanup even while
+        # descendants still exist. Complete output and a drain timeout are both
+        # valid; every Job member must be gone in either case.
+        assert result["settlement"] in {"settled", "unresolved"}, json.dumps(result)
+    else:
+        assert result["settlement"] == ("settled" if mode == "root-exit" else "unresolved"), json.dumps(result)
+    if result["settlement"] == "unresolved":
+        assert "output pipes did not close" in result["runner"]["fatalError"]
     wait_until(lambda: all(not alive(child) for child in tree))
+    row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
+    assert row.cost_usd == pytest.approx(0.1)
     assert unrelated.poll() is None
