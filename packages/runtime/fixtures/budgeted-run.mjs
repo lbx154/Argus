@@ -15,6 +15,7 @@ for await (const event of backend.run({
   projectId: 'p', model: 'gpt-5.6-sol', provider: 'openai', cwd: options.globalRoot,
   prompt: 'Offline budget integration fixture', toolPolicy: 'disabled',
   wallTimeoutMs: 5000, idleTimeoutMs: 2000, signal: controller.signal,
+  ...options.request,
 })) {
   if (event.type === 'provider_event') {
     events += 1;

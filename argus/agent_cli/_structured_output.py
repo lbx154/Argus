@@ -8,6 +8,8 @@ from dataclasses import replace
 from pathlib import Path
 
 PI_OUTPUT_SCHEMA_ENV = "ARGUS_PI_OUTPUT_SCHEMA"
+# Generated from packages/runtime/src/piOutputSchemaExtension.ts and shipped
+# with Python wheels; provider startup never requires a TypeScript build.
 PI_OUTPUT_SCHEMA_EXTENSION = Path(__file__).with_name("pi_output_schema_extension.mjs")
 
 

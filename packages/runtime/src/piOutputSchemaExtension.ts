@@ -1,0 +1,56 @@
+// Only explicitly bound, tools-disabled text calls load this extension.
+import { writeSync } from 'node:fs';
+
+export const SCHEMA_ENV = 'ARGUS_PI_OUTPUT_SCHEMA';
+type ObjectValue = Record<string, unknown>;
+interface PiExtensionApi {
+  on(name: 'before_provider_request', handler: (
+    event: { payload: unknown }, context: { model?: { api?: string } },
+  ) => ObjectValue): void;
+  getActiveTools(): readonly unknown[];
+}
+const object = (value: unknown): value is ObjectValue => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function failCall(reason: string): never {
+  // Pi catches ordinary hook exceptions and would send the old payload.
+  // A required schema must instead end this dedicated CLI before fallback.
+  try { writeSync(2, `Argus structured output: ${reason}\n`); }
+  finally { process.exit(1); }
+}
+
+export function structuredOutputExtension(schema: ObjectValue): (pi: PiExtensionApi) => void {
+  return pi => {
+    pi.on('before_provider_request', (event, context) => {
+      try {
+        const payload = event.payload;
+        const api = context.model?.api;
+        if (api !== 'openai-completions' && api !== 'openai-responses') {
+          return failCall('Pi output_schema does not support this provider API');
+        }
+        if (!object(payload) || (api === 'openai-completions' ? !Array.isArray(payload.messages)
+          : !Array.isArray(payload.input) && typeof payload.input !== 'string')) {
+          return failCall('OpenAI request payload is unavailable');
+        }
+        if (pi.getActiveTools().length || (payload.tools != null && (!Array.isArray(payload.tools) || payload.tools.length))) {
+          return failCall('output_schema requires a tools-disabled request');
+        }
+        const format = { name: 'argus_output', strict: true, schema };
+        if (api === 'openai-responses') {
+          if (payload.text != null && !object(payload.text)) return failCall('OpenAI Responses text options are invalid');
+          return { ...payload, text: { ...(object(payload.text) ? payload.text : {}), format: { type: 'json_schema', ...format } } };
+        }
+        return { ...payload, response_format: { type: 'json_schema', json_schema: format } };
+      } catch { return failCall('could not apply the required output schema'); }
+    });
+  };
+}
+
+export default function install(pi: PiExtensionApi): void {
+  const raw = process.env[SCHEMA_ENV];
+  delete process.env[SCHEMA_ENV];
+  try {
+    const schema: unknown = JSON.parse(raw ?? '');
+    if (!object(schema)) return failCall('output_schema must be a JSON Schema object');
+    structuredOutputExtension(schema)(pi);
+  } catch { failCall('required output schema could not be loaded'); }
+}

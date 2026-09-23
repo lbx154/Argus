@@ -7,7 +7,9 @@
   "scripts": {
     "contracts:generate": "node --experimental-strip-types packages/contracts/scripts/generate.ts",
     "contracts:check": "node --experimental-strip-types packages/contracts/scripts/generate.ts --check",
-    "build": "npm run contracts:check && npm run build -w @argus/contracts && npm run build -w @argus/runtime && npm run build -w @argus/api",
+    "runtime:generate": "node --experimental-strip-types packages/runtime/scripts/generatePiExtension.ts",
+    "runtime:check": "node --experimental-strip-types packages/runtime/scripts/generatePiExtension.ts --check",
+    "build": "npm run contracts:check && npm run runtime:check && npm run build -w @argus/contracts && npm run build -w @argus/runtime && npm run build -w @argus/api",
     "typecheck": "npm run build && tsc --noEmit -p tsconfig.tests.json",
     "test": "npm run build && node --import tsx --test packages/contracts/test/*.test.ts packages/runtime/test/*.test.ts packages/api/test/*.test.ts",
     "check": "npm run typecheck && npm test"

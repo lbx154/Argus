@@ -2,6 +2,7 @@ import { isJsonObject, validProjectId, type BudgetedResult, type BudgetedStreamE
 import { PiBackend, buildPiCommand, type PiBackendOptions, type PiRunRequest } from './pi.js';
 import { PiAccountingAccumulator } from './piAccounting.js';
 import { PythonBudgetSession, type PythonBudgetOptions } from './budgetClient.js';
+import { snapshotPiRequest } from './piConfiguration.js';
 
 export interface BudgetedPiRequest extends PiRunRequest {
   projectId: string;
@@ -42,6 +43,7 @@ export class BudgetedPiBackend {
   constructor(private readonly options: BudgetedPiOptions) {}
 
   async *run(request: BudgetedPiRequest): AsyncGenerator<BudgetedStreamEvent> {
+    request = { ...request, ...snapshotPiRequest(request) };
     buildPiCommand(request);
     if (!validProjectId(request.projectId) || !request.model.trim() || !request.provider.trim()) throw new Error('project, model and provider must be explicit');
     const controller = new AbortController();
