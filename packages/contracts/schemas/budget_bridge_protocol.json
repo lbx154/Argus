@@ -1,0 +1,6 @@
+{
+  "protocol": "argus.budget-bridge",
+  "version": 1,
+  "max_line_bytes": 65536,
+  "methods": ["reserve", "start", "observe", "settle", "release"]
+}

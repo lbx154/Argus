@@ -649,8 +649,21 @@ def _failed_finalization_rows(root: Path) -> list[tuple[Path, dict[str, Any]]]:
     rows: list[tuple[Path, dict[str, Any]]] = []
     for path in paths:
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            with path.open("r+", encoding="utf-8") as handle:
+                try:
+                    portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
+                except portalocker.exceptions.AlreadyLocked:
+                    # A live bridge owns this pending receipt. Its reservation
+                    # already contributes observed spend; do not count it twice.
+                    continue
+                try:
+                    payload = json.load(handle)
+                finally:
+                    portalocker.unlock(handle)
+        except FileNotFoundError:
+            # A live owner may finish between the directory scan and open.
+            continue
+        except (OSError, ValueError, portalocker.exceptions.LockException):
             payload = None
         if not isinstance(payload, dict) or not payload.get("call_id"):
             payload = {
@@ -662,6 +675,67 @@ def _failed_finalization_rows(root: Path) -> list[tuple[Path, dict[str, Any]]]:
             }
         rows.append((path, {**payload, "blocking": True, "marker": str(path)}))
     return rows
+
+
+class PendingBudgetCall:
+    """A locked liability marker written BEFORE an external owner may start.
+
+    Losing the process releases the OS lock, immediately exposing the marker to
+    every Python admission reader. No PID-liveness guess or recovery daemon is
+    needed. Interrupted writes remain unreadable barriers rather than zero cost.
+    """
+
+    def __init__(self, reservation: CallBudgetReservation) -> None:
+        directory = _failed_finalization_dir(reservation.root)
+        directory.mkdir(parents=True, exist_ok=True)
+        self.path = directory / f"{reservation.reservation_id}.json"
+        self.handle = self.path.open("x+", encoding="utf-8")
+        try:
+            os.chmod(self.path, 0o600)
+            portalocker.lock(self.handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
+            self.row = {
+                "reservation_id": reservation.reservation_id, "call_id": reservation.call_id,
+                "project_root": str(reservation.project_root or ""),
+                "project_id": reservation.project_root.name if reservation.project_root else "",
+                "mission_id": reservation.mission_id, "provider": reservation.provider,
+                "model": reservation.model, "run_label": reservation.run_label,
+                "pricing_status": "unknown", "created_at": time.time(),
+                "reason": "provider call has no durable final settlement",
+                "observed_cost_usd": 0.0, "observed_tokens": 0,
+            }
+            self.observe(0.0, 0)
+            if os.name != "nt":
+                directory_fd = os.open(directory, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        except BaseException:
+            self.handle.close()
+            raise
+
+    def observe(self, cost: float, tokens: int) -> None:
+        if not math.isfinite(cost) or cost < 0 or type(tokens) is not int or tokens < 0:
+            raise ValueError("pending usage must be finite and nonnegative")
+        self.row["observed_cost_usd"] = max(self.row["observed_cost_usd"], cost)
+        self.row["observed_tokens"] = max(self.row["observed_tokens"], tokens)
+        self.handle.seek(0)
+        json.dump(self.row, self.handle, ensure_ascii=True, allow_nan=False)
+        self.handle.write("\n")
+        self.handle.truncate()
+        self.handle.flush()
+        os.fsync(self.handle.fileno())
+
+    def close(self, *, settled: bool = False) -> None:
+        # Close before unlink for Windows. A priced ledger row already exists
+        # when settled=True, so another admission can safely retire the marker.
+        if not self.handle.closed:
+            self.handle.close()
+        if settled:
+            try:
+                self.path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def _fold_failed_finalizations(
@@ -1202,6 +1276,7 @@ __all__ = [
     "FAILED_FINALIZATION_REASON",
     "AccountingIntegrityError",
     "CallBudgetReservation",
+    "PendingBudgetCall",
     "CostControlLockBusyError",
     "CostControlStateError",
     "acknowledge_unpriced_call",
