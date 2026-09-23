@@ -74,6 +74,40 @@ and frontier while warning that project artifacts remain authoritative. Rolling
 sessions resume until branch, turn, token, or quality signals rotate them; a
 fresh policy intentionally clears the provider thread. Each Role may use one or more provider sessions or turns over time.
 
+## Campaign: workflow term, not a core hierarchy level
+
+A **campaign** generally describes an Operator's long-running effort toward an
+objective, often spanning multiple bounded Missions. It is not an additional
+core runtime entity or a container above Project: the hierarchy remains
+`Operator -> Projects -> Missions -> Roles -> role/provider sessions or turns`.
+The term's precise meaning depends on the layer using it:
+
+- **Core continuous mode:** the [CLI](../argus/apps/cli/_parser.py) calls a
+  Project's persisted continuous operation a "continuous campaign".
+  `--continuous` enables planner-driven task generation when the backlog is
+  empty; `--resume-continuous` explicitly resumes that Project's persisted state
+  in `<life_dir>/continuous.json`. For example, an Operator can pursue an ongoing
+  improvement objective in one Project while the continuous driver advances the
+  work through bounded Missions. The Project remains the persistent identity.
+  Likewise, [campaign workdir adoption](../argus/core/campaign_workdir.py) records
+  a selected repository root in `campaign-workdir.json` under the same project
+  state directory; it does not create a separate Campaign identity or state root.
+- **Companion application:** [FLYWHEEL's schema](../companions/FLYWHEEL/backend/src/foundry/db.py)
+  defines a `campaigns` record with its own `id`, objective, and application-level
+  states such as execution and review state. Its separate, nullable
+  `argus_project_id` links it to an Argus Project. This is a FLYWHEEL domain entity,
+  not a new level in the core runtime hierarchy.
+- **Vertical-specific workflow:** the [kernel engineering campaign loop](../argus/verticals/kernel_engineering/campaign.py)
+  tracks optimization attempts, benchmark outcomes, and whether to continue
+  optimization or validate and deliver. That specialized use of "campaign" does
+  not add a universal core container either.
+
+Use **Project** and **Mission** when referring to core identity, ownership, or
+lifecycle. Qualify **campaign** by its layer (for example, "core continuous
+campaign", "FLYWHEEL campaign", or "kernel optimization campaign") rather than
+assuming that every use denotes the same object or that Campaign and Project
+have a universal one-to-one mapping.
+
 ## Authority and lifecycle
 
 Durable truth remains in Argus state, not in any model transcript. A Project
