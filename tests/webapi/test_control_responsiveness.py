@@ -11,11 +11,12 @@ from fastapi.testclient import TestClient
 from argus.core.models import RunnerOptions, RunnerResult
 from argus.core.run_gateway import run_exec
 from argus.core.session import SessionMeta, write_session_meta
+from argus.daemon import life_worker as daemon_worker
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import LifeMemory, MemoryBundle
 from argus.manager import config_intent, front_door
 from argus.manager._session_ops import manager_pipeline_lock
-from argus.webapi import manager_bridge, manager_dispatch, manager_state, server
+from argus.webapi import manager_bridge, manager_dispatch, manager_state, project_crud, server
 from argus.webapi.daemon_services import DaemonServices
 
 
@@ -85,7 +86,7 @@ def test_http_stop_interrupts_manager_provider_and_prevents_late_dispatch(tmp_pa
         return None, None, "complex"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(server, "stop_daemon", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(daemon_worker, 'stop_daemon', lambda *args, **kwargs: 0)
     with ThreadPoolExecutor(max_workers=1) as pool, TestClient(server.create_app(global_root=tmp_path)) as client:
         future = pool.submit(manager_bridge.manager_message, sid, "Develop the next experiment", global_root=tmp_path)
         try:
@@ -134,9 +135,9 @@ def test_new_objective_supersedes_an_older_waiting_handoff(tmp_path, monkeypatch
         old = new = None
         try:
             assert held.wait(1)
-            old = pool.submit(server.set_continuous, sid, enabled=True, objective="Old goal", global_root=tmp_path)
+            old = pool.submit(project_crud.set_continuous, sid, enabled=True, objective="Old goal", global_root=tmp_path)
             assert prepared.wait(2)
-            new = pool.submit(server.set_continuous, sid, enabled=True, objective="New goal", global_root=tmp_path)
+            new = pool.submit(project_crud.set_continuous, sid, enabled=True, objective="New goal", global_root=tmp_path)
             with pytest.raises(front_door.ManagerHandoffSupersededError):
                 old.result(timeout=1)
             assert commits == [] and not holding.done()
@@ -170,10 +171,10 @@ def test_old_request_cannot_adopt_a_new_generation_after_slow_project_open(tmp_p
     monkeypatch.setattr(config_intent, "_front_door_classify", lambda *args, **kwargs: (None, None, "complex"))
     monkeypatch.setattr(front_door, "manager_continuous_handoff", commit)
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="older") as pool:
-        old = pool.submit(server.set_continuous, sid, enabled=True, objective="Old", global_root=tmp_path)
+        old = pool.submit(project_crud.set_continuous, sid, enabled=True, objective="Old", global_root=tmp_path)
         try:
             assert opened.wait(1)
-            assert server.set_continuous(sid, enabled=True, objective="New", global_root=tmp_path)
+            assert project_crud.set_continuous(sid, enabled=True, objective="New", global_root=tmp_path)
             release.set()
             with pytest.raises(front_door.ManagerHandoffSupersededError):
                 old.result(timeout=1)
@@ -196,7 +197,7 @@ def test_stop_after_goal_commit_prevents_late_http_start(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config_intent, "_front_door_classify", lambda *args, **kwargs: (None, None, "complex"))
     monkeypatch.setattr(front_door, "manager_continuous_handoff", commit)
-    services = DaemonServices(read_status=server.read_daemon_status,
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status,
         start=lambda *args, **kwargs: starts.append(True) or {"rc": 0})
     app = server.create_app(global_root=tmp_path, daemon_services=services)
     with TestClient(app) as client, ThreadPoolExecutor(max_workers=1) as pool:
@@ -225,7 +226,7 @@ def test_failed_replacement_preserves_cached_committed_goal(tmp_path, monkeypatc
 
     monkeypatch.setattr(config_intent, "_front_door_classify", fail)
     with pytest.raises(front_door.ManagerHandoffError):
-        server.set_continuous(sid, enabled=True, objective="Replacement", global_root=tmp_path)
+        project_crud.set_continuous(sid, enabled=True, objective="Replacement", global_root=tmp_path)
     assert read_continuous_state(life).objective == state["continuous_objective"] == "Previous"
     assert read_continuous_state(life).enabled and state["config"]["continuous"]
 

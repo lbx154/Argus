@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from argus.core.session import SessionMeta, write_session_meta
 from argus.life.memory import BacklogItem, LifeMemory
-from argus.webapi import server
+from argus.webapi import daemon_lifecycle, server
 from argus.webapi.routes.daemon import _resume_provider_fences_after_start
 
 
@@ -38,7 +38,7 @@ def test_authenticated_idempotent_start_is_the_only_resume_action(tmp_path, monk
     def start(*args, **kwargs):
         calls.append(1)
         return {"rc": 0, "sid": sid}
-    monkeypatch.setattr(server, "start_project_daemon", start)
+    monkeypatch.setattr(daemon_lifecycle, 'start_project_daemon', start)
     client = TestClient(server.create_app(global_root=tmp_path, auth_token="fixture"))
     route = f"/api/projects/{sid}/daemon/start"
     assert client.post(route).status_code == 401

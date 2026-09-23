@@ -1,8 +1,6 @@
 """Manager streaming/messages API domain: the Manager front-door chat
 endpoints (blocking + SSE-streaming twins) and the live project event
 WebSocket stream.
-
-See :mod:`.meta` for the extraction convention this module follows.
 """
 
 from __future__ import annotations
@@ -18,6 +16,8 @@ from fastapi import Depends, File, HTTPException, Query, UploadFile, WebSocket, 
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
+from ...daemon import life_worker as daemon_worker
+from .. import project_state, server
 from .context import ServerContext
 from .models import CancelMessageIn, MessageIn
 
@@ -133,7 +133,7 @@ async def _read_uploaded_attachments(
     return payload
 
 
-def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
+def register_manager_routes(app, ctx: ServerContext) -> None:
     from ..manager_state import manager_control_generation
     from ..message_requests import (
         MessageRequestCancelled,
@@ -169,7 +169,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         from ..project_state import daemon_dict
 
         life_dir = ctx.resolve_or_404(sid)
-        return daemon_dict(server_mod.read_daemon_status(life_dir), life_dir=life_dir)
+        return daemon_dict(daemon_worker.read_daemon_status(life_dir), life_dir=life_dir)
 
     def _record_spawn_result(result: dict[str, Any], spawned: Any) -> None:
         result["daemon"] = spawned
@@ -445,9 +445,9 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             raise
 
         def _gen():
-            for item in server_mod._iter_manager_stream_items(
+            for item in server._iter_manager_stream_items(
                 q,
-                heartbeat_s=server_mod._manager_stream_heartbeat_seconds(),
+                heartbeat_s=server._manager_stream_heartbeat_seconds(),
             ):
                 if stream_closed.is_set():
                     break
@@ -466,7 +466,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                       token_q: str | None = Query(default=None, alias="token")) -> None:
         project_root = ctx.root_for_project(sid)
         life_dir = (
-            server_mod.project_life_dir(sid, global_root=project_root)
+            project_state.project_life_dir(sid, global_root=project_root)
             if project_root is not None
             else None
         )
@@ -477,7 +477,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         if life_dir is None:
             await ws.close(code=4404, reason="unknown project")
             return
-        iterator = server_mod.tail_events(
+        iterator = server.tail_events(
             life_dir,
             replay_limit=max(0, min(replay, 200)),
         ).__aiter__()
@@ -500,7 +500,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                     except StopAsyncIteration:
                         return
                     event_task = asyncio.create_task(anext(iterator))
-                    if view == "ui" and not server_mod._event_visible_in_web_ui(ev):
+                    if view == "ui" and not server._event_visible_in_web_ui(ev):
                         continue
                     await ws.send_json(ev)
         except asyncio.CancelledError:

@@ -58,7 +58,9 @@ def main() -> None:
     import uvicorn
 
     from ..core.paths import global_root
-    from ..webapi.server import create_app, create_daemon, list_projects
+    from ..webapi.daemon_lifecycle import create_daemon
+    from ..webapi.project_state import list_projects
+    from ..webapi.server import create_app
 
     os.umask(0o077)
     config = json.loads(Path("/bootstrap/runtime.json").read_text())

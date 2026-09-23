@@ -1,7 +1,5 @@
 """artifacts/read-only API domain: project artifact listing, artifact detail,
 raw artifact file serving, and git-diff.
-
-See :mod:`.meta` for the extraction convention this module follows.
 """
 
 from __future__ import annotations
@@ -11,6 +9,7 @@ from typing import Any
 from fastapi import Depends, Header, HTTPException, Query, Response
 from starlette.responses import FileResponse
 
+from .. import artifacts
 from .context import ServerContext
 
 # The preview page sandboxes itself and denies every network destination, so
@@ -25,7 +24,7 @@ PREVIEW_PAGE_CSP = (
 )
 
 
-def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
+def register_artifact_routes(app, ctx: ServerContext) -> None:
     @app.get(
         "/api/projects/{sid}/artifacts",
         dependencies=[Depends(ctx.require_auth)],
@@ -34,7 +33,7 @@ def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
         response.headers["Cache-Control"] = "private, no-store"
         return {
             "artifacts": ctx.not_found_if_none(
-                server_mod.list_project_artifacts(
+                artifacts.list_project_artifacts(
                     sid, global_root=ctx.project_root_or_404(sid),
                     **({"include_reading": True} if include_reading else {}),
                 ),
@@ -52,7 +51,7 @@ def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
         path: str = Query(..., min_length=1),
     ) -> dict[str, Any]:
         response.headers["Cache-Control"] = "private, no-store"
-        artifact = server_mod.get_project_artifact(
+        artifact = artifacts.get_project_artifact(
             sid, path, global_root=ctx.project_root_or_404(sid)
         )
         if artifact is None:
@@ -68,7 +67,7 @@ def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
         path: str = Query(..., min_length=1),
         download: bool = Query(False),
     ):
-        resolved = server_mod._resolved_project_artifact(
+        resolved = artifacts.resolved_project_artifact(
             sid, path, global_root=ctx.project_root_or_404(sid)
         )
         if resolved is None:
@@ -97,7 +96,7 @@ def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
     def html_package(sid: str, path: str):
         from ..artifact_preview import HtmlPackage
 
-        resolved = server_mod._resolved_project_artifact(
+        resolved = artifacts.resolved_project_artifact(
             sid, path, global_root=ctx.project_root_or_404(sid)
         )
         if resolved is None or resolved[0]["kind"] != "html":
@@ -161,6 +160,6 @@ def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
     def _git_diff(sid: str, response: Response) -> dict[str, Any]:
         response.headers["Cache-Control"] = "private, no-store"
         return ctx.not_found_if_none(
-            server_mod._project_git_diff(sid, global_root=ctx.project_root_or_404(sid)),
+            artifacts.project_git_diff(sid, global_root=ctx.project_root_or_404(sid)),
             sid,
         )

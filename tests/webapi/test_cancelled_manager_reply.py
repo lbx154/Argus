@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from argus.adapters.agent_cli_backend import AgentCliBackend
 from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import append_turn, read_turns
+from argus.daemon import life_worker as daemon_worker
 from argus.life import answer_learning
 from argus.manager import config_intent, front_door
 from argus.webapi import server
@@ -58,7 +59,7 @@ def test_cancelled_triage_cannot_publish_or_learn_a_late_reply(
     monkeypatch.setattr(config_intent, "_front_door_classify", lambda *_args, **_kwargs: (None, None, "simple"))
     monkeypatch.setattr(front_door, "manager_triage", triage)
     services = DaemonServices(
-        read_status=server.read_daemon_status,
+        read_status=daemon_worker.read_daemon_status,
         start=lambda *_args, **_kwargs: starts.append(True) or {"rc": 0},
     )
     path = f"/api/projects/{sid}/message" + ("/stream" if streaming else "")

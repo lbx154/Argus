@@ -26,13 +26,18 @@ from argus.core.session import (
     write_session_meta,
 )
 from argus.core.transcript import append_turn
+from argus.daemon import life_worker as daemon_worker
 from argus.life.memory import Backlog, BacklogItem, LifeMemory
 from argus.manager import Manager, config_intent, dispatch, front_door
 from argus.manager.domain_author import VerticalDecision
 from argus.webapi import (
+    daemon_lifecycle,
     manager_bridge,
     manager_dispatch,
+    manager_pending_question,
     manager_state,
+    mission_items,
+    project_crud,
     project_state,
     server,
 )
@@ -63,7 +68,7 @@ def _client_with_starter(root: Path, start: ProjectDaemonStarter) -> TestClient:
     _make_project(root)
     return TestClient(server.create_app(
         global_root=root,
-        daemon_services=DaemonServices(read_status=server.read_daemon_status, start=start),
+        daemon_services=DaemonServices(read_status=daemon_worker.read_daemon_status, start=start),
     ))
 
 
@@ -1758,8 +1763,8 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
         lambda *args, **kwargs: False,
     )
     monkeypatch.setattr(
-        server,
-        "start_project_daemon",
+        daemon_lifecycle,
+        'start_project_daemon',
         lambda *args, **kwargs: {"alive": True},
     )
     client = TestClient(server.create_app(global_root=tmp_path))
@@ -1781,8 +1786,6 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
     )
     assert state["vertical"] == "math"
     assert state["research_target_level"] == "exploratory"
-
-
 
 
 def test_message_empty_400(client: TestClient) -> None:
@@ -1820,8 +1823,8 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     )
     started: list[str] = []
     monkeypatch.setattr(
-        server,
-        "start_project_daemon",
+        daemon_lifecycle,
+        'start_project_daemon',
         lambda sid, *, global_root=None, resume_continuous=False, reclaim_idle=False:
             started.append(sid) or {"rc": 0},
     )
@@ -1930,7 +1933,7 @@ def test_concurrent_pending_answers_create_one_continuation(
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(
-            lambda answer: server.answer_pending_question(
+            lambda answer: manager_pending_question.manager_answer_pending_question(
                 "s-msgtest0",
                 blocked.id,
                 answer,
@@ -2422,7 +2425,7 @@ def test_create_daemon_mints_session_and_spawns(tmp_path: Path, monkeypatch) -> 
         spawned["resume_continuous"] = cfg.resume_continuous
         return 0
 
-    monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
+    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', fake_spawn)
     client = TestClient(server.create_app(global_root=tmp_path))
     r = client.post("/api/daemons", json={"objective": "reproduce the recursive kernel task", "name": "kbench"})
     assert r.status_code == 200
@@ -2449,8 +2452,8 @@ def test_create_daemon_persists_only_manager_execution_handoff(
     spawned: dict[str, object] = {}
     _install_manager(monkeypatch, lambda text: "write the MRAM paper")
     monkeypatch.setattr(
-        server,
-        "spawn_detached_daemon",
+        daemon_worker,
+        'spawn_detached_daemon_clean',
         lambda cfg, quiet=True: spawned.update(
             objective=cfg.continuous_objective,
         ) or 0,
@@ -2466,7 +2469,7 @@ def test_create_daemon_persists_only_manager_execution_handoff(
     monkeypatch.setattr(config_intent, "_front_door_classify", _name_from_front_door)
     raw = "write the MRAM paper; Manager owns the right sidebar"
 
-    result = server.create_daemon(objective=raw, global_root=tmp_path)
+    result = daemon_lifecycle.create_daemon(objective=raw, global_root=tmp_path)
 
     life_dir = tmp_path / "projects" / result["sid"]
     continuous = json.loads((life_dir / "continuous.json").read_text())
@@ -2489,8 +2492,8 @@ def test_named_daemon_uses_manager_lifetime(
     expected_open_ended: bool,
 ) -> None:
     monkeypatch.setattr(
-        server,
-        "spawn_detached_daemon",
+        daemon_worker,
+        'spawn_detached_daemon_clean',
         lambda *_args, **_kwargs: 0,
     )
 
@@ -2500,7 +2503,7 @@ def test_named_daemon_uses_manager_lifetime(
 
     monkeypatch.setattr(config_intent, "_front_door_classify", _classify)
 
-    result = server.create_daemon(
+    result = daemon_lifecycle.create_daemon(
         objective="write one reviewed report and stop",
         name="finite report",
         global_root=tmp_path,
@@ -2517,14 +2520,14 @@ def test_create_daemon_preserves_manual_rename_during_manager_handoff(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        server,
-        "spawn_detached_daemon",
+        daemon_worker,
+        'spawn_detached_daemon_clean',
         lambda *_args, **_kwargs: 0,
     )
 
     def _handoff(sid, objective, *, global_root=None, name_session=False):
         assert name_session is True
-        renamed = server.update_project(
+        renamed = project_crud.update_project(
             sid,
             name="Operator title",
             global_root=global_root,
@@ -2534,7 +2537,7 @@ def test_create_daemon_preserves_manual_rename_during_manager_handoff(
 
     monkeypatch.setattr(manager_dispatch, "manager_continuous_handoff", _handoff)
 
-    result = server.create_daemon(
+    result = daemon_lifecycle.create_daemon(
         objective="raw operator objective",
         global_root=tmp_path,
     )
@@ -2547,7 +2550,7 @@ def test_create_daemon_preserves_manual_rename_during_manager_handoff(
 
 
 def test_create_daemon_normalizes_explicit_name(tmp_path: Path) -> None:
-    result = server.create_daemon(
+    result = daemon_lifecycle.create_daemon(
         name="  Concise\n  session   name  ",
         global_root=tmp_path,
     )
@@ -2563,13 +2566,13 @@ def test_direct_task_names_an_idle_session_from_its_first_task(
 ) -> None:
     _install_manager(monkeypatch, lambda text: text, session_title="Local task verification")
     monkeypatch.setattr(
-        server,
-        "spawn_detached_daemon",
+        daemon_worker,
+        'spawn_detached_daemon_clean',
         lambda *_args, **_kwargs: 0,
     )
-    created = server.create_daemon(global_root=tmp_path)
+    created = daemon_lifecycle.create_daemon(global_root=tmp_path)
 
-    item = server.enqueue_task(
+    item = mission_items.enqueue_task(
         created["sid"],
         "first direct task",
         global_root=tmp_path,
@@ -2590,7 +2593,7 @@ def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) ->
     # session, DON'T arm continuous, DON'T spawn. The Manager writes objectives
     # later via /message (which lazily spawns).
     spawned: list[object] = []
-    monkeypatch.setattr(server, "spawn_detached_daemon", lambda cfg, quiet=True: spawned.append(1) or 0)
+    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', lambda cfg, quiet=True: spawned.append(1) or 0)
     client = TestClient(server.create_app(global_root=tmp_path))
     r = client.post("/api/daemons", json={})
     assert r.status_code == 200
@@ -2614,7 +2617,7 @@ def test_create_daemon_never_overwrites_global_budget(
         encoding="utf-8",
     )
 
-    server.create_daemon(global_root=tmp_path)
+    daemon_lifecycle.create_daemon(global_root=tmp_path)
 
     assert json.loads(config.read_text())["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] == "4321"
 
@@ -2633,7 +2636,7 @@ def test_create_daemon_at_cap_returns_replacement_candidates(
     def fake_status(path):
         path = Path(path)
         alive = path.name == "s-running01"
-        return server.DaemonStatus(
+        return daemon_worker.DaemonStatus(
             alive=alive,
             pid=99 if alive else None,
             started_at_iso=None,
@@ -2642,10 +2645,10 @@ def test_create_daemon_at_cap_returns_replacement_candidates(
             pid_path=path / "daemon.pid",
         )
 
-    monkeypatch.setattr(server, "read_daemon_status", fake_status)
+    monkeypatch.setattr(daemon_worker, 'read_daemon_status', fake_status)
     monkeypatch.setattr(project_state, "read_daemon_status", fake_status)
-    monkeypatch.setattr(server, "_max_active_daemons", lambda config: 1)
-    monkeypatch.setattr(server, "_active_daemon_count", lambda config: 1)
+    monkeypatch.setattr(daemon_lifecycle, '_max_active_daemons', lambda config: 1)
+    monkeypatch.setattr(daemon_lifecycle, '_active_daemon_count', lambda config: 1)
     client = TestClient(server.create_app(global_root=tmp_path))
 
     body = client.post(
@@ -2665,10 +2668,10 @@ def test_fresh_idle_daemon_survives_concurrent_startup_gc(tmp_path: Path) -> Non
     created empty session must survive that sweep."""
     from argus.core.project_gc import gc_stale_projects
 
-    created = server.create_daemon(global_root=tmp_path)
+    created = daemon_lifecycle.create_daemon(global_root=tmp_path)
     sid = created["sid"]
     assert gc_stale_projects(tmp_path, now=time.time() + 2) == []
-    assert server.project_life_dir(sid, global_root=tmp_path) is not None
+    assert project_state.project_life_dir(sid, global_root=tmp_path) is not None
 
 
 def test_web_daemon_config_uses_resolved_role_models_and_efforts(
@@ -2685,7 +2688,7 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
         tmp_path,
         SessionMeta(id=life_dir.name, cwd=str(life_dir), workdir=str(life_dir)),
     )
-    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    cfg = daemon_lifecycle._worker_config_from_env(life_dir, tmp_path)
     assert cfg.project_workdir == life_dir.resolve()
     assert cfg.engineer_model == "engineer-model"
     assert cfg.reviewer_model == "reviewer-model"
@@ -2710,7 +2713,7 @@ def test_web_daemon_config_uses_persisted_session_workdir(tmp_path: Path) -> Non
         ),
     )
 
-    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    cfg = daemon_lifecycle._worker_config_from_env(life_dir, tmp_path)
 
     assert cfg.life_dir == life_dir
     assert cfg.project_workdir == workspace.resolve()
@@ -2729,7 +2732,7 @@ def test_web_daemon_config_does_not_migrate_legacy_launch_cwd(
         SessionMeta(id=sid, cwd=str(life_dir), launch_cwd=str(launch)),
     )
 
-    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    cfg = daemon_lifecycle._worker_config_from_env(life_dir, tmp_path)
 
     assert cfg.project_workdir == life_dir.resolve()
 
@@ -2744,12 +2747,12 @@ def test_web_daemon_config_migrates_legacy_daemon_workdir(
     life_dir.mkdir(parents=True)
     workspace.mkdir()
     monkeypatch.setattr(
-        server,
-        "read_daemon_status",
+        daemon_worker,
+        'read_daemon_status',
         lambda _path: SimpleNamespace(project_workdir=str(workspace)),
     )
 
-    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    cfg = daemon_lifecycle._worker_config_from_env(life_dir, tmp_path)
     meta = read_session_meta(tmp_path, sid)
 
     assert cfg.project_workdir == workspace.resolve()
@@ -2771,12 +2774,12 @@ def test_web_daemon_config_repairs_incomplete_session_metadata(
         SessionMeta(id=sid, display_name="Named before launch", created=123.0),
     )
     monkeypatch.setattr(
-        server,
-        "read_daemon_status",
+        daemon_worker,
+        'read_daemon_status',
         lambda _path: SimpleNamespace(project_workdir=str(workspace)),
     )
 
-    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    cfg = daemon_lifecycle._worker_config_from_env(life_dir, tmp_path)
     meta = read_session_meta(tmp_path, sid)
 
     assert cfg.project_workdir == workspace.resolve()
@@ -2794,7 +2797,7 @@ def test_web_daemon_config_refuses_legacy_session_without_workdir(
     life_dir.mkdir(parents=True)
 
     with pytest.raises(FileNotFoundError, match="no trustworthy workdir"):
-        server._worker_config_from_env(life_dir, tmp_path)
+        daemon_lifecycle._worker_config_from_env(life_dir, tmp_path)
 
     assert read_session_meta(tmp_path, sid) is None
 
@@ -2806,7 +2809,7 @@ def test_web_daemon_start_reports_legacy_session_without_workdir(
     life_dir = tmp_path / "projects" / sid
     life_dir.mkdir(parents=True)
 
-    result = server.start_project_daemon(sid, global_root=tmp_path)
+    result = daemon_lifecycle.start_project_daemon(sid, global_root=tmp_path)
 
     assert result is not None
     assert result["rc"] == 3
@@ -2831,6 +2834,6 @@ def test_web_daemon_config_honors_persisted_runner_backend(
         tmp_path,
         SessionMeta(id=life_dir.name, cwd=str(life_dir), workdir=str(life_dir)),
     )
-    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    cfg = daemon_lifecycle._worker_config_from_env(life_dir, tmp_path)
 
     assert cfg.backend == "copilot"

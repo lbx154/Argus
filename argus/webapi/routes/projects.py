@@ -1,29 +1,21 @@
-"""projects/sessions API domain: project listing/CRUD, trash, and per-project
-snapshot/event reads.
-
-Per-session work-item endpoints (tasks, nudges, pending question answers,
-notes, plan preview, backlog item read/dispose/stop, mission abort,
-status/journal/transcript reads) live in the sibling :mod:`.workitems`
-module — this file stayed too big as a single registrar (breaching the
-per-function size budget) so it was split along a real seam: project-level
-listing/CRUD vs. per-mission work-item operations.
-
-See :mod:`.meta` for the extraction convention this module follows.
-"""
+"""HTTP project listing, CRUD, trash, snapshots, and event reads."""
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
-from .. import project_crud
+from ...apps.cli import _follow as event_follow
+from ...life import memory as life_memory
+from .. import daemon_lifecycle, project_crud, project_state, server
 from .context import ServerContext
 from .models import LaunchCwdIn, ProjectUpdateIn, WorkdirIn
 
 
-def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
+def register_project_routes(app, ctx: ServerContext) -> None:
     @app.get("/api/projects", dependencies=[Depends(ctx.require_auth)])
     async def _projects(
         limit: int = Query(100, ge=1, le=2000),
@@ -40,7 +32,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
     ) -> dict[str, Any]:
         return {
             "projects": await ctx.machine_project_costs_async(limit=limit),
-            "generated_at": server_mod.time.time(),
+            "generated_at": time.time(),
         }
 
     @app.get("/api/trash", dependencies=[Depends(ctx.require_auth)])
@@ -94,7 +86,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
         if entry is None:
             raise HTTPException(status_code=404, detail="unknown trash entry")
         if any(
-            server_mod.project_life_dir(str(entry["sid"]), global_root=root) is not None
+            project_state.project_life_dir(str(entry["sid"]), global_root=root) is not None
             for root in ctx.roots
         ):
             raise HTTPException(
@@ -116,7 +108,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
     @app.post("/api/projects/{sid}/launch-cwd", dependencies=[Depends(ctx.require_auth)])
     async def _set_launch_cwd(sid: str, body: LaunchCwdIn) -> dict[str, bool]:
         updated = await run_in_threadpool(
-            server_mod.set_project_launch_cwd,
+            daemon_lifecycle.set_project_launch_cwd,
             sid,
             body.launch_cwd,
             global_root=ctx.project_root_or_404(sid),
@@ -133,7 +125,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
     @app.post("/api/projects/{sid}/workdir", dependencies=[Depends(ctx.require_auth)])
     async def _set_workdir(sid: str, body: WorkdirIn) -> dict[str, Any]:
         result = await run_in_threadpool(
-            server_mod.set_project_workdir,
+            daemon_lifecycle.set_project_workdir,
             sid,
             body.workdir,
             global_root=ctx.project_root_or_404(sid),
@@ -194,7 +186,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
                 pass
 
         def _build_snapshot() -> dict[str, Any] | None:
-            return server_mod.build_snapshot(
+            return project_state.build_snapshot(
                 sid,
                 global_root=root,
                 events_limit=events_limit,
@@ -229,11 +221,11 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
     ) -> dict[str, Any]:
         life_dir = ctx.resolve_or_404(sid)
         if view == "ui":
-            events = server_mod._read_jsonl_tail_history(
-                life_dir / server_mod.EVENT_FILE,
+            events = life_memory._read_jsonl_tail_history(
+                life_dir / server.EVENT_FILE,
                 limit,
-                predicate=server_mod._event_visible_in_web_ui,
+                predicate=server._event_visible_in_web_ui,
             )
         else:
-            events = server_mod._read_recent_project_events(life_dir, limit=limit)
+            events = event_follow._read_recent_project_events(life_dir, limit=limit)
         return {"events": events}

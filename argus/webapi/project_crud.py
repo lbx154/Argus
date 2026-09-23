@@ -1,8 +1,4 @@
-"""Project/session CRUD operations for the webapi server.
-
-Extracted from ``server.py`` as part of a behavior-preserving decomposition.
-Public names remain re-exported from ``server`` for backward compatibility.
-"""
+"""Project/session updates, trash, restore, and continuous-mode operations."""
 
 from __future__ import annotations
 

@@ -1,21 +1,45 @@
-"""daemon control API domain: creating daemons/sessions and starting,
-stopping, replacing, and upgrading a project's executor, plus continuous
-(7x24) mode toggling.
-
-See :mod:`.meta` for the extraction convention this module follows.
-"""
+"""HTTP daemon creation, start/stop, replacement, upgrades, and continuous mode."""
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 from fastapi import Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from ...core.workspace_lease import canonical_workdir
+from ...daemon import commands as daemon_commands
 from ...life.memory import LifeMemory
+from ...manager import front_door as manager_front_door
+from .. import daemon_lifecycle, daemon_upgrade, project_state
 from .context import ServerContext
 from .models import CommandIn, ContinuousIn, CreateDaemonIn, ReplaceDaemonIn, StopIn
+
+
+async def _execute_command(
+    path: Path, command: CommandIn, *, operation: str, args: dict[str, Any],
+    handler: Callable[[], dict[str, Any]],
+) -> dict[str, Any]:
+    receipt = await run_in_threadpool(
+        daemon_commands.execute_daemon_command, path,
+        operation=operation, args=args, handler=handler,
+        command_id=command.command_id or None,
+        expected_revision=command.expected_revision, issuer="webapi",
+    )
+    result = dict(receipt.result)
+    if receipt.status in {"failed", "rejected"}:
+        result.setdefault("rc", 3)
+        result.setdefault("error", receipt.error)
+    result.update(
+        {
+            "command_id": receipt.command_id,
+            "command_status": receipt.status,
+            "command_revision": receipt.revision,
+            "command": receipt.to_jsonable(),
+        }
+    )
+    return result
 
 
 def _resume_provider_fences_after_start(life_dir, result, *, enabled=True):
@@ -27,13 +51,13 @@ def _resume_provider_fences_after_start(life_dir, result, *, enabled=True):
     return result
 
 
-def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
+def register_daemon_routes(app, ctx: ServerContext) -> None:
     @app.post("/api/daemons", dependencies=[Depends(ctx.require_auth)])
     async def _create_daemon(body: CreateDaemonIn) -> dict[str, Any]:
         """Create a brand-new daemon (session). The objective is OPTIONAL — with
         none, the daemon is idle and the user just talks to the Manager (which
         writes its own objectives). Threadpool: fs writes + optional fork."""
-        root = server_mod._global_root(ctx.global_root)
+        root = project_state.resolve_global_root(ctx.global_root)
         resolved_paths: dict[str, str] = {}
         for label, value in (
             ("workdir", body.workdir),
@@ -49,9 +73,8 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
                     status_code=400,
                     detail=f"{label} is unavailable: {value}",
                 ) from exc
-        receipt = await run_in_threadpool(
-            server_mod.execute_daemon_command,
-            root,
+        return await _execute_command(
+            root, body,
             operation="create",
             args={
                 "objective": body.objective,
@@ -59,10 +82,7 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
                 "launch_cwd": resolved_paths["launch cwd"],
                 "workdir": resolved_paths["workdir"],
             },
-            command_id=body.command_id or None,
-            expected_revision=body.expected_revision,
-            issuer="webapi",
-            handler=lambda: server_mod.create_daemon(
+            handler=lambda: daemon_lifecycle.create_daemon(
                 body.objective,
                 name=body.name,
                 launch_cwd=resolved_paths["launch cwd"],
@@ -70,7 +90,6 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
                 global_root=ctx.global_root,
             ),
         )
-        return server_mod._command_response(receipt)
 
     @app.post("/api/projects/{sid}/daemon/start", dependencies=[Depends(ctx.require_auth)])
     async def _daemon_start(
@@ -92,17 +111,12 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
             )
             return _resume_provider_fences_after_start(life_dir, result)
 
-        receipt = await run_in_threadpool(
-            server_mod.execute_daemon_command,
-            life_dir,
+        return await _execute_command(
+            life_dir, command,
             operation="start",
             args={"resume_continuous": True},
-            command_id=command.command_id or None,
-            expected_revision=command.expected_revision,
-            issuer="webapi",
             handler=start_and_resume,
         )
-        return server_mod._command_response(receipt)
 
     @app.post("/api/projects/{sid}/daemon/stop", dependencies=[Depends(ctx.require_auth)])
     async def _daemon_stop(sid: str, body: StopIn | None = None) -> dict[str, Any]:
@@ -110,16 +124,12 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
         life_dir = ctx.resolve_or_404(sid)
         project_root = ctx.project_root_or_404(sid)
         operation = "kill" if b.force else "drain" if b.drain else "stop"
-        receipt = await run_in_threadpool(
-            server_mod.execute_daemon_command,
-            life_dir,
+        return await _execute_command(
+            life_dir, b,
             operation=operation,
             args={"drain": b.drain, "force": b.force},
-            command_id=b.command_id or None,
-            expected_revision=b.expected_revision,
-            issuer="webapi",
             handler=lambda: ctx.not_found_if_none(
-                server_mod.stop_project_daemon(
+                daemon_lifecycle.stop_project_daemon(
                     sid,
                     drain=b.drain,
                     force=b.force,
@@ -128,7 +138,6 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
                 sid,
             ),
         )
-        return server_mod._command_response(receipt)
 
     @app.post("/api/projects/{sid}/daemon/replace", dependencies=[Depends(ctx.require_auth)])
     async def _daemon_replace(sid: str, body: ReplaceDaemonIn) -> dict[str, Any]:
@@ -137,7 +146,7 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
 
         def replace_and_resume() -> dict[str, Any]:
             result = ctx.not_found_if_none(
-                server_mod.replace_project_daemon(
+                daemon_lifecycle.replace_project_daemon(
                     sid,
                     body.victim_sid,
                     global_root=project_root,
@@ -149,20 +158,15 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
                 life_dir, result, enabled=body.resume_continuous,
             )
 
-        receipt = await run_in_threadpool(
-            server_mod.execute_daemon_command,
-            life_dir,
+        return await _execute_command(
+            life_dir, body,
             operation="replace",
             args={
                 "victim_sid": body.victim_sid,
                 "resume_continuous": body.resume_continuous,
             },
-            command_id=body.command_id or None,
-            expected_revision=body.expected_revision,
-            issuer="webapi",
             handler=replace_and_resume,
         )
-        return server_mod._command_response(receipt)
 
     @app.post("/api/projects/{sid}/daemon/upgrade", dependencies=[Depends(ctx.require_auth)])
     async def _daemon_upgrade(
@@ -172,20 +176,15 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
         command = body or CommandIn()
         life_dir = ctx.resolve_or_404(sid)
         project_root = ctx.project_root_or_404(sid)
-        receipt = await run_in_threadpool(
-            server_mod.execute_daemon_command,
-            life_dir,
+        return await _execute_command(
+            life_dir, command,
             operation="upgrade",
             args={},
-            command_id=command.command_id or None,
-            expected_revision=command.expected_revision,
-            issuer="webapi",
             handler=lambda: ctx.not_found_if_none(
-                server_mod.upgrade_project_daemon(sid, global_root=project_root),
+                daemon_upgrade.upgrade_project_daemon(sid, global_root=project_root),
                 sid,
             ),
         )
-        return server_mod._command_response(receipt)
 
     @app.post(
         "/api/projects/{sid}/daemon/upgrade-schedule",
@@ -198,20 +197,15 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
         command = body or CommandIn()
         life_dir = ctx.resolve_or_404(sid)
         project_root = ctx.project_root_or_404(sid)
-        receipt = await run_in_threadpool(
-            server_mod.execute_daemon_command,
-            life_dir,
+        return await _execute_command(
+            life_dir, command,
             operation="upgrade",
             args={"scheduled": True},
-            command_id=command.command_id or None,
-            expected_revision=command.expected_revision,
-            issuer="webapi",
             handler=lambda: ctx.not_found_if_none(
-                server_mod.schedule_project_daemon_upgrade(sid, global_root=project_root),
+                daemon_upgrade.schedule_project_daemon_upgrade(sid, global_root=project_root),
                 sid,
             ),
         )
-        return server_mod._command_response(receipt)
 
     @app.post("/api/projects/{sid}/continuous", dependencies=[Depends(ctx.require_auth)])
     async def _post_continuous(sid: str, body: ContinuousIn) -> dict[str, Any]:
@@ -236,9 +230,9 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
                     start=ctx.daemon_services.start, global_root=project_root,
                 )
             return response
-        except server_mod.ManagerHandoffSupersededError as exc:
+        except manager_front_door.ManagerHandoffSupersededError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except server_mod.ManagerHandoffError as exc:
+        except manager_front_door.ManagerHandoffError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

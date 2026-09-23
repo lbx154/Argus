@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from argus.adapters.agent_cli_backend import AgentCliBackend
 from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import read_turns
+from argus.daemon import life_worker as daemon_worker
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.manager import front_door
 from argus.webapi import server
@@ -54,7 +55,7 @@ def test_cancelled_pending_interpretation_cannot_persist_late_once_answer(
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
     monkeypatch.setattr(front_door, "manager_triage", interpret)
     services = DaemonServices(
-        read_status=server.read_daemon_status,
+        read_status=daemon_worker.read_daemon_status,
         start=lambda *_args, **_kwargs: starts.append(True) or {"rc": 0},
     )
     path = f"/api/projects/{sid}/message" + ("/stream" if streaming else "")

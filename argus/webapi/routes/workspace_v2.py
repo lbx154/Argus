@@ -769,7 +769,7 @@ def _latest_manuscript(root: Path) -> str:
     return str(sorted(candidates, key=rank)[0]["path"]) if candidates else ""
 
 
-def register_workspace_v2_routes(app, ctx: ServerContext, server_mod) -> None:
+def register_workspace_v2_routes(app, ctx: ServerContext) -> None:
     dependencies = [Depends(ctx.require_auth)]
 
     @app.get("/api/v2/workspaces", dependencies=dependencies)

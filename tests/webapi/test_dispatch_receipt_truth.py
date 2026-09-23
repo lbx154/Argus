@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from argus.adapters.agent_cli_backend import AgentCliBackend
 from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import read_turns
+from argus.daemon import life_worker as daemon_worker
 from argus.life.memory import Backlog
 from argus.manager import Manager, config_intent, dispatch, front_door
 from argus.manager.domain_author import VerticalDecision
@@ -75,7 +76,7 @@ def test_real_dispatch_ack_does_not_invent_execution_or_repeat_the_confirmation(
         return {"rc": 0, "alive": True, "pid": 77, "control_available": True}
 
     app = server.create_app(global_root=tmp_path, daemon_services=DaemonServices(
-        read_status=server.read_daemon_status, start=start,
+        read_status=daemon_worker.read_daemon_status, start=start,
     ))
     with TestClient(app) as client:
         suffix = "/message/stream" if streaming else "/message"
@@ -132,7 +133,7 @@ def test_cancel_during_startup_cannot_publish_a_late_dispatch_reply(tmp_path, mo
         assert release.wait(4)
         return {"rc": 0, "alive": True, "pid": 77}
 
-    services = DaemonServices(read_status=server.read_daemon_status, start=start)
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status, start=start)
     with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
         with ThreadPoolExecutor(max_workers=1) as pool:
             pending = pool.submit(client.post, f"/api/projects/{sid}/message" + ("/stream" if streaming else ""),

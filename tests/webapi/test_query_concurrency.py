@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from argus.core.session import SessionMeta, write_session_meta
-from argus.webapi import server
+from argus.webapi import daemon_lifecycle, project_crud, project_state, server
 from argus.webapi.index_cache import (
     CacheWaitTimeout,
     IndexCache,
@@ -58,16 +58,16 @@ def test_slow_distinct_http_queries_do_not_starve_daemon_stop(tmp_path, monkeypa
             with lock:
                 active -= 1
 
-    monkeypatch.setattr(server, "list_projects", lambda **kw: slow_scan("index", []))
-    monkeypatch.setattr(server, "list_project_costs", lambda **kw: slow_scan("costs", []))
-    monkeypatch.setattr(server, "list_trashed_projects", lambda **kw: slow_scan("trash", []))
-    monkeypatch.setattr(server, "build_snapshot", lambda *args, **kw: slow_scan("snapshot", {"sid": sid}))
+    monkeypatch.setattr(project_state, 'list_projects', lambda **kw: slow_scan("index", []))
+    monkeypatch.setattr(project_state, 'list_project_costs', lambda **kw: slow_scan("costs", []))
+    monkeypatch.setattr(project_crud, 'list_trashed_projects', lambda **kw: slow_scan("trash", []))
+    monkeypatch.setattr(project_state, 'build_snapshot', lambda *args, **kw: slow_scan("snapshot", {"sid": sid}))
 
     def stop(project_id, **kwargs):
         stopped.append((project_id, threading.current_thread().name))
         return {"rc": 0}
 
-    monkeypatch.setattr(server, "stop_project_daemon", stop)
+    monkeypatch.setattr(daemon_lifecycle, 'stop_project_daemon', stop)
     app = server.create_app(
         global_root=tmp_path,
         query_limits=QueryLimits(workers=2, queued=2, waiters=32, timeout_seconds=2),
@@ -123,7 +123,7 @@ def test_http_leader_and_waiter_timeout_keep_one_scan_for_later_readers(tmp_path
         assert release.wait(timeout=3)
         return []
 
-    monkeypatch.setattr(server, "list_projects", scan)
+    monkeypatch.setattr(project_state, 'list_projects', scan)
     app = server.create_app(
         global_root=tmp_path,
         query_limits=QueryLimits(workers=1, queued=0, timeout_seconds=0.06),
@@ -162,7 +162,7 @@ def test_http_cancelled_request_does_not_cancel_peer_and_app_reclaims_pool(tmp_p
         assert release.wait(timeout=3)
         return []
 
-    monkeypatch.setattr(server, "list_projects", scan)
+    monkeypatch.setattr(project_state, 'list_projects', scan)
     app = server.create_app(global_root=tmp_path, query_limits=QueryLimits(workers=1, queued=0))
 
     async def exercise():
