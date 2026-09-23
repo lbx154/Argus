@@ -345,10 +345,9 @@ def migrate_legacy_manager_state(
         return False
     write_pipeline_state(target_root, payload)
     if names_a_vertical:
-        from ..verticals._base import load_vertical, vertical_import_legacy_state
+        from ..verticals._base import load_vertical_contract
 
-        vertical_import_legacy_state(
-            load_vertical(_known_vertical(named, target_root), target_root),
+        load_vertical_contract(_known_vertical(named, target_root), target_root).import_legacy_state(
             source_root=source_root,
             state_root=target_root,
         )
@@ -462,12 +461,10 @@ def resolve_evidence_mode(project_root: object = ".") -> str:
     if orchestration == "direct":
         return "direct"
     try:
-        from ..verticals._base import load_vertical, vertical_workflow_mode
+        from ..verticals._base import load_vertical_contract
 
         vertical = resolve_vertical(project_root)
-        mode = vertical_workflow_mode(
-            load_vertical(vertical, project_root=project_root)
-        )
+        mode = load_vertical_contract(vertical, project_root=project_root).workflow_mode
         return "proportional" if mode == "proportional" else "staged"
     except Exception:  # noqa: BLE001 — evidence policy must not break prompts
         return "staged"
@@ -575,12 +572,9 @@ def _vertical_first_stage(vertical: str, project_root: object = None) -> str | N
     available.
     """
     try:
-        from ..verticals._base import (
-            load_vertical,
-            vertical_checklist_stage_order,
-        )
+        from ..verticals._base import load_vertical_contract
 
-        order = vertical_checklist_stage_order(load_vertical(vertical, project_root=project_root))
+        order = load_vertical_contract(vertical, project_root=project_root).stage_order
         return _normalize_stage(order[0]) if order else None
     except Exception:  # noqa: BLE001 — best-effort: never break persistence
         return None
@@ -650,14 +644,9 @@ def persist_vertical(
         payload["workflow_mode"] = normalized_mode
     if research_target_level is not None:
         from ..core.research_contract import normalize_research_target_level
-        from ..verticals._base import (
-            load_vertical,
-            vertical_research_target_levels,
-        )
+        from ..verticals._base import load_vertical_contract
 
-        supported_levels = vertical_research_target_levels(
-            load_vertical(vert, project_root=project_root)
-        )
+        supported_levels = load_vertical_contract(vert, project_root=project_root).research_target_levels
         if not supported_levels:
             raise ValueError(
                 f"research_target_level is not supported by vertical {vert!r}"
@@ -690,11 +679,9 @@ def persist_vertical(
         ):
             payload["research_target_set_at"] = time.time()
     else:
-        from ..verticals._base import load_vertical, vertical_research_target_levels
+        from ..verticals._base import load_vertical_contract
 
-        if not vertical_research_target_levels(
-            load_vertical(vert, project_root=project_root)
-        ):
+        if not load_vertical_contract(vert, project_root=project_root).research_target_levels:
             payload.pop("research_target_level", None)
             payload.pop("research_target_set_at", None)
         elif previous_vertical != vert and payload.get("research_target_level"):
@@ -762,13 +749,11 @@ def _vertical_completion_record(
 ) -> tuple[str, dict[str, Any]] | None:
     """Return the Manager-certified completion stage and its state record."""
     try:
-        from ..verticals._base import load_vertical, vertical_checklist_stage_order
+        from ..verticals._base import load_vertical_contract
 
         order = [
             _normalize_stage(stage)
-            for stage in vertical_checklist_stage_order(
-                load_vertical(vertical, project_root=project_root)
-            )
+            for stage in load_vertical_contract(vertical, project_root=project_root).stage_order
         ]
     except Exception:  # noqa: BLE001 — never raise on a probe
         return None
@@ -896,17 +881,13 @@ def vertical_completion_certificate_status(
     if source:
         detail["source"] = source
     try:
-        from ..verticals._base import (
-            load_vertical,
-            vertical_checklist_stage_order,
-            vertical_completion_contract_version,
-        )
+        from ..verticals._base import load_vertical_contract
 
-        module = load_vertical(vertical, project_root=project_root)
-        completion_contract_version = vertical_completion_contract_version(module)
+        contract = load_vertical_contract(vertical, project_root=project_root)
+        completion_contract_version = contract.completion_contract_version
         stage_order = [
             _normalize_stage(stage)
-            for stage in vertical_checklist_stage_order(module)
+            for stage in contract.stage_order
         ]
     except Exception:  # noqa: BLE001 — strict completion fails closed
         return {**detail, "reason": "completion contract version unreadable"}
@@ -1117,11 +1098,9 @@ def reset_stage_for_new_intent(
         return False
 
     try:
-        from ..verticals._base import load_vertical, vertical_checklist_stage_order
+        from ..verticals._base import load_vertical_contract
 
-        new_order = vertical_checklist_stage_order(
-            load_vertical(new_vertical, project_root=project_root)
-        )
+        new_order = load_vertical_contract(new_vertical, project_root=project_root).stage_order
     except Exception:  # noqa: BLE001 — never break division on a probe failure
         return False
     if not new_order:

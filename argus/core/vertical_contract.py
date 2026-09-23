@@ -341,6 +341,21 @@ class VerticalContract:
                 f"vertical {self.name!r} completion validator returned a non-iterable"
             ) from exc
 
+    def automatic_stage_completion_ready(
+        self, *, stage: str, project_root: Path, state_root: Path,
+    ) -> bool:
+        """Only an explicit boolean from the provider permits automatic close."""
+        if self.automatic_stage_completion is None:
+            return False
+        ready = self.automatic_stage_completion(
+            stage=stage, project_root=project_root, state_root=state_root,
+        )
+        if not isinstance(ready, bool):
+            raise VerticalContractError(
+                f"vertical {self.name!r} automatic stage completion hook returned a non-boolean"
+            )
+        return ready
+
     def planner_task_issues(self, stage: str, project_root: Path, task: Any) -> tuple[str, ...]:
         if self.planner_task_validator is None:
             return ()

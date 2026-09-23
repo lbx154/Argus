@@ -34,10 +34,7 @@ from pathlib import Path
 import pytest
 
 from argus.core.vertical_contract import VerticalContract, VerticalContractError
-from argus.verticals._base import (
-    load_vertical,
-    vertical_adopt_operator_objective,
-)
+from argus.verticals._base import load_vertical_contract
 from argus.verticals.math.objective_mode import (
     SOURCE_KEY,
     SOURCE_OPERATOR,
@@ -68,8 +65,8 @@ def test_an_unset_objective_is_adopted_from_the_request(tmp_path: Path) -> None:
     root = _project(tmp_path)
     assert resolve_objective(root).resolved is False
 
-    ran = vertical_adopt_operator_objective(
-        load_vertical("math"), project_root=root, request=REQUEST
+    ran = load_vertical_contract("math").adopt_operator_objective(
+        project_root=root, request=REQUEST
     )
 
     assert ran is True
@@ -85,8 +82,8 @@ def test_an_operator_choice_is_never_overwritten(tmp_path: Path) -> None:
     root = _project(tmp_path)
     set_objective(root, mode="exploratory")
 
-    vertical_adopt_operator_objective(
-        load_vertical("math"), project_root=root, request=REQUEST
+    load_vertical_contract("math").adopt_operator_objective(
+        project_root=root, request=REQUEST
     )
 
     objective = resolve_objective(root)
@@ -98,11 +95,11 @@ def test_an_operator_choice_is_never_overwritten(tmp_path: Path) -> None:
 def test_adoption_is_idempotent(tmp_path: Path) -> None:
     """Re-dispatching a mission must not rewrite the goal mid-project."""
     root = _project(tmp_path)
-    vertical_adopt_operator_objective(
-        load_vertical("math"), project_root=root, request=REQUEST
+    load_vertical_contract("math").adopt_operator_objective(
+        project_root=root, request=REQUEST
     )
-    vertical_adopt_operator_objective(
-        load_vertical("math"), project_root=root, request="something else entirely"
+    load_vertical_contract("math").adopt_operator_objective(
+        project_root=root, request="something else entirely"
     )
 
     assert resolve_objective(root).goal == REQUEST
@@ -112,8 +109,8 @@ def test_an_empty_request_adopts_nothing(tmp_path: Path) -> None:
     """A blank goal would pass the mode gate and fail the identity check later."""
     root = _project(tmp_path)
 
-    vertical_adopt_operator_objective(
-        load_vertical("math"), project_root=root, request="   \n  "
+    load_vertical_contract("math").adopt_operator_objective(
+        project_root=root, request="   \n  "
     )
 
     assert resolve_objective(root).resolved is False
@@ -133,8 +130,8 @@ def test_adoption_unblocks_the_scope_stage(tmp_path: Path) -> None:
     before = stage_completion_issues("scope", root)
     assert any("objective mode" in issue for issue in before), before
 
-    vertical_adopt_operator_objective(
-        load_vertical("math"), project_root=root, request=REQUEST
+    load_vertical_contract("math").adopt_operator_objective(
+        project_root=root, request=REQUEST
     )
 
     after = stage_completion_issues("scope", root)
@@ -149,8 +146,8 @@ def test_verticals_without_an_adopter_are_untouched(
     root = _project(tmp_path)
 
     assert (
-        vertical_adopt_operator_objective(
-            load_vertical(vertical), project_root=root, request=REQUEST
+        load_vertical_contract(vertical).adopt_operator_objective(
+            project_root=root, request=REQUEST
         )
         is False
     )
@@ -275,12 +272,11 @@ def test_an_adopter_failure_does_not_break_the_division(
     """
     from argus.manager import Manager, _vertical_ops
     from argus.manager.domain_author import VerticalDecision
-    from argus.verticals import _base
 
     def _boom(*_args: object, **_kwargs: object) -> bool:
         raise RuntimeError("adopter exploded")
 
-    monkeypatch.setattr(_base, "vertical_adopt_operator_objective", _boom)
+    monkeypatch.setattr(VerticalContract, "adopt_operator_objective", _boom)
     assert _vertical_ops is not None
 
     manager = Manager(project_root=tmp_path)

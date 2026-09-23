@@ -23,16 +23,7 @@ from argus.skills.vertical_select import (
     persist_vertical,
     require_vertical,
 )
-from argus.verticals._base import (
-    load_vertical,
-    vertical_checklist_items,
-    vertical_checklist_stage_order,
-    vertical_completion_contract_version,
-    vertical_completion_gate,
-    vertical_research_target_levels,
-    vertical_role_banner,
-    vertical_workflow_mode,
-)
+from argus.verticals._base import _contract, load_vertical, load_vertical_contract
 
 
 def _research_result(
@@ -91,11 +82,11 @@ def test_math_is_registered_as_three_stage_targeted_vertical() -> None:
 
     module = load_vertical("math")
     assert module.STAGE_ORDER == ("scope", "solve", "review")
-    assert vertical_checklist_stage_order(module) == ("scope", "solve", "review")
-    assert vertical_workflow_mode(module) == "proportional"
-    assert vertical_completion_gate(module) == "none"
-    assert vertical_completion_contract_version(module) == 1
-    assert vertical_research_target_levels(module) == (
+    assert _contract(module).stage_order == ("scope", "solve", "review")
+    assert _contract(module).workflow_mode == "proportional"
+    assert _contract(module).completion_gate == "none"
+    assert _contract(module).completion_contract_version == 1
+    assert _contract(module).research_target_levels == (
         "exploratory",
         "publishable",
         "doctoral",
@@ -177,7 +168,7 @@ def test_math_vertical_contains_only_contract_skills_and_metadata() -> None:
 
 
 def test_generic_roles_load_math_skill_context_only_for_math() -> None:
-    math = load_vertical("math")
+    contract = load_vertical_contract("math")
     for role in (
         "manager",
         "planner",
@@ -186,17 +177,17 @@ def test_generic_roles_load_math_skill_context_only_for_math() -> None:
         "scientist_create",
         "scientist",
     ):
-        context = vertical_role_banner(math, role)
+        context = contract.banner(role)
         assert "mathemat" in context.lower()
 
-    create = vertical_role_banner(math, "scientist_create")
-    adapt = vertical_role_banner(math, "scientist")
+    create = contract.banner("scientist_create")
+    adapt = contract.banner("scientist")
     assert "without\nsolving the current instance" in create
     assert "concrete approach has failed" in adapt
 
-    software = load_vertical("software")
-    assert "MATHEMATICS" not in vertical_role_banner(software, "engineer")
-    assert "MATHEMATICS" not in vertical_role_banner(software, "reviewer")
+    contract = load_vertical_contract("software")
+    assert "MATHEMATICS" not in contract.banner("engineer")
+    assert "MATHEMATICS" not in contract.banner("reviewer")
 
 
 def test_math_completion_hook_requires_objective_and_policy_graph(tmp_path: Path) -> None:
@@ -234,7 +225,7 @@ def test_math_completion_hook_requires_objective_and_policy_graph(tmp_path: Path
 
 
 def test_math_engineer_uses_one_checkpoint_without_process_artifacts() -> None:
-    context = vertical_role_banner(load_vertical("math"), "engineer")
+    context = load_vertical_contract("math").banner("engineer")
 
     assert "`CHECKPOINT.md`" in context
     assert "process-only" in context
@@ -254,7 +245,7 @@ def test_math_engineer_uses_one_checkpoint_without_process_artifacts() -> None:
 
 
 def test_math_checklist_is_small_and_judges_results_not_files() -> None:
-    items = vertical_checklist_items(load_vertical("math"))
+    items = load_vertical_contract("math").checklist_items
     assert {stage: len(stage_items) for stage, stage_items in items.items()} == {
         "scope": 3,
         "solve": 4,
@@ -307,12 +298,12 @@ def test_math_checklist_is_small_and_judges_results_not_files() -> None:
 
 
 def test_math_roles_keep_methods_optional_and_checks_real() -> None:
-    math = load_vertical("math")
-    planner = vertical_role_banner(math, "planner")
-    engineer = vertical_role_banner(math, "engineer")
-    reviewer = vertical_role_banner(math, "reviewer")
-    scientist_create = vertical_role_banner(math, "scientist_create")
-    scientist_adapt = vertical_role_banner(math, "scientist")
+    contract = load_vertical_contract("math")
+    planner = contract.banner("planner")
+    engineer = contract.banner("engineer")
+    reviewer = contract.banner("reviewer")
+    scientist_create = contract.banner("scientist_create")
+    scientist_adapt = contract.banner("scientist")
 
     assert "options, not mandatory phases" in planner
     assert "no fixed bundle of output filenames is required" in engineer
@@ -334,9 +325,9 @@ def test_parallel_routes_are_dispatched_without_a_prescribed_width() -> None:
     reader who applies that literally will either serialize the ledger or, worse,
     give each route its own copy and lose the OR.
     """
-    math = load_vertical("math")
-    planner = vertical_role_banner(math, "planner")
-    engineer = vertical_role_banner(math, "engineer")
+    contract = load_vertical_contract("math")
+    planner = contract.banner("planner")
+    engineer = contract.banner("engineer")
 
     assert "two routes — an OR — and" in planner
     assert "leave the\ncount to the Engineer" in planner
@@ -617,7 +608,7 @@ def test_bounded_item_can_complete_without_certifying_doctoral_target() -> None:
     # but it cannot certify the whole final Goal Gate.
     assert _final_stage_decision(result, "doctoral", scope="bounded") is None
 
-    reviewer_context = vertical_role_banner(load_vertical("math"), "reviewer")
+    reviewer_context = load_vertical_contract("math").banner("reviewer")
     assert "bounded subproblem can be done" in reviewer_context
     assert "whole\nresearch goal is complete" in reviewer_context
 
@@ -710,12 +701,9 @@ def test_math_never_certifies_its_own_proof() -> None:
     Reviewer, no artifact and no proof graph. Every sibling research vertical
     already declares it; math was the omission.
     """
-    from argus.verticals._base import (
-        load_vertical,
-        vertical_requires_independent_review,
-    )
+    from argus.verticals._base import load_vertical_contract
 
-    assert vertical_requires_independent_review(load_vertical("math")) is True
+    assert load_vertical_contract("math").requires_independent_review is True
 
 
 def test_math_review_survives_a_direct_workflow_decision(tmp_path: Path) -> None:

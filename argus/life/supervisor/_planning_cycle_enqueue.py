@@ -126,11 +126,7 @@ def _automatic_stage_target(
     """Return the next stage when the active vertical certifies auto-completion."""
     try:
         from ...core.pipeline_state import read_pipeline_state
-        from ...verticals._base import (
-            load_vertical,
-            vertical_automatic_stage_completion_ready,
-            vertical_checklist_stage_order,
-        )
+        from ...verticals._base import load_vertical_contract
 
         pipeline = read_pipeline_state(state_root)
         if not isinstance(pipeline, dict):
@@ -139,12 +135,11 @@ def _automatic_stage_target(
         current = str(pipeline.get("current_stage") or "").strip()
         if not vertical or not current:
             return ""
-        definition = load_vertical(vertical, project_root=state_root)
-        order = tuple(vertical_checklist_stage_order(definition))
+        contract = load_vertical_contract(vertical, project_root=state_root)
+        order = tuple(contract.stage_order)
         if current not in order or order.index(current) + 1 >= len(order):
             return ""
-        if not vertical_automatic_stage_completion_ready(
-            definition,
+        if not contract.automatic_stage_completion_ready(
             stage=current,
             project_root=evidence_root,
             state_root=state_root,

@@ -22,7 +22,7 @@ from argus.life.supervisor._constants import (
 from argus.planner import PlannerVerdict, TaskSpec, WaitingContract
 from argus.skills.stage_machine import completion_contract_fingerprint
 from argus.skills.vertical_select import persist_vertical
-from argus.verticals._base import load_vertical, vertical_completion_contract_version
+from argus.verticals._base import load_vertical_contract
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def campaign(tmp_path, monkeypatch):
     persist_vertical(project, "software", workflow_mode="direct")
     path = project / ".argus" / "PIPELINE_STATE.json"
     state = json.loads(path.read_text())
-    version = vertical_completion_contract_version(load_vertical("software", project_root=project))
+    version = load_vertical_contract("software", project_root=project).completion_contract_version
     state["current_stage"] = "delivery"
     state["stages"] = {
         "delivery": {

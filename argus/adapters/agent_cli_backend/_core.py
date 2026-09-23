@@ -27,7 +27,6 @@ from ._options import (
     resolve_codex_execution_model,
 )
 from ._result import UsageAccumulator, translate_result
-from ._runtime import load_agent_cli_runtime
 
 log = logging.getLogger(__name__)
 
@@ -61,41 +60,22 @@ class _RepeatedToolCallGuard:
             return
         if event.get("type") == "tool_call" and event.get("subtype") in {"started", "start"}:
             payload = event.get("tool_call")
-            if not isinstance(payload, dict):
+            calls = [payload] if isinstance(payload, dict) else []
+        elif event.get("type") == "assistant":
+            message = event.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            if not isinstance(content, list):
                 return
-            signature = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-            with self._lock:
-                if signature == self._last_signature:
-                    self._repeat_count += 1
-                else:
-                    self._last_signature = signature
-                    self._repeat_count = 1
-                if self._repeat_count >= self.limit:
-                    self._reason = (
-                        "repeated tool call detected: the same tool and arguments "
-                        f"were requested {self._repeat_count} consecutive times"
-                    )
-            return
-        message = event.get("message")
-        if not isinstance(message, dict):
-            return
-        content = message.get("content")
-        if not isinstance(content, list):
+            calls = [
+                {"name": item.get("name"), "input": item.get("input")}
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "tool_use"
+            ]
+        else:
             return
         with self._lock:
-            if event.get("type") != "assistant":
-                return
-            for item in content:
-                if not isinstance(item, dict) or item.get("type") != "tool_use":
-                    continue
-                signature = json.dumps(
-                    {
-                        "name": item.get("name"),
-                        "input": item.get("input"),
-                    },
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
+            for call in calls:
+                signature = json.dumps(call, ensure_ascii=False, sort_keys=True)
                 if signature == self._last_signature:
                     self._repeat_count += 1
                 else:
@@ -163,22 +143,21 @@ class AgentCliBackend:
         event_callback=None,
         known_secret_values_override: Iterable[str] | None = None,
     ) -> None:
-        deps = load_agent_cli_runtime()
-        self._deps = deps
-        chosen = (
-            deps["normalize_runner_backend"](backend)
-            if backend is not None
-            else deps["DEFAULT_RUNNER_BACKEND"]
+        from ...agent_cli.agent_cli_runner import AgentCliRunner
+        from ...agent_cli.runner_backend import (
+            DEFAULT_RUNNER_BACKEND,
+            normalize_runner_backend,
         )
+
+        chosen = normalize_runner_backend(backend) if backend is not None else DEFAULT_RUNNER_BACKEND
         self._io_logger = AgentIOLogger(external_event_callback=event_callback)
         raw_default_extra_args = list(default_extra_args or [])
-        codex_backend = chosen == deps["BACKEND_CODEX"]
         normalized_default_extra_args = (
             _normalize_codex_selection_args(raw_default_extra_args)[0]
-            if codex_backend
+            if chosen == "codex"
             else raw_default_extra_args
         )
-        self._runner = deps["AgentCliRunner"](
+        self._runner = AgentCliRunner(
             agent_bin=runner_bin,
             backend=chosen,
             event_callback=self._stream_event_callback,
@@ -187,8 +166,8 @@ class AgentCliBackend:
         )
         self._default_extra_args = raw_default_extra_args
         self._backend_name = chosen
-        self._is_codex = chosen == deps["BACKEND_CODEX"]
-        self._is_copilot = chosen == deps["BACKEND_COPILOT"]
+        self._is_codex = chosen == "codex"
+        self._is_copilot = chosen == "copilot"
         self._default_interrupt_reason_provider = default_interrupt_reason_provider
         self._default_watchdog_soft_idle_seconds = max(
             0, int(default_watchdog_soft_idle_seconds or 0)
@@ -433,9 +412,6 @@ class AgentCliBackend:
     def _log_agent_io(self, path: Path | None, row: dict[str, Any]) -> None:
         self._io_logger.log(path, row, known_secret_values=self._known_secret_values)
 
-    def _close_io_context(self, call_id: str) -> None:
-        self._io_logger.close(call_id)
-
     def _stream_event_callback(self, stream: str, line: str) -> None:
         options = getattr(self, "_plugin_execution_options", None)
         if options is not None and getattr(options, "extension_env", None):
@@ -456,11 +432,9 @@ class AgentCliBackend:
     # --- helpers ----------------------------------------------------------
 
     def _translate_options(self, options: RunnerOptions):
-        cli_cls = self._deps["CliRunnerOptions"]
-        # The bundled runner's RunnerOptions is a superset (has watchdog
-        # hooks, add_dirs, plugin_dirs, etc.). Forward the fields
-        # argus exposes; the watchdog hooks are propagated when set
-        # so an outer supervisor can interrupt the codex subprocess.
+        from ...agent_cli._structured_output import output_schema_json
+        from ...agent_cli.agent_cli_runner import RunnerOptions as CliRunnerOptions
+
         interrupt_providers = [
             self._default_interrupt_reason_provider,
             options.external_interrupt_reason_provider,
@@ -499,8 +473,7 @@ class AgentCliBackend:
             soft_idle = env_int("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0)
             stalled_idle = env_int("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", 0)
             hard_idle = env_int("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 0)
-        option_fields = getattr(cli_cls, "__dataclass_fields__", {})
-        kwargs = dict(
+        return CliRunnerOptions(
             model=options.model,
             reasoning_effort=options.reasoning_effort,
             dangerous_yolo=options.dangerous_yolo,
@@ -511,49 +484,26 @@ class AgentCliBackend:
             external_interrupt_reason_provider=interrupt_provider,
             inactivity_callback=options.inactivity_callback,
             watchdog_soft_idle_seconds=soft_idle,
+            watchdog_stalled_idle_seconds=stalled_idle,
             watchdog_hard_idle_seconds=hard_idle,
+            # Freeze the schema independently of later changes to caller options.
+            output_schema=(
+                json.loads(output_schema_json(self._backend_name, options))
+                if options.output_schema is not None else None
+            ),
+            trusted_extensions=options.trusted_extensions,
+            trusted_tool_names=options.trusted_tool_names,
+            extension_env=options.extension_env,
+            live_search=options.live_search,
+            add_dirs=list(options.add_dirs) if options.add_dirs else None,
+            skill_paths=list(options.skill_paths) if options.skill_paths else None,
+            sandbox_mode=options.sandbox_mode,
+            force_safe_mode=options.force_safe_mode,
+            disable_tools=options.disable_tools,
+            review_output=dict(options.review_output) if options.review_output else None,
+            isolate_workdir=options.isolate_workdir,
+            on_agent_message=options.on_agent_message,
         )
-        if getattr(options, "output_schema", None) is not None:
-            from ...agent_cli._structured_output import output_schema_json
-
-            if "output_schema" not in option_fields:
-                raise ValueError("the installed runner does not support native output_schema")
-            # A separate JSON value prevents changes in another caller's options
-            # from changing this invocation after translation.
-            kwargs["output_schema"] = json.loads(output_schema_json(self._backend_name, options))
-        for plugin_field in ("trusted_extensions", "trusted_tool_names", "extension_env"):
-            if plugin_field in option_fields:
-                kwargs[plugin_field] = getattr(options, plugin_field, None)
-        if "watchdog_stalled_idle_seconds" in option_fields:
-            kwargs["watchdog_stalled_idle_seconds"] = stalled_idle
-        # Forward live_search ONLY when the target RunnerOptions supports it —
-        # a test stub or an older bundled copy may not have the field; then
-        # we degrade gracefully to no live search rather than crash.
-        if "live_search" in option_fields:
-            kwargs["live_search"] = getattr(options, "live_search", False)
-        if "add_dirs" in option_fields:
-            kwargs["add_dirs"] = list(options.add_dirs) if options.add_dirs else None
-        if "skill_paths" in option_fields:
-            kwargs["skill_paths"] = (
-                list(options.skill_paths) if options.skill_paths else None
-            )
-        if "sandbox_mode" in option_fields:
-            kwargs["sandbox_mode"] = getattr(options, "sandbox_mode", None)
-        if "force_safe_mode" in option_fields:
-            kwargs["force_safe_mode"] = getattr(options, "force_safe_mode", False)
-        if "disable_tools" in option_fields:
-            kwargs["disable_tools"] = getattr(options, "disable_tools", False)
-        if "review_output" in option_fields:
-            output = getattr(options, "review_output", None)
-            kwargs["review_output"] = dict(output) if output else None
-        if "isolate_workdir" in getattr(cli_cls, "__dataclass_fields__", {}):
-            kwargs["isolate_workdir"] = getattr(options, "isolate_workdir", False)
-        # Forward the live assistant-block callback the same guarded way — only
-        # the Manager chat front-door sets it, and a test stub without the
-        # field degrades to no streaming rather than crashing.
-        if "on_agent_message" in getattr(cli_cls, "__dataclass_fields__", {}):
-            kwargs["on_agent_message"] = getattr(options, "on_agent_message", None)
-        return cli_cls(**kwargs)
 
     def _translate_result(
         self,
@@ -568,35 +518,6 @@ class AgentCliBackend:
             copilot_usage=copilot_usage,
             usage_accumulator=self._usage,
         )
-
-    def _usage_delta_for_thread(
-        self,
-        *,
-        thread_id: str | None,
-        raw_totals: tuple[int, int, int, int],
-    ) -> tuple[int, int, int, int]:
-        """Convert Codex lifecycle-cumulative usage into this call's delta."""
-        return self._usage.usage_delta_for_thread(
-            thread_id=thread_id,
-            raw_totals=raw_totals,
-        )
-
-    def _premium_delta_for_thread(
-        self,
-        *,
-        thread_id: str | None,
-        raw_total: float,
-        resume_baseline_unknown: bool = False,
-    ) -> float | None:
-        """Convert copilot's session-cumulative premiumRequests into this
-        call's delta. Mirrors ``_usage_delta_for_thread`` otherwise.
-        """
-        return self._usage.premium_delta_for_thread(
-            thread_id=thread_id,
-            raw_total=raw_total,
-            resume_baseline_unknown=resume_baseline_unknown,
-        )
-
 
 # --- Convenience factory ---------------------------------------------------
 

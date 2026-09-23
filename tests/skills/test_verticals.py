@@ -45,12 +45,7 @@ from argus.skills.vertical_select import (
     resolve_workflow_mode,
     vertical_reached_own_terminal_stage,
 )
-from argus.verticals._base import (
-    load_vertical,
-    vertical_checklist_items,
-    vertical_checklist_optional_stages,
-    vertical_checklist_stage_order,
-)
+from argus.verticals._base import load_vertical_contract
 from argus.verticals._data_domain import write_data_domain
 
 RESEARCH_STAGES: tuple[str, ...] = (
@@ -78,10 +73,10 @@ def _project(tmp_path: Path, vertical: str | None, *, current: str = "run") -> P
 def test_empty_builtin_checklists_are_explicitly_optional() -> None:
     implicit_empty: list[tuple[str, str]] = []
     for vertical in VERTICALS:
-        module = load_vertical(vertical)
-        items = vertical_checklist_items(module)
-        optional = vertical_checklist_optional_stages(module)
-        for stage in vertical_checklist_stage_order(module):
+        contract = load_vertical_contract(vertical)
+        items = contract.checklist_items
+        optional = contract.checklist_optional_stages
+        for stage in contract.stage_order:
             if not items.get(stage) and stage not in optional:
                 implicit_empty.append((vertical, stage))
 

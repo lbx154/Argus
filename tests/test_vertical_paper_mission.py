@@ -17,21 +17,18 @@ from argus.apps._runtime import (
 )
 from argus.skills.stage_machine import ChecklistItem
 from argus.skills.vertical_select import persist_vertical
-from argus.verticals._base import (
-    load_vertical,
-    vertical_is_paper_mission,
-)
+from argus.verticals._base import _contract, load_vertical_contract
 
 OPTIMIZE = ["kernel_engineering", "math_synth"]
 
 
 @pytest.mark.parametrize("vertical", OPTIMIZE)
 def test_optimize_verticals_are_not_paper(vertical: str) -> None:
-    assert vertical_is_paper_mission(load_vertical(vertical)) is False
+    assert load_vertical_contract(vertical).paper_mission is False
 
 
 def test_research_is_paper() -> None:
-    assert vertical_is_paper_mission(load_vertical("research")) is True
+    assert load_vertical_contract("research").paper_mission is True
 
 
 def test_certified_gate_alone_does_not_make_a_paper_vertical() -> None:
@@ -42,7 +39,7 @@ def test_certified_gate_alone_does_not_make_a_paper_vertical() -> None:
         completion_gate="certified",
     )
 
-    assert vertical_is_paper_mission(provider) is False
+    assert _contract(provider).paper_mission is False
 
 
 def test_research_keeps_final_certification(tmp_path) -> None:

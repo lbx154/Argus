@@ -87,16 +87,14 @@ def _selected_paper_revision(project_root: Path) -> bool:
     """Recognize paper work without enabling a long-horizon campaign."""
     from ..core.pipeline_state import read_pipeline_state
     from ..skills.vertical_select import resolve_vertical_if_decided
-    from ..verticals._base import load_vertical, vertical_is_paper_mission
+    from ..verticals._base import load_vertical_contract
 
     try:
         state = read_pipeline_state(project_root)
         if state.get("current_stage") not in {"paper", "review"}:
             return False
         vertical = resolve_vertical_if_decided(project_root)
-        return vertical is not None and vertical_is_paper_mission(
-            load_vertical(vertical, project_root=project_root)
-        )
+        return vertical is not None and load_vertical_contract(vertical, project_root=project_root).paper_mission
     except Exception:  # noqa: BLE001 - optional context never infers paper work
         return False
 

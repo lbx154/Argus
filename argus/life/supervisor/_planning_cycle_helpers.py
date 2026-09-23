@@ -198,18 +198,14 @@ def _staged_goal_completion_issue(project_root: object) -> str:
         resolve_vertical,
         vertical_completion_certificate_status,
     )
-    from ...verticals._base import (
-        load_vertical,
-        vertical_checklist_stage_order,
-        vertical_completion_gate,
-    )
+    from ...verticals._base import load_vertical_contract
 
     try:
         vertical = resolve_vertical(project_root)
-        module = load_vertical(vertical, project_root=project_root)
-        if vertical_completion_gate(module) != "none":
+        contract = load_vertical_contract(vertical, project_root=project_root)
+        if contract.completion_gate != "none":
             return ""
-        stages = vertical_checklist_stage_order(module)
+        stages = contract.stage_order
         status = vertical_completion_certificate_status(project_root, vertical)
         if not stages or status.get("ok"):
             return ""

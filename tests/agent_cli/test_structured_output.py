@@ -35,7 +35,7 @@ def options(**kwargs):
 
 
 @pytest.mark.parametrize("backend", ["pi", "codex"])
-def test_adapter_forwards_an_independent_schema_and_rejects_an_old_runner(backend, monkeypatch):
+def test_adapter_forwards_an_independent_schema(backend):
     runner = AgentCliBackend(backend=backend, runner_bin=backend)
     source = json.loads(json.dumps(SCHEMA))
     forwarded = runner._translate_options(CoreOptions(disable_tools=True, output_schema=source))
@@ -43,15 +43,6 @@ def test_adapter_forwards_an_independent_schema_and_rejects_an_old_runner(backen
     source["$defs"]["answer"]["description"] = "Changed by another caller"
     assert forwarded.output_schema == SCHEMA
     assert runner._translate_options(CoreOptions()).output_schema is None
-
-    @dataclasses.dataclass
-    class OldOptions:
-        model: str | None = None
-
-    monkeypatch.setitem(runner._deps, "CliRunnerOptions", OldOptions)
-    with pytest.raises(ValueError, match="does not support native output_schema"):
-        runner._translate_options(CoreOptions(disable_tools=True, output_schema=SCHEMA))
-
 
 @pytest.mark.parametrize("backend, call_options, message", [
     ("pi", RunnerOptions(output_schema=SCHEMA), "disable_tools"),

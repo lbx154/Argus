@@ -446,19 +446,15 @@ class MissionExecutionSettlementMixin:
 
         try:
             from ...skills.vertical_select import resolve_vertical
-            from ...verticals._base import (
-                load_vertical,
-                vertical_iteration_assessment,
-            )
+            from ...verticals._base import load_vertical_contract
 
             vertical_root = state.vertical_root
             assert vertical_root is not None, "iteration requires prepared vertical root"
-            vertical = load_vertical(
+            contract = load_vertical_contract(
                 resolve_vertical(vertical_root),
                 project_root=vertical_root,
             )
-            assessment = vertical_iteration_assessment(
-                vertical,
+            assessment = contract.assess_iteration(
                 stage=state.pipeline_stage_at_start,
                 scope=state.item_scope,
                 project_root=Path(

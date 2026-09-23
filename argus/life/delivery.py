@@ -336,11 +336,11 @@ def _vertical_primary_targets(
         return []
     try:
         from ..skills.vertical_select import resolve_vertical
-        from ..verticals._base import load_vertical, vertical_stage_primary_deliverables
+        from ..verticals._base import load_vertical_contract
 
         vertical = resolve_vertical(state_root)
-        definition = load_vertical(vertical, project_root=state_root)
-        paths = vertical_stage_primary_deliverables(definition, stage=stage)
+        contract = load_vertical_contract(vertical, project_root=state_root)
+        paths = contract.primary_deliverables(stage=stage)
     except Exception:  # noqa: BLE001 - delivery presentation is non-authoritative
         return []
     return [

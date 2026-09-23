@@ -143,7 +143,7 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     """Execute the provider subprocess and return a finalised ``RunnerResult``.
 
     Calls :func:`finish_quota` and :func:`finalize_result` on every exit
-    path.  The happy path additionally calls ``_close_io_context`` a first
+    path.  The happy path additionally calls ``AgentIOLogger.close`` a first
     time (before writing the I/O-complete summary row) so that the raw stream
     is flushed in the correct replay order; ``finalize_result`` calls it a
     second time as a no-op close.
@@ -495,7 +495,7 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     # Full raw frames are already persisted exactly once. Flush and close
     # that stream before writing the summary so replay order is start →
     # stream* → complete → usage.
-    backend._close_io_context(ctx.call_id)
+    backend._io_logger.close(ctx.call_id)
     backend._log_agent_io(ctx.log_path, complete_row)
     return finalize_result(
         ctx,

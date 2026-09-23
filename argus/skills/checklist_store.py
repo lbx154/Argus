@@ -217,7 +217,7 @@ def _protected_floor_ids(project_root: object) -> frozenset[str] | None:
     ``None`` means protection could not be resolved.
     """
     try:
-        from ..verticals._base import load_vertical, vertical_completion_gate
+        from ..verticals._base import _contract, load_vertical
         from .vertical_select import resolve_vertical
 
         module = load_vertical(
@@ -229,7 +229,7 @@ def _protected_floor_ids(project_root: object) -> frozenset[str] | None:
             for item_id in getattr(module, "PROTECTED_ITEM_IDS", ())
             if str(item_id).strip()
         )
-        if vertical_completion_gate(module) == "certified":
+        if _contract(module).completion_gate == "certified":
             return vertical_ids | _SHARED_PROTECTED_ITEM_IDS
         return vertical_ids
     except Exception:  # noqa: BLE001 — unknown protection fails open on read

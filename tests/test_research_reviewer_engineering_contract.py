@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from argus.reviewer import Reviewer
 from argus.skills.vertical_select import persist_vertical
-from argus.verticals._base import load_vertical, vertical_role_banner
+from argus.verticals._base import load_vertical_contract
 
 
 def test_research_reviewer_requires_engineering_audit() -> None:
-    banner = vertical_role_banner(load_vertical("research"), "reviewer")
+    banner = load_vertical_contract("research").banner("reviewer")
 
     assert "implementation or evaluator failure" in banner
     assert "specify the repair" in banner
@@ -14,7 +14,7 @@ def test_research_reviewer_requires_engineering_audit() -> None:
 
 
 def test_research_engineer_receives_only_execution_contract() -> None:
-    banner = vertical_role_banner(load_vertical("research"), "engineer")
+    banner = load_vertical_contract("research").banner("engineer")
 
     assert "Preserve reproducibility" in banner
     assert "Keep experiments adaptive" in banner
