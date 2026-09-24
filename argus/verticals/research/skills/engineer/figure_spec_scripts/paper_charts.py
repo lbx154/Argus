@@ -43,6 +43,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from weakref import WeakKeyDictionary
 
 try:  # imported as part of the figure_spec_scripts package
     from . import paper_chart_style as _style
@@ -96,7 +97,8 @@ class Facts:
         return {k: v for k, v in self.__dict__.items() if v not in ("", None)}
 
 
-_FACTS: dict[int, list[Facts]] = {}
+# Unsaved figures may be collected without save(); integer IDs can then be reused.
+_FACTS: WeakKeyDictionary[Any, list[Facts]] = WeakKeyDictionary()
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +162,7 @@ def _colors(series: list[Series], palette: str) -> dict[str, str]:
 
 
 def _record(fig: Any, facts: Facts) -> None:
-    _FACTS.setdefault(id(fig), []).append(facts)
+    _FACTS.setdefault(fig, []).append(facts)
 
 
 def _series_facts(series: list[Series]) -> list[dict[str, Any]]:
@@ -266,7 +268,7 @@ def finish(fig: Any, *, legend: str | None = "above", letters: bool = True) -> N
     for ax in fig.axes:
         for handle, label in zip(*ax.get_legend_handles_labels()):
             seen.setdefault(label, handle)
-    order = list(dict.fromkeys(s["name"] for f in _FACTS.get(id(fig), []) for s in f.series))
+    order = list(dict.fromkeys(s["name"] for f in _FACTS.get(fig, []) for s in f.series))
     seen = {name: seen[name] for name in [*order, *seen] if name in seen}
     if legend == "above" and len(seen) > 1:
         fig.legend(list(seen.values()), list(seen), loc="outside upper center", ncol=min(len(seen), LEGEND_MAX_COLUMNS), frameon=False)
@@ -275,7 +277,7 @@ def finish(fig: Any, *, legend: str | None = "above", letters: bool = True) -> N
     if letters and len(fig.axes) > 1:
         for index, ax in enumerate(fig.axes):
             ax.text(0.0, 1.02, f"({chr(97 + index)})", transform=ax.transAxes, ha="left", va="bottom", fontweight="bold")
-    for facts in _FACTS.get(id(fig), []):
+    for facts in _FACTS.get(fig, []):
         facts.legend = legend or "none"
 
 
@@ -673,7 +675,7 @@ def save(
     if stem_path.suffix.lower() in {".pdf", ".png", ".svg"}:
         stem_path = stem_path.with_suffix("")
     stem_path.parent.mkdir(parents=True, exist_ok=True)
-    recorded = _FACTS.pop(id(fig), [])
+    recorded = _FACTS.pop(fig, [])
     for axis, item in zip(fig.axes, recorded):
         item.axis_from_zero = bool(axis.get_ylim()[0] == 0)
     facts = [f.as_dict() for f in recorded]
