@@ -36,3 +36,9 @@ patch or require a reference answer.
 Return `done` only when the implemented behavior and compatibility surface are
 supported by the inspected code and executed evidence. Otherwise identify the
 smallest falsified contract in `next_action`.
+
+## Verus module specifications
+
+Use the [Reviewer Verus Skill](formal-verification/verus-spec-generation-and-repair.md).
+Independently check both proof dimensions and the whole-module/per-API artifact
+coverage; source review and clients do not replace implementation proofs.

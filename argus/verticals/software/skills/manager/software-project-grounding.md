@@ -39,3 +39,9 @@ give it to Engineer. For staged work, give it to Planner before decomposition.
 - Do not call visible tests "acceptance tests" when official tests are held back.
 - Do not infer expected behavior from the patch under review.
 - Do not turn repository exploration into an unbounded reading of the whole tree.
+
+## Verus module specifications
+
+Use the [Manager Verus Skill](formal-verification/verus-spec-generation-and-repair.md)
+for scope and delivery requirements, even when the optional generic grounding
+pass is disabled. Detailed submodule analysis remains Planner's responsibility.

@@ -17,6 +17,14 @@ from ..core.operator_decision import normalize_agent_options
 from ..core.research_contract import RESULT_FIELD_CHOICES, normalize_research_result
 from ..core.role_tool_bridge import CallBoundBridge, bridge_request
 from ..core.venue_review import ACCEPTED_RECOMMENDATIONS, RECOMMENDATIONS
+from .validation import (
+    CANCEL_TOOL,
+    COMMAND_TOOL,
+    RESULT_TOOL,
+    ReviewValidation,
+    configured_read_dirs,
+    configured_validation,
+)
 
 PREFIX = "ARGUS_PLUGIN_REVIEW"
 SERVER = "argus_review_actions"
@@ -30,9 +38,13 @@ _ACTIONS: dict[str, tuple[ReviewStatus, str]] = {
 
 
 class ReviewActions:
-    def __init__(self, *, venue: str = "", venue_required: bool = False) -> None:
+    def __init__(
+        self, *, venue: str = "", venue_required: bool = False,
+        validation: ReviewValidation | None = None,
+    ) -> None:
         self.venue = venue
         self.venue_required = venue_required
+        self.validation = validation
         self.decision: ReviewDecision | None = None
         self.tools = self._tools()
 
@@ -119,6 +131,8 @@ class ReviewActions:
                 "name": name, "description": description,
                 "inputSchema": {"type": "object", "properties": fields, "required": required, "additionalProperties": False},
             })
+        if self.validation is not None:
+            tools.extend(self.validation.tools())
         return tools
 
     def dispatch(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -131,6 +145,10 @@ class ReviewActions:
             validate(payload, tool["inputSchema"])
         except ValidationError as exc:
             raise ValueError(exc.message) from exc
+        if action == COMMAND_TOOL and self.validation is not None:
+            return self.validation.run(payload)
+        if action in {RESULT_TOOL, CANCEL_TOOL} and self.validation is not None:
+            return self.validation.result(payload["command_id"], cancel=action == CANCEL_TOOL)
         review = payload["review"]
         if not review.strip():
             raise ValueError("The review must explain the judgment.")
@@ -180,9 +198,19 @@ def review_action_tools(
     backend = str(getattr(runner, "backend", "")).lower()
     if backend not in {"pi", "copilot", "codex", "claude", "qoder", "memory", ""}:
         raise ValueError(f"Reviewer action tools are not supported by backend {backend!r}; no text-parser fallback is available.")
-    actions = ReviewActions(venue=venue, venue_required=venue_required)
-    with CallBoundBridge(actions.dispatch, env_prefix=PREFIX) as bridge, TemporaryDirectory(prefix="argus-review-tools-") as directory:
-        names = list(_ACTIONS)
+    approved_dirs = configured_read_dirs()
+    read_dirs = list(options.add_dirs or [])
+    if backend == "copilot":
+        read_dirs = list(dict.fromkeys([*read_dirs, *approved_dirs]))
+    validation = configured_validation(options.working_dir, approved_dirs)
+    if validation is not None and backend == "copilot":
+        read_dirs.append(str(validation.output_root))
+    actions = ReviewActions(venue=venue, venue_required=venue_required, validation=validation)
+    with CallBoundBridge(
+        actions.dispatch, env_prefix=PREFIX,
+        on_close=validation.close if validation is not None else None,
+    ) as bridge, TemporaryDirectory(prefix="argus-review-tools-") as directory:
+        names = [tool["name"] for tool in actions.tools]
         environment = {**bridge.environment, "PYTHONPATH": str(Path(__file__).resolve().parents[2])}
         extra = list(options.extra_args or [])
         extensions = list(options.trusted_extensions or [])
@@ -216,6 +244,7 @@ def review_action_tools(
             ]
         yield actions, replace(
             options, extra_args=extra, trusted_extensions=extensions,
+            add_dirs=read_dirs,
             trusted_tool_names=[*(options.trusted_tool_names or []), *names],
             extension_env={**(options.extension_env or {}), **bridge.environment},
             force_safe_mode=True,

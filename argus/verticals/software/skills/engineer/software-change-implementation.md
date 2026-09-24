@@ -28,3 +28,9 @@ description: "Implement a bounded software change with proportional inspection, 
 ## Evidence
 
 Report exact commands and outcomes. In a non-Git workspace, name the inspected files and state that no baseline diff is available; do not treat missing Git metadata as a task failure.
+
+## Verus module specifications
+
+Use the [Engineer Verus Skill](formal-verification/verus-spec-generation-and-repair.md).
+The decisive checks are both the Verus source implementation proof and the
+`spec-determin-tool` completeness proof, not merely a compiling declaration.

@@ -872,6 +872,11 @@ class Reviewer:
                     skip_git_repo_check=config.skip_git_repo_check,
                     extra_args=list(config.extra_args) if config.extra_args else None,
                     review_output=review_output,
+                    add_dirs=(
+                        [str(path) for path in review_libraries.library_roots]
+                        if str(getattr(self.runner, "backend", "")).lower() == "copilot"
+                        else None
+                    ),
                     skill_paths=native_skill_paths,
                     working_dir=config.working_dir,
                     # Search is available for the rare turn that proposes a

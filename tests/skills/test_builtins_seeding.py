@@ -109,10 +109,15 @@ def test_iter_vertical_skill_texts_unknown_or_skill_less_is_empty() -> None:
     assert list(iter_vertical_skill_texts("nope")) == []
     software = dict(iter_vertical_skill_texts("software"))
     assert set(software) == {
+        "engineer/formal-verification/verus-spec-generation-and-repair.md",
         "engineer/software-change-implementation.md",
+        "manager/formal-verification/verus-spec-generation-and-repair.md",
         "manager/software-project-grounding.md",
+        "planner/formal-verification/verus-spec-generation-and-repair.md",
         "planner/software-project-grounding.md",
+        "reviewer/formal-verification/verus-spec-generation-and-repair.md",
         "reviewer/software-change-review.md",
+        "verus-spec-generation-and-repair.md",
     }
 
 
