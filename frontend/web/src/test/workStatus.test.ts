@@ -69,6 +69,21 @@ describe('shared work status', () => {
     expect(workStatusLabel(currentWorkStatus(snapshot, view), 'zh-CN')).toBe('这一步已结束');
   });
 
+  it('shows the Planner choosing the next step after a step finishes, but not post-step housekeeping', () => {
+    const snapshot = fixture(), view = emptyMissionView();
+    view.mission.status = 'complete';
+    view.routing.continuous = true;
+    const role = (name: string) => ({ role: name, active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'working', status: 'running', age_s: 1 });
+    snapshot.roles = [role('engineer')];
+    expect(currentWorkStatus(snapshot, view).state).toBe('waiting');
+    snapshot.roles = [role('planner')];
+    const planning = currentWorkStatus(snapshot, view);
+    expect(planning).toMatchObject({ state: 'running', role: 'planner' });
+    expect(workStatusLabel(planning, 'zh-CN')).toBe('正在规划下一步');
+    snapshot.daemon.alive = false;
+    expect(currentWorkStatus(snapshot, view).state).not.toBe('running');
+  });
+
   it('keeps paused work and unreadable status distinct from active work', () => {
     const snapshot = fixture(false), view = emptyMissionView();
     view.mission.status = 'paused_external_work';
