@@ -59,7 +59,7 @@ def _event_role(event: dict[str, Any]) -> str | None:
         return "planner"
     if etype.startswith("venue.research.") or etype.startswith("idea.search."):
         return "engineer"
-    if etype == "round.review.deferred":
+    if etype == "round.review.deferred" or etype.startswith("round.external_work_wait."):
         return "engineer"
     if etype.startswith("round.review") or etype.startswith("reviewer"):
         return "reviewer"
@@ -210,6 +210,11 @@ def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
         return "reviewing", "running"
     if etype == "round.review.deferred":
         return "continuing before review", "running"
+    if etype == "round.external_work_wait.started":
+        work_id = str(event.get("work_id") or "")
+        return ("teammates working" if work_id.startswith("team:") else "background job running"), "running"
+    if etype == "round.external_work_wait.completed":
+        return "checking background work", "running"
     if etype == "round.review.completed":
         return f"verdict {status or 'done'}", status or "done"
     if etype == "round.start":
@@ -277,6 +282,11 @@ STALE_LABEL_WINDOW_S: float = 180.0
 # a tool. Keep an unmatched agent.io.start active through the runner's default
 # 45-minute hard-idle window instead of falsely showing "Waiting" after 90s.
 INFLIGHT_CALL_ACTIVE_WINDOW_S: float = 50 * 60.0
+# While a team or background job carries the current step, the Engineer only
+# re-announces its wait once per cadence, which is capped at 15 minutes
+# (``engineer/external_work.py``). The step is still in progress between those
+# announcements, so the Engineer stays active for one cadence plus a margin.
+EXTERNAL_WORK_WAIT_ACTIVE_WINDOW_S: float = 16 * 60.0
 
 
 def role_activity(
@@ -334,11 +344,11 @@ def role_activity(
         event_type = canonical_event_type(
             ev.get("canonical_type") or ev.get("type")
         )
-        effective_active_window = (
-            max(active_window_s, INFLIGHT_CALL_ACTIVE_WINDOW_S)
-            if role in inflight_roles
-            else active_window_s
-        )
+        effective_active_window = active_window_s
+        if role in inflight_roles:
+            effective_active_window = max(effective_active_window, INFLIGHT_CALL_ACTIVE_WINDOW_S)
+        elif event_type == "round.external_work_wait.started":
+            effective_active_window = max(effective_active_window, EXTERNAL_WORK_WAIT_ACTIVE_WINDOW_S)
         active = status not in {"done", "blocked", "idle", "waiting"} and (
             age is None or age <= effective_active_window
         )
@@ -360,6 +370,7 @@ def role_activity(
 
 
 __all__ = [
+    "EXTERNAL_WORK_WAIT_ACTIVE_WINDOW_S",
     "INFLIGHT_CALL_ACTIVE_WINDOW_S",
     "RoleActivity",
     "STALE_LABEL_WINDOW_S",

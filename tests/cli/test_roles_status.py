@@ -361,6 +361,53 @@ def test_review_deferral_is_engineer_activity(tmp_path):
     assert acts["reviewer"].active is False
 
 
+def test_team_wait_keeps_engineer_active_between_cadence_ticks(tmp_path):
+    now = time.time()
+    work = {"work_id": "team:research-idea-pipeline-v8-g2", "item_id": "mission-1"}
+    _write_events(tmp_path, [
+        {"type": "loop.start", "ts": now - 900, **work},
+        {"type": "round.external_work_wait.started", "ts": now - 899, **work},
+        {"type": "round.external_work_wait.completed", "reason": "cadence_elapsed",
+         "ts": now - 600, **work},
+        {"type": "round.external_work_wait.started", "ts": now - 600, **work},
+    ])
+
+    engineer = role_activity(tmp_path, now=now)["engineer"]
+
+    assert engineer.active is True
+    assert engineer.status == "running"
+    assert engineer.label == "teammates working"
+
+
+def test_background_job_wait_names_the_job_and_expires_after_one_cadence(tmp_path):
+    from argus.life.role_activity import EXTERNAL_WORK_WAIT_ACTIVE_WINDOW_S
+
+    now = time.time()
+    _write_events(tmp_path, [{
+        "type": "round.external_work_wait.started",
+        "work_id": "subagent:train-r1",
+        "ts": now - 120,
+    }])
+    engineer = role_activity(tmp_path, now=now)["engineer"]
+    assert engineer.active is True
+    assert engineer.label == "background job running"
+
+    later = now + EXTERNAL_WORK_WAIT_ACTIVE_WINDOW_S
+    assert role_activity(tmp_path, now=later)["engineer"].active is False
+
+
+def test_finished_wait_uses_the_ordinary_activity_window(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [{
+        "type": "round.external_work_wait.completed",
+        "work_id": "team:research-idea-pipeline-v8-g2",
+        "reason": "completed",
+        "ts": now - 300,
+    }])
+
+    assert role_activity(tmp_path, now=now)["engineer"].active is False
+
+
 def test_activity_reads_only_the_event_log_tail(tmp_path, monkeypatch):
     events = tmp_path / "events.jsonl"
     events.write_text(
