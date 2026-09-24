@@ -129,9 +129,16 @@ export function currentWorkStatus(
     return { ...result, state: 'paused', role: '', reason: needsReply ? 'operator_input' : 'not_running' };
   }
   if (['failed', 'error'].includes(missionState)) return { ...result, state: 'step_finished', role: '', reason: 'task_failed' };
-  if (FINISHED.has(missionState)) return { ...result, role: '',
-    state: snapshot.daemon.alive && (view?.routing?.continuous || snapshot.continuous?.enabled) ? 'waiting' : 'step_finished',
-  };
+  if (FINISHED.has(missionState)) {
+    // Between steps a live Planner is choosing the next one. Post-step
+    // housekeeping is not a new step, so no other role counts here.
+    if (snapshot.daemon.alive && liveRoles.some(item => item.role === 'planner')) {
+      return { ...result, state: 'running', role: 'planner' };
+    }
+    return { ...result, role: '',
+      state: snapshot.daemon.alive && (view?.routing?.continuous || snapshot.continuous?.enabled) ? 'waiting' : 'step_finished',
+    };
+  }
   if (!snapshot.daemon.alive) {
     if (ACTIVE.has(missionState)) return { ...result, state: 'paused', role: '', reason: 'not_running' };
     return { ...result, role: '' };
