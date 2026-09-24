@@ -644,3 +644,33 @@ def test_completed_manager_reply_is_idle_immediately(tmp_path):
     manager = role_activity(tmp_path, now=now)["manager"]
     assert manager.active is False
     assert manager.status == "idle"
+
+
+def test_map_summary_does_not_hide_the_engineers_open_call(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "agent.io.start", "call_id": "engineer-call", "run_label": "engineer-r1", "ts": now - 280},
+        {"type": "engineer.progress", "agent_layer": "engineer", "status": "running",
+         "text": "find / -name pdftoppm", "ts": now - 150},
+        {"type": "agent.io.start", "call_id": "map-call", "run_label": "map-summary", "ts": now - 20},
+        {"type": "agent.io.complete", "call_id": "map-call", "run_label": "map-summary",
+         "exit_code": 0, "ts": now - 8},
+    ])
+
+    engineer = role_activity(tmp_path, now=now)["engineer"]
+
+    assert engineer.active is True
+    assert "find" in engineer.label
+
+
+@pytest.mark.parametrize(
+    "run_label",
+    ["map-summary", "curator.distill", "reflection", "answer-learning", "team-learning-review"],
+)
+def test_background_calls_are_not_engineer_work(tmp_path, run_label):
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "agent.io.start", "call_id": "background", "run_label": run_label, "ts": now - 5},
+    ])
+
+    assert role_activity(tmp_path, now=now)["engineer"].active is False
