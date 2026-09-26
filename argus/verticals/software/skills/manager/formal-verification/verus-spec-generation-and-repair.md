@@ -1,6 +1,6 @@
 ---
-name: Verus Specification Scope and Delivery
-description: Scope a Verus module-specification mission with submodule analysis, view-first dependencies, mandatory correctness and completeness feedback, and complete per-API proof deliverables.
+name: "Verus Specification Scope and Delivery"
+description: "Scope a Verus module-specification mission with submodule analysis, view-first dependencies, mandatory correctness and completeness feedback, and complete per-API proof deliverables."
 ---
 
 # Verus Specification Scope and Delivery

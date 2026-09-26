@@ -209,6 +209,7 @@ def review_action_tools(
     with CallBoundBridge(
         actions.dispatch, env_prefix=PREFIX,
         on_close=validation.close if validation is not None else None,
+        cancel_operation=CANCEL_TOOL,
     ) as bridge, TemporaryDirectory(prefix="argus-review-tools-") as directory:
         names = [tool["name"] for tool in actions.tools]
         environment = {**bridge.environment, "PYTHONPATH": str(Path(__file__).resolve().parents[2])}

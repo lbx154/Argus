@@ -1,6 +1,6 @@
 ---
-name: Verus Submodule and Proof Planning
-description: Analyze Rust submodules first, schedule views before dependency-ordered API specs, and plan source-correctness and spec-determin-tool completeness repair with per-API artifacts.
+name: "Verus Submodule and Proof Planning"
+description: "Analyze Rust submodules first, schedule views before dependency-ordered API specs, and plan source-correctness and spec-determin-tool completeness repair with per-API artifacts."
 ---
 
 # Verus Submodule and Proof Planning

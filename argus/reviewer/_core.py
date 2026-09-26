@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 
-from ..core.models import ReviewDecision, RunnerOptions
+from ..core.models import ReviewDecision, RunnerOptions, RunnerResult
 from ..core.operator_messages import uses_cjk
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -758,19 +758,21 @@ class Reviewer:
         acceptance_minimum = selected_acceptance_minimum(state_root) if venue_required else "weak_accept"
         venue_snapshot = paper_review_snapshot(artifact_root) if venue_required else None
         reviewed_manuscript_snapshot = None
-        try:
-            from ..core.manuscript_snapshot import manuscript_snapshot
+        snapshot_root = config.artifact_root or config.working_dir
+        if snapshot_root is not None:
+            try:
+                from ..core.manuscript_snapshot import manuscript_snapshot
 
-            candidate_snapshot = manuscript_snapshot(
-                config.artifact_root or config.working_dir
-            )
-            if candidate_snapshot["sha256"]:
-                reviewed_manuscript_snapshot = candidate_snapshot
-        except Exception:  # noqa: BLE001 - non-paper reviews have no manuscript
-            pass
+                candidate_snapshot = manuscript_snapshot(snapshot_root)
+                if candidate_snapshot["sha256"]:
+                    reviewed_manuscript_snapshot = candidate_snapshot
+            except Exception:  # noqa: BLE001 - non-paper reviews have no manuscript
+                pass
         # Split the prompt into a byte-stable STATIC preamble and per-round DELTA.
         # A matching same-role session receives only the new delta.
-        common = dict(
+        static, delta_base = self._render(
+            operation=operation,
+            resumed=False,
             objective=objective,
             original_objective=original_objective or objective,
             operator_messages=operator_messages or [],
@@ -795,11 +797,6 @@ class Reviewer:
             vertical_state_root=config.vertical_state_root,
             vertical=config.active_vertical,
             workflow_mode=config.workflow_mode,
-        )
-        static, delta_base = self._render(
-            operation=operation,
-            resumed=False,
-            **common,
         )
         venue_policy = ""
         if venue_required:
@@ -857,173 +854,156 @@ class Reviewer:
                 "review text; after saving it, submit the corresponding review action "
                 "tool. Your final reply can simply confirm the update."
             )
-        try:
-            with review_action_tools(
-                self.runner,
-                RunnerOptions(
-                    model=config.model,
-                    reasoning_effort=config.reasoning_effort,
-                    # Only its report is writable through review_output. The
-                    # independent judge must not repair evidence or checkpoints.
-                    dangerous_yolo=False,
-                    full_auto=False,
-                    sandbox_mode="read-only",
-                    isolate_workdir=False,
-                    skip_git_repo_check=config.skip_git_repo_check,
-                    extra_args=list(config.extra_args) if config.extra_args else None,
-                    review_output=review_output,
-                    add_dirs=(
-                        [str(path) for path in review_libraries.library_roots]
-                        if str(getattr(self.runner, "backend", "")).lower() == "copilot"
-                        else None
-                    ),
-                    skill_paths=native_skill_paths,
-                    working_dir=config.working_dir,
-                    # Search is available for the rare turn that proposes a
-                    # skill; ordinary review turns need not invoke it.
-                    live_search=True,
-                ),
-                venue=venue, venue_required=venue_required,
-            ) as (actions, options):
-                result = gateway_run_exec(
-                    self.runner, prompt=prompt, resume_thread_id=resume,
-                    options=options, run_label="reviewer",
-                )
-                decision = actions.decision
-            if review_output and result.exit_code == 0 and not getattr(result, "fatal_error", None):
-                from .review_file import ReviewFileStore
+        result: RunnerResult | None = None
 
-                authored_review = ReviewFileStore(**review_output).authored_review()
+        def with_call_metadata(decision: ReviewDecision) -> ReviewDecision:
+            if result is None:
+                return decision
+            # Blocking a verdict must not erase a completed provider call.
+            decision.input_tokens = int(getattr(result, "input_tokens", 0) or 0)
+            decision.cached_input_tokens = int(getattr(result, "cached_input_tokens", 0) or 0)
+            decision.output_tokens = int(getattr(result, "output_tokens", 0) or 0)
+            decision.reasoning_output_tokens = int(
+                getattr(result, "reasoning_output_tokens", 0) or 0
+            )
+            decision.premium_requests = float(getattr(result, "premium_requests", 0.0) or 0.0)
+            decision.thread_id = getattr(result, "thread_id", None)
+            decision.static_fingerprint = new_fp
+            decision.session_resumed = bool(resume)
+            decision.prompt_block_stats = prompt_block_stats
+            return decision
+
+        try:
+            with ExitStack() as output_cleanup:
+                if review_output_dir is not None:
+                    output_cleanup.callback(review_output_dir.cleanup)
+                with review_action_tools(
+                    self.runner,
+                    RunnerOptions(
+                        model=config.model,
+                        reasoning_effort=config.reasoning_effort,
+                        # Only its report is writable through review_output. The
+                        # independent judge must not repair evidence or checkpoints.
+                        dangerous_yolo=False,
+                        full_auto=False,
+                        sandbox_mode="read-only",
+                        isolate_workdir=False,
+                        skip_git_repo_check=config.skip_git_repo_check,
+                        extra_args=list(config.extra_args) if config.extra_args else None,
+                        review_output=review_output,
+                        add_dirs=(
+                            [str(path) for path in review_libraries.library_roots]
+                            if str(getattr(self.runner, "backend", "")).lower() == "copilot"
+                            else None
+                        ),
+                        skill_paths=native_skill_paths,
+                        working_dir=config.working_dir,
+                        # Search is available for the rare turn that proposes a
+                        # skill; ordinary review turns need not invoke it.
+                        live_search=True,
+                    ),
+                    venue=venue, venue_required=venue_required,
+                ) as (actions, options):
+                    result = gateway_run_exec(
+                        self.runner, prompt=prompt, resume_thread_id=resume,
+                        options=options, run_label="reviewer",
+                    )
+                    decision = actions.decision
+                if review_output and result.exit_code == 0 and not getattr(result, "fatal_error", None):
+                    from .review_file import ReviewFileStore
+
+                    authored_review = ReviewFileStore(**review_output).authored_review()
+            fatal = str(getattr(result, "fatal_error", "") or "").strip()
+            backend_stop_kind = (
+                normalize_stop_kind(getattr(result, "stop_kind", None))
+                or "backend_unavailable"
+            )
+            if fatal or result.exit_code != 0:
+                # Plain words first, in the language of the task; the transport
+                # details ride behind a "Technical record:" marker so a consumer
+                # can set them aside.
+                interrupted = "external interrupt" in fatal.lower() or "daemon stop" in fatal.lower()
+                chinese = uses_cjk(objective)
+                if interrupted:
+                    sentence = (
+                        "审阅者还没读完这一轮，Argus 就被操作员停止了；这里没有任何"
+                        "对工作本身的评价。"
+                        if chinese
+                        else "Argus was stopped by its operator before the Reviewer could "
+                        "finish reading this round; nothing here is a judgment on the work."
+                    )
+                else:
+                    sentence = (
+                        "审阅者的会话在得出结论前就结束了，这一轮没有评审意见。"
+                        if chinese
+                        else "The Reviewer's session ended before it reached a conclusion, "
+                        "so this round was not judged."
+                    )
+                reason = (
+                    sentence
+                    + (" 技术记录：" if chinese else " Technical record: ")
+                    + f"exit={result.exit_code}"
+                    + (f"; fatal_error={fatal}" if fatal else "")
+                )
+                return with_call_metadata(ReviewDecision(
+                    status="blocked",
+                    reason=reason,
+                    next_action=(
+                        "这一轮还没有得到判断；请把它当作尚未审阅，而不是对工作的反馈。"
+                        if chinese
+                        else "The check did not reach a conclusion; treat this round as "
+                        "not yet judged rather than as feedback on the work."
+                    ),
+                    backend_unavailable=True,
+                    backend_fatal_error=fatal,
+                    backend_exit_code=result.exit_code,
+                    backend_stop_kind=backend_stop_kind,
+                ))
+            if decision is None:
+                return with_call_metadata(ReviewDecision(
+                    status="blocked",
+                    reason=(
+                        "The Reviewer ended without submitting a review action. "
+                        "Its reply was not interpreted as acceptance or rejection."
+                    ),
+                    next_action=(
+                        "Ask the independent Reviewer to submit its judgment through "
+                        "approve_review, revise_review, defer_review, "
+                        "request_review_decision, or replan_review."
+                    ),
+                    backend_unavailable=True,
+                    backend_stop_kind="backend_unavailable",
+                ))
+            if authored_review is not None:
+                decision.reason = authored_review
+                if decision.next_action:
+                    decision.next_action = authored_review
+            decision = with_call_metadata(decision)
+            decision.manuscript_snapshot = reviewed_manuscript_snapshot
+            # Reviewer owns the scientific recommendation. The host enforces the
+            # operator's explicit minimum and current-file binding, not prose or
+            # research-result keyword heuristics.
+            if venue_required:
+                enforce_venue_acceptance(
+                    decision, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
+                    minimum=acceptance_minimum,
+                )
+                if decision.backend_unavailable:
+                    return decision
+            _persist_research_review(decision, config, authored_text=authored_review)
+            return decision
         except Exception as exc:  # noqa: BLE001
             msg = f"Reviewer runner raised {type(exc).__name__}: {exc}"
             log.exception("reviewer runner raised")
-            return ReviewDecision(
+            return with_call_metadata(ReviewDecision(
                 status="blocked",
                 reason=msg,
                 next_action="Resolve the reviewer runner failure before retrying.",
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
-            )
-        finally:
-            if review_output_dir is not None:
-                review_output_dir.cleanup()
-        rev_in = int(getattr(result, "input_tokens", 0) or 0)
-        rev_cached = int(getattr(result, "cached_input_tokens", 0) or 0)
-        rev_out = int(getattr(result, "output_tokens", 0) or 0)
-        rev_reasoning_output_tokens = int(
-            getattr(result, "reasoning_output_tokens", 0) or 0
-        )
-        # Copilot premium-request delta for this reviewer turn (0.0 off copilot).
-        # copilot 下本轮 reviewer 的高级请求增量（非 copilot 时为 0.0）。
-        rev_premium = float(getattr(result, "premium_requests", 0.0) or 0.0)
-        # Preserve transport metadata for observability and an opt-in same-role
-        # continuation.
-        rev_tid = getattr(result, "thread_id", None)
-        fatal = str(getattr(result, "fatal_error", "") or "").strip()
-        backend_stop_kind = (
-            normalize_stop_kind(getattr(result, "stop_kind", None))
-            or "backend_unavailable"
-        )
-        if fatal or result.exit_code != 0:
-            # Plain words first, in the language of the task; the transport
-            # details ride behind a "Technical record:" marker so a consumer
-            # can set them aside.
-            interrupted = "external interrupt" in fatal.lower() or "daemon stop" in fatal.lower()
-            chinese = uses_cjk(objective)
-            if interrupted:
-                sentence = (
-                    "审阅者还没读完这一轮，Argus 就被操作员停止了；这里没有任何"
-                    "对工作本身的评价。"
-                    if chinese
-                    else "Argus was stopped by its operator before the Reviewer could "
-                    "finish reading this round; nothing here is a judgment on the work."
-                )
-            else:
-                sentence = (
-                    "审阅者的会话在得出结论前就结束了，这一轮没有评审意见。"
-                    if chinese
-                    else "The Reviewer's session ended before it reached a conclusion, "
-                    "so this round was not judged."
-                )
-            reason = (
-                sentence
-                + (" 技术记录：" if chinese else " Technical record: ")
-                + f"exit={result.exit_code}"
-                + (f"; fatal_error={fatal}" if fatal else "")
-            )
-            return ReviewDecision(
-                status="blocked",
-                reason=reason,
-                next_action=(
-                    "这一轮还没有得到判断；请把它当作尚未审阅，而不是对工作的反馈。"
-                    if chinese
-                    else "The check did not reach a conclusion; treat this round as "
-                    "not yet judged rather than as feedback on the work."
-                ),
-                backend_unavailable=True,
-                input_tokens=rev_in,
-                cached_input_tokens=rev_cached,
-                output_tokens=rev_out,
-                reasoning_output_tokens=rev_reasoning_output_tokens,
-                premium_requests=rev_premium,
-                thread_id=rev_tid,
-                static_fingerprint=new_fp,
-                backend_fatal_error=fatal,
-                backend_exit_code=result.exit_code,
-                backend_stop_kind=backend_stop_kind,
-            )
-        if decision is None:
-            return ReviewDecision(
-                status="blocked",
-                reason=(
-                    "The Reviewer ended without submitting a review action. "
-                    "Its reply was not interpreted as acceptance or rejection."
-                ),
-                next_action=(
-                    "Ask the independent Reviewer to submit its judgment through "
-                    "approve_review, revise_review, defer_review, "
-                    "request_review_decision, or replan_review."
-                ),
-                backend_unavailable=True,
-                backend_stop_kind="backend_unavailable",
-                input_tokens=rev_in,
-                cached_input_tokens=rev_cached,
-                output_tokens=rev_out,
-                reasoning_output_tokens=rev_reasoning_output_tokens,
-                premium_requests=rev_premium,
-                thread_id=rev_tid,
-                static_fingerprint=new_fp,
-            )
-        if authored_review is not None:
-            decision.reason = authored_review
-            if decision.next_action:
-                decision.next_action = authored_review
-        # Phase-2 instrumentation: cost-tracking sinks (e.g. LifeSupervisor's
-        # _CostTrackingSink) read these fields off ``round.review.completed``
-        # events. If we don't propagate them every iteration budget enforcement
-        # silently breaks and the journal shows ``cost_usd=$0.0000``.
-        decision.input_tokens = rev_in
-        decision.cached_input_tokens = rev_cached
-        decision.output_tokens = rev_out
-        decision.reasoning_output_tokens = rev_reasoning_output_tokens
-        decision.premium_requests = rev_premium
-        decision.prompt_block_stats = prompt_block_stats
-        decision.thread_id = rev_tid
-        decision.static_fingerprint = new_fp
-        decision.session_resumed = bool(resume)
-        decision.manuscript_snapshot = reviewed_manuscript_snapshot
-        # Reviewer owns the scientific recommendation. The host enforces the
-        # operator's explicit minimum and current-file binding, not prose or
-        # research-result keyword heuristics.
-        if venue_required:
-            enforce_venue_acceptance(
-                decision, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
-                minimum=acceptance_minimum,
-            )
-            if decision.backend_unavailable:
-                return decision
-        _persist_research_review(decision, config, authored_text=authored_review)
-        return decision
+                backend_exit_code=result.exit_code if result is not None else None,
+                backend_fatal_error=str(getattr(result, "fatal_error", "") or ""),
+            ))
 
     def _render(
         self,

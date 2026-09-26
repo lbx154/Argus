@@ -1,6 +1,6 @@
 ---
-name: Verus API Specification and Proof Repair
-description: Implement view-first API specifications from source and docstrings, prove source correctness with Verus, check completeness with spec-determin-tool, and repair until both proof tracks pass.
+name: "Verus API Specification and Proof Repair"
+description: "Implement view-first API specifications from source and docstrings, prove source correctness with Verus, check completeness with spec-determin-tool, and repair until both proof tracks pass."
 ---
 
 # Verus API Specification and Proof Repair

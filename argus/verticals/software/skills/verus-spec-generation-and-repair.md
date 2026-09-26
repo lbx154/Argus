@@ -1,6 +1,6 @@
 ---
-name: Verus Module Specification Workflow
-description: Specify Rust submodules with view-first contracts, Verus correctness and spec-determin-tool completeness feedback, reviewed implementation-change issues, and explicit limitation reports.
+name: "Verus Module Specification Workflow"
+description: "Specify Rust submodules with view-first contracts, Verus correctness and spec-determin-tool completeness feedback, reviewed implementation-change issues, and explicit limitation reports."
 ---
 
 # Verus Module Specification Workflow

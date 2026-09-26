@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,10 +19,11 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.agent_cli.agent_cli_runner import AgentCliRunner
 from argus.agent_cli.agent_cli_runner import RunnerOptions as NativeOptions
 from argus.core.call_bound_execution import ExecutionCancelled
+from argus.core.knob_store import write_persisted_knob
 from argus.core.models import RunnerOptions
-from argus.core.role_tool_bridge import bridge_request
+from argus.core.role_tool_bridge import MAX_ACTIVE_OPERATIONS, bridge_request
 from argus.reviewer import Reviewer, ReviewerConfig
-from argus.reviewer.tools import PREFIX, review_action_tools
+from argus.reviewer.tools import PREFIX, ReviewActions, review_action_tools
 from argus.reviewer.validation import (
     CANCEL_TOOL,
     CLEANUP_SECONDS,
@@ -44,6 +46,256 @@ def wait_for_command(options, result):
         )
     assert result["status"] != "running", result
     return result
+
+
+@pytest.fixture
+def completed_reviewer_metadata(monkeypatch):
+    metadata = {
+        "input_tokens": 12345,
+        "cached_input_tokens": 2345,
+        "output_tokens": 678,
+        "reasoning_output_tokens": 89,
+        "premium_requests": 1.0,
+        "thread_id": "synthetic-reviewer-session",
+    }
+    run_exec = MemoryBackend.run_exec
+
+    def run_with_metadata(self, **kwargs):
+        return replace(run_exec(self, **kwargs), **metadata)
+
+    monkeypatch.setattr(MemoryBackend, "run_exec", run_with_metadata)
+    return metadata
+
+
+def _assert_completed_call_metadata(decision, metadata):
+    payload = decision.to_event_payload()
+    for name, value in metadata.items():
+        assert getattr(decision, name) == value
+        if name != "thread_id":
+            assert payload[name] == value
+    assert decision.static_fingerprint
+    assert decision.prompt_block_stats
+
+
+@pytest.fixture(params=["scratch", "receipt"])
+def paused_validation_setup(request, monkeypatch):
+    state = SimpleNamespace(
+        phase=request.param, entered=threading.Event(), release=threading.Event(), fail=False,
+    )
+    mkdir, write_text = Path.mkdir, Path.write_text
+
+    def pause():
+        state.entered.set()
+        assert state.release.wait(5), "initialization was not released"
+        if state.fail:
+            raise OSError(errno.ENOSPC, "synthetic delayed initialization failure")
+
+    def paused_mkdir(path, *args, **kwargs):
+        if state.phase == "scratch" and path.name == "scratch" and "reviewer-checks" in path.parts:
+            pause()
+        return mkdir(path, *args, **kwargs)
+
+    def paused_write(path, *args, **kwargs):
+        if (
+            state.phase == "receipt" and path.name == "result.tmp"
+            and "reviewer-checks" in path.parts and not state.entered.is_set()
+        ):
+            pause()
+        return write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", paused_mkdir)
+    monkeypatch.setattr(Path, "write_text", paused_write)
+    try:
+        yield state
+    finally:
+        state.release.set()
+
+
+def test_initialization_returns_running_without_requiring_ready_files(
+    tmp_path, monkeypatch, paused_validation_setup,
+):
+    from argus.reviewer import validation
+
+    monkeypatch.setattr(validation, "WAIT_SECONDS", 0.01)
+
+    def execute(_self, receipt, _cancelled):
+        path = Path(receipt["receipt_path"])
+        assert json.loads(path.read_text())["status"] == "running"
+        Path(receipt["stdout_path"]).write_text("completed check")
+        receipt.update(status="completed", exit_code=0)
+        validation._write_receipt(path, receipt)
+        return receipt
+
+    monkeypatch.setattr(ReviewValidation, "_execute", execute)
+    validator = ReviewValidation(str(tmp_path), [], "synthetic:local")
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        request = executor.submit(validator.run, {"argv": ["/bin/true"]})
+        try:
+            assert paused_validation_setup.entered.wait(3)
+            result = request.result(timeout=1)
+            assert result["status"] == "running" and result["exit_code"] is None
+            assert result["stdout"] == result["stderr"] == ""
+            if paused_validation_setup.phase == "scratch":
+                assert not Path(result["stdout_path"]).exists()
+            assert validator.result(result["command_id"])["status"] == "running"
+        finally:
+            paused_validation_setup.release.set()
+            result = request.result(timeout=3)
+            assert validator.tasks.wait(result["command_id"], 3)["status"] == "completed"
+            validator.close()
+    assert validator.result(result["command_id"])["stdout"] == "completed check"
+
+
+@pytest.mark.parametrize("late_failure", [False, True], ids=["cancelled-setup", "failed-setup"])
+def test_unfinished_initialization_cannot_leave_an_earlier_approval(
+    tmp_path, monkeypatch, paused_validation_setup, completed_reviewer_metadata, late_failure,
+):
+    from argus.reviewer import validation
+
+    paused_validation_setup.fail = late_failure
+    monkeypatch.setenv(IMAGE_ENV, "synthetic:local")
+    monkeypatch.setenv("DOCKER_HOST", "unix:///synthetic/docker.sock")
+    monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
+    monkeypatch.setattr(validation, "CLOSE_SECONDS", 0.02)
+    monkeypatch.setattr(validation.shutil, "which", lambda _: str(tmp_path / "missing-docker"))
+    validators, handlers = [], []
+    original_close, original_dispatch = ReviewValidation.close, ReviewActions.dispatch
+
+    def close(self):
+        validators.append(self)
+        original_close(self)
+
+    def dispatch(self, action, payload):
+        if action == COMMAND_TOOL:
+            handlers.append(threading.current_thread())
+        return original_dispatch(self, action, payload)
+
+    monkeypatch.setattr(ReviewValidation, "close", close)
+    monkeypatch.setattr(ReviewActions, "dispatch", dispatch)
+
+    def review_turn(_prompt, options):
+        env = {**options.extension_env, f"{PREFIX}_TIMEOUT": "1"}
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            request = executor.submit(
+                bridge_request, PREFIX, COMMAND_TOOL, {"argv": ["/bin/true"]}, env=env,
+            )
+            assert paused_validation_setup.entered.wait(3)
+            assert isinstance(request.exception(timeout=3), TimeoutError)
+        return "The tool request timed out after the earlier native approval."
+
+    backend = MemoryBackend()
+    backend.queue("reviewer", CannedResponse(
+        message_factory=review_turn,
+        review_action=("approve_review", {"review": "Synthetic approval before initialization finished."}),
+    ))
+    cleanup_error = None
+    try:
+        decision = Reviewer(backend).evaluate(
+            objective="Review the current candidate", round_index=1, session_id=None,
+            main_summary="A candidate exists.", main_error=None,
+            config=ReviewerConfig(active_vertical="software", working_dir=str(tmp_path)),
+        )
+    finally:
+        paused_validation_setup.release.set()
+        for handler in handlers:
+            handler.join(timeout=3)
+            assert not handler.is_alive()
+        if validators:
+            try:
+                validators[0].tasks.close(3)
+            except RuntimeError as exc:
+                cleanup_error = exc
+    assert decision.status == "blocked" and decision.backend_unavailable
+    assert "cleanup did not finish" in decision.reason
+    _assert_completed_call_metadata(decision, completed_reviewer_metadata)
+    assert decision.backend_exit_code == 0
+    validator = validators[0]
+    record = next(iter(validator._receipts.values()))
+    if late_failure:
+        assert cleanup_error is not None and "Role commands failed" in str(cleanup_error)
+        assert record["status"] == "not_started"
+    else:
+        assert cleanup_error is None
+        assert record["status"] == "cancelled"
+        assert json.loads(Path(record["receipt_path"]).read_text())["status"] == "cancelled"
+
+
+@pytest.mark.parametrize("missing_output", [False, True], ids=["pending-finalization", "missing-output"])
+def test_running_results_wait_for_finalization_and_do_not_hide_output_errors(
+    tmp_path, monkeypatch, missing_output,
+):
+    from argus.reviewer import validation
+
+    pending, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(validation, "WAIT_SECONDS", 0.01)
+
+    def execute(_self, receipt, _cancelled):
+        receipt.update(status="completed", exit_code=0)
+        pending.set()
+        assert release.wait(3)
+        validation._write_receipt(Path(receipt["receipt_path"]), receipt)
+        return receipt
+
+    monkeypatch.setattr(ReviewValidation, "_execute", execute)
+    validator = ReviewValidation(str(tmp_path), [], "synthetic:local")
+    try:
+        result = validator.run({"argv": ["/bin/true"]})
+        assert pending.wait(1)
+        assert result["status"] == "running" and result["exit_code"] is None
+        if missing_output:
+            Path(result["stdout_path"]).unlink()
+            with pytest.raises(FileNotFoundError):
+                validator.result(result["command_id"])
+        else:
+            current = validator.result(result["command_id"])
+            assert current["status"] == "running" and current["exit_code"] is None
+    finally:
+        release.set()
+        for identifier in validator._receipts:
+            assert validator.tasks.wait(identifier, 3)["status"] == "completed"
+        validator.close()
+
+
+def test_native_cancel_retains_capacity_when_run_requests_are_full(tmp_path, monkeypatch):
+    from argus.reviewer import validation
+
+    monkeypatch.setenv(IMAGE_ENV, "synthetic:local")
+    ready, lock = threading.Event(), threading.Lock()
+    stops = {}
+
+    def execute(_self, receipt, cancelled):
+        with lock:
+            stops[receipt["command_id"]] = cancelled
+            if len(stops) == MAX_ACTIVE_OPERATIONS:
+                ready.set()
+        assert cancelled.wait(5)
+        receipt.update(status="cancelled")
+        validation._write_receipt(Path(receipt["receipt_path"]), receipt)
+        return receipt
+
+    monkeypatch.setattr(ReviewValidation, "_execute", execute)
+    with review_action_tools(
+        SimpleNamespace(backend="memory"), RunnerOptions(working_dir=str(tmp_path)),
+        venue="", venue_required=False,
+    ) as (actions, options), ThreadPoolExecutor(max_workers=MAX_ACTIVE_OPERATIONS) as executor:
+        requests = [executor.submit(
+            bridge_request, PREFIX, COMMAND_TOOL, {"argv": ["/bin/true"]},
+            env=options.extension_env,
+        ) for _ in range(MAX_ACTIVE_OPERATIONS)]
+        try:
+            assert ready.wait(3)
+            assert all(not request.done() for request in requests)
+            identifier = next(iter(stops))
+            result = bridge_request(
+                PREFIX, CANCEL_TOOL, {"command_id": identifier}, env=options.extension_env,
+            )
+            assert result["status"] == "cancelled" and stops[identifier].is_set()
+            assert actions.decision is None
+        finally:
+            for stop in stops.values():
+                stop.set()
+            for request in requests:
+                request.result(timeout=3)
 
 
 @pytest.mark.parametrize("raw", ['"relative"', '{"path": "/tmp"}', "[1]", '["relative"]', '["/"]'])
@@ -77,6 +329,37 @@ def test_copilot_reviewer_gets_skill_and_operator_read_roots(tmp_path, monkeypat
     assert options.sandbox_mode == "read-only"
     assert options.force_safe_mode
     assert not options.dangerous_yolo
+
+
+@pytest.mark.parametrize(("environment_image", "persisted_image", "expected_image"), [
+    (None, None, None),
+    ("", None, None),
+    (" \t", None, None),
+    ("synthetic-env:local", None, "synthetic-env:local"),
+    (None, "synthetic-saved:local", "synthetic-saved:local"),
+    ("", "synthetic-saved:local", "synthetic-saved:local"),
+    (" synthetic-env:local ", "synthetic-saved:local", "synthetic-env:local"),
+])
+def test_validation_image_is_explicit_and_preserves_configuration_precedence(
+    tmp_path, monkeypatch, environment_image, persisted_image, expected_image,
+):
+    if environment_image is not None:
+        monkeypatch.setenv(IMAGE_ENV, environment_image)
+    if persisted_image is not None:
+        assert write_persisted_knob(IMAGE_ENV, persisted_image)
+    with review_action_tools(
+        SimpleNamespace(backend="memory"),
+        RunnerOptions(working_dir=str(tmp_path)),
+        venue="", venue_required=False,
+    ) as (actions, _options):
+        names = {tool["name"] for tool in actions.tools}
+        if expected_image is None:
+            assert actions.validation is None
+            assert {COMMAND_TOOL, RESULT_TOOL, CANCEL_TOOL}.isdisjoint(names)
+        else:
+            assert actions.validation is not None
+            assert actions.validation.image == expected_image
+            assert {COMMAND_TOOL, RESULT_TOOL, CANCEL_TOOL} <= names
 
 
 def test_validation_is_opt_in_and_does_not_grant_a_native_shell(tmp_path, monkeypatch):
@@ -272,7 +555,7 @@ def test_expected_docker_diagnostics_are_redacted_before_persistence(tmp_path, m
     monkeypatch.setattr(
         "argus.reviewer.validation.run_process",
         lambda argv, **kwargs: subprocess.CompletedProcess(
-            argv, 1, "", "Cannot connect through http://synthetic:private-diagnostic@proxy.invalid\n",
+            argv, 1, "", "Cannot connect through http://synthetic:private-diagnostic@example.invalid\n",
         ),
     )
     with review_action_tools(
@@ -290,6 +573,8 @@ def test_expected_docker_diagnostics_are_redacted_before_persistence(tmp_path, m
 
 @pytest.mark.parametrize("stage", ["context", "image", "create"])
 def test_preflight_deadlines_are_environment_results_with_receipts(tmp_path, monkeypatch, stage):
+    from argus.reviewer import validation
+
     monkeypatch.setenv(IMAGE_ENV, "ubuntu:24.04")
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
@@ -308,7 +593,8 @@ def test_preflight_deadlines_are_environment_results_with_receipts(tmp_path, mon
     try:
         result = validator.run({"argv": ["/bin/true"]})
         assert result["status"] == "environment_error"
-        assert stage in result["error"] and "10 seconds" in result["error"]
+        limit = validation.CREATE_SECONDS if stage == "create" else validation.PREFLIGHT_SECONDS
+        assert stage in result["error"] and f"{limit:g} seconds" in result["error"]
         assert json.loads(Path(result["receipt_path"]).read_text())["error"] == result["error"]
         assert not any("start" in command for command in calls)
     finally:
@@ -319,6 +605,75 @@ def test_preflight_deadlines_are_environment_results_with_receipts(tmp_path, mon
                 validator.close()
         else:
             validator.close()
+
+
+def test_delayed_create_finishes_within_creation_budget(tmp_path, monkeypatch):
+    from argus.reviewer import validation
+
+    docker = tmp_path / "delayed-docker"
+    docker.write_text(
+        f"#!{sys.executable}\n"
+        "import sys, time\n"
+        "args = sys.argv[1:]\n"
+        "if 'context' in args:\n"
+        "    print('unix:///synthetic/docker.sock')\n"
+        "elif 'image' in args:\n"
+        "    print('sha256:' + 'a' * 64)\n"
+        "elif 'create' in args:\n"
+        "    time.sleep(0.6)\n"
+        "    print('owned-container')\n"
+    )
+    docker.chmod(0o700)
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
+    monkeypatch.setattr(validation.shutil, "which", lambda _: str(docker))
+    monkeypatch.setattr(validation, "PREFLIGHT_SECONDS", 0.3)
+    monkeypatch.setattr(validation, "CREATE_SECONDS", 1.5, raising=False)
+    validator = ReviewValidation(str(tmp_path), [], "ubuntu:24.04")
+    result = None
+    try:
+        result = validator.run({"argv": ["/bin/true"]})
+    finally:
+        if result is not None and result.get("cleanup_status") == "failed":
+            with pytest.raises(RuntimeError, match="cleanup needs attention"):
+                validator.close()
+        else:
+            validator.close()
+    assert result["status"] == "completed", result
+    assert result["exit_code"] == 0
+    assert result["cleanup_status"] == "removed"
+
+
+def test_creation_budget_preserves_other_deadlines(tmp_path, monkeypatch):
+    from argus.reviewer import validation
+
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
+    monkeypatch.setattr(validation.shutil, "which", lambda _: "/synthetic/docker")
+    deadlines = {}
+
+    def run(argv, **kwargs):
+        stage = next(name for name in ("context", "image", "create", "start", "rm") if name in argv)
+        deadlines[stage] = kwargs["timeout"]
+        output = "unix:///synthetic/docker.sock\n" if stage == "context" else "sha256:" + "a" * 64
+        return subprocess.CompletedProcess(argv, 0, output, "")
+
+    monkeypatch.setattr(validation, "run_process", run)
+    validator = ReviewValidation(str(tmp_path), [], "ubuntu:24.04")
+    try:
+        result = validator.run({"argv": ["/bin/true"], "timeout_seconds": 7})
+    finally:
+        validator.close()
+    assert result["status"] == "completed"
+    assert deadlines["context"] == deadlines["image"] == validation.PREFLIGHT_SECONDS
+    assert deadlines["create"] == validation.CREATE_SECONDS
+    assert deadlines["create"] > deadlines["image"]
+    assert deadlines["start"] == 7
+    assert deadlines["rm"] == validation.CLEANUP_SECONDS
+    assert validation.CLOSE_SECONDS == (
+        validation.CREATE_SECONDS + validation.CLEANUP_SECONDS
+        + 2 * validation.PROCESS_REAP_SECONDS + 1
+    )
 
 
 @pytest.mark.parametrize("stage", ["context", "image", "create"])
@@ -444,7 +799,7 @@ def synthetic_docker_client(tmp_path, monkeypatch):
     assert endpoint.startswith("unix://"), "This check requires the selected local Docker daemon."
     config = tmp_path / "synthetic-docker-client"
     config.mkdir()
-    proxy = "http://argus-synthetic:proxy-fixture-only@proxy.invalid:3128"
+    proxy = "http://argus-synthetic:proxy-fixture-only@example.invalid:3128"
     (config / "config.json").write_text(json.dumps({
         "proxies": {"default": {
             "httpProxy": proxy, "httpsProxy": proxy, "allProxy": proxy,
@@ -469,7 +824,7 @@ def test_real_bridge_does_not_inject_configured_proxy_credentials(tmp_path, monk
     assert control.stdout == "synthetic-proxy-present"
     monkeypatch.setenv("DOCKER_TLS_VERIFY", "1")
     monkeypatch.setenv("DOCKER_CERT_PATH", str(tmp_path / "nonexistent-certificates"))
-    monkeypatch.setenv("HTTP_PROXY", "http://synthetic:ambient-proxy-only@proxy.invalid")
+    monkeypatch.setenv("HTTP_PROXY", "http://synthetic:ambient-proxy-only@example.invalid")
     monkeypatch.setenv(IMAGE_ENV, "ubuntu:24.04")
     with review_action_tools(
         SimpleNamespace(backend="copilot"),
@@ -740,14 +1095,17 @@ def test_evaluate_cancels_commands_on_normal_and_exceptional_turn_end(tmp_path, 
     assert receipt["exit_code"] is None
 
 
-def test_cleanup_failure_invalidates_an_ended_turn_not_the_proof(tmp_path, monkeypatch):
+@pytest.mark.parametrize("cleanup_fails", [False, True], ids=["clean", "failed-cleanup"])
+def test_cleanup_failure_invalidates_an_ended_turn_not_the_proof(
+    tmp_path, monkeypatch, completed_reviewer_metadata, cleanup_fails,
+):
     monkeypatch.setenv(IMAGE_ENV, "ubuntu:24.04")
     monkeypatch.setenv("DOCKER_HOST", "unix:///synthetic/docker.sock")
     monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
     monkeypatch.setattr("argus.reviewer.validation.shutil.which", lambda _: "/synthetic/docker")
 
     def run(argv, **_kwargs):
-        if "rm" in argv:
+        if "rm" in argv and cleanup_fails:
             return subprocess.CompletedProcess(argv, 1, "", "synthetic daemon cleanup failure")
         return subprocess.CompletedProcess(argv, 0, "sha256:" + "a" * 64, "")
 
@@ -760,25 +1118,74 @@ def test_cleanup_failure_invalidates_an_ended_turn_not_the_proof(tmp_path, monke
         return "Native action already submitted."
 
     backend = MemoryBackend()
+    backend.queue(
+        "reviewer",
+        CannedResponse(review_action=("approve_review", {"review": "Initial review for session reuse."})),
+        CannedResponse(
+            message_factory=review_turn,
+            review_action=("approve_review", {"review": "Synthetic native action for the lifecycle test."}),
+        ),
+    )
+    reviewer = Reviewer(backend)
+    arguments = {
+        "objective": "Review the current candidate", "round_index": 1, "session_id": None,
+        "main_summary": "A candidate exists.", "main_error": None,
+        "config": ReviewerConfig(working_dir=str(tmp_path)),
+    }
+    initial = reviewer.evaluate(**arguments)
+    assert initial.status == "done"
+    _assert_completed_call_metadata(initial, completed_reviewer_metadata)
+    decision = reviewer.evaluate(
+        **arguments,
+        resume_thread_id=initial.thread_id,
+        prior_static_fingerprint=initial.static_fingerprint,
+    )
+    _assert_completed_call_metadata(decision, completed_reviewer_metadata)
+    assert decision.thread_id == initial.thread_id
+    assert decision.static_fingerprint == initial.static_fingerprint
+    assert decision.session_resumed
+    assert backend.resume_history == [("reviewer", None), ("reviewer", initial.thread_id)]
+    assert observed["status"] == "completed" and observed["exit_code"] == 0
+    if cleanup_fails:
+        assert observed["cleanup_status"] == "failed"
+        assert decision.status == "blocked" and decision.backend_unavailable
+        assert decision.backend_exit_code == 0
+        assert "cleanup needs attention" in decision.reason
+    else:
+        assert observed["cleanup_status"] == "removed"
+        assert decision.status == "done" and not decision.backend_unavailable
+
+
+def test_provider_exception_does_not_invent_completed_call_metadata(
+    tmp_path, completed_reviewer_metadata,
+):
+    def fail(_prompt, _options):
+        raise RuntimeError("synthetic provider failure")
+
+    backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(
-        message_factory=review_turn,
-        review_action=("approve_review", {"review": "Synthetic native action for the lifecycle test."}),
+        message_factory=fail,
+        review_action=("approve_review", {"review": "Approval before the provider failed."}),
     ))
     decision = Reviewer(backend).evaluate(
         objective="Review the current candidate", round_index=1, session_id=None,
         main_summary="A candidate exists.", main_error=None,
         config=ReviewerConfig(working_dir=str(tmp_path)),
     )
-    assert observed["status"] == "completed" and observed["exit_code"] == 0
-    assert observed["cleanup_status"] == "failed"
     assert decision.status == "blocked" and decision.backend_unavailable
-    assert "cleanup needs attention" in decision.reason
+    assert "synthetic provider failure" in decision.reason
+    for name in completed_reviewer_metadata:
+        assert getattr(decision, name) == (None if name == "thread_id" else 0)
+    assert decision.backend_exit_code is None
+    assert decision.static_fingerprint == ""
+    assert decision.prompt_block_stats == {}
+    assert not decision.session_resumed
 
 
 @pytest.mark.parametrize("cleanup_fails", [False, True], ids=["receipt-only", "receipt-and-removal"])
 @pytest.mark.parametrize("execution", ["completed", "timed_out", "cancelled"])
 def test_terminal_receipt_failure_invalidates_an_earlier_approval(
-    tmp_path, monkeypatch, cleanup_fails, execution,
+    tmp_path, monkeypatch, completed_reviewer_metadata, cleanup_fails, execution,
 ):
     monkeypatch.setenv(IMAGE_ENV, "ubuntu:24.04")
     monkeypatch.setenv("DOCKER_HOST", "unix:///synthetic/docker.sock")
@@ -853,6 +1260,8 @@ def test_terminal_receipt_failure_invalidates_an_earlier_approval(
         assert observed["started"]
         assert observed["running"]["status"] == "running"
     assert decision.status == "blocked" and decision.backend_unavailable, decision
+    _assert_completed_call_metadata(decision, completed_reviewer_metadata)
+    assert decision.backend_exit_code == 0
     assert "Role commands failed:" in decision.reason
     assert "Reviewer receipt persistence failed:" in decision.reason
     assert "synthetic receipt storage exhausted" in decision.reason
@@ -865,7 +1274,7 @@ def test_terminal_receipt_failure_invalidates_an_earlier_approval(
 
 @pytest.mark.parametrize("write_stage", ["initial", "before_start"])
 def test_receipt_write_failure_before_execution_invalidates_approval(
-    tmp_path, monkeypatch, write_stage,
+    tmp_path, monkeypatch, completed_reviewer_metadata, write_stage,
 ):
     monkeypatch.setenv(IMAGE_ENV, "ubuntu:24.04")
     monkeypatch.setenv("DOCKER_HOST", "unix:///synthetic/docker.sock")
@@ -916,6 +1325,8 @@ def test_receipt_write_failure_before_execution_invalidates_approval(
     assert not any("start" in command for command in calls)
     assert any("rm" in command for command in calls) == (write_stage == "before_start")
     assert decision.status == "blocked" and decision.backend_unavailable, decision
+    _assert_completed_call_metadata(decision, completed_reviewer_metadata)
+    assert decision.backend_exit_code == 0
     assert "Reviewer receipt persistence failed:" in decision.reason
     assert "synthetic receipt storage exhausted" in decision.reason
     assert observed["tool_error"] == "role tool request failed"

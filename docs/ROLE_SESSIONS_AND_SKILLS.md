@@ -166,6 +166,17 @@ timeout permits execution until completion or the end of this turn, not beyond
 it. Explicit timeouts cover command execution; Docker setup has its own bounded
 waits. Native tool transports and permissions are unchanged.
 
+Command admission happens before filesystem preparation. Slow directory or
+receipt initialization remains owned by the current turn and can return
+`running` before log files exist. Output is empty only until those files are
+prepared; later read errors remain errors. A pending worker never reports a
+terminal status merely because its in-memory receipt has advanced ahead of
+cleanup or persistence.
+
+`cancel_review_command` uses the bridge's reserved cancellation capacity rather
+than competing for ordinary operation slots. Authentication, turn ownership,
+and the overall handler limit still apply.
+
 The host writes a command receipt before Docker setup and retains it with full
 stdout and stderr under the Argus profile's `reviewer-checks/` area. Expected
 missing-tool, context, image, and daemon failures return a persistent, redacted
@@ -174,10 +185,13 @@ these results is a proof conclusion, and missing tools, denied source writes,
 or unsupported inputs never cause unsandboxed execution.
 
 Ending the Reviewer turn cancels active commands and waits for cleanup, including
-when the provider raises or exits without a native review action. Docker setup
-operations have ten-second deadlines; forced removal has a five-second deadline.
+when the provider raises or exits without a native review action. Docker context
+and image queries have ten-second deadlines; container creation has a separate
+thirty-second deadline. Forced removal has a five-second deadline.
 Interrupted client process groups are killed and given at most two seconds to
-be reaped. Teardown shares a twenty-second wait across all active commands.
+be reaped. Teardown shares a forty-second wait across all active commands,
+including their filesystem preparation. An initializer that cannot finish
+within this deadline blocks approval even if its request already timed out.
 Container creation and starting are separate so cancellation during creation
 cannot subsequently launch the command.
 
@@ -200,3 +214,9 @@ still use its native approve/revise/defer/decision/replan action; prose and
 printed command output cannot forge acceptance. Launch workers with the intended
 Python environment so their MCP subprocesses can import the installed `mcp`
 dependency.
+
+Validation cleanup or receipt failures still block approval. If the provider
+call has already returned, its token/premium usage and session metadata are
+retained on the blocked review rather than discarded with the verdict.
+The same applies to temporary review-report cleanup and report or stage-state
+persistence failures during review finalization.

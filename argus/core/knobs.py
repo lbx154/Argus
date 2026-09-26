@@ -172,7 +172,7 @@ KNOBS: tuple[Knob, ...] = (
     ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
     Knob("ARGUS_SKILL_REVIEWER_READ_DIRS", "[]", "JSON array of absolute input directories for scoped Reviewer reads", "mission"),
-    Knob("ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE", "", "local Docker image for opt-in read-only Reviewer command checks; empty disables", "mission"),
+    Knob("ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE", "(unset)", "local Docker image for opt-in read-only Reviewer command checks; empty disables", "mission"),
     Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
     Knob("ARGUS_RESEARCH_SPEC_CHECKS", "on", "research vertical: after each Engineer round the host runs the project's own tests/spec (and tests/parity) suite with zero model tokens and shows the outcome to the Reviewer and next Engineer round as evidence, never as a gate; off disables", "mission"),
     Knob("ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS", "600", "research vertical: wall-clock limit for one host-run spec check (30-3600 seconds); the whole process group is killed and the timeout reported as evidence", "mission"),

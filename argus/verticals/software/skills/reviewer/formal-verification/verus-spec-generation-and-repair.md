@@ -1,6 +1,6 @@
 ---
-name: Verus Correctness and Completeness Review
-description: Independently accept Rust module specs only with source-and-docstring fidelity, Verus implementation proofs, spec-determin-tool completeness proofs, and complete per-API artifact coverage.
+name: "Verus Correctness and Completeness Review"
+description: "Independently accept Rust module specs only with source-and-docstring fidelity, Verus implementation proofs, spec-determin-tool completeness proofs, and complete per-API artifact coverage."
 ---
 
 # Verus Correctness and Completeness Review

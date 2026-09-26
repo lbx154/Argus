@@ -29,8 +29,9 @@ RESULT_TOOL = "get_review_command"
 CANCEL_TOOL = "cancel_review_command"
 WAIT_SECONDS = 5.0
 PREFLIGHT_SECONDS = 10.0
+CREATE_SECONDS = 30.0
 CLEANUP_SECONDS = 5.0
-CLOSE_SECONDS = PREFLIGHT_SECONDS + CLEANUP_SECONDS + 2 * PROCESS_REAP_SECONDS + 1
+CLOSE_SECONDS = CREATE_SECONDS + CLEANUP_SECONDS + 2 * PROCESS_REAP_SECONDS + 1
 
 
 class ReviewEnvironmentError(Exception):
@@ -74,9 +75,11 @@ def _tail(path: Path, limit: int = 24_000) -> str:
 def _docker_output(
     prefix: list[str], args: list[str], *, env: dict[str, str],
     cancelled: threading.Event | None = None,
+    timeout: float | None = None,
 ) -> str:
     result = run_process(
-        [*prefix, *args], env=env, timeout=PREFLIGHT_SECONDS, cancelled=cancelled,
+        [*prefix, *args], env=env,
+        timeout=PREFLIGHT_SECONDS if timeout is None else timeout, cancelled=cancelled,
     )
     if result.returncode:
         raise ReviewEnvironmentError(
@@ -110,6 +113,7 @@ class ReviewValidation:
         self.output_root = self.output_root.resolve()
         self.tasks = CallBoundTasks()
         self._receipts: dict[str, dict[str, Any]] = {}
+        self._output_ready: set[str] = set()
 
     def tools(self) -> list[dict[str, Any]]:
         command = {
@@ -156,11 +160,12 @@ class ReviewValidation:
             self.tasks.cancel(command_id)
         result = self.tasks.wait(command_id, WAIT_SECONDS)
         if result is None:
-            result = json.loads((self.output_root / command_id / "result.json").read_text())
+            result = {**self._receipts[command_id], "status": "running", "exit_code": None}
+        output_ready = command_id in self._output_ready
         return {
             **result,
-            "stdout": _tail(Path(result["stdout_path"])),
-            "stderr": _tail(Path(result["stderr_path"])),
+            "stdout": _tail(Path(result["stdout_path"])) if output_ready else "",
+            "stderr": _tail(Path(result["stderr_path"])) if output_ready else "",
         }
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -174,17 +179,11 @@ class ReviewValidation:
             raise ValueError("argv must be a nonempty array of nonempty strings")
 
         directory = self.output_root / uuid.uuid4().hex
-        directory.mkdir(mode=0o700)
         scratch = directory / "scratch"
-        scratch.mkdir(mode=0o700)
         if any(char in str(scratch) for char in (",", "\n", "\r", "\0")):
             raise ValueError("Reviewer scratch bind path contains unsupported characters")
-        for name in ("home", "tmp", "cache", "target"):
-            (scratch / name).mkdir()
         expanded = [arg.replace("{scratch}", str(scratch)) for arg in argv]
         stdout_path, stderr_path = directory / "stdout.txt", directory / "stderr.txt"
-        stdout_path.touch()
-        stderr_path.touch()
         receipt_path = directory / "result.json"
         receipt: dict[str, Any] = {
             "command_id": directory.name, "receipt_path": str(receipt_path),
@@ -197,17 +196,32 @@ class ReviewValidation:
         }
         self._receipts[directory.name] = receipt
         try:
-            _write_receipt(receipt_path, receipt)
-        except RuntimeError:
-            receipt.update(status="not_started")
-            raise
-        try:
-            self.tasks.submit(directory.name, lambda cancelled: self._execute(receipt, cancelled))
+            self.tasks.submit(
+                directory.name, lambda cancelled: self._prepare_and_execute(receipt, cancelled),
+            )
         except Exception:
             receipt.update(status="not_started")
-            _write_receipt(receipt_path, receipt)
             raise
         return self.result(directory.name)
+
+    def _prepare_and_execute(
+        self, receipt: dict[str, Any], cancelled: threading.Event,
+    ) -> dict[str, Any]:
+        receipt_path = Path(receipt["receipt_path"])
+        scratch = Path(receipt["scratch"])
+        try:
+            receipt_path.parent.mkdir(mode=0o700)
+            scratch.mkdir(mode=0o700)
+            for name in ("home", "tmp", "cache", "target"):
+                (scratch / name).mkdir()
+            Path(receipt["stdout_path"]).touch()
+            Path(receipt["stderr_path"]).touch()
+            self._output_ready.add(receipt["command_id"])
+            _write_receipt(receipt_path, receipt)
+        except (OSError, RuntimeError):
+            receipt.update(status="not_started")
+            raise
+        return self._execute(receipt, cancelled)
 
     def _execute(self, receipt: dict[str, Any], cancelled: threading.Event) -> dict[str, Any]:
         receipt_path = Path(receipt["receipt_path"])
@@ -281,7 +295,10 @@ class ReviewValidation:
             cleanup_needed = create_uncertain = True
             # Let bounded creation finish before cancellation removes the named
             # container. A cancelled create RPC must never start work later.
-            _docker_output(docker_prefix, command[len(docker_prefix):], env=docker_env)
+            _docker_output(
+                docker_prefix, command[len(docker_prefix):],
+                env=docker_env, timeout=CREATE_SECONDS,
+            )
             create_uncertain = False
             stage = "Docker start"
             _write_receipt(receipt_path, receipt)
@@ -305,11 +322,11 @@ class ReviewValidation:
                 ),
                 client_cleanup_error=str(exc),
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             if stage == "Docker start":
                 receipt.update(status="timed_out")
             else:
-                receipt.update(status="environment_error", error=f"{stage} exceeded {PREFLIGHT_SECONDS:g} seconds.")
+                receipt.update(status="environment_error", error=f"{stage} exceeded {exc.timeout:g} seconds.")
         except (ReviewEnvironmentError, OSError) as exc:
             receipt.update(status="environment_error", error=redact_secrets_text(f"{stage}: {exc}"))
         except Exception as exc:
