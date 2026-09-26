@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tomllib
 from pathlib import Path
@@ -15,6 +16,7 @@ from argus.core.models import RunnerOptions
 from argus.core.role_tool_bridge import bridge_request
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.reviewer.tools import PREFIX, ReviewActions, review_action_tools
+from argus.reviewer.validation import CANCEL_TOOL, COMMAND_TOOL, IMAGE_ENV, RESULT_TOOL
 
 
 def evaluate(backend, tmp_path):
@@ -200,3 +202,87 @@ def test_unsupported_backend_has_no_text_fallback():
             venue="", venue_required=False,
         ):
             pytest.fail("unsupported backend must not run")
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(os.environ.get("ARGUS_TEST_DOCKER_REVIEW") != "1", reason="explicit local Docker probe")
+@pytest.mark.parametrize("backend", ["pi", "copilot"])
+def test_native_validation_tools_can_query_and_cancel_without_deciding(tmp_path, monkeypatch, backend):
+    monkeypatch.setenv(IMAGE_ENV, "ubuntu:24.04")
+    monkeypatch.setattr("argus.reviewer.validation.WAIT_SECONDS", 0.1)
+    with review_action_tools(
+        SimpleNamespace(backend=backend),
+        RunnerOptions(sandbox_mode="read-only", working_dir=str(tmp_path)),
+        venue="", venue_required=False,
+    ) as (actions, options):
+        if backend == "pi":
+            script = """
+              const {default: register} = await import(process.argv[1]);
+              const tools = [];
+              await register({registerTool: tool => tools.push(tool)});
+              async function call(name, args) {
+                return (await tools.find(tool => tool.name === name).execute("call", args)).details;
+              }
+              let result = await call("run_review_command", {
+                argv: ["/bin/sh", "-c", "printf started; sleep 60"]
+              });
+              for (let n = 0; n < 100 && result.status === "running" && !result.stdout; n++)
+                result = await call("get_review_command", {command_id: result.command_id});
+              if (result.stdout !== "started") throw new Error(JSON.stringify(result));
+              result = await call("cancel_review_command", {command_id: result.command_id});
+              for (let n = 0; n < 100 && result.status === "running"; n++)
+                result = await call("get_review_command", {command_id: result.command_id});
+              if (result.status !== "cancelled" || result.cleanup_status !== "removed")
+                throw new Error(JSON.stringify(result));
+            """
+            subprocess.run(
+                ["node", "--input-type=module", "-e", script, options.trusted_extensions[0]],
+                env={**os.environ, **options.extension_env}, check=True,
+                capture_output=True, text=True, timeout=40,
+            )
+        else:
+            import asyncio
+            import sys
+
+            from mcp import ClientSession, StdioServerParameters
+            from mcp.client.stdio import stdio_client
+
+            async def exercise():
+                params = StdioServerParameters(
+                    command=sys.executable, args=["-m", "argus.reviewer.tools"],
+                    env={**os.environ, **options.extension_env, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+                )
+                async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+                    await session.initialize()
+                    listed = await session.list_tools()
+                    assert {COMMAND_TOOL, RESULT_TOOL, CANCEL_TOOL} <= {tool.name for tool in listed.tools}
+
+                    async def call(name, args):
+                        response = await session.call_tool(name, args)
+                        assert not response.isError
+                        return json.loads(response.content[0].text)
+
+                    result = await call(COMMAND_TOOL, {"argv": ["/bin/sh", "-c", "printf started; sleep 60"]})
+                    for _ in range(100):
+                        if result["status"] != "running" or result["stdout"]:
+                            break
+                        result = await call(RESULT_TOOL, {"command_id": result["command_id"]})
+                    assert result["stdout"] == "started", result
+                    result = await call(CANCEL_TOOL, {"command_id": result["command_id"]})
+                    for _ in range(100):
+                        if result["status"] != "running":
+                            break
+                        result = await call(RESULT_TOOL, {"command_id": result["command_id"]})
+                    assert result["status"] == "cancelled", result
+                    assert result["cleanup_status"] == "removed", result
+                    assert actions.decision is None
+                    response = await session.call_tool("revise_review", {
+                        "review": "The command was cancelled; the result has not been independently established.",
+                    })
+                    assert not response.isError
+
+            asyncio.run(exercise())
+        if backend == "pi":
+            assert actions.decision is None
+        else:
+            assert actions.decision.status == "continue"

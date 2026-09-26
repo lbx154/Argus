@@ -34,3 +34,9 @@ opaque hashes or duplicate the full repository survey.
 - Do not schedule implementation before identifying the independent oracle.
 - Do not create a plan whose nodes can each pass while the integrated public
   interface remains incompatible.
+
+## Verus module specifications
+
+Use the [Planner Verus Skill](formal-verification/verus-spec-generation-and-repair.md):
+analyze submodules first, schedule required views before API specs, and include
+both source-correctness and completeness proof feedback in each API task.

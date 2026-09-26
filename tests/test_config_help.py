@@ -42,6 +42,13 @@ def test_registry_is_well_formed() -> None:
     assert all(k.doc and k.default and k.group for k in KNOBS), "every knob needs doc/default/group"
 
 
+def test_reviewer_validation_image_documents_the_disabled_default() -> None:
+    name = "ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE"
+    knob = next(knob for knob in KNOBS if knob.name == name)
+    assert knob.default == "(unset)"
+    assert f"{name}  (default: (unset))  (default)" in format_config_help(env={})
+
+
 def test_registry_covers_the_key_operator_knobs() -> None:
     names = {k.name for k in KNOBS}
     for must in (

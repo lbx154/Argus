@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -130,6 +133,102 @@ def test_reviewer_owned_file_stays_authoritative(paper):
     result = evaluate(paper, runner)
     assert result.final_submission_certified
     assert (paper / "paper/REVIEW.md").read_text() == runner.prose
+
+
+@pytest.mark.parametrize(("backend", "failure"), [
+    ("pi", None),
+    ("copilot", None),
+    ("copilot", "report_cleanup"),
+    ("pi", "report_write"),
+    ("copilot", "report_write"),
+    ("pi", "state_write"),
+    ("copilot", "state_write"),
+])
+def test_post_call_report_failures_preserve_usage_and_block_approval(
+    paper, monkeypatch, backend, failure,
+):
+    from argus.manager import source_writeback
+    from argus.reviewer.review_file import ReviewFileStore
+
+    metadata = {
+        "input_tokens": 100,
+        "cached_input_tokens": 20,
+        "output_tokens": 50,
+        "reasoning_output_tokens": 7,
+        "premium_requests": 1.0,
+    }
+
+    class MeasuredReviewer(ProseRunner):
+        def run_exec(self, **kwargs):
+            if kwargs["options"].review_output:
+                ReviewFileStore(**kwargs["options"].review_output).write_review(self.prose)
+            return replace(super().run_exec(**kwargs), **metadata)
+
+    runner = MeasuredReviewer(ACCEPTANCE, "approve_review")
+    runner.backend = backend
+    error = f"synthetic {failure} failure"
+    if failure == "report_cleanup":
+        cleanup = TemporaryDirectory.cleanup
+
+        def fail_cleanup(directory):
+            cleanup(directory)
+            if Path(directory.name).name.startswith("argus-review-output-"):
+                raise OSError(error)
+
+        monkeypatch.setattr(TemporaryDirectory, "cleanup", fail_cleanup)
+    elif failure == "report_write":
+        atomic_write = source_writeback.atomic_write
+
+        def fail_write(path, text):
+            if runner.calls and Path(path).name == "REVIEW.md":
+                raise OSError(error)
+            return atomic_write(path, text)
+
+        monkeypatch.setattr(source_writeback, "atomic_write", fail_write)
+    elif failure == "state_write":
+        def fail_state_write(*_args, **_kwargs):
+            raise OSError(error)
+
+        monkeypatch.setattr("argus.core.pipeline_state.write_pipeline_state", fail_state_write)
+
+    review = evaluate(paper, runner)
+    assert len(runner.calls) == 1
+    payload = review.to_event_payload()
+    for name, value in metadata.items():
+        assert getattr(review, name) == value
+        assert payload[name] == value
+    assert review.static_fingerprint
+    assert review.prompt_block_stats
+    if backend == "copilot":
+        receipt = Path(runner.calls[0]["options"].review_output["receipt"])
+        assert not receipt.parent.exists()
+    if failure is None:
+        assert review.final_submission_certified and not review.backend_unavailable
+        assert read_pipeline_state(paper)["current_verdict"] == "done"
+    else:
+        assert review.status == "blocked" and review.backend_unavailable
+        assert not review.final_submission_certified
+        assert review.backend_exit_code == 0
+        assert error in review.reason
+        assert read_pipeline_state(paper).get("current_verdict") != "done"
+
+
+def test_review_without_explicit_root_does_not_inspect_a_manuscript(monkeypatch):
+    inspected = []
+
+    def snapshot(root):
+        inspected.append(root)
+        return {"sha256": ""}
+
+    monkeypatch.setattr("argus.core.manuscript_snapshot.manuscript_snapshot", snapshot)
+    review = Reviewer(ProseRunner("Waiting for the software checks.", "defer_review")).evaluate(
+        objective="Review a software change", round_index=1, session_id=None,
+        main_summary="No project directory was provided.", main_error=None,
+        config=ReviewerConfig(active_vertical="software"),
+    )
+    assert review.status == "continue" and not review.backend_unavailable
+    assert review.manuscript_snapshot is None
+    assert inspected == []
 
 
 def test_below_threshold_recommendation_cannot_pass_an_approval_action(paper):

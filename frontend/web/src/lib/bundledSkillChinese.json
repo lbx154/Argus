@@ -1448,32 +1448,102 @@
     "source": "argus/verticals/research/skills/reviewer/venue-academic-language-review.md",
     "sourceSha256": "a2fe9faf57ff0a09181f42de2ac2b5080158e08c430078fb48722fd6b9893f66"
   },
+  "vertical/software/engineer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": {
+    "title": "Verus API 规格与证明修复（中文审阅稿）",
+    "summary": "工程师流程的中文参考，解释视图、双轨证明、实现修改评审和逐 API 交付要求。",
+    "originalName": "engineer/formal-verification/references/verus-spec-generation-and-repair.zh-CN",
+    "source": "argus/verticals/software/skills/engineer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
+    "sourceSha256": "d8b9d0454dba11e26939164ebced294115ec3441e36a732d1900c53835fde5b4"
+  },
+  "vertical/software/engineer/formal-verification/verus-spec-generation-and-repair.md": {
+    "title": "Verus API 规格与证明修复",
+    "summary": "先建立视图，再依据源码和文档生成 API 规格，结合正确性与完备性证明反馈修复，并记录需独立评审的问题。",
+    "originalName": "Verus API Specification and Proof Repair",
+    "source": "argus/verticals/software/skills/engineer/formal-verification/verus-spec-generation-and-repair.md",
+    "sourceSha256": "b8b75623f4beeccd7d1d49f88c846ae581509ba500471534f828320653bb4677"
+  },
   "vertical/software/engineer/software-change-implementation.md": {
     "title": "有边界的软件实现",
     "summary": "结合仓库结构选择合适工具，以与任务规模相称的检查和决定性验证完成软件修改。",
     "originalName": "Software Change Implementation",
     "source": "argus/verticals/software/skills/engineer/software-change-implementation.md",
-    "sourceSha256": "741acb427b655a9b1d92bcec572561790835081e76d8c11642b003bc8c898241"
+    "sourceSha256": "b5a2cae07ece8d539bcf1368d36a138b635ee95c0c88ccb7ab2a90beebd24044"
+  },
+  "vertical/software/manager/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": {
+    "title": "Verus 任务范围与交付（中文审阅稿）",
+    "summary": "协调者流程的中文参考，说明任务范围、双重验收、问题报告和实现修改的授权要求。",
+    "originalName": "manager/formal-verification/references/verus-spec-generation-and-repair.zh-CN",
+    "source": "argus/verticals/software/skills/manager/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
+    "sourceSha256": "99265e73d9466208838f9537d4c72616809530d81b0066d43ac3a865845d9cf2"
+  },
+  "vertical/software/manager/formal-verification/verus-spec-generation-and-repair.md": {
+    "title": "Verus 任务范围与交付",
+    "summary": "明确模块和 API 范围、工具基线与交付物，要求正确性和完备性双重检查，并保留实现修改的授权边界。",
+    "originalName": "Verus Specification Scope and Delivery",
+    "source": "argus/verticals/software/skills/manager/formal-verification/verus-spec-generation-and-repair.md",
+    "sourceSha256": "6fc81720d8d3d16a9b66b51179242143fb7c489362c195dfda42c778e26ab271"
   },
   "vertical/software/manager/software-project-grounding.md": {
     "title": "软件任务前的仓库理解",
     "summary": "在交给规划或执行前识别架构、已有类似实现、验证命令和契约风险，不改变用户任务。",
     "originalName": "Software Project Grounding Before Decomposition",
     "source": "argus/verticals/software/skills/manager/software-project-grounding.md",
-    "sourceSha256": "fbf81ed96d7eb80c481e37bdbd68cb7e860b70025ece40725df16533e3d1f89b"
+    "sourceSha256": "0b1d8a2ab9b01b713568dd469bc6e44d6c59c7cc108b976e4168edbef0b44bb6"
+  },
+  "vertical/software/planner/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": {
+    "title": "Verus 子模块与证明规划（中文审阅稿）",
+    "summary": "规划者流程的中文参考，说明子模块分析、视图依赖、两类证明任务及失败后的重新规划。",
+    "originalName": "planner/formal-verification/references/verus-spec-generation-and-repair.zh-CN",
+    "source": "argus/verticals/software/skills/planner/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
+    "sourceSha256": "0b80e1fb7dc18b9653f47a1ec40694b34d37c187bbf9ac3e6a3402f2177213fc"
+  },
+  "vertical/software/planner/formal-verification/verus-spec-generation-and-repair.md": {
+    "title": "Verus 子模块与证明规划",
+    "summary": "分析子模块与 API 依赖，先安排视图再安排规格，规划正确性、完备性反馈和逐 API 证明记录。",
+    "originalName": "Verus Submodule and Proof Planning",
+    "source": "argus/verticals/software/skills/planner/formal-verification/verus-spec-generation-and-repair.md",
+    "sourceSha256": "ca5d22fa5f52a7e619b41b438d41f26be7668e7de7cba1a69a9093af1d1803a4"
   },
   "vertical/software/planner/software-project-grounding.md": {
     "title": "依据仓库结构规划软件任务",
     "summary": "核对协调者提供的仓库信息，围绕架构边界和独立验证风险拆解工作。",
     "originalName": "Software Project Grounding Before Decomposition",
     "source": "argus/verticals/software/skills/planner/software-project-grounding.md",
-    "sourceSha256": "70b38719478858afc0e4e8eb191ac54c70db9ffff304bb593983fca271ddd7c6"
+    "sourceSha256": "f2bce30f9ba1001e35d80f4d1154a8d5a55d3e6284d75eff24a8718d24b4416d"
+  },
+  "vertical/software/references/verus-spec-generation-and-repair.zh-CN.md": {
+    "title": "Verus 模块规格共享规范（中文审阅稿）",
+    "summary": "共享工作流的中文参考，说明角色分工、规格修复、实现修改授权和完整模块的验收边界。",
+    "originalName": "references/verus-spec-generation-and-repair.zh-CN",
+    "source": "argus/verticals/software/skills/references/verus-spec-generation-and-repair.zh-CN.md",
+    "sourceSha256": "137e9d9e612a3f4b9a7a4d36a78da78faa03de8ef74899ca2aaa96d9cbeb2dbe"
+  },
+  "vertical/software/reviewer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": {
+    "title": "Verus 正确性与完备性验收（中文审阅稿）",
+    "summary": "审阅者流程的中文参考，说明独立重放双轨证明、审查实现修改和核对完整模块覆盖的要求。",
+    "originalName": "reviewer/formal-verification/references/verus-spec-generation-and-repair.zh-CN",
+    "source": "argus/verticals/software/skills/reviewer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
+    "sourceSha256": "f34f3985042716c286604d8dcb9a30049ec02d41cbe8a84fabbad438c39fe755"
+  },
+  "vertical/software/reviewer/formal-verification/verus-spec-generation-and-repair.md": {
+    "title": "Verus 正确性与完备性验收",
+    "summary": "独立核对源码语义、两类证明及模块覆盖；实现修改须先记录问题并严格评审，不能把失败或未知结果当作完成。",
+    "originalName": "Verus Correctness and Completeness Review",
+    "source": "argus/verticals/software/skills/reviewer/formal-verification/verus-spec-generation-and-repair.md",
+    "sourceSha256": "615c33c439f573a4a2495d9b3b4614be6e436ad014fabd87e339359d44f09103"
   },
   "vertical/software/reviewer/software-change-review.md": {
     "title": "软件修改独立评审",
     "summary": "检查真实调用路径、兼容性与验证证据，不依赖参考答案或仅凭完成声明判断。",
     "originalName": "Software Change Review",
     "source": "argus/verticals/software/skills/reviewer/software-change-review.md",
-    "sourceSha256": "5d1a66ff65accae04ec02005724735c9767308ac63c005b8be6e269eb9acb25f"
+    "sourceSha256": "f921e73849261c87afb1e246136ac1b2bd287e7cb9534eb7fd91de290dd7359d"
+  },
+  "vertical/software/verus-spec-generation-and-repair.md": {
+    "title": "Verus 模块规格生成与修复",
+    "summary": "为四个角色统一视图优先、源码与文档对照、正确性和完备性双轨验证，以及规格、证明和问题记录的交付要求。",
+    "originalName": "Verus Module Specification Workflow",
+    "source": "argus/verticals/software/skills/verus-spec-generation-and-repair.md",
+    "sourceSha256": "e74c0de684a224d3edc2e986c7e5e16cbe512d7ccd8558d18a2fe2ef96797614"
   }
 }
