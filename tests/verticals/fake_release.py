@@ -52,6 +52,7 @@ def spec(
     skills: bool = True,
     extra_files: dict[str, str] | None = None,
     routing_path: tuple[str, ...] = (),
+    argus_features: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     return {
         "name": name, "version": version, "requires": tuple(requires), "parents": tuple(parents),
@@ -59,6 +60,7 @@ def spec(
         "purpose_zh": purpose_zh, "marker": marker, "api_version": api_version, "skills": skills,
         "extra_files": dict(extra_files or {}),
         "routing_path": routing_path,
+        "argus_features": argus_features,
     }
 
 
@@ -115,6 +117,7 @@ def catalog_entry(item: dict[str, Any], data: bytes, *, tag: str, url: str | Non
         "size_bytes": sum(len(v) for v in archive_members(item).values()),
         "api_version": item["api_version"],
         "min_argus": "test",
+        "argus_features": list(item["argus_features"]),
         "maintainers": [],
         "archive": {
             "file": file_name,
