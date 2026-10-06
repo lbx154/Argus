@@ -37,6 +37,49 @@ The store never installs Python dependencies: a vertical's `python_requirements`
 are *shown* (with the ones whose module is missing flagged), so the decision stays
 with the operator.
 
+## Framework requirements
+
+Catalog entries may declare `argus_features`, a distinct list of required
+framework capabilities. Supported names currently are:
+
+- `composable-workflow-profiles`: `VerticalContract.compose_workflow`.
+- `vertical-routing-paths`: the framework's routing-path validator.
+- `host-round-evidence`: the request/result types, provider registration and
+  collection API used to deliver host evidence to a read-only Reviewer.
+
+The Store checks these known framework APIs and the vertical API version across
+the entire selected dependency closure before starting an install/update job.
+Unknown features and missing APIs are explicit refusals; no archive is downloaded
+or replaced. The catalog cannot name arbitrary modules to import. Plugin code,
+project evaluators and EDA tools are not executed by these probes.
+
+Requirements are saved with the installed version, so offline discovery,
+enablement and host preinstallation also detect an incompatible runtime.
+`runtime_issues` describes the installed dependency closure; `install_issues`
+describes the catalog selection. A newer incompatible catalog must not make a
+working installed version appear broken or disable it. Disable/removal remain
+available; incompatible installation/update/enable actions are not offered.
+`enabled` remains the user's setting, not a claim that a plugin loaded.
+
+`min_argus` is only an informational family label. Legacy declarations without
+`argus_features` are not retroactively inferred, and Stores predating this
+support ignore the field: deploy the framework support separately before relying
+on early refusal. This does not automatically upgrade a frozen runtime or migrate
+a historical project. Satisfying feature requirements is not proof of arbitrary
+plugin importability, Python dependency availability, toolchain readiness or
+scientific acceptance.
+
+The existing Linux `tests.yml` job checks out a fixed community-provider
+revision and sets `ARGUS_VERTICALS_REPO`, enabling the real Store integration
+cases in the normal suite. Providers are built into temporary release archives,
+not pip-installed into the framework environment. Icarus runs only the bounded
+digital reference. An explicitly configured missing checkout fails rather than
+silently skipping; an unconfigured developer checkout remains optional.
+The producer's CI independently pins its framework implementation and checks
+that release requirements survive the real Store parser and installation.
+Update these immutable CI references deliberately alongside cross-repository
+changes; neither reference selects a production runtime or authorizes an ACE run.
+
 ## Surfaces
 
 | surface | where |
@@ -207,7 +250,7 @@ Errors: a store refusal is 409 `{"detail": message}`; an unknown name or action 
 404; writes are same-origin only (403 otherwise); every route needs the usual bearer
 token. A row has `name, purpose, purpose_zh, kind, version, installed_version, enabled,
 update_available, requires, shared, python_requirements, missing_python, tags,
-size_bytes, used_by, operation, managed_by_host, actions`; `kind` is one of
+runtime_issues, install_issues, size_bytes, used_by, operation, managed_by_host, actions`; `kind` is one of
 `builtin`, `package` (pip-installed `argus-verticals`), `installed` (store) or
 `available` (catalog only), and `actions` lists exactly the manage actions the row
 accepts in its current state.
@@ -233,3 +276,7 @@ accepts in its current state.
   for this user; the overlay `state.json` cannot be recorded.
 - *`missing_python`* lists a requirement — install it into the Python that runs Argus
   (`pip install <requirement>`), or accept the documented gap for optional ones.
+- *`runtime_issues` / `install_issues`* — the message names the owning dependency
+  and unsupported feature/API. Select a compatible framework/provider combination;
+  do not upgrade a frozen project implicitly. The current installed provider can
+  remain usable even when only its catalog update is incompatible.

@@ -557,6 +557,10 @@ export interface VerticalRow {
   python_requirements: string[];
   /** Python distributions not importable from the environment Argus runs in. */
   missing_python: string[];
+  /** Declared runtime incompatibilities of the installed version; absent on older servers. */
+  runtime_issues?: string[];
+  /** Declared runtime incompatibilities of the catalog install/update dependency closure. */
+  install_issues?: string[];
   tags: string[];
   size_bytes: number | null;
   /** Project sids currently bound to this vertical. */

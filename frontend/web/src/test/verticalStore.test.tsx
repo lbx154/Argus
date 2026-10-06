@@ -110,6 +110,22 @@ describe('vertical cards', () => {
     expect(card(materials)).not.toContain('vertical-missing-python');
   });
 
+  it('distinguishes an incompatible update from the installed runtime and keeps allowed actions', () => {
+    const html = card(row({
+      ...kernel, runtime_issues: [], install_issues: ['base: unsupported Argus feature future-runtime'],
+      actions: ['disable', 'uninstall'],
+    }));
+    expect(html).toContain('verticals.installIssues base: unsupported Argus feature future-runtime');
+    expect(html).not.toContain('data-testid="vertical-runtime-issues"');
+    expect(actionsOf(html)).toEqual(['disable', 'uninstall']);
+    const incompatible = card(row({
+      ...kernel, runtime_issues: ['base: missing host-round-evidence'], install_issues: [], actions: ['uninstall'],
+    }));
+    expect(incompatible).toContain('verticals.runtimeIssues base: missing host-round-evidence');
+    expect(incompatible).not.toContain('data-testid="vertical-install-issues"');
+    expect(actionsOf(incompatible)).toEqual(['uninstall']);
+  });
+
   it('counts the projects using a vertical and hides the list until asked', () => {
     const html = card(kernel);
     expect(html).toContain('verticals.usedBy 2');
