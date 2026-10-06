@@ -69,6 +69,17 @@ a historical project. Satisfying feature requirements is not proof of arbitrary
 plugin importability, Python dependency availability, toolchain readiness or
 scientific acceptance.
 
+The existing Linux `tests.yml` job checks out a fixed community-provider
+revision and sets `ARGUS_VERTICALS_REPO`, enabling the real Store integration
+cases in the normal suite. Providers are built into temporary release archives,
+not pip-installed into the framework environment. Icarus runs only the bounded
+digital reference. An explicitly configured missing checkout fails rather than
+silently skipping; an unconfigured developer checkout remains optional.
+The producer's CI independently pins its framework implementation and checks
+that release requirements survive the real Store parser and installation.
+Update these immutable CI references deliberately alongside cross-repository
+changes; neither reference selects a production runtime or authorizes an ACE run.
+
 ## Surfaces
 
 | surface | where |

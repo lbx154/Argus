@@ -174,7 +174,10 @@ DEFAULT_COMMUNITY_REPO = Path("/data/v-boxiuli/argus-verticals")
 
 
 def community_repo() -> Path | None:
-    candidate = Path(os.environ.get(COMMUNITY_REPO_ENV) or DEFAULT_COMMUNITY_REPO)
+    configured = os.environ.get(COMMUNITY_REPO_ENV)
+    candidate = Path(configured or DEFAULT_COMMUNITY_REPO)
+    if configured and not (candidate / "scripts" / "build_catalog.py").is_file():
+        raise FileNotFoundError(f"{COMMUNITY_REPO_ENV}={candidate}: scripts/build_catalog.py is missing")
     return candidate if (candidate / "scripts" / "build_catalog.py").is_file() else None
 
 

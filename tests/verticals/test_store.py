@@ -1042,6 +1042,18 @@ def community_release(tmp_path_factory) -> Path:
     return catalog
 
 
+def test_explicit_community_checkout_cannot_silently_skip(tmp_path, monkeypatch):
+    monkeypatch.setenv(fake.COMMUNITY_REPO_ENV, str(tmp_path / "missing-checkout"))
+    with pytest.raises(FileNotFoundError, match="ARGUS_VERTICALS_REPO"):
+        fake.community_repo()
+
+
+def test_unconfigured_community_checkout_remains_optional(tmp_path, monkeypatch):
+    monkeypatch.delenv(fake.COMMUNITY_REPO_ENV, raising=False)
+    monkeypatch.setattr(fake, "DEFAULT_COMMUNITY_REPO", tmp_path / "missing-checkout")
+    assert fake.community_repo() is None
+
+
 @pytest.mark.integration
 def test_real_hardware_features_install_and_deliver_host_evidence_in_a_fresh_process(
     community_release, tmp_path,
