@@ -5,7 +5,12 @@ through, the checklist the Reviewer applies at each stage, and the skills the
 roles read before they start. This page builds a small real one,
 `lab_notebook`, from nothing to an installed entry in the Vertical Store. The
 finished files are under [`examples/verticals/`](../examples/verticals/) and
-every command below was run against this checkout.
+every command below was run against this checkout. Run the commands from the
+root of the checkout (the paths are relative to it) with the venv's `python`
+(activate the venv, or write `.venv/bin/python`). The example already exists, so
+you can follow every step with it as is; to build your own, copy
+`examples/verticals/argus_verticals/lab_notebook/` to a new directory name next
+to it and use that name wherever the commands say `lab_notebook`.
 
 Background reading: [the Vertical Store](vertical-store.md) for the store's
 internals and hosted mode, and
@@ -365,13 +370,21 @@ operation            install done: install finished
 
 The files landed at `<ARGUS_SKILL_HOME>/verticals/argus_verticals/lab_notebook/`
 next to the store's `registry.json`, and the registry advertises the vertical
-with origin `store`, its two skills found automatically next to `stages.py`:
+with origin `store`, its skills found automatically next to `stages.py`. To
+check that from Python (same `ARGUS_SKILL_HOME` as the install):
+
+```bash
+python -c "
+from argus.verticals._registry import vertical_plugin
+p = vertical_plugin('lab_notebook')
+print('advertised:', p is not None)
+print('origin:', p.origin, '| skills_root:', p.skills_root)
+"
+```
 
 ```
 advertised: True
 origin: store | skills_root: .../verticals/argus_verticals/lab_notebook/skills
-skills: ['engineer/measurement-record.md', 'reviewer/measurement-review.md']
-stages: ('measure', 'report') | gate: none | mode: staged
 ```
 
 From here the Manager can choose `lab_notebook` for a task whose text matches

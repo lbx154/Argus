@@ -122,7 +122,9 @@ uv tool install --force --python 3.12 "argus @ https://github.com/microsoft/Argu
 ```
 
 On Linux, `argus` below means `$HOME/Argus/.venv/bin/argus` unless the venv is
-active. Everywhere, `python -m argus ...` runs the same CLI without ever
+active (`source "$HOME/Argus/.venv/bin/activate"`; with it active, `python`
+in this guide and in [building a vertical](building-a-vertical.md) is also the
+venv's interpreter, which is the one that can import `argus`). Everywhere, `python -m argus ...` runs the same CLI without ever
 starting the Node cockpit; it is what you want in scripts and over SSH without
 a terminal.
 
@@ -170,7 +172,13 @@ all blocking checks passed
 ```
 
 A `!` line is advice, not a failure; the desktop warning above only matters if
-you intend to build the desktop app from this checkout. When something is
+you intend to build the desktop app from this checkout. A fresh source checkout
+may show other `!` lines too, for example `ARGUS-ASSET-002
+[install/assets_stale]` (the committed Web/TUI bundle predates a frontend
+source change; its fix is for maintainers, and the bundled UI still works) or
+`ARGUS-PATH-001 [install/path_memory_missing]` (no path memory recorded yet).
+Only a line that is not `✓` or `!`, and a final line other than `all blocking
+checks passed`, needs action before you continue. When something is
 wrong, `argus doctor --fix-safe` applies the repairs the doctor itself marked
 safe and reruns; `argus doctor --advisor auto` lets one of the installed agent
 CLIs inspect and repair. Without one of those two options `doctor` changes
