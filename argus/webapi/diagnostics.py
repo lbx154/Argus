@@ -248,7 +248,7 @@ def _check_backend_preflight(
     backend: str | None = None,
     auth_mode: str | None = None,
     probe_auth: bool = True,
-    allow_prerelease: bool = False,
+    allow_prerelease: bool | None = None,
 ) -> Check:
     from ..core.backend_readiness import check_backend_readiness
 
@@ -399,7 +399,7 @@ def run_diagnostics(
     backend: str | None = None,
     auth_mode: str | None = None,
     probe_auth: bool = True,
-    allow_prerelease: bool = False,
+    allow_prerelease: bool | None = None,
 ) -> list[Check]:
     """Run every diagnostic and return the ordered list of :class:`Check`.
 

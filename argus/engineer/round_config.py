@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from dataclasses import replace as dataclass_replace
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..core.knobs import env_int
 from ..core.role_session import (
@@ -363,6 +363,12 @@ class SupervisedConfig:
     )
     operator_questions_allowed: bool = True
     operator_question_policy_root: Path | None = None
+    # While the Engineer waits on work it started itself, the round keeps the
+    # mission slot for as long as this answers True, instead of pausing after
+    # one cadence and paying a Planner turn and a session restart to be resumed
+    # minutes later. The daemon answers from its backlog and inbox. None keeps
+    # the single-cadence pause for callers that run one mission at a time.
+    external_wait_hold: Callable[[], bool] | None = None
 
     def __post_init__(self) -> None:
         """Keep the round-budget guards reachable when ``max_rounds`` shrinks.

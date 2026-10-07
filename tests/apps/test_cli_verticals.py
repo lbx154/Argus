@@ -134,3 +134,16 @@ def test_python_dash_m_argus_runs_the_store_headless(release) -> None:
     payload = json.loads(result.stdout)
     assert [row["name"] for row in payload["verticals"] if row["kind"] == "available"] == ["base_v", "child_v"]
     assert "node" not in result.stderr.lower()
+
+
+def test_runtime_refusal_reaches_cli_info_list_and_install(release, capsys):
+    payload = json.loads(release.read_text(encoding="utf-8"))
+    payload["verticals"]["base_v"]["argus_features"] = ["future-runtime"]
+    release.write_text(json.dumps(payload), encoding="utf-8")
+    assert main(["verticals", "info", "child_v"]) == 0
+    assert "base_v: unsupported Argus feature 'future-runtime'" in capsys.readouterr().out
+    assert main(["verticals", "list"]) == 0
+    assert "future-runtime" in capsys.readouterr().err
+    assert main(["verticals", "install", "child_v"]) == 1
+    assert "base_v: unsupported Argus feature 'future-runtime'" in capsys.readouterr().err
+    assert store.installed() == {} and store.operation("child_v") is None

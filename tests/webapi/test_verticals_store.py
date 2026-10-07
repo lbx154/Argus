@@ -1,6 +1,7 @@
 """``/api/verticals``: auth, payload shape, 202/200/409/404, same-origin, hosted gate."""
 from __future__ import annotations
 
+import json
 import os
 import time
 from pathlib import Path
@@ -111,6 +112,20 @@ def test_unknown_names_and_actions_are_404_and_refusals_409(client) -> None:
     bad_body = web.post("/api/verticals/child_v/manage/install", json={"force": "yes"})
     assert bad_body.status_code == 409
     assert web.post("/api/verticals/child_v/manage/install", json={"other": 1}).status_code == 409
+
+
+def test_runtime_requirement_refusal_is_visible_before_a_job(client, _isolated_store):
+    web, _ = client
+    payload = json.loads(_isolated_store.read_text(encoding="utf-8"))
+    payload["verticals"]["base_v"]["argus_features"] = ["future-runtime"]
+    _isolated_store.write_text(json.dumps(payload), encoding="utf-8")
+    row = _row(web.get("/api/verticals").json(), "child_v")
+    assert row["runtime_issues"] == [] and row["actions"] == []
+    assert "base_v" in " ".join(row["install_issues"])
+    refused = web.post("/api/verticals/child_v/manage/install")
+    assert refused.status_code == 409 and "future-runtime" in refused.json()["detail"]
+    assert web.get("/api/verticals/child_v/operation").status_code == 404
+    assert store.installed() == {}
 
 
 def test_writes_are_same_origin_only(client) -> None:

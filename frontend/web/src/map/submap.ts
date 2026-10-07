@@ -2,10 +2,12 @@ import {
   ACTIVE,
   connectMap,
   latestMissionCompletion,
+  routeNumber,
   type MapEvent,
   type MapTask,
   type MapGraph,
   type MapLink,
+  type TeamOutcome,
   type WorkStep,
 } from "./model";
 import { layoutGraph } from "./graphLayout";
@@ -30,6 +32,10 @@ export interface MapCard {
   completionScope?: string;
   historyCount?: number;
   historyExpanded?: boolean;
+  /** Where the task stands in one line: the route chosen, what the review
+   * asked for, the round under way. Computed over every step, so each part
+   * of a long task carries it. */
+  conclusion?: string;
 }
 
 export type StepKind = "plan" | "execution" | "review" | "revision" | "result";
@@ -48,6 +54,7 @@ export interface SubmapStep {
   teamId?: string;
   teamTaskId?: string;
   teamRole?: string;
+  teamOutcome?: TeamOutcome;
   deps?: string[];
   updatedAt?: number;
   revision?: string;
@@ -92,10 +99,44 @@ function teamTitle(event: MapEvent, zh: boolean): string {
   return label ? `${label}${route ? ` ${route}` : ''}` : event.title || (zh ? '并行子任务' : 'Parallel task');
 }
 
+/** What a finished subtask concluded, ahead of the fact that it finished. */
+function teamOutcomeSummary(event: MapEvent, zh: boolean): string {
+  const outcome = event.team_outcome;
+  if (!outcome) return "";
+  if (outcome.kind === "review") {
+    const verdict = outcome.verdict === "rejected"
+      ? zh ? "复核结论：驳回" : "Verdict: rejected"
+      : outcome.verdict === "qualified" ? zh ? "复核结论：通过" : "Verdict: qualified" : "";
+    if (!verdict) return "";
+    const why = outcome.summary ? clipSentence(outcome.summary, 120) : "";
+    return why ? `${verdict}${zh ? "。" : ". "}${why}` : verdict;
+  }
+  if (outcome.kind === "route") {
+    const title = outcome.title ? (zh ? `「${outcome.title}」` : `“${outcome.title}”`) : "";
+    if (outcome.selected) return zh ? `${title}通过独立复核，被选为唯一方案` : `${title} passed its independent review and was chosen`;
+    if (outcome.verdict === "rejected") {
+      const why = outcome.rejection ? clipSentence(outcome.rejection, 120) : "";
+      return (zh ? `${title}被独立复核驳回` : `${title} was rejected by its independent review`) + (why ? (zh ? `。${why}` : `. ${why}`) : "");
+    }
+    if (outcome.verdict === "qualified") return outcome.selected === false
+      ? zh ? `${title}通过独立复核，但未被选中` : `${title} passed its independent review but was not chosen`
+      : zh ? `${title}通过独立复核，等待选择` : `${title} passed its independent review; selection pending`;
+    return "";
+  }
+  const number = routeNumber(outcome.selected_route);
+  if (!number) return "";
+  const title = outcome.selected_title ? (zh ? `（${outcome.selected_title}）` : ` (${outcome.selected_title})`) : "";
+  const rejected = (outcome.rejected ?? []).map(routeNumber).filter(Boolean);
+  return (zh ? `选定研究路线 ${number}${title}` : `Chose route ${number}${title}`)
+    + (rejected.length ? (zh ? `，驳回路线 ${rejected.join("、")}` : `; rejected route${rejected.length > 1 ? "s" : ""} ${rejected.join(", ")}`) : "");
+}
+
 function teamSummary(event: MapEvent, zh: boolean, waitingForDeps: boolean): string {
   if (event.pending_question) return zh ? '需要答复，展开查看具体问题' : 'Needs your input; open to read the question';
   if (event.status === 'failed') return zh ? '本次执行失败，展开查看原因' : 'This attempt failed; open to read the reason';
   if (event.status === 'blocked') return zh ? '执行受阻，展开查看原因' : 'Work is blocked; open to read the reason';
+  const concluded = teamOutcomeSummary(event, zh);
+  if (concluded) return concluded;
   if (event.status === 'done') return event.team_role === 'idea-review'
     ? zh ? '独立复核已完成，展开查看记录' : 'Independent review completed; open to read the record'
     : zh ? '子任务执行已完成，展开查看记录' : 'Subtask execution completed; open to read the record';
@@ -175,6 +216,9 @@ function describeRecord(event: MapEvent, status: string, zh: boolean): string {
     case "life.mission.completed":
       return completionScope(event, zh) || (status === "done"
         ? zh ? "任务完成，结果已经记录在案。" : "The task was finished; its result is on record."
+        : status === "paused_external_work"
+          ? zh ? "这项任务在等待后台团队的结果；结果就绪后会自动继续。"
+            : "This task is waiting for its background team; it continues on its own once the results are in."
         : status.startsWith("paused")
           ? zh ? "这项任务的工作暂停了。" : "Work on this task was paused."
           : zh ? "任务到此结束。" : "The task ended here.");
@@ -429,6 +473,7 @@ export function buildSubmap(
         teamId: e.team_id,
         teamTaskId: e.team_task_id,
         teamRole: e.team_role,
+        ...(e.team_outcome ? { teamOutcome: e.team_outcome } : {}),
         deps,
         updatedAt: e.updated_ts,
         revision: e.revision,
@@ -524,6 +569,8 @@ export function buildSubmap(
           : kind === "result"
             ? scope
               ? zh ? "本次执行已结束" : "This execution ended"
+              : status === "paused_external_work"
+                ? zh ? "等待后台团队" : "Waiting for the background team"
               : zh ? "执行结果" : "Result of the work"
             : kind === "plan"
               ? zh
@@ -689,6 +736,46 @@ export function buildSubmap(
   });
 }
 
+/** The task's standing in one line, for its card and its heading: the route
+ * its team chose (and which were rejected), what the last review asked for,
+ * and the round under way. Six finished subtasks used to read as six green
+ * ticks while two of three routes had been rejected. */
+export function taskConclusion(steps: SubmapStep[], zh: boolean, active = true): string {
+  const team = steps.filter((step) => step.source === "team");
+  const routes = team.filter((step) => step.teamOutcome?.kind === "route");
+  const selection = team.find((step) => step.teamOutcome?.kind === "selection")?.teamOutcome;
+  const chosen = routes.find((step) => step.teamOutcome?.selected);
+  const parts: string[] = [];
+  const list = (numbers: string[]) => numbers.join(zh ? "、" : ", ");
+  if (chosen || selection?.selected_route) {
+    const number = routeNumber(chosen?.teamTaskId) || routeNumber(selection?.selected_route);
+    const title = chosen?.teamOutcome?.title || selection?.selected_title;
+    parts.push(zh ? `已选定研究路线 ${number}${title ? `（${title}）` : ""}` : `route ${number} chosen${title ? ` (${title})` : ""}`);
+    const rejected = routes
+      .filter((step) => step.teamOutcome?.verdict === "rejected" && !step.teamOutcome.selected)
+      .map((step) => routeNumber(step.teamTaskId)).filter(Boolean);
+    if (rejected.length) parts.push(zh ? `路线 ${list(rejected)} 被驳回` : `route${rejected.length > 1 ? "s" : ""} ${list(rejected)} rejected`);
+  } else if (routes.some((step) => step.teamOutcome?.verdict)) {
+    const qualified = routes.filter((step) => step.teamOutcome?.verdict === "qualified").length;
+    const rejected = routes.filter((step) => step.teamOutcome?.verdict === "rejected").length;
+    parts.push(zh ? `复核结果：${qualified} 条路线通过、${rejected} 条驳回，等待选择`
+      : `reviews so far: ${qualified} route${qualified === 1 ? "" : "s"} qualified, ${rejected} rejected; selection pending`);
+  }
+  const review = [...steps].reverse().find((step) => step.source !== "team" && step.kind === "review"
+    && ["done", "continue", "blocked", "replan", "replan_requested", "failed"].includes(step.status));
+  if (review) {
+    parts.push(review.status === "done" ? zh ? "复核通过" : "review passed"
+      : review.status === "continue" ? zh ? "复核要求再改一轮" : "the review asked for another pass"
+      : review.status === "failed" ? zh ? "复核未通过" : "review not passed"
+      : zh ? "复核建议调整方向" : "the review asked for a change of course");
+  }
+  const round = active ? [...steps].reverse().find((step) => step.source !== "team" && step.kind === "execution"
+    && step.round != null && step.status === "started") : undefined;
+  if (round) parts.push(zh ? `第 ${round.round} 轮进行中` : `round ${round.round} under way`);
+  if (!parts.length) return "";
+  return (zh ? "当前结论：" : "So far: ") + parts.join(zh ? "；" : "; ");
+}
+
 export interface SubmapLink {
   id: string;
   source: string;
@@ -723,11 +810,11 @@ export interface SubmapLayout {
   stacked?: boolean;
 }
 
-/** A card this short reads top to bottom on a narrow canvas: at a readable
- * scale its single column is about one phone screen, so a question and its
- * answer are seen together instead of the answer starting off-screen. Longer
- * cards keep the wide layout and pan. */
-export const STACKED_STEPS = 3;
+/** On a narrow canvas every card reads top to bottom in one column: at a
+ * readable scale that column is as wide as a phone screen, so nothing is cut
+ * off at the right edge and the reader pans down, never sideways. (A wide
+ * three-column layout used to keep its right two columns outside the
+ * viewport on a phone.) */
 const STACKED_WIDTH = 480;
 
 /** Content bounds are computed before zooming, so disclosure cannot move ports. */
@@ -743,7 +830,7 @@ export function layoutSubmap(
   // phase changes legible without leaving empty cells between sparse groups.
   const pitchX = 340,
     pitchY = 236;
-  const stacked = narrow && steps.length > 0 && steps.length <= STACKED_STEPS;
+  const stacked = narrow && steps.length > 0;
   const minWidth = stacked ? STACKED_WIDTH : 640;
   let rows = stacked ? steps.length : 1,
     best = Infinity;
@@ -761,7 +848,9 @@ export function layoutSubmap(
   }
   const count = Math.ceil(steps.length / rows);
   const width = Math.max(minWidth, count * 232 + (count - 1) * 108 + 96);
-  const height = 408 + (rows - 1) * pitchY;
+  // A stacked card's heading wraps onto three rows, so its steps start lower.
+  const top = stacked ? 320 : 180;
+  const height = top + 228 + (rows - 1) * pitchY;
   const left = (width - (count * 232 + (count - 1) * 108)) / 2;
   const positions: SubmapLayout["positions"] = {};
   const rounds = effectiveRounds(steps);
@@ -772,7 +861,7 @@ export function layoutSubmap(
       x = left + col * pitchX;
     const slice = steps.slice(start, end);
     slice.forEach((step, row) => {
-      positions[step.id] = { x, y: 180 + row * pitchY };
+      positions[step.id] = { x, y: top + row * pitchY };
     });
     const from = offset + start + 1, to = offset + end;
     const fallback = from === to
@@ -781,7 +870,7 @@ export function layoutSubmap(
     const sliceRounds = roundsIn(rounds.slice(start, end));
     const title = columnTitle(slice, sliceRounds, previousRounds, col === 0 && offset === 0, col === count - 1, zh, fallback);
     previousRounds = sliceRounds;
-    return { id: `steps:${offset + start}`, title, x, y: 142 };
+    return { id: `steps:${offset + start}`, title, x, y: top - 38 };
   });
   return {
     steps,
@@ -1096,6 +1185,7 @@ export function layoutScene(
   for (const [ordinal, task] of graph.tasks.entries()) {
     const steps = buildSubmap(task, events, zh);
     const scope = task.status === "done" ? completionScope(latestMissionCompletion(task, events), zh) : "";
+    const conclusion = task.kind === "turn" ? "" : taskConclusion(steps, zh, ACTIVE.has(task.status));
     const pages = stepPages(steps);
     const count = pages.length;
     // A part's ordinal is stable when subsequent events arrive. Original task
@@ -1118,6 +1208,7 @@ export function layoutScene(
         previousId: part > 1 ? idFor(part - 1) : undefined,
         nextId: part < count ? idFor(part + 1) : undefined,
         completionScope: scope || undefined,
+        conclusion: conclusion || undefined,
       });
       layouts[id] = layoutSubmap(task, events, zh, slice, start, narrow);
       if (part > 1) {

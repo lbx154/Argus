@@ -21,9 +21,11 @@ export function mapStatusSentence(input: {
   paused: boolean;
   hasOpenWork: boolean;
   role?: string;
+  /** The one sentence for a task waiting on its background team; wins over the role. */
+  waiting?: string;
   zh: boolean;
 }): string {
-  const { total, qa = 0, complete, ended = 0, reviewUnavailable = 0, running, pending, paused, hasOpenWork, role, zh } = input;
+  const { total, qa = 0, complete, ended = 0, reviewUnavailable = 0, running, pending, paused, hasOpenWork, role, waiting, zh } = input;
   const allDone = total > 0 && complete === total && ended === 0;
   const allDoneLabel = qa === total && qa > 0 ? (zh ? '已全部回答' : 'all answered') : (zh ? '已全部完成' : 'all completed');
   const counts = zh
@@ -48,6 +50,8 @@ export function mapStatusSentence(input: {
     : "";
   const state = pending
     ? zh ? "正在处理你的消息" : "working on your message"
+    : waiting
+      ? waiting
     : paused
       ? allDone
         ? allDoneLabel

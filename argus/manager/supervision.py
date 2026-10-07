@@ -47,6 +47,12 @@ _STOPPED_ROOTS: set[str] = set()
 MAX_PENDING_PROJECTS = 64
 
 
+class SupervisionBusy(RuntimeError):
+    """The daemon holds its control lock, usually because it is running the
+    mission this decision concerns. The issued receipt is delivered at the
+    next guidance boundary; this is not a failure of the decision."""
+
+
 class SupervisionSuperseded(RuntimeError):
     pass
 
@@ -226,7 +232,7 @@ def _apply(
         # boundary consumes the inbox. No stage, DAG, or acceptance file is edited.
         with daemon_command_execution_lock(root, blocking=False) as acquired:
             if not acquired:
-                raise RuntimeError("daemon control is busy")
+                raise SupervisionBusy("daemon control is busy")
             observation = observe_project(root, event=event)
             if observation.incomplete_requirements:
                 record["observation_limitations"] = observation.facts["limitations"]
@@ -307,11 +313,13 @@ def _deliver(
     except Exception as exc:
         # Classification must not turn an expired decision into a replayable one.
         superseded = isinstance(exc, SupervisionSuperseded) or cancelled()
+        busy = not superseded and _is_busy_control(exc)
         code = interruption_code() if interruption_code else ("cancelled" if cancelled() else None)
         code = code or ("timeout" if isinstance(exc, TimeoutError) else None)
         code = code or ("cancelled" if isinstance(exc, CancelledError) else None)
         code = code or ("observation_incomplete" if record.get("incomplete_requirements") else None)
         code = code or ("superseded" if superseded else None)
+        code = code or ("busy" if busy else None)
         record["status"] = "superseded" if superseded else "issued"
         record["error"] = type(exc).__name__
         record["failure_stage"] = "commit"
@@ -326,11 +334,21 @@ def _deliver(
             _write(path, record)
         except OSError:
             LOG.exception("Manager supervision delivery checkpoint is unavailable")
+        if busy:
+            # A daemon running the mission this decision concerns is the
+            # ordinary case, not a failure worth an event per attempt: the
+            # issued event already stands, and the outcome is reported when
+            # the decision is delivered or superseded at the next boundary.
+            return record
     try:
         _emit(record, root, "applied" if record["status"] == "applied" else "failed")
     except OSError:
         LOG.exception("Manager supervision receipt event is unavailable")
     return record
+
+
+def _is_busy_control(exc: BaseException) -> bool:
+    return isinstance(exc, SupervisionBusy) or str(exc) == "daemon control is busy"
 
 
 def supervise(
