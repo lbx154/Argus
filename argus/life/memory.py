@@ -891,6 +891,97 @@ class PlanRevisionResult:
     added_ids: tuple[str, ...]
 
 
+# ---------------------------------------------------------------------------
+# GPUs against the backlog
+# ---------------------------------------------------------------------------
+
+_GPU_PROBE_TTL_S = 10.0
+_GPU_PROBE_LOCK = threading.Lock()
+_GPU_PROBE_CACHE: tuple[float, tuple[tuple[int, bool], ...] | None] | None = None
+_GPU_ACTIVE_STATUSES = frozenset({"running", "paused_external_work"})
+# ``last_error`` prefix for a task that asks for more GPUs than the machine
+# has; the Planner digest lists these so the task can be re-planned smaller.
+GPU_UNFITTABLE_PREFIX = "gpus: "
+
+
+def _gpu_cards() -> tuple[tuple[int, bool], ...] | None:
+    """``(index, busy)`` per GPU on this machine, or ``None`` when none is visible.
+
+    Busy uses the thresholds the GPU lease uses for "not idle": over 5 %
+    utilisation or over 2 GiB in use, whichever process holds the card. The
+    probe is a subprocess and this is consulted on every claim, so its answer
+    is kept for ten seconds.
+    """
+    global _GPU_PROBE_CACHE
+    now = time.monotonic()
+    with _GPU_PROBE_LOCK:
+        cached = _GPU_PROBE_CACHE
+        if cached is not None and now - cached[0] < _GPU_PROBE_TTL_S:
+            return cached[1]
+    from ..tools.gpu_lease import gpu_snapshot
+
+    snapshot = gpu_snapshot()
+    value: tuple[tuple[int, bool], ...] | None = None
+    if snapshot:
+        value = tuple(
+            (
+                int(gpu["index"]),
+                gpu["util_pct"] > 5 or gpu["mem_used_mib"] > 2048,
+            )
+            for gpu in snapshot
+        )
+    with _GPU_PROBE_LOCK:
+        _GPU_PROBE_CACHE = (now, value)
+    return value
+
+
+def gpu_reservation(items: Iterable[Any]) -> int:
+    """GPUs held by running tasks and by tasks parked on their own jobs."""
+    return sum(
+        max(0, int(getattr(item, "gpu_count", 0) or 0))
+        for item in items
+        if getattr(item, "status", "") in _GPU_ACTIVE_STATUSES
+    )
+
+
+def _free_gpu_indices(
+    cards: tuple[tuple[int, bool], ...], items: Iterable[Any],
+) -> list[int]:
+    """Cards neither busy (by any process) nor reserved by an active task.
+
+    Per card, not by count: a card busy with another process's job and a card
+    reserved by one of our tasks whose job has not started are both
+    unavailable, so neither can hide the other. An active task claimed before
+    cards were assigned reserves its count from the remaining cards.
+    """
+    reserved: set[int] = set()
+    unassigned = 0
+    for item in items:
+        if getattr(item, "status", "") not in _GPU_ACTIVE_STATUSES:
+            continue
+        count = max(0, int(getattr(item, "gpu_count", 0) or 0))
+        indices = list(getattr(item, "gpu_indices", None) or [])
+        if indices:
+            reserved.update(int(index) for index in indices)
+        else:
+            unassigned += count
+    free = [index for index, busy in cards if not busy and index not in reserved]
+    return free[unassigned:]
+
+
+def gpu_capacity_summary(items: Iterable[Any]) -> dict[str, int] | None:
+    cards = _gpu_cards()
+    if cards is None:
+        return None
+    rows = list(items)
+    return {
+        "total": len(cards),
+        "busy": sum(1 for _, busy in cards if busy),
+        "reserved": gpu_reservation(rows),
+        "free": len(_free_gpu_indices(cards, rows)),
+    }
+
+
 @dataclass
 class BacklogItem:
     id: str
@@ -995,6 +1086,12 @@ class BacklogItem:
     # workers. The primary worker remains able to execute every backlog item.
     parallel_safe: bool = False
     owns_paths: list[str] = field(default_factory=list)
+    # GPUs this task holds while it runs. A task is claimed only when that
+    # many are free: not busy now and not reserved by another active task.
+    gpu_count: int = 0
+    # The cards assigned at claim time; they stay reserved while the task is
+    # running or parked on its own job, whether or not they look busy.
+    gpu_indices: list[int] = field(default_factory=list)
     outcome: dict[str, Any] = field(default_factory=dict)
     # Optional durable return receipt; kept separate from public outcome dimensions.
     mission_result: dict[str, Any] | None = None
@@ -1027,6 +1124,7 @@ class BacklogItem:
         execution_workdir: str = "",
         parallel_safe: bool = False,
         owns_paths: list[str] | None = None,
+        gpu_count: int = 0,
         acceptance_check: str = "",
         plan_hypothesis: str = "",
         goal_contribution: str = "",
@@ -1069,6 +1167,7 @@ class BacklogItem:
                 for path in (owns_paths or [])
                 if str(path).strip()
             ],
+            gpu_count=max(0, int(gpu_count or 0)),
             acceptance_check=str(acceptance_check or "").strip(),
             plan_hypothesis=str(plan_hypothesis or "").strip(),
             goal_contribution=str(goal_contribution or "").strip(),
@@ -1172,6 +1271,12 @@ class BacklogItem:
                 str(path).strip()
                 for path in (row.get("owns_paths", []) or [])
                 if str(path).strip()
+            ],
+            gpu_count=max(0, int(row.get("gpu_count", 0) or 0)),
+            gpu_indices=[
+                int(index)
+                for index in (row.get("gpu_indices", []) or [])
+                if isinstance(index, int) and not isinstance(index, bool)
             ],
             outcome=(
                 {str(key): value for key, value in row.get("outcome", {}).items()}
@@ -1400,6 +1505,103 @@ class Backlog:
         :meth:`_cascade_blocked`). Mirrors ``team/task_board._done_ids``.
         """
         return {it.id for it in items if it.status == "done"}
+
+    @staticmethod
+    def _fit_gpus(
+        candidates: list[BacklogItem], items: Iterable[BacklogItem],
+    ) -> list[BacklogItem]:
+        """Drop candidates whose GPUs are not free right now.
+
+        A card is free when no process is using it and no active task holds
+        it (see :func:`_free_gpu_indices`). With no GPU visible nothing is
+        gated: the Engineer then reports the missing hardware itself.
+        """
+        if not any(getattr(item, "gpu_count", 0) > 0 for item in candidates):
+            return candidates
+        cards = _gpu_cards()
+        if cards is None:
+            return candidates
+        free = len(_free_gpu_indices(cards, items))
+        return [
+            item for item in candidates
+            if getattr(item, "gpu_count", 0) <= free
+        ]
+
+    @staticmethod
+    def _fail_unfittable_gpus(items: list[BacklogItem]) -> bool:
+        """Fail pending tasks that ask for more GPUs than the machine has.
+
+        They could never be claimed and would wait forever; failing them with
+        a stated reason lets dependents cascade and the Planner re-plan the
+        task smaller. Returns ``True`` if any item changed. Must run inside
+        ``_locked``.
+        """
+        if not any(
+            item.status == "pending" and item.gpu_count > 0 for item in items
+        ):
+            return False
+        cards = _gpu_cards()
+        if cards is None:
+            return False
+        changed = False
+        now = time.time()
+        for item in items:
+            if item.status == "pending" and item.gpu_count > len(cards):
+                item.status = "failed"
+                item.finished_ts = now
+                item.last_error = (
+                    f"{GPU_UNFITTABLE_PREFIX}task asks for {item.gpu_count} "
+                    f"GPUs but this machine has {len(cards)}"
+                )
+                changed = True
+        return changed
+
+    def _schedulable(
+        self,
+        items: list[BacklogItem],
+        *,
+        parallel_only: bool,
+        respect_running: bool,
+    ) -> tuple[list[BacklogItem], bool]:
+        """Head-ordered claimable items and whether ``items`` changed.
+
+        Shared by :meth:`next_pending` and :meth:`claim_next` so the item the
+        supervisor peeks is the item the claim takes. Must run inside
+        ``_locked``.
+        """
+        changed = self._fail_unfittable_gpus(items)
+        history = self._dependency_history(items)
+        changed = self._cascade_blocked(items, history=history) or changed
+        done = self._done_ids([*history, *items])
+        ready = [item for item in items if self._is_ready(item, done)]
+        # An example that reached the backlog before the planner learned to
+        # reject it is still sitting there, and a stored item is claimed
+        # without being planned again.
+        examples = [
+            it for it in ready if is_prompt_example_task(it.title, it.objective)
+        ]
+        for item in examples:
+            item.status = "skipped"
+            item.finished_ts = time.time()
+            item.last_error = "the planner prompt's example task, not a plan"
+        if examples:
+            ready = [it for it in ready if it not in examples]
+            changed = True
+        ready = self._fit_gpus(ready, items)
+        if parallel_only or (
+            respect_running
+            and any(
+                item.status in {"running", "paused_external_work"}
+                for item in items
+            )
+        ):
+            ready = [
+                item
+                for item in ready
+                if self._parallel_worker_can_claim(item, items)
+            ]
+        ready.sort(key=lambda it: (it.priority, it.ts))
+        return ready, changed
 
     @staticmethod
     def _is_ready(item: BacklogItem, done: set[str]) -> bool:
@@ -2360,43 +2562,26 @@ class Backlog:
             # Clear dead dependencies first (failed/skipped/missing dep →
             # the dependent can never run). Persist the skip so the
             # supervisor doesn't keep re-seeing a permanently-blocked item.
-            history = self._dependency_history(items)
-            cascaded = self._cascade_blocked(items, history=history)
-            done = self._done_ids([*history, *items])
-            ready = [it for it in items if self._is_ready(it, done)]
-            # An example that reached the backlog before the planner learned to
-            # reject it is still sitting there, and a stored item is claimed
-            # without being planned again.
-            examples = [
-                it for it in ready if is_prompt_example_task(it.title, it.objective)
-            ]
-            for item in examples:
-                item.status = "skipped"
-                item.finished_ts = time.time()
-                item.last_error = "the planner prompt's example task, not a plan"
-            if examples:
-                ready = [it for it in ready if it not in examples]
-                cascaded = True
-            if parallel_only or (
-                respect_running
-                and any(
-                    item.status in {"running", "paused_external_work"}
-                    for item in items
-                )
-            ):
-                ready = [
-                    item
-                    for item in ready
-                    if self._parallel_worker_can_claim(item, items)
-                ]
-            if not ready:
-                if cascaded:
+            # The GPU gate runs here, under the lock, so two workers cannot
+            # both count the same free card.
+            ready, changed = self._schedulable(
+                items,
+                parallel_only=parallel_only,
+                respect_running=respect_running,
+            )
+            if not ready or (expected_id and ready[0].id != expected_id):
+                if changed:
                     self._save(items)
                 return None
-            ready.sort(key=lambda it: (it.priority, it.ts))
             head = ready[0]
-            if expected_id and head.id != expected_id:
-                return None
+            # Pick the cards while the head is still pending, so it does not
+            # count as an active task that holds unassigned cards.
+            indices: list[int] = []
+            if head.gpu_count > 0:
+                cards = _gpu_cards()
+                if cards is not None:
+                    indices = _free_gpu_indices(cards, items)[: head.gpu_count]
+            head.gpu_indices = indices
             head.status = "running"
             head.started_ts = time.time()
             head.running_owner = str(owner)
@@ -2704,9 +2889,15 @@ class Backlog:
             items = self._load()
             history = self._dependency_history(items)
         done = self._done_ids([*history, *items])
-        out = [it for it in items if self._is_ready(it, done)]
+        out = self._fit_gpus([it for it in items if self._is_ready(it, done)], items)
         out.sort(key=lambda it: (it.priority, it.ts))
         return out
+
+    def gpu_summary(self) -> dict[str, int] | None:
+        """This machine's GPUs against the backlog: total, busy, reserved, free."""
+        with self._locked():
+            items = self._load()
+        return gpu_capacity_summary(items)
 
     def next_pending(
         self,
@@ -2727,25 +2918,13 @@ class Backlog:
         """
         with self._locked():
             items = self._load()
-            history = self._dependency_history(items)
-            changed = self._cascade_blocked(items, history=history)
-            done = self._done_ids([*history, *items])
-            ready = [item for item in items if self._is_ready(item, done)]
-            if parallel_only or (
-                respect_running
-                and any(
-                    item.status in {"running", "paused_external_work"}
-                    for item in items
-                )
-            ):
-                ready = [
-                    item
-                    for item in ready
-                    if self._parallel_worker_can_claim(item, items)
-                ]
+            ready, changed = self._schedulable(
+                items,
+                parallel_only=parallel_only,
+                respect_running=respect_running,
+            )
             if changed:
                 self._save(items)
-            ready.sort(key=lambda item: (item.priority, item.ts))
             return ready[0] if ready else None
 
 

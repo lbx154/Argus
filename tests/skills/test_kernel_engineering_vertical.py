@@ -93,12 +93,12 @@ def test_kernel_engineering_vertical_skills_are_packaged(tmp_path: Path) -> None
         overwrite=True,
     )
     assert written
-    engineer = tmp_path / "engineer" / "kernel-environment-first-engineering.md"
-    reviewer = tmp_path / "reviewer" / "kernel-engineering-review.md"
-    assert engineer.is_file()
-    assert reviewer.is_file()
-    engineer_text = engineer.read_text(encoding="utf-8").lower()
-    reviewer_text = reviewer.read_text(encoding="utf-8").lower()
+    skill = tmp_path / "engineer" / "kernel-benchmark-measurement-integrity.md"
+    assert skill.is_file()
+    assert not (tmp_path / "engineer" / "kernel-environment-first-engineering.md").exists()
+    assert not (tmp_path / "reviewer" / "kernel-engineering-review.md").exists()
+    # One file now carries the engineering stance and the review stance.
+    engineer_text = reviewer_text = skill.read_text(encoding="utf-8").lower()
     assert "without framework paperwork" in engineer_text
     assert "do not create scope documents" in engineer_text
     assert "bounded research mission" in engineer_text

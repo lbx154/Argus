@@ -5,7 +5,8 @@ Lock in two invariants:
 1. Every matchable built-in skill markdown (excluding packaged ``references/``
    corpora) has YAML frontmatter with at minimum ``name`` and ``description``.
 2. The retained ARIS-derived skills are present and well-formed, claim checking
-   has one canonical implementation, and the figure renderer is importable.
+   has one canonical implementation, and the figure renderer (which carries its
+   own usage notes since the figure-spec skill page was retired) is importable.
 
 This prevents accidental drift of the skill bundle and catches the
 "someone added a skill without frontmatter so the matcher silently
@@ -66,9 +67,7 @@ def test_every_builtin_skill_has_frontmatter() -> None:
 @pytest.mark.parametrize(
     "skill_path,expected_name",
     [
-        ("engineer/citation-check.md", "Checking citations against primary sources"),
-        ("engineer/claims-against-evidence.md", "Reading claims against the evidence"),
-        ("engineer/figure-spec.md", "FigureSpec: drawing exact diagrams from JSON"),
+        ("engineer/sources-and-citations.md", "Checking claims and citations against their sources"),
     ],
 )
 def test_aris_adapted_skills_are_present(skill_path: str, expected_name: str) -> None:
@@ -80,9 +79,9 @@ def test_aris_adapted_skills_are_present(skill_path: str, expected_name: str) ->
 
 
 def test_claim_check_requires_fresh_source_level_verification() -> None:
-    text = (
-        RESEARCH_ROOT / "engineer" / "claims-against-evidence.md"
-    ).read_text(encoding="utf-8")
+    text = " ".join((
+        RESEARCH_ROOT / "engineer" / "sources-and-citations.md"
+    ).read_text(encoding="utf-8").split())
 
     assert "fresh-context" in text
     assert "direct source" in text
@@ -96,7 +95,7 @@ def test_claim_check_requires_fresh_source_level_verification() -> None:
 
 def test_figure_renderer_script_is_present_and_importable() -> None:
     renderer = RESEARCH_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
-    assert renderer.exists(), "figure_renderer.py missing — figure-spec skill is broken"
+    assert renderer.exists(), "figure_renderer.py missing — the FigureSpec route is broken"
     # Subprocess-import so we don't pollute the parent process's modules.
     proc = subprocess.run(
         [sys.executable, "-c",
@@ -155,7 +154,7 @@ def test_figure_renderer_round_trip_render(tmp_path: Path) -> None:
 
 def test_figure_renderer_is_deterministic(tmp_path: Path) -> None:
     """Same spec → byte-identical SVG. This is the core promise of the
-    figure-spec skill vs AI image generation."""
+    FigureSpec renderer vs AI image generation."""
     renderer = RESEARCH_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
     spec = tmp_path / "spec.json"
     spec.write_text(
@@ -216,9 +215,9 @@ def test_rl_config_sanity_lives_in_collapse_diagnosis_skill() -> None:
 
 
 def test_research_review_uses_continuous_result_judgment() -> None:
-    results = (
+    results = " ".join((
         RESEARCH_ROOT / "reviewer" / "experiment-results-review.md"
-    ).read_text(encoding="utf-8")
+    ).read_text(encoding="utf-8").split())
 
     assert "hard numeric" in results
     assert "scientifically" in results

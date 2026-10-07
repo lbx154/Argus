@@ -34,7 +34,7 @@ token 不可能够*。这个 Agent 是**孤立地、机械地**推理的：它�
 
 **我们做了什么。** 把那个缺失的全局核对，作为一条**明确规则**补上，而不是指望它自己有判断
 力。技能
-[`suspect-the-setup.md`](../argus/verticals/research/skills/engineer/suspect-the-setup.md)
+[`research-grind.md`](../argus/verticals/research/skills/engineer/research-grind.md)
 把默认姿态反了过来：*一个远离该模型、该方法或该基准已知表现的结果，在被证明之前都是一份缺
 陷报告。* 具体做法是**强制它做那个它自己不会做的比较**：生成预算必须**从正确完成的长度分布
 推导出来**，而不是随手取一个整数；并且运行必须报告撞到上限的生成比例——只要显著大于零，你测
@@ -62,7 +62,7 @@ id 在预训练数据里的分布，取决于它们被写过多少次，而这�
 的路。
 
 **禁止凭记忆。** 模型时效性是一条**规则**而不是判断题，写在
-[`training-infrastructure-guide.md`](../argus/builtin_skills/engineer/training-infrastructure-guide.md)：
+[`training-infrastructure.md`](../argus/verticals/research/skills/engineer/training-infrastructure.md)：
 
 > **只用当代。** Backbone 必须来自一个**当前、正在活跃发布的开源模型家族**（决策当时的最新
 > 一代，例如最近约 12 个月内发布或更新）。**不要**仅仅因为熟悉或下载快，就默认选用上一代或
@@ -218,7 +218,7 @@ Reviewer 在同一轮里也被改了：它按来源质量、综合能力和决�
 > 是否存在 underclaim（漏掉了数据里一个有意思的发现）？
 
 并且要确认零结果"被诚实呈现，而不至于把论文变成一份详尽的失败日志"。随后
-[`result-to-claim.md`](../argus/verticals/research/skills/engineer/result-to-claim.md)
+[`research-grind.md`](../argus/verticals/research/skills/engineer/research-grind.md)
 直接掐断那个失败循环：
 
 > 同一条声明上多轮 `partial` → 结晶出被支持的边界并推进到论文，而不是继续打转

@@ -42,7 +42,6 @@ def test_retired_render_creates_no_files_and_provides_runnable_migration(
     assert "Method D" in result.stderr and "Method B" in result.stderr
     assert "native editable PPT" in result.stderr
     assert "engineer/paper-framework-figure-studio.md" in result.stderr
-    assert "engineer/presentation-master.md" in result.stderr
     assert not output.parent.exists()
     assert sorted(path.name for path in tmp_path.iterdir()) == ["source.svg"]
 

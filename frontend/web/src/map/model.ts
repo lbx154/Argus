@@ -33,6 +33,25 @@ export interface MapTask
   overflow_count?: number;
   /** Present on a folded node that stands in for several parallel subtasks. */
   group?: BranchGroup;
+  /** What the subtask concluded, from its board's artifacts (branch nodes only). */
+  team_outcome?: TeamOutcome;
+}
+/** What a team subtask concluded, beyond whether it finished: the reviewer's
+ * verdict on a route, whether the selector chose it, or which route the
+ * selection picked. Read from the board's artifacts by the API. */
+export interface TeamOutcome {
+  kind: "route" | "review" | "selection";
+  /** The route's own heading (route), or the chosen route's (selection). */
+  title?: string;
+  verdict?: "qualified" | "rejected";
+  selected?: boolean;
+  rejection?: string;
+  summary?: string;
+  concerns?: number;
+  selected_route?: string;
+  selected_title?: string;
+  rationale?: string;
+  rejected?: string[];
 }
 /** Several parallel subtasks of one task that share a state, shown as one
  * node until the reader unfolds them. */
@@ -83,6 +102,7 @@ export interface MapEvent {
   team_id?: string;
   team_task_id?: string;
   team_role?: string;
+  team_outcome?: TeamOutcome;
   deps?: string[];
   owner?: string;
   reason?: string;
@@ -395,6 +415,40 @@ function teamBranchTitle(event: MapEvent, zh: boolean): string {
     : event.title || (zh ? "并行子任务" : "Parallel task");
 }
 
+/** The route number a subtask is about ("research-idea-…-route-02" → "02"). */
+export function routeNumber(value: string | undefined): string {
+  return value?.match(/route[-_ ]?(\d+)/i)?.[1] ?? value?.match(/(\d+)\s*$/)?.[1] ?? "";
+}
+
+/** What a subtask concluded, as the two or three words a reader wants on its
+ * pill: a rejected route says so instead of "completed". */
+export function teamOutcomeLabel(outcome: TeamOutcome | undefined, zh: boolean): string {
+  if (!outcome) return "";
+  if (outcome.kind === "review") {
+    if (outcome.verdict === "rejected") return zh ? "复核：驳回" : "Review: rejected";
+    if (outcome.verdict === "qualified") return zh ? "复核：通过" : "Review: qualified";
+    return "";
+  }
+  if (outcome.kind === "route") {
+    if (outcome.selected) return zh ? "通过 · 被选中" : "Qualified · chosen";
+    if (outcome.verdict === "rejected") return zh ? "驳回" : "Rejected";
+    if (outcome.verdict === "qualified") return outcome.selected === false
+      ? zh ? "通过 · 未选中" : "Qualified · not chosen"
+      : zh ? "通过" : "Qualified";
+    return "";
+  }
+  const number = routeNumber(outcome.selected_route);
+  return number ? (zh ? `已选研究路线 ${number}` : `Chose route ${number}`) : "";
+}
+
+/** The reader-facing key a verdict is styled by. */
+export function teamOutcomeKey(outcome: TeamOutcome | undefined): string {
+  if (!outcome) return "";
+  if (outcome.kind === "selection") return outcome.selected_route ? "chosen" : "";
+  if (outcome.selected) return "chosen";
+  return outcome.verdict ?? "";
+}
+
 /** Short readable excerpt: scientific prose without the runner's control footer. */
 function branchExcerpt(text: string | undefined): string {
   const joined = String(text || "")
@@ -477,6 +531,7 @@ export function promoteTeamBranches(
         pending_question: event.pending_question,
         role: "team",
         team_role: event.team_role,
+        ...(event.team_outcome ? { team_outcome: event.team_outcome } : {}),
         ts: event.ts,
         branch: true,
         parent_id: task.id,
@@ -600,6 +655,26 @@ export function branchGroupTitle(
   return zh ? `${list}${state}` : `${list} ${state}`;
 }
 
+/** What a folded group's routes concluded, as a clause after its sentence:
+ * "路线 02 通过并被选中，路线 01、03 被驳回". Empty until a verdict exists. */
+export function branchGroupOutcome(members: MapTask[], zh: boolean): string {
+  const routes = members.filter((member) => member.team_outcome?.kind === "route");
+  const chosen = routes.filter((member) => member.team_outcome?.selected).map((member) => routeNumber(member.title));
+  const rejected = routes
+    .filter((member) => member.team_outcome?.verdict === "rejected" && !member.team_outcome.selected)
+    .map((member) => routeNumber(member.title));
+  const qualified = routes
+    .filter((member) => member.team_outcome?.verdict === "qualified" && !member.team_outcome.selected)
+    .map((member) => routeNumber(member.title));
+  const clauses: string[] = [];
+  const list = (numbers: string[]) => [...numbers].sort().join(zh ? "、" : ", ");
+  if (chosen.length) clauses.push(zh ? `路线 ${list(chosen)} 通过并被选中` : `route ${list(chosen)} qualified and chosen`);
+  if (qualified.length) clauses.push(zh ? `路线 ${list(qualified)} 通过${chosen.length ? "但未被选中" : "，等待选择"}`
+    : `route${qualified.length > 1 ? "s" : ""} ${list(qualified)} qualified${chosen.length ? " but not chosen" : ", selection pending"}`);
+  if (rejected.length) clauses.push(zh ? `路线 ${list(rejected)} 被驳回` : `route${rejected.length > 1 ? "s" : ""} ${list(rejected)} rejected`);
+  return clauses.length ? (zh ? `：${clauses.join("，")}` : `: ${clauses.join("; ")}`) : "";
+}
+
 /** Fold the parallel subtasks of each task that share a state into one node,
  * so a fan of twenty-four "not started" pills reads as a single sentence.
  * Pure: the input graph is returned unchanged when nothing folds.
@@ -644,7 +719,7 @@ export function foldTeamBranches(
     const isExpanded = expanded.has(id);
     groups.set(id, {
       id,
-      title: branchGroupTitle(counts, status, zh),
+      title: branchGroupTitle(counts, status, zh) + branchGroupOutcome(members, zh),
       objective: zh
         ? "点击展开，逐条查看这些子任务；再点一次收起。"
         : "Click to see them one by one; click again to fold them back.",

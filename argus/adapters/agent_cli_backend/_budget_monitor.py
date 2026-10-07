@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from ...core.cost_control import CostControlLockBusyError, _local_day_start
 from ...core.token_usage import extract_token_usage
-from ...provider_integrations.copilot_usage import read_copilot_usage_since
+from ...provider_integrations.copilot_usage import NANO_AIU_PER_USD, read_copilot_usage_since
 
 if TYPE_CHECKING:
     from ._exec_context import _ExecContext
@@ -101,14 +101,18 @@ class LiveBudgetMonitor:
                 usage = read_copilot_usage_since(cursor, session_id=session_id, timeout=0)
                 if usage is not None:
                     today = datetime.fromtimestamp(_local_day_start(time.time()), UTC)
+                    # Match canonical billing: sum integer units before converting.
+                    # Per-row float addition can inflate the observed obligation.
+                    observed_nano_aiu: int = 0
                     for row in usage.rows:
                         if not row.created_at:
                             continue
                         created = datetime.fromisoformat(row.created_at.replace("Z", "+00:00"))
                         if created >= today:
                             if row.total_nano_aiu is not None:
-                                observed += row.total_nano_aiu / 100_000_000_000
+                                observed_nano_aiu += row.total_nano_aiu
                             tokens += (row.input_tokens or 0) + (row.output_tokens or 0) + (row.reasoning_tokens or 0)
+                    observed += observed_nano_aiu / NANO_AIU_PER_USD
             self.reason = reservation.observe_cost(observed, tokens=tokens)
         except CostControlLockBusyError:
             # A short bounded retry preserves responsive cancellation without

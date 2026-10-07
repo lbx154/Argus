@@ -95,11 +95,14 @@ do not create a new report or validation-only task.
    the executed code and raw results. The Method section and the claims
    follow the project-root `METHOD.md`; a deviation from the selected route
    is named there before it appears in the manuscript.
-8. Plan three informative scientific figures for a full paper, with at least
-   two distinct figures. Usually show the mechanism, main comparison, and an
-   ablation, diagnostic, or generalization finding; each answers a different
-   question from real evidence. A table or duplicate panel does not substitute
-   for a scientific figure. Produce editable sources, publication-size exports,
+8. A figure earns its place when the reader must see something rather than
+   parse it: a mechanism the prose cannot make visible, a comparison whose
+   pattern across conditions is the point, an ablation whose shape is the
+   argument. A full paper usually needs a few such figures, each answering a
+   different question from real evidence. A finding that is one number, or a
+   list the reader looks up rather than compares, belongs in a table or a
+   sentence, and a duplicate panel or a decorative image adds nothing a
+   reviewer will credit. Produce editable sources, publication-size exports,
    and a readable rendered paper. The method figure is composed through PPT
    Master (Method D, Method B fallback): `paper/figures/<name>.pptx` is the
    source, and `figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx`
@@ -187,12 +190,10 @@ task, then return here. Do not read all the sources in advance.
 | The venue is not selected | `engineer/venue-format-research.md` | Choose a fitting venue from current official sources |
 | The argument or full draft must be written | `engineer/venue-paper-drafting.md` | Draft under the selected author kit, in the order strong papers are written |
 | A passage, section or the abstract needs to read like a strong paper | `engineer/references/paper-writing-craft.md` | Introduction moves, results by claims with takeaways, numbers and precision, confidence without defensive patterns, compression |
-| Strong paper structure or visual calibration is needed | `engineer/paper-exemplar-pdf-learning.md` | Study open-access Oral, Outstanding, or Best Papers |
-| A material citation is uncertain | `engineer/citation-check.md` | Resolve and repair it from primary sources |
+| Strong paper structure or visual calibration is needed | `engineer/venue-paper-drafting.md` | Calibrate against open-access Oral, Outstanding, or Best Papers |
+| A material claim or citation is uncertain | `engineer/sources-and-citations.md` | Check it against the evidence or the primary source and repair it |
 | Data results need paper figures | `engineer/paper-chart-styling.md` | Produce consistent publication-size data charts |
-| A method pipeline or architecture overview is needed | `engineer/paper-framework-figure-studio.md` | Default Method D, Method B fallback; keep editable source and include its vector PDF |
-| A conceptual or method figure is needed | `engineer/research-visualization-router.md` | Select the faithful rendering route |
-| Figure 1 needs an editable composition | `engineer/paper-framework-figure-studio.md` | Build the conceptual figure and final export |
+| A conceptual, method or Figure 1 composition is needed | `engineer/paper-framework-figure-studio.md` | Default Method D, Method B fallback; keep the editable source and include its vector PDF |
 | Compilation or venue structure is uncertain | `engineer/venue-format-preflight.md` | Compile against the official author kit |
 
 Specialist Skills produce parts of the manuscript. They do not define stage

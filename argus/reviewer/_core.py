@@ -581,12 +581,14 @@ def _persist_research_review(
         or ""
     ).strip()
     if decision.venue_review is not None:
+        from ..core.venue_review import UNSELECTED_VENUE
+
         challenge = "\n".join(f"- {issue}" for issue in decision.venue_review["blocking_issues"])
     text = (
         "# Authoritative review\n\n"
         + (
             "## Selected-venue assessment\n"
-            f"Venue: {decision.venue_review['venue']}\n\n"
+            f"Venue: {decision.venue_review['venue'] or UNSELECTED_VENUE}\n\n"
             f"Recommendation: {decision.venue_review['recommendation']}\n\n"
             if decision.venue_review is not None else f"**Judgment:** {decision.status}\n\n"
         )

@@ -19,7 +19,7 @@ import { Button } from "../components/primitives";
 import { MapReaderContent, type MapReaderSelection } from "./MapReaderContent";
 import type { ArtifactInfo } from "../api";
 import type { MapCopy, CardReference } from "./presentation";
-import { ACTIVE, statusKey } from "./model";
+import { ACTIVE, statusKey, teamOutcomeKey, teamOutcomeLabel } from "./model";
 import {
   STEP_KINDS,
   humanizeHarnessNote,
@@ -67,6 +67,9 @@ export type MacroData = MapCard & {
   revealing?: boolean;
   /** The role at work on this card right now, when the session is live. */
   phase?: string;
+  /** The one sentence for a task waiting on its background team; the same
+   * words the sidebar and the conversation header show at that moment. */
+  waiting?: string;
   readOnly: boolean;
   source: string;
   quote: (ref: CardReference) => void;
@@ -469,6 +472,11 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           )}
           {cardSummary && cardSummary.trim() !== (objectiveVisible ? task.objective.trim() : "") &&
             <div className="map-card-copy"><MarkdownExcerpt>{cardSummary}</MarkdownExcerpt></div>}
+          {/* Where the task stands, apart from whether its steps finished:
+              the route chosen, what the review asked for, the round under way. */}
+          {data.conclusion && (
+            <p className="map-card-conclusion" data-testid="map-card-conclusion" title={data.conclusion}>{data.conclusion}</p>
+          )}
           {/* The course a task ran: planned, carried out, reviewed, delivered.
               Four marks, inked where the record holds a step of that kind, so a
               whole map shows at a glance which tasks were reviewed and which
@@ -490,15 +498,18 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </div>
           )}
           {(() => {
-            const live = isLastPart && data.live && !data.paused && ACTIVE.has(task.status);
+            const waiting = isLastPart && data.live && data.waiting;
+            const live = !waiting && isLastPart && data.live && !data.paused && ACTIVE.has(task.status);
             // The state is on the chip at the top of the card; it is not said
             // again down here unless the card has no chip.
             const chip = state !== "recorded" || !!data.completionScope;
             const team = !!data.historyCount && teamSteps.length > 0;
-            if (!live && isLastPart && chip && !team) return null;
+            if (!live && !waiting && isLastPart && chip && !team) return null;
             return (
               <div className="map-card-stages">
-                {live
+                {waiting
+                  ? <LiveLine text={data.waiting} zh={zh} />
+                  : live
                   ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
                   : isLastPart && chip ? null
                   : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
@@ -546,6 +557,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       </div>
       {focused && <div
         className={`macro-detail ${detail ? "is-reading" : ""}`}
+        data-stacked={layout.stacked || undefined}
         aria-hidden={!detailed}
         style={{
           width: layout.width,
@@ -570,6 +582,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </small>
             <h2><MarkdownExcerpt>{title}</MarkdownExcerpt></h2>
           </div>
+          {data.conclusion && (
+            <span className="macro-conclusion" data-testid="macro-conclusion" title={data.conclusion}>{data.conclusion}</span>
+          )}
           {(state !== "recorded" || data.completionScope) && (
             <span className="macro-state" title={data.completionScope}>{taskStateLabel}</span>
           )}
@@ -655,10 +670,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                     </em>
                   )}
                 </span>
-                <small>
+                <small data-verdict={step.source === 'team' ? teamOutcomeKey(currentStep(step).teamOutcome) || undefined : undefined}>
                   {step.completionScope && step.status === 'recorded'
                     ? zh ? '执行结束' : 'Execution ended'
-                    : step.source === 'team' && stepStatus(step) === 'failed' ? (zh ? '失败' : 'Failed') : stateLabel(stepStatus(step))}
+                    : step.source === 'team' && stepStatus(step) === 'failed' ? (zh ? '失败' : 'Failed')
+                    // A finished subtask says what it concluded, not only that it finished.
+                    : step.source === 'team' && teamOutcomeLabel(currentStep(step).teamOutcome, zh) || stateLabel(stepStatus(step))}
                 </small>
               </div>
               <h4><MarkdownExcerpt>{step.title}</MarkdownExcerpt></h4>

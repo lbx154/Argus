@@ -436,12 +436,12 @@ def test_main_exports_builtin_skills(
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert (target / "engineer/argus-engineer-role.md").exists()
+    assert (target / "engineer/minimal-coding-agent.md").exists()
     assert not (target / "engineer/semantic-scholar-search.md").exists()
     assert not (target / "engineer/auto-research-pipeline.md").exists()
     assert not (target / "engineer/emnlp-paper-drafting.md").exists()
     assert not (target / "engineer/arxiv-paper-search.md").exists()
-    assert not (target / "engineer/research-visualization-router.md").exists()
+    assert not (target / "engineer/paper-framework-figure-studio.md").exists()
     assert "exported built-in skills" in out
     assert "vertical: none (common skills only)" in out
     assert str(target) in out
@@ -461,7 +461,7 @@ def test_main_exports_decided_vertical_skills(
 
     assert rc == 0
     assert "vertical: research" in out
-    assert (target / "engineer/research-visualization-router.md").exists()
+    assert (target / "engineer/paper-framework-figure-studio.md").exists()
     for stage in ("idea", "experiment", "paper", "review"):
         assert (target / f"research-{stage}-playbook.md").exists()
     assert not (target / "engineer/auto-research-pipeline.md").exists()
@@ -485,7 +485,7 @@ def test_export_target_does_not_inherit_unrelated_cwd_vertical(
 
     assert rc == 0
     assert "vertical: none (common skills only)" in out
-    assert not (target / "engineer/research-visualization-router.md").exists()
+    assert not (target / "engineer/paper-framework-figure-studio.md").exists()
 
 
 def test_export_prunes_legacy_unmodified_research_fallback(
@@ -499,13 +499,13 @@ def test_export_prunes_legacy_unmodified_research_fallback(
 
     target = tmp_path / "legacy-project" / "argus_builtin_skills"
     seed_vertical_skills(target, "research")
-    assert (target / "engineer/research-visualization-router.md").exists()
+    assert (target / "engineer/paper-framework-figure-studio.md").exists()
 
     rc = main(["--export-builtin-skills", str(target), "--apply"])
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert not (target / "engineer/research-visualization-router.md").exists()
+    assert not (target / "engineer/paper-framework-figure-studio.md").exists()
     assert not (
         target / "engineer/research_visual_scripts/browser_render.py"
     ).exists()
@@ -520,7 +520,7 @@ def test_export_preserves_edited_legacy_research_fallback(
 
     target = tmp_path / "learned-project" / "argus_builtin_skills"
     seed_vertical_skills(target, "research")
-    router = target / "engineer/research-visualization-router.md"
+    router = target / "engineer/paper-framework-figure-studio.md"
     router.write_text(
         router.read_text(encoding="utf-8") + "\nproject-specific learning\n",
         encoding="utf-8",
@@ -867,3 +867,66 @@ def test_a_bindable_web_port_is_accepted(value: str) -> None:
     """Zero is legal: it asks the kernel for any free port."""
     args = build_parser().parse_args(["--web", "--web-port", value])
     assert args.web_port == int(value)
+
+
+def test_mission_width_accepts_a_count_or_auto() -> None:
+    parser = build_parser()
+    assert parser.parse_args(["--daemon", "--mission-width", "auto"]).mission_width == "auto"
+    assert parser.parse_args(["--daemon", "--mission-width", "3"]).mission_width == 3
+    assert parser.parse_args(["--daemon"]).mission_width == 2
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--daemon", "--mission-width", "-1"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--daemon", "--mission-width", "many"])
+
+
+def test_parser_reads_a_wiki_correction():
+    p = build_parser()
+    args = p.parse_args([
+        "wiki", "correct", "pages/lessons/regime.md", "--wiki", "/tmp/w",
+        "--statement", "What is true.", "--reason", "Why the page was wrong.",
+    ])
+    assert args.command == "wiki" and args.wiki_cmd == "correct"
+    assert args.page == "pages/lessons/regime.md" and str(args.wiki) == "/tmp/w"
+    assert args.statement == "What is true." and args.reason == "Why the page was wrong."
+    assert args.description == "" and args.by == "operator" and args.scope is None
+    shared = p.parse_args([
+        "wiki", "correct", "pages/x.md", "--scope", "vertical", "--vertical", "research",
+        "--statement", "s", "--reason", "r", "--by", "reviewer",
+    ])
+    assert shared.wiki is None and shared.scope == "vertical" and shared.vertical == "research"
+    assert shared.by == "reviewer"
+    with pytest.raises(SystemExit):
+        p.parse_args(["wiki", "correct", "pages/x.md", "--statement", "s", "--reason", "r"])
+
+
+def test_wiki_correct_command_rewrites_the_page_and_journals_it(tmp_path, monkeypatch, capsys):
+    from argus.wiki.journal import read_knowledge_events
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
+    library = home / "wiki" / "_shared_verticals" / "research"
+    page = library / "pages" / "lessons" / "regime.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "---\ntitle: Regime\ndescription: Trust the control file\nkind: lesson\n---\n\n# Regime\n\nTrust it.\n",
+        encoding="utf-8",
+    )
+    code = main([
+        "wiki", "correct", "pages/lessons/regime.md", "--scope", "vertical", "--vertical", "research",
+        "--statement", "Recompute the regime from timings.", "--reason", "analysis.py recomputes it.",
+        "--description", "Recompute the regime", "--by", "reviewer",
+    ])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "corrected pages/lessons/regime.md (Regime)" in out and "previously: Trust it." in out
+    text = page.read_text(encoding="utf-8")
+    assert "description: Recompute the regime" in text and ", corrected by reviewer: " in text
+    assert text.index("Recompute the regime from timings.") < text.index("## History")
+    rows = read_knowledge_events(home, kinds=["corrected"])
+    assert len(rows) == 1 and rows[0]["scope"] == "vertical" and rows[0]["vertical"] == "research"
+    assert rows[0]["role"] == "reviewer"
+    assert main([
+        "wiki", "correct", "pages/lessons/none.md", "--scope", "vertical", "--vertical", "research",
+        "--statement", "s", "--reason", "r",
+    ]) == 2

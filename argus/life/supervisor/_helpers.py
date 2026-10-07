@@ -163,7 +163,7 @@ def _sanitize_planner_task_text(text: str) -> str:
             r"`?/(?:home|root)/[^`\s]+/skills/"
             r"paper-illustration-image2/SKILL\.md`?"
         ),
-        "`argus_builtin_skills/engineer/paper-illustration-image2.md`",
+        "`argus_builtin_skills/engineer/paper-framework-figure-studio.md`",
         value,
     )
     for source in sorted(legacy_sources, key=len, reverse=True):

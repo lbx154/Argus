@@ -391,6 +391,16 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const lead = localized(context, 'Argus set this project aside with its state saved', 'Argus 已把这个项目搁置，状态已保存');
       return model('system', 'role.system', 'Ⅱ', replacedBy ? `${lead} · ${localized(context, `continued as ${replacedBy}`, `由 ${replacedBy} 接续`)}` : lead, 'warn', { rule: true });
     }
+    case 'accounting.journal_repaired': {
+      const damaged = row(event).damaged_lines;
+      const liabilities = row(event).liabilities;
+      const lines = Array.isArray(damaged) ? damaged.length : 0;
+      const debts = Array.isArray(liabilities) ? liabilities.length : 0;
+      const copy = clean(stringField(event, 'damaged_copy'), 120);
+      const english = `the usage journal was repaired: ${lines} damaged line(s) set aside${copy ? ` in ${copy}` : ''}, ${debts} call(s) written back as a liability`;
+      const chinese = `用量账本已修复：${lines} 行损坏记录已另存${copy ? `到 ${copy}` : ''}，${debts} 次调用按负债记回`;
+      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', localized(context, english, chinese), 'warn', { rule: true });
+    }
     case 'provider.request.denied': {
       const provider = stringField(event, 'provider');
       return model('system', 'event.quota', '⏸', `${localized(context, `a request to ${provider || 'the model service'} was held back`, `发往${provider || '模型服务'}的一次请求被暂缓`)} · ${clean(stringField(event, 'reason'), 160)}`, 'warn', { rule: true });

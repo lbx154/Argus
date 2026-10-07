@@ -86,45 +86,247 @@ def _audit_rows(root: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-def test_truncated_prefix_with_complete_record_fails_admission_closed(tmp_path: Path) -> None:
+def test_admission_repairs_a_damaged_journal_and_keeps_the_evidence(tmp_path: Path) -> None:
     project = tmp_path / "projects" / "p1"
     ledger = UsageLedger(project, migrate_legacy=False)
     ledger.append(_record(project, "call-1"))
     ledger.append(_record(project, "call-2"))
     damaged, clean = _damage_with_concatenated_record(ledger)
 
+    # The reader itself never skips or heals a malformed line.
     with pytest.raises(UsageJournalIntegrityError) as raised:
         ledger.records()
     error = raised.value
     assert error.reason_code == "corrupt_accounting_journal"
     assert error.path == ledger.path and error.line_number == 2
-    # The complete suffix is recognised for the repair report only.
     assert error.recovered_call_id == "call-2"
-    assert "call_id=call-2" in str(error) and f"{ledger.path} line 2" in str(error)
-
-    reservation, reason = _reserve(tmp_path, project, "call-3")
-    assert reservation is None
-    assert reason.startswith("accounting_integrity: corrupt_accounting_journal:")
-    assert str(ledger.path) in reason and "line 2" in reason
-    assert cost_admission_reason(global_root=tmp_path) == reason
-    denied = [row for row in _audit_rows(tmp_path) if row["type"] == "budget.reservation.denied"]
-    assert denied and denied[-1]["reason_code"] == "corrupt_accounting_journal"
-    # Nothing rewrote or "healed" the journal; the evidence stays byte-identical.
-    assert ledger.path.read_bytes() == damaged
-
-    # Appending after a damaged tail would splice a new record onto the
-    # corruption. The writer refuses instead, so finalization sees a failure.
     with pytest.raises(UsageJournalIntegrityError):
         ledger.append(_record(project, "call-4"))
     assert ledger.path.read_bytes() == damaged
 
-    # Recovery is possible: once the operator restores the physical line, the
-    # journal is clean again and admission resumes without any policy bypass.
-    ledger.path.write_bytes(clean)
-    assert [record.call_id for record in ledger.records()] == ["call-1", "call-2"]
+    # Admission repairs the journal: the damaged bytes are kept beside it,
+    # every complete record survives, and the call whose prefix was cut off
+    # (call-2, whose complete record followed) needs no liability.
     reservation, reason = _reserve(tmp_path, project, "call-3")
     assert reservation is not None and reason == ""
     reservation.release(reason="test")
+    copies = sorted(project.glob("usage.jsonl.damaged-*"))
+    assert len(copies) == 1 and copies[0].read_bytes() == damaged
+    assert ledger.path.read_bytes() == clean
+    assert [record.call_id for record in ledger.records()] == ["call-1", "call-2"]
+    assert cost_admission_reason(global_root=tmp_path) == ""
+    repaired = [row for row in _audit_rows(tmp_path) if row["type"] == "accounting.journal_repaired"]
+    assert len(repaired) == 1
+    assert repaired[0]["damaged_copy"] == str(copies[0]) and repaired[0]["kept_records"] == 2
+    assert repaired[0]["damaged_lines"][0]["recovered_call_id"] == "call-2"
+    assert repaired[0]["liabilities"] == []
+    # The journal is a journal again.
+    assert ledger.append(_record(project, "call-4"))
+    assert [record.call_id for record in ledger.records()] == ["call-1", "call-2", "call-4"]
+
+
+def test_a_truncated_call_is_written_back_as_a_conservative_liability(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = UsageLedger(project, migrate_legacy=False)
+    ledger.append(_record(project, "call-1"))
+    big = build_usage_record(
+        call_id="call-2", project_root=project, mission_id="mission-1", provider="codex",
+        model="gpt-5.6-sol", run_label="engineer-r1", started_at=time.time() - 1,
+        completed_at=time.time(), status="completed",
+        token_usage=TokenUsage(
+            input_tokens=50_000, output_tokens=5_000,
+            input_tokens_present=True, output_tokens_present=True, source="test",
+        ),
+    )
+    ledger.append(big)
+    costs = {record.call_id: record.cost_usd for record in ledger.records()}
+    assert costs["call-2"] > costs["call-1"] > 0
+    clean = ledger.path.read_bytes()
+    # ENOSPC cut call-3's record after its identity and provider were written.
+    partial = json.dumps(
+        _record(project, "call-3").to_jsonable(), separators=(",", ":"), sort_keys=True,
+    ).encode("utf-8")
+    partial = partial[: partial.index(b'"reasoning_output_tokens"')]
+    ledger.path.write_bytes(clean + partial)
+
+    reservation, reason = _reserve(tmp_path, project, "call-4")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+    records = {record.call_id: record for record in ledger.records()}
+    assert set(records) == {"call-1", "call-2", "call-3"}
+    liability = records["call-3"]
+    assert liability.pricing_tier == "journal_repair_estimate"
+    assert liability.cost_basis == "estimate" and liability.pricing_status == "priced"
+    assert liability.cost_usd == costs["call-2"]
+    assert liability.provider == "codex" and liability.model == "gpt-5.6-sol"
+    # The cut fell before run_label; what the prefix no longer said stays blank.
+    assert liability.mission_id == "mission-1" and liability.run_label == ""
+    assert "truncated at usage.jsonl line 3" in liability.error
+    repaired = [row for row in _audit_rows(tmp_path) if row["type"] == "accounting.journal_repaired"]
+    assert repaired[-1]["liabilities"] == [{"call_id": "call-3", "cost_usd": costs["call-2"], "line": 3}]
+    assert sorted(project.glob("usage.jsonl.damaged-*"))[0].read_bytes() == clean + partial
+
+
+def test_a_truncated_call_without_a_cost_basis_is_held_for_the_operator(tmp_path: Path) -> None:
+    from argus.core.cost_control import acknowledge_unpriced_call
+
+    project = tmp_path / "projects" / "p1"
+    ledger = UsageLedger(project, migrate_legacy=False)
+    project.mkdir(parents=True)
+    now = time.time()
+    ledger.path.write_bytes(
+        b'{"call_id":"call-1","completed_at":' + f"{now:.3f}".encode()
+        + b',"cost_usd":null,"model":"m","provider":"local-llm","started_at":'
+        + f"{now - 10:.3f}".encode() + b',"pro'
+    )
+    reservation, reason = _reserve(tmp_path, project, "call-2")
+    assert reservation is None
+    assert reason.startswith("unresolved provider cost: 1 call(s)")
+    liability = ledger.records()[0]
+    assert liability.call_id == "call-1" and liability.pricing_status == "unpriced"
+    assert liability.cost_usd is None and "cost unknown" in liability.error
+    acknowledge_unpriced_call(
+        global_root=tmp_path, project_id="p1", call_id="call-1",
+        liability_usd=0.5, reason="operator accepts the truncated call at $0.50",
+    )
+    reservation, reason = _reserve(tmp_path, project, "call-2")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+
+
+def test_a_repair_that_cannot_write_keeps_admission_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = UsageLedger(project, migrate_legacy=False)
+    ledger.append(_record(project, "call-1"))
+    ledger.append(_record(project, "call-2"))
+    damaged, _clean = _damage_with_concatenated_record(ledger)
+    monkeypatch.setattr(usage, "_rewrite_usage_rows", _enospc)
+
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is None
+    assert reason.startswith("accounting_integrity: corrupt_accounting_journal:")
+    assert ledger.path.read_bytes() == damaged
+    assert cost_admission_reason(global_root=tmp_path) == reason
+
+
+def _journal_with_truncated_tail(project: Path, tail: bytes) -> UsageLedger:
+    ledger = UsageLedger(project, migrate_legacy=False)
+    ledger.append(_record(project, "call-1"))
+    ledger.path.write_bytes(ledger.path.read_bytes() + tail)
+    return ledger
+
+
+def _truncated_codex_call(project: Path, call_id: str, *, provider: str = "codex") -> bytes:
+    row = _record(project, call_id).to_jsonable()
+    row["provider"] = provider
+    whole = json.dumps(row, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return whole[: whole.index(b'"reasoning_output_tokens"')]
+
+
+def test_the_liability_lands_with_the_repair_not_in_a_later_append(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = _journal_with_truncated_tail(project, _truncated_codex_call(project, "call-2"))
+    # Appends fail with a full disk; the debt must still be in the journal.
+    monkeypatch.setattr(UsageLedger, "append", _enospc)
+
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+    records = {record.call_id: record for record in ledger.records()}
+    assert set(records) == {"call-1", "call-2"}
+    assert records["call-2"].pricing_tier == "journal_repair_estimate"
+
+
+def test_a_repair_whose_evidence_copy_cannot_be_written_leaves_everything_as_it_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = _journal_with_truncated_tail(project, _truncated_codex_call(project, "call-2"))
+    damaged = ledger.path.read_bytes()
+    monkeypatch.setattr(usage.os, "fsync", _enospc)
+
+    with pytest.raises(OSError):
+        ledger.repair_journal()
+    assert ledger.path.read_bytes() == damaged
+    assert list(project.glob("usage.jsonl.damaged-*")) == []
+
+
+def test_another_providers_prices_never_price_a_truncated_call(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = _journal_with_truncated_tail(
+        project, _truncated_codex_call(project, "call-2", provider="local-llm"),
+    )
+
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is None
+    assert reason.startswith("unresolved provider cost: 1 call(s)")
+    held = {record.call_id: record for record in ledger.records()}["call-2"]
+    assert held.provider == "local-llm"
+    assert held.pricing_status == "unpriced" and held.cost_usd is None
+
+
+def test_a_journal_repaired_by_another_reader_is_read_again_not_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = UsageLedger(project, migrate_legacy=False)
+    ledger.append(_record(project, "call-1"))
+    ledger.append(_record(project, "call-2"))
+    _damage_with_concatenated_record(ledger)
+    original = UsageLedger.repair_journal
+
+    def repaired_elsewhere(self, **kwargs):
+        # Another process won the race: by the time this reader holds the
+        # lock the journal is already clean and there is nothing to repair.
+        original(self, **kwargs)
+        return None
+
+    monkeypatch.setattr(UsageLedger, "repair_journal", repaired_elsewhere)
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+
+
+def test_a_truncated_record_that_lost_its_call_id_is_held_for_the_operator(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = _journal_with_truncated_tail(project, b'{"cached_input_tokens":0,"co')
+
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is None
+    assert reason.startswith("unresolved provider cost: 1 call(s)")
+    held = [record for record in ledger.records() if record.call_id != "call-1"]
+    assert len(held) == 1
+    assert held[0].call_id.startswith("journal-repair:usage.jsonl.damaged-")
+    assert held[0].call_id.endswith(":2")
+    assert held[0].pricing_status == "unpriced" and held[0].cost_usd is None
+    acknowledge_unpriced_call(
+        global_root=tmp_path, project_id="p1", call_id=held[0].call_id,
+        liability_usd=0.5, reason="operator accepts the unidentified call at $0.50",
+    )
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+
+
+def test_the_repair_is_audited_under_the_cost_control_root_wherever_the_project_lives(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "work" / "p1"
+    _journal_with_truncated_tail(project, _truncated_codex_call(project, "call-2"))
+
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+    repaired = [row for row in _audit_rows(tmp_path) if row["type"] == "accounting.journal_repaired"]
+    assert len(repaired) == 1 and repaired[0]["project_id"] == "p1"
+    assert repaired[0]["liabilities"][0]["call_id"] == "call-2"
+    assert repaired[0]["liabilities"][0]["line"] == 2
 
 
 def test_truncated_trailing_line_is_corruption_unless_an_append_is_in_progress(
@@ -134,7 +336,9 @@ def test_truncated_trailing_line_is_corruption_unless_an_append_is_in_progress(
     ledger = UsageLedger(project, migrate_legacy=False)
     ledger.append(_record(project, "call-1"))
     clean = ledger.path.read_bytes()
-    partial = json.dumps(_record(project, "call-2").to_jsonable()).encode("utf-8")[:64]
+    whole = json.dumps(_record(project, "call-2").to_jsonable()).encode("utf-8")
+    # The cut falls after the provider, before the model.
+    partial = whole[: whole.index(b'"model"')]
 
     # 1. Partial final line, no live writer: ENOSPC left a truncated record.
     ledger.path.write_bytes(clean + partial)
@@ -142,11 +346,19 @@ def test_truncated_trailing_line_is_corruption_unless_an_append_is_in_progress(
         ledger.records()
     assert raised.value.line_number == 2 and "truncated final record" in str(raised.value)
     assert raised.value.recovered_call_id is None
-    _, reason = _reserve(tmp_path, project, "call-3")
-    assert reason.startswith("accounting_integrity: corrupt_accounting_journal:")
+    # Admission repairs it: the cut-off record is carried as a liability
+    # priced at the journal's costliest comparable call.
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+    repaired = {record.call_id: record for record in ledger.records()}
+    assert set(repaired) == {"call-1", "call-2"}
+    assert repaired["call-2"].pricing_tier == "journal_repair_estimate"
+    assert repaired["call-2"].cost_usd == repaired["call-1"].cost_usd
 
     # 2. The same bytes while another writer holds the usage lock are an
     # append in progress: no false block for the concurrent writer.
+    ledger.path.write_bytes(clean + partial)
     with ledger._locked():
         assert [record.call_id for record in ledger.records()] == ["call-1"]
         # The writer itself holds the lock and must not append onto the
@@ -164,7 +376,10 @@ def test_truncated_trailing_line_is_corruption_unless_an_append_is_in_progress(
             ledger.records()
     assert raised.value.line_number == 2 and raised.value.recovered_call_id == "call-2"
     reservation, reason = _reserve(tmp_path, project, "call-3")
-    assert reservation is None and "corrupt_accounting_journal" in reason
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+    assert [record.call_id for record in ledger.records()] == ["call-1", "call-2"]
+    assert len(list(project.glob("usage.jsonl.damaged-*"))) == 2
 
 
 def test_reconciliation_refuses_to_rewrite_a_damaged_journal(

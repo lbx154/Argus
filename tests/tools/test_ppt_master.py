@@ -156,7 +156,7 @@ def test_status_rejects_dirty_checkout(tmp_path: Path) -> None:
     assert status.detail == "tracked toolkit files are modified"
 
 
-def test_status_requires_dependencies_for_current_python(
+def test_status_probes_dependencies_with_the_current_python(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -169,13 +169,15 @@ def test_status_requires_dependencies_for_current_python(
         revision=revision,
         install_dependencies=True,
     )
+    # The install recorded this process's interpreter; the status check must
+    # not trust that path but probe the interpreter Argus runs with now.
     monkeypatch.setenv("ARGUS_SKILL_PYTHON", "/bin/false")
 
     status = ppt_master_status(global_root=home, expected_revision=revision)
 
     assert status.valid is True
     assert status.dependencies_installed is False
-    assert status.detail == "toolkit installed; dependencies not recorded for this Python"
+    assert status.detail.startswith("dependency presence probe failed")
 
 
 def test_status_rejects_missing_recorded_dependency(

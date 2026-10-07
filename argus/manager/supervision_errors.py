@@ -53,6 +53,11 @@ def _failure_reason(stage: str, metadata: dict[str, Any], *, issued: bool = Fals
                 return "The control commit timed out and this decision expired. Any recorded effects remain auditable."
             cause = "Cancellation" if code == "cancelled" else "Newer control or evidence"
             return f"{cause} superseded this decision. Any recorded effects remain auditable."
+        if code == "busy":
+            return (
+                "The daemon is executing a mission and holds its control; this decision is "
+                "delivered at the next guidance boundary."
+            )
         reason = {
             "timeout": "The control commit timed out. ",
             "cancelled": "The control commit was cancelled. ",

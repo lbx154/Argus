@@ -220,3 +220,24 @@ it("renders the overflow pill that leads back into the parent card", () => {
   act(() => pill.props.onClick());
   expect(open).toHaveBeenCalledWith("m-card");
 });
+
+it("shows a subtask's verdict in place of 'completed'", () => {
+  act(() => {
+    renderer = create(
+      <BranchNode {...propsFor(branch({ status: "done", team_outcome: { kind: "route", verdict: "rejected", selected: false } }))} />,
+    );
+  });
+  const pill = renderer!.root.findByProps({ "data-testid": "map-branch" });
+  expect(pill.props["data-verdict"]).toBe("rejected");
+  expect(pill.props["aria-label"]).toContain("Rejected");
+  expect(renderer!.root.findByProps({ "data-testid": "map-branch-verdict" }).children).toEqual(["Rejected"]);
+  expect(renderer!.root.findByProps({ className: "map-branch-state" }).children).toEqual(["✕"]);
+  act(() => renderer!.unmount());
+  act(() => {
+    renderer = create(
+      <BranchNode {...propsFor(branch({ team_outcome: { kind: "route", verdict: "qualified", selected: true } }), vi.fn(), { zh: true })} />,
+    );
+  });
+  expect(renderer!.root.findByProps({ "data-testid": "map-branch-verdict" }).children).toEqual(["通过 · 被选中"]);
+  expect(renderer!.root.findByProps({ "data-testid": "map-branch" }).props["data-verdict"]).toBe("chosen");
+});

@@ -1,459 +1,404 @@
 ---
 name: "Composing a conceptual paper figure"
-description: "Default to Method D with Method B native PPT fallback; compose precise, informative academic figures with Figma-level visual care, meaningful mechanism detail, and optional ECharts components."
+description: "Draw Figure 1 and every other conceptual, method, architecture, taxonomy or teaser figure as native editable PowerPoint objects through PPT Master: Method D (reference figures, an image design blueprint, an editable reconstruction) is the default and Method B (direct native design without an image API) is the fallback. Also says which figures are data charts for the shared SciencePlots/Matplotlib helper instead, what generated imagery may and may not supply, how results become tables and figures, and how drawing is kept from stalling the science."
 ---
 
 # Composing a conceptual paper figure
 
-Use this in Paper for Figure 1 or another conceptual, method, architecture, or
-taxonomy figure. Read the research notes in `RESEARCH_NOTES.md`, the current manuscript, the executed method,
-and direct result sources. Create the canonical editable figure source and the
-matching vector PDF and PNG. Method D is the default and Method B is the
-fallback, as defined below. Use precise mathematical/vector components inside
-the selected reconstruction when useful. Tool choice does not establish visual
-quality; inspect the actual figure and its publication-size inclusion.
+Use this in Paper, and during figure repairs in Review, for Figure 1 and any
+other conceptual, method, architecture, taxonomy, teaser or graphical-abstract
+figure. Read the research notes in `RESEARCH_NOTES.md`, the current manuscript,
+the executed method and the direct result sources first; a figure that is not
+grounded in them is decoration. The outcome is one canonical editable source,
+`paper/figures/<name>.pptx`, and the vector PDF and PNG exported from it. Tool
+choice does not establish visual quality; a figure is judged by looking at the
+export at the width it will be printed.
 
-## Keep science moving while figures are drawn
+## Which route a figure takes
 
-Most effort belongs to the contribution, methods, decisive experiments, and
-interpretation. Plan three informative figures for a full paper, with at least
-two distinct scientific figures: usually the mechanism, the main comparison,
-and an ablation, diagnostic, or generalization result. Each answers a different
-question from real evidence. Do not pad the count with decorative images,
-duplicate plots, or separately numbered pieces of the same diagram. A request
-for only one figure or a partial paper keeps its requested scope.
+Quantitative charts are not this skill's subject. Any paper data/metric/result
+chart, including uncertainty and ablation plots and the data panel of a mixed
+figure, stay on the SciencePlots/Matplotlib route: the analysis script passes
+series and per-seed rows to the `paper_charts` helper described in
+`engineer/paper-chart-styling.md`, the single SciencePlots/Matplotlib
+data-figure path of the paper; that skill's ECharts route
+(`figure_spec_scripts/echarts_figure.py`, browser-rendered vector) is the one
+alternative for a standalone chart.
 
-When drawing needs more than a small local repair and scientific work can
-continue independently, delegate it in parallel. The lead Engineer supplies
-the scientific meaning, direct source material, the final column width, and
-the paper's palette; then continues methods, experiments, or analysis. Start
-with two or three genuinely different compositions, not a dozen polished
-versions. One good existing figure needs no competition. A larger batch, even
-twelve candidates, is an option only when it answers an unresolved design
-question and resources permit; it is never a quota. Stop expanding the search
-as soon as a scientifically faithful, refined candidate is good enough to use.
-Keep provider and compute capacity available for the scientific work.
+Conceptual figures are composed here. Method D is the default; Method B is the
+fallback. Both D and B author the framework in native editable PowerPoint
+objects: the difference is only whether an image-generated design blueprint
+informs the composition. Either way the paper receives editable native PPTX
+through PPT Master and the vector PDF exported from it. An explicit operator
+choice overrides the default.
 
-Use only a delegation interface actually available in the current session:
+Some tools supply parts of a figure without being a route of their own.
+FigureSpec (`engineer/figure_spec_scripts/figure_renderer.py`, whose docstring
+explains its input) or Graphviz can compute coordinates for an exact
+load-bearing topology; the final nodes and connectors are still drawn as native
+PPT objects, because their default node-and-arrow output is not a finished
+framework figure. ECharts can supply a data chart component inside a method
+figure, drawn from actual data with animation disabled, fixed dimensions and
+the SVG renderer, and checked again after conversion into the PPT.
+`engineer/research_visual_scripts/browser_render.py` renders such an HTML or
+SVG component to a vector file; a browser-rendered text-card layout is not a
+third conceptual route. Generated imagery (image-2), when configured, provides
+a design blueprint or a non-claim-bearing illustrative asset, nothing more.
 
-- A provider's native subtask tool can draw one candidate in a private working
-  directory, or return a full design and editable source inline if the delegate
-  is read-only. Do not ask a read-only delegate to save files or accept a
-  path-only acknowledgement as its result. State the exact allowed output
-  directory and forbid edits to the parent manuscript, evidence, figures,
-  research notes, and `paper/REVIEW.md`. The lead persists an inline result.
-- For independent Engineer–Reviewer work, follow `agent-team-lead.md` and use
-  `python -m argus.tools.team`. Manager/Planner prepares each candidate
-  as a direct, figure-only task with its own working directory and local task
-  state. Do not copy the parent paper's pipeline or venue state into it. An
-  empty directory alone is not an initialized direct task. Candidate Reviewer
-  judges only its figure; the paper's integrated Reviewer owns venue acceptance.
-  Each task's `cwd` points to its independent candidate tree and `owns_paths`
-  names only that tree's output directory. Keep the campaign registered with
-  the original running project so its resident Curator can execute the tasks.
-  `owns_paths` is a coordination rule, not a filesystem sandbox. If independent
-  task state cannot be prepared, use the available native subtask route or do
-  the small figure task locally while scientific jobs run.
+What is not a route: matplotlib `FancyBboxPatch` boxes joined by `annotate`
+arrows (nobody can edit them, their labels overlap at publication size,
+`figure_lint` reports the export and the Reviewer returns it), TeX-compiled
+drawings, and hand-written SVG. There is no separate SVG workflow. SVG remains
+an internal format of a renderer, and PPT Master's own SVG conversion is part
+of the export, but it is never the source the paper keeps.
 
-Keep candidates under an internal directory such as
-`.argus/figure_candidates/<figure-id>/<batch-id>/<candidate-id>/`. Give each
-worker its own copied input excerpts and data, plus the authoritative source
-locations for checking; do not share mutable PPT projects or output paths.
-An ordinary brief in that directory is enough. Do not create another
-project-visible planning or review document.
+## What Figure 1 must show
 
-For the Team route, write the prepared tasks to a private `tasks.jsonl` using
-the real fields `task_id`, `objective`, `acceptance_check`, `cwd`, and
-`owns_paths`. The objective names the input brief, a single candidate output,
-the actual PPT/plot render command, and the permitted writes. For example, a
-candidate with its own `cwd` owns `output/**`; its acceptance check requires a
-faithful, readable render and matching editable source. The runtime writes
-the result shard; do not fabricate a numerical beauty score for its leaderboard.
-With those tasks and paths prepared, the lead uses the existing control CLI:
+Every complete paper needs a real Figure 1 that shows the problem, the
+mechanism and the claim-bearing flow at a glance. It enters the manuscript
+through `\includegraphics` of the exported PDF, placed after the Introduction,
+normally on page 2 or 3, and moving the float does not require redrawing; a boxed
+paragraph or table inside a figure environment does not count. Decorative
+depth (simulated 3D, shadows, ornaments) is a different thing from the
+method's real architectural depth: keep the second, drop the first. Topology
+fidelity takes priority over decorative richness. A polished Figure 1 does not
+need depth, icons or decorative complexity, and it never takes a label, an
+arrow, a value or a branch condition from generated image text or geometry.
 
-```bash
-"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.team form \
-  --root "$ARGUS_FIGURE_TEAM_ROOT" --team-id "$ARGUS_FIGURE_TEAM_ID" \
-  --cwd "$ARGUS_FIGURE_PARENT_WORKDIR" \
-  --mission "Draw the specified figure candidates while the lead advances the science" \
-  --tasks "$ARGUS_FIGURE_TASKS_FILE"
-"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.team pool-set \
-  --root "$ARGUS_FIGURE_TEAM_ROOT" --width 2 --state running
-```
+## Method D: reference figures, a blueprint, an editable reconstruction
 
-The Curator launches and reaps teammates. Continue scientific work and inspect
-`team status --root ...` at useful handoff points instead of polling. Once a
-suitable candidate is available, set `pool-set --state draining` to stop new
-starts. The lead can immediately select a completed, locally reviewed candidate;
-do not wait for optional alternatives before integrating it or returning the
-scientific revision to the host Reviewer. The remaining workers keep their private
-output directories and never receive write authority over the selected source or
-formal paper. Let the Curator reap them while the main work continues; `dissolve`
-the team after they settle, at a normal status check. Only the lead Engineer
-promotes the final source and matching exports to `paper/figures/`,
-updates the caption/manuscript, and checks them against the latest science.
-Candidate workers never merge themselves or start more teams. Their reviews
-check only the candidate's scientific fidelity, readable render, and editable
-source against the supplied brief. They do not judge the whole paper or its
-venue recommendation. The main Engineer finishes this round's scientific
-repairs, integrates the chosen figure when ready, recompiles changed inputs,
-and returns the current artifacts and evidence to the host. The host invokes
-the formal Reviewer on the complete current paper. Do not spawn a native agent
-or Team to act as an integrated/full-paper Reviewer, start another paper-wide
-review loop, or write the main `paper/REVIEW.md`. The existing host review may
-request another revision; a worker's local figure approval does not complete
-the paper. Pending optional design alternatives do not hold the main turn.
+**Method D is the default: reference figures, an image-API design blueprint,
+an editable reconstruction, native PPTX through PPT Master, paper export.**
 
-After selection, inspect once at publication size, repair concrete problems,
-and retain the accepted composition. Record the chosen source/export paths and
-any remaining material defect briefly in the existing checkpoint. A new review
-round is not a reason to reopen the design search. Reopen only for changed
-scientific content, a specific fidelity/readability defect, or explicit operator
-feedback; update the smallest affected part. A data refresh does not require a
-new framework layout. Optional cosmetic preferences do not delay scientific
-review or an otherwise acceptable paper.
+1. Reuse an existing suitable figure or blueprint before creating another. A
+   prose-only edit, a recompile or a new Review round does not justify
+   regeneration. An operator-rejected figure is not suitable for reuse merely
+   because it compiles, has no overlaps or uses the suggested colours; redesign
+   its composition before making local repairs.
+2. Inspect suitable published reference figures before generating a new
+   blueprint: open the actual diagrams in two or three accepted papers from the
+   selected venue or comparable conferences, chosen for their mechanism and
+   composition rather than the paper's fame. Study reading order, the visual
+   objects they use, information density, type, spacing and colour semantics
+   without copying artwork, and recover how each exposes its mechanism through
+   concrete objects and their relationships. A reference is useful only after
+   its graphic has been inspected. Keep the paper URL, figure number and the
+   useful observation in the research notes, not in an exemplar collection, and
+   reuse references already inspected for this paper when they still fit.
+3. Check the configured image route, disclosure authorization, the remaining
+   budget and the installed PPT Master. This default does not authorize
+   spending beyond the task budget, uploading confidential material, changing
+   providers or installing tools; existing operator authorization applies and
+   is not requested again. If a prerequisite is unavailable, or the task's
+   privacy, time or output constraints rule it out, use Method B and state the
+   concrete reason in the research notes or the task response. If the operator
+   explicitly requires Method D only, or an output format the fallback cannot
+   deliver, surface the blocker instead of silently substituting.
+4. Generate one visual design blueprint from a minimal, disclosure-safe prompt
+   (see Generated imagery). At most one initial request per design direction:
+   cheap layout sketches settle the alternatives first, and text or geometry
+   fixes are repaired locally rather than by calling the API again. Preserve
+   the actual returned image and prompt beside the drawing source, without
+   credentials. A failed request is not a blueprint.
+5. Reconstruct the design as editable objects, restoring every scientific
+   label, value, branch and arrow from the manuscript and the executed method,
+   never from the generated image's text or geometry. Follow an explicit model
+   choice when one is given; Method D does not require a particular
+   reconstruction model. Inspect the actual image rather than claiming that a
+   local drawing used an API.
+6. Export native editable PPTX objects with the installed toolkit (below). Do
+   not paste the blueprint as a whole-slide raster and call it editable. Keep
+   the upstream-required source files and include the vector PDF in the paper.
+7. Inspect the render at the actual publication width, repair the editable
+   source and render again. Compare it with the references: the mechanism
+   should be apparent from the drawing, with a deliberate hierarchy and
+   restrained, coherent colour. A grid of prose and formula boxes is not a
+   finished illustration.
 
-## Default Method D; fallback Method B
+## Method B: direct native PPT design
 
-This is the routing contract for conceptual, method, architecture, taxonomy,
-teaser, and graphical-abstract figures. Quantitative charts, including the data
-panel of a mixed figure, stay on the SciencePlots/Matplotlib route.
-An explicit operator choice overrides the default.
+**Method B is the fallback: direct native PPT design without an image API.** An
+unavailable image interface selects B on its own; it is not a reason to pause
+the paper or to ask the operator to configure an API. Study the references as
+in D, design the composition, and create native editable shapes, connectors
+and text through the installed PPT Master. Keep the PPTX and its generation
+source together with the matching vector PDF and PNG. Method B does not
+require image-generation credentials and holds the same scientific fidelity
+and visual standard as D. Never relabel a Method B drawing as an API-assisted
+reconstruction; name the workflow actually used.
 
-**Method D is the default: reference figures -> image-API design blueprint ->
-editable reconstruction -> native PPTX through PPT Master -> paper export.**
+## Generated imagery
 
-Matplotlib is not a route for these figures. A script that places
-`FancyBboxPatch` boxes and `annotate` arrows produces a diagram nobody can
-edit, with labels that overlap at publication size; `figure_lint` reports such
-an export and the Reviewer returns it. The canonical source is the native
-PPTX at `paper/figures/<name>.pptx`; the included `<name>.pdf` is exported
-from it and keeps the same stem, so the host can pair them. The export step
-is one command and needs neither PowerPoint nor LibreOffice:
+Image generation is optional infrastructure; the paper can proceed without it.
+When an authorized route is configured (model API status reports it), use it
+for a visual design blueprint, a background, a texture or a non-semantic icon.
+A blueprint is a composition reference, never a source of scientific labels,
+numbers, arrows, boundaries or claim-bearing geometry; those are reconstructed
+from authoritative sources and stay editable. Do not generate quantitative
+result plots.
+
+Write a minimal prompt grounded in the current paper that forbids unsupported
+content, carry the visual craft below into it (a white background, dark ink
+with one or two accents, thin strokes, deliberate whitespace, clear scientific
+grouping), and leave long explanation for the caption. Do not send private
+manuscripts, code, data or credentials without authorization. Generate one
+candidate with `python -m argus.tools.image_api generate`, then inspect it for
+accidental text, watermarks, logos, misleading symbolism or content the paper
+does not support. Keep the image and prompt with the figure source; for a
+decorative asset place only its useful non-semantic portion and keep the prompt
+only if the asset may need regenerating. Do not create registration files or
+separate visual-review reports.
+
+## The PPT Master toolkit
+
+The global skill `engineer/presentation-master.md` holds the toolkit notes:
+locating the pinned checkout (`python -m argus.tools.ppt_master status`),
+running its scripts through the supplied interpreter, keeping objects native,
+and the font and line-break details of SVG-to-PPTX conversion. Read it before
+the first figure. Keep figure projects and outputs in the authorized workdir,
+outside the installed toolkit.
+
+The canonical source is the native PPTX at `paper/figures/<name>.pptx`; the
+included `<name>.pdf` keeps the same stem so the host can pair them. The
+export needs neither PowerPoint nor LibreOffice:
 
 ```bash
 EXPORT=$(find "$ARGUS_SKILL_HOME" . -name pptx_export.py -path '*figure_spec_scripts*' 2>/dev/null | head -1)
-$ARGUS_SKILL_PYTHON "$EXPORT" --pptx paper/figures/<name>.pptx   # writes <name>.pdf and <name>.png
+"${ARGUS_SKILL_PYTHON:-python3}" "$EXPORT" --pptx paper/figures/<name>.pptx   # writes <name>.pdf and <name>.png
 ```
 
-It reads the PPTX with PPT Master's `pptx_to_svg.py`, renders the slide in
-the browser, keeps the slide SVG under `paper/figures/src/<name>/`, and
-records provenance. The PDF's producer then says Skia/PDF; a PDF beside a
-PPTX with any other producer (pdfTeX, Ghostscript, cairo, matplotlib) is
-reported by `figure_lint` as not exported from the PPTX. Open `<name>.png`
-after every export: that is the figure at manuscript width, and three boxes
-of bullet points in it are a composition to redo, not a figure to include.
+It reads the PPTX with `pptx_to_svg.py`, renders the slide in the browser,
+keeps the slide SVG under `paper/figures/src/<name>/` and records provenance.
+The PDF's producer then says Skia/PDF; a PDF beside a PPTX with any other
+producer (pdfTeX, Ghostscript, cairo, matplotlib) is reported by `figure_lint`
+as not exported from the PPTX. Open `<name>.png` after every export: that is
+the figure at manuscript width, and three boxes of bullet points in it are a
+composition to redo, not a figure to include.
 
-Both D and B author the framework in native editable PowerPoint objects.
-An unavailable image interface selects B automatically; it is not a reason
-to pause the paper or ask the operator to configure an API.
+For a browser-rendered component inside the chosen route, keep assets local,
+disable animation, fix the dimensions, and render the existing SVG or a PDF:
 
-1. Reuse an existing suitable figure or blueprint before creating another.
-   A prose-only edit, compile, or new Review round does not justify regeneration.
-   Ground labels and connections in the current manuscript and executed method.
-   Inspect suitable published reference figures before generating a new
-   blueprint; open the actual diagrams in two or three relevant accepted papers
-   from the selected venue or comparable conferences. Choose references for
-   the mechanism and composition, not just a famous paper's name. Study reading
-   order, visual representations, information density, type, spacing, and color
-   semantics without copying artwork. Recover how the reference exposes its
-   mechanism through concrete objects and internal relationships; a reference
-   is useful only after its actual graphic has been inspected. Reuse references
-   already inspected for this paper when they still fit. Keep the paper URL, figure number, and
-   the useful design observation in the existing research notes, not an
-   exemplar collection. An operator-rejected figure is not suitable for reuse
-   merely because it compiles, has no overlaps, or uses the suggested colors.
-   Redesign its composition before making local repairs.
-2. Check the configured image route, disclosure authorization, available budget,
-   and installed PPT Master via `engineer/presentation-master.md`. This default
-   does not authorize spending beyond the task budget, uploading confidential
-   material, changing providers, or installing tools. Existing operator authorization applies; do not request it again. If a prerequisite is
-   unavailable or the task's privacy, time, or output constraints rule it out,
-   use Method B and state the concrete reason in the existing research notes
-   or task response. If the operator explicitly requires Method D only or an
-   output format the fallback cannot deliver, surface the blocker instead of
-   silently substituting another method.
-3. Use `paper-illustration-image2.md` to generate a visual design blueprint from
-   a minimal disclosure-safe prompt. Do not upload a whole private manuscript,
-   raw experiment data, credentials, or code. Use at most one initial API
-   blueprint per selected design direction; cheap layout sketches can establish
-   the alternatives first. Reuse it and repair locally rather than repeatedly
-   calling the API for text or geometry fixes. Preserve the actual returned image and prompt alongside
-   the drawing source, without credentials. A failed request is not a blueprint.
-4. The active Engineer or assigned figure worker reconstructs the design as editable objects, restoring
-   every scientific label, value, branch, and arrow from authoritative sources,
-   not from generated image text or geometry. Follow an explicit model choice;
-   Method D does not require a particular reconstruction model. Inspect the
-   actual image rather than claiming that a local drawing used an API.
-5. Follow `engineer/presentation-master.md` and its installed upstream workflow
-   to export native editable PPTX objects. Do not paste the blueprint as a
-   whole-slide raster and call it editable. Retain the upstream-required source
-   and export files, and include a publication-ready vector PDF in the paper.
-6. Inspect the rendered figure at the actual publication width, repair the
-   editable source, and rerender. Check native PPTX text and object editability.
-   Compare it visually with the references: the mechanism must be apparent
-   from the drawing, with deliberate hierarchy and restrained, coherent color.
-   A grid of prose/formula boxes is not a finished academic illustration.
-   Use small token streams, bit fields, sets, matrices, trajectories, or other
-   scientifically meaningful objects where they reveal what changes and what
-   stays fixed. Keep only essential equations on canvas and move derivations
-   and narrative into the caption. Make this comparison during the existing
-   render inspection; do not create another report or review stage.
-   If PDF/PNG previews come from SVG rather than a PowerPoint render, say so;
-   do not claim an Office rendering was inspected when it was not.
+```bash
+RENDER=$(find "$ARGUS_SKILL_HOME" . -name browser_render.py \
+  -path '*research_visual_scripts*' 2>/dev/null | head -1)
+"${ARGUS_SKILL_PYTHON:-python3}" "$RENDER" \
+  --input paper/figures/src/<id>/index.html \
+  --selector '[data-figure-root]' \
+  --output paper/figures/<id>.pdf \
+  --width 1200 --height 720
+```
 
-**Method B is the fallback: direct native PPT design without an image API.**
-The Engineer or assigned figure worker studies the references, designs the composition, and uses
-the installed PPT Master to create native editable shapes, connectors, and
-text. Follow `engineer/presentation-master.md` for the actual toolkit route.
-Keep the PPTX and its canonical generation source, plus the matching vector
-PDF and PNG. SVG may be an internal source/export format, but there is no
-separate SVG workflow or routing entry. Method B does not require image-generation
-credentials and preserves the same scientific fidelity and visual standard as D.
-Never relabel a Method B drawing as an API-assisted reconstruction.
+An SVG output requires an SVG in the page; a CSS composition should ask for PDF
+rather than trigger `figure root contains no SVG`.
 
-ECharts may supply a genuine data chart within the PPT composition. Read the
-actual data, disable animation, set final dimensions and type scale, and use
-the SVG renderer for a vector component. Keep its option/data source and check
-its conversion into the final PPT. ECharts is not a substitute for composing
-the method with editable PowerPoint objects. Ordinary standalone result plots
-can retain the established SciencePlots/Matplotlib route.
+Text and objects in the PPTX must stay editable, and if the PDF and PNG
+previews come from SVG rather than a PowerPoint render, say so rather than
+claiming an Office rendering was inspected.
 
-## Publication style
-
-Apply these defaults to a new figure unless the paper already has an established
-style. Aim for a carefully composed academic illustration with the precision of
-a strong Figma design: consistent reusable components, clear alignment, optical
-balance, and deliberate information hierarchy. This is a visual standard within
-the D/B native PPT workflow, not a requirement to add another design tool.
-
-The overview should explain the scientific idea at a glance and reveal useful
-mechanism detail on a closer look at the same publication size. Give a reader
-real objects to follow: aligned token or codeword ribbons, candidate sets,
-intervals and thresholds, tensor blocks, page/graph neighborhoods, meaningful
-branches, or before/after states, as the actual method warrants. Richness comes
-from those relationships. Do not invent modules, sampled values, or toy results
-to make the canvas look busy.
-
-Avoid both a wall of prose boxes and an empty input–model–output strip that hides
-the contribution. Expose the key transformation inside its group, keep labels
-beside the objects they explain, and use whitespace to separate relationships.
-If the figure feels sparse because the mechanism is missing, add the supported
-mechanism; if its content is complete, tighten the canvas instead of decorating
-it. If it feels crowded, reorganize groups or move explanation to the caption
-while retaining the scientific structure and readable type. Judge this once
-with the candidate inspection; do not introduce a density score or a new gate.
-
-- Start with the scientific reading order, two or three levels of visual
-  hierarchy, and meaningful phase containers. Show tokens, candidate sets,
-  matrices or operators where they explain the mechanism. Keep prose in the
-  caption instead of adding a full-width paragraph inside the figure.
-- Use a white canvas, charcoal text, 0.5–0.9 pt strokes at publication size,
-  and one or two restrained semantic accents. Pale fill belongs only where it
-  helps group the mechanism. Align edges and baselines, allow visible internal
-  padding, and leave connector corridors open. Do not give every step a large
-  colored card, heavy rounded border, or pill badge.
-- Default to a restrained scientific palette: ink `#28344A`, muted labels
-  `#69768A`, rules `#ACB6C4`, navy `#3C5488`, and teal `#008F7A`. Use pale
-  tints `#EFF2F7` and `#EEF6F3` only for the selected semantic groups. A muted
-  terracotta `#C17664` may replace one accent for a necessary contrast; do not
-  accumulate all colors. Avoid a separate peach/yellow/green/purple fill for
-  every module. Preserve a paper's existing coherent scientific palette when
-  it is already stronger, and check grayscale and color-vision separation.
-- Use a coherent sans-serif hierarchy for module names and annotations;
-  mathematical notation may use a compatible math face. A manuscript's Times
-  body font does not require every diagram label to use Times New Roman.
-- Size ordinary labels for the actual included paper width (normally 8–9 pt,
-  never below 8 pt). Panel headings generally need only 9–10 pt; avoid a large
-  slogan across the top. Use short panel letters where useful. Let content set
-  geometry and move prose into the caption instead of reducing type.
-- Render real subscripts, superscripts, set notation, Greek letters, and
-  operators with native equation objects or properly positioned PowerPoint
-  text runs and compatible math fonts. A failed
-  font or PPT conversion calls for a different math representation or renderer,
-  not shipping programming-style substitutes such as `C_t` or `J(pi)` when the
-  paper uses mathematical notation.
-- Reserve one accent for the contribution or selected path, with inherited
-  machinery quiet. Use numbered phases only when they clarify reading order.
-  Follow the geometry and semantic requirements below.
-
-For a new or aesthetically unsuccessful figure, use the small candidate batch
-above before detailed rendering; choose by scientific reading order,
-clarity, and economy at the actual paper width. Reuse a good composition during
-local repairs. Do not create a separate process report or ask the operator to
-make routine layout decisions.
-
-Open `engineer/academic-vector-figures.md` when a precise math or chart component
-is needed. Locate PPT Master with `python -m argus.tools.ppt_master status`; the
-reported `skill_root` contains the toolkit instructions, layout references,
-`scripts/svg_quality_checker.py`, `scripts/svg_to_pptx.py`, and
-`scripts/pptx_to_svg.py`. Use `engineer/presentation-master.md` to install it if
-needed. Use native shapes and text, then inspect the converted PPTX through its
-rendered output as well as the vector figure at the manuscript's actual width.
-
-## Craft the PPT as a scientific figure
-
-1. Reduce the claim to one visible transformation or comparison before adding
-   labels. Reuse the same visual object on both sides so a reviewer can see
-   what changed. For a coding paper, draw the same event stream above aligned
-   codewords; for sparse inference, show the candidate set shrinking while
-   the selected token remains fixed. Derive any concrete example from the
-   method and mark schematic quantities as such.
-2. Give information a shape. A sequence is a row of tokens, a code is aligned
-   bit fields, a set is a cluster or row of candidates, and an interval is a
-   span with endpoints. Use a module box only for a real module. Do not turn
-   every sentence or formula into another card.
-3. Lay out a quiet backbone, then place the contribution where the eye should
-   land. Use a clear overview with groups and focused detail views where the
-   mechanism needs them. Show the load-bearing internal operations, interfaces,
-   and feedback; a module name alone does not explain a contribution. Let the
-   mechanism determine the number of panels, preserving readable type and a
-   clear reading order. Move supporting derivations into the caption.
-4. Use a small spacing unit at the final paper size, such as 4 pt. Align shared
-   baselines and edges, give labels comfortable padding, and reserve a wider
-   gap between semantic groups than between objects inside a group. Check
-   optical balance after geometric alignment; a long formula needs more room
-   than a short label, not a smaller font.
-5. Keep white space active. Use dark ink for reading, navy for the shared
-   mechanism and teal for the meaningful contrast; pale fills only delimit a
-   needed group. Keep the same color meaning across panels and results plots.
-   Avoid backgrounds, shadows, gradients, decorative icons, and rounded cards
-   that contribute no information. Color must also work in grayscale.
-6. Route connectors through reserved corridors, dock them at the actual
-   object boundary, and use a consistent light stroke and arrowhead. Branches
-   should originate at one explicit decision, not from nearby label text.
-   Keep return paths outside the forward flow and prevent ambiguous crossings.
-7. Build reusable native PPT groups for repeated tokens, fields, operators,
-   and labels. Use shared sizes and styles, not hand-tuned copies. Group by
-   semantic role so changes to notation or panel spacing remain easy to edit.
-   A single pasted screenshot is not an editable diagram.
-8. Inspect the rendered PPT at manuscript width and beside the chosen paper
-   references. First check the silhouette and reading order without zooming;
-   then inspect every label, connection, formula, and crop. Fix the largest
-   composition problem before cosmetic details. Render the repaired PPT again
-   and confirm that the formal PDF/PNG and manuscript contain this version.
-
-Two conversion details need special care. Native theme faces such as `+mn-lt`
-and `+mj-lt` can resolve to a different font from the authoring SVG; inspect
-the actual PPT theme and its glyph coverage. Use ordinary letters positioned
-at real subscript/superscript baselines when modifier-letter glyphs are absent.
-For a short multiline label, use separate native text objects with explicit
-baselines when the converter does not preserve line breaks. A merged line or
-an automatic text-box wrap must not clip the figure or alter its notation.
-
-These are drawing decisions for the Engineer, not a form the operator must
-fill out or a structured output template for the Reviewer.
-
-## Choose a composition archetype first
+## Composition
 
 Strong published figures reuse a small set of compositions. Pick the one that
-fits the paper's actual claim before drawing anything. No archetype is the
-default for every paper. The exemplar names below illustrate structures;
-they do not replace inspecting relevant figures from the current paper's area.
+fits the paper's actual claim before drawing anything; none is the default for
+every paper, and the exemplars name structures rather than replacing the
+inspection of figures from the paper's own area.
 
 | Archetype | Use when | Structure | Exemplars |
 |---|---|---|---|
 | Pipeline strip | The contribution has a traceable forward transformation | A shared visual spine carries concrete inputs and intermediate representations through the real operations; expose the contribution inside its group and distinguish genuine training or feedback paths | RAG, InstructGPT, DreamFusion |
-| Contrast diptych | The contribution is best stated as a delta against a standard approach | Two panels, old left and new right, drawn as the same diagram differing in exactly one visible attribute — a deleted box, a changed loss, one added matrix; the method panel may get more area | DPO, Chain-of-Thought, ReAct |
+| Contrast diptych | The contribution is best stated as a delta against a standard approach | Two panels, old left and new right, drawn as the same diagram differing in exactly one visible attribute (a deleted box, a changed loss, one added matrix); the method panel may get more area | DPO, Chain-of-Thought, ReAct |
 | Lineage progression | The contribution generalizes a known paradigm | Three lettered panels: two familiar paradigms, then the contribution in the terminal position; panel letters cited from the body text | VAR |
 | Overview plus zoom | The novelty lives inside one block of an otherwise standard pipeline | Panel (a): the full pipeline at cartoon level showing where the block sits; panel (b): the single novel unit magnified with its internal wiring and dimensions | Stable Diffusion 3, NSA |
 | Results-first teaser | The strongest claim is empirical | Figure 1 carries no architecture: a sample grid, a filmstrip contrast, or one headline plot with a bold takeaway sentence opening the caption; the mechanism moves to Figure 2 | VAR, Genie, Rho-1 |
-| Coverage map | Benchmark, dataset, or evaluation papers | A color-coded taxonomy tree, spectrum bar, or specimen grid whose legend marks which parts are new; the caption carries most of the explanation | DecodingTrust, Aya |
+| Coverage map | Benchmark, dataset, or evaluation papers | A colour-coded taxonomy tree, spectrum bar, or specimen grid whose legend marks which parts are new; the caption carries most of the explanation | DecodingTrust, Aya |
 
-## Design
+Then design from the science:
 
-1. State the figure's one-sentence scientific takeaway.
-2. List the exact modules, labels, and connections, including each connection's
-   source, target, direction, boundary port, and meaning.
-3. Make the contribution unmistakable through subtraction or one minimal
-   difference wherever possible — delete a box the baseline needs, mark the
-   inherited parts frozen, change one token — so the baseline diagram is one
-   visual edit away from yours. When subtraction is impossible, choose a clear
-   primary emphasis: terminal panel position, one reserved accent color
-   against a muted base, an ours-versus-existing legend, or extra area. Render
-   standard inherited machinery quietly while preserving its meaningful
-   structure. Secondary details should support the primary emphasis.
-4. Keep color semantic: one color means one concept, identically in every panel
-   and matched to the results charts. If a legend line cannot state what a
-   color means, remove the color. Stay within about six categorical colors,
-   color-blind safe, and legible in grayscale.
-5. Budget on-canvas text by role and architectural depth: keep module labels
-   short, but expose the important internal components, interfaces, and feedback
-   in a complex system. Do not impose a fixed word cap that erases its mechanism.
-   Use compact nested groups and additional horizontal bands when needed;
-   preserve readable type and move explanatory prose into the caption.
-6. Where it helps comprehension, run one concrete example through the diagram —
-   an actual input and its intermediate representations — rather than only abstract
-   labels.
-7. Write the caption to stand alone: open with the takeaway (bold it when the
-   venue style allows), walk the panels in reading order, decode every color,
-   symbol, and badge, and name the contrast explicitly. Reuse panel letters and
+1. State the figure's one-sentence takeaway and reduce the claim to one
+   visible transformation or comparison before adding labels. Reuse the same
+   visual object on both sides so a reader sees what changed: the same event
+   stream above aligned codewords for a coding paper, the candidate set
+   shrinking while the selected token stays fixed for sparse inference. Derive
+   any concrete example from the method and mark schematic quantities as such.
+2. List the exact modules, labels and connections, including each connection's
+   source, target, direction, boundary port and meaning, and match every
+   visible name, direction and value to the paper and the executed method
+   verbatim. Update affected notation in the source and the export without
+   redesigning an accepted composition.
+3. Give information a shape. A sequence is a row of tokens, a code is aligned
+   bit fields, a set is a cluster or row of candidates, an interval is a span
+   with endpoints, and a module box is for a real module. Richness comes from
+   these relationships: do not turn every sentence or formula into another
+   card, and do not invent modules, sampled values or toy results to fill the
+   canvas.
+4. Make the contribution unmistakable through subtraction or one minimal
+   difference wherever possible (delete a box the baseline needs, mark the
+   inherited parts frozen, change one token), so the baseline diagram is one
+   visual edit away from yours. When subtraction is impossible, choose one
+   primary emphasis: terminal panel position, one reserved accent against a
+   muted base, an ours-versus-existing legend, or extra area. Render inherited
+   machinery quietly while preserving its meaningful structure.
+5. Lay out a quiet backbone and place the contribution where the eye should
+   land. Show the load-bearing internal operations, interfaces and feedback (a
+   module name alone does not explain a contribution) and let the mechanism
+   set the number of panels. Avoid both a wall of prose boxes and an empty
+   input-model-output strip that hides the contribution: if the figure feels
+   sparse because the mechanism is missing, add the supported mechanism; if
+   its content is complete, tighten the canvas; if it feels crowded,
+   reorganize the groups or move explanation to the caption. Where it helps
+   comprehension, run one concrete input and its intermediate representations
+   through the diagram.
+6. Keep colour semantic: one colour means one concept, identically in every
+   panel and matched to the results charts. If a legend line cannot say what a
+   colour means, remove the colour. Reserve one accent for the contribution or
+   the selected path and keep inherited machinery quiet.
+7. Build reusable native PPT groups for repeated tokens, fields, operators and
+   labels, with shared sizes and styles and grouped by semantic role, so a
+   change of notation or spacing stays easy to edit.
+8. Write the caption to stand alone: open with the takeaway (bold when the
+   venue style allows), walk the panels in reading order, decode every colour,
+   symbol and badge, and name the contrast explicitly. Reuse panel letters and
    stage numbers as anchors in the body text. Never caption a figure "System
-   architecture."
+   architecture", and keep supporting derivations and narrative in the caption
+   rather than on the canvas.
 
-## Geometry and typography
+### Geometry
 
-- a clear reading order: use a dominant left-to-right flow for a real pipeline,
-  but keep parallel analyses and alternatives parallel rather than inventing a
-  serial dependency; return or training arrows must look different (dashed or
-  a distinct color);
-- connectors terminate at explicit node boundaries; no shaft or arrowhead
-  enters an unrelated node, label, or panel; if arrows must cross, fix the
-  layout rather than the arrows;
-- one shape class per concept, used identically everywhere; every element in
-  one step persists visibly into the next or its removal is the labeled action;
-- annotate real dimensions where they matter and mark arbitrary counts with an
-  ellipsis or a multiplier, so drawn counts are never accidentally readable as
-  exact;
-- no decorative 3D or gradients: every visual property either encodes a
-  declared meaning or stays neutral;
-- set the canvas to the final single- or double-column width before drawing,
-  keep text at or above eight points at that size, and export vector;
-- gloss any named component a general reviewer may not know — no bare acronym
-  in a box;
-- every visible name, direction, and value matches the paper and executed
-  method verbatim; update affected notation in the source and matching export
-  without redesigning the accepted composition.
+Set the canvas to the final single- or double-column width before drawing, and
+export vector; a figure drawn at another size and scaled in LaTeX has type of
+the wrong size no matter how careful the drawing was.
 
-## From an editable source to the finished figure
+- A clear reading order: a dominant left-to-right flow for a real pipeline,
+  parallel analyses kept parallel rather than given an invented serial
+  dependency, and return or training arrows visibly different (dashed or a
+  distinct colour).
+- Connectors are drawn so that connectors terminate at explicit node
+  boundaries; no shaft or arrowhead enters an unrelated node, label or panel.
+  Route them through reserved corridors, dock them at the actual object
+  boundary with one light stroke and arrowhead, let branches originate at one
+  explicit decision rather than at nearby label text, keep return paths
+  outside the forward flow, and fix the layout rather than the arrows when
+  they would cross; connector penetration, overlap and clipping are defects.
+- One shape class per concept, used identically everywhere; every element in
+  one step persists visibly into the next, or its removal is the labelled
+  action.
+- Annotate real dimensions where they matter and mark arbitrary counts with an
+  ellipsis or a multiplier, so drawn counts are never read as exact.
+- Every visual property either encodes a declared meaning or stays neutral: no
+  decorative 3D, gradients, shadows, backgrounds, icons or rounded cards that
+  carry no information.
+- Gloss any named component a general reviewer may not know; no bare acronym
+  in a box.
+- Real subscripts, superscripts, set notation, Greek letters and operators use
+  native equation objects or properly positioned text runs with compatible
+  math fonts. A failed font or conversion calls for a different math
+  representation or renderer, not programming-style substitutes such as `C_t`
+  or `J(pi)` where the paper uses mathematical notation.
 
-Never deliver an uncorrected one-shot raster as the final claim-bearing figure.
-An optional image blueprint is a design reference, not scientific evidence.
-Emit an editable structured source, render it, inspect the render, and repair
-identified defects. Once it meets the figure requirements, preserve the selected
-composition and return attention to the science.
-Decompose complex figures — build panels and modules separately, then compose.
+### Visual craft
 
-| Composition | Primary route |
-|---|---|
-| Pipeline strip or method architecture | Method D by default: image design blueprint and native editable PPT Master reconstruction; Method B fallback: direct native PPT composition |
-| Contrast diptych, lineage panels | Reuse native PPT groups across aligned panels; change only the objects that express the scientific difference |
-| Mathematical bounds, operators, or geometry | Native PPT shapes, equation objects, and mathematical text runs at final publication size |
-| Panels of verbatim text (prompts, trajectories, rubrics) | Aligned native PPT text with measured wrapping, readable type, and restrained highlights |
-| Exact load-bearing topology, taxonomy trees | Generate coordinates if useful, then draw explicit native PPT nodes and connectors |
-| Data component inside a method figure | ECharts with actual data and vector output, composed and checked inside the native PPT |
-| Results teaser | Matplotlib through Styling data figures for publication |
+Aim for the precision of a strong design: consistent reusable components,
+aligned edges and baselines, optical balance, and two or three levels of
+hierarchy. Every stylistic choice is settled by one question: does it still
+read at the printed width? Type is sized so that an ordinary label stays
+readable when the figure is included at column width, which in practice is
+the size of the paper's footnotes; anything smaller says the canvas holds too
+much, and the remedy is to move content to the caption, not to shrink the
+type. Panel headings need only a little more, never a slogan across the top.
+Strokes are thin enough to read as drawing rather than frame at that width.
+Colour is restrained: dark ink for reading, one or two semantic accents, pale
+tints only where they delimit a group. The studio's defaults are ink `#28344A`,
+muted labels `#69768A`, rules `#ACB6C4`, navy `#3C5488` for the shared
+mechanism and teal `#008F7A` for the meaningful contrast, with tints `#EFF2F7`
+and `#EEF6F3`; a muted terracotta `#C17664` may replace one accent when a
+contrast is necessary. A paper that already has a coherent scientific palette
+keeps it; either way, check grayscale and colour-vision separation. A coherent
+sans-serif hierarchy for module names and annotations is fine even when the
+body font is Times, and mathematics may use a compatible math face. Use a
+small spacing unit at the final size, a wider gap between semantic groups than
+within them, and give a long formula room rather than a smaller font.
 
-Inspect every render at actual publication size against the design rules above:
-reading direction, clear primary emphasis, decodable legend, text budget,
-notation match, font size, no crossings, and a caption with takeaway, panel
-walk, and color decode.
+For a new or unsuccessful figure, sketch two or three genuinely different
+compositions before detailed rendering and choose by scientific reading order,
+clarity and economy at the actual paper width. One good existing figure needs
+no competition, and a larger batch is worth its cost only when it answers an
+unresolved design question. Reuse a good composition during local repairs, and
+do not ask the operator to make routine layout decisions.
 
-Also judge the whole composition: does the mechanism read immediately, are
-groups and emphasis clear, and does the figure look as carefully designed as
-the accepted examples? Legible text and a clean export alone are insufficient.
-Recompose a crowded collection of text boxes instead of only nudging labels.
-For an explicitly needed redesign, compare the actual exported figure with the
-starting version: stronger mechanism expression, spacing, hierarchy, and
-mathematical notation should be visible. Preserve a suitable checked figure
-when those requirements already hold.
-Keep one canonical source for every formal export. If a PPTX is also delivered,
-inspect it separately and ensure it depicts the same final composition; an old
-deck must not be presented as the source of a new PDF. Name each final source
-and export with its complete individual path in the handoff so it is openable.
+## From results to tables and figures
 
-Paper needs a complete, credible figure and a successful compile. Do not create
-layout reports, exemplar collections, provenance records, or visual-review
-files. The strict page-by-page visual judgment is made once, in Review.
-That formal judgment belongs to the host's Reviewer after the main Engineer
-returns; it is not a request for Engineer to dispatch another paper reviewer.
+Analysis is the main work; figures follow from it. Compute every paper number
+from raw rows; never hard-code an expected result. Before aggregating, match
+the raw configuration and repeat identities and counts to the declared run,
+account for failures and exclusions, and verify the claim-critical
+invariants: a copied completion marker or a previously generated table cannot
+make a partial or changed run complete, so the data, the code and
+configuration, and the summaries of one validated attempt are kept together.
+Compare compatible data, models, budgets, evaluators and uncertainty. Prefer a
+small counterfactual regression when it directly tests whether a result or
+figure changes under a claim-critical input change. Preserve valid losing rows
+in the raw evidence while building the paper around the positive thesis that
+meets the Paper entry bar. Where to check is the Engineer's judgement of where
+the risk lies; whether the evidence supports the claim is a question the
+Reviewer decides (`reviewer/experiment-results-review.md`).
+
+Use real measured values, correct units, conventional axes, readable labels
+and uncertainty where it is scientifically relevant, and make the winning
+comparison and takeaway immediately visible. A data refresh updates the
+affected values from new raw rows without redesigning a selected composition.
+Produce only analysis code, paper tables, editable figure sources and the
+final exports that `paper/main.tex` uses; the main Engineer embeds the selected
+claim-bearing tables and figures there.
+
+## Keeping the science moving
+
+Most effort belongs to the contribution, the methods, the decisive experiments
+and their interpretation. When drawing needs more than a small local repair
+and scientific work can continue independently, delegate the drawing in
+parallel and keep going. A provider's native subtask can draw one candidate in
+a private working directory, or return a full design and editable source
+inline when the delegate is read-only, in which case the lead persists it (a
+path-only acknowledgement is not a result). For independent Engineer-Reviewer
+work, prepare one figure-only Team task per candidate as `agent-team-lead.md`
+in the global library describes, each with its own working directory and local
+task state and `owns_paths` naming only its output directory, registered with
+the running project so its Curator can execute them. Give each worker the
+scientific meaning, copied input excerpts and data, the authoritative source
+locations, the final column width and the paper's palette; keep candidates
+under an internal directory such as
+`.argus/figure_candidates/<figure-id>/<batch-id>/<candidate-id>/`, and forbid
+edits to the parent manuscript, evidence, figures, research notes and
+`paper/REVIEW.md`. An ordinary brief in that directory is enough; do not
+create another project-visible planning or review document, and do not
+fabricate a beauty score for a leaderboard. If independent task state cannot
+be prepared, use the native subtask route or draw locally while scientific jobs
+run.
+
+A candidate worker checks only its own candidate against the brief, for
+scientific fidelity, a readable render, and editable source and final included
+export; it never judges the whole paper, merges itself or starts more teams.
+The lead selects a completed, locally checked candidate as soon as one is
+suitable, without waiting for optional alternatives, promotes its source and
+matching exports to `paper/figures/`, updates the caption and manuscript, and
+checks them against the latest science; the remaining workers keep their
+private directories and never gain write authority over the selected source.
+Keep one canonical source for every formal export. If a PPTX is also
+delivered, it must depict the same final composition; an old deck must not be
+presented as the source of a new PDF. Name each final source and export with
+its full path so it is openable.
+
+After selection, inspect once at publication size, repair concrete problems
+and retain the accepted composition; record the chosen paths and any
+remaining material defect briefly in the existing checkpoint. Reopen the
+design only for changed scientific content, a specific fidelity or
+readability defect, or explicit operator feedback, and update the smallest
+affected part. A new review round or a cosmetic preference is not a reason.
+
+Paper is responsible for complete figures and a successful compile, not a
+separate visual check. Do not create layout reports, exemplar collections,
+provenance records or visual-review
+files. The strict page-by-page visual judgment is made once, in Review, by the
+host's Reviewer after the main Engineer returns. The Engineer does not
+dispatch an integrated or full-paper Reviewer, start a second paper-wide
+review loop, or write the main `paper/REVIEW.md`; a worker's local approval
+does not complete the paper, and pending optional alternatives do not hold the
+main turn.

@@ -272,3 +272,29 @@ def test_continuous_prompt_states_what_unlocks_a_slot() -> None:
     )
     assert "co-run" in text
     assert "no wildcards" in text
+
+
+def test_digest_names_a_task_that_asked_for_more_gpus_than_the_machine_has(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.life import memory as memory_module
+
+    monkeypatch.setattr(
+        memory_module, "_gpu_cards", lambda: ((0, False), (1, False)),
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(
+        project, tmp_path / "life", _PlannerBackend([]), mission_slots=1
+    )
+    backlog = supervisor.memory.backlog
+    huge = backlog.add(BacklogItem.new(
+        title="train every arm at once", objective="train", gpu_count=8,
+    ))
+    assert backlog.next_pending() is None
+
+    note = supervisor._planner_current_reality_note()
+
+    line = next(line for line in note.splitlines() if "gpu_unfittable" in line)
+    assert huge.id in line
+    assert "asks for 8 GPUs but this machine has 2" in line

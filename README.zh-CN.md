@@ -17,7 +17,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![arXiv](https://img.shields.io/badge/arXiv-2608.05144-b31b1b?style=flat-square&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2608.05144)
 
-[官方网站](https://argusbot.cn) · [视频演示](https://www.youtube.com/watch?v=i8Qy9HCboQE) · [技术报告 · arXiv:2608.05144](https://arxiv.org/pdf/2608.05144) · [微信群](#微信群) · [English](README.md) / **简体中文**
+[官方网站](https://argusbot.cn) · [入门指南（英文）](docs/getting-started.md) · [视频演示](https://www.youtube.com/watch?v=i8Qy9HCboQE) · [技术报告 · arXiv:2608.05144](https://arxiv.org/pdf/2608.05144) · [微信群](#微信群) · [English](README.md) / **简体中文**
 
 `Manager` → `Planner` → `Engineer` ⇄ `Reviewer`
 
@@ -96,6 +96,12 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 </p>
 
 <p align="center"><strong>交流1群已满，请进入2群。</strong></p>
+
+## 教程（英文）
+
+- **[入门指南](docs/getting-started.md)**：凭邀请码在浏览器中试用托管版，或本地安装后用命令行、网页或桌面应用完成第一个任务。
+- **[最佳实践](docs/best-practices.md)**：怎样写目标、中途改方向、选择模型与后端、控制花费。
+- **[构建垂域](docs/building-a-vertical.md)**：从阶段和技能做一个小型真实垂域并发布到垂域商店。
 
 ## 快速安装
 
