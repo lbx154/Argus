@@ -37,6 +37,7 @@ def _fresh_registry(monkeypatch):
     monkeypatch.delenv(store.HOST_ROOT_ENV, raising=False)
     monkeypatch.delenv("ARGUS_TRIAL_HARNESS", raising=False)
     monkeypatch.delenv(store.PREINSTALL_ENV, raising=False)
+    monkeypatch.setattr(_registry, "_entry_point_plugins", lambda partial: partial)
     _registry.refresh_vertical_plugins()
     yield
     _registry.refresh_vertical_plugins()
@@ -209,6 +210,153 @@ def test_https_downloads_never_leave_the_allow_list(monkeypatch) -> None:
 
 
 # --- install ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("features", [None, "host-round-evidence", [7], [""], ["host-round-evidence"] * 2])
+def test_invalid_argus_features_are_not_silently_ignored(release, features):
+    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(argus_features=features))
+    with pytest.raises(store.VerticalStoreError, match="argus_features"):
+        store.load_catalog(refresh=True)
+
+
+def test_unknown_argus_feature_blocks_whole_install_closure_before_writes(release, monkeypatch):
+    _rewrite_catalog(release, lambda c: c["verticals"]["child_v"].update(argus_features=["future-runtime"]))
+    monkeypatch.setattr(store, "_fetch_archive", lambda *args: pytest.fail("must refuse before downloading"))
+    row = next(r for r in store.rows() if r["name"] == "child_v")
+    assert row["actions"] == [] and "future-runtime" in " ".join(row["install_issues"])
+    with pytest.raises(store.VerticalStoreError, match="child_v.*future-runtime"):
+        store.install("child_v", wait=True)
+    assert store.installed() == {} and store.operation("child_v") is None
+
+
+def test_unsupported_api_blocks_the_whole_dependency_install(release):
+    _rewrite_catalog(release, lambda c: c["verticals"]["child_v"].update(api_version=2))
+    with pytest.raises(store.VerticalStoreError, match="child_v: vertical API version 2"):
+        store.install("child_v", wait=True)
+    assert store.installed() == {} and store.operation("child_v") is None
+
+
+@pytest.mark.parametrize(("feature", "module_name", "symbol"), [
+    ("composable-workflow-profiles", "argus.core.vertical_contract", "VerticalContract"),
+    ("vertical-routing-paths", "argus.verticals._registry", "validate_routing_path"),
+])
+def test_other_declared_argus_features_probe_current_apis(release, monkeypatch, feature, module_name, symbol):
+    module = store.importlib.import_module(module_name)
+    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(argus_features=[feature]))
+    entries = store.load_catalog()["catalog"]["verticals"]
+    monkeypatch.setattr(module, symbol, None)
+    assert feature in "; ".join(store.runtime_issues(entries, "solo_v"))
+    assert store.installed() == {}
+
+
+def test_absent_host_module_is_reported_as_a_missing_feature(release, monkeypatch):
+    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(argus_features=["host-round-evidence"]))
+    original = store.importlib.import_module
+
+    def without_host(name, *args, **kwargs):
+        if name == "argus.engineer.round_evidence":
+            raise ModuleNotFoundError(name=name)
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(store.importlib, "import_module", without_host)
+    with pytest.raises(store.VerticalStoreError, match="host-round-evidence.*missing argus.engineer.round_evidence"):
+        store.install("solo_v", wait=True)
+
+
+@pytest.mark.parametrize("symbol", [
+    "RoundEvidence", "RoundEvidenceRequest", "register_round_evidence_provider", "collect_round_evidence",
+])
+def test_missing_host_evidence_api_blocks_dependent_install(release, monkeypatch, symbol):
+    from argus.engineer import round_evidence
+
+    _rewrite_catalog(release, lambda c: c["verticals"]["base_v"].update(argus_features=["host-round-evidence"]))
+    monkeypatch.delattr(round_evidence, symbol)
+    with pytest.raises(store.VerticalStoreError, match=f"base_v.*host-round-evidence.*{symbol}"):
+        store.install("child_v", wait=True)
+    assert store.installed() == {}
+
+
+def test_argus_feature_probe_does_not_hide_internal_import_errors(release, monkeypatch):
+    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(argus_features=["host-round-evidence"]))
+    original = store.importlib.import_module
+
+    def broken(name, *args, **kwargs):
+        if name == "argus.engineer.round_evidence":
+            raise ModuleNotFoundError("broken internal dependency", name="broken_dependency")
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(store.importlib, "import_module", broken)
+    with pytest.raises(ModuleNotFoundError, match="broken internal dependency"):
+        store.install("solo_v", wait=True)
+
+
+def test_supported_argus_features_are_persisted_without_importing_the_plugin(release):
+    features = ["host-round-evidence", "composable-workflow-profiles", "vertical-routing-paths"]
+    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(argus_features=features))
+    assert store.install("solo_v", wait=True)["status"] == "done"
+    assert "argus_verticals.solo_v.stages" not in sys.modules
+    assert store.installed()["solo_v"]["argus_features"] == features
+    assert "solo_v" in vertical_select.available_verticals()
+    row = next(r for r in store.rows(catalog=None) if r["name"] == "solo_v")
+    assert row["runtime_issues"] == [] and row["install_issues"] == []
+
+
+def test_incompatible_catalog_update_keeps_installed_version_usable(release):
+    store.install("solo_v", wait=True)
+    before = store.registry_path().read_bytes()
+    source = store.package_root() / "solo_v/stages.py"
+    original = source.read_bytes()
+    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(
+        version="2.0.0", argus_features=["future-runtime"],
+    ))
+    store.load_catalog(refresh=True)
+    row = next(r for r in store.rows() if r["name"] == "solo_v")
+    assert row["runtime_issues"] == [] and row["install_issues"]
+    assert row["actions"] == ["disable", "uninstall"] and row["enabled"]
+    with pytest.raises(store.VerticalStoreError, match="future-runtime"):
+        store.update("solo_v", wait=True)
+    assert store.registry_path().read_bytes() == before and source.read_bytes() == original
+    assert "solo_v" in vertical_select.available_verticals()
+
+
+def test_installed_requirements_survive_offline_runtime_changes(release, monkeypatch, caplog):
+    from argus.engineer import round_evidence
+
+    _rewrite_catalog(release, lambda c: c["verticals"]["base_v"].update(argus_features=["host-round-evidence"]))
+    store.install("child_v", wait=True)
+    registry_before = store.registry_path().read_bytes()
+    monkeypatch.delattr(round_evidence, "register_round_evidence_provider")
+    _registry.refresh_vertical_plugins()
+    assert "child_v" not in vertical_select.available_verticals()
+    assert "host-round-evidence" in caplog.text
+    row = next(r for r in store.rows(catalog=None) if r["name"] == "child_v")
+    assert "base_v" in " ".join(row["runtime_issues"]) and row["install_issues"] == []
+    assert row["actions"] == ["disable", "uninstall"]
+    store.disable("child_v")
+    state_before = store.user_state_path().read_bytes()
+    with pytest.raises(store.VerticalStoreError, match="base_v.*host-round-evidence"):
+        store.enable("child_v")
+    assert store.user_state_path().read_bytes() == state_before
+    assert store.registry_path().read_bytes() == registry_before
+    row = next(r for r in store.rows(catalog=None) if r["name"] == "child_v")
+    assert row["actions"] == ["uninstall"]
+
+
+def test_legacy_catalog_without_argus_features_remains_installable(release):
+    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].pop("argus_features"))
+    assert store.install("solo_v", wait=True)["status"] == "done"
+    assert "solo_v" in vertical_select.available_verticals()
+
+
+def test_current_preinstall_reports_missing_runtime_instead_of_ready(release, monkeypatch):
+    from argus.engineer import round_evidence
+
+    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(argus_features=["host-round-evidence"]))
+    store.preinstall(names=["solo_v"])
+    before = store.registry_path().read_bytes()
+    monkeypatch.delattr(round_evidence, "RoundEvidence")
+    result = store.preinstall(names=["solo_v"])["solo_v"]
+    assert result["status"] == "failed" and "host-round-evidence" in result["message"]
+    assert store.registry_path().read_bytes() == before
 
 
 def test_install_resolves_the_requires_closure_dependencies_first(release, home) -> None:
@@ -532,6 +680,7 @@ def test_rows_merge_builtins_installed_and_available_with_actions(release) -> No
         "name", "purpose", "purpose_zh", "kind", "version", "installed_version", "enabled",
         "update_available", "requires", "shared", "python_requirements", "missing_python", "tags",
         "size_bytes", "used_by", "operation", "managed_by_host", "actions", "routing_path",
+        "runtime_issues", "install_issues",
     }
     assert all(set(row) == expected_keys for row in rows.values())
     assert {row["kind"] for row in rows.values()} <= set(store.KINDS)
@@ -893,6 +1042,73 @@ def community_release(tmp_path_factory) -> Path:
     return catalog
 
 
+def test_explicit_community_checkout_cannot_silently_skip(tmp_path, monkeypatch):
+    monkeypatch.setenv(fake.COMMUNITY_REPO_ENV, str(tmp_path / "missing-checkout"))
+    with pytest.raises(FileNotFoundError, match="ARGUS_VERTICALS_REPO"):
+        fake.community_repo()
+
+
+def test_unconfigured_community_checkout_remains_optional(tmp_path, monkeypatch):
+    monkeypatch.delenv(fake.COMMUNITY_REPO_ENV, raising=False)
+    monkeypatch.setattr(fake, "DEFAULT_COMMUNITY_REPO", tmp_path / "missing-checkout")
+    assert fake.community_repo() is None
+
+
+@pytest.mark.integration
+def test_real_hardware_features_install_and_deliver_host_evidence_in_a_fresh_process(
+    community_release, tmp_path,
+):
+    code = r'''
+import json
+import os
+from pathlib import Path
+from argus.core.pipeline_state import write_pipeline_state
+from argus.engineer import round_evidence
+from argus.verticals import _registry, store
+
+home = Path(os.environ["ARGUS_SKILL_HOME"])
+request_type = round_evidence.RoundEvidenceRequest
+del round_evidence.RoundEvidenceRequest
+try:
+    store.install("chip_design", wait=True)
+except store.VerticalStoreError as exc:
+    assert "host-round-evidence" in str(exc), str(exc)
+else:
+    raise AssertionError("missing host API did not block installation")
+assert store.installed() == {}
+assert store.operation("chip_design") is None
+round_evidence.RoundEvidenceRequest = request_type
+
+assert store.install("chip_design", wait=True)["status"] == "done"
+plugin = _registry.vertical_plugin("chip_design")
+assert plugin.origin == "store"
+assert Path(plugin.module.__file__).resolve().is_relative_to(store.package_root().resolve())
+assert "host-round-evidence" in store.installed()["chip_design"]["argus_features"]
+project, state = home / "work", home / "state"
+project.mkdir()
+write_pipeline_state(state, {"vertical": "chip_design", "current_stage": "verification",
+                             "workflow_profile": "verification"})
+before = sorted(project.rglob("*"))
+records = round_evidence.collect_round_evidence(request_type(project, state / "handoffs/task", 1))
+host, = [r for r in records if r.provider == "argus_verticals.hardware.shared.review:round_evidence"]
+assert "Host-executed hardware evidence check" in host.reviewer_text
+assert host.engineer_note.startswith("Host completion issues:")
+assert sorted(project.rglob("*")) == before
+print(json.dumps({"origin": plugin.origin, "early_refusal": True, "host_evidence": True}))
+'''
+    env = {
+        **os.environ, "ARGUS_SKILL_HOME": str(tmp_path / "fresh-home"),
+        store.CATALOG_ENV: str(community_release),
+        "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=tmp_path, env=env,
+        capture_output=True, text=True, timeout=90,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {"origin": "store", "early_refusal": True, "host_evidence": True}
+
+
 @pytest.mark.integration
 def test_real_community_archives_install_load_and_seed_skills(community_release, monkeypatch, home) -> None:
     monkeypatch.setenv(store.CATALOG_ENV, str(community_release))
@@ -923,7 +1139,9 @@ def test_real_community_archives_install_load_and_seed_skills(community_release,
     zips = sorted(p.name for p in community_release.parent.glob("*.zip"))
     assert len(zips) == len(loaded["catalog"]["verticals"])
     with zipfile.ZipFile(community_release.parent / loaded["catalog"]["verticals"]["chip_design"]["archive"]["file"]) as zf:
-        assert all(name.startswith("argus_verticals/chip_design/") for name in zf.namelist())
+        spec = loaded["catalog"]["verticals"]["chip_design"]
+        roots = tuple(f"{tree}/" for tree in [*spec["paths"], *spec["shared"]])
+        assert all(name.startswith(roots) for name in zf.namelist())
 
 
 @pytest.mark.integration

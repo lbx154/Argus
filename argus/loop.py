@@ -212,6 +212,9 @@ class SkillLoop(
         self.reviewer_runner = reviewer_runner or engineer_runner
         self.on_event = on_event
         self.pre_settlement_guard: Callable[..., tuple[LoopStatus, str, str]] | None = None
+        # Answered by the daemon: may a round keep its mission slot while the
+        # work it started runs? See ``SupervisedConfig.external_wait_hold``.
+        self.external_wait_hold: Callable[[], bool] | None = None
         self.canonical_playground_engineer_skill: Any | None = None
         self.canonical_playground_reviewer_skill: Any | None = None
         # Optional callable consulted at the start of each engineer round.
@@ -421,6 +424,7 @@ class SkillLoop(
             narrative_mission_id=run_id,
             operator_questions_allowed=self.config.operator_questions_allowed,
             operator_question_policy_root=self.config.operator_question_policy_root,
+            external_wait_hold=self.external_wait_hold,
         )
         if venue_revisions:
             # Quality rejection keeps the research review loop open. Transport,

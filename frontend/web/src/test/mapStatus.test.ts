@@ -13,6 +13,12 @@ describe("map status sentence", () => {
       .toBe("0 tasks · working on your message");
   });
 
+  it("lets the wait sentence stand in for the role at work", () => {
+    expect(mapStatusSentence({ total: 1, complete: 0, running: 1, pending: false, paused: false, hasOpenWork: true, role: "engineer",
+      waiting: "正在等待后台团队：3 条研究路线全部完成", zh: true }))
+      .toBe("1 个任务 · 进行中 1 · 正在等待后台团队：3 条研究路线全部完成");
+  });
+
   it("counts partial executions separately and never calls them overall completion", () => {
     const input = { total: 2, complete: 1, ended: 1, running: 0, pending: false, paused: true, hasOpenWork: false };
     expect(mapStatusSentence({ ...input, zh: false }))

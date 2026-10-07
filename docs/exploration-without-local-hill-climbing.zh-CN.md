@@ -100,8 +100,7 @@ Kernel Reviewer 现在：
 策略落在：
 
 - `argus/verticals/kernel_engineering/stages.py`
-- `argus/verticals/kernel_engineering/skills/engineer/kernel-environment-first-engineering.md`
-- `argus/verticals/kernel_engineering/skills/reviewer/kernel-engineering-review.md`
+- `argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
 - `argus/verticals/kernel_engineering/references/frontier-search-protocol.md`
 - `argus/verticals/kernel_engineering/references/idgl-loop.md`
 - `argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`

@@ -82,6 +82,31 @@ export function focusZoom(
   return Math.min(Math.max(fit, FOCUS_FILL * side), FOCUS_FILL_MAX * side);
 }
 
+/** The smallest text inside an opened card is 12px in its own units; at this
+ * zoom or above it renders at 12px or more. Phones stack the card into one
+ * column and fit its width instead, so nothing sits outside the viewport. */
+export const READABLE_CANVAS_WIDTH = 1024;
+
+/** Pure detail zoom. The focus fill is the floor; a desktop canvas raises it
+ * to the readable scale and pans for the rest, and a phone fits a stacked
+ * card's width exactly. */
+export function detailZoom(
+  canvas: { width: number; height: number },
+  area: { width: number; height: number },
+  card: { width: number; height: number },
+  frameScale: number,
+  layout?: { width: number; steps: unknown[]; stacked?: boolean },
+): number {
+  const scale = frameScale || 1;
+  if (canvas.width < 640 && layout?.stacked && layout.width > 0) {
+    return area.width / (layout.width * scale);
+  }
+  const fill = focusZoom(canvas, area, card);
+  const longTask = canvas.width < 640 || (layout?.steps.length ?? 0) > 20 ? 0.6 / scale : 0;
+  const readable = canvas.width >= READABLE_CANVAS_WIDTH ? 1 / scale : 0;
+  return Math.max(fill, longTask, readable);
+}
+
 /** Pure overview camera. Zoom fits the padded graph inside the unobstructed
  * area; the frame then centers on the visible canvas with balanced margins,
  * sliding back inside the area only when the graph is too tall or wide. */
@@ -284,15 +309,12 @@ export function useSemanticCamera(
       const width = node.width || 1440,
         height = node.height || 1080;
       const zoom = clamp(
-        Math.max(
-          focusZoom(
-            { width: el.clientWidth, height: el.clientHeight },
-            area,
-            { width, height },
-          ),
-          el.clientWidth < 640 || (node.data.layout?.steps.length ?? 0) > 20
-            ? 0.6 / (node.data.frame?.scale || 1)
-            : 0,
+        detailZoom(
+          { width: el.clientWidth, height: el.clientHeight },
+          area,
+          { width, height },
+          node.data.frame?.scale || 1,
+          node.data.layout,
         ),
         MIN_ZOOM,
         MAX_ZOOM,

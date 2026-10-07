@@ -32,7 +32,7 @@ class DoctorContext:
     install_mode: str = "source"
     backend: str | None = None
     auth_mode: str | None = None
-    allow_prerelease: bool = False
+    allow_prerelease: bool | None = None
 
     def fingerprint_payload(self) -> dict[str, str | int]:
         return {

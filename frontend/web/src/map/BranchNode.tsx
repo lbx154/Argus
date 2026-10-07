@@ -10,7 +10,7 @@ import {
   Route,
   ShieldCheck,
 } from "lucide-react";
-import { statusKey, type MapTask } from "./model";
+import { statusKey, teamOutcomeKey, teamOutcomeLabel, type MapTask } from "./model";
 
 /** World-unit frame of a branch pill; the atlas layout reads the same numbers. */
 export const BRANCH_FRAME = { width: 640, height: 190 };
@@ -78,8 +78,12 @@ export const BranchNode = memo(function BranchNode({
     : task.overflow_count
       ? MoreHorizontal
       : GLYPHS[task.team_role ?? ""] ?? GitBranch;
-  const stateLabel = (STATES[state] ?? STATES.unknown)[zh ? 0 : 1];
-  const stateGlyph = STATE_GLYPHS[state];
+  // What the subtask concluded outranks the fact that it finished: a
+  // rejected route is not a green tick.
+  const verdict = group ? "" : teamOutcomeLabel(task.team_outcome, zh);
+  const verdictKey = group ? "" : teamOutcomeKey(task.team_outcome);
+  const stateLabel = verdict || (STATES[state] ?? STATES.unknown)[zh ? 0 : 1];
+  const stateGlyph = verdictKey === "rejected" ? "✕" : verdictKey === "chosen" ? "★" : STATE_GLYPHS[state];
   const fanned = !group && typeof fanIndex === "number" && typeof fanCount === "number";
   const toggleLabel = group?.expanded
     ? zh ? "收起" : "Fold"
@@ -91,6 +95,7 @@ export const BranchNode = memo(function BranchNode({
       data-testid="map-branch"
       data-branch-id={task.id}
       data-status={state}
+      data-verdict={verdictKey || undefined}
       data-overflow={!!task.overflow_count}
       data-group={!!group}
       data-expanded={group ? group.expanded : undefined}
@@ -123,6 +128,9 @@ export const BranchNode = memo(function BranchNode({
         </span>
       )}
       <span className="map-branch-title">{task.title}</span>
+      {verdict && (
+        <span className="map-branch-verdict" data-testid="map-branch-verdict">{verdict}</span>
+      )}
       {fanned && (
         <span
           className="map-branch-fan"

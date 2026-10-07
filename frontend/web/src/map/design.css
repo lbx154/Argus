@@ -195,6 +195,21 @@
   -webkit-line-clamp: 2;
   flex-shrink: 0;
 }
+/* Where the task stands, in one line under what it is about. */
+.argus-map .macro-summary .map-card-conclusion {
+  flex-shrink: 0;
+  margin: 0 0 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: color-mix(in srgb, #3f8f68 72%, rgb(var(--ink)));
+  background: color-mix(in srgb, #3f8f68 9%, transparent);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
 /* The excerpt takes the remaining space in the fixed card layout. */
 .argus-map .macro-summary .map-card-copy {
   display: block;

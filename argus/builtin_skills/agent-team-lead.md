@@ -13,7 +13,7 @@ Use a team only to parallelize several genuinely independent tasks. The lead wri
 
 Every role may discover this Skill, but it does not erase role boundaries:
 
-- Manager recognizes a Team request and preserves it in the mission handoff.
+- Manager recognizes a Team request and preserves it in the mission it passes on.
 - Planner delegates Team formation unchanged; Planner does not infer availability
   from its own role-specific Skill directory.
 - Engineer or an explicitly assigned lead forms and operates the Team.
@@ -29,16 +29,18 @@ further decomposition to the parent lead. Do not create another Team, change
 the nesting switch, or bypass the runtime admission check. Explicitly authorized
 nested workflows must be configured by the host before execution, not by a child.
 
-Form a team only when all of these hold:
+A team pays for itself when the work splits into pieces whose files and
+responsibilities do not overlap, each piece carries its own completion
+evidence, and each piece is large enough that coordinating it — writing its
+objective, reviewing its result, merging it — costs less than doing it in
+sequence. Two such pieces are enough; twenty pieces that share a file or wait
+on one another are not a team but a queue with extra bookkeeping. Small,
+sequential, tightly coupled or same-file work stays solo. Provider, compute and
+hardware capacity must be able to serve the width you ask for, and the width,
+timeout and total spend must fit the current operator budget; widening a pool
+is not a way around the shared budget or a failed admission.
 
-- At least two tasks can make useful progress concurrently.
-- Their writable paths do not overlap.
-- Each task has its own completion evidence.
-- Provider, compute, and hardware capacity can support the requested width.
-- The width, timeout and total spend fit the current operator budget; widening
-  a pool is not a way around the shared budget or a failed admission.
-
-Stay solo for small, sequential, tightly coupled, or same-file work. `owns_paths` records the lead's partition for review and prior-work inheritance; it is not a filesystem sandbox, so do not form a team when prompt-level ownership is insufficient.
+`owns_paths` records the lead's partition for review and prior-work inheritance; it is not a filesystem sandbox, so do not form a team when prompt-level ownership is insufficient.
 
 ## Form the rolling backlog
 Use `python -m argus.tools.team`.
@@ -52,14 +54,15 @@ Use `python -m argus.tools.team`.
    `form --root <team_root> --team-id <tid> --cwd <workspace> --mission "<objective>" --tasks tasks.jsonl`.
 3. Set deliberate capacity with:
    `pool-set --root <team_root> --width <N> --state running`.
-   The width is clamped to what the host can serve: with a provider concurrency
-   limit, one slot always stays with the lead, so asking for more than the
-   ceiling grants the ceiling.
+   The host clamps the width to what it can serve. Under a provider concurrency
+   limit the lead keeps one slot for its own reading, synthesis and review, so
+   the pool can never take the whole limit; asking for more than the remainder
+   grants the remainder.
 4. Inspect progress with `status --root <team_root>` and read landed `shards/*.jsonl` plus `leaderboard.json`.
 5. A task waiting on a real operator-owned decision is `blocked`, retains its owner and question, and is not retried. After the operator answers, run `resume --root <team_root> --task-id <task_id> --answer "<answer>"` to requeue it with that answer.
 6. Refresh or extend the backlog with `form`. Re-forming claimed, running, or blocked work preserves its lifecycle state; re-forming a done or failed task deliberately reopens it.
 7. Once the required results are ready, set `pool-set --state draining`, read
-   their final shards, and synthesize and verify the canonical artifact. For
+   their final shards, and synthesize and verify the canonical result. For
    alternative candidates, the lead may use a completed, independently reviewed
    result without waiting for every optional alternative. Remaining workers stay
    confined to their assigned private outputs and may not alter the chosen
@@ -67,14 +70,14 @@ Use `python -m argus.tools.team`.
    Reviewer while the Curator reaps them. After all teammates settle, run
    `dissolve --root <team_root>` at a normal status check; optional candidate
    cleanup does not block review. Reviewer validates the durable project
-   artifacts and does not need a live Team runtime.
+   files and does not need a live Team runtime.
 
 The lead never manually spawns, claims, waits for, reassigns, or kills teammates. Those are Curator responsibilities.
 
 ## Task-objective contract
 Every task must state:
 
-- the objective, and the separately checkable done condition as the task's `acceptance_check`, naming exactly once the single subject the task must move (the claim, kernel, or artifact id): a vertical's per-mission context block is resolved from the first task field that names exactly one, and a field naming two resolves to none;
+- the objective, and the separately checkable done condition as the task's `acceptance_check`, naming exactly once the single subject the task must move (the claim, the kernel, or the id of the result it produces): a vertical's per-mission context block is resolved from the first task field that names exactly one, and a field naming two resolves to none;
 - the only paths it may modify;
 - the required result shard or output file;
 - the real measurement or verification command;
@@ -84,7 +87,7 @@ A teammate runs one normal Engineer→Reviewer mission and exits. The Curator th
 
 ## Result and synthesis rules
 
-- Teammates emit task-local artifacts and one shard; they never write the shared leaderboard or the lead's canonical merged artifact.
+- Teammates emit task-local outputs and one shard; they never write the shared leaderboard or the lead's canonical merged result.
 - The Curator is the single writer for pool lifecycle and deterministic leaderboard folding.
 - The lead accepts measured, task-valid results only and is the single writer of the canonical synthesis.
 - Every teammate result passes its own Reviewer; the final synthesis still passes the mission Reviewer.

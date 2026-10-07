@@ -1,9 +1,9 @@
 """Paper-figure vision review on top of the domain-neutral image capability.
 
-The Research Visualization Router chooses each figure's renderer; generative
-imagery (image-2) is limited to non-claim-bearing assets composed inside an
-editable figure, per ``skills/engineer/paper-illustration-image2.md``. That
-skill drives generation directly through ``argus.tools.image_api``; this
+The figure studio skill chooses each figure's renderer; generative imagery
+(image-2) is limited to non-claim-bearing assets composed inside an editable
+figure, per ``skills/engineer/paper-framework-figure-studio.md``. That skill
+drives generation directly through ``argus.tools.image_api``; this
 module contributes the paper-aware REVIEW instruction so a rendered figure is
 judged the way a venue reviewer would judge it. Use this module's ``review``
 CLI/function for paper figures, not the domain-neutral one in

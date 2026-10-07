@@ -633,6 +633,7 @@ def test_build_snapshot_shape_and_failsoft(
         "daemon_commands",
         "observability",
         "mission_view",
+        "background_work",
         "partial",
         "diagnostics",
     }

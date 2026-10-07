@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import subprocess
+from types import SimpleNamespace
 
+import pytest
+
+from argus.apps.cli import _core, build_parser
 from argus.core import backend_readiness as readiness
+from argus.maintenance.doctor import DoctorContext
+from argus.webapi import diagnostics
 
 
 def _completed(
@@ -679,3 +686,113 @@ def test_pi_readiness_warns_once_per_distinct_model(monkeypatch, tmp_path) -> No
     report = readiness.check_backend_readiness("pi", "subscription_cli")
 
     assert len(report.warnings) == 1, report.warnings
+
+
+# --- Inherited prerelease policy -------------------------------------------
+#
+# ``--allow-prerelease`` is tri-state. Only an explicit True/False is a policy
+# statement; an omitted flag must reach ``check_backend_readiness`` as None so
+# the documented environment variable still decides. Every caller used to
+# coerce the omission to False and silently overrode that variable.
+
+_CODEX_PRERELEASE = "0.154.0-alpha.3"
+
+
+def test_unspecified_cli_flag_is_not_an_explicit_refusal() -> None:
+    assert build_parser().parse_args([]).allow_prerelease is None
+    assert build_parser().parse_args(["--allow-prerelease"]).allow_prerelease is True
+
+
+def test_cli_context_preserves_unspecified_value(tmp_path) -> None:
+    args = SimpleNamespace(life_dir=str(tmp_path), resume="", allow_prerelease=None)
+    assert _core._maintenance_context(args).allow_prerelease is None
+
+
+def test_doctor_default_inherits_documented_environment(monkeypatch, tmp_path) -> None:
+    _fake_codex(monkeypatch, _CODEX_PRERELEASE)
+    monkeypatch.setenv(readiness.ALLOW_PRERELEASE_ENV, "1")
+    context = DoctorContext(global_root=tmp_path, project_root=tmp_path)
+
+    report = readiness.check_backend_readiness(
+        "codex",
+        "subscription_cli",
+        probe_auth=False,
+        allow_prerelease=context.allow_prerelease,
+    )
+
+    assert report.ok, report.problems
+
+
+def test_web_default_does_not_shadow_environment() -> None:
+    for function in (diagnostics.run_diagnostics, diagnostics._check_backend_preflight):
+        parameter = inspect.signature(function).parameters["allow_prerelease"]
+        assert parameter.default is None, function.__name__
+
+
+def test_explicit_api_refusal_still_overrides_environment(monkeypatch) -> None:
+    _fake_codex(monkeypatch, _CODEX_PRERELEASE)
+    monkeypatch.setenv(readiness.ALLOW_PRERELEASE_ENV, "1")
+
+    report = readiness.check_backend_readiness(
+        "codex",
+        "subscription_cli",
+        probe_auth=False,
+        allow_prerelease=False,
+    )
+
+    assert not report.ok
+    assert "prerelease" in report.problems[0].detail
+
+
+@pytest.mark.parametrize("env_value", [None, "0", "1"])
+@pytest.mark.parametrize("explicit", [None, False, True])
+def test_web_preflight_preserves_policy_precedence(
+    monkeypatch, env_value, explicit
+) -> None:
+    _fake_codex(monkeypatch, _CODEX_PRERELEASE)
+    if env_value is None:
+        monkeypatch.delenv(readiness.ALLOW_PRERELEASE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(readiness.ALLOW_PRERELEASE_ENV, env_value)
+
+    result = diagnostics._check_backend_preflight(
+        backend="codex",
+        auth_mode="subscription_cli",
+        probe_auth=False,
+        allow_prerelease=explicit,
+    )
+
+    expected = explicit if explicit is not None else env_value == "1"
+    assert result.ok is expected, result.detail
+
+
+@pytest.mark.parametrize("non_interactive", [False, True])
+@pytest.mark.parametrize("explicit", ["omitted", False, True])
+def test_setup_passes_unspecified_and_explicit_policy(
+    monkeypatch, non_interactive, explicit
+) -> None:
+    from argus.tools import setup
+
+    monkeypatch.setattr(setup, "_banner", lambda: None)
+    monkeypatch.setattr(setup, "_configure_runner_backend", lambda value: value)
+    monkeypatch.setattr(setup, "_configure_auth_mode", lambda *_args: "subscription_cli")
+    monkeypatch.setattr(setup, "default_model_for_backend", lambda *_args: None)
+    monkeypatch.setattr(
+        setup, "_resolve_setup_runner_bin", lambda *_args, **_kwargs: "fixture"
+    )
+    monkeypatch.setattr(setup, "format_backend_readiness", lambda _report: "fixture")
+    seen: list[bool | None] = []
+
+    def check(*_args, **kwargs):
+        seen.append(kwargs["allow_prerelease"])
+        return SimpleNamespace(ok=False)
+
+    monkeypatch.setattr(setup, "check_backend_readiness", check)
+    options = {} if explicit == "omitted" else {"allow_prerelease": explicit}
+
+    exit_code = setup.run_setup(
+        backend="codex", non_interactive=non_interactive, **options
+    )
+
+    assert exit_code == setup.SETUP_EXIT_NOT_READY
+    assert seen == [None if explicit == "omitted" else explicit]

@@ -1,4 +1,4 @@
-"""Read-only view of the knowledge Wikis for human readers.
+"""View of the knowledge Wikis for human readers, and in-place page correction.
 
 Agents maintain ``<workspace>/.autors/<project>/wiki`` themselves (INDEX.md
 plus semantic pages under ``pages/``). The host keeps two more tiers of the
@@ -12,23 +12,29 @@ Each page row also carries what its front matter says about it (``kind``,
 ``source``, ``created``) and how many times the host has handed it to a role,
 read from the knowledge journal (:mod:`argus.wiki.journal`). A vertical library
 adds its ``principles.md`` when one has been compiled, and ``/api/knowledge/feed``
-serves the journal itself newest-first. Nothing here writes.
+serves the journal itself newest-first. The only write is
+``POST /api/wiki/page/correct``, which hands a page to
+:func:`argus.wiki.correct.correct_page`; every other route only reads.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 from fastapi import Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from ...core import paths as core_paths
 from ...wiki.auto_hooks import discover_wikis
 from ...wiki.journal import read_knowledge_events, reuse_counts
 from ...wiki.schema import parse_page
 from .context import ServerContext
+
+log = logging.getLogger(__name__)
 
 INDEX_FILENAME = "INDEX.md"
 PRINCIPLES_FILENAME = "principles.md"
@@ -250,6 +256,39 @@ def _library(
     }
 
 
+class PageCorrectionIn(BaseModel):
+    scope: str = Field(max_length=32)
+    path: str = Field(max_length=1024)
+    vertical: str = Field("", max_length=128)
+    sid: str | None = Field(None, max_length=128)
+    statement: str = Field(max_length=4_000)
+    reason: str = Field(max_length=4_000)
+    description: str = Field("", max_length=4_000)
+    by: str = Field("operator", max_length=128)
+
+
+def _note_correction(life_dir: Path, done: Any, *, scope: str, vertical: str) -> None:
+    """One ``knowledge.learned`` line of kind ``corrected`` in the project's stream."""
+    try:
+        from ...core.event_catalog import EventType
+        from ...life.event_log import JsonlEventSink
+
+        JsonlEventSink(None, life_dir=Path(life_dir)).append({
+            "type": EventType.KNOWLEDGE_LEARNED,
+            "kind": "corrected",
+            "scope": scope,
+            "vertical": vertical,
+            "path": done.relative,
+            "title": done.title,
+            "source_project": done.source,
+            "mission_id": "",
+            "page_kind": done.page_kind,
+            "text": f"corrected {done.page_kind}: {done.title}",
+        })
+    except Exception:  # noqa: BLE001 - the event stream is a record, never a requirement
+        log.debug("wiki: correction event append failed", exc_info=True)
+
+
 def register_wiki_routes(app, ctx: ServerContext) -> None:
     def wiki_root(sid: str) -> tuple[Path, Path] | None:
         """(workspace, wiki root) for the first discovered Wiki, or None."""
@@ -346,13 +385,8 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
             "errors": [],
         }
 
-    @app.get("/api/wiki/page", dependencies=[Depends(ctx.require_auth)])
-    def _knowledge_page(
-        scope: str = Query(..., max_length=32),
-        path: str = Query(..., max_length=1024),
-        vertical: str = Query("", max_length=128),
-        sid: str | None = Query(None, max_length=128),
-    ) -> dict[str, Any]:
+    def page_library(scope: str, vertical: str, sid: str | None) -> tuple[Path, str]:
+        """(library root, vertical) for a page of ``scope``; 404 when there is none."""
         if scope not in SCOPES:
             raise HTTPException(status_code=404, detail=f"Unknown knowledge scope: {scope}")
         if scope == "project":
@@ -362,19 +396,55 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
             if located is None:
                 raise HTTPException(status_code=404, detail="Project has no wiki")
             _workspace, root = located
-            vertical = active_vertical(sid)
-        else:
-            if scope == "vertical" and not vertical:
-                raise HTTPException(status_code=404, detail="A vertical page needs its vertical")
-            global_root = ctx.project_root_or_404(sid) if sid else ctx.roots[0]
-            shared = shared_root_for(scope, vertical, global_root)
-            if shared is None:
-                raise HTTPException(status_code=404, detail="Shared wiki not found")
-            root = shared
-            if scope in ("global", "private"):
-                vertical = ""
+            return root, active_vertical(sid)
+        if scope == "vertical" and not vertical:
+            raise HTTPException(status_code=404, detail="A vertical page needs its vertical")
+        global_root = ctx.project_root_or_404(sid) if sid else ctx.roots[0]
+        shared = shared_root_for(scope, vertical, global_root)
+        if shared is None:
+            raise HTTPException(status_code=404, detail="Shared wiki not found")
+        return shared, ("" if scope in ("global", "private") else vertical)
+
+    @app.get("/api/wiki/page", dependencies=[Depends(ctx.require_auth)])
+    def _knowledge_page(
+        scope: str = Query(..., max_length=32),
+        path: str = Query(..., max_length=1024),
+        vertical: str = Query("", max_length=128),
+        sid: str | None = Query(None, max_length=128),
+    ) -> dict[str, Any]:
+        root, vertical = page_library(scope, vertical, sid)
         page = _read_page(root, path)
         return {"scope": scope, "vertical": vertical, **page}
+
+    @app.post("/api/wiki/page/correct", dependencies=[Depends(ctx.require_auth)])
+    def _correct_knowledge_page(body: PageCorrectionIn) -> dict[str, Any]:
+        """Correct a page where readers look first; the earlier wording stays on record."""
+        from ...wiki.correct import PageCorrectionError, correct_page
+
+        root, vertical = page_library(body.scope, body.vertical, body.sid)
+        _read_page(root, body.path)
+        global_root = ctx.project_root_or_404(body.sid) if body.sid else ctx.roots[0]
+        try:
+            done = correct_page(
+                root, body.path, statement=body.statement, reason=body.reason,
+                description=body.description, corrected_by=body.by or "operator",
+                scope=body.scope, vertical=vertical, global_root=global_root,
+            )
+        except PageCorrectionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=409, detail=f"Cannot rewrite the page: {exc}") from exc
+        if body.sid:
+            _note_correction(ctx.resolve_or_404(body.sid), done, scope=body.scope, vertical=vertical)
+        page = _read_page(root, done.relative)
+        return {
+            "scope": body.scope, "vertical": vertical, **page,
+            "correction": {
+                "corrected": done.corrected, "by": body.by or "operator",
+                "previous_lead": done.previous_lead, "previous_description": done.previous_description,
+                "history_copy": done.history_copy.name, "index_updated": done.index_updated,
+            },
+        }
 
     @app.get("/api/knowledge/feed", dependencies=[Depends(ctx.require_auth)])
     def _knowledge_feed(

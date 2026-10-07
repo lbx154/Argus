@@ -128,6 +128,7 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 - `deploy/` - systemd units and Dockerfiles for the hosted trial (`deploy/trial/`).
 - `desktop-tauri/` - the Tauri desktop shell and the PyInstaller spec (`argus_backend.spec`) for the frozen `argus-backend` binary (the spec's `name=`).
 - `docs/` - operator and developer documentation; `docs/audits/` holds dated audit reports and their data attachments.
+- `examples/` - worked examples the guides refer to: `verticals/` holds the small `lab_notebook` vertical built in `docs/building-a-vertical.md` and the helper that packages a vertical into a local store catalog. Not built, not tested, not shipped.
 - `experiments/` - historical PR regression-study forwarding entry points and documentation (`pr_regression_50/`). The maintained implementation and offline tests live in `argus/release_tools/pr_gate/regression/` and `tests/tools/`; model/Docker studies are opt-in, not CI runs. This directory is not built or shipped in the wheel or sdist.
 - `frontend/` - `core` (shared TypeScript), `tui` (Ink terminal cockpit), `web` (React web cockpit). `frontend/web/dist` is committed on purpose and force-included into the wheel.
 - `integrations/` - the `agent-skills` package for external agent hosts (`SKILL.md` plus per-host adapters). Not the Python package `argus/integrations/`.

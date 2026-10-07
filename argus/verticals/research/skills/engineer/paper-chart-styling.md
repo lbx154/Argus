@@ -11,8 +11,8 @@ paper: default blue/orange, rainbow/`jet` colormaps, wrong font sizes, no font
 embedding, and colours that collapse under colour-blind simulation. This skill gives every data
 plot one shared style suitable for a journal via a small helper, `paper_chart_style.py`,
 and a short set of composition rules learned from open-access papers. Conceptual
-figures (teaser/pipeline/architecture) are not covered here — route those through
-*Choosing how to draw a research figure*. This skill is only for
+figures (teaser/pipeline/architecture) are not covered here; they are composed
+through `engineer/paper-framework-figure-studio.md`. This skill is only for
 **data/metric/result plots that are legitimately scripted from local data**.
 
 ## When to use
@@ -22,8 +22,9 @@ figures (teaser/pipeline/architecture) are not covered here — route those thro
   the visual finish of a conference paper.
 
 ## When to use another approach
-- Conceptual/method/teaser/pipeline overview figures — use *Choosing how to draw
-  a research figure* rather than disguising them as data plots.
+- Conceptual/method/teaser/pipeline overview figures: compose them through
+  `engineer/paper-framework-figure-studio.md` rather than disguising them as
+  data plots.
 - There is no local data to plot yet (run/analyze experiments first).
 
 ## How to draw the charts
@@ -34,8 +35,11 @@ the data, bars from 30, seeds averaged into one bar, an in-plot title), so
 `paper_charts.py` makes those calls the same way for every figure.
 
 1. **Install the plotting stack in the project venv**: `pip install matplotlib
-   seaborn SciencePlots`. A missing package is an environment error to repair,
-   not permission to draw with plain matplotlib or hand-authored SVG.
+   seaborn SciencePlots`. The route depends on SciencePlots: the helper applies
+   its base style and stops with an installation message when the package is
+   absent, because a paper whose charts were drawn on two different base styles
+   reads as two papers. Repair the environment rather than drawing the missing
+   figure with plain matplotlib or hand-authored SVG.
 
 2. **Copy both helper files next to the analysis scripts** (the project venv
    does not need `argus`):
@@ -68,10 +72,13 @@ the data, bars from 30, seeds averaged into one bar, an in-plot title), so
    What the helper decides: the proposed method (`ours=`) takes the accent
    colour, a black edge or a heavy solid line and sits on top; baselines take
    distinct palette colours with distinct markers and dashes so the figure
-   reads in greyscale; bars start at zero (a higher start needs
-   `truncated_reason=`, recorded for the caption); one legend sits above the
-   panels, never on the data; powers of two get a log2 axis; a zero on a log
-   axis is an error to state, not a sentinel to plot; no in-plot title.
+   reads in greyscale; bars start at zero, because a bar encodes its value by
+   length and a higher origin exaggerates every difference (a chart that must
+   start higher says why through `truncated_reason=`, which the caption then
+   repeats); one legend sits above the panels, never on the data; powers of
+   two get a log2 axis; a zero on a log axis is an error to state, not a
+   sentinel to plot; and there is no in-plot title, since the caption is where
+   a paper names its figures.
    `column="single"` or `"double"` sizes the figure for its LaTeX float; pass
    `two_column=` explicitly when `research/VENUE_PROFILE.json` is absent.
 
@@ -88,14 +95,17 @@ the data, bars from 30, seeds averaged into one bar, an in-plot title), so
 
 6. **Choose the chart from the estimand.** Bars for a few categories, lines
    for a swept variable, dots for a two-metric trade-off, `grid` when the
-   panels tell one story. No 3-D, no dual axes, no truncated axis without a
-   caption sentence. Each figure supports one claim of the draft; do not plot
-   every metric.
+   panels tell one story. Depth, dual axes and a silently truncated axis each
+   make a reader misjudge a comparison, so the helper has no verb for them and
+   a truncated axis is announced in the caption. Each figure supports one
+   claim of the draft; plotting every metric dilutes the one the reader should
+   take away.
 
-7. **Learn composition from real papers.** Before locking layouts, run the
-   *Learning from strong published papers* skill on two or three open-access
-   papers in the area: panel count, axis conventions, how they emphasise their
-   own method, caption phrasing. Match the conventions, not the data.
+7. **Learn composition from real papers.** Before locking layouts, look at
+   how two or three open-access papers in the area draw their results
+   (`engineer/venue-paper-drafting.md` describes reading exemplars): panel
+   count, axis conventions, how they emphasise their own method, caption
+   phrasing. Match the conventions, not the data.
 
 8. **`python -m argus.verticals.research.figure_lint --project-root .`** names
    the drawing decisions a script still makes by hand (colours, pinned legends,
@@ -104,8 +114,9 @@ the data, bars from 30, seeds averaged into one bar, an in-plot title), so
    inside). Run it before handing figures to the manuscript.
 
 For a custom chart the helper has no verb for (heatmaps, violins), apply
-`paper_charts.apply_style()` first and keep the same rules by hand: palette
-from the helper, legend outside, axis from zero for lengths, no title.
+`paper_charts.apply_style()` first and keep the same conventions by hand so the
+chart still reads as one of the paper's: palette from the helper, legend
+outside, axis from zero for anything encoded by length, no title.
 
 ## Readable heatmap annotations
 
@@ -143,10 +154,12 @@ inspection; a local text-color repair does not reopen the figure's composition.
 ## Notes
 - Both helper files are dependency-light and self-contained; the copies in
   `paper/analysis/` are what your scripts import. Re-copy them if you upgrade.
-- SciencePlots is mandatory for this route. A missing package is an environment
-  error, not permission to fall back to the retired ad-hoc data-figure method.
-- This skill styles data plots only. For conceptual/method figures, use
-  *Choosing how to draw a research figure*, which considers the available renderers.
+- The route depends on SciencePlots: `set_pub_style()` raises an
+  `argus[figures]` installation message when the package is missing instead of
+  silently reverting to default matplotlib. A missing package is an
+  environment problem to repair, not a reason to draw the figure another way.
+- This skill styles data plots only. Conceptual and method figures are
+  composed through `engineer/paper-framework-figure-studio.md`.
 - Figure width must still agree with the LaTeX float type: teaser and the main
   pipeline/architecture overview are the full-width `figure*` floats; sub-module
   and detail plots stay single-column `figure` (the layout review flags an

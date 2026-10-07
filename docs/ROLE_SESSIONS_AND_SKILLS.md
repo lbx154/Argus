@@ -81,52 +81,12 @@ a matcher or scorer.
 
 ### Verus specification generation and repair
 
-The software vertical includes one
-[shared Verus module workflow](../argus/verticals/software/skills/verus-spec-generation-and-repair.md)
-and an OWN-pool Skill for every task role:
-
-| Role | Own Skill and responsibility |
-|---|---|
-| Manager | [Scope and delivery](../argus/verticals/software/skills/manager/formal-verification/verus-spec-generation-and-repair.md): preserve the requested module and require both proof tracks and all deliverables |
-| Planner | [Submodule and proof planning](../argus/verticals/software/skills/planner/formal-verification/verus-spec-generation-and-repair.md): analyze submodules first, schedule views before dependent API specs, then order API work bottom-up or justify another order |
-| Engineer | [API specification and repair](../argus/verticals/software/skills/engineer/formal-verification/verus-spec-generation-and-repair.md): read source and docstrings, implement views/specs, and iterate both proof tracks |
-| Reviewer | [Independent proof review](../argus/verticals/software/skills/reviewer/formal-verification/verus-spec-generation-and-repair.md): verify both dimensions and reconcile full-module/per-API coverage |
-
-The shared contract is a direct general Skill, visible in every role's OWN
-paths. Role-specific instructions no longer rely on consulting the Engineer's
-REFERENCE pool. Front-door/SELF uses the Manager scope requirements. Existing
-software role playbooks link to their respective Verus Skills; no runtime
-keyword matcher, body injection, or scheduler stage was added.
-
-For these tasks, correctness means a source implementation proof verified by
-Verus, and completeness means a proof/check through `spec-determin-tool`.
-Typechecking, source review, native tests, and client proofs do not substitute
-for either requirement. Failed or inconclusive results feed repair; accept an
-API only when both dimensions pass for the same candidate.
-
-Implementation changes must first be raised as issues and receive strict
-independent review, including executable rewrites in proof copies. Canonical
-Rust/std or Verus changes also need explicit operator authorization. Demonstrated
-Verus limitations (such as unsupported Rust syntax) and independently confirmed
-std implementation/docstring defects must be reported as issues; proof failure
-or `UNKNOWN` alone is not evidence of an upstream defect.
-
-Minimum deliverables are specs organized under `specs/<submodule>/` with a
-module aggregate, per-API entries under `proofs/correctness/`, separate entries
-under `proofs/completeness/`, and `issues/INDEX.md` plus issue reports.
-Retain replay inputs/commands and a compact API-to-proof/issue index.
-Repository-native equivalent layouts must map explicitly to all four
-collections. With no discovered issues, record that and the reviewed scope.
-Local issue records are mandatory; external filing follows Manager's configured
-target and operator authorization. Record real URLs only after filing, and
-keep unfiled drafts explicitly pending rather than claiming upstream publication.
-
-The [shared Chinese review and role index](../argus/verticals/software/skills/references/verus-spec-generation-and-repair.zh-CN.md)
-links all four role translations. Software-context seeding/export copies them
-as `references/` assets, not additional independently enumerated Skills.
-The fixed verifier baseline and existing `old`/`final` borrowing guidance remain
-in the shared contract. Project-specific paths, versions, counts, and progress
-remain in the project.
+The Verus module workflow (a shared contract plus one Skill per task role, in
+English and Chinese) no longer ships in the built-in software vertical: a
+usage audit of 121 projects found it never opened, and its tooling is not part
+of this repository. The files remain in git history (last shipped at the
+commit before this section changed) so they can be published as a Vertical
+Store plugin; the software role playbooks no longer link to them.
 
 ## Read-only Reviewer validation
 

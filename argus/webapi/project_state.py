@@ -729,6 +729,18 @@ def build_snapshot(
         diagnostics.append(diagnostic("mission_view", exc))
 
     try:
+        from .background_work import background_work
+
+        # What an open mission waits on, read once so the sidebar, the map and
+        # the conversation header describe the same wait with the same numbers.
+        waits = background_work(
+            session.get("workdir") or session.get("cwd"), backlog, recent,
+        )
+    except Exception as exc:  # noqa: BLE001
+        waits = []
+        diagnostics.append(diagnostic("background_work", exc))
+
+    try:
         request_usage = provider_usage_snapshot(root=root)
     except Exception as exc:  # noqa: BLE001
         request_usage = None
@@ -791,6 +803,7 @@ def build_snapshot(
         "daemon_commands": daemon_commands,
         "observability": observability,
         "mission_view": mission_view,
+        "background_work": waits,
     }
     admission = read_daemon_admission(life_dir, diagnostics=diagnostics)
     if admission is not None:

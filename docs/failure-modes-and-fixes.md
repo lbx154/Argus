@@ -45,7 +45,7 @@ operation and debugging requires the global view it does not have.
 
 **What we did.** Supply the missing global check as an explicit rule rather than
 hoping for judgement. The skill
-[`suspect-the-setup.md`](../argus/verticals/research/skills/engineer/suspect-the-setup.md)
+[`research-grind.md`](../argus/verticals/research/skills/engineer/research-grind.md)
 inverts the default: *a result far from what this model, method, or benchmark is
 known to do is a defect report until proven otherwise.* Concretely it forces the
 comparison the agent will not make on its own — the generation budget must be
@@ -81,7 +81,7 @@ for last year's model, confidently, and give a fluent justification for it.
 runtime a way to actually look things up.
 
 **Forbid recall.** Model recency is a rule, not a judgement call, in
-[`training-infrastructure-guide.md`](../argus/builtin_skills/engineer/training-infrastructure-guide.md):
+[`training-infrastructure.md`](../argus/verticals/research/skills/engineer/training-infrastructure.md):
 
 > **Current generation only.** The backbone must be from a **current, actively
 > released open model family** (latest generation at decision time, e.g.
@@ -283,7 +283,7 @@ review side. The results reviewer is asked, symmetrically:
 
 and it must check that null results are "honestly represented without turning the
 paper into an exhaustive failure log."
-[`result-to-claim.md`](../argus/verticals/research/skills/engineer/result-to-claim.md)
+[`research-grind.md`](../argus/verticals/research/skills/engineer/research-grind.md)
 then blocks the failure loop directly:
 
 > Multiple rounds of `partial` on the same claim → crystallize the supported

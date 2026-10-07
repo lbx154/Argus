@@ -494,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_ingest(args))
     if args.command == "wiki" and args.wiki_cmd == "migrate":
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_migrate(args))
+    if args.command == "wiki" and args.wiki_cmd == "correct":
+        return _run_with_path_resolution_errors(lambda: _cmd_wiki_correct(args))
     if args.command == "learn":
         return _run_with_path_resolution_errors(lambda: _cmd_learn(args))
     if args.command == "verticals":
@@ -599,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
             backend=getattr(args, "backend", None),
             auth_mode=getattr(args, "auth_mode", None),
             non_interactive=bool(getattr(args, "non_interactive", False)),
-            allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+            allow_prerelease=getattr(args, "allow_prerelease", None),
             api_url=getattr(args, "api_url", None),
             api_key=getattr(args, "api_key", None),
             api_model=getattr(args, "api_model", None),
@@ -767,7 +769,7 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
         getattr(args, "auth_mode", None),
         probe_auth=True,
         probe_vault=not skip_vault_probe,
-        allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+        allow_prerelease=getattr(args, "allow_prerelease", None),
     )
     if not readiness.ok:
         sys.stderr.write(format_backend_readiness(readiness) + "\n")
@@ -854,7 +856,7 @@ def _maintenance_context(args: argparse.Namespace):
         install_mode=install_mode,
         backend=getattr(args, "backend", None),
         auth_mode=getattr(args, "auth_mode", None),
-        allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+        allow_prerelease=getattr(args, "allow_prerelease", None),
     )
 
 
@@ -1620,6 +1622,48 @@ def _cmd_wiki_migrate(args: argparse.Namespace) -> int:
         return 2
     moved = migrate_orphan_sources(WikiStore(wiki))
     print(f"migrated {len(moved)} orphan source note(s)")
+    return 0
+
+
+def _cmd_wiki_correct(args: argparse.Namespace) -> int:
+    from ...core.paths import global_wiki_root, shared_vertical_wiki_root
+    from ...wiki.correct import PageCorrectionError, correct_page
+
+    global_root = _resolve_global_root(args)
+    scope = "project"
+    vertical = str(getattr(args, "vertical", "") or "").strip()
+    if args.wiki is not None:
+        library = args.wiki.expanduser()
+    elif args.scope == "vertical":
+        if not vertical:
+            sys.stderr.write("argus: --scope vertical needs --vertical NAME\n")
+            return 2
+        scope = "vertical"
+        library = shared_vertical_wiki_root(vertical, global_root)
+    else:
+        scope, vertical = "global", ""
+        library = global_wiki_root(global_root)
+    if not (library / "pages").is_dir():
+        sys.stderr.write(f"argus: {library} holds no pages/ directory\n")
+        return 2
+    try:
+        done = correct_page(
+            library, args.page, statement=args.statement, reason=args.reason,
+            description=args.description, corrected_by=args.by,
+            scope=scope, vertical=vertical, global_root=global_root,
+        )
+    except PageCorrectionError as exc:
+        sys.stderr.write(f"argus: {exc}\n")
+        return 2
+    print(f"corrected {done.relative} ({done.title})")
+    if done.previous_lead:
+        print(f"  previously: {done.previous_lead}")
+    print(f"  now: {done.statement}")
+    if done.description != done.previous_description:
+        print(f"  summary: {done.description}")
+    print(f"  earlier version kept at {done.history_copy}")
+    if done.index_updated:
+        print("  index entry updated")
     return 0
 
 
