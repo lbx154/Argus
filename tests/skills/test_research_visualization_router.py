@@ -98,7 +98,7 @@ def test_agents_receive_visual_library_paths_without_matcher(tmp_path: Path) -> 
 
     paths = [path.replace("\\", "/") for path in store.list_paths()]
     assert any(path.endswith(STUDIO) for path in paths)
-    assert not any(path.endswith("engineer/presentation-master.md") for path in paths)
+    assert any(path.endswith("engineer/presentation-master.md") for path in paths)
 
 
 def test_studio_points_at_a_renderer_that_exists() -> None:

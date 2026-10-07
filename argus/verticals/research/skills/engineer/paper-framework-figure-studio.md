@@ -151,30 +151,12 @@ separate visual-review reports.
 
 ## The PPT Master toolkit
 
-Argus manages a pinned PPT Master checkout. Locate it with
-`python -m argus.tools.ppt_master status` (`argus --ppt-master-status` is the
-same check; `path --skill-root` prints only the directory): the reported
-`skill_root` holds the toolkit instructions, layout
-references, `scripts/svg_quality_checker.py`, `scripts/svg_to_pptx.py` and
-`scripts/pptx_to_svg.py`. A failed status check means a missing installation,
-a dependency problem or a modified checkout; report the actual cause.
-`argus --install-ppt-master` installs or repairs it within existing operator
-authorization. Do not clone, update or replace the shared toolkit on your own,
-and do not run the upstream `update_repo.py`; Argus manages its revision. Read
-the toolkit's `SKILL.md` and its `workflows/routing.md`, then only the selected
-route's references, and reuse its Generate PPTX, Create Template, Fill Native
-PPTX or Enhance Native PPTX workflow instead of inventing a second toolkit.
-Run toolkit scripts through the supplied interpreter:
-
-```bash
-SKILL_DIR=$(python -m argus.tools.ppt_master path --skill-root)
-"${ARGUS_SKILL_PYTHON:-python3}" "$SKILL_DIR/scripts/<script>.py" ...
-```
-
-Do not call bare `python` or `python3`: the toolkit's dependency checks are
-tied to the configured interpreter, and project dependencies still belong in
-the project environment. Keep figure projects and outputs in the authorized
-workdir, outside the installed toolkit.
+The global skill `engineer/presentation-master.md` holds the toolkit notes:
+locating the pinned checkout (`python -m argus.tools.ppt_master status`),
+running its scripts through the supplied interpreter, keeping objects native,
+and the font and line-break details of SVG-to-PPTX conversion. Read it before
+the first figure. Keep figure projects and outputs in the authorized workdir,
+outside the installed toolkit.
 
 The canonical source is the native PPTX at `paper/figures/<name>.pptx`; the
 included `<name>.pdf` keeps the same stem so the host can pair them. The
@@ -209,17 +191,9 @@ RENDER=$(find "$ARGUS_SKILL_HOME" . -name browser_render.py \
 An SVG output requires an SVG in the page; a CSS composition should ask for PDF
 rather than trigger `figure root contains no SVG`.
 
-Two conversion details need care. Native theme faces such as `+mn-lt` and
-`+mj-lt` can resolve to a different font from the authoring SVG; inspect the
-actual theme and its glyph coverage, and position ordinary letters at real
-subscript and superscript baselines when modifier-letter glyphs are absent.
-For a short multiline label, use separate native text objects with explicit
-baselines when the converter does not preserve line breaks; a merged line or
-an automatic wrap must not clip the figure or alter its notation. Text and
-objects in the PPTX must stay editable: a single pasted screenshot is not an
-editable diagram, and if the PDF and PNG previews come from SVG rather than a
-PowerPoint render, say so rather than claiming an Office rendering was
-inspected.
+Text and objects in the PPTX must stay editable, and if the PDF and PNG
+previews come from SVG rather than a PowerPoint render, say so rather than
+claiming an Office rendering was inspected.
 
 ## Composition
 

@@ -24,19 +24,30 @@ DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
 _BUILTIN_SEED_STATE = ".argus-builtin-seeds.json"
 _MOVED_SKILL_MARKER = ".moved-from-global.json"
 _LEGACY_BUILTIN_SEED_HASHES = {
+    "agent-md-optimize-project-template.md": "52fbd7e60f85042624a54b563945b26739a590120d21c830c8f2d4eda0b3db7d",
+    "engineer/argus-engineer-role.md": "8823e0c01e377e1be5293d1529344213e0f1326ebe94a6863dc4ee0e2730dadd",
+    "engineer/environment-readiness.md": "f8615f2a465cbe7b2ce838179c24a575baf4fbe6370730035c85cd4dd907de9b",
+    "engineer/mermaid-graphviz-diagrams.md": "d340f45b0aeb7ee5f239aa79f1c8f3ed94be4a56af036dd7b80a60cd72953542",
+    "engineer/training-infrastructure-guide.md": "43d1cbc1017173a5376f2a47642ea3ba5bf007b879ba86737514f8aba28f3f39",
+    "manager/argus-manager-role.md": "dc193f31dca3acd3041544745d97b832725c0e37b55a44bd9a93db5f97a631be",
     "manager/evidence-based-stage-decision.md": "75347a834448d8abb92ae04ad486ab06c595d1fb53cbe3cd24e70b37368515ed",
+    "planner/argus-planner-role.md": "30d16975503a9b41d97c05d622b4d36117677ff9500e65a4556dd2f8c244fb12",
     "reviewer/argus-reviewer-role.md": "bc971a888bfcdc3acaca939b643410f509c328376737377ba8e898f1b4dee925",
     "agent-team-lead.md": "3d7cd66367c1c093503b7985a5c86a6e35331600e746f8e96811b3ef7f3df76f",
     "curator/argus-curator-role.md": "4545b826842c39f54fa9f8f260bfb289e1d54b68403be03a9ade3a2d1172495c",
     "engineer/minimal-coding-agent.md": "18a5cbb3c6f3a937bb493eaf54db3a41637b4c57f324169a4829151105a22e73",
     "engineer/pdf-chat.md": "7debea0fb441b6b1de96dc9041266486430cded6afbffe13e7e2687acaf230e9",
+    "engineer/presentation-master.md": "16fb15d865670dfaad96b0445a7aa0d410660a8f6954ce1d61d5d6df3de5f17f",
     "engineer/project-environment-management.md": "f4b1e8afa92d911b699fbb359a47bf1ad62c6a9dde7f5aaf54ed0324cdfb11c3",
     "engineer/rl-training-collapse-diagnosis.md": "6830af8a4172e28e2f7c760469a4c47955923693826e7c9dadce7e6282854f18",
+    "engineer/semantic-scholar-search.md": "9d4c7db970747e4ab6f5905f64ba189f3dbb79a14d5b7d31c8ebde2c6e498e75",
     "engineer/skill-authoring-guide.md": "95babe92e841066aed028f221b0e009336422048e7461db0676b0bd40980722e",
+    "engineer/stale-world-model.md": "1a461c11c40314a4ccb61bf40204198e5dfa172bfa932ad0aaed9b2165748427",
     "performance-profile-ground-truth.md": "037052a75b63a4e29b05f23652d9a8b8bb9254bc546e9f4f1e06771f11e4faa0",
     "project-venv-package-management.md": "f912af39a3a8c9914dd79abc78946fbb0b134268e560bb8977e84f9a539ac008",
     "reviewer/claim-to-code-trace.md": "6ad0934c355227eb0ec772d52cdc9849ceee20128669c437dd16e23cc9990f0b",
     "reviewer/engineer-process-audit.md": "5227066930458e945c486d628d5ff0c082c9db81e2c8d85827f94ee69c80c741",
+    "reviewer/guiding-the-engineer.md": "4636cfe91844f1416de84e18155f57220b9922076274f362c2f35c0c78233d4b",
     "stale-blocker-verification-probe.md": "9c570afd9abb7ba72c194da754018c1a96ae640f70061b7669afa4021ea490e2",
 }
 _RETIRED_BUILTIN_SEED_HASHES = {
@@ -357,9 +368,6 @@ _RETIRED_BUILTIN_SEED_HASHES = {
     ),
     "manager/argus-manager-role.md": (
         "b3ac66146051884ec9523daf5d372d65d993687a8a6c9eb9a992a2a25a051cea"
-    ),
-    "engineer/presentation-master.md": (
-        "0e6316ac52ec8b8cf29442498ecbcf52b1dec7991fd0ffba3065e7cca65db4e4"
     ),
     # Kernel engineering, software and learning verticals.
     "engineer/kernel-optimization-knowledge.md": (
@@ -790,7 +798,15 @@ def retire_orphaned_builtin_seeds(skills_dir: Path, *, include_moved: bool = Tru
             body = path.read_bytes()
         except (FileNotFoundError, IsADirectoryError, OSError):
             continue
-        if expected_digest and expected_digest in _seed_content_digests(body):
+        # An unedited copy of any shipped revision is factory-owned: the last
+        # bundled text, the pre-manifest seed and whatever this workspace
+        # recorded when it was seeded.
+        factory_digests = {
+            expected_digest,
+            _LEGACY_BUILTIN_SEED_HASHES.get(relative_name, ""),
+            state.get(relative_name, ""),
+        } - {""}
+        if factory_digests & _seed_content_digests(body):
             try:
                 path.unlink()
             except OSError:

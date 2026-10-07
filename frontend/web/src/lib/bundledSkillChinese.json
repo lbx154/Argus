@@ -27,6 +27,13 @@
     "source": "argus/builtin_skills/engineer/pdf-chat.md",
     "sourceSha256": "141bd41eb888191aedc391f0df2ba100ab5aee3e7970f9afc21a6f50f4deca5f"
   },
+  "global/engineer/presentation-master.md": {
+    "title": "可编辑演示文稿",
+    "summary": "使用已有 PPT Master 工具制作或修改可编辑演示文稿和原生 PPT 图，经指定解释器运行并核对导出效果；科研绘图路线由科研垂域决定。",
+    "originalName": "Editable Presentations with PPT Master",
+    "source": "argus/builtin_skills/engineer/presentation-master.md",
+    "sourceSha256": "b9f5ed3935b538a18280ac79a504a3b28b432b66efb884e3e06284b4f1729ff3"
+  },
   "global/engineer/skill-authoring-guide.md": {
     "title": "编写与审阅技能和 Wiki 页面",
     "summary": "只在证据表明有可复用做法时写技能；先学操作者材料再忠实编辑；Wiki 更新来自一手来源；审阅者按证据真实、无冗余、不倒退、层级正确来判断一次修改。",
@@ -676,7 +683,7 @@
     "summary": "按表达内容选渲染路线：数据图走 SciencePlots/Matplotlib，概念与框架图默认以图像蓝图重建为可编辑 PPT，无图像接口时直接原生绘制；生成图像只用于不承载论断的部分。",
     "originalName": "Composing a conceptual paper figure",
     "source": "argus/verticals/research/skills/engineer/paper-framework-figure-studio.md",
-    "sourceSha256": "232b862534b734fe021e18ab3c50e4458d28792574ea7dd5d69d29fe8e36dee7"
+    "sourceSha256": "e01ffd101b8fcd701b86918d93994079dfc87d9df79dbcd348bdfe3508cfcd9b"
   },
   "vertical/research/engineer/references/ideation/ideation-patterns/adapt_via_conditioning.md": {
     "title": "构思参考：通过条件信息适应任务",

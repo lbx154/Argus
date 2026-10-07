@@ -7,6 +7,7 @@ import json
 import pytest
 
 from argus.skills.builtins import (
+    _LEGACY_BUILTIN_SEED_HASHES,
     _RETIRED_BUILTIN_SEED_HASHES,
     _validate_builtin,
     iter_builtin_skill_texts,
@@ -200,6 +201,84 @@ def test_retire_orphaned_builtin_seeds_archives_edited_copies(
         / "edited.md.retired"
     )
     assert archived.read_bytes() == edited_body
+
+
+def test_retiring_removes_an_unedited_copy_of_an_older_shipped_revision(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A workspace seeded long ago still holds the first shipped text, not the
+    # last one recorded as retired; that copy is factory-owned and goes away
+    # instead of being archived as if an operator had edited it.
+    import argus.skills.builtins as builtins
+
+    relative = "engineer/consolidated.md"
+    first_body = b"first shipped text\n"
+    last_body = b"last shipped text\n"
+    monkeypatch.setattr(
+        builtins,
+        "_RETIRED_BUILTIN_SEED_HASHES",
+        {relative: hashlib.sha256(last_body).hexdigest()},
+    )
+    monkeypatch.setattr(
+        builtins,
+        "_LEGACY_BUILTIN_SEED_HASHES",
+        {relative: hashlib.sha256(first_body).hexdigest()},
+    )
+    legacy_copy = tmp_path / relative
+    legacy_copy.parent.mkdir(parents=True)
+    legacy_copy.write_bytes(first_body)
+
+    removed = retire_orphaned_builtin_seeds(tmp_path, include_moved=False)
+
+    assert relative in removed
+    assert not legacy_copy.exists()
+    assert not (tmp_path / "_retired_builtin_skills").exists()
+
+
+def test_retiring_removes_a_copy_matching_the_recorded_seed(tmp_path, monkeypatch) -> None:
+    import argus.skills.builtins as builtins
+
+    relative = "engineer/consolidated.md"
+    seeded_body = b"text this workspace was seeded with\n"
+    monkeypatch.setattr(
+        builtins,
+        "_RETIRED_BUILTIN_SEED_HASHES",
+        {relative: hashlib.sha256(b"a later revision\n").hexdigest()},
+    )
+    monkeypatch.setattr(builtins, "_LEGACY_BUILTIN_SEED_HASHES", {})
+    (tmp_path / ".argus-builtin-seeds.json").write_text(
+        json.dumps({relative: hashlib.sha256(seeded_body).hexdigest()}),
+        encoding="utf-8",
+    )
+    copy = tmp_path / relative
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes(seeded_body)
+
+    retire_orphaned_builtin_seeds(tmp_path, include_moved=False)
+
+    assert not copy.exists()
+    assert not (tmp_path / "_retired_builtin_skills").exists()
+
+
+def test_pre_manifest_seed_digests_are_never_dropped() -> None:
+    # Workspaces seeded before the manifest existed are recognised only by
+    # these digests; retiring or merging a skill must keep its entry.
+    kept = {
+        "agent-md-optimize-project-template.md": "52fbd7e6",
+        "engineer/argus-engineer-role.md": "8823e0c0",
+        "engineer/mermaid-graphviz-diagrams.md": "d340f45b",
+        "engineer/environment-readiness.md": "f8615f2a",
+        "engineer/training-infrastructure-guide.md": "43d1cbc1",
+        "engineer/semantic-scholar-search.md": "9d4c7db9",
+        "engineer/stale-world-model.md": "1a461c11",
+        "engineer/presentation-master.md": "16fb15d8",
+        "manager/argus-manager-role.md": "dc193f31",
+        "planner/argus-planner-role.md": "30d16975",
+        "reviewer/guiding-the-engineer.md": "4636cfe9",
+    }
+    for relative, prefix in kept.items():
+        assert _LEGACY_BUILTIN_SEED_HASHES.get(relative, "").startswith(prefix), relative
 
 
 def test_seeding_retires_existing_obsolete_skill(
