@@ -124,6 +124,15 @@ _TREE = re.compile(r"^argus_verticals(/[a-z][a-z0-9_]*)+$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _ARCHIVE_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*\.zip$")
 _REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+_FEATURE_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+_ARGUS_FEATURE_APIS = {
+    "composable-workflow-profiles": ("argus.core.vertical_contract", ("VerticalContract.compose_workflow",)),
+    "vertical-routing-paths": ("argus.verticals._registry", ("validate_routing_path",)),
+    "host-round-evidence": (
+        "argus.engineer.round_evidence",
+        ("RoundEvidence", "RoundEvidenceRequest", "register_round_evidence_provider", "collect_round_evidence"),
+    ),
+}
 #: Distribution names whose importable module is spelled differently.
 _MODULE_ALIASES = {
     "pyyaml": "yaml", "scikit-learn": "sklearn", "pillow": "PIL", "opencv-python": "cv2",
@@ -313,9 +322,19 @@ def disabled_names(root: str | Path | None = None) -> set[str]:
 
 
 def enabled_entries(root: str | Path | None = None) -> dict[str, dict[str, Any]]:
-    """Installed and not disabled by this user."""
+    """Installed, enabled by this user and compatible with declared runtime features."""
     disabled = disabled_names(root)
-    return {name: entry for name, entry in installed(root).items() if name not in disabled}
+    present = installed(root)
+    result = {}
+    for name, entry in present.items():
+        if name in disabled:
+            continue
+        issues = runtime_issues(present, name)
+        if issues:
+            log.warning("store vertical %r is incompatible: %s", name, "; ".join(issues))
+        else:
+            result[name] = entry
+    return result
 
 
 def _file_signature(path: Path) -> tuple[int, int, int] | None:
@@ -486,6 +505,15 @@ def _string_list(value: object, *, where: str, pattern: re.Pattern[str] | None =
     return list(value)
 
 
+def _argus_features(value: object, *, where: str) -> list[str]:
+    if not isinstance(value, list):
+        raise VerticalStoreError(f"{where}.argus_features must be a list of strings")
+    features = _string_list(value, where=f"{where}.argus_features", pattern=_FEATURE_NAME)
+    if len(set(features)) != len(features):
+        raise VerticalStoreError(f"{where}.argus_features must be distinct")
+    return features
+
+
 def _validate_entry(name: str, raw: object, *, local_source: bool) -> dict[str, Any]:
     where = f"catalog vertical {name!r}"
     if not isinstance(raw, dict):
@@ -543,10 +571,17 @@ def _validate_entry(name: str, raw: object, *, local_source: bool) -> dict[str, 
     size_bytes = raw.get("size_bytes", 0)
     if not isinstance(size_bytes, int) or isinstance(size_bytes, bool) or size_bytes < 0:
         size_bytes = 0
+    from ._registry import validate_routing_path
+
+    try:
+        routing_path = validate_routing_path(name, raw.get("routing_path", []))
+    except ValueError as exc:
+        raise VerticalStoreError(f"{where}: {exc}") from exc
     return {
         "name": name,
         "version": version,
         "module": module,
+        "routing_path": list(routing_path),
         "purpose": " ".join(purpose.split()),
         "purpose_zh": " ".join(purpose_zh.split()) if isinstance(purpose_zh, str) else None,
         "paths": paths,
@@ -562,6 +597,7 @@ def _validate_entry(name: str, raw: object, *, local_source: bool) -> dict[str, 
         "size_bytes": size_bytes,
         "api_version": api_version,
         "min_argus": str(raw.get("min_argus") or ""),
+        "argus_features": _argus_features(raw.get("argus_features", []), where=where),
         "maintainers": _string_list(raw.get("maintainers"), where=f"{where}.maintainers"),
         "archive": {"file": file_name, "url": url, "sha256": sha256, "size": size},
     }
@@ -722,6 +758,43 @@ def _closure(catalog: dict[str, Any], names: Iterable[str]) -> list[str]:
 
 def _is_current(entry: dict[str, Any], spec: dict[str, Any]) -> bool:
     return entry.get("version") == spec["version"] and entry.get("sha256") == spec["archive"]["sha256"]
+
+
+def runtime_issues(verticals: dict[str, dict[str, Any]], name: str) -> list[str]:
+    """Check declared framework APIs across dependencies without importing plugin code."""
+    issues = []
+    try:
+        order = _closure({"verticals": verticals}, [name])
+        requirements = {
+            member: _argus_features(verticals[member].get("argus_features", []), where=member)
+            for member in order
+        }
+    except VerticalStoreError as exc:
+        return [str(exc)]
+    for member, features in requirements.items():
+        api_version = verticals[member].get("api_version", 1)
+        if api_version != 1:
+            issues.append(f"{member}: vertical API version {api_version} is not supported by this Argus")
+        for feature in features:
+            api = _ARGUS_FEATURE_APIS.get(feature)
+            if api is None:
+                issues.append(f"{member}: unsupported Argus feature {feature!r}; select a compatible runtime")
+                continue
+            module_name, symbols = api
+            try:
+                module = importlib.import_module(module_name)
+            except ModuleNotFoundError as exc:
+                if exc.name != module_name and not module_name.startswith(f"{exc.name}."):
+                    raise
+                issues.append(f"{member}: requires Argus feature {feature!r}; missing {module_name}")
+                continue
+            for symbol in symbols:
+                value: Any = module
+                for part in symbol.split("."):
+                    value = getattr(value, part, None)
+                if not callable(value):
+                    issues.append(f"{member}: requires Argus feature {feature!r}; missing {module_name}.{symbol}")
+    return issues
 
 
 # --------------------------------------------------------------------------- #
@@ -912,6 +985,9 @@ def _place(
                 "requires": list(spec["requires"]),
                 "shared": list(spec["shared"]),
                 "paths": list(spec["paths"]),
+                "routing_path": list(spec.get("routing_path", [])),
+                "argus_features": list(spec["argus_features"]),
+                "api_version": spec["api_version"],
             }
             for tree in spec["shared"]:
                 owners = data["shared"].setdefault(tree, {"owners": [], "sha256s": {}})
@@ -1151,8 +1227,6 @@ def _install_one(
     step: Callable[[float, str], None],
 ) -> None:
     name = spec["name"]
-    if spec["api_version"] != 1:
-        raise VerticalStoreError(f"{name}: vertical API version {spec['api_version']} is not supported by this Argus")
     store = store_root(root)
     _sweep_staging(store)
     try:
@@ -1225,6 +1299,9 @@ def _begin_install(
         if _is_current(present[name], spec):
             raise VerticalStoreError(f"{name} {spec['version']} is already current")
     order = _closure(catalog, [name])
+    issues = runtime_issues(catalog["verticals"], name)
+    if issues:
+        raise VerticalStoreError("; ".join(issues))
     todo = [
         member for member in order
         if member == name or member not in present or not _is_current(present[member], catalog["verticals"][member])
@@ -1266,9 +1343,14 @@ def update(
 def set_enabled(name: str, enabled: bool, root: str | Path | None = None) -> dict[str, Any]:
     """Flip ``name`` for this user only: the overlay changes, the host's registry never does."""
     name = _valid_name(name)
-    entry = installed(root).get(name)
+    present = installed(root)
+    entry = present.get(name)
     if entry is None:
         raise UnknownVerticalError(f"{name} is not installed")
+    if enabled:
+        issues = runtime_issues(present, name)
+        if issues:
+            raise VerticalStoreError("; ".join(issues))
     with _user_locked(root):
         disabled = disabled_names(root)
         if enabled:
@@ -1473,6 +1555,9 @@ def preinstall(
             cleaned = _valid_name(name)
             need = _preinstall_need(cleaned, root, catalog)
             if need is None:
+                issues = runtime_issues(installed(root), cleaned)
+                if issues:
+                    raise VerticalStoreError("; ".join(issues))
                 logger.info("vertical %s is installed and current under %s", cleaned, store_root(root))
                 results[name] = {"status": "ready"}
                 continue
@@ -1623,9 +1708,10 @@ def rows(
             "name": name, "purpose": VERTICAL_PURPOSES.get(name, ""), "purpose_zh": None,
             "kind": "builtin", "version": None, "installed_version": None, "enabled": True,
             "update_available": False, "requires": [], "shared": [], "python_requirements": [],
-            "missing_python": [], "tags": [], "size_bytes": 0,
+            "missing_python": [], "tags": [], "size_bytes": 0, "routing_path": [],
             "used_by": list(sessions.get(name, [])), "operation": None,
             "managed_by_host": host, "actions": [],
+            "runtime_issues": [], "install_issues": [],
         })
     for name in sorted(set(present) | set(packaged) | set(specs)):
         if name in VERTICALS:
@@ -1637,7 +1723,19 @@ def rows(
         op = operation(name, root) if (entry is not None or spec is not None) else None
         update_available = bool(entry is not None and spec is not None and not _is_current(entry, spec))
         enabled = kind == "package" or (entry is not None and name not in disabled)
+        current_issues = runtime_issues(present, name) if entry is not None and kind != "package" else []
+        install_issues = runtime_issues(specs, name) if spec is not None else []
+        actions = _actions(
+            kind, entry=entry, spec=spec, enabled=enabled, update_available=update_available, host=host,
+            running=bool(op and op.get("status") == "running"), can_toggle=can_toggle,
+        )
         requirements = list(spec["python_requirements"]) if spec else []
+        if name in plugins:
+            routing_path = plugins[name].routing_path
+        elif entry is not None and "routing_path" in entry:
+            routing_path = entry["routing_path"]
+        else:
+            routing_path = spec.get("routing_path", []) if spec else []
         result.append({
             "name": name,
             "purpose": spec["purpose"] if spec else plugin.purpose if plugin else "",
@@ -1652,14 +1750,18 @@ def rows(
             "python_requirements": requirements,
             "missing_python": missing_python(requirements),
             "tags": list(spec["tags"]) if spec else [],
+            "routing_path": list(routing_path),
             "size_bytes": spec["size_bytes"] if spec else 0,
             "used_by": list(sessions.get(name, [])),
             "operation": op,
             "managed_by_host": host,
-            "actions": _actions(
-                kind, entry=entry, spec=spec, enabled=enabled, update_available=update_available, host=host,
-                running=bool(op and op.get("status") == "running"), can_toggle=can_toggle,
-            ),
+            "runtime_issues": current_issues,
+            "install_issues": install_issues,
+            "actions": [
+                action for action in actions
+                if not (action in {"install", "update"} and install_issues)
+                and not (action == "enable" and current_issues)
+            ],
         })
     return result
 

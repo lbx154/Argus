@@ -26,6 +26,15 @@ SKILL_PLACEMENT_BATCH = "skill_placement_batch"
 LIVE_VIEW = "live_view"
 PENDING_QUESTION = "pending_question"
 
+_COMPOSABLE_WORKFLOW_ROUTING = (
+    "For a composable vertical, use WORKFLOW_PROFILE=custom and "
+    "WORKFLOW_STAGES=<requested stage names separated by ;> when no preset "
+    "matches exactly. Host adds mandatory companions and keeps canonical order. "
+    "Select creation stages only when creating/changing those outputs; existing "
+    "inputs still need evidence. Explain requested, added and excluded work. "
+    "If requirements conflict with exclusions, clarify before dispatch.\n\n"
+)
+
 _RESEARCH_DELIVERABLE_ROUTING = (
     "For a supplied idea or hypothesis requested as a full paper, choose staged "
     "research with direction locked. Locked needs a concrete supplied mechanism "
@@ -343,6 +352,32 @@ def build_steer_confirmation_prompt(text: str, *, active_mission: bool) -> str:
     )
 
 
+def _vertical_menu(
+    purposes: Mapping[str, str],
+    routing_paths: Mapping[str, tuple[str, ...]] | None,
+) -> str:
+    if not routing_paths:
+        return "\n".join(f"  - `{name}`: {purpose}" for name, purpose in sorted(purposes.items())) or "  (none)"
+    groups: dict[tuple[str, ...], list[str]] = {}
+    for name, purpose in sorted(purposes.items()):
+        path = routing_paths.get(name, ())
+        groups.setdefault(path[:2], []).append(
+            f"  - `{name}`{f' [specialty: {path[2]}]' if len(path) == 3 else ''}: {purpose}"
+        )
+    sections = [
+        "Select by category, then domain, then specialty when its complete deliverable "
+        "fits. Category headings are not selectable verticals. A specialist owns its own "
+        "workflow; knowledge dependencies do not transfer authority or require running "
+        "the parent's stages. Return the exact listed vertical name in this same decision. "
+        "For cross-domain work choose the owner of the requested deliverable and make "
+        "external interface obligations explicit; do not imply automatic cross-vertical "
+        "execution. If the primary deliverable is ambiguous, clarify before dispatch."
+    ]
+    for path, lines in sorted(groups.items()):
+        sections.append(f"### {' / '.join(path) if path else 'Other capabilities'}\n" + "\n".join(lines))
+    return "\n\n".join(sections)
+
+
 def build_fast_vertical_decision_prompt(
     task: str,
     *,
@@ -350,15 +385,10 @@ def build_fast_vertical_decision_prompt(
     domains_with_purpose: dict[str, str] | None = None,
     existing_data_domains: Sequence[str] = (),
     research_target_verticals: Sequence[str] = (),
+    vertical_routing_paths: Mapping[str, tuple[str, ...]] | None = None,
 ) -> str:
     """Render the compact, tool-free first-pass Manager prompt."""
-    menu = (
-        "\n".join(
-            f"  - `{name}`: {purpose}"
-            for name, purpose in sorted(verticals_with_purpose.items())
-        )
-        or "  (none)"
-    )
+    menu = _vertical_menu(verticals_with_purpose, vertical_routing_paths)
     domain_menu = (
         "\n".join(
             f"  - `{name}`: {purpose}"
@@ -374,6 +404,18 @@ def build_fast_vertical_decision_prompt(
         "authority, scope, system risk, repository context, or a new capability is "
         "uncertain, choose grounded so you can investigate freely in the next call. "
         "Do not plan implementation.\n\n"
+        + (
+            _COMPOSABLE_WORKFLOW_ROUTING
+            if any("Custom workflow stages" in purpose for purpose in verticals_with_purpose.values())
+            else ""
+        )
+        + "If the chosen vertical lists workflow profiles, return WORKFLOW_PROFILE with "
+        "the smallest supported scope that fully covers the requested deliverable, "
+        "and use WORKFLOW_MODE=staged. "
+        "Choose full only for an explicitly requested complete workflow or matching "
+        "end-to-end delivery. Preserve the active profile during supplemental work. "
+        "If hardware versus software acceleration is unclear, request clarification "
+        "rather than assuming a kernel task.\n\n"
         "Choose workflow_mode=direct for one coherent Engineer task; related output "
         "files that one Engineer produces and one Reviewer checks together are still one "
         "task. Use staged only for dependent phases or independently decided evidence "
@@ -428,12 +470,10 @@ def build_vertical_decision_prompt(
     existing_data_domains: Mapping[str, str] | Sequence[str] = (),
     existing_data_domain_summaries: Mapping[str, str] | None = None,
     research_target_verticals: Sequence[str] = (),
+    vertical_routing_paths: Mapping[str, tuple[str, ...]] | None = None,
 ) -> str:
     """Render the grounded vertical and workflow decision prompt."""
-    menu = (
-        "\n".join(f"  - `{name}`: {purpose}" for name, purpose in sorted(verticals_with_purpose.items()))
-        or "  (none)"
-    )
+    menu = _vertical_menu(verticals_with_purpose, vertical_routing_paths)
     domain_menu = (
         "\n".join(
             f"  - `{name}`: {purpose}" for name, purpose in sorted((domains_with_purpose or {}).items())
@@ -458,6 +498,17 @@ def build_vertical_decision_prompt(
     return (
         "Choose VERTICAL and, independently, WORKFLOW. "
         "A vertical is a stable reusable staged capability, not a Planner DAG.\n\n"
+        + (
+            _COMPOSABLE_WORKFLOW_ROUTING
+            if any("Custom workflow stages" in purpose for purpose in verticals_with_purpose.values())
+            else ""
+        )
+        + "When its menu lists workflow profiles, also select WORKFLOW_PROFILE: the "
+        "smallest supported scope covering the requested deliverable, with "
+        "WORKFLOW_MODE=staged, or full for a "
+        "complete workflow. Omitted stages are outside scope, not completed. "
+        "Do not invent a profile, weaken its checks, or change an active task's "
+        "profile. Clarify hardware/software and delivery-level ambiguity before work.\n\n"
         "Decide by reading only; inspect if the fit is unclear. Do no task work or Live View.\n\n"
         "Pick the closest existing capability by requested action, not words in filenames "
         "or logs. Prefer a matching formal project domain, then a built-in, then a "
@@ -816,7 +867,7 @@ def build_stage_decision_prompt(
     allow_rollback: bool = True,
     allow_early_completion: bool = False,
 ) -> str:
-    """Build the Manager's authoritative stage-transition prompt."""
+    """Build the Manager's stage-transition prompt with a concrete target example."""
     # Normalize a stray string to one stage instead of iterating over its characters.
     stages = [earlier_stages] if isinstance(earlier_stages, str) else list(earlier_stages)
     earlier = ", ".join(f"`{stage}`" for stage in stages if str(stage).strip()) or (
@@ -982,7 +1033,7 @@ def build_stage_decision_prompt(
         + RESEARCHER_VOICE + "\n\n"
         + decision_footer_instruction(
             "ACTION=hold\n"
-            "TARGET_STAGE=current stage\n"
+            f"TARGET_STAGE={current_stage}\n"
             "REASON=one operator-language sentence stating the decisive evidence, "
             "whether the stage moves, and what happens next; do not repeat status tokens"
         )
@@ -1003,7 +1054,7 @@ def build_stage_decision_prompt(
         # executed as a one-step advance, so neither the obedient nor the
         # improvising Manager loses its verdict; this line only keeps the trace
         # exact.
-        "For HOLD and for COMPLETE, set TARGET_STAGE to the current stage.\n\n"
+        f"For HOLD and for COMPLETE, set TARGET_STAGE to `{current_stage}`.\n\n"
         # The objective and the stage's requirements hold across the
         # campaign's decisions; the wait and scope arbitration, the evidence
         # and the Planner note belong to this one decision, so they close the

@@ -142,18 +142,25 @@ def test_an_unknown_target_stays_fail_closed() -> None:
 
 
 @pytest.mark.parametrize("action", ["HOLD", "COMPLETE"])
-def test_the_prompt_pins_target_stage_for_both_actions(action: str) -> None:
+@pytest.mark.parametrize("stage", ["scope", "simulation", "custom_stage"])
+def test_the_prompt_pins_target_stage_for_both_actions(action: str, stage: str) -> None:
     """The format contract must name both actions where the field is defined.
 
     The parser is forgiving now, but a verdict that needs rewriting is still a
     verdict the operator has to read past.
     """
-    from argus.roles.prompts import manager as manager_prompts
+    from argus.core.models import ReviewDecision
+    from argus.roles.prompts.manager import build_stage_decision_prompt
 
-    with open(manager_prompts.__file__, encoding="utf-8") as handle:
-        text = handle.read()
+    text = build_stage_decision_prompt(
+        current_stage=stage,
+        next_stage="",
+        earlier_stages=(),
+        checklist_md="Inspect the current independently reviewed evidence.",
+        review=ReviewDecision(status="done", reason="The requested evidence is complete.", next_action=""),
+    )
 
-    marker = "set TARGET_STAGE to the current stage"
+    marker = f"set TARGET_STAGE to `{stage}`"
     assert marker in text
     line = next(ln for ln in text.splitlines() if marker in ln)
     assert action in line.upper(), (

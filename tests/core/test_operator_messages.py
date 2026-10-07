@@ -174,3 +174,20 @@ def test_operator_update_leads_with_result() -> None:
         "Completed: repair the parser.",
         "Reason: 18 focused tests passed.",
     ]
+
+
+def test_budget_refusal_reply_names_the_cost_policy_for_unsettled_copilot_calls() -> None:
+    reason = (
+        "refused before start: unresolved provider cost: 1 call(s) awaiting usage "
+        "reconciliation (call=057dea4e, provider=copilot, model=gpt-5.6-sol; "
+        "Copilot token billing is awaiting local CLI usage reconciliation)"
+    )
+    reply = budget_refusal_reply(reason, language_hint="帮我测一下 GPU")
+    assert reply is not None
+    assert "ARGUS_SKILL_UNPRICED_COST_POLICY" in reply
+    assert "allow" in reply
+    assert reason in reply
+    assert "backend is unavailable" not in reply
+    assert "argus doctor --deep" not in reply
+    english = budget_refusal_reply(reason)
+    assert english is not None and "cost policy" in english

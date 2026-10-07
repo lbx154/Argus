@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shlex
@@ -23,6 +24,9 @@ def run(*argv: str, cwd: Path = ROOT) -> None:
     env["PYTHONPATH"] = os.pathsep.join(
         value for value in (str(ROOT), env.get("PYTHONPATH", "")) if value
     )
+    # The frontend build scripts resolve their interpreter through
+    # frontend/scripts/python.mjs, which honours this variable first.
+    env["ARGUS_PYTHON"] = sys.executable
     with tempfile.TemporaryDirectory(prefix="argus-python-") as shim_dir:
         shim = Path(shim_dir) / ("python.cmd" if os.name == "nt" else "python")
         if os.name == "nt":
@@ -42,7 +46,21 @@ def run(*argv: str, cwd: Path = ROOT) -> None:
         subprocess.run(argv, cwd=cwd, check=True, env=env)
 
 
-def main() -> int:
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="python -m argus.release_tools.build_release",
+        description=(
+            "Refresh the release identity and rebuild both production frontends "
+            "in place: generated protocol types and fixtures, the release "
+            "manifest, frontend/web/dist and frontend/tui/bundle. Run it from a "
+            "source checkout with the project interpreter; there are no options."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    _parse_args(argv)
     try:
         # Bundled verticals may ship independent workbench frontends. Build each
         # before the release digest, keeping domain code out of the host UI.

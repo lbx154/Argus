@@ -1,6 +1,6 @@
 # Innovation patterns — overview
 
-The 15 induced ideation patterns (built on 1,891 of 1,947 papers in the corpus). The table lists official name + plain-language alias; each pattern's full card is in this directory. Every pattern's **definition + operational signature + when-to-apply** is inlined below so Phase 2.1 can read overview.md alone without opening individual cards.
+The 15 induced ideation patterns (built on 1,891 of 1,947 papers in the corpus). The table lists official name + plain-language alias; each pattern's full card is in this directory. Every pattern's **definition + operational signature + when-to-apply** is inlined below, so this page alone is enough to choose a pattern; open a card only for the pattern you chose.
 
 | ID | Name | Plain alias | n_papers |
 | --- | --- | --- | --- |
@@ -21,7 +21,10 @@ The 15 induced ideation patterns (built on 1,891 of 1,947 papers in the corpus).
 | `targeted_self_supervised_objective` | Design a Property-Targeting Pretext Objective | _Design a property-targeting pretext objective_ | 15 |
 
 ## Use
-Phase 2.1 composition selection: read this file (table + inlined sections below). Phase 2.2 candidate generation: read the per-pattern card files for the 1–3 patterns in the winning composition. Phase 3.2 candidate review: load only the patterns referenced in the candidate.
+A pattern is a lens for stating the mechanism of a route precisely; it is never the contribution claim itself. Read this page to pick the one or two patterns whose operational signature closes the gap the route addresses, then open only those cards. A reviewer checking a route loads only the patterns the route names.
+
+## Provenance
+The patterns were induced in *ResearchStudio-Idea: An Evidence-Grounded Research-Ideation Skill Suite from ML Conference Outcomes* (arXiv:2607.04439) from 1,947 ICLR/ICML/NeurIPS papers, and the cards are vendored from microsoft/ResearchStudio (`ResearchStudio-Idea/skills/idea_spark/references/`, MIT License, © Microsoft).
 
 ---
 

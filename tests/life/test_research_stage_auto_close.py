@@ -130,7 +130,8 @@ def test_automatic_stage_target_uses_active_vertical_and_next_stage(
     )
     loaded = []
 
-    def load(name, *, project_root):
+    def load(name, *, project_root, scoped=True):
+        assert scoped is True
         loaded.append((name, project_root))
         return provider
 

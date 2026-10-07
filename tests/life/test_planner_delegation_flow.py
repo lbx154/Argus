@@ -492,6 +492,9 @@ def test_continuous_reload_updates_lifetime_and_final_gate() -> None:
     from argus.life.supervisor._planning_context import PlanningContextMixin
 
     class Harness(PlanningContextMixin):
+        runner = SimpleNamespace(_args=SimpleNamespace(
+            open_ended=False, continuous_objective="old",
+        ))
         config = SimpleNamespace(
             continuous=False,
             continuous_objective="old",
@@ -512,6 +515,20 @@ def test_continuous_reload_updates_lifetime_and_final_gate() -> None:
     assert harness.config.continuous_objective == "standing paper"
     assert harness.config.open_ended is True
     assert harness.config.final_certification_gate is True
+    assert harness.runner._args.open_ended is True
+    assert harness.runner._args.continuous_objective == "standing paper"
+
+    harness.config.continuous_config_provider = lambda: (False, "", True)
+    harness._reload_continuous_config()
+    assert harness.config.open_ended is True
+    assert harness.config.final_certification_gate is False
+    assert harness.runner._args.open_ended is False
+    assert harness.runner._args.continuous_objective == ""
+
+    harness.config.continuous_config_provider = lambda: (True, "finite study", False)
+    harness._reload_continuous_config()
+    assert harness.runner._args.open_ended is False
+    assert harness.runner._args.continuous_objective == "finite study"
 
 
 def test_continuous_reload_rejects_malformed_provider_tuple(caplog) -> None:

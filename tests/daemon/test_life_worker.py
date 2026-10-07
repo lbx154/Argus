@@ -3528,8 +3528,7 @@ def test_strip_git_config_injection_noop_when_absent() -> None:
 def test_runner_namespace_propagates_open_ended_and_continuous_objective(
     tmp_path: Path,
 ) -> None:
-    """_runner_namespace must copy LifeWorkerConfig.continuous_open_ended → ns.open_ended
-    and LifeWorkerConfig.continuous_objective → ns.continuous_objective unchanged.
+    """An enabled campaign forwards its lifetime and objective unchanged.
 
     Regression: before the fix these attributes were absent from the namespace, so
     _SkillLoopRunner.execute used getattr(args, "open_ended", False) == False even
@@ -3540,6 +3539,7 @@ def test_runner_namespace_propagates_open_ended_and_continuous_objective(
         LifeWorkerConfig(
             life_dir=tmp_path / "life",
             backend="memory",
+            continuous=True,
             continuous_open_ended=True,
             continuous_objective="keep proving X",
         )
@@ -3558,5 +3558,18 @@ def test_runner_namespace_open_ended_false_for_bounded_daemon(tmp_path: Path) ->
             continuous_objective="",
         )
     )
+    assert ns.open_ended is False
+    assert ns.continuous_objective == ""
+
+
+def test_resident_daemon_does_not_turn_a_queued_task_into_an_open_campaign(tmp_path):
+    cfg = LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        continuous_objective="stale inactive objective",
+    )
+    ns = _runner_namespace(cfg)
+    assert cfg.continuous_open_ended is True
+    assert cfg.continuous is False
     assert ns.open_ended is False
     assert ns.continuous_objective == ""

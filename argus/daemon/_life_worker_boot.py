@@ -445,10 +445,12 @@ class LifeWorkerBootMixin:
         args = getattr(rf_state.runner, "_args", None)
         if args is None:
             return
-        args.open_ended = bool(rf_state.cfg.continuous_open_ended)
-        objective = str(rf_state.init_objective or "").strip()
-        if objective:
-            args.continuous_objective = objective
+        args.open_ended = bool(
+            rf_state.init_continuous and rf_state.cfg.continuous_open_ended
+        )
+        args.continuous_objective = (
+            str(rf_state.init_objective or "").strip() if rf_state.init_continuous else ""
+        )
 
     def _rf_manager_divide_on_boot(self, rf_state: _RunForeverState) -> None:
         """Reset the Manager's codex session, then classify + persist the

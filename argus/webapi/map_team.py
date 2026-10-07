@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from itertools import islice
 from pathlib import Path
 
@@ -13,6 +14,15 @@ FORMATION_BYTES = 8 * 1024 * 1024
 MAX_TEAM_BINDINGS = 32
 MAX_TEAM_TASKS = 512
 MAX_TASK_BYTES = 256 * 1024
+# What a subtask concluded lives beside the board, not in its task file: the
+# reviewer's verdict in artifacts/reviews/<route>.json, the route's own title
+# in artifacts/routes/<route>.md, and the one chosen route in the selection
+# board's artifacts/selection.json. Bounded like the task files.
+MAX_TEAM_ARTIFACTS = 64
+ARTIFACT_HEAD_BYTES = 4096
+SELECTION_BOARD_SUFFIX = "-selection"
+_VERDICTS = frozenset({"qualified", "rejected"})
+_ROUTE_HEADING = re.compile(r"^(?:route|路线)\s*[-_ ]?\d+\s*[:：—–-]\s*", re.IGNORECASE)
 
 
 def _stamp(path: Path):
@@ -121,6 +131,8 @@ def _sources(sid: str, root: Path, life_dir: Path, bindings: dict):
             except OSError:
                 continue
             signature.append((str(board), binding["item_id"], binding["ts"], _stamp(task_dir)))
+            for artifact in _artifact_paths(board):
+                signature.append((str(artifact), _stamp(artifact)))
             if board == base:
                 # Formation visibility follows exactly the evidence already in
                 # the signature, so a cached read stays a cached read.
@@ -147,6 +159,138 @@ def source_signature(sid: str, root: Path, life_dir: Path, bindings: dict) -> tu
 def source_snapshot(sid: str, root: Path, life_dir: Path, bindings: dict) -> tuple:
     """One traversal, reusable as both the cache signature and the projection input."""
     return _sources(sid, root, life_dir, bindings)
+
+
+def _artifact_paths(board: Path) -> list[Path]:
+    """The conclusion files a board may hold, in a fixed order, never followed
+    through symlinks and never more than a handful."""
+    found: list[Path] = []
+    artifacts = board / "artifacts"
+    try:
+        if artifacts.is_symlink() or not artifacts.is_dir():
+            return found
+        selection = artifacts / "selection.json"
+        if selection.is_file() and not selection.is_symlink():
+            found.append(selection)
+        for folder, suffix in (("reviews", "*.json"), ("routes", "*.md")):
+            directory = artifacts / folder
+            if directory.is_symlink() or not directory.is_dir():
+                continue
+            for path in sorted(islice(directory.glob(suffix), MAX_TEAM_ARTIFACTS)):
+                if not path.name.startswith(".") and not path.is_symlink() and path.is_file():
+                    found.append(path)
+    except OSError:
+        return found
+    return found
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        if path.stat().st_size > MAX_TASK_BYTES:
+            return {}
+        with path.open("rb") as stream:
+            value = json.loads(stream.read(MAX_TASK_BYTES))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _route_title(path: Path) -> str:
+    """The route's own heading, without the "Route 02:" the writer prefixed."""
+    try:
+        with path.open("rb") as stream:
+            head = stream.read(ARTIFACT_HEAD_BYTES).decode("utf-8", "replace")
+    except OSError:
+        return ""
+    for line in head.splitlines():
+        if line.startswith("#"):
+            return text(_ROUTE_HEADING.sub("", line.lstrip("#").strip()), 160)
+    return ""
+
+
+def base_team_id(team_id: str) -> str:
+    if team_id.endswith(SELECTION_BOARD_SUFFIX) and len(team_id) > len(SELECTION_BOARD_SUFFIX):
+        return team_id[: -len(SELECTION_BOARD_SUFFIX)]
+    return team_id
+
+
+def team_conclusions(boards: dict[str, Path]) -> tuple[dict, dict, dict]:
+    """Verdicts, route titles and selections per base team, from the boards' artifacts."""
+    reviews: dict[tuple[str, str], dict] = {}
+    routes: dict[tuple[str, str], str] = {}
+    selections: dict[str, dict] = {}
+    for team_id, board in boards.items():
+        base = base_team_id(team_id)
+        for path in _artifact_paths(board):
+            if path.name == "selection.json" and team_id != base:
+                doc = _read_json(path)
+                route = text(doc.get("route_id"), 80)
+                if not route:
+                    continue
+                rejections = doc.get("rejections")
+                selections[base] = {
+                    "selected_route": route,
+                    "rationale": text(doc.get("rationale"), 600),
+                    "rejections": {
+                        text(key, 80): text(value, 300)
+                        for key, value in (rejections.items() if isinstance(rejections, dict) else ())
+                        if isinstance(key, str) and isinstance(value, str)
+                    },
+                }
+            elif path.parent.name == "reviews" and team_id == base:
+                doc = _read_json(path)
+                verdict = text(doc.get("verdict"), 40).lower()
+                if verdict not in _VERDICTS:
+                    continue
+                concerns = doc.get("fatal_concerns")
+                reviews[(base, text(doc.get("route_id"), 80) or path.stem)] = {
+                    "verdict": verdict,
+                    "summary": text(doc.get("summary"), 600),
+                    "concerns": len(concerns) if isinstance(concerns, list) else 0,
+                }
+            elif path.parent.name == "routes" and team_id == base:
+                title = _route_title(path)
+                if title:
+                    routes[(base, path.stem)] = title
+    return reviews, routes, selections
+
+
+def team_outcome(
+    team_id: str, role: str, target: str, conclusions: tuple[dict, dict, dict],
+) -> dict | None:
+    """What one subtask concluded, when its board's artifacts say so."""
+    reviews, routes, selections = conclusions
+    base = base_team_id(team_id)
+    if role == "idea-review":
+        review = reviews.get((base, target))
+        return {"kind": "review", **review} if review else None
+    if role == "idea-route":
+        review = reviews.get((base, target))
+        selection = selections.get(base)
+        outcome: dict = {"kind": "route"}
+        if (base, target) in routes:
+            outcome["title"] = routes[(base, target)]
+        if review:
+            outcome["verdict"] = review["verdict"]
+        if selection:
+            outcome["selected"] = selection["selected_route"] == target
+            rejection = selection["rejections"].get(target)
+            if rejection:
+                outcome["rejection"] = rejection
+        return outcome if len(outcome) > 1 else None
+    if role == "idea-selector":
+        selection = selections.get(base)
+        if not selection:
+            return None
+        chosen = selection["selected_route"]
+        return {
+            "kind": "selection",
+            "selected_route": chosen,
+            "selected_title": routes.get((base, chosen), ""),
+            "rationale": selection["rationale"],
+            "rejected": sorted(selection["rejections"]),
+        }
+    return None
 
 
 def event_id(owner: str, team_id: str, task_id: str) -> str:
@@ -186,6 +330,10 @@ def project_team_events(sid: str, root: Path, life_dir: Path, bindings: dict, so
         sources if sources is not None else _sources(sid, root, life_dir, bindings)
     )
     records = {}
+    boards: dict[str, Path] = {}
+    for path, team_id, _binding, _stamp in files:
+        boards.setdefault(team_id, path.parent.parent)
+    conclusions = team_conclusions(boards)
     for path, team_id, binding, stamp in files:
         if stamp is None or stamp[2] > MAX_TASK_BYTES:
             truncated = True
@@ -247,6 +395,9 @@ def project_team_events(sid: str, root: Path, life_dir: Path, bindings: dict, so
             # invalidate the file cache but must not repurchase card summaries.
             "updated_ts": max(started, finished),
         }
+        outcome = team_outcome(team_id, team_role, text(task.get("target"), 80), conclusions)
+        if outcome:
+            observation["team_outcome"] = outcome
         records[key] = (stamp[3], observation)
     return [
         *formation_events(formations),

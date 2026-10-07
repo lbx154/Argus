@@ -913,11 +913,20 @@ def check_backend_readiness(
                     env=env_map,
                 )
             if not ok:
+                login = _LOGIN_COMMANDS[profile.backend]
+                if profile.backend == "copilot":
+                    from ..agent_cli.copilot_home import copilot_account_home
+
+                    if copilot_account_home(env_map) is not None:
+                        login = (
+                            "argus --setup --backend copilot --copilot-login "
+                            "--copilot-home PATH"
+                        )
                 report.problems.append(
                     ReadinessProblem(
                         "authentication",
                         f"{profile.backend} authentication is not usable: {detail}",
-                        f"run `{_LOGIN_COMMANDS[profile.backend]}`, then `argus --doctor`",
+                        f"run `{login}`, then `argus --doctor`",
                     )
                 )
             elif pi_catalog:
@@ -934,6 +943,7 @@ def persist_validated_profile(
     report: BackendReadiness,
     *,
     model: str = "",
+    copilot_home: str | None = None,
 ) -> bool:
     """Persist the validated backend profile, and the model chosen with it.
 
@@ -955,6 +965,8 @@ def persist_validated_profile(
     adopted = str(model or "").strip()
     if adopted:
         values["ARGUS_SKILL_MODEL"] = adopted
+    if copilot_home is not None:
+        values["ARGUS_SKILL_COPILOT_HOME"] = copilot_home
     return write_persisted_knobs(values)
 
 

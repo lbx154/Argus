@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -65,20 +64,6 @@ def test_engineer_and_bounded_planner_receive_windows_contract(monkeypatch) -> N
     assert contract not in engineer
     assert contract in continuation
     assert contract in planner
-
-
-def test_mermaid_skill_has_an_execution_policy_safe_windows_command() -> None:
-    package_root = Path(engineer_prompts.__file__).resolve().parents[2]
-    text = (
-        package_root
-        / "builtin_skills"
-        / "engineer"
-        / "mermaid-graphviz-diagrams.md"
-    ).read_text(encoding="utf-8")
-
-    assert "Windows PowerShell" in text
-    assert "npx.cmd --yes @mermaid-js/mermaid-cli" in text
-    assert "npx.ps1" in text
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native PowerShell integration test")

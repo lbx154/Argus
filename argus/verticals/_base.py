@@ -9,12 +9,14 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import TypeAlias
 
 from ..core.vertical_contract import (
     VerticalContract,
+    VerticalContractError,
     vertical_contract,
 )
 from ._data_domain import DataDomain, load_data_domain
@@ -23,7 +25,47 @@ log = logging.getLogger(__name__)
 
 #: The safe fallback vertical: its stages module always imports.
 DEFAULT_VERTICAL = "research"
-VerticalDefinition: TypeAlias = ModuleType | DataDomain
+
+
+@dataclass(frozen=True)
+class ScopedVertical:
+    """A project-local contract view that preserves provider-specific hooks."""
+
+    provider: ModuleType | DataDomain
+    _argus_contract: VerticalContract
+
+    def __getattr__(self, name: str):
+        if name in {"STAGE_ORDER", "CHECKLIST_STAGE_ORDER"}:
+            return self._argus_contract.stage_order
+        if name == "CHECKLIST_ITEMS":
+            return self._argus_contract.checklist_items
+        if name == "WORKFLOW_MODE":
+            return self._argus_contract.workflow_mode
+        return getattr(self.provider, name)
+
+
+VerticalDefinition: TypeAlias = ModuleType | DataDomain | ScopedVertical
+
+
+def _project_vertical(
+    name: str, provider: ModuleType | DataDomain, project_root: object,
+) -> VerticalDefinition:
+    if project_root is None:
+        return provider
+    from ..core.pipeline_state import read_pipeline_state
+
+    state = read_pipeline_state(Path(str(project_root)))
+    if state.get("vertical") != name or "workflow_profile" not in state:
+        return provider
+    contract = vertical_contract(name, provider).for_profile(
+        state["workflow_profile"],
+        requested_stages=state.get("workflow_requested_stages", ()),
+    )
+    if state.get("workflow_stages") != list(contract.stage_order):
+        raise VerticalContractError(
+            f"vertical {name!r} workflow changed since selection; start a new operator handoff"
+        )
+    return ScopedVertical(provider, contract)
 
 
 def _normalize_vertical_name(name: object) -> str:
@@ -36,7 +78,9 @@ def _normalize_vertical_name(name: object) -> str:
     return cleaned or DEFAULT_VERTICAL
 
 
-def load_vertical(name: object, project_root: object = None) -> VerticalDefinition:
+def load_vertical(
+    name: object, project_root: object = None, *, scoped: bool = True,
+) -> VerticalDefinition:
     """Resolve one in-tree, plugin, or project-local vertical provider.
 
     Order: a built-in ``argus.verticals.<name>.stages`` wins, then a
@@ -52,7 +96,9 @@ def load_vertical(name: object, project_root: object = None) -> VerticalDefiniti
     optional = Path(stages_path).with_name("workbench.json").is_file()
     if os.path.isfile(stages_path) and not optional:
         try:
-            return importlib.import_module(module_name)
+            return _project_vertical(
+                cleaned, importlib.import_module(module_name), project_root if scoped else None,
+            )
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(
                 f"vertical {cleaned!r} exists but failed to import: {exc}"
@@ -62,20 +108,24 @@ def load_vertical(name: object, project_root: object = None) -> VerticalDefiniti
 
     plugin = vertical_plugin(cleaned)
     if plugin is not None:
-        return plugin.module
+        return _project_vertical(cleaned, plugin.module, project_root if scoped else None)
     if project_root is not None:
         domain = load_data_domain(cleaned, project_root)
         if domain is not None:
-            return domain
+            return _project_vertical(cleaned, domain, project_root if scoped else None)
     raise LookupError(f"unknown vertical: {cleaned}")
 
 
 def load_vertical_contract(
     name: object,
     project_root: object = None,
+    *,
+    scoped: bool = True,
 ) -> VerticalContract:
     cleaned = _normalize_vertical_name(name)
-    return vertical_contract(cleaned, load_vertical(cleaned, project_root=project_root))
+    return vertical_contract(
+        cleaned, load_vertical(cleaned, project_root=project_root, scoped=scoped),
+    )
 
 
 def _contract(mod: VerticalDefinition) -> VerticalContract:

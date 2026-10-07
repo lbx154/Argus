@@ -333,6 +333,33 @@ class CopilotPermit:
             self.slot = None
 
 
+def _budget_reason(state: dict[str, Any]) -> str:
+    premium_cap = _float_setting(
+        "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", _DEFAULT_DAILY_PREMIUM_CAP,
+    )
+    premium = float(state.get("premium_requests") or 0.0)
+    if premium_cap > 0 and premium >= premium_cap:
+        return f"global Copilot daily premium cap {premium_cap:g} reached (used {premium:g})"
+    daily_cap = _int_setting(
+        "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", _DEFAULT_DAILY_CALL_CAP,
+    )
+    if daily_cap > 0 and int(state.get("daily_calls") or 0) >= daily_cap:
+        return f"global Copilot daily call cap {daily_cap} reached"
+    return ""
+
+
+def copilot_budget_reason(*, root: Path | None = None) -> str:
+    """Check the current daily limits without reserving a call or a provider slot."""
+    if not copilot_guard_enabled():
+        return ""
+    root = root or global_root()
+    lock = _lock_state(root)
+    try:
+        return _budget_reason(_load_state(root / _STATE_FILE))
+    finally:
+        _unlock_state(lock)
+
+
 def acquire_copilot_permit(run_label: str) -> CopilotPermit:
     root = global_root()
     if not copilot_guard_enabled():
@@ -380,17 +407,10 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
                 stop_kind="provider_cooldown",
             )
 
-        premium_cap = _float_setting(
-            "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
-            _DEFAULT_DAILY_PREMIUM_CAP,
-        )
-        premium = float(state.get("premium_requests") or 0.0)
-        if premium_cap > 0 and premium >= premium_cap:
+        budget_reason = _budget_reason(state)
+        if budget_reason:
             return _denied_permit(
-                reason=(
-                    f"global Copilot daily premium cap {premium_cap:g} reached "
-                    f"(used {premium:g})"
-                ),
+                reason=budget_reason,
                 run_label=run_label,
                 root=root,
                 slot=slot,
@@ -401,14 +421,9 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
             "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", _DEFAULT_DAILY_CALL_CAP
         )
         daily_calls = int(state.get("daily_calls") or 0)
-        if daily_cap > 0 and daily_calls >= daily_cap:
-            return _denied_permit(
-                reason=f"global Copilot daily call cap {daily_cap} reached",
-                run_label=run_label,
-                root=root,
-                slot=slot,
-                stop_kind="budget_exhausted",
-            )
+        premium_cap = _float_setting(
+            "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", _DEFAULT_DAILY_PREMIUM_CAP,
+        )
 
         recent = [
             float(value)
@@ -520,6 +535,7 @@ __all__ = [
     "acquire_copilot_permit",
     "copilot_guard_enabled",
     "copilot_guard_snapshot",
+    "copilot_budget_reason",
     "release_denied_permit",
     "trip_copilot_guard",
 ]

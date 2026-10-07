@@ -73,6 +73,22 @@ class VerticalPlugin:
     #: Which source advertised the plugin: ``"managed"`` (workbench plugin),
     #: ``"store"`` (Vertical Store directory) or ``"entry_point"`` (pip).
     origin: str = "entry_point"
+    routing_path: tuple[str, ...] = ()
+
+
+def validate_routing_path(name: str, raw: object) -> tuple[str, ...]:
+    """Optional category/domain/specialty address; independent of skill parents."""
+    if not isinstance(raw, (tuple, list)):
+        raise ValueError(f"{name}: routing_path must be a list or tuple")
+    if not raw:
+        return ()
+    if len(raw) not in (2, 3) or any(
+        not isinstance(part, str) or not _NAME.fullmatch(part) for part in raw
+    ):
+        raise ValueError(f"{name}: routing_path needs category, domain and optional specialty slugs")
+    if "_".join(raw[1:]) != name:
+        raise ValueError(f"{name}: routing_path domain/specialty must join to the vertical name")
+    return tuple(raw)
 
 
 def _skills_root(module: ModuleType) -> Any:
@@ -129,6 +145,7 @@ def _plugin(name: str, module: ModuleType, *, origin: str = "entry_point") -> Ve
         skills_root=_skills_root(module),
         skill_parents=_skill_parents(name, module),
         origin=origin,
+        routing_path=validate_routing_path(name, getattr(module, "VERTICAL_ROUTING_PATH", ())),
     )
 
 

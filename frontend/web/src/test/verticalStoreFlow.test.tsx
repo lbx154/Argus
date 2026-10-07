@@ -79,6 +79,27 @@ afterEach(() => {
 });
 
 describe('vertical store lifecycle', () => {
+  it('filters a real store view by category and domain, and clears the selection', async () => {
+    vi.mocked(api.verticals).mockResolvedValue({
+      ...payload,
+      verticals: [
+        row({ name: 'chip', routing_path: ['hardware', 'chip'] }),
+        row({ name: 'chip_sta', routing_path: ['hardware', 'chip', 'sta'] }),
+        row({ name: 'rf', routing_path: ['hardware', 'rf'] }),
+        materials,
+      ],
+    });
+    await mount();
+    act(() => root().findByType('select').props.onChange({ target: { value: 'hardware/chip' } }));
+    expect(byTestId('vertical-chip')).toHaveLength(1);
+    expect(byTestId('vertical-chip_sta')).toHaveLength(1);
+    expect(byTestId('vertical-rf')).toHaveLength(0);
+    expect(byTestId('vertical-materials')).toHaveLength(0);
+    click(root().findAllByType('button').find((node) => text(node) === 'verticals.clearFilters')!);
+    expect(byTestId('vertical-materials')).toHaveLength(1);
+    expect(root().findByType('select').props.value).toBe('');
+  });
+
   it('probes the capability, reads the list once open and renders a card per row', async () => {
     await mount();
     expect(api.meta).toHaveBeenCalledTimes(1);

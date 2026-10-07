@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "pr_number", "base_sha", "candidate_sha", "verdict",
+    "analysis_mode", "summary", "inspected_paths", "short_circuit_reason",
+    "findings", "tests", "limitations", "escalation_required"
+  ],
+  "properties": {
+    "schema_version": {"const": "pr-regression-study/v1"},
+    "pr_number": {"type": "integer"},
+    "base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "candidate_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "verdict": {"enum": ["REGRESSION", "NO_REGRESSION_FOUND", "UNCERTAIN"]},
+    "analysis_mode": {"enum": ["short_circuit", "static", "targeted", "incomplete"]},
+    "summary": {"type": "string", "minLength": 1},
+    "inspected_paths": {
+      "type": "array", "minItems": 1, "items": {"type": "string"}
+    },
+    "change_coverage": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["paths", "status", "reason", "evidence_refs"],
+        "properties": {
+          "paths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+          "status": {"enum": ["analyzed", "negligible", "unresolved"]},
+          "reason": {"type": "string", "minLength": 1},
+          "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+        }
+      }
+    },
+    "short_circuit_reason": {"type": ["string", "null"]},
+    "escalation_required": {"type": "boolean"},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id", "status", "hypothesis", "property_source", "source_locations",
+          "trigger_reached", "base_property_holds", "candidate_property_holds",
+          "explanation", "probe_ids"
+        ],
+        "properties": {
+          "id": {"type": "string"},
+          "status": {"enum": ["CONFIRMED_REGRESSION", "NOT_REPRODUCED", "PREEXISTING", "UNKNOWN"]},
+          "hypothesis": {"type": "string"},
+          "property_source": {"type": "string", "minLength": 1},
+          "source_locations": {
+            "type": "array", "minItems": 1, "items": {"type": "string"}
+          },
+          "trigger_reached": {"type": ["boolean", "null"]},
+          "base_property_holds": {"type": ["boolean", "null"]},
+          "candidate_property_holds": {"type": ["boolean", "null"]},
+          "explanation": {"type": "string"},
+          "probe_ids": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["probe_id", "receipt_path", "interpretation"],
+        "additionalProperties": false,
+        "properties": {
+          "probe_id": {"type": "string"},
+          "receipt_path": {"type": "string"},
+          "interpretation": {"type": "string"}
+        }
+      }
+    }
+  }
+}

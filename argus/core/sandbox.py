@@ -296,10 +296,17 @@ def _backend_support_executables(executable: Path) -> list[Path]:
     return sorted(set(codex_executables), key=str)
 
 
+def isolated_copilot_home(working_dir: str | os.PathLike[str] | None) -> Path:
+    if not working_dir:
+        raise RuntimeError("worktree isolation requires an explicit workdir")
+    return Path(working_dir).resolve() / ".argus-self-maintenance-runtime" / "copilot-home"
+
+
 def isolated_workdir_command(
     command: list[str],
     *,
     working_dir: str | os.PathLike[str] | None,
+    account_home: Path | None = None,
 ) -> list[str]:
     """Wrap any role CLI in a read-only-root, worktree-write bubblewrap."""
     if os.name != "posix" or not working_dir:
@@ -335,14 +342,26 @@ def isolated_workdir_command(
     if not os.path.isdir(root):
         raise RuntimeError("isolated workdir does not exist")
     runtime_root = Path(root) / ".argus-self-maintenance-runtime"
-    private_copilot = runtime_root / "copilot-home"
+    private_copilot = isolated_copilot_home(root)
+    if account_home is not None:
+        if (
+            not private_copilot.resolve().is_relative_to(Path(root))
+            or private_copilot.resolve() == account_home.resolve()
+        ):
+            raise RuntimeError("dedicated Copilot home must be separate from the sandbox runtime")
+        private_copilot.mkdir(parents=True, exist_ok=True, mode=0o700)
     private_state = private_copilot / "session-state"
     private_state.mkdir(parents=True, exist_ok=True)
-    copilot_home = Path.home() / ".copilot"
+    copilot_home = account_home or Path.home() / ".copilot"
     for name in ("config.json", "settings.json", "permissions-config.json"):
         source = copilot_home / name
         target = private_copilot / name
-        if source.is_file():
+        if account_home is not None:
+            # Reference the selected credentials; never copy another login.
+            target.unlink(missing_ok=True)
+            if source.is_file():
+                target.symlink_to(source)
+        elif source.is_file():
             shutil.copy2(source, target)
 
     if sandbox_exec:
@@ -354,7 +373,7 @@ def isolated_workdir_command(
         private_home_copilot.mkdir(parents=True, exist_ok=True)
         for name in ("config.json", "settings.json", "permissions-config.json"):
             source = private_copilot / name
-            if source.is_file():
+            if account_home is None and source.is_file():
                 shutil.copy2(source, private_home_copilot / name)
 
         def seatbelt_path(path: str | os.PathLike[str]) -> str:
@@ -369,6 +388,8 @@ def isolated_workdir_command(
             "(version 1)(allow default)"
             f"(deny file-write* {write_filters})"
         )
+        if account_home is not None:
+            profile += f"(deny file-write* (subpath {seatbelt_path(account_home)}))"
         for sensitive in (
             Path.home() / ".ssh",
             Path.home() / ".aws",
@@ -498,8 +519,13 @@ def isolated_workdir_command(
     if common:
         common_path = Path(common)
         bind_dir(common_path, common_path, writable=False)
-    bind_dir(private_copilot, Path.home() / ".copilot", writable=False)
-    bind_dir(private_state, Path.home() / ".copilot" / "session-state", writable=True)
+    if account_home is None:
+        bind_dir(private_copilot, Path.home() / ".copilot", writable=False)
+        bind_dir(private_state, Path.home() / ".copilot" / "session-state", writable=True)
+    else:
+        for name in ("config.json", "settings.json", "permissions-config.json"):
+            source = account_home / name
+            bind_file(source, source)
     wrapped.extend([
         "--dev-bind",
         "/dev",

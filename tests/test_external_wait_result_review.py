@@ -40,7 +40,7 @@ class Reviewer:
         return ReviewDecision(status=self.status, reason="Checked the actual result and current experiment.", next_action="Continue after the existing run.")
 
 
-def execute(tmp_path, monkeypatch, reviewer, *, independent=True, rounds=4):
+def execute(tmp_path, monkeypatch, reviewer, *, independent=True, rounds=4, launch_review=True):
     from argus.engineer import runner
 
     def wait(**kw):
@@ -58,6 +58,7 @@ def execute(tmp_path, monkeypatch, reviewer, *, independent=True, rounds=4):
     config = SupervisedConfig(
         max_rounds=rounds, require_independent_review=independent,
         background_subagent_advisory=True,
+        review_background_launches=launch_review,
         context_packet_path=tmp_path / "handoff" / "mission.json",
     )
     events = []
@@ -67,6 +68,24 @@ def execute(tmp_path, monkeypatch, reviewer, *, independent=True, rounds=4):
         supervised_config=config, on_event=events.append,
     )
     return result, events, engineer
+
+
+def test_default_wait_needs_no_launch_review_but_result_still_needs_approval(tmp_path, monkeypatch):
+    assert not SupervisedConfig().review_background_launches
+    job(tmp_path)
+    reviewer = Reviewer("done")
+    result, events, _ = execute(tmp_path, monkeypatch, reviewer, launch_review=False)
+    assert result[0] == "paused_external_work" and reviewer.calls == 0
+    assert not any(e["type"] == "round.review.completed" for e in events)
+    job(tmp_path, state="done")
+    result, events, engineer = execute(tmp_path, monkeypatch, reviewer, launch_review=False)
+    assert result[0] == "done" and reviewer.calls == 1 and engineer.calls == 2
+    assert any(e["type"] == "round.external_work_review.required" and e["phase"] == "terminal" for e in events)
+
+
+def test_launch_review_can_be_explicitly_enabled(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES", "1")
+    assert SupervisedConfig().review_background_launches
 
 
 def test_new_run_reviewed_once_and_heartbeat_wait_survives_restart(tmp_path, monkeypatch):

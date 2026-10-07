@@ -1,6 +1,7 @@
 """Copilot-specific per-call usage from the CLI's local session store."""
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import time
@@ -9,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..agent_cli.copilot_home import argus_copilot_home
+from ..agent_cli.copilot_home import argus_copilot_home, copilot_account_home
 
 # Copilot records cost in nano-AI units. 1e9 nano-AIU = 1 AI credit and
 # 1 AI credit = $0.01, therefore one USD is 1e11 nano-AIU.
@@ -23,6 +24,9 @@ class CopilotUsageCursor:
     db_signature: tuple[int, int] | None
     wal_signature: tuple[int, int] | None
     fallback: CopilotUsageCursor | None = None
+    # Wall-clock capture time. Session event logs carry timestamps but no
+    # row ids, so this is what separates this call's turn from earlier ones.
+    captured_at: float | None = None
 
 
 @dataclass(frozen=True)
@@ -113,6 +117,9 @@ def copilot_usage_db_candidates() -> list[Path]:
 
     if trial_enabled():
         return [profile_path().parent / "copilot-trial-home" / "session-store.db"]
+    account_home = copilot_account_home()
+    if account_home is not None:
+        return [account_home / "session-store.db"]
     candidates: list[Path] = []
     configured = os.environ.get("COPILOT_HOME", "").strip()
     if configured:
@@ -133,7 +140,9 @@ def copilot_usage_db_candidates() -> list[Path]:
     return out
 
 
-def capture_copilot_usage_cursor() -> CopilotUsageCursor | None:
+def capture_copilot_usage_cursor(
+    *, isolated_workdir: str | Path | None = None,
+) -> CopilotUsageCursor | None:
     # Child execution relocates Copilot using a copy of os.environ. Looking at
     # the parent environment and picking the first existing DB can instead
     # capture the operator's unrelated personal store. Use the intended child
@@ -142,6 +151,13 @@ def capture_copilot_usage_cursor() -> CopilotUsageCursor | None:
 
     if trial_enabled():
         return _capture_cursor(profile_path().parent / "copilot-trial-home" / "session-store.db")
+    account_home = copilot_account_home()
+    if account_home is not None:
+        if isolated_workdir is not None:
+            from ..core.sandbox import isolated_copilot_home
+
+            account_home = isolated_copilot_home(isolated_workdir)
+        return _capture_cursor(account_home / "session-store.db")
     configured = os.environ.get("COPILOT_HOME", "").strip()
     home = Path(configured).expanduser() if configured else argus_copilot_home()
     path = home / "session-store.db"
@@ -161,6 +177,7 @@ def _capture_cursor(
         db_signature=_signature(path),
         wal_signature=_signature(path.with_name(path.name + "-wal")),
         fallback=fallback,
+        captured_at=time.time(),
     )
 
 
@@ -180,12 +197,18 @@ def copilot_store_supports_token_billing(path: Path | None) -> bool:
 
 
 def copilot_usage_store_signature() -> list[dict[str, Any]]:
-    """Read-only invalidation key, including uncheckpointed SQLite writes."""
+    """Read-only invalidation key, including uncheckpointed SQLite writes.
+
+    The session-state directory is part of the key because a warm ACP turn's
+    charge lives in a per-session event log that appears when the CLI creates
+    the session, not in the store.
+    """
     return [
         {
             "path": str(path),
             "db": list(_signature(path) or ()),
             "wal": list(_signature(path.with_name(path.name + "-wal")) or ()),
+            "sessions": list(_signature(path.parent / "session-state") or ()),
         }
         for path in copilot_usage_db_candidates()
     ]
@@ -210,6 +233,12 @@ def read_copilot_usage_since(
                 min_id=cursor.fallback.max_id,
                 session_id=session_id,
             )
+        if not rows:
+            # A warm ``copilot --acp`` session never inserts store rows (CLI
+            # 1.0.89); its charge is only in the session event log.
+            event_rows = _session_event_usage_since(cursor, session_id)
+            if event_rows:
+                return CopilotCallUsage(tuple(event_rows))
         ids = tuple(row.row_id for row in rows)
         # Billing can arrive by updating existing rows, without changing IDs.
         if rows and ids == last_ids and all(row.total_nano_aiu is not None for row in rows):
@@ -247,7 +276,145 @@ def find_copilot_usage_near(
         )
         if rows:
             return path, CopilotCallUsage(tuple(rows))
+    for path in copilot_usage_db_candidates():
+        rows = _session_event_usage_rows(
+            path.parent, session_id, since=start, until=end,
+        )
+        if rows:
+            return session_events_path(path.parent, session_id), CopilotCallUsage(tuple(rows))
     return None
+
+
+_SESSION_START_EVENT = "session.start"
+_USAGE_CHECKPOINT_EVENT = "session.usage_checkpoint"
+# Copilot stamps events with millisecond precision; a checkpoint written in
+# the same millisecond as the cursor capture still belongs to this call.
+_EVENT_CLOCK_TOLERANCE_S = 0.01
+
+
+def session_events_path(home: Path, session_id: str) -> Path:
+    """The CLI's per-session event log under a Copilot home."""
+    return home / "session-state" / session_id / "events.jsonl"
+
+
+def _session_event_usage_since(
+    cursor: CopilotUsageCursor, session_id: str,
+) -> list[CopilotModelUsage]:
+    since = (
+        None if cursor.captured_at is None
+        else cursor.captured_at - _EVENT_CLOCK_TOLERANCE_S
+    )
+    homes = [cursor.db_path.parent]
+    if cursor.fallback is not None:
+        homes.append(cursor.fallback.db_path.parent)
+    for home in homes:
+        rows = _session_event_usage_rows(home, session_id, since=since)
+        if rows:
+            return rows
+    return []
+
+
+def _session_event_usage_rows(
+    home: Path,
+    session_id: str,
+    *,
+    since: float | None = None,
+    until: float | None = None,
+) -> list[CopilotModelUsage]:
+    """Per-turn usage read from ``session-state/<id>/events.jsonl``.
+
+    A warm ``copilot --acp`` session (CLI 1.0.89) inserts no
+    ``assistant_usage_events`` rows; the only durable record of what each turn
+    cost is the cumulative ``session.usage_checkpoint`` event the CLI appends
+    after the turn. Every checkpoint becomes one row whose charge is the
+    difference from the previous checkpoint. Token counts are not reported
+    there, so those fields stay unknown while the AIU charge is exact.
+    """
+    path = session_events_path(home, session_id)
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return []
+    rows: list[CopilotModelUsage] = []
+    session_model = ""
+    previous_total = 0
+    ordinal = 0
+    for line in lines:
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            event = json.loads(text)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        data = event.get("data")
+        if not isinstance(data, dict):
+            data = {}
+        kind = event.get("type")
+        if kind == _SESSION_START_EVENT:
+            selected = data.get("selectedModel")
+            if isinstance(selected, str) and selected.strip():
+                session_model = selected.strip()
+            continue
+        if kind != _USAGE_CHECKPOINT_EVENT:
+            continue
+        total = _optional_int(data.get("totalNanoAiu"))
+        if total is None:
+            continue
+        ordinal += 1
+        charge = max(0, total - previous_total)
+        previous_total = total
+        created_at = str(event.get("timestamp") or "")
+        stamp = _parse_iso(created_at)
+        if since is not None and (stamp is None or stamp < since):
+            continue
+        if until is not None and stamp is not None and stamp > until:
+            continue
+        rows.append(
+            CopilotModelUsage(
+                row_id=ordinal,
+                session_id=session_id,
+                turn_index=ordinal - 1,
+                model=_checkpoint_model(data, session_model),
+                input_tokens=None,
+                output_tokens=None,
+                cache_read_tokens=None,
+                cache_write_tokens=None,
+                reasoning_tokens=None,
+                total_nano_aiu=charge,
+                request_multiplier=None,
+                created_at=created_at,
+            )
+        )
+    return rows
+
+
+def _checkpoint_model(data: dict[str, Any], default: str) -> str:
+    cache_state = data.get("modelCacheState")
+    if isinstance(cache_state, list):
+        models = sorted({
+            str(item.get("modelId")).strip()
+            for item in cache_state
+            if isinstance(item, dict) and str(item.get("modelId") or "").strip()
+        })
+        if len(models) == 1:
+            return models[0]
+    return default
+
+
+def _parse_iso(text: str) -> float | None:
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.timestamp()
 
 
 def _usage_rows(
@@ -369,4 +536,5 @@ __all__ = [
     "copilot_usage_store_signature",
     "find_copilot_usage_near",
     "read_copilot_usage_since",
+    "session_events_path",
 ]

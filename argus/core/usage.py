@@ -316,6 +316,88 @@ class UsageSummary:
         return asdict(self)
 
 
+_ARGUS_INTERRUPT_PREFIX = "external interrupt:"
+INTERRUPTED_REQUEST_TIER = "copilot_interrupted_request"
+
+
+def _is_argus_interrupt(error: object) -> bool:
+    return str(error or "").strip().lower().startswith(_ARGUS_INTERRUPT_PREFIX)
+
+
+def is_interrupted_empty_copilot_turn(
+    *,
+    provider: object,
+    status: object,
+    error: object,
+    receipt: dict[str, Any] | None,
+    call_id: object = None,
+    premium_requests: object = None,
+    total_nano_aiu: object = None,
+    model_usage: object = None,
+    usage_observed: bool = False,
+) -> bool:
+    """A warm Copilot turn that Argus itself ended before the CLI recorded it.
+
+    Supersession, operator cancellation and Argus's own timeouts end a warm
+    ``copilot --acp`` turn by terminating the CLI process. When that happens
+    before the CLI has written a session record, nothing local can ever price
+    the call: there is no store row and no session event log to reconcile
+    from. The completion receipt shows the turn produced no message, no tool
+    activity and no reported usage, so the only charge the request can have
+    incurred is the request itself. Such a call is settled as one premium
+    request instead of holding every other call behind it.
+    """
+    if str(provider or "").strip().lower() != "copilot":
+        return False
+    if str(status or "").strip().lower() != "error" or not _is_argus_interrupt(error):
+        return False
+    if (
+        premium_requests is not None
+        or total_nano_aiu is not None
+        or _normalize_model_usage(model_usage)
+        or usage_observed
+    ):
+        return False
+    r = receipt if isinstance(receipt, dict) else {}
+    if call_id is not None and str(r.get("call_id") or "") != str(call_id):
+        return False
+    return (
+        r.get("type") == "agent.io.complete"
+        and r.get("backend") == "copilot"
+        and r.get("turn_completed") is False
+        and r.get("tool_activity_observed") is False
+        and not r.get("premium_requests_present")
+        and r.get("premium_requests") is None
+        and r.get("total_nano_aiu") is None
+        and _is_argus_interrupt(r.get("fatal_error"))
+        and all(
+            r.get(key) in (None, 0)
+            for key in (
+                "agent_message_count",
+                "agent_message_chars",
+                "json_event_count",
+                "input_tokens",
+                "cached_input_tokens",
+                "cache_write_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+            )
+        )
+    )
+
+
+def _interrupted_request_settlement(row: dict[str, Any]) -> dict[str, Any]:
+    quote = quote_copilot_usage(1.0)
+    return {
+        "premium_request_cost_usd": quote.cost_usd,
+        "cost_usd": quote.cost_usd,
+        "cost_basis": "premium_request",
+        "pricing_status": "priced",
+        "pricing_tier": INTERRUPTED_REQUEST_TIER,
+        "schema_version": max(2, _optional_int(row.get("schema_version")) or 1),
+    }
+
+
 def _copilot_usage_needs_reconciliation(row: dict[str, Any]) -> bool:
     return (
         str(row.get("provider") or "").strip().lower() == "copilot"
@@ -423,11 +505,32 @@ def build_usage_record(
         and not usage.observed
         and not (premium_requests or 0.0)
     )
+    interrupted_empty_turn = (
+        normalized_provider == "copilot"
+        and not hosted_trial
+        and is_interrupted_empty_copilot_turn(
+            provider=normalized_provider,
+            status=status,
+            error=error,
+            receipt=startup_receipt,
+            call_id=call_id,
+            premium_requests=premium_requests,
+            total_nano_aiu=total_nano_aiu,
+            model_usage=normalized_model_usage,
+            usage_observed=usage.observed,
+        )
+    )
     if status == "denied" or pre_provider_refusal:
         pricing_status: PricingStatus = "not_billed"
         pricing_tier = "not_started"
         cost_usd: float | None = 0.0
         cost_basis = "none"
+    elif interrupted_empty_turn:
+        premium_quote = quote_copilot_usage(1.0)
+        pricing_status = "priced"
+        pricing_tier = INTERRUPTED_REQUEST_TIER
+        cost_usd = premium_quote.cost_usd
+        cost_basis = "premium_request"
     elif normalized_provider == "copilot" and hosted_trial:
         # Trial users owe no provider dollars. The server enforces and records
         # their token allowance; BYOK sessions have no local Copilot AIU bill.
@@ -779,6 +882,7 @@ class UsageLedger:
                 if (event_id := _optional_int(item.get("usage_event_id"))) is not None
                 and str(item.get("session_id") or "")
             }
+            completion_receipts: dict[str, dict[str, Any]] | None = None
             for row in rows:
                 if not _copilot_usage_needs_reconciliation(row):
                     continue
@@ -846,6 +950,24 @@ class UsageLedger:
                     if usage.cost_usd is not None:
                         continue
 
+                if usage is None and _is_argus_interrupt(row.get("error")):
+                    if completion_receipts is None:
+                        completion_receipts = _startup_completion_receipts(self.project_root)
+                    if is_interrupted_empty_copilot_turn(
+                        provider=row.get("provider"),
+                        status=row.get("status"),
+                        error=row.get("error"),
+                        receipt=completion_receipts.get(call_id),
+                        call_id=call_id,
+                        premium_requests=_optional_float(row.get("premium_requests")),
+                        total_nano_aiu=_optional_int(row.get("total_nano_aiu")),
+                        model_usage=row.get("model_usage"),
+                    ):
+                        settlement = _interrupted_request_settlement(row)
+                        if any(row.get(key) != value for key, value in settlement.items()):
+                            row.update(settlement)
+                            updated += 1
+                        continue
                 if (
                     row.get("pricing_tier") in {"copilot_token", "copilot_token_pending"}
                     or _optional_int(row.get("total_nano_aiu")) is not None
@@ -1504,7 +1626,9 @@ def _legacy_call_threads(project_root: Path) -> dict[str, str]:
 
 
 def _copilot_reconcile_enabled_for(project_root: Path) -> bool:
-    if os.environ.get("COPILOT_HOME", "").strip():
+    from ..agent_cli.copilot_home import copilot_account_home
+
+    if copilot_account_home() is not None or os.environ.get("COPILOT_HOME", "").strip():
         return True
     from .paths import session_states_root
 

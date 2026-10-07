@@ -51,6 +51,10 @@ def test_cli_resume_uses_persisted_workdir_not_shell_cwd(
     assert bundle.project_worktree == workspace.resolve()
     assert config.project_workdir == workspace.resolve()
     assert config.life_dir == state_dir
+    from argus.daemon._life_worker_runtime_context import _runner_namespace
+
+    assert config.continuous_open_ended is True
+    assert _runner_namespace(config).open_ended is False
 
 
 def test_cli_explicit_provider_backend_uses_native_model_default(

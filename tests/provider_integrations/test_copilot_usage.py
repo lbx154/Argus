@@ -72,6 +72,48 @@ def _insert(path: Path, *, session: str, model: str, created_at: str, **usage) -
         )
 
 
+def test_dedicated_account_usage_never_reads_ambient_or_personal_stores(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.core.knob_store import write_persisted_knob
+
+    personal = _db(tmp_path / "personal")
+    chosen = tmp_path / "dedicated"
+    assert write_persisted_knob("ARGUS_SKILL_COPILOT_HOME", str(chosen))
+    monkeypatch.setenv("COPILOT_HOME", str(personal.parent))
+    _insert(
+        personal, session="matching-id", model="gpt-5.5",
+        created_at="2026-07-11T10:00:00Z", total_nano_aiu=99,
+    )
+
+    cursor = capture_copilot_usage_cursor()
+
+    assert cursor.db_path == chosen / "session-store.db"
+    assert cursor.fallback is None
+    assert copilot_usage.copilot_usage_db_candidates() == [cursor.db_path]
+    assert not chosen.exists()
+    assert find_copilot_usage_near(
+        session_id="matching-id", started_at=0,
+        completed_at=datetime(2026, 7, 11, 10, 0, tzinfo=UTC).timestamp(),
+    ) is None
+    dedicated = _db(chosen)
+    _insert(
+        dedicated, session="matching-id", model="gpt-5.5",
+        created_at="2026-07-11T10:00:00Z", total_nano_aiu=7,
+    )
+    usage = read_copilot_usage_since(cursor, session_id="matching-id")
+    assert usage is not None and usage.total_nano_aiu == 7
+
+
+def test_dedicated_sandbox_cursor_uses_private_runtime(tmp_path: Path, monkeypatch) -> None:
+    from argus.core.sandbox import isolated_copilot_home
+
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_HOME", str(tmp_path / "dedicated"))
+    cursor = capture_copilot_usage_cursor(isolated_workdir=tmp_path / "worktree")
+    assert cursor.db_path == isolated_copilot_home(tmp_path / "worktree") / "session-store.db"
+    assert cursor.fallback is None
+
+
 def test_reads_exact_rows_added_after_cursor(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "copilot"
     path = _db(home)
@@ -540,3 +582,184 @@ def test_unknown_store_does_not_establish_premium_only_billing(tmp_path: Path, s
         with sqlite3.connect(db) as connection:
             connection.execute("CREATE TABLE sessions (id TEXT)")
     assert copilot_store_supports_token_billing(db)
+
+
+# --- warm ``copilot --acp`` sessions: usage lives in the session event log ---
+
+
+def _events(
+    home: Path,
+    session: str,
+    checkpoints: list[tuple[str, int]],
+    *,
+    model: str = "gpt-5.6-sol",
+    checkpoint_models: dict[int, str] | None = None,
+) -> Path:
+    """Write a CLI session event log with ``session.start`` and cumulative
+    ``session.usage_checkpoint`` events (``(timestamp, totalNanoAiu)``)."""
+    import json
+
+    path = home / "session-state" / session / "events.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        json.dumps({
+            "type": "session.start",
+            "data": {"sessionId": session, "selectedModel": model},
+            "timestamp": checkpoints[0][0] if checkpoints else "2026-09-30T06:53:14.415Z",
+        })
+    ]
+    for index, (stamp, total) in enumerate(checkpoints):
+        data = {"totalNanoAiu": total, "totalPremiumRequests": index + 1}
+        if checkpoint_models and index in checkpoint_models:
+            data["modelCacheState"] = [{"modelId": checkpoint_models[index]}]
+        lines.append(json.dumps({
+            "type": "session.usage_checkpoint", "data": data, "timestamp": stamp,
+        }))
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _stamp(seconds: float) -> str:
+    return datetime.fromtimestamp(seconds, UTC).strftime("%Y-%m-%dT%H:%M:%S.") + f"{int((seconds % 1) * 1000):03d}Z"
+
+
+def test_acp_turn_is_priced_from_the_session_event_log_when_the_store_has_no_rows(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    home = tmp_path / "copilot"
+    _db(home)
+    monkeypatch.setenv("COPILOT_HOME", str(home))
+    cursor = capture_copilot_usage_cursor()
+    assert cursor is not None and cursor.captured_at is not None
+
+    _events(home, "acp-1", [(_stamp(cursor.captured_at + 3.0), 2_946_700_000)])
+    usage = read_copilot_usage_since(cursor, session_id="acp-1", timeout=0)
+    assert usage is not None
+    assert usage.model == "gpt-5.6-sol"
+    assert usage.total_nano_aiu == 2_946_700_000
+    assert usage.cost_usd == pytest.approx(0.029467)
+    assert usage.input_tokens is None and usage.output_tokens is None
+    (row,) = usage.model_usage
+    assert row["usage_event_id"] == 1
+    assert row["session_id"] == "acp-1"
+    assert row["cost_usd"] == pytest.approx(0.029467)
+
+
+def test_event_log_charges_only_the_checkpoints_written_after_the_cursor(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    home = tmp_path / "copilot"
+    _db(home)
+    monkeypatch.setenv("COPILOT_HOME", str(home))
+    base = time.time() - 600.0
+    # Two earlier turns of the same warm session, then this call's turn.
+    _events(home, "acp-1", [
+        (_stamp(base), 521_775_000),
+        (_stamp(base + 60.0), 915_390_000),
+    ])
+    cursor = capture_copilot_usage_cursor()
+    assert cursor is not None
+    _events(home, "acp-1", [
+        (_stamp(base), 521_775_000),
+        (_stamp(base + 60.0), 915_390_000),
+        (_stamp(cursor.captured_at + 2.0), 1_415_390_000),
+    ])
+    usage = read_copilot_usage_since(cursor, session_id="acp-1", timeout=0)
+    assert usage is not None
+    assert [row["usage_event_id"] for row in usage.model_usage] == [3]
+    assert usage.total_nano_aiu == 500_000_000
+
+    # Nothing new for another session, and nothing before the cursor.
+    assert read_copilot_usage_since(cursor, session_id="acp-2", timeout=0) is None
+
+
+def test_store_rows_take_precedence_over_the_event_log(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "copilot"
+    path = _db(home)
+    monkeypatch.setenv("COPILOT_HOME", str(home))
+    cursor = capture_copilot_usage_cursor()
+    assert cursor is not None
+    _events(home, "cli-1", [(_stamp(cursor.captured_at + 1.0), 999)])
+    _insert(
+        path,
+        session="cli-1",
+        model="gpt-5.6-sol",
+        created_at=_stamp(cursor.captured_at + 1.0),
+        input_tokens=10,
+        output_tokens=2,
+        total_nano_aiu=8_099_000_000,
+    )
+    usage = read_copilot_usage_since(cursor, session_id="cli-1", timeout=0)
+    assert usage is not None
+    assert usage.total_nano_aiu == 8_099_000_000
+    assert usage.input_tokens == 10
+
+
+def test_event_log_in_the_personal_fallback_home_is_read(tmp_path: Path) -> None:
+    from argus.provider_integrations.copilot_usage import CopilotUsageCursor
+
+    argus_home = tmp_path / "argus-home"
+    personal = tmp_path / "personal"
+    _db(argus_home)
+    _db(personal)
+    now = time.time()
+    cursor = CopilotUsageCursor(
+        db_path=argus_home / "session-store.db",
+        max_id=0,
+        db_signature=None,
+        wal_signature=None,
+        fallback=CopilotUsageCursor(
+            db_path=personal / "session-store.db",
+            max_id=0,
+            db_signature=None,
+            wal_signature=None,
+            captured_at=now,
+        ),
+        captured_at=now,
+    )
+    _events(personal, "acp-9", [(_stamp(now + 1.0), 1_000_000_000)])
+    usage = read_copilot_usage_since(cursor, session_id="acp-9", timeout=0)
+    assert usage is not None and usage.cost_usd == pytest.approx(0.01)
+
+
+def test_checkpoint_model_overrides_the_session_model_when_unambiguous(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    home = tmp_path / "copilot"
+    _db(home)
+    monkeypatch.setenv("COPILOT_HOME", str(home))
+    cursor = capture_copilot_usage_cursor()
+    assert cursor is not None
+    _events(
+        home, "acp-3",
+        [(_stamp(cursor.captured_at + 1.0), 100)],
+        model="gpt-5.6-sol",
+        checkpoint_models={0: "gpt-5.4-mini"},
+    )
+    usage = read_copilot_usage_since(cursor, session_id="acp-3", timeout=0)
+    assert usage is not None and usage.model == "gpt-5.4-mini"
+
+
+def test_find_copilot_usage_near_reads_the_event_log_inside_the_call_window(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    home = tmp_path / "copilot"
+    _db(home)
+    monkeypatch.setenv("COPILOT_HOME", str(home))
+    started = 1_790_751_193.4
+    completed = 1_790_751_200.3
+    _events(home, "acp-1", [
+        (_stamp(started - 300.0), 400_000_000),          # an earlier turn
+        (_stamp(completed - 0.8), 2_946_700_000 + 400_000_000),
+    ])
+    found = find_copilot_usage_near(
+        completed_at=completed, started_at=started, session_id="acp-1",
+    )
+    assert found is not None
+    path, usage = found
+    assert path == home / "session-state" / "acp-1" / "events.jsonl"
+    assert usage.total_nano_aiu == 2_946_700_000
+    assert [row["usage_event_id"] for row in usage.model_usage] == [2]
+    assert find_copilot_usage_near(
+        completed_at=completed - 3600.0, started_at=started - 3600.0, session_id="acp-1",
+    ) is None

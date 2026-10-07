@@ -159,9 +159,14 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     # ------------------------------------------------------------------ #
     # Spawn subprocess                                                     #
     # ------------------------------------------------------------------ #
-    copilot_usage_cursor = (
-        capture_copilot_usage_cursor() if backend._is_copilot else None
-    )
+    if backend._is_copilot and getattr(cli_options, "isolate_workdir", False):
+        copilot_usage_cursor = capture_copilot_usage_cursor(
+            isolated_workdir=cli_options.working_dir,
+        )
+    else:
+        copilot_usage_cursor = (
+            capture_copilot_usage_cursor() if backend._is_copilot else None
+        )
     ctx.copilot_usage_cursor = copilot_usage_cursor
     copilot_db_path = getattr(copilot_usage_cursor, "db_path", None)
     ctx.copilot_token_billing_expected = copilot_store_supports_token_billing(

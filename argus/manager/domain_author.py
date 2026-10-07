@@ -152,6 +152,8 @@ _DECISION_KEYS = (
     "NAME",
     "DOMAIN",
     "WORKFLOW_MODE",
+    "WORKFLOW_PROFILE",
+    "WORKFLOW_STAGES",
     "START_STAGE",
     "CONFIDENCE",
     "RESEARCH_TARGET_LEVEL",
@@ -206,6 +208,7 @@ def _decision_fields(
         "VERTICAL",
         "NAME",
         "WORKFLOW_MODE",
+        "WORKFLOW_PROFILE",
         "START_STAGE",
         "RESEARCH_TARGET_LEVEL",
         "RESEARCH_DIRECTION_MODE",
@@ -224,6 +227,8 @@ def _decision_fields(
             # confidence as "not a usable answer" and escalate, which is the
             # correct response to a number we could not read.
             pass
+    if "WORKFLOW_STAGES" in values:
+        fields["workflow_stages"] = list(read_list(values, "WORKFLOW_STAGES"))
     if "REQUIRE_INDEPENDENT_REVIEW" in values:
         fields["require_independent_review"] = read_bool(
             values,
@@ -533,6 +538,8 @@ class VerticalDecision:
     # Initial stage for direct work; never resets an existing stage.
     start_stage: str = ""
     session_title: str = ""
+    workflow_profile: str = ""
+    workflow_requested_stages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -558,6 +565,17 @@ class FastVerticalRoute:
     ambiguities: tuple[str, ...] = ()
     start_stage: str = ""
     session_title: str = ""
+    workflow_profile: str = ""
+    workflow_requested_stages: tuple[str, ...] = ()
+
+
+def _workflow_stages(obj: Mapping[str, Any]) -> tuple[str, ...] | None:
+    values = obj.get("workflow_stages", ())
+    if not isinstance(values, (list, tuple)) or any(
+        not isinstance(value, str) or not value.strip() for value in values
+    ):
+        return None
+    return tuple(value.strip().lower() for value in values)
 
 
 def parse_fast_vertical_decision(
@@ -578,6 +596,9 @@ def parse_fast_vertical_decision(
     """Parse a tool-free route; invalid output fails closed to grounding."""
     obj = _decision_fields(raw_text)
     if not isinstance(obj, dict):
+        return None
+    workflow_stages = _workflow_stages(obj)
+    if workflow_stages is None:
         return None
     choice = str(obj.get("choice") or "").strip().lower()
     raw_confidence = obj.get("confidence")
@@ -654,6 +675,8 @@ def parse_fast_vertical_decision(
     stated, exclusions, ambiguities = _stated_requirements(obj)
     return FastVerticalRoute(
         needs_grounding=False,
+        workflow_profile=str(obj.get("workflow_profile") or "").strip(),
+        workflow_requested_stages=workflow_stages,
         session_title=str(obj.get("session_title") or "").strip(),
         vertical=name,
         domain=domain,
@@ -919,6 +942,9 @@ def parse_vertical_decision(
     obj = _decision_fields(raw_text)
     if not isinstance(obj, dict):
         return None
+    workflow_stages = _workflow_stages(obj)
+    if workflow_stages is None:
+        return None
     parsed_live_view = parse_live_view(obj.get("live_view"))
     raw_execution_task = obj.get("execution_task")
     execution_task = (
@@ -993,6 +1019,8 @@ def parse_vertical_decision(
         if name and name in known:
             return VerticalDecision(
                 choice="existing",
+                workflow_profile=str(obj.get("workflow_profile") or "").strip(),
+                workflow_requested_stages=workflow_stages,
                 session_title=str(obj.get("session_title") or "").strip(),
                 vertical=name,
                 domain=domain,
@@ -1023,6 +1051,8 @@ def parse_vertical_decision(
             )
         return None
     if choice == "new":
+        if obj.get("workflow_profile") or workflow_stages:
+            return None
         workflow_mode = str(obj.get("workflow_mode") or "").strip().lower()
         if not workflow_mode:
             workflow_mode = "staged"

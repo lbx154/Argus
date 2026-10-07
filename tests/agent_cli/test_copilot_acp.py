@@ -313,6 +313,39 @@ def test_acp_happy_path_maps_to_agent_run_result(monkeypatch) -> None:
     assert popen_kwargs["errors"] == "replace"
 
 
+def test_acp_uses_persisted_dedicated_account(tmp_path, monkeypatch) -> None:
+    from argus.core.knob_store import write_persisted_knob
+
+    chosen = tmp_path / "dedicated"
+    assert write_persisted_knob("ARGUS_SKILL_COPILOT_HOME", str(chosen))
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "outer-session"))
+    monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "fake-outer-token")
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "outer-gh"))
+    proc = _FakeAcpProc(_happy_script)
+    captured = {}
+
+    def popen(*_args, **kwargs):
+        captured.update(kwargs["env"])
+        return proc
+
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", popen)
+    client = CopilotAcpClient("copilot-bin")
+    try:
+        result = client.run_prompt(
+            prompt="classify this",
+            resume_thread_id=None,
+            options=_Opt(),
+            run_label="manager-frontdoor-classify",
+        )
+        assert result.exit_code == 0
+        assert client._session_events_root == chosen / "session-state"
+    finally:
+        client.close()
+    assert captured["COPILOT_HOME"] == str(chosen)
+    assert captured["GH_CONFIG_DIR"] == str(chosen / "gh")
+    assert "COPILOT_GITHUB_TOKEN" not in captured
+
+
 def test_content_filter_notice_is_a_permanent_failure_not_agent_output(
     monkeypatch,
 ) -> None:

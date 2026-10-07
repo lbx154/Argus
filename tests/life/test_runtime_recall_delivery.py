@@ -310,3 +310,35 @@ def test_bounded_planner_refreshes_shared_memory_at_its_actual_call_boundary(run
         assert "Current shared memory is unavailable" in prompt
     else:
         assert "LATEST_SHARED_HISTORY" in prompt
+
+
+def test_bounded_planner_uses_the_selected_session_stage_not_workspace_state(runtime, monkeypatch):
+    from argus.apps._runtime_execute import _ExecuteState
+    from argus.skills.vertical_select import persist_vertical
+    from argus.verticals.software import stages
+
+    memory, workdir = runtime
+    stage = stages.STAGE_ORDER[0]
+    persist_vertical(memory.root, "software", start_stage=stage)
+    persist_vertical(workdir, "learning")
+    monkeypatch.setattr(
+        stages, "render_role_prompt_fragment",
+        lambda **context: f"SELECTED_STAGE_RULE={context['stage']}",
+        raising=False,
+    )
+    backend = OfflineBackend()
+    backend.queue("planner-bounded-plan", CannedResponse(
+        message='{"steps":[{"title":"Check the selected stage"}]}',
+    ))
+    runner = RuntimeRunner(memory, workdir, backend, "staged", "fresh")
+    state = _ExecuteState()
+    runner._build_execute_config(state, mission_id="stage-preview", context_packet_path="")
+    state.full_task = "Check the requested work."
+    runner._run_bounded_planning(
+        state, sink=JsonlEventSink(None, life_dir=memory.root),
+        objective=state.full_task, original_objective=state.full_task,
+        preplanned=False, mission_id="stage-preview",
+    )
+    (prompt,) = [prompt for label, prompt, _ in backend.history if label == "planner-bounded-plan"]
+    assert f"SELECTED_STAGE_RULE={stage}" in prompt
+    assert "Check the selected stage" in state.full_task

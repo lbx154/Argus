@@ -122,6 +122,11 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 | Qoder CLI | `qoder` | `npm install -g @qoder-ai/qodercli` | `qodercli login` |
 | DeepSeek Harness | `dsh` | `npm install -g @deepseek-ai/dsh` | 配置 `DEEPSEEK_API_KEY` 或 dsh Models 页面 |
 
+**给 Argus 配置独立 Copilot 账号：**运行
+`argus --setup --backend copilot --copilot-home "$HOME/.copilot-argus" --copilot-login`。
+通过浏览器登录目标账号，setup 成功后重启已有 Argus 进程；之后普通启动即使用该后端账号，
+不改变当前终端或外层 Agent 的登录。详见[账号绑定、优先级与恢复默认](docs/agent-install.md#dedicated-copilot-account)。
+
 <a id="argus-pi-preview"></a>
 <details>
 <summary><strong>试用 Argus-Pi：安装、接入与回退</strong></summary>

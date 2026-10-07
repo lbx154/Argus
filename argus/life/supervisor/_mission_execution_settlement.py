@@ -1296,7 +1296,7 @@ class MissionExecutionSettlementMixin:
                 ),
                 final_submission_certified=final_submission_certified,
                 workspace=delivery_workspace,
-                state_root=self.memory.root,
+                state_root=self._project_state_root(),
                 stage=state.pipeline_stage_at_start,
                 reviewer_artifacts=reviewer_artifacts,
             )

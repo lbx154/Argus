@@ -140,6 +140,27 @@ def _engineer_guidance(
     return [block] if block else []
 
 
+def _external_wait_hold_with_quiet_inbox(
+    hold: Callable[[], bool] | None, life_dir: Path | None,
+) -> Callable[[], bool] | None:
+    """The daemon's answer on holding a mission slot, and only while the
+    operator inbox is empty: a waiting message is read at the next round
+    boundary, so the round must not sit on its slot for an hour first."""
+    if hold is None:
+        return None
+
+    def answer() -> bool:
+        if not hold():
+            return False
+        if life_dir is None:
+            return True
+        from ._inbox import count_pending_inbox_messages
+
+        return count_pending_inbox_messages(life_dir) == 0
+
+    return answer
+
+
 class SkillLoopExecuteMixin:
     """Mission-execution half of ``_SkillLoopRunner``."""
 
@@ -490,6 +511,7 @@ class SkillLoopExecuteMixin:
         prelude_context_provider: Callable[[], str] | None = None,
         planner_context: str = "",
         planner_context_provider: Callable[[], str] | None = None,
+        external_wait_hold: Callable[[], bool] | None = None,
         seed_thread_id: str | None = None,
         scope: str = "",
         preplanned: bool = False,
@@ -532,6 +554,7 @@ class SkillLoopExecuteMixin:
 
             ex_state = _ExecuteState()
             ex_state.prelude_context_provider = prelude_context_provider
+            ex_state.external_wait_hold = external_wait_hold
             # This is an explicitly shared projection. Engineer prelude_context may
             # contain role-exclusive runtime instructions and must never be reused.
             ex_state.planner_context = planner_context
@@ -899,6 +922,9 @@ class SkillLoopExecuteMixin:
             extra_guidance_provider=extra_guidance_provider,
             prelude_context_provider=getattr(ex_state, "prelude_context_provider", None),
         )
+        ex_state.loop.external_wait_hold = _external_wait_hold_with_quiet_inbox(
+            getattr(ex_state, "external_wait_hold", None), inbox_life_dir,
+        )
 
     def _prepare_execute_mission_context(
         self,
@@ -961,10 +987,15 @@ class SkillLoopExecuteMixin:
             )
             from ..manager.plan_mode import draft_plan
             from ..roles.prompts import resolve_role_prompt
-            from ..roles.prompts.planner import preview_request
+            from ..roles.prompts.planner import PLAN_PREVIEW, continuous_request
             from ._runtime_planning_context import bounded_planner_request
 
-            preview_prompt = resolve_role_prompt(preview_request(workdir))
+            preview_prompt = resolve_role_prompt(continuous_request(
+                getattr(config, "vertical_state_root", None) or workdir,
+                operation=PLAN_PREVIEW,
+                include_search_altitude=False,
+                altitude_root=workdir,
+            ))
             if _decided_vertical(config, workdir) == "research":
                 # The research Planner's own cycle plans the campaign minutes
                 # later with the stage playbook, and the idea stage forms its

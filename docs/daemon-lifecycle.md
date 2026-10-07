@@ -31,6 +31,19 @@ of further work; `--resume-continuous` restores an already armed, persisted
 campaign. A background worker does not require a connected human, but still
 honors budgets, explicit pauses and operator decisions.
 
+Registered background work normally finishes before independent Reviewer
+evaluation. Waiting does not approve the result: the Engineer consumes the
+terminal output and the Reviewer still decides whether the task is complete.
+Set `ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES=1` before starting the worker only
+when a separate launch review is needed; it does not replace result review.
+
+Automatic budget-pause recovery checks both the host cost/token limits and,
+when a configured role uses Copilot, its local daily premium/call caps. While
+those caps remain exhausted, the task stays paused without a new attempt or
+provider-call reservation. Raising the cap or starting a new accounting day
+allows the normal resume path to recheck admission. Provider cooldowns and
+explicit operator pauses keep their separate behavior.
+
 ## Linux service supervision
 
 Use a service manager for unattended restart and boot startup. A systemd user

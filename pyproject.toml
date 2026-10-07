@@ -114,6 +114,7 @@ dev = [
 ]
 
 [project.scripts]
+pr-gate = "argus.release_tools.pr_gate.regression.cli:main"
 argus-trial-server = "argus.trial.admin:main"
 argus-compute = "argus.trial.compute_client:main"
 argus = "argus.apps.tui_launcher:main"

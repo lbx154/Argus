@@ -21,9 +21,12 @@ operator home still works. Preparation therefore mirrors only the small set of
 authentication fields from the operator config; Argus-owned session state and
 all unrelated config fields remain isolated.
 
-An operator who sets ``COPILOT_HOME`` themselves is always obeyed — including
-the private per-worktree home the self-maintenance sandbox sets up, which must
-keep pointing at its own copy.
+Without a dedicated account binding, an operator's explicit ``COPILOT_HOME``
+is always obeyed, including self-maintenance's private per-worktree home.
+
+An explicit ``ARGUS_SKILL_COPILOT_HOME`` account binding takes precedence over
+the caller's Copilot environment. Its credentials are owned by Copilot login,
+never seeded, synchronized, or pruned by Argus.
 """
 from __future__ import annotations
 
@@ -41,6 +44,7 @@ from ..core.paths import global_root
 log = logging.getLogger(__name__)
 
 COPILOT_HOME_ENV = "COPILOT_HOME"
+COPILOT_ACCOUNT_HOME_KNOB = "ARGUS_SKILL_COPILOT_HOME"
 _COPILOT_HOME_DIR = "copilot-home"
 
 # Behaviour lives in these; a home without them would silently run with Copilot
@@ -61,6 +65,46 @@ _RETENTION_DAYS_ENV = "ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS"
 _DEFAULT_RETENTION_DAYS = 7.0
 _SWEEP_INTERVAL_SECONDS = 3600.0
 _SWEEP_STAMP = ".argus-last-sweep"
+
+
+def copilot_account_home(env: Mapping[str, str] | None = None) -> Path | None:
+    """Resolve the opt-in account binding without touching credentials."""
+    from ..core.knob_store import persisted_knob
+    from ..core.paths import resolve_runtime_path
+    from ..trial.client import trial_enabled
+
+    source = os.environ if env is None else env
+    if trial_enabled(source):
+        return None
+    # An explicitly empty value lets setup validate removal before persisting it.
+    raw = (
+        source[COPILOT_ACCOUNT_HOME_KNOB]
+        if COPILOT_ACCOUNT_HOME_KNOB in source
+        else persisted_knob(COPILOT_ACCOUNT_HOME_KNOB, env=source)
+    )
+    if not raw.strip():
+        return None
+    return resolve_runtime_path(raw.strip(), context=COPILOT_ACCOUNT_HOME_KNOB).resolve()
+
+
+def apply_copilot_account(env: dict[str, str]) -> dict[str, str]:
+    """Bind Copilot children to the selected account, not ambient credentials."""
+    home = copilot_account_home(env)
+    if home is None:
+        return env
+    try:
+        home.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError as exc:
+        raise RuntimeError(f"Cannot use dedicated Copilot home {home}: {exc}") from exc
+    for key in tuple(env):
+        if key.startswith("COPILOT_PROVIDER_") or key in {
+            "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_OFFLINE",
+        }:
+            env.pop(key, None)
+    env[COPILOT_HOME_ENV] = str(home)
+    # An unlogged-in profile must not silently fall back to the operator's gh.
+    env["GH_CONFIG_DIR"] = str(home / "gh")
+    return env
 
 
 def argus_copilot_home(env: Mapping[str, str] | None = None) -> Path:
@@ -248,7 +292,9 @@ def copilot_log_dir(env: Mapping[str, str] | None = None) -> Path:
     when it exits without printing anything on stderr."""
     source = env if env is not None else os.environ
     configured = str(source.get(COPILOT_HOME_ENV) or "").strip()
-    home = Path(configured).expanduser() if configured else argus_copilot_home(source)
+    home = copilot_account_home(source)
+    if home is None:
+        home = Path(configured).expanduser() if configured else argus_copilot_home(source)
     return home / "logs"
 
 
@@ -280,6 +326,7 @@ def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:
     environment.
     """
     apply_copilot_provider(env)
+    apply_copilot_account(env)
     if str(env.get(COPILOT_HOME_ENV) or "").strip():
         return env
     home = prepare_copilot_home(env)
@@ -291,6 +338,9 @@ def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:
 __all__ = [
     "prune_copilot_sessions",
     "COPILOT_HOME_ENV",
+    "COPILOT_ACCOUNT_HOME_KNOB",
+    "copilot_account_home",
+    "apply_copilot_account",
     "apply_copilot_home",
     "apply_copilot_provider",
     "copilot_runtime_redactions",

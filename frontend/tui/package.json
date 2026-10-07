@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli.tsx",
-    "build": "python -m argus.release_tools.generate_event_types --check && python -m argus.release_tools.generate_event_fixtures --check && python -m argus.release_tools.generate_resource_status --check && tsc -p tsconfig.json && npm run build:bundle",
+    "build": "node ../scripts/python.mjs -m argus.release_tools.generate_event_types --check && node ../scripts/python.mjs -m argus.release_tools.generate_event_fixtures --check && node ../scripts/python.mjs -m argus.release_tools.generate_resource_status --check && tsc -p tsconfig.json && npm run build:bundle",
     "build:bundle": "node scripts/build-bundle.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/*.test.ts",

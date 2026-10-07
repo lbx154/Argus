@@ -40,6 +40,19 @@ def budget_refusal_reply(reason: str, *, language_hint: str = "") -> str | None:
             "The global daily budget is exhausted; no task was queued. Wait for the next "
             "budget day or explicitly adjust the budget. This is not an Agent CLI login failure."
         )
+    elif "unresolved provider cost" in lowered or "awaiting usage reconciliation" in lowered:
+        explanation = (
+            "暂未执行：此前有 Copilot 调用的费用尚未结算，费用策略"
+            "（ARGUS_SKILL_UNPRICED_COST_POLICY=block）在结算完成前不再发起新的模型调用。"
+            "结算会在 Copilot CLI 记录该调用的用量后自动完成；确认要在未结算时继续，可把该策略改为 allow。"
+            "这不是 Agent CLI 登录故障，doctor 不会报错。"
+            if zh else
+            "Not started: an earlier Copilot call has no settled cost yet, and the cost policy "
+            "(ARGUS_SKILL_UNPRICED_COST_POLICY=block) holds new model calls until it settles. "
+            "Settlement completes on its own once the Copilot CLI records that call's usage; set "
+            "the policy to allow to continue without waiting. This is not an Agent CLI login "
+            "failure, and doctor will not report it."
+        )
     elif "cost control unavailable" in lowered:
         explanation = (
             "暂未执行：无法读取或更新费用记账状态，预算保护阻止了新的模型调用。"

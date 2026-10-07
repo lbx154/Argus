@@ -173,6 +173,17 @@ def test_public_admin_flags_stay_on_python_admin_path(monkeypatch) -> None:
     ]
 
 
+@pytest.mark.parametrize("options", [
+    ["--copilot-home", "/dedicated", "--copilot-login", "--backend", "copilot", "--setup"],
+    ["--copilot-home=", "--backend", "copilot", "--setup", "--non-interactive"],
+])
+def test_account_setup_options_before_action_route_to_python(monkeypatch, options) -> None:
+    seen = []
+    monkeypatch.setattr(tui_launcher, "_run_python_admin", lambda argv: seen.append(argv) or 0)
+    assert tui_launcher.main(options) == 0
+    assert seen == [options]
+
+
 def test_ask_stays_on_python_admin_path(monkeypatch) -> None:
     """`--ask` is a headless admin surface; it must never launch the cockpit."""
     seen = []

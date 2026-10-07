@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from argus.daemon._life_worker_identity import (
     _refresh_file_backed_objective_for_resume,
     _write_manager_handoff_identity,
@@ -231,6 +233,53 @@ def test_resumed_bounded_campaign_reaches_the_mission_runner(
     assert state.runner._args.continuous_objective == (
         "survey the literature and rank twelve directions"
     )
+
+
+@pytest.mark.parametrize("persisted_campaign", [False, True])
+def test_default_worker_keeps_queued_work_bounded_without_adopting_a_campaign(
+    tmp_path, monkeypatch, persisted_campaign,
+):
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    if persisted_campaign:
+        write_continuous_config(
+            tmp_path, enabled=True, objective="unrelated old campaign", open_ended=True,
+        )
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+    state = _RunForeverState()
+    state.cfg = worker.config
+    state.runtime_root = tmp_path
+    state.runner = SimpleNamespace(
+        _args=SimpleNamespace(open_ended=True, continuous_objective="stale"),
+    )
+
+    worker._rf_resolve_continuous_boot_state(state)
+
+    assert state.cfg.continuous_open_ended is True
+    assert state.init_continuous is False
+    assert state.runner._args.open_ended is False
+    assert state.runner._args.continuous_objective == ""
+    assert read_continuous_state(tmp_path).enabled is persisted_campaign
+
+
+def test_resumed_open_campaign_still_reaches_the_mission_runner(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    write_continuous_config(
+        tmp_path, enabled=True, objective="continue exploring", open_ended=True,
+    )
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path, backend="memory", resume_continuous=True,
+    ))
+    state = _RunForeverState()
+    state.cfg = worker.config
+    state.runtime_root = tmp_path
+    state.runner = SimpleNamespace(
+        _args=SimpleNamespace(open_ended=False, continuous_objective=""),
+    )
+
+    worker._rf_resolve_continuous_boot_state(state)
+
+    assert state.runner._args.open_ended is True
+    assert state.runner._args.continuous_objective == "continue exploring"
 
 
 def test_resume_continuous_preserves_operator_authority_hold(

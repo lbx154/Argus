@@ -405,19 +405,19 @@ def ppt_master_status(
         if isinstance(loaded, dict):
             manifest = loaded
     dependencies_recorded = bool(manifest.get("dependencies_installed"))
-    recorded_python = str(manifest.get("python_executable") or "")
+    # The manifest names the interpreter that ran the install, but the
+    # toolkit is used from whichever environment runs Argus now (a moved
+    # checkout, another venv, a packaged build). Readiness is therefore
+    # probed against the current interpreter rather than compared to the
+    # recorded absolute path.
     expected_python = _python_executable()
-    same_python = bool(recorded_python) and (
-        Path(recorded_python).expanduser().resolve()
-        == Path(expected_python).expanduser().resolve()
-    )
     missing = [relative for relative in _REQUIRED_PATHS if not (target / relative).is_file()]
     installed = target.is_dir()
     requirements = root / "requirements.txt"
     missing_dependencies: list[str] = []
     dependency_probe_error: str | None = None
     dependencies_installed = False
-    if dependencies_recorded and same_python and requirements.is_file():
+    if dependencies_recorded and requirements.is_file():
         missing_dependencies, dependency_probe_error = _dependency_presence(
             expected_python,
             requirements,
@@ -441,7 +441,7 @@ def ppt_master_status(
             + ", ".join(missing_dependencies)
         )
     elif not dependencies_installed:
-        detail = "toolkit installed; dependencies not recorded for this Python"
+        detail = "toolkit installed; dependencies not recorded"
     else:
         detail = "ready"
     return PptMasterStatus(

@@ -81,6 +81,12 @@ KNOBS: tuple[Knob, ...] = (
         "backend",
     ),
     Knob("ARGUS_SKILL_RUNNER_BIN", "(agent CLI on PATH)", "absolute path to the agent CLI binary", "backend"),
+    Knob(
+        "ARGUS_SKILL_COPILOT_HOME", "(shared account)",
+        "dedicated Copilot account directory; configure with --setup --backend copilot "
+        "--copilot-home PATH, then restart running Argus processes",
+        "backend",
+    ),
     Knob("ARGUS_SKILL_JACOBIAN_MCP_BIN", "(jacobian-mcp on PATH)", "optional Jacobian MCP sidecar executable used by the math vertical's isolated typed-operation bridge", "backend"),
     Knob("ARGUS_SKILL_PI_SESSION_DIR", "(~/.argus-skill/pi-sessions)", "Argus-owned Pi session storage, separate from interactive Pi history", "backend"),
     Knob("ARGUS_SKILL_PI_PROVIDER", "(unset — Pi resolves the id itself)", "provider prefix for bare model ids on the Pi backend; set it only to disambiguate an id two authenticated Pi catalogs both carry", "backend", cockpit=True),
@@ -172,6 +178,7 @@ KNOBS: tuple[Knob, ...] = (
     ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
     Knob("ARGUS_SKILL_REVIEWER_READ_DIRS", "[]", "JSON array of absolute input directories for scoped Reviewer reads", "mission"),
+    Knob("ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES", "off", "opt in to reviewing background launches before their results return; final independent review remains required", "mission"),
     Knob("ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE", "(unset)", "local Docker image for opt-in read-only Reviewer command checks; empty disables", "mission"),
     Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
     Knob("ARGUS_RESEARCH_SPEC_CHECKS", "on", "research vertical: after each Engineer round the host runs the project's own tests/spec (and tests/parity) suite with zero model tokens and shows the outcome to the Reviewer and next Engineer round as evidence, never as a gate; off disables", "mission"),

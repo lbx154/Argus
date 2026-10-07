@@ -491,7 +491,7 @@ def test_plan_stages_propagates_vertical_load_failure(monkeypatch):
     paper pipeline with no visible error."""
     from argus.verticals import _base
 
-    def _boom(name, project_root=None):
+    def _boom(name, project_root=None, *, scoped=True):
         raise RuntimeError("simulated broken vertical import")
 
     monkeypatch.setattr(_base, "load_vertical", _boom)
@@ -507,7 +507,7 @@ def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
     class _BareModule:
         pass
 
-    monkeypatch.setattr(_base, "load_vertical", lambda name, project_root=None: _BareModule())
+    monkeypatch.setattr(_base, "load_vertical", lambda name, project_root=None, scoped=True: _BareModule())
     with pytest.raises(VerticalContractError, match="declares no stage order"):
         Manager().plan_stages("some-vertical")
 
@@ -592,7 +592,7 @@ def test_vertical_commit_persists_generic_research_target_contract(
     monkeypatch.setattr(
         _base,
         "load_vertical",
-        lambda name, project_root=None: SimpleNamespace(
+        lambda name, project_root=None, scoped=True: SimpleNamespace(
             STAGE_ORDER=("scope", "review"),
             CHECKLIST_STAGE_ORDER=("scope", "review"),
             CHECKLIST_ITEMS={

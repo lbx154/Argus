@@ -7,7 +7,7 @@ view instead of probing module attributes or branching on vertical names.
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
 
@@ -167,6 +167,12 @@ class VerticalLibraryContext:
 
 
 @dataclass(frozen=True)
+class WorkflowProfile:
+    purpose: str
+    stages: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class VerticalContract:
     name: str
     stage_order: tuple[str, ...]
@@ -215,12 +221,86 @@ class VerticalContract:
     # False keeps repairs in the current stage; replacing the operator's
     # objective may still reset the pipeline. Existing providers default to True.
     allow_stage_rollback: bool = True
+    workflow_profiles: dict[str, WorkflowProfile] = field(default_factory=dict)
+    workflow_profile: str = ""
+    workflow_stage_requirements: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    workflow_requested_stages: tuple[str, ...] = ()
+
+    def compose_workflow(self, requested_stages: object) -> VerticalContract:
+        if not self.workflow_stage_requirements:
+            raise VerticalContractError(f"vertical {self.name!r} does not support workflow composition")
+        if (
+            not isinstance(requested_stages, (list, tuple)) or not requested_stages
+            or any(not isinstance(stage, str) or stage not in self.stage_order for stage in requested_stages)
+            or len(set(requested_stages)) != len(requested_stages)
+        ):
+            raise VerticalContractError("workflow requested stages must be a nonempty list of distinct known stages")
+        selected = set(requested_stages)
+        while True:
+            required = {
+                dependency for stage in selected
+                for dependency in self.workflow_stage_requirements[stage]
+            }
+            if required <= selected:
+                break
+            selected.update(required)
+        return self._with_workflow(
+            "custom",
+            tuple(stage for stage in self.stage_order if stage in selected),
+            tuple(stage for stage in self.stage_order if stage in requested_stages),
+        )
+
+    def for_profile(self, name: str, *, requested_stages: object = ()) -> VerticalContract:
+        if name == "custom":
+            return self.compose_workflow(requested_stages)
+        if requested_stages:
+            raise VerticalContractError("requested stages require workflow_profile='custom'")
+        if not isinstance(name, str) or name not in self.workflow_profiles:
+            raise VerticalContractError(f"vertical {self.name!r} has no workflow profile {name!r}")
+        return self._with_workflow(name, self.workflow_profiles[name].stages, ())
+
+    def _with_workflow(
+        self, name: str, stages: tuple[str, ...], requested: tuple[str, ...],
+    ) -> VerticalContract:
+        if self.workflow_profile:
+            raise VerticalContractError("resolve workflow selections from an unscoped provider contract")
+        return replace(
+            self,
+            stage_order=stages,
+            checklist_items={stage: self.checklist_items.get(stage, ()) for stage in stages},
+            checklist_optional_stages=self.checklist_optional_stages.intersection(stages),
+            workflow_profile=name,
+            workflow_mode="staged",
+            workflow_requested_stages=requested,
+        )
+
+    def workflow_summary(self) -> str:
+        if not self.workflow_profile:
+            return ""
+        summary = f"Workflow {self.workflow_profile}: {' -> '.join(self.stage_order)}."
+        if self.workflow_requested_stages:
+            summary += f" Requested: {', '.join(self.workflow_requested_stages)}."
+            additions = [
+                f"{stage} (required by {', '.join(parent for parent in self.stage_order if stage in self.workflow_stage_requirements[parent])})"
+                for stage in self.stage_order if stage not in self.workflow_requested_stages
+            ]
+            summary += f" Added requirements: {'; '.join(additions) or 'none'}."
+        omitted = [stage for stage in self.workflow_profiles["full"].stages if stage not in self.stage_order]
+        summary += f" Outside scope: {', '.join(omitted) or 'none'}."
+        return summary
 
     def banner(self, role: str) -> str:
-        if self.role_guidance is None:
-            return ""
-        value = self.role_guidance(role)
-        return value if isinstance(value, str) else ""
+        value = self.role_guidance(role) if self.role_guidance is not None else ""
+        text = value if isinstance(value, str) else ""
+        if self.workflow_profile:
+            text += (
+                f"\nACTIVE WORKFLOW PROFILE: {self.workflow_profile}. "
+                f"{self.workflow_summary()} "
+                "Complete and review these stages only. Do not generate N/A artifacts "
+                "for omitted stages or claim their results. Existing stage guidance "
+                "applies only where included; changing scope requires a new operator handoff.\n"
+            )
+        return text
 
     def prompt_fragment(
         self,
@@ -299,6 +379,10 @@ class VerticalContract:
         except (TypeError, ValueError):
             parameters = {}
         kwargs: dict[str, object] = {}
+        if "workflow_profile" in parameters:
+            kwargs["workflow_profile"] = self.workflow_profile or "full"
+        if "workflow_stages" in parameters:
+            kwargs["workflow_stages"] = self.stage_order
         if state_root is not None and "state_root" in parameters:
             kwargs["state_root"] = state_root
         if "verification_profile" in parameters:
@@ -516,6 +600,9 @@ class VerticalContract:
 
 def vertical_contract(name: str, provider: Any) -> VerticalContract:
     """Validate one provider and return its immutable framework view."""
+    scoped = getattr(provider, "_argus_contract", None)
+    if isinstance(scoped, VerticalContract):
+        return scoped
     stage_order = tuple(
         str(stage).strip()
         for stage in (getattr(provider, "CHECKLIST_STAGE_ORDER", ()) or ())
@@ -586,6 +673,55 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
                     f"vertical {name!r} checklist {stage!r} repeats item {item_id!r}"
                 )
             seen_ids.add(item_id)
+    profiles: dict[str, WorkflowProfile] = {}
+    raw_profiles = getattr(provider, "WORKFLOW_PROFILES", {})
+    if not isinstance(raw_profiles, dict):
+        raise VerticalContractError(f"vertical {name!r} workflow profiles must be a mapping")
+    for profile_name, spec in raw_profiles.items():
+        if (
+            not isinstance(profile_name, str) or not profile_name
+            or profile_name == "custom"
+            or not isinstance(spec, dict) or not isinstance(spec.get("purpose"), str)
+            or not spec["purpose"].strip()
+            or not isinstance(spec.get("stages"), (list, tuple))
+        ):
+            raise VerticalContractError(f"vertical {name!r} has an invalid workflow profile")
+        stages = tuple(spec["stages"])
+        if (
+            not stages or any(not isinstance(stage, str) for stage in stages)
+            or len(set(stages)) != len(stages)
+            or any(stage not in stage_order for stage in stages)
+            or stages != tuple(stage for stage in stage_order if stage in stages)
+        ):
+            raise VerticalContractError(f"vertical {name!r} profile {profile_name!r} has invalid stages")
+        profiles[profile_name] = WorkflowProfile(spec["purpose"].strip(), stages)
+    if profiles and ("full" not in profiles or profiles["full"].stages != stage_order):
+        raise VerticalContractError(f"vertical {name!r} must retain its full workflow profile")
+    raw_requirements = getattr(provider, "WORKFLOW_STAGE_REQUIREMENTS", {})
+    if not isinstance(raw_requirements, dict):
+        raise VerticalContractError("workflow stage requirements must be a mapping")
+    requirements: dict[str, tuple[str, ...]] = {}
+    if raw_requirements:
+        if not profiles or set(raw_requirements) != set(stage_order):
+            raise VerticalContractError("workflow stage requirements must cover every stage of a profile provider")
+        for stage, dependencies in raw_requirements.items():
+            if (
+                not isinstance(dependencies, (list, tuple))
+                or any(not isinstance(dep, str) or dep not in stage_order for dep in dependencies)
+                or len(set(dependencies)) != len(dependencies)
+            ):
+                raise VerticalContractError(f"invalid workflow requirements for stage {stage!r}")
+            requirements[stage] = tuple(dependencies)
+        for stage in stage_order:
+            pending = list(requirements[stage])
+            seen: set[str] = set()
+            while pending:
+                dependency = pending.pop()
+                if dependency == stage:
+                    raise VerticalContractError(f"cyclic workflow requirements for stage {stage!r}")
+                if dependency not in seen:
+                    seen.add(dependency)
+                    pending.extend(requirements[dependency])
     mode = str(getattr(provider, "WORKFLOW_MODE", "staged") or "staged").strip().lower()
     if mode not in _WORKFLOW_MODES:
         raise VerticalContractError(
@@ -776,6 +912,8 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         checklist_optional_stages=optional_stages,
         stage_aliases=aliases,
         allow_stage_rollback=allow_stage_rollback,
+        workflow_profiles=profiles,
+        workflow_stage_requirements=requirements,
         search_altitude=(
             getattr(provider, "search_altitude_context")
             if callable(getattr(provider, "search_altitude_context", None))

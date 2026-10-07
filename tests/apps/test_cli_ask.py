@@ -73,7 +73,71 @@ def test_ask_prints_quick_reply_reply_and_queues_nothing(
     prompt = str(captured["prompt"])
     assert prompt.startswith(build_quick_reply_prompt(objective="what is 2+2?"))
     assert prompt.rfind("## OperatorContext") > prompt.index("what is 2+2?")
+    # A workdir with no recorded work has nothing to observe.
+    assert "Current project evidence" not in prompt
     assert captured["options_skip_git_repo_check"] is True
+    assert _queued_rows(tmp_path / "life") == []
+
+
+def test_ask_grounds_the_reply_in_the_projects_recorded_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Asked inside a project that already did work, the Manager sees that work.
+
+    The web ``/ask`` appends the project observation; the CLI answered from the
+    question alone, so "where is this project at?" in a finished project was
+    answered as if no project existed.
+    """
+    import json
+    import time
+
+    from argus.core import run_gateway
+    from argus.core.models import RunnerResult
+    from argus.manager import config_intent, front_door
+
+    captured: dict[str, object] = {}
+    summary = "Measured all four GPUs; README.md carries the 48 medians."
+
+    class _FakeRunner:
+        pass
+
+    def fake_ensure(chat_state, mem):
+        root = Path(mem.project.root)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "backlog.jsonl").touch()
+        (root / "events.jsonl").write_text(
+            json.dumps({
+                "type": "life.mission.completed",
+                "ts": time.time(),
+                "item_id": "m1",
+                "status": "done",
+                "summary": summary,
+            }) + "\n",
+            encoding="utf-8",
+        )
+        return _FakeRunner()
+
+    def fake_run_exec(backend, *, prompt, run_label, options):
+        captured["prompt"] = prompt
+        return RunnerResult(exit_code=0, agent_messages=["Done: the benchmark is complete."])
+
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", fake_ensure)
+    monkeypatch.setattr(config_intent, "_ensure_manager_runner", fake_ensure)
+    monkeypatch.setattr(run_gateway, "run_exec", fake_run_exec)
+
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    rc = main(["--ask", "how far along is this project?", "--life-dir", str(tmp_path / "life")])
+
+    assert rc == 0
+    assert "Done: the benchmark is complete." in capsys.readouterr().out
+    prompt = str(captured["prompt"])
+    assert "Current project evidence" in prompt
+    assert summary in prompt
+    assert prompt.index("how far along is this project?") < prompt.index("Current project evidence")
     assert _queued_rows(tmp_path / "life") == []
 
 

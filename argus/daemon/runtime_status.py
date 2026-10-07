@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import threading
 import time
 from collections import Counter
@@ -124,7 +125,87 @@ def observe_runtime_status(project_root: Path | str, mode: str) -> dict[str, Any
             }
         except Exception:  # noqa: BLE001 - missing or denied host facts are unknown
             result["host"] = {"error": "host status unavailable"}
+        result["gpus"] = _gpu_facts()
     return result
+
+
+# A GPU counts as idle below these thresholds, the same ones the GPU lease
+# uses before it hands cards to a job.
+_GPU_IDLE_UTIL_PCT = 5
+_GPU_IDLE_MEM_MIB = 2048
+
+
+def _gpu_facts() -> dict[str, Any]:
+    """Per-GPU name, memory and utilization from nvidia-smi.
+
+    Operators on a GPU host ask "how many cards are free" as naturally as they
+    ask about CPU load; the answer has to come from the driver, not from a
+    guess. ``available`` is False when nvidia-smi is missing or fails, which
+    the reply states rather than implying there are no GPUs.
+    """
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,name,memory.used,memory.total,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"available": False, "devices": []}
+    devices: list[dict[str, Any]] = []
+    for line in completed.stdout.strip().splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) != 5:
+            continue
+        try:
+            used, total, util = int(parts[2]), int(parts[3]), int(parts[4])
+            index = int(parts[0])
+        except ValueError:
+            continue
+        devices.append({
+            "index": index,
+            "name": parts[1][:80],
+            "mem_used_mib": used,
+            "mem_total_mib": total,
+            "util_pct": util,
+            "idle": util <= _GPU_IDLE_UTIL_PCT and used <= _GPU_IDLE_MEM_MIB,
+        })
+    return {"available": True, "devices": devices}
+
+
+def _render_gpus(gpus: dict[str, Any] | None, *, chinese: bool) -> str:
+    if not gpus or not gpus.get("available"):
+        return (
+            "GPU：nvidia-smi 不可用，无法读取 GPU 状态。"
+            if chinese else
+            "GPU: nvidia-smi is unavailable, so GPU status could not be read."
+        )
+    devices = list(gpus.get("devices") or [])
+    if not devices:
+        return "GPU：nvidia-smi 未报告任何 GPU。" if chinese else "GPU: nvidia-smi reports no GPUs."
+    idle = [d for d in devices if d.get("idle")]
+    names = sorted({str(d.get("name") or "") for d in devices if d.get("name")})
+    model = "、".join(names) if chinese else ", ".join(names)
+    per_card = ("；" if chinese else "; ").join(
+        f"#{d['index']} {d['mem_used_mib']}/{d['mem_total_mib']} MiB {d['util_pct']}%"
+        for d in devices
+    )
+    if chinese:
+        return (
+            f"GPU：{len(devices)} 块（{model}），其中 {len(idle)} 块空闲"
+            f"（利用率 ≤{_GPU_IDLE_UTIL_PCT}% 且显存占用 ≤{_GPU_IDLE_MEM_MIB} MiB）。"
+            f"各卡显存占用/总量与利用率：{per_card}。"
+        )
+    return (
+        f"GPU: {len(devices)} ({model}), {len(idle)} idle"
+        f" (utilization ≤{_GPU_IDLE_UTIL_PCT}% and memory used ≤{_GPU_IDLE_MEM_MIB} MiB)."
+        f" Memory used/total and utilization per card: {per_card}."
+    )
 
 
 def render_runtime_status(facts: dict[str, Any], *, chinese: bool) -> str:
@@ -178,5 +259,6 @@ def render_runtime_status(facts: dict[str, Any], *, chinese: bool) -> str:
         else:
             programs = "、".join(f"{title(name)} × {count}" for name, count in host["process_names"].items())
             lines.append(f"主机即时 CPU 使用率 {host['cpu_percent']:.1f}%，内存使用率 {host['memory_percent']:.1f}%。服务账号可见 {host['account_process_count']} 个进程，包括 {programs}。" if chinese else f"Host CPU: {host['cpu_percent']:.1f}%; memory: {host['memory_percent']:.1f}%. Service-account processes: {host['account_process_count']} ({programs}).")
+            lines.append(_render_gpus(facts.get("gpus"), chinese=chinese))
             lines.append("这些进程不等于 Argus 子代理；其他程序的具体任务未核实，未读取其他账号的进程详情。" if chinese else "These processes are not all Argus agents. Other programs' tasks were not verified; other accounts' process details were not read.")
     return redact_secrets_text("\n\n".join(lines), known_values=known_secret_values())

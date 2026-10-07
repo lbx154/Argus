@@ -26,9 +26,13 @@ from types import SimpleNamespace
 import pytest
 
 from argus.agent_cli.copilot_home import (
+    COPILOT_ACCOUNT_HOME_KNOB,
     COPILOT_HOME_ENV,
+    apply_copilot_account,
     apply_copilot_home,
     argus_copilot_home,
+    copilot_account_home,
+    copilot_log_dir,
     prepare_copilot_home,
     prune_copilot_sessions,
 )
@@ -175,6 +179,82 @@ def test_an_unusable_location_leaves_the_default_alone(
     assert apply_copilot_home(env).get(COPILOT_HOME_ENV) is None
 
 
+def test_persisted_account_overrides_ambient_credentials_without_copying(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus.core.knob_store import write_persisted_knob
+
+    chosen = tmp_path / "dedicated"
+    chosen.mkdir()
+    credentials = '{"authTokens":{"account-two":{"token":"fake-account-two"}}}'
+    (chosen / "config.json").write_text(credentials)
+    assert write_persisted_knob(COPILOT_ACCOUNT_HOME_KNOB, str(chosen))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    personal = tmp_path / ".copilot"
+    personal.mkdir()
+    (personal / "config.json").write_text('{"authTokens":{"original":"fake-original"}}')
+    env = dict(os.environ)
+    env.update({
+        "COPILOT_HOME": str(personal),
+        "COPILOT_GITHUB_TOKEN": "fake-ambient",
+        "GH_TOKEN": "fake-gh",
+        "GITHUB_TOKEN": "fake-github",
+        "GH_CONFIG_DIR": str(tmp_path / "personal-gh"),
+        "COPILOT_PROVIDER_BASE_URL": "https://provider.example",
+        "COPILOT_PROVIDER_API_KEY": "fake-provider",
+        "COPILOT_OFFLINE": "true",
+    })
+    original = dict(env)
+
+    result = apply_copilot_home(env)
+
+    assert result["COPILOT_HOME"] == str(chosen)
+    assert result["GH_CONFIG_DIR"] == str(chosen / "gh")
+    assert all(key not in result for key in (
+        "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
+        "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_API_KEY", "COPILOT_OFFLINE",
+    ))
+    assert (chosen / "config.json").read_text() == credentials
+    assert sorted(path.name for path in chosen.iterdir()) == ["config.json"]
+    assert (personal / "config.json").read_text() == '{"authTokens":{"original":"fake-original"}}'
+    assert original["COPILOT_GITHUB_TOKEN"] == "fake-ambient"
+    assert copilot_log_dir(original) == chosen / "logs"
+
+
+def test_account_env_overrides_persisted_binding_and_empty_disables_it(
+    tmp_path: Path,
+) -> None:
+    from argus.core.knob_store import write_persisted_knob
+
+    assert write_persisted_knob(COPILOT_ACCOUNT_HOME_KNOB, str(tmp_path / "saved"))
+    assert copilot_account_home({COPILOT_ACCOUNT_HOME_KNOB: str(tmp_path / "other")}) == tmp_path / "other"
+    assert copilot_account_home({COPILOT_ACCOUNT_HOME_KNOB: ""}) is None
+
+
+def test_unavailable_dedicated_home_fails_instead_of_using_another_account(
+    tmp_path: Path,
+) -> None:
+    blocked = tmp_path / "not-a-directory"
+    blocked.write_text("occupied")
+    env = _argus_env(tmp_path, **{COPILOT_ACCOUNT_HOME_KNOB: str(blocked)})
+
+    with pytest.raises(RuntimeError, match="Cannot use dedicated Copilot home"):
+        apply_copilot_home(env)
+
+    assert not argus_copilot_home(env).exists()
+
+
+def test_account_binding_does_not_override_an_explicit_trial(tmp_path: Path) -> None:
+    env = {
+        COPILOT_ACCOUNT_HOME_KNOB: str(tmp_path / "dedicated"),
+        "ARGUS_SKILL_COPILOT_TRIAL": "1",
+        "COPILOT_HOME": str(tmp_path / "trial"),
+        "COPILOT_PROVIDER_API_KEY": "fake-trial-key",
+    }
+    assert copilot_account_home(env) is None
+    assert apply_copilot_account(dict(env)) == env
+
+
 # --- wiring: the runner must actually use it -------------------------------
 
 
@@ -194,6 +274,7 @@ def _child_env_for(backend: str, **option_kwargs):
         dangerous_yolo=option_kwargs.get("dangerous_yolo", False),
         full_auto=option_kwargs.get("full_auto", False),
         disable_tools=option_kwargs.get("disable_tools", False),
+        working_dir=option_kwargs.get("working_dir"),
     )
     return mixin._child_env(holder, options)
 
@@ -265,8 +346,31 @@ def test_other_backends_keep_inheriting_untouched(
     # rebuilding the environment for the others would be an unrelated risk.
     for key, value in _argus_env(tmp_path).items():
         monkeypatch.setenv(key, value)
+    monkeypatch.setenv(COPILOT_ACCOUNT_HOME_KNOB, str(tmp_path / "dedicated"))
 
     assert _child_env_for(backend) is None
+
+
+@pytest.mark.parametrize("options", [{}, {"sandbox_mode": "read-only"}, {"isolate_workdir": True}])
+def test_dedicated_account_reaches_every_one_shot_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict,
+) -> None:
+    chosen = tmp_path / "dedicated"
+    monkeypatch.setenv(COPILOT_ACCOUNT_HOME_KNOB, str(chosen))
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "outer-session"))
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-outer-token")
+
+    env = _child_env_for("copilot", working_dir=tmp_path, **options)
+
+    if options.get("isolate_workdir"):
+        from argus.core.sandbox import isolated_copilot_home
+
+        assert env["COPILOT_HOME"] == str(isolated_copilot_home(tmp_path))
+    else:
+        assert env["COPILOT_HOME"] == str(chosen)
+    assert "GITHUB_TOKEN" not in env
+    assert os.environ["GITHUB_TOKEN"] == "fake-outer-token"
+    assert os.environ["COPILOT_HOME"] == str(tmp_path / "outer-session")
 
 
 def test_the_operators_personal_home_is_never_written_to(

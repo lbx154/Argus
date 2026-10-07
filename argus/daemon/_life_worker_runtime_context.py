@@ -73,13 +73,10 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.color = None
     ns.verbose = False
     ns.quiet = True
-    # Propagate campaign lifetime metadata so execute() can pass open_ended and
-    # continuous_objective to _decide_stage_transition via SkillLoopConfig.
-    # Without this the Manager stage hook defaults to open_ended=False, which
-    # causes final_stage_completion_decision to overwrite the Manager's own
-    # structured rollback verdict with a bounded completion.
-    ns.open_ended = cfg.continuous_open_ended
-    ns.continuous_objective = cfg.continuous_objective
+    # A resident daemon is not itself an open-ended task. Boot reconciliation
+    # and live reload replace these with the adopted campaign's lifetime.
+    ns.open_ended = cfg.continuous and cfg.continuous_open_ended
+    ns.continuous_objective = cfg.continuous_objective if cfg.continuous else ""
     return ns
 
 
@@ -232,7 +229,7 @@ def _build_supervisor_config(
         open_ended=cfg.continuous_open_ended,
         paper_mission=paper_mission,
         final_certification_gate=(
-            final_certification and cfg.continuous_open_ended
+            final_certification and init_continuous and cfg.continuous_open_ended
         ),
         continuous_config_provider=continuous_provider,
         manager_pipeline_yield_provider=(lambda: manager_pipeline_yield_requested(runtime_root)),

@@ -19,6 +19,7 @@ export interface StoreFilter {
   query: string;
   kind: KindFilter;
   tag: string | null;
+  routingPath?: string;
 }
 
 export const EMPTY_FILTER: StoreFilter = { query: '', kind: 'all', tag: null };
@@ -41,7 +42,7 @@ export function matchesKind(kind: VerticalKind, filter: KindFilter): boolean {
 export function matchesQuery(row: VerticalRow, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const haystack = [row.name, row.purpose, row.purpose_zh ?? '', ...row.tags, ...row.requires]
+  const haystack = [row.name, row.purpose, row.purpose_zh ?? '', ...(row.routing_path ?? []), ...row.tags, ...row.requires]
     .join('\n')
     .toLowerCase();
   return haystack.includes(needle);
@@ -51,7 +52,18 @@ export function filterRows(rows: VerticalRow[], filter: StoreFilter): VerticalRo
   return rows.filter((row) =>
     matchesKind(row.kind, filter.kind)
     && (!filter.tag || row.tags.includes(filter.tag))
+    && (!filter.routingPath || (row.routing_path ?? []).join('/') === filter.routingPath
+      || (row.routing_path ?? []).join('/').startsWith(`${filter.routingPath}/`))
     && matchesQuery(row, filter.query));
+}
+
+export function deriveRoutingPaths(rows: VerticalRow[]): string[] {
+  const paths = new Set<string>();
+  for (const row of rows) {
+    const path = row.routing_path ?? [];
+    for (let depth = 1; depth <= path.length; depth++) paths.add(path.slice(0, depth).join('/'));
+  }
+  return [...paths].sort();
 }
 
 /** Every tag any row carries, once, in a stable alphabetical order. */

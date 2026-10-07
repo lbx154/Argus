@@ -320,8 +320,9 @@ class CopilotAcpClient:
             for path in self._add_dirs:
                 cmd += ["--add-dir", path]
         from ..trial.client import apply_trial_provider
+        from .copilot_home import apply_copilot_account
 
-        child_env = apply_trial_provider(dict(os.environ))
+        child_env = apply_copilot_account(apply_trial_provider(dict(os.environ)))
         child_env = runner_child_environment(self._agent_bin, env=child_env) or child_env
         self._session_events_root = Path(
             child_env.get("COPILOT_HOME") or Path.home() / ".copilot"

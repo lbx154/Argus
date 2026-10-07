@@ -448,8 +448,7 @@ decision, then return here. Do not read all the sources in advance.
 | A fresh Reviewer must verify execution fidelity | `reviewer/claim-to-code-trace.md` | Trace claim-critical calls and formulas |
 | Training or large inference infrastructure is required | `engineer/infrastructure-landscape-survey.md` | Choose the framework from a current, verified survey; `engineer/training-infrastructure-guide.md` covers standing it up |
 | A project environment needs setup or repair | `project-venv-package-management.md` in the global library | Reuse the configured environment and install only required dependencies |
-| A concrete dependency or resource may block execution | `engineer/environment-readiness.md` | Check only the resources this implementation uses |
-| An experiment changes a requested time estimate or misses a milestone | `engineer/research-timeline.md` | Recompute the forecast and explain the deviation with evidence |
+| A concrete dependency or resource may block execution | `engineer/environment-readiness.md` in the global library | Check only the resources this implementation uses |
 | The method is below its baseline | `engineer/research-grind.md` | Work the diagnosis ladder against the fixed claim over many rounds |
 | The run may be misconfigured | `engineer/suspect-the-setup.md` | Separate setup failure from method evidence |
 | A mechanism needs one decisive ablation | `engineer/ablation-planner.md` | Choose only claim-changing ablations |

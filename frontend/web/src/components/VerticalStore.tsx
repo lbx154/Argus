@@ -7,7 +7,7 @@ import { api, VERTICAL_STORE_CAPABILITY } from '../api';
 import type { VerticalAction, VerticalRow, VerticalsPayload } from '../../../core/src/types';
 import { useI18n } from '../i18n';
 import {
-  EMPTY_FILTER, KIND_FILTERS, VERTICAL_ACTIONS, actionLabelKey, anyRunning, deriveTags, failureDetail, filterLabelKey,
+  EMPTY_FILTER, KIND_FILTERS, VERTICAL_ACTIONS, actionLabelKey, anyRunning, deriveRoutingPaths, deriveTags, failureDetail, filterLabelKey,
   filterRows, formatSize, hasStoreCapability, hostedTrialBuild, isRunning, isStoreConflict, isStoreMissing, kindLabelKey,
   knownNames, operationLabelKey, pollInterval, progressPercent, purposeText, visibleActions, type StoreFilter,
 } from '../lib/verticalStore';
@@ -84,6 +84,7 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
           {row.update_available && <span className={badge('warn')} data-testid="vertical-update">{t('verticals.updateAvailable')}</span>}
         </div>
         <p className="mt-1 text-sm leading-relaxed text-ink-faint">{purposeText(row, locale)}</p>
+        {row.routing_path?.length ? <p className="mt-1 text-xs text-ink-faint">{row.routing_path.join(' / ')}</p> : null}
       </div>
     </div>
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-faint">
@@ -110,6 +111,12 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
     {row.missing_python.length > 0 && <p role="status" className="mt-3 flex items-start gap-2 rounded-lg bg-warn/10 p-2.5 text-xs leading-relaxed text-warn" data-testid="vertical-missing-python">
       <TriangleAlert size={14} className="mt-0.5 shrink-0" />
       <span>{t('verticals.missingPython', { packages: row.missing_python.join(', ') })}</span>
+    </p>}
+    {!!row.runtime_issues?.length && <p role="status" className="mt-3 rounded-lg bg-warn/10 p-2.5 text-xs text-warn" data-testid="vertical-runtime-issues">
+      {t('verticals.runtimeIssues', { issues: row.runtime_issues.join('; ') })}
+    </p>}
+    {!!row.install_issues?.length && <p role="status" className="mt-3 rounded-lg bg-warn/10 p-2.5 text-xs text-warn" data-testid="vertical-install-issues">
+      {t('verticals.installIssues', { issues: row.install_issues.join('; ') })}
     </p>}
     {row.used_by.length > 0 && <div className="mt-3 text-xs text-ink-faint">
       <button type="button" aria-expanded={showProjects} onClick={() => setShowProjects((value) => !value)} className="inline-flex items-center gap-1 transition-colors hover:text-ink" data-testid="vertical-used-by">
@@ -178,9 +185,10 @@ export function VerticalStoreView({ payload, filter, onFilter, hosted, supported
   const { t, locale } = useI18n();
   const rows = payload?.verticals ?? [];
   const tags = useMemo(() => deriveTags(rows), [rows]);
+  const routingPaths = useMemo(() => deriveRoutingPaths(rows), [rows]);
   const known = useMemo(() => knownNames(rows), [rows]);
   const shown = useMemo(() => filterRows(rows, filter), [rows, filter]);
-  const filtered = filter.query.trim() !== '' || filter.kind !== 'all' || filter.tag !== null;
+  const filtered = filter.query.trim() !== '' || filter.kind !== 'all' || filter.tag !== null || Boolean(filter.routingPath);
   const catalog = payload?.catalog;
   return <>
     <p className="mt-2 text-sm text-ink-faint">{hosted ? t('verticals.hostedNote') : t('verticals.intro')}</p>
@@ -208,7 +216,15 @@ export function VerticalStoreView({ payload, filter, onFilter, hosted, supported
             className={`h-8 rounded-md px-2.5 text-xs font-medium transition-colors ${filter.kind === kind ? 'bg-blue/10 text-blue' : 'text-ink-faint hover:bg-bg hover:text-ink'}`}>{t(filterLabelKey(kind))}</button>)}
         </div>
       </div>
-      {tags.length > 0 && <div role="group" aria-label={t('verticals.tagFilter')} className="mt-3 flex flex-wrap items-center gap-1.5">
+      {routingPaths.length > 0 && <label className="mt-3 flex items-center gap-2 text-xs text-ink-faint">
+        {t('verticals.routingPath')}
+        <select className="rounded-md border border-line bg-bg p-1.5" value={filter.routingPath ?? ''}
+          onChange={(event) => onFilter({ ...filter, routingPath: event.target.value })}>
+          <option value="">{t('verticals.filter.all')}</option>
+          {routingPaths.map((path) => <option key={path} value={path}>{path.replaceAll('/', ' / ')}</option>)}
+        </select>
+      </label>}
+      {(tags.length > 0 || filtered) && <div role="group" aria-label={t('verticals.tagFilter')} className="mt-3 flex flex-wrap items-center gap-1.5">
         {tags.map((tag) => <button key={tag} type="button" aria-pressed={filter.tag === tag} className={chip(filter.tag === tag)}
           onClick={() => onFilter({ ...filter, tag: filter.tag === tag ? null : tag })}>#{tag}</button>)}
         {filtered && <button type="button" className="ml-1 text-xs text-ink-faint hover:text-ink" onClick={() => onFilter(EMPTY_FILTER)}>{t('verticals.clearFilters')}</button>}

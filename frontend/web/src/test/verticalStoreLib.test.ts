@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../../core/src/http';
 import type { VerticalRow } from '../../../core/src/types';
 import {
-  EMPTY_FILTER, deriveTags, failureDetail, filterRows, formatSize, hasStoreCapability, hostedTrialBuild, isStoreConflict,
+  EMPTY_FILTER, deriveRoutingPaths, deriveTags, failureDetail, filterRows, formatSize, hasStoreCapability, hostedTrialBuild, isStoreConflict,
   isStoreMissing, matchesKind, pollInterval, progressPercent, purposeText, visibleActions,
 } from '../lib/verticalStore';
 
@@ -48,6 +48,21 @@ describe('kind filter', () => {
 });
 
 describe('tags', () => {
+  it('browses category, domain and specialty without substring collisions or hiding legacy rows by default', () => {
+    const classified = [
+      row({ name: 'chip', routing_path: ['hardware', 'chip'] }),
+      row({ name: 'chip_sta', routing_path: ['hardware', 'chip', 'sta'] }),
+      row({ name: 'chiplet', routing_path: ['hardware', 'chiplet'] }),
+      row({ name: 'legacy' }),
+    ];
+    expect(deriveRoutingPaths(classified)).toEqual(['hardware', 'hardware/chip', 'hardware/chip/sta', 'hardware/chiplet']);
+    expect(filterRows(classified, EMPTY_FILTER)).toHaveLength(4);
+    expect(filterRows(classified, { ...EMPTY_FILTER, routingPath: 'hardware' })).toHaveLength(3);
+    expect(filterRows(classified, { ...EMPTY_FILTER, routingPath: 'hardware/chip' }).map((r) => r.name)).toEqual(['chip', 'chip_sta']);
+    expect(filterRows(classified, { ...EMPTY_FILTER, routingPath: 'hardware/chip/sta' }).map((r) => r.name)).toEqual(['chip_sta']);
+    expect(filterRows(classified, { ...EMPTY_FILTER, query: 'hardware' })).toHaveLength(3);
+  });
+
   it('lists each tag once, sorted, ignoring blanks', () => {
     expect(deriveTags(rows)).toEqual(['default', 'engineering', 'gpu', 'science']);
     expect(deriveTags([row({ name: 'x', tags: [' ', 'b', 'a', 'b'] })])).toEqual(['a', 'b']);

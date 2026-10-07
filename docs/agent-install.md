@@ -55,6 +55,66 @@ otherwise keeps its native default. Never assign an OpenAI model id to Claude
 Code, Pi, OpenCode, Grok, Qoder, or dsh merely because it is Argus's historical
 default.
 
+## Dedicated Copilot account
+
+To charge Argus's Copilot work to a different account from the terminal or Agent
+that launches it, select a separate Copilot directory. Install Copilot CLI first,
+then run this in an interactive terminal (PowerShell also accepts this path):
+
+```sh
+argus --setup --backend copilot --copilot-home "$HOME/.copilot-argus" --copilot-login
+```
+
+`--copilot-login` invokes the official `copilot login` with isolated child
+environment variables. Choose the intended account in the browser. Copilot
+owns credentials and keychain/plaintext-storage consent; Argus never asks for
+or saves your token. Do not copy another account's configuration into this
+directory. On a headless host, answer any official storage-consent prompt in
+the terminal.
+
+For a directory that is already authenticated, omit login:
+
+```sh
+argus --setup --backend copilot --copilot-home "$HOME/.copilot-argus" --non-interactive
+```
+
+Setup checks authentication and completes a real, potentially billable model
+turn before atomically saving the backend profile and the absolute directory
+as `ARGUS_SKILL_COPILOT_HOME` in Argus's `config.json`. On failure the previous
+binding remains; a successful official login is not undone if a later check
+fails. `--copilot-login` cannot be combined with `--non-interactive`.
+
+Restart existing Argus TUI, Web/API and daemon processes after changing the
+binding, so warm Copilot processes do not retain the previous account. Subsequent
+ordinary `argus` launches using the same `ARGUS_SKILL_HOME` use this account for
+both ACP and one-shot Copilot workers. Other Agent backends are unaffected.
+
+The environment setting `ARGUS_SKILL_COPILOT_HOME` overrides the persisted
+directory. A dedicated binding overrides inherited `COPILOT_HOME`, removes
+`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `COPILOT_OFFLINE` and
+`COPILOT_PROVIDER_*` from Copilot children, and redirects their `GH_CONFIG_DIR`
+to `<dedicated-home>/gh`. The invoking shell and its login are unchanged. Argus
+does not mirror personal authentication or run session cleanup in this directory.
+Worktree-isolated maintenance workers reference the selected account's credential
+files read-only; their writable Copilot state and usage database stay in that
+worktree's private runtime, not the shared account directory.
+If it is unavailable or unauthenticated, do not fall back to another account:
+fix the directory/login and rerun setup.
+
+Hosted trial mode deliberately uses its own provider instead; trial and dedicated
+account setup options cannot be combined. Remove any environment override before
+restoring the legacy shared-account behavior:
+
+```sh
+argus --setup --backend copilot --copilot-home= --non-interactive
+```
+
+An explicitly empty `ARGUS_SKILL_COPILOT_HOME` also disables the saved binding for
+that process. Clearing the binding does not log out or delete the dedicated
+directory. Without this opt-in, existing account-selection behavior is unchanged.
+Account separation is not an OS sandbox. An outer Copilot conversation still has
+its own usage; GitHub's usage page is authoritative for charges.
+
 ## Windows 10/11
 
 ### Inspect

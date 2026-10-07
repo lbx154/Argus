@@ -25,6 +25,7 @@ import { ApiError, ensureResponseOk } from '../../core/src/http';
 import { readerPreview, type ReaderPreview } from './map/copyMode';
 import { observePageRelease, requireCurrentPage } from './lib/pageUpdate';
 import {
+  RELEASE_ARTIFACT_DRIFT_WARNING,
   requireCompatibleApiMeta,
   requireSnapshotContract,
   type ApiMeta,
@@ -780,10 +781,13 @@ export function compatibleApiMeta(): Promise<ApiMeta> {
           await ensureResponseOk(response, 'GET', path);
           const payload = await response.json();
           observePageRelease(payload?.runtime?.release_id);
-          return requireCompatibleApiMeta(
-            payload,
-            (warning) => console.warn(`Argus API compatibility warning: ${warning}`),
-          );
+          return requireCompatibleApiMeta(payload, (warning) => {
+            // Release drift is a publisher's note: the served bundle already
+            // matches this API (the validator would have thrown otherwise),
+            // so a reader's console has nothing to act on.
+            if (warning === RELEASE_ARTIFACT_DRIFT_WARNING) return;
+            console.warn(`Argus API compatibility warning: ${warning}`);
+          });
         },
       );
       if (meta.authentication?.required && !meta.authentication.authenticated) {

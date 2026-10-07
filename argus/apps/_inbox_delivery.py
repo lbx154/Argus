@@ -26,6 +26,15 @@ def _identity(claim: Any) -> str:
     return json.dumps(claim.identity, sort_keys=True, separators=(",", ":"))
 
 
+# Inbox sources the host writes itself. Their messages carry no operator
+# authority: the running round reads them once, and nothing is frozen.
+HOST_REPORT_SOURCES = frozenset({"subagent"})
+
+
+def _host_report(claim: Any) -> bool:
+    return str(getattr(claim, "source", "") or "").strip().lower() in HOST_REPORT_SOURCES
+
+
 class OperatorInboxText(str):
     """String compatibility for display, with a physical delivery identity."""
 
@@ -210,9 +219,18 @@ class DurableInboxReceiver:
         if claim.decision is None:
             # Fail before any classification call when required policy is unreadable.
             _ = OperatorContextStore(self.root).revision
-            if callable(manager) and not hasattr(manager, "classify_front_door"):
-                manager = manager()
-            decision = classify_operator_message(self.root, claim.text, manager=manager)
+            if _host_report(claim):
+                # A subagent's completion report is Argus telling itself that
+                # its own job finished. Sending it through the Manager's front
+                # door cost a model call per report and, on 2026-09-30, froze
+                # one such report as an operator objective amendment.
+                from ..core.operator_context import IntakeDecision
+
+                decision = IntakeDecision(kind="ephemeral")
+            else:
+                if callable(manager) and not hasattr(manager, "classify_front_door"):
+                    manager = manager()
+                decision = classify_operator_message(self.root, claim.text, manager=manager)
             plan = freeze_operator_intake(
                 self.root, claim.text, decision, source="operator.inbox", mission_id=claim.mission_id,
             )

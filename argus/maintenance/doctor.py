@@ -32,7 +32,7 @@ class DoctorContext:
     install_mode: str = "source"
     backend: str | None = None
     auth_mode: str | None = None
-    allow_prerelease: bool = False
+    allow_prerelease: bool | None = None
 
     def fingerprint_payload(self) -> dict[str, str | int]:
         return {
@@ -197,7 +197,76 @@ def _checkout_finding(context: DoctorContext) -> list[DoctorFinding]:
         severity="error", recommendation="install Git and add it to PATH",
         evidence={"executable": git_bin, "branch": branch, "dirty": dirty},
     ))
+    if git_ok and not missing:
+        freshness = _frontend_assets_freshness(root, git_bin)
+        if freshness is not None:
+            findings.append(freshness)
     return findings
+
+
+# Each production bundle and the source commits it must be rebuilt after.
+_FRONTEND_BUNDLES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("Web", "frontend/web/dist", ("frontend/web/src", "frontend/core/src")),
+    ("TUI", "frontend/tui/bundle", ("frontend/tui/src", "frontend/core/src")),
+)
+
+
+def _last_commit_time(git_bin: str, root: Path, path: str) -> int | None:
+    """Committer time of the newest commit touching ``path``; None if unknown."""
+    try:
+        completed = subprocess.run(
+            [git_bin, "-C", str(root), "log", "-1", "--format=%ct", "--", path],
+            check=False, capture_output=True, text=True, encoding="utf-8", timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = completed.stdout.strip().splitlines()
+    try:
+        return int(value[0]) if value else None
+    except ValueError:
+        return None
+
+
+def _frontend_assets_freshness(root: Path, git_bin: str) -> DoctorFinding | None:
+    """Warn when a committed bundle predates the newest commit to its source.
+
+    The bundles are checked in, so a feature merged without rerunning
+    ``build_release`` leaves ``argus --web`` serving the previous interface
+    while every other check stays green. Only commit history is compared; an
+    uncommitted edit is the developer's own work in progress. Returns None when
+    git cannot answer, so a tarball or a shallow checkout gets no verdict.
+    """
+    stale: list[str] = []
+    evidence: dict[str, Any] = {}
+    for label, bundle, sources in _FRONTEND_BUNDLES:
+        bundle_time = _last_commit_time(git_bin, root, bundle)
+        source_times = [_last_commit_time(git_bin, root, source) for source in sources]
+        known = [value for value in source_times if value is not None]
+        if bundle_time is None or not known:
+            return None
+        newest_source = max(known)
+        evidence[label.lower()] = {
+            "bundle_committed_at": _iso_utc(bundle_time),
+            "source_committed_at": _iso_utc(newest_source),
+        }
+        if newest_source > bundle_time:
+            stale.append(label)
+    return _finding(
+        "ARGUS-ASSET-002", "install", not stale,
+        "assets_current" if not stale else "assets_stale",
+        (
+            "committed Web/TUI bundles are newer than their frontend source"
+            if not stale
+            else f"{' and '.join(stale)} bundle committed before the newest frontend source change"
+        ),
+        severity="warning", actions=("rebuild_release_assets",),
+        recommendation="run python -m argus.release_tools.build_release with the checkout interpreter and commit the rebuilt bundles",
+        evidence=evidence,
+    )
+
+
+def _iso_utc(timestamp: int) -> str:
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _runtime_findings(context: DoctorContext) -> list[DoctorFinding]:

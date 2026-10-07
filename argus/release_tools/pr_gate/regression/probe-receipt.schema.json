@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "base_sha", "candidate_sha", "base", "candidate"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "candidate_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "comparison": {
+      "type": "object",
+      "required": ["schema_version", "command_argv", "compatible", "issues", "oracle_files"],
+      "properties": {
+        "schema_version": {"const": "local-probe-comparison/v2"},
+        "command_argv": {"type": "array", "items": {"type": "string"}},
+        "compatible": {"type": "boolean"},
+        "issues": {"type": "array", "items": {"type": "string"}},
+        "oracle_files": {
+          "type": "object",
+          "required": ["base", "candidate"],
+          "additionalProperties": false,
+          "properties": {
+            "base": {"$ref": "#/$defs/oracle_manifest"},
+            "candidate": {"$ref": "#/$defs/oracle_manifest"}
+          }
+        }
+      }
+    },
+    "base": {"$ref": "#/$defs/observation"},
+    "candidate": {"$ref": "#/$defs/observation"}
+  },
+  "$defs": {
+    "oracle_manifest": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["sha256", "evidence_path"],
+        "properties": {
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "evidence_path": {"type": "string"}
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "required": ["command", "cwd", "exit_code", "timed_out", "seconds", "log", "log_sha256"],
+      "properties": {
+        "command": {"type": "string", "minLength": 1},
+        "cwd": {"type": "string", "minLength": 1},
+        "exit_code": {"type": "integer"},
+        "timed_out": {"type": "boolean"},
+        "interrupted": {"type": "boolean"},
+        "output_limit_exceeded": {"type": "boolean"},
+        "cleanup_complete": {"type": "boolean"},
+        "execution_error": {"type": ["string", "null"]},
+        "process_pid": {"type": "integer", "minimum": 0},
+        "source_origin": {
+          "type": "object", "required": ["path", "sha256", "status"],
+          "properties": {
+            "path": {"type": "string"},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "status": {"enum": ["verified", "incomplete"]}
+          }
+        },
+        "seconds": {"type": "number", "minimum": 0},
+        "log": {"type": "string", "minLength": 1},
+        "log_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

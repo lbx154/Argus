@@ -10,13 +10,23 @@ describe("the living status line", () => {
     const since = Date.now() / 1000 - 12 * 60 - 3;
     let root!: ReturnType<typeof create>;
     act(() => { root = create(<LiveLine role="engineer" since={since} zh={false} />); });
-    expect(text(root)).toBe("Engineer at work · 12 min");
+    expect(text(root)).toBe("Engineer at work · 12 min this run");
     act(() => root.unmount());
   });
   it("speaks Chinese when the map does, and stays quiet about time it does not know", () => {
     let root!: ReturnType<typeof create>;
     act(() => { root = create(<LiveLine role="reviewer" since={null} zh />); });
     expect(text(root)).toBe("复核正在处理");
+    act(() => root.unmount());
+  });
+});
+
+describe("the waiting line", () => {
+  it("says the sentence it is given, with no clock of its own", () => {
+    let root!: ReturnType<typeof create>;
+    act(() => { root = create(<LiveLine text="正在等待后台团队：3 条研究路线全部完成" since={Date.now() / 1000 - 90} zh />); });
+    expect(text(root)).toBe("正在等待后台团队：3 条研究路线全部完成");
+    expect(root.root.findByType("div").props["data-waiting"]).toBe(true);
     act(() => root.unmount());
   });
 });

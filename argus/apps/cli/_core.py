@@ -433,6 +433,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     setup_only = (
         bool(getattr(args, "non_interactive", False))
+        or getattr(args, "copilot_home", None) is not None
+        or bool(getattr(args, "copilot_login", False))
         or bool(getattr(args, "trial_url", None))
         or bool(getattr(args, "set_git_global", False))
         or bool(getattr(args, "configure_codex", False))
@@ -440,7 +442,7 @@ def main(argv: list[str] | None = None) -> int:
     if setup_only and not args.setup:
         sys.stderr.write(
             "argus: --non-interactive / --set-git-global / "
-            "--configure-codex / --trial-url require --setup\n"
+            "--configure-codex / --trial-url / --copilot-home / --copilot-login require --setup\n"
         )
         return 2
     readiness_modifier = (
@@ -597,11 +599,13 @@ def main(argv: list[str] | None = None) -> int:
             backend=getattr(args, "backend", None),
             auth_mode=getattr(args, "auth_mode", None),
             non_interactive=bool(getattr(args, "non_interactive", False)),
-            allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+            allow_prerelease=getattr(args, "allow_prerelease", None),
             api_url=getattr(args, "api_url", None),
             api_key=getattr(args, "api_key", None),
             api_model=getattr(args, "api_model", None),
             trial_url=getattr(args, "trial_url", None),
+            copilot_home=getattr(args, "copilot_home", None),
+            copilot_login=bool(getattr(args, "copilot_login", False)),
         )
     if getattr(args, "doctor", False):
         return _run_with_path_resolution_errors(lambda: _cmd_doctor(args))
@@ -763,7 +767,7 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
         getattr(args, "auth_mode", None),
         probe_auth=True,
         probe_vault=not skip_vault_probe,
-        allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+        allow_prerelease=getattr(args, "allow_prerelease", None),
     )
     if not readiness.ok:
         sys.stderr.write(format_backend_readiness(readiness) + "\n")
@@ -850,7 +854,7 @@ def _maintenance_context(args: argparse.Namespace):
         install_mode=install_mode,
         backend=getattr(args, "backend", None),
         auth_mode=getattr(args, "auth_mode", None),
-        allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+        allow_prerelease=getattr(args, "allow_prerelease", None),
     )
 
 
@@ -1236,6 +1240,25 @@ def _cmd_follow(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ask_project_observation(life_dir: Path) -> str:
+    """The project's recorded facts, when this workdir already belongs to one.
+
+    The web ``/ask`` grounds its reply in ``observe_project``; the CLI answered
+    from the question alone, so "where is this project at?" asked inside a
+    finished project was answered as if no project existed. A workdir with no
+    recorded work keeps the plain reply: there is nothing to observe yet.
+    """
+    root = Path(life_dir)
+    if not any((root / name).is_file() for name in ("events.jsonl", "backlog.jsonl")):
+        return ""
+    try:
+        from ...manager.observation import observe_project
+
+        return observe_project(root).render().strip()
+    except Exception:  # noqa: BLE001 - the observation informs; the reply must not fail on it
+        return ""
+
+
 def _cmd_ask(args: argparse.Namespace) -> int:
     """Answer ``--ask <question>`` inline via the Manager quick-reply path.
 
@@ -1293,6 +1316,9 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     )
     prompt = build_quick_reply_prompt(objective=question)
     prompt = append_operator_context(prompt, operator_context)
+    observation = _ask_project_observation(bundle.project.root)
+    if observation:
+        prompt += "\n\n" + observation
     result = gateway_run_exec(
         runner,
         prompt=prompt,

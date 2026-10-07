@@ -134,6 +134,56 @@ def test_budget_pause_backoff_never_starts_idle_timeout(tmp_path) -> None:
     assert supervisor._maybe_idle_timeout() == ""
 
 
+@pytest.mark.parametrize("cap", ["ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP"])
+def test_copilot_cap_holds_pause_without_new_attempts_until_cap_changes(tmp_path, monkeypatch, cap):
+    from argus.provider_integrations.copilot_guard import (
+        acquire_copilot_permit,
+        copilot_guard_snapshot,
+    )
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "1")
+    monkeypatch.setenv(cap, "1")
+    permit = acquire_copilot_permit("engineer")
+    assert permit.allowed
+    permit.finish(premium_requests=1, success=True)
+    memory = LifeMemory.open(tmp_path / "projects" / "budget")
+    item = BacklogItem.new(title="keep existing progress", objective="finish", manager_decision={"routed": True, "vertical": "software"})
+    item.status = "paused_budget"
+    memory.backlog.add(item)
+    runner = _CompleteRunner()
+    supervisor = LifeSupervisor(
+        memory=memory, runner=runner, sink=_Sink(),
+        config=LifeSupervisorConfig(budget=LifeBudget(max_missions=2), poll_interval_seconds=0),
+    )
+    before = copilot_guard_snapshot()
+    for _ in range(3):
+        assert not supervisor._resume_automatic_pauses()
+        assert supervisor.run()["stopped_by"] == "global daily budget exhausted"
+        assert memory.backlog.all()[0].status == "paused_budget"
+        assert memory.backlog.all()[0].attempt == 1
+        assert not supervisor.config.budget.can_start(global_root=tmp_path)[0]
+    assert runner.calls == 0 and copilot_guard_snapshot() == before
+    monkeypatch.setenv(cap, "0")
+    resumed = supervisor._resume_automatic_pauses()
+    assert [(r.id, r.attempt) for r in resumed] == [(item.id, 2)]
+    assert supervisor.tick()["success"]
+    assert runner.calls == 1 and memory.backlog.all()[0].status == "done"
+
+
+def test_copilot_budget_does_not_block_a_different_configured_backend(tmp_path, monkeypatch):
+    from argus.provider_integrations.copilot_guard import acquire_copilot_permit
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "1")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "1")
+    permit = acquire_copilot_permit("engineer")
+    permit.finish(success=True)
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "memory")
+    assert LifeBudget().can_start(global_root=tmp_path) == (True, "")
+
+
 @pytest.mark.parametrize(
     "status",
     [

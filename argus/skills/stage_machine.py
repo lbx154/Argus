@@ -397,6 +397,11 @@ def _set_stage(
             f"advance target {target!r} must be strictly later than current "
             f"stage {previous!r}"
         )
+    if (
+        payload.get("workflow_profile") and direction == "advance"
+        and t_idx != p_idx + 1
+    ):
+        raise ValueError("cannot skip required stages of the active workflow profile")
     if direction == "rollback" and t_idx >= p_idx:
         raise ValueError(
             f"rollback target {target!r} must be strictly earlier than current "
@@ -560,7 +565,9 @@ def advance_stage(
 
     ``target_stage`` must be later in the active vertical's order. Manager may
     skip stages that do not apply to the operator objective; skipped stages are
-    recorded explicitly. The just-completed stage is stamped ``done``.
+    recorded explicitly. Named workflow profiles require adjacent progression:
+    their scope was already selected and none of their stages may be skipped.
+    The just-completed stage is stamped ``done``.
 
     After initial state creation, ``advance_stage`` / ``rollback_stage`` are the ONLY mutators
     of ``current_stage``. They are *intended* to be Manager-only — reviewer and
@@ -728,6 +735,8 @@ def complete_final_stage(
     early_completion = cur != order[-1] and allow_early_completion
     if early_completion:
         early_completion = resolve_workflow_mode(project_root) == "direct"
+        if read_pipeline_state(project_root).get("workflow_profile"):
+            early_completion = False
     if cur != order[-1] and not early_completion:
         raise ValueError(
             f"cannot complete at {cur!r}: it is not the final stage of the "

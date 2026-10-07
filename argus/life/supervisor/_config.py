@@ -68,14 +68,24 @@ class LifeBudget:
         global_cap = float(self.global_daily_cap_usd or 0.0)
         if cost_control_enabled():
             reason = cost_admission_reason(global_root=global_root, cap=global_cap, now=now)
-            return not reason, reason
-        if global_cap > 0:
+            if reason:
+                return False, reason
+        elif global_cap > 0:
             spent = global_daily_spend(global_root=global_root, now=now)
             if spent >= global_cap:
                 return False, (
                     f"global daily budget exhausted "
                     f"(${spent:.2f} spent / ${global_cap:.2f})"
                 )
+        from ...core.knobs import resolve_role_backend
+        from ...provider_integrations.copilot_guard import copilot_budget_reason
+
+        # Standalone budget readers and in-memory runners need no CLI provider.
+        if any(resolve_role_backend(role, default="memory").strip().lower() == "copilot"
+               for role in ("manager", "planner", "engineer", "reviewer")):
+            reason = copilot_budget_reason(root=global_root)
+            if reason:
+                return False, reason
         return True, ""
 
 @dataclass

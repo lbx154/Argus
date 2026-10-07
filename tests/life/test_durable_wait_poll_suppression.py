@@ -1050,3 +1050,68 @@ def test_team_wait_id_is_a_host_observed_event_source(tmp_path: Path) -> None:
 
     task_board._mutate(root, f"{team_id}-route-01", state="done")
     assert supervisor._external_work_state_rows(project)[0]["state"] == "terminal"
+
+
+def _park_one_mission(supervisor: LifeSupervisor) -> BacklogItem:
+    project = supervisor._project_workdir()
+    _write_direct_job(project, task_id="data-build")
+    item = supervisor.memory.backlog.add(BacklogItem.new(
+        title="data-build", objective="Run and assess data-build",
+    ))
+    supervisor.memory.backlog.update(
+        item.id,
+        status="paused_external_work",
+        outcome={"external_wait": {"work_id": "data-build", "workdir": str(project)}},
+    )
+    return item
+
+
+def test_the_extra_planner_turn_during_a_live_job_wait_is_granted_once(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """With nothing queued behind a parked mission, the Planner is asked once
+    when the wait starts and once more to schedule independent work. Persisting
+    the same wait after that turn must not hand the turn out again: on
+    2026-09-30 a campaign spent four Planner calls in two minutes that way."""
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    supervisor = _supervisor(project, life)
+    _park_one_mission(supervisor)
+    calls: list[bool] = []
+
+    def plan_next(_planner, **_kwargs):
+        calls.append(True)
+        return PlannerVerdict(
+            project_done=False,
+            reason="waiting for data-build",
+            waiting=True,
+            waiting_contract=supervisor._live_subagent_event_wait_contract(
+                supervisor._waitable_subagent_jobs()
+            ),
+        )
+
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan_next)
+    for _ in range(6):
+        assert supervisor.run()["stopped_by"] == PLAN_AWAITING
+    assert len(calls) == 2
+    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
+    assert sum(event["type"] == "life.planner.start" for event in events) == 2
+    assert any(event.get("model_call_skipped") for event in events if event["type"] == "life.planner.waiting")
+
+
+def test_backlog_rewrites_without_scheduling_changes_are_not_new_evidence(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    item = _park_one_mission(supervisor)
+    before = supervisor._waiting_backlog_revision()
+    assert before
+    path = Path(supervisor.memory.root) / "backlog.jsonl"
+    path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    assert supervisor._waiting_backlog_revision() == before
+    supervisor.memory.backlog.add(BacklogItem.new(title="Plot residuals", objective="Plot them"))
+    after_add = supervisor._waiting_backlog_revision()
+    assert after_add != before
+    assert supervisor.memory.backlog.resume_paused(item.id) is not None
+    assert supervisor._waiting_backlog_revision() not in {before, after_add}

@@ -329,6 +329,13 @@ class PromptDeliveryMixin:
             # Workdir isolation strips ambient credentials. Reapply only the
             # explicitly selected trial provider, never unrelated accounts.
             apply_copilot_provider(env)
+            from ..core.sandbox import isolated_copilot_home
+            from .copilot_home import copilot_account_home
+
+            if copilot_account_home(env) is not None:
+                home = isolated_copilot_home(options.working_dir)
+                env["COPILOT_HOME"] = str(home)
+                env["GH_CONFIG_DIR"] = str(home / "gh")
         plugin_env = getattr(options, "extension_env", None)
         if plugin_env and not options.disable_tools:
             env = dict(os.environ) if env is None else env

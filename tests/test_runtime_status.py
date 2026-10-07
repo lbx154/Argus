@@ -126,3 +126,54 @@ def test_web_lifecycle_and_other_app_requests_are_isolated(tmp_path):
         finally:
             lease.finish()
     assert observe_runtime_status(current, "project_status")["service"]["webapi"] == "unobserved"
+
+
+def _host_probe(monkeypatch):
+    import psutil
+
+    monkeypatch.setattr(psutil, "Process", lambda: SimpleNamespace(username=lambda: "service"))
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs, ad_value: iter([]))
+    monkeypatch.setattr(psutil, "cpu_percent", lambda interval: 1.0)
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: SimpleNamespace(percent=4.0))
+
+
+def test_host_status_reports_gpus_and_which_are_idle(tmp_path, monkeypatch):
+    current = project(tmp_path, "s-current")
+    _host_probe(monkeypatch)
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        return SimpleNamespace(stdout=(
+            "0, NVIDIA RTX A6000, 1, 46068, 0\n"
+            "1, NVIDIA RTX A6000, 30210, 46068, 97\n"
+            "2, NVIDIA RTX A6000, 900, 46068, 3\n"
+        ))
+
+    monkeypatch.setattr(runtime_status.subprocess, "run", run)
+    facts = observe_runtime_status(current, "host_status")
+    assert calls and calls[0][0] == "nvidia-smi" and "--query-gpu=index,name" in calls[0][1]
+    assert facts["gpus"]["available"] is True
+    assert [d["idle"] for d in facts["gpus"]["devices"]] == [True, False, True]
+
+    chinese = render_runtime_status(facts, chinese=True)
+    assert "GPU：3 块（NVIDIA RTX A6000），其中 2 块空闲" in chinese
+    assert "#1 30210/46068 MiB 97%" in chinese
+    english = render_runtime_status(facts, chinese=False)
+    assert "GPU: 3 (NVIDIA RTX A6000), 2 idle" in english
+
+
+def test_host_status_says_when_gpu_status_cannot_be_read(tmp_path, monkeypatch):
+    current = project(tmp_path, "s-current")
+    _host_probe(monkeypatch)
+
+    def run(cmd, **kwargs):
+        raise FileNotFoundError("nvidia-smi")
+
+    monkeypatch.setattr(runtime_status.subprocess, "run", run)
+    facts = observe_runtime_status(current, "host_status")
+    assert facts["gpus"] == {"available": False, "devices": []}
+    assert "nvidia-smi 不可用" in render_runtime_status(facts, chinese=True)
+    assert "nvidia-smi is unavailable" in render_runtime_status(facts, chinese=False)
+    # Project-scoped status never probes the host at all.
+    assert "gpus" not in observe_runtime_status(current, "project_status")

@@ -57,7 +57,6 @@ RESEARCH_BASE_SKILLS = {
     "engineer/executable-spec.md",
     "engineer/delta-on-reference.md",
     "engineer/research-grind.md",
-    "engineer/research-timeline.md",
     "engineer/suspect-the-setup.md",
     "engineer/figure_spec_scripts/paper_chart_style.py",
     "engineer/figure_spec_scripts/paper_charts.py",
@@ -91,7 +90,6 @@ RESEARCH_MOVED_SKILLS = set(
 RESEARCH_SKILLS = RESEARCH_BASE_SKILLS | RESEARCH_MOVED_SKILLS | {
     "engineer/venue-paper-drafting.md",
     "engineer/venue-format-preflight.md",
-    "engineer/academic-vector-figures.md",
     "reviewer/venue-academic-language-review.md",
     "engineer/infrastructure-landscape-survey.md",
     "engineer/framework-stand-up-pilot.md",
@@ -109,15 +107,9 @@ def test_iter_vertical_skill_texts_unknown_or_skill_less_is_empty() -> None:
     assert list(iter_vertical_skill_texts("nope")) == []
     software = dict(iter_vertical_skill_texts("software"))
     assert set(software) == {
-        "engineer/formal-verification/verus-spec-generation-and-repair.md",
         "engineer/software-change-implementation.md",
-        "manager/formal-verification/verus-spec-generation-and-repair.md",
-        "manager/software-project-grounding.md",
-        "planner/formal-verification/verus-spec-generation-and-repair.md",
         "planner/software-project-grounding.md",
-        "reviewer/formal-verification/verus-spec-generation-and-repair.md",
         "reviewer/software-change-review.md",
-        "verus-spec-generation-and-repair.md",
     }
 
 
@@ -365,7 +357,7 @@ def test_reference_corpora_are_assets_not_matchable_skills(tmp_path) -> None:
     # them from matching must not exclude them from the runtime cache.
     assert (
         tmp_path
-        / "engineer/references/ideation/anti-patterns.md"
+        / "engineer/references/ideation/ideation-patterns/overview.md"
     ).is_file()
 
 

@@ -107,6 +107,12 @@ maintainers for the latest code.
 
 <p align="center"><strong>Community Group 1 is full. Please join Group 2.</strong></p>
 
+## Tutorials
+
+- **[Getting started](docs/getting-started.md)** — install, first task, three ways in: command line, web UI, desktop app.
+- **[Best practices](docs/best-practices.md)** — writing an objective, changing direction mid-run, choosing the model and backend, controlling spend, what suits Argus.
+- **[Building a vertical](docs/building-a-vertical.md)** — a small real vertical from stages and skills to the Vertical Store.
+
 ## Quick Install
 
 Choose the section for your operating system. Do not mix commands between
@@ -132,6 +138,12 @@ prerequisite for the separate Harbor evaluation integration.
 | Grok Build | `grok` | [Official install](https://x.ai/cli) | `grok login` |
 | Qoder CLI | `qoder` | `npm install -g @qoder-ai/qodercli` | `qodercli login` |
 | DeepSeek Harness | `dsh` | `npm install -g @deepseek-ai/dsh` | Configure `DEEPSEEK_API_KEY` or the dsh Models page |
+
+**Separate Copilot account for Argus:** run
+`argus --setup --backend copilot --copilot-home "$HOME/.copilot-argus" --copilot-login`.
+After setup succeeds and existing Argus processes are restarted, ordinary Argus
+launches use that account without changing the caller's login.
+See [account binding, precedence and reset](docs/agent-install.md#dedicated-copilot-account).
 
 <a id="argus-pi-preview"></a>
 <details>

@@ -59,6 +59,42 @@ def test_direct_stage_prompt_completes_instead_of_advancing() -> None:
     assert "COMPLETE only at the final stage" not in prompt
 
 
+@pytest.mark.parametrize("stage", ["simulation", "delivery", "custom_stage"])
+@pytest.mark.parametrize("action", ["hold", "complete"])
+def test_prompt_target_example_round_trips_as_a_concrete_stage(stage: str, action: str) -> None:
+    prompt = build_stage_decision_prompt(
+        current_stage=stage,
+        next_stage="",
+        earlier_stages=(),
+        checklist_md="Inspect the independently reviewed result.",
+        review=_review(),
+    )
+    target = next(
+        line.strip() for line in prompt.splitlines()
+        if line.strip().startswith("TARGET_STAGE=")
+    )
+    assert target == f"TARGET_STAGE={stage}"
+    assert "TARGET_STAGE=current stage" not in prompt
+    decision = parse_stage_decision(
+        f"ACTION={action}\n{target}\nREASON=The current evidence was independently checked.",
+        current_stage=stage,
+        stage_order=(stage,),
+    )
+    assert decision.action == action
+    assert decision.target_stage == stage
+
+
+def test_literal_target_placeholder_still_fails_closed() -> None:
+    decision = parse_stage_decision(
+        "Decision:\nACTION=complete\nTARGET_STAGE=current stage\n"
+        "REASON=The finite simulation objective is finished.",
+        current_stage="simulation",
+        stage_order=("simulation",),
+    )
+    assert decision.action == "hold"
+    assert decision.diagnostic == "illegal_complete_target"
+
+
 def test_completion_report_prompt_contains_all_stage_information() -> None:
     from argus.roles.prompts.manager import (
         build_project_completion_report_prompt,

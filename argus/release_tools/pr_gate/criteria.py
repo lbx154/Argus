@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Callable
+
+if __package__:
+    from .llm import LLMClient, LLMError, LLMJudgeRequest
+else:
+    from llm import LLMClient, LLMError, LLMJudgeRequest
 
 FILE_KEYWORDS = {
     "tests": (
@@ -127,6 +133,9 @@ def evaluate(
     message: str,
     patch: dict[str, Any],
     criteria: dict[str, dict[str, Any]],
+    *,
+    llm_client: LLMClient | None = None,
+    patch_diff: str = "",
 ) -> dict[str, Any]:
     results: dict[str, Any] = {}
     errors: list[dict[str, str]] = []
@@ -137,8 +146,50 @@ def evaluate(
             results[name] = {"status": "disabled", "uses_llm": settings["uses_llm"]}
             continue
         if settings["uses_llm"]:
-            unavailable.append(name)
-            results[name] = {"status": "unavailable", "uses_llm": True}
+            if llm_client is None:
+                unavailable.append(name)
+                results[name] = {
+                    "status": "unavailable",
+                    "uses_llm": True,
+                    "failure_code": "client_unavailable",
+                }
+                continue
+            try:
+                judgment = llm_client.judge(
+                    LLMJudgeRequest(
+                        criterion=name,
+                        description=message,
+                        patch_summary=json.dumps(patch, sort_keys=True),
+                        patch_diff=patch_diff,
+                    )
+                )
+            except LLMError as exc:
+                unavailable.append(name)
+                results[name] = {
+                    "status": "unavailable",
+                    "uses_llm": True,
+                    "failure_code": exc.code,
+                }
+                continue
+
+            threshold = float(settings["threshold"])
+            passed = judgment.score >= threshold
+            evidence = {
+                "reason": judgment.reason,
+                "evidence": list(judgment.evidence),
+                "source_language": judgment.source_language,
+                "translated_description": judgment.translated_description,
+            }
+            results[name] = {
+                "status": "passed" if passed else "failed",
+                "uses_llm": True,
+                "score": judgment.score,
+                "threshold": threshold,
+                "evidence": evidence,
+            }
+            if not passed:
+                results[name]["error_message"] = settings["error_message"]
+                errors.append({"criterion": name, "message": settings["error_message"]})
             continue
 
         check = LOCAL_CHECKS.get(name)

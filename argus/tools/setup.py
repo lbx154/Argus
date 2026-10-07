@@ -28,6 +28,20 @@ from ..core.backend_readiness import (
 )
 
 
+def _write_stderr(text: str) -> None:
+    """Write a setup message to stderr after the stdout narrative so far.
+
+    When setup runs under a pipe or a log, stdout is block-buffered while
+    stderr is not, so a failure explanation could appear before the step it
+    belongs to. Flushing first keeps the transcript in the order it happened.
+    """
+    try:
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        pass
+    sys.stderr.write(text)
+
+
 def _color(text: str, code: str) -> str:
     if not sys.stdout.isatty():
         return text
@@ -410,19 +424,20 @@ def _run_noninteractive_setup(
     *,
     backend: str | None,
     auth_mode: str | None,
-    allow_prerelease: bool,
+    allow_prerelease: bool | None,
     api_url: str | None,
     api_key: str | None,
     api_model: str | None,
+    copilot_home: str | None,
 ) -> int:
     selected = str(backend or ("pi" if api_url else "")).strip().lower()
     if not selected:
-        sys.stderr.write(
+        _write_stderr(
             "argus: --setup --non-interactive requires --backend or --api-url\n"
         )
         return SETUP_EXIT_USAGE
     if selected not in _SUPPORTED_AGENT_BACKENDS:
-        sys.stderr.write(f"argus: unsupported backend {selected!r}\n")
+        _write_stderr(f"argus: unsupported backend {selected!r}\n")
         return SETUP_EXIT_USAGE
     if _configure_runner_backend(selected) is None:
         return SETUP_EXIT_NOT_READY
@@ -432,7 +447,7 @@ def _run_noninteractive_setup(
     pi_config: tuple[str, Path] | None = None
     if api_url or api_key or api_model:
         if selected != "pi":
-            sys.stderr.write("argus: --api-url/--api-key/--api-model require --backend pi\n")
+            _write_stderr("argus: --api-url/--api-key/--api-model require --backend pi\n")
             return SETUP_EXIT_USAGE
         try:
             pi_config = _configure_pi_api(
@@ -442,7 +457,7 @@ def _run_noninteractive_setup(
                 interactive=False,
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
-            sys.stderr.write(f"argus: {exc}\n")
+            _write_stderr(f"argus: {exc}\n")
             return SETUP_EXIT_USAGE
         assert pi_config is not None
         os.environ["ARGUS_SKILL_PI_PROVIDER"] = "argus"
@@ -462,18 +477,20 @@ def _run_noninteractive_setup(
         allow_prerelease=allow_prerelease,
     )
     rendered = format_backend_readiness(report)
-    stream = sys.stdout if report.ok else sys.stderr
-    stream.write(rendered + "\n")
+    if report.ok:
+        sys.stdout.write(rendered + "\n")
+    else:
+        _write_stderr(rendered + "\n")
     if not report.ok:
         return SETUP_EXIT_NOT_READY
     smoke_model = _setup_smoke_model(selected, pi_config)
     if not _verify_setup_smoke(selected, model=smoke_model):
         return SETUP_EXIT_NOT_READY
-    if not persist_validated_profile(report, model=adopted_model):
-        sys.stderr.write("argus: readiness passed but profile persistence failed\n")
+    if not persist_validated_profile(report, model=adopted_model, copilot_home=copilot_home):
+        _write_stderr("argus: readiness passed but profile persistence failed\n")
         return SETUP_EXIT_PERSISTENCE
     if pi_config is not None and not _persist_pi_profile(pi_config[0]):
-        sys.stderr.write("argus: Pi configuration was written but profile persistence failed\n")
+        _write_stderr("argus: Pi configuration was written but profile persistence failed\n")
         return SETUP_EXIT_PERSISTENCE
     sys.stdout.write(
         "\nSetup complete. Run `argus`.\n"
@@ -502,23 +519,128 @@ def run_setup(
     backend: str | None = None,
     auth_mode: str | None = None,
     non_interactive: bool = False,
-    allow_prerelease: bool = False,
+    allow_prerelease: bool | None = None,
     api_url: str | None = None,
     api_key: str | None = None,
     api_model: str | None = None,
     trial_url: str | None = None,
+    copilot_home: str | None = None,
+    copilot_login: bool = False,
+) -> int:
+    """Validate an account binding before saving it with the backend profile."""
+    from ..agent_cli.copilot_home import (
+        COPILOT_ACCOUNT_HOME_KNOB,
+        apply_copilot_account,
+        copilot_account_home,
+    )
+    from ..agent_cli.runner_backend import runner_child_environment
+    from ..core.paths import resolve_runtime_path
+
+    account_options = copilot_home is not None or copilot_login
+    if account_options and (
+        backend != "copilot" or trial_url or api_url or api_key or api_model
+        or auth_mode not in (None, AUTH_MODE_SUBSCRIPTION)
+    ):
+        _write_stderr(
+            "argus: --copilot-home / --copilot-login require --backend copilot "
+            "with subscription_cli authentication, without trial or API options\n"
+        )
+        return SETUP_EXIT_USAGE
+    if copilot_login and non_interactive:
+        _write_stderr("argus: --copilot-login requires interactive setup\n")
+        return SETUP_EXIT_USAGE
+
+    previous_home = os.environ.get(COPILOT_ACCOUNT_HOME_KNOB)
+    previous_trial = os.environ.get("ARGUS_SKILL_COPILOT_TRIAL")
+    try:
+        if account_options:
+            os.environ["ARGUS_SKILL_COPILOT_TRIAL"] = "0"
+        if copilot_home is not None:
+            copilot_home = (
+                str(resolve_runtime_path(copilot_home, context="--copilot-home").resolve())
+                if copilot_home.strip()
+                else ""
+            )
+            os.environ[COPILOT_ACCOUNT_HOME_KNOB] = copilot_home
+        home = copilot_account_home() if backend == "copilot" else None
+        if home is not None:
+            copilot_home = str(home)
+            print(f"  Dedicated Copilot account directory: {home}")
+            print("  Inherited GitHub tokens and custom providers will not be used.")
+        if copilot_login:
+            if home is None:
+                _write_stderr("argus: --copilot-login requires a dedicated --copilot-home PATH\n")
+                return SETUP_EXIT_USAGE
+            executable = _resolve_setup_runner_bin("copilot", explicit_selection=True)
+            if executable is None:
+                _write_stderr("argus: install Copilot CLI before account login\n")
+                return SETUP_EXIT_NOT_READY
+            child_env = apply_copilot_account(dict(os.environ))
+            child_env = runner_child_environment(executable, env=child_env) or child_env
+            completed = subprocess.run([executable, "login"], env=child_env, check=False)
+            if completed.returncode != 0:
+                _write_stderr("argus: Copilot login failed; the account binding was not saved\n")
+                return SETUP_EXIT_NOT_READY
+        result = _run_setup(
+            backend=backend,
+            auth_mode=auth_mode,
+            non_interactive=non_interactive,
+            allow_prerelease=allow_prerelease,
+            api_url=api_url,
+            api_key=api_key,
+            api_model=api_model,
+            trial_url=trial_url,
+            copilot_home=copilot_home,
+        )
+        if home is not None:
+            if result == 0:
+                print("  Restart running Argus TUI, Web/API and daemons to use this account.")
+            else:
+                _write_stderr(
+                    "argus: if login is needed, rerun with --copilot-login and the same "
+                    "--copilot-home in an interactive terminal\n"
+                )
+        return result
+    except (OSError, ValueError, RuntimeError) as exc:
+        if not account_options:
+            raise
+        _write_stderr(f"argus: dedicated Copilot account setup failed: {exc}\n")
+        return SETUP_EXIT_NOT_READY
+    finally:
+        if previous_home is None:
+            os.environ.pop(COPILOT_ACCOUNT_HOME_KNOB, None)
+        else:
+            os.environ[COPILOT_ACCOUNT_HOME_KNOB] = previous_home
+        if account_options:
+            if previous_trial is None:
+                os.environ.pop("ARGUS_SKILL_COPILOT_TRIAL", None)
+            else:
+                os.environ["ARGUS_SKILL_COPILOT_TRIAL"] = previous_trial
+
+
+def _run_setup(
+    *,
+    backend: str | None,
+    auth_mode: str | None,
+    non_interactive: bool,
+    allow_prerelease: bool | None,
+    api_url: str | None,
+    api_key: str | None,
+    api_model: str | None,
+    trial_url: str | None,
+    copilot_home: str | None,
 ) -> int:
     """Configure and validate one explicit backend/auth contract."""
     if trial_url:
         if api_url or api_key or api_model or backend not in (None, "copilot") or auth_mode:
-            sys.stderr.write("argus: --trial-url selects its own backend and model; omit other backend/auth/API options\n")
+            _write_stderr("argus: --trial-url selects its own backend and model; omit other backend/auth/API options\n")
             return SETUP_EXIT_USAGE
         from ..trial.client import setup_trial
 
         try:
             return setup_trial(trial_url, non_interactive=non_interactive)
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
-            sys.stderr.write(f"argus: trial setup failed: {exc}\n")
+            _write_stderr(f"argus: trial setup failed: {exc}\n")
             return SETUP_EXIT_NOT_READY
     # An explicit regular setup verifies the user's chosen account/provider.
     # Persisting that validated profile below disables any prior trial mode.
@@ -531,6 +653,7 @@ def run_setup(
             api_url=api_url,
             api_key=api_key,
             api_model=api_model,
+            copilot_home=copilot_home,
         )
     _banner()
     selected_backend = _configure_runner_backend(backend or ("pi" if api_url else None))
@@ -590,7 +713,7 @@ def run_setup(
     if not _verify_setup_smoke(selected_backend, model=smoke_model):
         print(_yellow("  Backend checks passed, but Argus could not complete a real turn."))
         return SETUP_EXIT_NOT_READY
-    if not persist_validated_profile(report, model=adopted_model):
+    if not persist_validated_profile(report, model=adopted_model, copilot_home=copilot_home):
         print(_yellow("  Readiness passed but backend profile persistence failed."))
         return SETUP_EXIT_PERSISTENCE
     if pi_config is not None and not _persist_pi_profile(pi_config[0]):

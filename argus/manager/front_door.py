@@ -690,6 +690,8 @@ class PreparedManagerHandoff:
             "domain": getattr(division, "domain", ""),
             "route": "team",
             "workflow_mode": workflow_mode,
+            "workflow_profile": getattr(division, "workflow_profile", ""),
+            "workflow_summary": getattr(division, "workflow_summary", ""),
             "require_independent_review": bool(
                 getattr(division, "require_independent_review", True)
             ),
@@ -710,6 +712,10 @@ class PreparedManagerHandoff:
             "text": (
                 "manager routed TEAM · "
                 f"{getattr(division, 'vertical', '')} · {workflow_mode} · {lifetime}"
+                + (
+                    f"\n{division.workflow_summary}"
+                    if getattr(division, "workflow_summary", "") else ""
+                )
             ),
         }
         if continuous_generation is not None:

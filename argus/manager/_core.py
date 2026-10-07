@@ -44,6 +44,8 @@ class Division:
     pending_confirmation: bool = False
     learned_vertical_status: str = ""
     start_stage: str = ""
+    workflow_profile: str = ""
+    workflow_summary: str = ""
 
     def headline(self) -> str:
         if self.proposed_domain is not None and self.pending_confirmation:
@@ -54,7 +56,8 @@ class Division:
         domain = f", domain={self.domain}" if self.domain else ""
         return (f"[manager] {label} → vertical={self.vertical}{domain}, "
                 f"workflow={self.workflow_mode}, "
-                f"{len(self.stages)} stage(s): {' → '.join(self.stages)}")
+                f"{len(self.stages)} stage(s): {' → '.join(self.stages)}"
+                + (f"\n{self.workflow_summary}" if self.workflow_summary else ""))
 
 
 @dataclass

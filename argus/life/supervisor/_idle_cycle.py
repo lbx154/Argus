@@ -519,7 +519,7 @@ class IdleCycleMixin:
             backlog=backlog,
             artifact_root=self._artifact_root(),
             project_root=self._planner_workdir(),
-            state_root=Path(self.memory.root),
+            state_root=self._project_state_root(),
             completion_contract=completion_contract,
         )
 

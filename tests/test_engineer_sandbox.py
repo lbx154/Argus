@@ -564,6 +564,45 @@ def test_isolated_workdir_fails_closed_without_bubblewrap(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="requires POSIX worktree isolation")
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX worktree isolation")
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_isolated_workdir_references_only_the_dedicated_account(
+    tmp_path, monkeypatch, platform,
+) -> None:
+    home = tmp_path / "home"
+    account = home / "dedicated"
+    workdir = tmp_path / "worktree"
+    account.mkdir(parents=True)
+    workdir.mkdir()
+    config = account / "config.json"
+    config.write_text('{"authTokens":{"second":"fake-token"}}')
+    monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(sandbox.sys, "platform", platform)
+    monkeypatch.setattr(
+        sandbox.shutil, "which",
+        lambda name: "/usr/bin/" + name if name == (
+            "bwrap" if platform == "linux" else "sandbox-exec"
+        ) else None,
+    )
+    private = sandbox.isolated_copilot_home(workdir)
+    private.mkdir(parents=True)
+    (private / "settings.json").write_text('{"stale":"another-account"}')
+
+    command = sandbox.isolated_workdir_command(
+        ["/usr/bin/true"], working_dir=workdir, account_home=account,
+    )
+
+    assert (private / "config.json").is_symlink()
+    assert (private / "config.json").resolve() == config
+    assert not (private / "settings.json").exists()
+    assert config.read_text() == '{"authTokens":{"second":"fake-token"}}'
+    if platform == "linux":
+        index = command.index(str(config))
+        assert command[index - 1:index + 2] == ["--ro-bind", str(config), str(config)]
+    else:
+        assert not (workdir / ".argus-self-maintenance-runtime/seatbelt-home/.copilot/config.json").exists()
+
+
 def test_isolated_workdir_uses_macos_sandbox_exec_without_bubblewrap(
     tmp_path,
     monkeypatch,

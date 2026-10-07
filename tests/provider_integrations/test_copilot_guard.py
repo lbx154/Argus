@@ -5,6 +5,7 @@ import pytest
 from argus.provider_integrations import copilot_guard
 from argus.provider_integrations.copilot_guard import (
     acquire_copilot_permit,
+    copilot_budget_reason,
     copilot_guard_snapshot,
     release_denied_permit,
 )
@@ -168,3 +169,32 @@ def test_snapshot_exposes_operator_caps(monkeypatch, tmp_path) -> None:
     assert snapshot["daily_calls_remaining"] == 8
     assert snapshot["daily_premium_cap"] == 12
     assert snapshot["premium_requests_remaining"] == 9.5
+
+
+@pytest.mark.parametrize("cap", ["ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP"])
+def test_budget_preflight_matches_admission_without_spending(monkeypatch, tmp_path, cap):
+    _enable(monkeypatch, tmp_path)
+    monkeypatch.setenv(cap, "1")
+    first = acquire_copilot_permit("engineer")
+    first.finish(premium_requests=1, success=True)
+    before = copilot_guard_snapshot()
+    reason = copilot_budget_reason(root=tmp_path)
+    assert reason
+    for _ in range(3):
+        assert copilot_budget_reason(root=tmp_path) == reason
+    assert copilot_guard_snapshot() == before
+    denied = acquire_copilot_permit("reviewer")
+    assert not denied.allowed and denied.reason == reason
+    monkeypatch.setenv(cap, "0")
+    assert not copilot_budget_reason(root=tmp_path)
+
+
+def test_budget_preflight_releases_daily_pause_on_day_change(monkeypatch, tmp_path):
+    _enable(monkeypatch, tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "1")
+    monkeypatch.setattr(copilot_guard, "_today", lambda: "2026-09-29")
+    permit = acquire_copilot_permit("engineer")
+    permit.finish(success=True)
+    assert copilot_budget_reason(root=tmp_path)
+    monkeypatch.setattr(copilot_guard, "_today", lambda: "2026-09-30")
+    assert not copilot_budget_reason(root=tmp_path)

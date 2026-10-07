@@ -49,7 +49,7 @@ python -m argus --web
 ```bash
 cd frontend/web
 npm ci
-PYTHONPATH=../.. npm run build
+npm run build
 ```
 
 开发时也可用 `npm run dev`，默认网页 `http://localhost:5173`，API 代理到

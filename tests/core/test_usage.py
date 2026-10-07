@@ -1144,3 +1144,226 @@ def test_missing_usage_and_unknown_model_are_never_rendered_as_zero(
     assert summary.cost_usd is None
     assert summary.pricing_status == "partial"
     assert format_usage_cost(summary) == "partial"
+
+
+def test_copilot_reconcile_prices_a_pending_acp_turn_from_the_session_event_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A warm ``copilot --acp`` turn leaves no store row; the session event log
+    still settles it, so the daemon is not held on a phantom liability."""
+    copilot_home = tmp_path / "copilot"
+    copilot_home.mkdir()
+    monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+    monkeypatch.setattr(
+        "argus.core.usage._copilot_reconcile_enabled_for", lambda _root: True,
+    )
+    started_at = 1_790_751_193.42
+    completed_at = 1_790_751_200.36
+    events = copilot_home / "session-state" / "acp-1" / "events.jsonl"
+    events.parent.mkdir(parents=True)
+    events.write_text(
+        json.dumps({
+            "type": "session.start",
+            "data": {"sessionId": "acp-1", "selectedModel": "gpt-5.6-sol"},
+            "timestamp": "2026-09-30T06:53:14.415Z",
+        })
+        + "\n"
+        + json.dumps({
+            "type": "session.usage_checkpoint",
+            "data": {"totalNanoAiu": 2_946_700_000, "totalPremiumRequests": 1},
+            "timestamp": "2026-09-30T06:53:19.562Z",
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    ledger = UsageLedger(project, migrate_legacy=False)
+    ledger.append(
+        replace(
+            _record(
+                call_id="acp-turn",
+                project_root=project,
+                mission_id=None,
+                provider="copilot",
+                run_label="manager-classify-fast",
+                started_at=started_at,
+                completed_at=completed_at,
+                premium_requests=1.0,
+                thread_id="acp-1",
+                copilot_token_billing_expected=True,
+            ),
+            cost_usd=None,
+            pricing_status="partial",
+            pricing_tier="copilot_token_pending",
+        )
+    )
+    pending = ledger.records()[0]
+    assert pending.pricing_tier == "copilot_token_pending"
+
+    assert ledger.ensure_copilot_usage_reconciled() == 1
+
+    settled = ledger.records()[0]
+    assert settled.cost_usd == pytest.approx(0.029467)
+    assert settled.pricing_status == "priced"
+    assert settled.pricing_tier == "copilot_token"
+    assert settled.cost_basis == "token"
+    assert settled.total_nano_aiu == 2_946_700_000
+    assert settled.input_tokens is None
+    assert settled.model_usage[0]["usage_event_id"] == 1
+    # A second pass has nothing left to settle.
+    assert ledger.ensure_copilot_usage_reconciled() == 0
+
+
+# --- turns Argus itself interrupted before the Copilot CLI recorded them ---
+
+
+def _interrupt_receipt(for_call: str, **overrides) -> dict:
+    receipt = {
+        "type": "agent.io.complete", "io_kind": "complete", "call_id": for_call,
+        "run_label": "manager-supervision", "backend": "copilot", "model": "gpt-5.6-sol",
+        "exit_code": -15, "thread_id": "acp-b4c1", "provider_session_id": "acp-b4c1",
+        "turn_completed": False, "turn_failed": True,
+        "fatal_error": "External interrupt: Manager supervision superseded",
+        "tool_activity_observed": False, "input_tokens": 0, "cached_input_tokens": 0,
+        "cache_write_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0,
+        "premium_requests": None, "premium_requests_present": False, "total_nano_aiu": None,
+        "agent_message_count": 0, "agent_message_chars": 0, "stdout_line_count": 0,
+        "stderr_line_count": 0, "json_event_count": 0,
+    }
+    receipt.update(overrides)
+    return receipt
+
+
+def test_interrupted_empty_acp_turn_settles_as_one_request_when_recorded() -> None:
+    from argus.core.pricing import copilot_usd_per_premium_request
+    from argus.core.usage import INTERRUPTED_REQUEST_TIER
+
+    record = _record(
+        call_id="superseded",
+        project_root=Path("/tmp/p1"),
+        mission_id=None,
+        provider="copilot",
+        run_label="manager-supervision",
+        status="error",
+        error="External interrupt: Manager supervision superseded",
+        copilot_token_billing_expected=True,
+        thread_id="acp-b4c1",
+        startup_receipt=_interrupt_receipt("superseded"),
+    )
+    assert record.pricing_status == "priced"
+    assert record.pricing_tier == INTERRUPTED_REQUEST_TIER
+    assert record.cost_basis == "premium_request"
+    assert record.cost_usd == pytest.approx(copilot_usd_per_premium_request())
+    assert record.premium_request_cost_usd == pytest.approx(copilot_usd_per_premium_request())
+    assert record.premium_requests is None
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"agent_message_chars": 120, "agent_message_count": 1},
+        {"tool_activity_observed": True},
+        {"premium_requests": 1.0, "premium_requests_present": True},
+        {"fatal_error": "acp prompt ended without a response"},
+        {"call_id": "another-call"},
+    ],
+)
+def test_interrupted_turn_with_any_recorded_activity_stays_pending(overrides: dict) -> None:
+    record = _record(
+        call_id="superseded",
+        project_root=Path("/tmp/p1"),
+        mission_id=None,
+        provider="copilot",
+        run_label="manager-supervision",
+        status="error",
+        error="External interrupt: Manager supervision superseded",
+        copilot_token_billing_expected=True,
+        thread_id="acp-b4c1",
+        startup_receipt=_interrupt_receipt("superseded", **overrides),
+    )
+    assert record.pricing_status == "partial"
+    assert record.pricing_tier == "copilot_token_pending"
+    assert record.cost_usd is None
+
+
+def test_copilot_reconcile_settles_a_pending_interrupted_turn_from_its_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rows written before this rule existed are settled by reconciliation, and
+    the settlement no longer holds admission under the block policy."""
+    from argus.core.cost_control import _unresolved_costs
+    from argus.core.pricing import copilot_usd_per_premium_request
+    from argus.core.usage import INTERRUPTED_REQUEST_TIER
+
+    copilot_home = tmp_path / "copilot"
+    copilot_home.mkdir()
+    monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
+    monkeypatch.setattr(
+        "argus.core.usage._copilot_reconcile_enabled_for", lambda _root: True,
+    )
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    (project / "events.jsonl").write_text(
+        json.dumps(_interrupt_receipt("superseded")) + "\n", encoding="utf-8",
+    )
+    ledger = UsageLedger(project, migrate_legacy=False)
+    ledger.append(
+        replace(
+            _record(
+                call_id="superseded",
+                project_root=project,
+                mission_id=None,
+                provider="copilot",
+                run_label="manager-supervision",
+                status="error",
+                error="External interrupt: Manager supervision superseded",
+                started_at=1_790_755_911.2,
+                completed_at=1_790_755_913.2,
+                copilot_token_billing_expected=True,
+                thread_id="acp-b4c1",
+            ),
+            cost_usd=None,
+            pricing_status="partial",
+            pricing_tier="copilot_token_pending",
+            cost_basis="none",
+        )
+    )
+    pending = ledger.records()[0]
+    assert pending.pricing_status == "partial"
+    assert _unresolved_costs([pending], []), "the old row blocks admission"
+
+    assert ledger.ensure_copilot_usage_reconciled() == 1
+    settled = ledger.records()[0]
+    assert settled.pricing_status == "priced"
+    assert settled.pricing_tier == INTERRUPTED_REQUEST_TIER
+    assert settled.cost_usd == pytest.approx(copilot_usd_per_premium_request())
+    assert _unresolved_costs([settled], []) == []
+    assert ledger.ensure_copilot_usage_reconciled() == 0
+
+    # If the CLI does record the session later, the exact charge replaces the
+    # request estimate.
+    events = copilot_home / "session-state" / "acp-b4c1" / "events.jsonl"
+    events.parent.mkdir(parents=True)
+    events.write_text(
+        json.dumps({
+            "type": "session.start",
+            "data": {"sessionId": "acp-b4c1", "selectedModel": "gpt-5.6-sol"},
+            "timestamp": "2026-09-30T08:11:51.300Z",
+        })
+        + "\n"
+        + json.dumps({
+            "type": "session.usage_checkpoint",
+            "data": {"totalNanoAiu": 1_100_000_000, "totalPremiumRequests": 1},
+            "timestamp": "2026-09-30T08:11:53.100Z",
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    assert ledger.ensure_copilot_usage_reconciled() == 1
+    exact = ledger.records()[0]
+    assert exact.pricing_tier == "copilot_token"
+    assert exact.cost_basis == "token"
+    assert exact.cost_usd == pytest.approx(0.011)

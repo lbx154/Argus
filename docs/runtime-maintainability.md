@@ -81,6 +81,16 @@ Reviewer 的语义判断和 Host 的状态提交发生在不同位置；定位�
 | 角色会话 | `core.role_session` | 可轮换、可重建的上下文；任务权威仍来自持久任务与契约 |
 | 事件与运行视图 | `JsonlEventSink` → `core.mission_view` | 日志先落盘，视图与已消费位置原子保存；失败由读取补齐，投影不承担执行权威 |
 
+守护进程默认常驻不等于普通入队任务是开放式任务。只有已启用并被当前 worker
+接纳的 continuous campaign 才向角色传递其 `open_ended` 和 objective；
+启动时的恢复/抑制判断和运行中的配置重载都同步到 mission runner。未启用 campaign
+的 CLI/Web 普通任务可以正常验收结束，不要求额外传 `--bounded`。显式开放式 campaign、
+有限 campaign、守护进程驻留和已有终态证据的语义保持不变。
+
+有限任务的 Planner 预览也通过角色目录读取会话 state root 中选定的 vertical
+和阶段，并接收该领域的阶段规则；工作目录只作为代码、数据和执行位置，
+不能因为它没有 `PIPELINE_STATE.json` 就回退到 research。
+
 ## 单任务执行顺序
 
 `_run_one` 是单次任务的导航入口。沿着以下顺序检查代码，避免只看最终 `status`：

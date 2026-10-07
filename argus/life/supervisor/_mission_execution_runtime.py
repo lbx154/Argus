@@ -106,6 +106,21 @@ def dispose_maintenance_worktree(
     sidecar.unlink(missing_ok=True)
 
 
+def _mission_may_hold_external_wait(memory: Any) -> bool:
+    """May a mission keep its slot while the work it started runs?
+
+    Yes while no other mission is claimable: the slot would only be released
+    to a Planner turn with nothing to schedule and a session restart minutes
+    later. Anything claimable is a reason to pause the mission and let the
+    daemon act. The runner adds the inbox to this answer, since operator
+    messages are its boundary.
+    """
+    try:
+        return not memory.backlog.ready()
+    except Exception:  # noqa: BLE001 - when in doubt, release the slot
+        return False
+
+
 def _refreshes_mission_prelude(runner: Any) -> bool:
     """Only an explicit runner capability may replace snapshot context."""
     from inspect import signature
@@ -583,6 +598,9 @@ class MissionExecutionRuntimeMixin:
     # Phase: runner invocation (+ restricted validator-repair capability)
     # ------------------------------------------------------------------
 
+    def _external_wait_hold(self) -> bool:
+        return _mission_may_hold_external_wait(self.memory)
+
     def _invoke_mission_runner(self, state: _MissionRunState) -> None:
         """Call ``self.runner.execute(...)`` and record the raw outcome.
 
@@ -758,6 +776,8 @@ class MissionExecutionRuntimeMixin:
                         ) if block)
 
                     execute_kwargs["prelude_context_provider"] = current_prelude
+                if "external_wait_hold" in params:
+                    execute_kwargs["external_wait_hold"] = self._external_wait_hold
                 if "planner_context_provider" in params:
                     execute_kwargs["planner_context_provider"] = (
                         lambda: self._build_planner_continuation_context(item)
