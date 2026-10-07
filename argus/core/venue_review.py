@@ -32,17 +32,15 @@ def selected_venue(state_root: Path | str) -> str:
     return str(state.get("target_venue") or state.get("venue") or "").strip()
 
 
+# Shown where a venue name would be when none was selected. A project can reach
+# its final review with nothing having set ``target_venue``; the Reviewer then
+# judges against the stated standard and the operator's bar, and its verdict
+# counts. The recorded ``venue`` stays empty rather than holding this label.
 UNSELECTED_VENUE = "the stated standard (no venue selected)"
 
 
-def venue_for_review(state_root: Path | str) -> str:
-    """The selected venue, or the label the final review is judged against when none was selected.
-
-    A project can reach its final review with nothing having set ``target_venue``.
-    The Reviewer then judges against the stated standard and the operator's bar,
-    and its verdict must count: a blank venue field is not a missing verdict.
-    """
-    return selected_venue(state_root) or UNSELECTED_VENUE
+def _venue_phrase(venue: str) -> str:
+    return "the selected venue" if venue else "the stated standard"
 
 
 def selected_acceptance_minimum(state_root: Path | str) -> str:
@@ -75,14 +73,14 @@ def _venue_key(value: str) -> str:
 def normalize_venue_review(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
-    venue = value.get("venue")
+    venue = value.get("venue", "")
     rationale = value.get("rationale")
     recommendation = re.sub(r"[\s-]+", "_", str(value.get("recommendation") or "").strip().lower())
     if recommendation == "best_paper_level":
         recommendation = "best_paper"
     issues = value.get("blocking_issues")
     if (
-        not isinstance(venue, str) or not venue.strip()
+        not isinstance(venue, str)
         or not isinstance(rationale, str) or not rationale.strip()
         or recommendation not in RECOMMENDATIONS
         or not isinstance(value.get("acceptance_clear"), bool)
@@ -105,18 +103,18 @@ def normalize_venue_review(value: Any) -> dict[str, Any] | None:
 
 def venue_review_issue(value: Any, *, venue: str, minimum: str = "weak_accept") -> str:
     assessment = normalize_venue_review(value)
-    if not venue:
-        return "no selected venue for the final paper review"
     if assessment is None:
         return "missing or invalid explicit venue recommendation"
-    if _venue_key(assessment["venue"]) != _venue_key(venue):
+    # With no selected venue there is nothing to bind the verdict to; with one,
+    # the verdict must be for that venue.
+    if venue and _venue_key(assessment["venue"]) != _venue_key(venue):
         return f"reviewed venue {assessment['venue']!r} differs from selected venue {venue!r}"
     if minimum not in ACCEPTED_RECOMMENDATIONS:
         return f"invalid operator venue acceptance minimum: {minimum!r}"
     if RECOMMENDATIONS.index(assessment["recommendation"]) < RECOMMENDATIONS.index(minimum):
         return f"venue recommendation is {assessment['recommendation']}; {minimum} or better is required"
     if assessment["acceptance_clear"] is not True:
-        return "Reviewer did not clearly support acceptance at the selected venue"
+        return f"Reviewer did not clearly support acceptance at {_venue_phrase(venue)}"
     if assessment["blocking_issues"]:
         return "reject-level issues remain: " + "; ".join(assessment["blocking_issues"])
     if assessment.get("revision_required") is True:
@@ -204,8 +202,11 @@ def enforce_venue_acceptance(
         decision.status = "blocked"
         decision.backend_unavailable = True
         decision.backend_stop_kind = "backend_unavailable"
-        decision.reason = "Final Reviewer omitted a valid assessment for the selected venue."
-        decision.next_action = "Retry the independent Reviewer on the same paper and submit a review action with its actual recommendation for the selected venue."
+        decision.reason = f"Final Reviewer omitted a valid assessment for {_venue_phrase(venue)}."
+        decision.next_action = (
+            "Retry the independent Reviewer on the same paper and submit a review action "
+            f"with its actual recommendation for {_venue_phrase(venue)}."
+        )
         return
     current = paper_review_snapshot(artifact_root)
     issue = venue_review_issue(assessment, venue=venue, minimum=minimum)
@@ -236,7 +237,8 @@ def enforce_venue_acceptance(
         decision.reason = assessment["rationale"]
     if not decision.next_action.strip():
         repairs = "; ".join(assessment["blocking_issues"]) or assessment["rationale"]
-        decision.next_action = "Revise the current paper against the selected venue's standard: " + repairs
+        standard = "the selected venue's standard" if venue else "the stated standard"
+        decision.next_action = f"Revise the current paper against {standard}: " + repairs
     if (
         minimum in ACCEPTED_RECOMMENDATIONS
         and assessment["recommendation"] in ACCEPTED_RECOMMENDATIONS
@@ -271,7 +273,7 @@ def venue_review_instruction(venue: str, *, minimum: str = "weak_accept") -> str
         + (
             f"Act as an independent reviewer for the currently selected venue: {venue}. "
             "Read its researched criteria and the actual current manuscript, rendered pages, "
-            if venue and venue != UNSELECTED_VENUE else
+            if venue else
             "No venue has been selected for this paper. Act as an independent reviewer for a "
             "strong venue in its field, say which standard you applied, and read the actual "
             "current manuscript, rendered pages, "

@@ -581,12 +581,14 @@ def _persist_research_review(
         or ""
     ).strip()
     if decision.venue_review is not None:
+        from ..core.venue_review import UNSELECTED_VENUE
+
         challenge = "\n".join(f"- {issue}" for issue in decision.venue_review["blocking_issues"])
     text = (
         "# Authoritative review\n\n"
         + (
             "## Selected-venue assessment\n"
-            f"Venue: {decision.venue_review['venue']}\n\n"
+            f"Venue: {decision.venue_review['venue'] or UNSELECTED_VENUE}\n\n"
             f"Recommendation: {decision.venue_review['recommendation']}\n\n"
             if decision.venue_review is not None else f"**Judgment:** {decision.status}\n\n"
         )
@@ -741,7 +743,7 @@ class Reviewer:
             paper_review_snapshot,
             requires_venue_review,
             selected_acceptance_minimum,
-            venue_for_review,
+            selected_venue,
             venue_review_instruction,
         )
         from ..skills.vertical_select import resolve_vertical_if_decided
@@ -754,7 +756,7 @@ class Reviewer:
             scope=scope,
             operation=operation,
         )
-        venue = venue_for_review(state_root) if venue_required else ""
+        venue = selected_venue(state_root) if venue_required else ""
         acceptance_minimum = selected_acceptance_minimum(state_root) if venue_required else "weak_accept"
         venue_snapshot = paper_review_snapshot(artifact_root) if venue_required else None
         reviewed_manuscript_snapshot = None

@@ -321,17 +321,18 @@ def test_stage_certificate_keeps_venue_rating_and_expires_on_figure_changes(pape
     assert "changed" in record["stale_reason"]
 
 
-@pytest.mark.parametrize("recommendation, clear", [("weak_accept", True), ("weak_reject", False)])
-def test_reviewer_verdict_counts_when_no_venue_was_selected(paper, recommendation, clear):
-    from argus.core.venue_review import UNSELECTED_VENUE, venue_for_review
+@pytest.mark.parametrize("recommendation", ["weak_accept", "weak_reject"])
+def test_reviewer_verdict_counts_when_no_venue_was_selected(paper, recommendation):
+    from types import SimpleNamespace
 
-    state_root = paper / "session-state"
-    persist_vertical(state_root, "research")
+    from argus.core.stage_certificate import latest_stage_review, record_stage_review
+
+    state_root = paper
     state = read_pipeline_state(state_root)
-    state["current_stage"] = "review"
+    state.pop("target_venue", None)
+    state.pop("venue", None)
     write_pipeline_state(state_root, state)
-    assert venue_for_review(state_root) == UNSELECTED_VENUE
-    runner = _Runner(assessment(recommendation, clear=clear))
+    runner = _Runner(assessment(recommendation))
     review = Reviewer(runner).evaluate(
         objective="Judge the current paper", round_index=1, session_id=None,
         main_summary="Ready for review", main_error=None, scope="final_submission",
@@ -342,7 +343,22 @@ def test_reviewer_verdict_counts_when_no_venue_was_selected(paper, recommendatio
     # A verdict against the stated standard is a verdict: never a Reviewer backend failure.
     assert not review.backend_unavailable
     assert "omitted a valid assessment" not in (review.reason or "")
-    assert review.venue_review["venue"] == UNSELECTED_VENUE
+    # No venue name is invented for the record.
+    assert review.venue_review["venue"] == ""
     assert review.venue_review["recommendation"] == recommendation
-    assert f"Recommendation: {recommendation}" in (paper / "paper/REVIEW.md").read_text()
-    assert review.final_submission_certified is (recommendation == "weak_accept")
+    report = (paper / "paper/REVIEW.md").read_text()
+    assert f"Recommendation: {recommendation}" in report
+    accepted = recommendation == "weak_accept"
+    assert review.final_submission_certified is accepted
+    # The finalizers apply the same check: an accepting verdict lets the project finish.
+    issue = current_venue_acceptance_issue(review, state_root=state_root, artifact_root=paper)
+    assert (issue == "") is accepted
+    record_stage_review(
+        state_root=state_root, project_root=paper, stage="review", item=SimpleNamespace(id="final-review"),
+        manager_action="complete", venue_review=review.venue_review,
+        venue_review_snapshot=review.venue_review_snapshot,
+    )
+    assert latest_stage_review(state_root, "review")["certified"] is accepted
+    if not accepted:
+        assert "selected venue" not in issue
+        assert "selected venue" not in review.next_action
