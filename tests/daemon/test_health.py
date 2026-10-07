@@ -66,6 +66,31 @@ def test_intentional_wait_is_not_mislabeled_as_stalled(
     assert health["stalled"] is False
 
 
+def test_waiting_for_background_work_is_a_wait_not_a_stall(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # The lead watches its team's task board for up to an hour without a
+    # model call; the 2026-09-30 trial read that hour as "no new progress".
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_STALL_SECONDS", "10")
+    tracker = DaemonHealthTracker(tmp_path, pid=123)
+    old = time.time() - 40
+    tracker.observe({"type": "round.start", "ts": old - 1})
+    tracker.observe({"type": "round.external_work_wait.started", "ts": old, "work_id": "team:routes"})
+
+    health = read_daemon_health(tmp_path, pid=123, alive=True)
+
+    assert health["state"] == "waiting"
+    assert health["stalled"] is False
+    assert health["last_progress_event"] == "round.external_work_wait.started"
+
+    tracker.observe({"type": "round.external_work_wait.completed", "ts": old + 5, "work_id": "team:routes"})
+    resumed = read_daemon_health(tmp_path, pid=123, alive=True, now=old + 6)
+
+    assert resumed["state"] == "active"
+    assert resumed["last_progress_event"] == "round.external_work_wait.completed"
+
+
 def test_progress_event_clears_stall_age(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_STALL_SECONDS", "10")
     tracker = DaemonHealthTracker(tmp_path, pid=123)

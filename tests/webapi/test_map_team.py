@@ -330,3 +330,82 @@ def test_a_task_paused_by_the_provider_projects_as_paused_not_failed(tmp_path: P
     assert events["route-01"]["status"] == "paused"
     assert "provider concurrency limit" in events["route-01"]["reason"]
     assert events["route-02"]["status"] == "pending"
+
+
+def _write(path: Path, payload) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(payload if isinstance(payload, str) else json.dumps(payload), encoding="utf-8")
+
+
+def test_subtask_outcomes_come_from_the_board_artifacts_not_from_done(tmp_path: Path) -> None:
+    """Six green ticks hid "two routes rejected, one chosen" (2026-09-30 trial):
+    the verdict is on the review artifact and the choice on the selection
+    board, so the observation carries them."""
+    sid, life, board = sample(tmp_path)
+    task_board.form(board, [
+        {"task_id": "route-01", "role": "idea-route", "title": "Investigate route one",
+         "objective": "Read primary sources for route one.", "target": "route-01"},
+        {"task_id": "route-01-review", "role": "idea-review", "title": "Independently review route one",
+         "objective": "Check the route's evidence.", "deps": ["route-01"], "target": "route-01"},
+        {"task_id": "route-02", "role": "idea-route", "title": "Investigate route two",
+         "objective": "Investigate a distinct route.", "target": "route-02"},
+        {"task_id": "route-02-review", "role": "idea-review", "title": "Independently review route two",
+         "objective": "Check the route's evidence.", "deps": ["route-02"], "target": "route-02"},
+    ])
+    for task_id in ("route-01", "route-02", "route-01-review", "route-02-review"):
+        task_board.claim_top(board, f"w-{task_id}", now=20)
+        task_board.complete(board, task_id)
+    _write(board / "artifacts" / "routes" / "route-01.md", "# Route 01: Paired mode factorization\n\nThesis.")
+    _write(board / "artifacts" / "routes" / "route-02.md", "# Route 02: Latent particle filtering\n")
+    _write(board / "artifacts" / "reviews" / "route-01.json", {
+        "schema_version": 2, "route_id": "route-01", "verdict": "rejected",
+        "summary": "The conflict signal is parameterization-dependent.", "fatal_concerns": ["a", "b"],
+    })
+    _write(board / "artifacts" / "reviews" / "route-02.json", {
+        "schema_version": 2, "route_id": "route-02", "verdict": "qualified", "summary": "Qualified.", "fatal_concerns": [],
+    })
+    feed = MapFeed()
+    first = feed.read(sid, tmp_path, life)
+    events = team_events(first)
+    assert events["route-01"]["team_outcome"] == {"kind": "route", "title": "Paired mode factorization", "verdict": "rejected"}
+    assert events["route-01-review"]["team_outcome"] == {
+        "kind": "review", "verdict": "rejected", "summary": "The conflict signal is parameterization-dependent.", "concerns": 2,
+    }
+    assert events["route-02"]["team_outcome"] == {"kind": "route", "title": "Latent particle filtering", "verdict": "qualified"}
+    assert all(event["status"] == "done" for event in events.values())
+
+    selector_board = board.with_name(board.name + "-selection")
+    task_board.form(selector_board, [{
+        "task_id": "evidence-selector", "role": "idea-selector", "title": "Select the supported route",
+        "objective": "Choose one route.", "target": "evidence-selection",
+    }])
+    task_board.claim_top(selector_board, "w-sel", now=30)
+    task_board.complete(selector_board, "evidence-selector")
+    _write(selector_board / "artifacts" / "selection.json", {
+        "schema_version": 3, "route_id": "route-02", "rationale": "Only route two survived its review.",
+        "rejections": {"route-01": "Rejected because the comparison cannot isolate the mechanism."},
+    })
+    # A new artifact changes the board's signature, so the feed re-reads it.
+    updated = team_events(feed.read(sid, tmp_path, life, first["cursor"]))
+    assert updated["route-02"]["team_outcome"] == {
+        "kind": "route", "title": "Latent particle filtering", "verdict": "qualified", "selected": True,
+    }
+    assert updated["route-01"]["team_outcome"] == {
+        "kind": "route", "title": "Paired mode factorization", "verdict": "rejected", "selected": False,
+        "rejection": "Rejected because the comparison cannot isolate the mechanism.",
+    }
+    assert updated["evidence-selector"]["team_outcome"] == {
+        "kind": "selection", "selected_route": "route-02", "selected_title": "Latent particle filtering",
+        "rationale": "Only route two survived its review.", "rejected": ["route-01"],
+    }
+    unchanged = read_map(sid, tmp_path, life)
+    assert team_events(unchanged)["route-01"]["team_outcome"] == updated["route-01"]["team_outcome"]
+
+
+def test_unreadable_or_foreign_conclusions_are_ignored(tmp_path: Path) -> None:
+    sid, life, board = sample(tmp_path)
+    _write(board / "artifacts" / "reviews" / "route-01.json", "{not json")
+    _write(board / "artifacts" / "reviews" / "route-02.json", {"route_id": "route-02", "verdict": "maybe"})
+    _write(board / "artifacts" / "routes" / "route-01.md", "no heading here")
+    events = team_events(read_map(sid, tmp_path, life))
+    assert all("team_outcome" not in event for event in events.values())

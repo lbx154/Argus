@@ -2,7 +2,13 @@ import type { Snapshot } from './models.js';
 import type { ApiMeta } from './api.js';
 import { API_SERVICE, API_PROTOCOL, SNAPSHOT_SCHEMA_VERSION, REQUIRED_API_CAPABILITIES } from './apiProtocol.generated.js';
 
-export const RELEASE_ARTIFACT_DRIFT_WARNING = 'python -m argus.release_tools.build_release';
+/** The Python source has moved on since the release manifest and bundles were
+ * built. The interface being served still matches the API (release ids are
+ * checked below), so this is a note for whoever publishes the checkout, not
+ * something a reader of the page can act on. */
+export const RELEASE_ARTIFACT_DRIFT_WARNING =
+  'the Argus source checkout has changed since its release bundle was built; '
+  + 'before publishing, rebuild it with "python -m argus.release_tools.build_release" or reinstall Argus';
 
 export interface ApiCompatibility {
   compatible: boolean;

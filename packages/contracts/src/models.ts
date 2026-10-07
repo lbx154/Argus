@@ -81,6 +81,26 @@ export interface MissionOutcomeDimensions {
   stage_certification: string;
   interruption_kind: string;
   resumable: boolean;
+  /** Present while a mission is parked on background work it will resume from. */
+  external_wait?: { kind: string; work_id: string; workdir?: string };
+}
+
+/** One team a mission waits on, with its progress by kind of subtask. */
+export interface BackgroundWorkEntry {
+  work_id: string;
+  team_id: string;
+  owner?: string;
+  state: 'running' | 'attention' | 'done' | string;
+  total: number;
+  done: number;
+  running: number;
+  pending: number;
+  attention: number;
+  parts: Array<{ role: string; total: number; done: number; running: number; attention: number }>;
+  started_ts?: number | null;
+  last_progress_ts?: number | null;
+  /** Backlog ids of the missions recorded as waiting on this work. */
+  waited_by: string[];
 }
 
 /** One safe, workspace-relative file selected for a completed delivery. */
@@ -399,6 +419,8 @@ export interface Snapshot {
   pending_questions?: Array<Record<string, unknown>>;
   /** Foreground Manager/SELF requests that remain cancellable across a page reload. */
   manager_requests?: Array<{ request_id: string; status: 'running' }>;
+  /** Teams the open missions wait on, read once so every surface says the same thing. */
+  background_work?: BackgroundWorkEntry[];
   partial?: boolean;
   diagnostics?: Array<{
     section: string;
