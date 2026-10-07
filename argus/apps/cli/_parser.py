@@ -669,6 +669,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to .autors/<project>/wiki/",
     )
 
+    correct_parser = wiki_sub.add_parser(
+        "correct",
+        help="Correct a knowledge page in place and record the correction",
+    )
+    correct_parser.add_argument(
+        "page",
+        help="Page path inside the library, e.g. pages/lessons/2026-09-30-regime.md",
+    )
+    correct_parser.add_argument(
+        "--statement",
+        required=True,
+        help="What the page should say: replaces its opening paragraph",
+    )
+    correct_parser.add_argument(
+        "--reason",
+        required=True,
+        help="Why the earlier wording was wrong; kept in the page's History section",
+    )
+    correct_parser.add_argument(
+        "--description",
+        default="",
+        help="A new one-line summary for the page's front matter and index entry",
+    )
+    correct_parser.add_argument(
+        "--by",
+        default="operator",
+        help="Who corrects the page, as the page and the journal record it (default: operator)",
+    )
+    where = correct_parser.add_mutually_exclusive_group(required=True)
+    where.add_argument(
+        "--wiki",
+        type=Path,
+        help="Path to the library root: .autors/<project>/wiki/ or a shared wiki directory",
+    )
+    where.add_argument(
+        "--scope",
+        choices=("global", "vertical"),
+        help="Correct a page of this home's shared library instead of a project wiki",
+    )
+    correct_parser.add_argument(
+        "--vertical",
+        default="",
+        help="The vertical whose shared library holds the page (with --scope vertical)",
+    )
     learn_parser = subparsers.add_parser(
         "learn",
         help="Ingest learning material so a learning mission can update Argus's "

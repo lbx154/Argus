@@ -3303,7 +3303,8 @@
           "type": "string",
           "enum": [
             "learned",
-            "promoted"
+            "promoted",
+            "corrected"
           ]
         },
         "scope": {

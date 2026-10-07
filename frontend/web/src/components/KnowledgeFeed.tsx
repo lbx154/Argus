@@ -30,8 +30,8 @@ export function useKnowledgeFeed(enabled = true, limit = KNOWLEDGE_FEED_LIMIT) {
 }
 
 export const knowledgeKindLabels: Record<'en' | 'zh', Record<KnowledgeEventKind, string>> = {
-  en: { learned: 'Learned', recalled: 'Recalled', promoted: 'Promoted' },
-  zh: { learned: '学到了', recalled: '读取了', promoted: '提升了' },
+  en: { learned: 'Learned', recalled: 'Recalled', promoted: 'Promoted', corrected: 'Corrected' },
+  zh: { learned: '学到了', recalled: '读取了', promoted: '提升了', corrected: '纠正了' },
 };
 const scopeLabels: Record<'en' | 'zh', Record<WikiScope, string>> = {
   en: { private: 'About you', global: 'Global', vertical: 'Vertical', project: 'Project' },
@@ -69,16 +69,17 @@ export function resolveKnowledgeItem(event: Pick<KnowledgeEvent, 'scope' | 'vert
   return items.find(item => item.scope === event.scope && item.vertical === event.vertical && item.path === event.path) ?? null;
 }
 
-/** The newest page learned or promoted within the window, for the sidebar's "just learned" row. */
+/** The newest page learned, promoted or corrected within the window, for the sidebar's "just learned" row. */
 export function latestLearned(events: KnowledgeEvent[], now = Date.now() / 1000, window = JUST_LEARNED_WINDOW_S): KnowledgeEvent | null {
   return [...events].sort((a, b) => b.ts - a.ts)
-    .find(event => (event.kind === 'learned' || event.kind === 'promoted') && now - event.ts <= window && event.title) ?? null;
+    .find(event => (event.kind === 'learned' || event.kind === 'promoted' || event.kind === 'corrected') && now - event.ts <= window && event.title) ?? null;
 }
 
 const badgeTone: Record<KnowledgeEventKind, string> = {
   learned: 'bg-blue/10 text-blue',
   recalled: 'bg-line/60 text-ink-dim',
   promoted: 'bg-ok/10 text-ok',
+  corrected: 'bg-warn/10 text-warn',
 };
 
 export function KnowledgeFeedList({ events, items, sid, projectNames = {}, query = '', onSelect, selected }: {

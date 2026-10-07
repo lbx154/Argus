@@ -978,7 +978,7 @@ export interface WikiEvolutionCompletedEvent extends EventMsg {
 export interface KnowledgeLearnedEvent extends EventMsg {
   type: "knowledge.learned";
   payload_schema_version?: 1;
-  "kind": "learned" | "promoted";
+  "kind": "learned" | "promoted" | "corrected";
   "scope": "private" | "project" | "vertical" | "global";
   "vertical"?: string;
   "path": string;

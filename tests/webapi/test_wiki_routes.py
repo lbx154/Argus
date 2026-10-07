@@ -484,3 +484,67 @@ def test_project_wiki_rows_carry_kind_source_created_and_reuse_count(tmp_path):
     page = client.get("/api/projects/demo/wiki/page", params={"path": "pages/facts/gpu.md"}, headers=HEADERS).json()
     assert (page["kind"], page["source"], page["created"]) == ("fact", "chat/8f3a2b1c", "2026-09-16")
     assert page["content"] == "Body.\n"
+
+
+def test_correcting_a_page_rewrites_its_lead_and_records_the_correction(tmp_path):
+    from argus.wiki.journal import read_knowledge_events
+
+    client, workspace = _client(tmp_path)
+    home = tmp_path / "state"
+    project = _wiki(workspace)
+    _decide_vertical(workspace, "research")
+    _write(
+        project / "pages" / "queue.md",
+        _page("Queue", "The queue is unbounded", "# Queue\n\nThe queue never drops work.\n\n## Evidence\n\n- `queue.py`\n"),
+        2_000,
+    )
+    research = _shared(home, "_shared_verticals", "research")
+    _write(research / "pages" / "eval" / "protocol.md", _page("Protocol", "Shared protocol", "Old rule.\n"), 3_000)
+
+    unauthorized = client.post("/api/wiki/page/correct", json={
+        "scope": "project", "sid": "demo", "path": "pages/queue.md", "statement": "x", "reason": "y",
+    })
+    assert unauthorized.status_code == 401
+    missing = client.post("/api/wiki/page/correct", json={
+        "scope": "project", "sid": "demo", "path": "pages/nope.md", "statement": "x", "reason": "y",
+    }, headers=HEADERS)
+    assert missing.status_code == 404
+
+    done = client.post("/api/wiki/page/correct", json={
+        "scope": "project", "sid": "demo", "path": "pages/queue.md",
+        "statement": "The queue drops work older than its bound; nothing is kept forever.",
+        "reason": "queue.py evicts at 1000 entries.",
+        "description": "The queue is bounded",
+        "by": "operator",
+    }, headers=HEADERS)
+    assert done.status_code == 200, done.text
+    body = done.json()
+    assert body["scope"] == "project" and body["vertical"] == "research" and body["path"] == "pages/queue.md"
+    assert body["description"] == "The queue is bounded"
+    assert body["content"].startswith("# Queue\n\nThe queue drops work older than its bound")
+    assert "## History" in body["content"] and 'previously said: "The queue never drops work."' in body["content"]
+    assert body["correction"]["previous_lead"] == "The queue never drops work."
+    assert body["correction"]["corrected"] and body["correction"]["by"] == "operator"
+    assert (project / ".history").is_dir()
+    # The page as served now carries the correction and the journal and event stream record it.
+    served = client.get(
+        "/api/wiki/page", params={"scope": "project", "sid": "demo", "path": "pages/queue.md"}, headers=HEADERS
+    ).json()
+    assert ", corrected by operator: queue.py evicts at 1000 entries." in served["markdown"]
+    rows = read_knowledge_events(home, kinds=["corrected"])
+    assert len(rows) == 1 and rows[0]["path"] == "pages/queue.md" and rows[0]["note"] == "queue.py evicts at 1000 entries."
+    events = [
+        line for line in (home / "projects" / "demo" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if '"knowledge.learned"' in line
+    ]
+    assert len(events) == 1 and '"kind": "corrected"' in events[0].replace('":"', '": "')
+    feed = client.get("/api/knowledge/feed", params={"kind": "corrected"}, headers=HEADERS).json()
+    assert [event["kind"] for event in feed["events"]] == ["corrected"]
+
+    shared = client.post("/api/wiki/page/correct", json={
+        "scope": "vertical", "vertical": "research", "path": "pages/eval/protocol.md",
+        "statement": "New rule.", "reason": "The old rule was measured wrong.",
+    }, headers=HEADERS)
+    assert shared.status_code == 200, shared.text
+    assert shared.json()["content"].startswith("New rule.")
+    assert (research / "pages" / "eval" / "protocol.md").read_text(encoding="utf-8").count("## History") == 1
