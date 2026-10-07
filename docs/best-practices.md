@@ -4,8 +4,8 @@ This page explains how to get good work out of Argus and why each
 recommendation holds. The reasons come from the code paths that read your
 input; the examples come from three real projects run on one machine on
 2026-09-30 (a GPU roofline research campaign, a damped-oscillator task, and a
-fresh-install trial), with times and costs taken from their logs. Nothing here
-is a quota; where a number appears it is a measurement, not a rule.
+first task on a fresh local install, not the hosted browser trial), with times
+and costs taken from their logs. Nothing here is a quota; where a number appears it is a measurement, not a rule.
 
 Read [getting started](getting-started.md) first if you have not run a task
 yet.
