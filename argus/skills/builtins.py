@@ -108,8 +108,8 @@ _RETIRED_BUILTIN_SEED_HASHES = {
         "4e08e186b5cf37f6e71215cf47a0cd262a54ca574e89ed2e6c5162f616bda07a"
     ),
     # Research: the ideation sub-pattern cards, anti-patterns, companion
-    # combos and the vendored attribution page; the 15 pattern cards and
-    # their overview stay.
+    # combos and the vendored attribution page (#193). The 15 pattern cards
+    # follow further down; only their overview stays.
     "engineer/references/ideation/ideation-sub-patterns/C00.md": (
         "0bc790076bc61bc5a902094b3b1326375b20a2210540b9665c97728f8a869d56"
     ),
