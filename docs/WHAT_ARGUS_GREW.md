@@ -331,14 +331,6 @@ time, and only then choose levers from a bottleneck taxonomy (fuse passes, vecto
 to 128-bit, coalesce, tensor cores, occupancy, tail effect). Optimization stops being
 guesswork with a denominator.
 
-**`verticals/kernel_engineering/skills/engineer/modern-gpu-blackwell-kernel-techniques.md`**
-
-> "**Don't guess B200 kernel design from memory — read the SOTA reference and build
-> from it.**"
-
-A routing skill: knowing that authoritative knowledge exists elsewhere and going to
-get it beats recalling it approximately.
-
 **Others in the same family:** `rl-training-collapse-diagnosis.md` (rollout reward
 variance, KL/clip, generation counts as health signals), `digital-circuit-error-guided-repair.md`
 (smallest evidence-supported repair, preserve cumulative correctness under a fixed

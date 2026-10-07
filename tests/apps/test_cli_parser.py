@@ -436,7 +436,7 @@ def test_main_exports_builtin_skills(
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert (target / "engineer/argus-engineer-role.md").exists()
+    assert (target / "engineer/minimal-coding-agent.md").exists()
     assert not (target / "engineer/semantic-scholar-search.md").exists()
     assert not (target / "engineer/auto-research-pipeline.md").exists()
     assert not (target / "engineer/emnlp-paper-drafting.md").exists()

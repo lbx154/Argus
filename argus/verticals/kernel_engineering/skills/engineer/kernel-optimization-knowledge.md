@@ -10,9 +10,8 @@ description: "The math/physics priors a kernel optimizer must reason with (roofl
 Whenever you optimize a GPU kernel and need to decide *what to change and why*
 — before touching code, and every time a change does not help. This skill is
 the **reasoning layer**: it tells you which physical limit you are fighting and
-where to learn what you don't yet know. Pair with `Official SOL-ExecBench
-Environment` (how to measure) and `SOL Kernel SOTA Optimization` (mechanism
-catalog).
+where to learn what you don't yet know. Pair with
+`kernel-benchmark-measurement-integrity.md` (how to measure so the number is real).
 
 **The cardinal rule:** never tune blindly. Every change must be justified by a
 *measured* bottleneck and a *physical* model of why it should move the number.

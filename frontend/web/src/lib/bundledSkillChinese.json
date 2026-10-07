@@ -1,11 +1,4 @@
 {
-  "global/agent-md-optimize-project-template.md": {
-    "title": "实测指标优化约定",
-    "summary": "用于明确要求改进实测指标的项目，整理正确性、范围、资源限制和真实停止条件；不是通用任务的额外门槛。",
-    "originalName": "Metric Optimization Project Contract",
-    "source": "argus/builtin_skills/agent-md-optimize-project-template.md",
-    "sourceSha256": "04635712c232d01b2b7ecae3af0e94f32071b89996094f43ca3b89c921296eaf"
-  },
   "global/agent-team-lead.md": {
     "title": "多智能体团队协作",
     "summary": "判断何时值得并行工作，按文件与职责拆分协作，并独立审查汇总结果；不替代原有角色与授权。",
@@ -20,33 +13,12 @@
     "source": "argus/builtin_skills/curator/argus-curator-role.md",
     "sourceSha256": "05f2f753fca7778c33c853a085e2a442853d8cb17cc9eb75e51d9d1b64a9bd7f"
   },
-  "global/engineer/argus-engineer-role.md": {
-    "title": "执行者的工作职责",
-    "summary": "说明如何在监督下实现或研究任务、解释证据并准备独立评审；不改变现有角色权限。",
-    "originalName": "The Engineer's role",
-    "source": "argus/builtin_skills/engineer/argus-engineer-role.md",
-    "sourceSha256": "3c4f983a645ed3a3be7742db797c741c1741362b93b9de72253bd5ca4b3334bf"
-  },
-  "global/engineer/drawio-diagram-authoring.md": {
-    "title": "可编辑 Draw.io 图示",
-    "summary": "适用于架构、流程、UML、网络等需要交付可继续编辑图稿的任务，选择合适图形库并核对输出。",
-    "originalName": "Draw.io Diagram Authoring",
-    "source": "argus/builtin_skills/engineer/drawio-diagram-authoring.md",
-    "sourceSha256": "c53d92072531bd3662ef181c7bd0459b0ecff10963a41b078e5ca6f5162b92e6"
-  },
   "global/engineer/environment-readiness.md": {
     "title": "项目环境就绪检查",
     "summary": "在产出实验结论前核实解释器、依赖、数据、评估器、存储和实际需要的计算资源；不擅自扩充环境。",
     "originalName": "Environment Readiness Check",
     "source": "argus/builtin_skills/engineer/environment-readiness.md",
     "sourceSha256": "726cfbbdc2952d253e800904d8e4bc4749e06c6de1ad8cad445dade753b0c625"
-  },
-  "global/engineer/mermaid-graphviz-diagrams.md": {
-    "title": "Mermaid 与 Graphviz 图示",
-    "summary": "用可版本管理的文本描述流程、时序、状态和依赖关系，并检查实际渲染结果；适合轻量文档图。",
-    "originalName": "Mermaid and Graphviz Diagrams",
-    "source": "argus/builtin_skills/engineer/mermaid-graphviz-diagrams.md",
-    "sourceSha256": "6d544cb4ec918840a3ccbe07de86771831c660c3ec07d751b3b64fd26969af12"
   },
   "global/engineer/minimal-coding-agent.md": {
     "title": "最小且严谨的软件修改",
@@ -683,7 +655,7 @@
     "summary": "检查共享硬件负载、时钟和串行隔离，防止把并发干扰造成的延迟差当作真实性能提升。",
     "originalName": "Kernel Benchmark Measurement Integrity — Isolation Is the Whole Game",
     "source": "argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md",
-    "sourceSha256": "2fc88e863b95d871a79db00f218e086a7e8e961b7f617beaadfa80030c47a2d4"
+    "sourceSha256": "eac04709bc94e771d2aa45d3d34780681297c2b493e6d84fe0b311bfaac6126e"
   },
   "vertical/kernel_engineering/engineer/kernel-environment-first-engineering.md": {
     "title": "GPU 算子实现与实测",
@@ -697,21 +669,7 @@
     "summary": "结合屋顶线、带宽、占用率和实测结果定位机制瓶颈，并查证所需知识，而非只试参数。",
     "originalName": "Kernel Optimization Knowledge & Retrieval",
     "source": "argus/verticals/kernel_engineering/skills/engineer/kernel-optimization-knowledge.md",
-    "sourceSha256": "e4d999286e2d4f05f457918c2d9d63d470da39efcb1d9937a1411433b38206fa"
-  },
-  "vertical/kernel_engineering/engineer/kernel-optimization-process-trace.md": {
-    "title": "GPU 算子优化过程案例",
-    "summary": "通过具体案例学习正确性容差、官方评分、成本定位和机制优化；案例中的加速不代表当前任务结果。",
-    "originalName": "Kernel Optimization Process — Worked Trace (019 decoder layer)",
-    "source": "argus/verticals/kernel_engineering/skills/engineer/kernel-optimization-process-trace.md",
-    "sourceSha256": "84e8feb27c50abdeaee10413eff2147bc80cad71a52d9d5e05e0f9ac82f0cada"
-  },
-  "vertical/kernel_engineering/engineer/modern-gpu-blackwell-kernel-techniques.md": {
-    "title": "Blackwell GPU 编程参考",
-    "summary": "查阅 B200 等平台的矩阵乘、注意力、数据搬运与调度技术，结合当前章节和实际测量使用。",
-    "originalName": "Modern GPU Programming for MLSys (Blackwell B200) — the SOTA kernel reference",
-    "source": "argus/verticals/kernel_engineering/skills/engineer/modern-gpu-blackwell-kernel-techniques.md",
-    "sourceSha256": "e4b21b069c4714e1f41fab19186cc6452d09f87193965ad0931f27e123a11ef8"
+    "sourceSha256": "95e726bbf4687e3d5f8929c4136e55de30b28aa508a24f357db65d8bebacc4a0"
   },
   "vertical/kernel_engineering/reviewer/kernel-engineering-review.md": {
     "title": "GPU 算子独立评审",
@@ -783,13 +741,6 @@
     "source": "argus/verticals/research/skills/engineer/ablation-planner.md",
     "sourceSha256": "f5c9bff3d6b5bc9dc4b50316e172856fcc01d708685c08a1ff29650871369858"
   },
-  "vertical/research/engineer/academic-vector-figures.md": {
-    "title": "学术矢量图与数学排版",
-    "summary": "准备精确数学文字和数据组件，用于可编辑的原生 PPT 论文图稿。",
-    "originalName": "Academic vector figures and mathematical typography",
-    "source": "argus/verticals/research/skills/engineer/academic-vector-figures.md",
-    "sourceSha256": "7167cd0fbd87b470ab5a9faaaffb1a457f586742cbf52101d2835c14c24c442d"
-  },
   "vertical/research/engineer/citation-check.md": {
     "title": "核对引用与一手来源",
     "summary": "在科学审查中直接对照原始来源核实和修正重要引用，不凭二手转述确认。",
@@ -817,13 +768,6 @@
     "originalName": "Executable spec (tests/spec)",
     "source": "argus/verticals/research/skills/engineer/executable-spec.md",
     "sourceSha256": "a5486acdd969b46fd6d464e2b408b43ecea398d6a41d7ea90718dbd10ee63e5b"
-  },
-  "vertical/research/engineer/figure-spec.md": {
-    "title": "用 FigureSpec 描述精确图形",
-    "summary": "在既定论文绘图路线中描述局部几何和矢量组件；不把它当作独立框架图路线或数据图替代品。",
-    "originalName": "FigureSpec: drawing exact diagrams from JSON",
-    "source": "argus/verticals/research/skills/engineer/figure-spec.md",
-    "sourceSha256": "e63d1f7e807a3e918a79c02b5a5584ae531cc6e48de608a6fbb632ca6a16b2ca"
   },
   "vertical/research/engineer/framework-stand-up-pilot.md": {
     "title": "训练框架限时试点",
@@ -893,7 +837,7 @@
     "summary": "沿现有绘图路线组织可编辑图稿、机制细节和组件，注重信息准确与整体视觉层次。",
     "originalName": "Composing a conceptual paper figure",
     "source": "argus/verticals/research/skills/engineer/paper-framework-figure-studio.md",
-    "sourceSha256": "ac3383fae82f76b072c6d92ab7126177759534493a819d286e53973e4b0fdfc4"
+    "sourceSha256": "3514274975c77947c77d5cbbc79fb098d1d9486d8596f89ada9af548b7e47c51"
   },
   "vertical/research/engineer/paper-illustration-image2.md": {
     "title": "论文中的生成式示意素材",
@@ -915,20 +859,6 @@
     "originalName": "Recipe-anchored Tuning",
     "source": "argus/verticals/research/skills/engineer/recipe-anchored-tuning.md",
     "sourceSha256": "1a101849e7276b9370a87728ad540ebe1ccd3463955cc65421741b539ba9a8f0"
-  },
-  "vertical/research/engineer/references/ideation/ATTRIBUTION.md": {
-    "title": "研究构思资料的来源与归属",
-    "summary": "说明随包研究构思参考资料的来源和引用关系，用于追溯归属，不是具体执行技能。",
-    "originalName": "engineer/references/ideation/ATTRIBUTION",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ATTRIBUTION.md",
-    "sourceSha256": "768eb690ea6dc36812abc8bb7bc580739e38081c2fa6efe890401d49db5445fd"
-  },
-  "vertical/research/engineer/references/ideation/anti-patterns.md": {
-    "title": "研究构思中的常见无效组合",
-    "summary": "提供容易导致研究论证不足的组合与反例，帮助检查想法；不是自动判断论文录用的规则。",
-    "originalName": "engineer/references/ideation/anti-patterns",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/anti-patterns.md",
-    "sourceSha256": "ec3f36e3281c2a7762e3af9142323e338b0c88911d290eec331451d3c60a7c95"
   },
   "vertical/research/engineer/references/ideation/ideation-patterns/adapt_via_conditioning.md": {
     "title": "构思参考：通过条件信息适应任务",
@@ -965,13 +895,6 @@
     "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass.md",
     "sourceSha256": "546e02ccfcf965d4084f8d3a00776268f93212b32a3849f2fa20c7a287db5001"
   },
-  "vertical/research/engineer/references/ideation/ideation-patterns/companion-combos.md": {
-    "title": "构思参考：模式组合的已有证据",
-    "summary": "查看研究模式在资料中共同出现的组合；共现不代表组合后必然有效。",
-    "originalName": "engineer/references/ideation/ideation-patterns/companion-combos",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/companion-combos.md",
-    "sourceSha256": "eaaa98d1c54a360cf126c88345ca34c807f5206e07d0e579a36cb202592cbd86"
-  },
   "vertical/research/engineer/references/ideation/ideation-patterns/controlled_diagnostic_design.md": {
     "title": "构思参考：隔离混杂因素的诊断",
     "summary": "设计能独立控制一个混杂因素的样例与检验，分清真实能力和表面得分。",
@@ -1005,7 +928,7 @@
     "summary": "用作各研究构思模式的导航，帮助选择进一步阅读的方向，不替代创新性与正确性验证。",
     "originalName": "engineer/references/ideation/ideation-patterns/overview",
     "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/overview.md",
-    "sourceSha256": "651b4efa2acea97ca6987883eee42c32ca109e686db6a30941a294e37b6d9063"
+    "sourceSha256": "92c96db8bd6326b9ae11d03db70c0335d65042b8b0a62689eef6aee72280c5e0"
   },
   "vertical/research/engineer/references/ideation/ideation-patterns/reframe_as_solvable_object.md": {
     "title": "构思参考：转化为可求解对象",
@@ -1049,230 +972,6 @@
     "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/unify_into_shared_representation.md",
     "sourceSha256": "ebba3230237271e37d5280030ad147493deed2605fe53f5324f3ebb70f1d599c"
   },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C00.md": {
-    "title": "构思细分 C00：把解释问题变成可测对象",
-    "summary": "将可解释性或不确定性问题转成明确的优化、选择或归因量，并用忠实性约束和独立检验验证。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C00",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C00.md",
-    "sourceSha256": "0bc790076bc61bc5a902094b3b1326375b20a2210540b9665c97728f8a869d56"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C01.md": {
-    "title": "构思细分 C01：重新定位安全评估信号",
-    "summary": "审查安全与检测结论依赖的表示位置，比较不同信号的可解释性和鲁棒性；仅作为研究阅读参考。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C01",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C01.md",
-    "sourceSha256": "7313de54f35bd19420a234d65261429f27555af69e6babde10bb204bd4cb82a8"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C02.md": {
-    "title": "构思细分 C02：控制单一混杂因素",
-    "summary": "构造独立控制混杂因素的评估样例与外部依据，比较表面表现和去混杂后的真实差异。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C02",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C02.md",
-    "sourceSha256": "254f83ef47ab39d36ae3475bc05ed3e0eee3c8b4f40f970c3dbec0dd5703f119"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C03.md": {
-    "title": "构思细分 C03：统一任务条件格式",
-    "summary": "利用统一条件格式与参考信息组织跨任务适应，并在真正未见过的任务类别上验证。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C03",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C03.md",
-    "sourceSha256": "b0c71cc591da1a7a87579a7aaa983b8b8e1a53a9f51376dca9232ff5fd868a32"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C04.md": {
-    "title": "构思细分 C04：按敏感性压缩",
-    "summary": "区分高影响部分与冗余部分，分别保留或压缩，用误差分析验证，而非统一施加损失。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C04",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C04.md",
-    "sourceSha256": "e6caef00b214d780e5735e4323d10aac059d5d7c8c8c8ec16a5b050f6d81ba45"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C05.md": {
-    "title": "构思细分 C05：替换可识别性假设",
-    "summary": "研究用结构或几何条件替代分布假设，并重新证明隐藏结构能够恢复到何种等价范围。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C05",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C05.md",
-    "sourceSha256": "543f82fee5c11136813c512e82bf493d6bbae00f8c857e8a0a523320e44b0dda"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C06.md": {
-    "title": "构思细分 C06：重新理解概率训练目标",
-    "summary": "证明损失、散度或概率量之间的关系，再据此消除阶段、改善条件或选择更合适的目标。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C06",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C06.md",
-    "sourceSha256": "d1570fddded634848788b33c6a731dbce440d0450e6f3c550f0f517d87a7bba8"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C07.md": {
-    "title": "构思细分 C07：用内部信号作有限适应",
-    "summary": "定位分布变化或训练不稳的来源，使用内部无标签信号调整小范围变量，并防止退化。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C07",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C07.md",
-    "sourceSha256": "1cf23b65fbee15bbbffcda7f4af3542f60cc167134efce2e203cd0fc4aede69f"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C08.md": {
-    "title": "构思细分 C08：生成并筛选训练数据",
-    "summary": "针对真实数据缺口生成候选样本，以与目标相关的质量依据筛选；不以外观合理作为有效性证明。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C08",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C08.md",
-    "sourceSha256": "ab97e07ed950cc256732ee18991001e3f4866a23b08f04aed402a8027b4fa538"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C09.md": {
-    "title": "构思细分 C09：在有界中间表示上处理",
-    "summary": "构造单条输入影响可被分析的中间对象，把扰动或验证机制放在这里，再证明效用与边界。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C09",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C09.md",
-    "sourceSha256": "e178b7925e08f94311f28639a88030f84ece1468b7080707472afe432ff4126e"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C10.md": {
-    "title": "构思细分 C10：补回局部方法丢失的结构",
-    "summary": "刻画局部计算忽略的关系结构，证明其表达限制，再在受控成本下加入必要信息。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C10",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C10.md",
-    "sourceSha256": "8724aaff35a9704544a9be7625e6a05d58c606335f3a65e99a825d3bbce8366a"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C11.md": {
-    "title": "构思细分 C11：重新定义选择与停止规则",
-    "summary": "审查采样、获取信息或停止准则的关键假设，重新推导改动后的性能与资源保证。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C11",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C11.md",
-    "sourceSha256": "65ba6973f962ab0e8e1cdea6f30da92ca27e6be3b6d08a09a1dc0e565e309e75"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C12.md": {
-    "title": "构思细分 C12：替换架构中的结构槽位",
-    "summary": "调整参数位置、连接方式或阶段算子，证明必要性质保留，再分析成本与表达能力变化。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C12",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C12.md",
-    "sourceSha256": "6157bfd876ba96f837c0f577399f6afc1602e419c45fe77424f57b5e446a8927"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C13.md": {
-    "title": "构思细分 C13：通过连接结构编码先验",
-    "summary": "根据关系或几何构建连接与传播方式，用对照检验这些结构是否真正支撑效果。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C13",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C13.md",
-    "sourceSha256": "7e19113e0aff6d02e77fc4a9898c6c5edae5a1b20f6c46bf65cd78fae0e62d9b"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C14.md": {
-    "title": "构思细分 C14：保留注意力性质的低成本替代",
-    "summary": "研究全对交互的替代算子，重点验证表达、感受野、顺序等性质，而不只比较计算量。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C14",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C14.md",
-    "sourceSha256": "006232a2a76a5730b6746b8caf98a3601a369af0881749e38c3c6aeec332ec1c"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C15.md": {
-    "title": "构思细分 C15：改变三维生成的空间表示",
-    "summary": "研究几何表示本身如何限制重建或生成，并在其他流程尽量不变时验证替代表达。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C15",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C15.md",
-    "sourceSha256": "fce7d01cac2fe7f8562d5de2af87159547d7a7e9bb9b115560af14a00a6f8999"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C16.md": {
-    "title": "构思细分 C16：显式保证对称性",
-    "summary": "确定真正作用于数据的对称群，构造或分析保持相应性质的算子，不以数据增强代替证明。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C16",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C16.md",
-    "sourceSha256": "0978269b1da55a84902d42087c8d481a3fb40c6d299870d760ff9a64df1ed70e"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C17.md": {
-    "title": "构思细分 C17：重设计对比学习配对",
-    "summary": "使配对、对齐和相似性目标对应明确结构性质，检验其是否真正进入表示空间。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C17",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C17.md",
-    "sourceSha256": "95020d47a0cd32cd65240db80018e09119021d3616af43015b1a6797400c4303"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C18.md": {
-    "title": "构思细分 C18：为新模态构造统一接口",
-    "summary": "通过离散化、序列化或投影连接不同模态与既有方法，验证接口的信息保留和迁移效果。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C18",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C18.md",
-    "sourceSha256": "871ad780b2120f7f4bd0930a3ae0d2c66e3928368a5ffbf36f4777c3fb8d01a6"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C19.md": {
-    "title": "构思细分 C19：减弱统计保证的假设",
-    "summary": "分析证明中独立性、正则性或有界性假设的作用，寻找更弱充分条件并重新推导保证。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C19",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C19.md",
-    "sourceSha256": "27c570e775a3a845334dfd5d06494bfc382dbb79bad4928d349a30b9129c166a"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C20.md": {
-    "title": "构思细分 C20：用正向过程定义逆问题",
-    "summary": "明确观测或退化过程，再构建对应的恢复或生成机制，区分已知结构与需要学习的部分。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C20",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C20.md",
-    "sourceSha256": "44b744d5822c8c662171e2f9607e78f0dd57246938254a22354e05386841c63f"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C21.md": {
-    "title": "构思细分 C21：从交互数据构造控制监督",
-    "summary": "研究如何从已有轨迹或无标签交互构造监督信号，使序列建模服务于控制，并核对目标是否一致。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C21",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C21.md",
-    "sourceSha256": "17fd8f2d33a83878dbd31bba149eb409be958e022ff666b52f1a8d169257b5a9"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C22.md": {
-    "title": "构思细分 C22：把设计方案变成搜索变量",
-    "summary": "统一表达架构、目标或流程配置，研究联合优化和条件化选择；不把简单搜索当成已证明的新方法。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C22",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C22.md",
-    "sourceSha256": "094fa0747a14ae5f706575ad7be75604d7ccd307420e39ad22c79bc870c5a17c"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C23.md": {
-    "title": "构思细分 C23：改变迭代生成链的内部选择",
-    "summary": "研究端点、步骤分布、离散化或初始化等选择，并依据问题结构重新推导其效果与代价。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C23",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C23.md",
-    "sourceSha256": "4f611478bb586c82f5f965e2ae8104c173355df780745af4193a721eb39ca0c1"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C24.md": {
-    "title": "构思细分 C24：改变生成模型的条件接口",
-    "summary": "在主干尽量保持不变时，调整条件信息、注入方式或表示空间，验证可控性与一致性。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C24",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C24.md",
-    "sourceSha256": "b87fd8132e773ee277b2387567d6d91ff3a6680fd9e57da7591900f582a4e2ee"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C25.md": {
-    "title": "构思细分 C25：让中间产物可以被验证",
-    "summary": "生成程序、图或其他可检查对象，交给求解器或验证闭环，再用可核对的结果修正候选。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C25",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C25.md",
-    "sourceSha256": "af5e435dd553c6e4893e9f17bd8da9c19e8dbf3cbc15699b0d716cf24f32b787"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C26.md": {
-    "title": "构思细分 C26：构造偏好或奖励监督",
-    "summary": "研究来自模型、判定器或执行结果的比较信号，核对噪声、粒度与训练目标，避免自我认可。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C26",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C26.md",
-    "sourceSha256": "8b3b77eb217046fa5c64a7f5fd38a67bbfc96550b92cc6249a46241d222318ae"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C27.md": {
-    "title": "构思细分 C27：把目标写成多方博弈",
-    "summary": "明确参与者、收益和解的定义，证明均衡与原目标之间的对应关系，而不是只换术语。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C27",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C27.md",
-    "sourceSha256": "227cca6515c13719e55b5fd3393db32e50143795732fc252246997915eb52704"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C28.md": {
-    "title": "构思细分 C28：重审分布式优化结构",
-    "summary": "审查本地更新、通信、同步和修正位置的假设，重新验证现实参与条件下的收敛与成本。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C28",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C28.md",
-    "sourceSha256": "3930ba042b73d11820201a4e191c2203a32b837934673465d2df908adf5bbff6"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C29.md": {
-    "title": "构思细分 C29：重新推导迭代优化保证",
-    "summary": "研究更适合的正则性或目标量，用关键进展界重新推导收敛或遗憾保证。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C29",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C29.md",
-    "sourceSha256": "1ad7523af2d0a5c1a2aa81e144cb6269a87fcba110397ce679604c8e3db22d9d"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/C30.md": {
-    "title": "构思细分 C30：替换或重塑训练曲率",
-    "summary": "研究更便宜的曲率近似或变量表示，验证必须保留的谱性质及其对优化的作用。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/C30",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/C30.md",
-    "sourceSha256": "07a9807ff9890c993d50f8589f02014927aa320b9e9475d240ed609da97753cd"
-  },
-  "vertical/research/engineer/references/ideation/ideation-sub-patterns/overview.md": {
-    "title": "研究构思细分模式导航",
-    "summary": "查看细分模式与上层模式的关系，选择进一步阅读的材料；不是可自动套用的成功配方。",
-    "originalName": "engineer/references/ideation/ideation-sub-patterns/overview",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-sub-patterns/overview.md",
-    "sourceSha256": "f38798c718bd61a1641075bbcea582ecea8c01c09756ecfd37ab86d68e720d92"
-  },
   "vertical/research/engineer/references/paper-writing-craft.md": {
     "title": "论文写作方法参考",
     "summary": "提供论文论证和表达的写作参考，需结合真实证据与所选期刊会议要求使用。",
@@ -1294,19 +993,12 @@
     "source": "argus/verticals/research/skills/engineer/research-results-analysis-and-figures.md",
     "sourceSha256": "7cca016207fc39003028c43abab480e26f2f9b418d4ce439b833e532c30b68a6"
   },
-  "vertical/research/engineer/research-timeline.md": {
-    "title": "研究提案与实验排期",
-    "summary": "估算方案工期，结合依赖和资源安排实验，并解释计划为何调整。",
-    "originalName": "Research proposal timeline",
-    "source": "argus/verticals/research/skills/engineer/research-timeline.md",
-    "sourceSha256": "4e08e186b5cf37f6e71215cf47a0cd262a54ca574e89ed2e6c5162f616bda07a"
-  },
   "vertical/research/engineer/research-visualization-router.md": {
     "title": "选择科研图的表达方式",
     "summary": "根据图需要表达的证据选择渲染路线，最终视觉判断仍由既有评审负责。",
     "originalName": "Choosing how to draw a research figure",
     "source": "argus/verticals/research/skills/engineer/research-visualization-router.md",
-    "sourceSha256": "3ad9ae024268b79389daae192594ec4c13b70dc15cd9e83a1d61711038175ce3"
+    "sourceSha256": "85dd3779ab694d38b0a80a4451780f1d550b7fff6a706072e93945e30760606f"
   },
   "vertical/research/engineer/result-to-claim.md": {
     "title": "对照固定声明解释实验结果",
@@ -1376,14 +1068,14 @@
     "summary": "忠实实现已选想法，通过适应性实验形成足以支撑论文的证据，而不是只完成首次运行。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceSha256": "0a550161d7a7fa7f8f2b959a06d517330650575ffbe51df961371bf52ee76ff2"
+    "sourceSha256": "6f0b31259776e8519448f55246fffc11b23c25c61ccd4ca0302a22b44e47eb4a"
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
     "summary": "从来源中发现候选可能性，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceSha256": "8feee40cb8b22aafabe793d32a5cfcdfc724560901400b020f22366c3b6b938d"
+    "sourceSha256": "ead87e83f7e729874edbc1d6e9c4a3313a062ac8ada05d6513a7871a8398f79e"
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",
@@ -1448,102 +1140,25 @@
     "source": "argus/verticals/research/skills/reviewer/venue-academic-language-review.md",
     "sourceSha256": "a2fe9faf57ff0a09181f42de2ac2b5080158e08c430078fb48722fd6b9893f66"
   },
-  "vertical/software/engineer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": {
-    "title": "Verus API 规格与证明修复（中文审阅稿）",
-    "summary": "工程师流程的中文参考，解释视图、双轨证明、实现修改评审和逐 API 交付要求。",
-    "originalName": "engineer/formal-verification/references/verus-spec-generation-and-repair.zh-CN",
-    "source": "argus/verticals/software/skills/engineer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
-    "sourceSha256": "d8b9d0454dba11e26939164ebced294115ec3441e36a732d1900c53835fde5b4"
-  },
-  "vertical/software/engineer/formal-verification/verus-spec-generation-and-repair.md": {
-    "title": "Verus API 规格与证明修复",
-    "summary": "先建立视图，再依据源码和文档生成 API 规格，结合正确性与完备性证明反馈修复，并记录需独立评审的问题。",
-    "originalName": "Verus API Specification and Proof Repair",
-    "source": "argus/verticals/software/skills/engineer/formal-verification/verus-spec-generation-and-repair.md",
-    "sourceSha256": "b8b75623f4beeccd7d1d49f88c846ae581509ba500471534f828320653bb4677"
-  },
   "vertical/software/engineer/software-change-implementation.md": {
     "title": "有边界的软件实现",
     "summary": "结合仓库结构选择合适工具，以与任务规模相称的检查和决定性验证完成软件修改。",
     "originalName": "Software Change Implementation",
     "source": "argus/verticals/software/skills/engineer/software-change-implementation.md",
-    "sourceSha256": "b5a2cae07ece8d539bcf1368d36a138b635ee95c0c88ccb7ab2a90beebd24044"
-  },
-  "vertical/software/manager/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": {
-    "title": "Verus 任务范围与交付（中文审阅稿）",
-    "summary": "协调者流程的中文参考，说明任务范围、双重验收、问题报告和实现修改的授权要求。",
-    "originalName": "manager/formal-verification/references/verus-spec-generation-and-repair.zh-CN",
-    "source": "argus/verticals/software/skills/manager/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
-    "sourceSha256": "99265e73d9466208838f9537d4c72616809530d81b0066d43ac3a865845d9cf2"
-  },
-  "vertical/software/manager/formal-verification/verus-spec-generation-and-repair.md": {
-    "title": "Verus 任务范围与交付",
-    "summary": "明确模块和 API 范围、工具基线与交付物，要求正确性和完备性双重检查，并保留实现修改的授权边界。",
-    "originalName": "Verus Specification Scope and Delivery",
-    "source": "argus/verticals/software/skills/manager/formal-verification/verus-spec-generation-and-repair.md",
-    "sourceSha256": "6fc81720d8d3d16a9b66b51179242143fb7c489362c195dfda42c778e26ab271"
-  },
-  "vertical/software/manager/software-project-grounding.md": {
-    "title": "软件任务前的仓库理解",
-    "summary": "在交给规划或执行前识别架构、已有类似实现、验证命令和契约风险，不改变用户任务。",
-    "originalName": "Software Project Grounding Before Decomposition",
-    "source": "argus/verticals/software/skills/manager/software-project-grounding.md",
-    "sourceSha256": "0b1d8a2ab9b01b713568dd469bc6e44d6c59c7cc108b976e4168edbef0b44bb6"
-  },
-  "vertical/software/planner/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": {
-    "title": "Verus 子模块与证明规划（中文审阅稿）",
-    "summary": "规划者流程的中文参考，说明子模块分析、视图依赖、两类证明任务及失败后的重新规划。",
-    "originalName": "planner/formal-verification/references/verus-spec-generation-and-repair.zh-CN",
-    "source": "argus/verticals/software/skills/planner/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
-    "sourceSha256": "0b80e1fb7dc18b9653f47a1ec40694b34d37c187bbf9ac3e6a3402f2177213fc"
-  },
-  "vertical/software/planner/formal-verification/verus-spec-generation-and-repair.md": {
-    "title": "Verus 子模块与证明规划",
-    "summary": "分析子模块与 API 依赖，先安排视图再安排规格，规划正确性、完备性反馈和逐 API 证明记录。",
-    "originalName": "Verus Submodule and Proof Planning",
-    "source": "argus/verticals/software/skills/planner/formal-verification/verus-spec-generation-and-repair.md",
-    "sourceSha256": "ca5d22fa5f52a7e619b41b438d41f26be7668e7de7cba1a69a9093af1d1803a4"
+    "sourceSha256": "741acb427b655a9b1d92bcec572561790835081e76d8c11642b003bc8c898241"
   },
   "vertical/software/planner/software-project-grounding.md": {
     "title": "依据仓库结构规划软件任务",
     "summary": "核对协调者提供的仓库信息，围绕架构边界和独立验证风险拆解工作。",
     "originalName": "Software Project Grounding Before Decomposition",
     "source": "argus/verticals/software/skills/planner/software-project-grounding.md",
-    "sourceSha256": "f2bce30f9ba1001e35d80f4d1154a8d5a55d3e6284d75eff24a8718d24b4416d"
-  },
-  "vertical/software/references/verus-spec-generation-and-repair.zh-CN.md": {
-    "title": "Verus 模块规格共享规范（中文审阅稿）",
-    "summary": "共享工作流的中文参考，说明角色分工、规格修复、实现修改授权和完整模块的验收边界。",
-    "originalName": "references/verus-spec-generation-and-repair.zh-CN",
-    "source": "argus/verticals/software/skills/references/verus-spec-generation-and-repair.zh-CN.md",
-    "sourceSha256": "137e9d9e612a3f4b9a7a4d36a78da78faa03de8ef74899ca2aaa96d9cbeb2dbe"
-  },
-  "vertical/software/reviewer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": {
-    "title": "Verus 正确性与完备性验收（中文审阅稿）",
-    "summary": "审阅者流程的中文参考，说明独立重放双轨证明、审查实现修改和核对完整模块覆盖的要求。",
-    "originalName": "reviewer/formal-verification/references/verus-spec-generation-and-repair.zh-CN",
-    "source": "argus/verticals/software/skills/reviewer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
-    "sourceSha256": "f34f3985042716c286604d8dcb9a30049ec02d41cbe8a84fabbad438c39fe755"
-  },
-  "vertical/software/reviewer/formal-verification/verus-spec-generation-and-repair.md": {
-    "title": "Verus 正确性与完备性验收",
-    "summary": "独立核对源码语义、两类证明及模块覆盖；实现修改须先记录问题并严格评审，不能把失败或未知结果当作完成。",
-    "originalName": "Verus Correctness and Completeness Review",
-    "source": "argus/verticals/software/skills/reviewer/formal-verification/verus-spec-generation-and-repair.md",
-    "sourceSha256": "615c33c439f573a4a2495d9b3b4614be6e436ad014fabd87e339359d44f09103"
+    "sourceSha256": "70b38719478858afc0e4e8eb191ac54c70db9ffff304bb593983fca271ddd7c6"
   },
   "vertical/software/reviewer/software-change-review.md": {
     "title": "软件修改独立评审",
     "summary": "检查真实调用路径、兼容性与验证证据，不依赖参考答案或仅凭完成声明判断。",
     "originalName": "Software Change Review",
     "source": "argus/verticals/software/skills/reviewer/software-change-review.md",
-    "sourceSha256": "f921e73849261c87afb1e246136ac1b2bd287e7cb9534eb7fd91de290dd7359d"
-  },
-  "vertical/software/verus-spec-generation-and-repair.md": {
-    "title": "Verus 模块规格生成与修复",
-    "summary": "为四个角色统一视图优先、源码与文档对照、正确性和完备性双轨验证，以及规格、证明和问题记录的交付要求。",
-    "originalName": "Verus Module Specification Workflow",
-    "source": "argus/verticals/software/skills/verus-spec-generation-and-repair.md",
-    "sourceSha256": "e74c0de684a224d3edc2e986c7e5e16cbe512d7ccd8558d18a2fe2ef96797614"
+    "sourceSha256": "5d1a66ff65accae04ec02005724735c9767308ac63c005b8be6e269eb9acb25f"
   }
 }

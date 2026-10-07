@@ -124,16 +124,17 @@ def test_router_matches_output_format_to_build_route() -> None:
 
 
 def test_figure_spec_renderer_is_reachable() -> None:
-    """FigureSpec was the third broken route: its documented package path does
-    not exist, so the renderer could never be run either."""
-    texts = dict(iter_vertical_skill_texts("research"))
-    spec = texts["engineer/figure-spec.md"]
-
-    assert "argus/builtin_skills/" not in spec
-
+    """FigureSpec was the third broken route: its documented package path did
+    not exist, so the renderer could never be run. Its usage notes now live in
+    the script itself and must not point at the old package path."""
     root = Path(__file__).resolve().parents[2]
-    skills = root / "argus/verticals/research/skills/engineer"
-    assert (skills / "figure_spec_scripts/figure_renderer.py").is_file()
+    renderer = root / "argus/verticals/research/skills/engineer/figure_spec_scripts/figure_renderer.py"
+    assert renderer.is_file()
+    docstring = renderer.read_text(encoding="utf-8").split('"""')[1]
+
+    assert "argus/builtin_skills/" not in docstring
+    assert "figure_spec_scripts" in docstring
+    assert "paper-framework-figure-studio.md" in docstring
 
 
 def test_figure_one_prioritizes_exact_topology_over_decorative_richness() -> None:
@@ -213,7 +214,6 @@ def test_concept_default_preserves_authority_editability_and_reuse() -> None:
     assert "Both D and B author the framework in native editable PowerPoint objects" in studio
     assert "ECharts" in studio
     assert "TikZ" not in studio
-    assert "academic-vector-figures.md" in studio
     image = " ".join(texts["engineer/paper-illustration-image2.md"].split())
     assert "visual design blueprint" in image
     assert "Do not generate quantitative result plots" in image

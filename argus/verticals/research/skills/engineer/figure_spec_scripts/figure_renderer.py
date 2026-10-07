@@ -9,6 +9,25 @@ Usage:
     python3 figure_renderer.py render spec.json [--output figures/output.svg] [--preview]
     python3 figure_renderer.py validate spec.json
     python3 figure_renderer.py schema
+
+Place in the figure workflow (adapted from the ARIS ``figure-spec`` skill, MIT,
+© 2026 wanshuiyin): this renderer draws a small exact topology, neighbourhood
+or geometric component whose node positions and connections come from the
+method or the source data. The JSON specification is the editable source;
+keep it beside the figure and rebuild the SVG when the geometry changes. The
+component is then composed with the other scientific objects in the native
+PPT figure that ``paper-framework-figure-studio.md`` describes; the default
+boxes and arrows are not a finished framework figure, and quantitative plots
+stay on the SciencePlots/Matplotlib route (``paper-chart-styling.md``). The
+renderer clips connector endpoints to node boundaries but does not route
+around unrelated nodes, so choose coordinates that leave connector space.
+
+The script is seeded beside the skills; resolve its real path once and reuse
+it for every command::
+
+    RENDER=$(find "$ARGUS_SKILL_HOME" . -name figure_renderer.py \\
+      -path '*figure_spec_scripts*' 2>/dev/null | head -1)
+    "${ARGUS_SKILL_PYTHON:-python3}" "$RENDER" schema
 """
 
 import argparse

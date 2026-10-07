@@ -283,8 +283,7 @@ clarity, and economy at the actual paper width. Reuse a good composition during
 local repairs. Do not create a separate process report or ask the operator to
 make routine layout decisions.
 
-Open `engineer/academic-vector-figures.md` when a precise math or chart component
-is needed. Locate PPT Master with `python -m argus.tools.ppt_master status`; the
+Locate PPT Master with `python -m argus.tools.ppt_master status`; the
 reported `skill_root` contains the toolkit instructions, layout references,
 `scripts/svg_quality_checker.py`, `scripts/svg_to_pptx.py`, and
 `scripts/pptx_to_svg.py`. Use `engineer/presentation-master.md` to install it if

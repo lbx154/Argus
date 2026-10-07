@@ -69,7 +69,7 @@ work required for the applicable path is complete and the stage's standards are 
 For a staged paper mission, replace the research notes at project-root
 `RESEARCH_NOTES.md`, beginning with `# Research notes — Idea stage`. A completed broad
 portfolio includes a detailed winner explanation and exactly one single-line
-rejection reason for each of the other eleven routes. A locked or exploratory
+rejection reason for each route that was not selected. A locked or exploratory
 path records only its supplied direction or scoped finding and the next relevant
 work; it does not invent rejected routes or a selector. Do not create another
 project-visible selection report.
@@ -94,7 +94,6 @@ the stage.
 | A route's novelty or closest work is uncertain | `engineer/novelty-check.md` | Test its novelty against primary sources |
 | The route needs a non-obvious mechanism lens | `engineer/references/ideation/ideation-patterns/overview.md` | Choose one relevant pattern, then one matched card |
 | A reviewer needs the strongest adversarial case | `reviewer/strongest-argument-against.md` | One decisive scientific objection |
-| The operator requests proposal time estimates or a deadline comparison | `engineer/research-timeline.md` | Source-only estimates, assumptions, and future experiment schedules |
 
 These sources answer a question about a route. They do not create another way
 to develop candidates, another selector, another set of research notes, or

@@ -66,8 +66,7 @@ palette, thin strokes, whitespace, and real mathematical typography.
 Method B is the fallback when the configured image route or required Method D
 prerequisites are unavailable or the task's constraints rule it out. Compose
 directly in native editable PPT through the installed PPT Master; do not pause
-or ask the operator for image API setup. `academic-vector-figures.md` covers
-precise math and chart components. There is no separate SVG workflow. SVG can remain an
+or ask the operator for image API setup. There is no separate SVG workflow. SVG can remain an
 internal asset format of a selected renderer. Reuse suitable figures across
 rounds and name the actual workflow used without inventing a blueprint.
 FigureSpec and Graphviz may calculate geometry or supply an internal component;

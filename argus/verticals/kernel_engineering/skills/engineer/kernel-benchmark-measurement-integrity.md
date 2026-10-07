@@ -14,8 +14,7 @@ promising enough to certify.
 if it was measured in **isolation**. Measure it while other work shares the hardware
 and the number inflates — silently, by **3-5x** — and every "speedup" computed against
 it is a measurement artifact. You will think you found a 5x win when you found nothing. Pair with
-`Official SOL-ExecBench Environment` (how to measure) and `Kernel Optimization
-Knowledge & Retrieval` (roofline of the kernel; this skill is the roofline of the
+`kernel-optimization-knowledge.md` (roofline of the kernel; this skill is the roofline of the
 *measurement*).
 
 ## Preflight shape identity before allocating
