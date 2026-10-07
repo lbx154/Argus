@@ -107,6 +107,12 @@ maintainers for the latest code.
 
 <p align="center"><strong>Community Group 1 is full. Please join Group 2.</strong></p>
 
+## Tutorials
+
+- **[Getting started](docs/getting-started.md)** — install, first task, three ways in: command line, web UI, desktop app.
+- **[Best practices](docs/best-practices.md)** — writing an objective, changing direction mid-run, choosing the model and backend, controlling spend, what suits Argus.
+- **[Building a vertical](docs/building-a-vertical.md)** — a small real vertical from stages and skills to the Vertical Store.
+
 ## Quick Install
 
 Choose the section for your operating system. Do not mix commands between
