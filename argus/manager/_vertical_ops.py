@@ -642,7 +642,33 @@ class _VerticalDecisionMixin:
                             )
                         decision.start_stage = ""
                 elif decision.workflow_profile or decision.workflow_requested_stages:
-                    raise VerticalDecisionError("selected vertical does not provide workflow profiles")
+                    # A profile only selects among a vertical's declared
+                    # profiles. When the chosen vertical declares none, the
+                    # supplied profile/stage request has nothing to bind to and
+                    # cannot change the route; drop it visibly instead of
+                    # failing the whole route (which killed fresh daemons).
+                    dropped = decision.workflow_profile or "custom"
+                    dropped_stages = list(decision.workflow_requested_stages)
+                    log.warning(
+                        "Manager route chose vertical %s, which provides no "
+                        "workflow profiles; ignoring workflow_profile=%r "
+                        "requested_stages=%r",
+                        decision.vertical,
+                        decision.workflow_profile,
+                        dropped_stages,
+                    )
+                    note = (
+                        f"[host] ignored workflow_profile={dropped!r}"
+                        + (f" requested_stages={dropped_stages!r}" if dropped_stages else "")
+                        + f": vertical {decision.vertical!r} provides no workflow profiles"
+                    )
+                    decision.adaptation_reason = (
+                        f"{decision.adaptation_reason} {note}".strip()
+                        if decision.adaptation_reason
+                        else note
+                    )
+                    decision.workflow_profile = ""
+                    decision.workflow_requested_stages = ()
                 if contract.mission_kind == "software":
                     decision.workflow_mode = _repository_workflow_mode(
                         decision.workflow_mode
