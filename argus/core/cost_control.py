@@ -22,7 +22,7 @@ import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import portalocker
 
@@ -32,6 +32,7 @@ from .knobs import resolve_budget_caps, resolve_knob
 from .paths import session_states_root
 from .pricing import quote_copilot_usage
 from .usage import (
+    DamagedJournalLine,
     UsageJournalIntegrityError,
     UsageJournalRepair,
     UsageLedger,
@@ -276,7 +277,9 @@ def _prune_reservations(
     return kept
 
 
-def _project_records(project_root: Path, day_start: float) -> list[UsageRecord]:
+def _project_records(
+    project_root: Path, day_start: float, *, global_root: Path | None = None,
+) -> list[UsageRecord]:
     # All callers read before taking the global cost lock. Reconcile pending
     # Copilot telemetry here so a late SQLite write releases the budget gate
     # without requiring a UI reader. Never migrate unrelated historical events
@@ -285,7 +288,7 @@ def _project_records(project_root: Path, day_start: float) -> list[UsageRecord]:
     try:
         return _reconciled_records(ledger, day_start)
     except UsageJournalIntegrityError as exc:
-        if not _repair_project_journal(ledger, exc):
+        if not _repair_project_journal(ledger, exc, global_root=global_root):
             raise AccountingIntegrityError(exc) from exc
     try:
         return _reconciled_records(ledger, day_start)
@@ -313,16 +316,19 @@ def _journal_repair_estimate(
     A truncated record hides a call that ran; zero observations are not
     evidence of zero charge. The estimate is deliberately the largest cost
     the same provider (and model, when both are known) has produced in this
-    journal, so it can only err on the side of the campaign.
+    journal, so it can only err on the side of the campaign. Another
+    provider's prices say nothing about this call: without a same-provider
+    comparable the call stays unpriced and is held for the operator.
     """
+    if not provider or provider == "unknown":
+        return None
     priced = [
         record for record in records
         if record.cost_usd is not None and record.pricing_status == "priced"
-        and record.pricing_tier != JOURNAL_REPAIR_TIER
+        and record.pricing_tier != JOURNAL_REPAIR_TIER and record.provider == provider
     ]
-    by_provider = [record for record in priced if provider and record.provider == provider]
-    by_model = [record for record in by_provider if model and record.model == model]
-    pool = by_model or by_provider or priced
+    by_model = [record for record in priced if model and record.model == model]
+    pool = by_model or priced
     if pool:
         return max(float(record.cost_usd or 0.0) for record in pool)
     if provider == "copilot":
@@ -330,75 +336,112 @@ def _journal_repair_estimate(
     return None
 
 
-def _repair_project_journal(ledger: UsageLedger, error: UsageJournalIntegrityError) -> bool:
+def _repair_liabilities(
+    ledger: UsageLedger, lines: dict[str, int],
+) -> Callable[[list[dict[str, Any]], tuple[DamagedJournalLine, ...], Path], list[dict[str, Any]]]:
+    """Rows that carry each cut-off call as debt, written with the repair itself."""
+
+    def liabilities(
+        rows: list[dict[str, Any]], damaged: tuple[DamagedJournalLine, ...], copy: Path,
+    ) -> list[dict[str, Any]]:
+        records: list[UsageRecord] = []
+        for row in rows:
+            try:
+                records.append(UsageRecord.from_jsonable(row))
+            except (TypeError, ValueError):
+                continue
+        known = {record.call_id for record in records}
+        now = time.time()
+        written: list[dict[str, Any]] = []
+        for line in damaged:
+            if line.lost_bytes <= 0:
+                continue
+            fields = line.prefix_fields
+            call_id = str(fields.get("call_id") or "")
+            if call_id in known:
+                continue
+            identified = bool(call_id)
+            if not identified:
+                # The cut fell before the call said who it was. Something ran;
+                # hold it under a name tied to the evidence copy and line.
+                call_id = f"journal-repair:{copy.name}:{line.line_number}"
+            provider = str(fields.get("provider") or "unknown")
+            model = str(fields.get("model") or "unknown")
+            estimate = (
+                _journal_repair_estimate(records, provider=provider, model=model)
+                if identified else None
+            )
+            started_at = float(fields.get("started_at") or now)
+            completed_at = float(fields.get("completed_at") or started_at)
+            if estimate is not None:
+                cost_note = "cost estimated from the journal's costliest comparable call"
+            elif identified:
+                cost_note = "no comparable priced call in the journal, cost unknown"
+            else:
+                cost_note = "call identity lost with the record, cost unknown"
+            record = UsageRecord(
+                call_id=call_id,
+                project_id=str(fields.get("project_id") or ledger.project_root.name),
+                mission_id=fields.get("mission_id"),
+                provider=provider,
+                model=model,
+                run_label=str(fields.get("run_label") or ""),
+                started_at=started_at,
+                completed_at=completed_at,
+                status="completed",
+                input_tokens=None,
+                cached_input_tokens=None,
+                output_tokens=None,
+                reasoning_output_tokens=None,
+                premium_requests=None,
+                pricing_status="priced" if estimate is not None else "unpriced",
+                pricing_tier=JOURNAL_REPAIR_TIER if estimate is not None else "unknown",
+                cost_usd=estimate,
+                cost_basis="estimate" if estimate is not None else "none",
+                thread_id=fields.get("thread_id"),
+                error=(
+                    f"usage record truncated at {ledger.path.name} line {line.line_number} "
+                    f"({line.detail}); {cost_note}"
+                ),
+            )
+            known.add(call_id)
+            lines[call_id] = line.line_number
+            written.append(record.to_jsonable())
+        return written
+
+    return liabilities
+
+
+def _repair_project_journal(
+    ledger: UsageLedger, error: UsageJournalIntegrityError, *, global_root: Path | None,
+) -> bool:
     """Recover from a damaged usage journal without losing evidence or spend.
 
     The damaged bytes are kept beside the journal; every complete record is
     kept in it. A call whose record was truncated is written back as a
-    liability: priced at the journal's costliest comparable call when there
-    is one, so the campaign continues under a conservative number, or left
-    unpriced so the usual unresolved-cost policy holds it for the operator.
-    Returns False when nothing could be repaired; admission then stays
-    refused with the original reason.
+    liability in the same atomic replace: priced at the journal's costliest
+    same-provider call when there is one, so the campaign continues under a
+    conservative number, or left unpriced so the usual unresolved-cost
+    policy holds it for the operator. Returns False only when the repair
+    could not write; admission then stays refused with the original reason.
+    When another reader repaired first, there is nothing left to repair and
+    the caller simply reads again.
     """
+    lines: dict[str, int] = {}
     try:
-        repair = ledger.repair_journal()
+        repair = ledger.repair_journal(liabilities=_repair_liabilities(ledger, lines))
     except OSError as exc:
         log.error("usage journal %s could not be repaired: %s", ledger.path, exc)
         return False
     if repair is None:
-        return False
-    try:
-        records = ledger.records()
-    except UsageJournalIntegrityError:
-        return False
-    known = {record.call_id for record in records}
-    now = time.time()
-    written: list[dict[str, Any]] = []
-    for line in repair.damaged:
-        fields = line.prefix_fields
-        call_id = str(fields.get("call_id") or "")
-        if not call_id or call_id in known:
-            continue
-        provider = str(fields.get("provider") or "unknown")
-        model = str(fields.get("model") or "unknown")
-        estimate = _journal_repair_estimate(records, provider=provider, model=model)
-        started_at = float(fields.get("started_at") or now)
-        completed_at = float(fields.get("completed_at") or started_at)
-        record = UsageRecord(
-            call_id=call_id,
-            project_id=str(fields.get("project_id") or ledger.project_root.name),
-            mission_id=fields.get("mission_id"),
-            provider=provider,
-            model=model,
-            run_label=str(fields.get("run_label") or ""),
-            started_at=started_at,
-            completed_at=completed_at,
-            status="completed",
-            input_tokens=None,
-            cached_input_tokens=None,
-            output_tokens=None,
-            reasoning_output_tokens=None,
-            premium_requests=None,
-            pricing_status="priced" if estimate is not None else "unpriced",
-            pricing_tier=JOURNAL_REPAIR_TIER if estimate is not None else "unknown",
-            cost_usd=estimate,
-            cost_basis="estimate" if estimate is not None else "none",
-            thread_id=fields.get("thread_id"),
-            error=(
-                f"usage record truncated at {repair.path.name} line {line.line_number} "
-                f"({line.detail}); "
-                + (
-                    "cost estimated from the journal's costliest comparable call"
-                    if estimate is not None
-                    else "no comparable priced call in the journal, cost unknown"
-                )
-            ),
-        )
-        ledger.append(record)
-        known.add(call_id)
-        written.append({"call_id": call_id, "cost_usd": estimate, "line": line.line_number})
-    _append_repair_audit(ledger, repair, written)
+        return True
+    written = [
+        {"call_id": row.get("call_id"), "cost_usd": row.get("cost_usd"),
+         "line": lines.get(str(row.get("call_id")))}
+        for row in repair.liabilities
+    ]
+    if global_root is not None:
+        _append_repair_audit(global_root, ledger, repair, written)
     log.warning(
         "usage journal %s repaired: %d damaged line(s) set aside in %s, %d record(s) kept, "
         "%d truncated call(s) written back as liabilities",
@@ -408,11 +451,8 @@ def _repair_project_journal(ledger: UsageLedger, error: UsageJournalIntegrityErr
 
 
 def _append_repair_audit(
-    ledger: UsageLedger, repair: UsageJournalRepair, written: list[dict[str, Any]],
+    root: Path, ledger: UsageLedger, repair: UsageJournalRepair, written: list[dict[str, Any]],
 ) -> None:
-    root = ledger.project_root.parent.parent if ledger.project_root.parent.name == "projects" else None
-    if root is None:
-        return
     _append_audit(
         root,
         EventType.ACCOUNTING_JOURNAL_REPAIRED,
@@ -705,7 +745,7 @@ def _global_records(root: Path, day_start: float, *, state_timestamp: float) -> 
     records: list[UsageRecord] = []
     for project_root in project_roots:
         try:
-            records.extend(_project_records(project_root, day_start))
+            records.extend(_project_records(project_root, day_start, global_root=root))
         except AccountingIntegrityError:
             # Malformed accounting is not "one project's" problem: admission
             # must refuse rather than sum a ledger with hidden records.
@@ -967,7 +1007,9 @@ class CallBudgetReservation:
         records = _global_records(self.root, _local_day_start(timestamp), state_timestamp=timestamp)
         if self.project_root is not None:
             if self.project_root.resolve().parent != session_states_root(self.root).resolve():
-                records.extend(_project_records(self.project_root, _local_day_start(timestamp)))
+                records.extend(_project_records(
+                    self.project_root, _local_day_start(timestamp), global_root=self.root,
+                ))
         caps = resolve_budget_caps(global_root=self.root)
         # Always read ledgers before the cost-state lock (usage -> cost order).
         with _locked(self.root, timeout_seconds=_CALL_STATE_LOCK_TIMEOUT_SECONDS):
@@ -1033,7 +1075,7 @@ def reserve_call_budget(
     # while holding the host-global state lock: concurrent daemons otherwise
     # form a lock convoy and even a greeting can wait tens of seconds.
     try:
-        project_records = _project_records(project, day_start) if project else []
+        project_records = _project_records(project, day_start, global_root=root) if project else []
         global_records = _global_records(root, day_start, state_timestamp=timestamp)
     except AccountingIntegrityError as exc:
         reason = str(exc)

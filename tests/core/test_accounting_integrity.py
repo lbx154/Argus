@@ -211,6 +211,124 @@ def test_a_repair_that_cannot_write_keeps_admission_refused(
     assert cost_admission_reason(global_root=tmp_path) == reason
 
 
+def _journal_with_truncated_tail(project: Path, tail: bytes) -> UsageLedger:
+    ledger = UsageLedger(project, migrate_legacy=False)
+    ledger.append(_record(project, "call-1"))
+    ledger.path.write_bytes(ledger.path.read_bytes() + tail)
+    return ledger
+
+
+def _truncated_codex_call(project: Path, call_id: str, *, provider: str = "codex") -> bytes:
+    row = _record(project, call_id).to_jsonable()
+    row["provider"] = provider
+    whole = json.dumps(row, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return whole[: whole.index(b'"reasoning_output_tokens"')]
+
+
+def test_the_liability_lands_with_the_repair_not_in_a_later_append(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = _journal_with_truncated_tail(project, _truncated_codex_call(project, "call-2"))
+    # Appends fail with a full disk; the debt must still be in the journal.
+    monkeypatch.setattr(UsageLedger, "append", _enospc)
+
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+    records = {record.call_id: record for record in ledger.records()}
+    assert set(records) == {"call-1", "call-2"}
+    assert records["call-2"].pricing_tier == "journal_repair_estimate"
+
+
+def test_a_repair_whose_evidence_copy_cannot_be_written_leaves_everything_as_it_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = _journal_with_truncated_tail(project, _truncated_codex_call(project, "call-2"))
+    damaged = ledger.path.read_bytes()
+    monkeypatch.setattr(usage.os, "fsync", _enospc)
+
+    with pytest.raises(OSError):
+        ledger.repair_journal()
+    assert ledger.path.read_bytes() == damaged
+    assert list(project.glob("usage.jsonl.damaged-*")) == []
+
+
+def test_another_providers_prices_never_price_a_truncated_call(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = _journal_with_truncated_tail(
+        project, _truncated_codex_call(project, "call-2", provider="local-llm"),
+    )
+
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is None
+    assert reason.startswith("unresolved provider cost: 1 call(s)")
+    held = {record.call_id: record for record in ledger.records()}["call-2"]
+    assert held.provider == "local-llm"
+    assert held.pricing_status == "unpriced" and held.cost_usd is None
+
+
+def test_a_journal_repaired_by_another_reader_is_read_again_not_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = UsageLedger(project, migrate_legacy=False)
+    ledger.append(_record(project, "call-1"))
+    ledger.append(_record(project, "call-2"))
+    _damage_with_concatenated_record(ledger)
+    original = UsageLedger.repair_journal
+
+    def repaired_elsewhere(self, **kwargs):
+        # Another process won the race: by the time this reader holds the
+        # lock the journal is already clean and there is nothing to repair.
+        original(self, **kwargs)
+        return None
+
+    monkeypatch.setattr(UsageLedger, "repair_journal", repaired_elsewhere)
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+
+
+def test_a_truncated_record_that_lost_its_call_id_is_held_for_the_operator(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    ledger = _journal_with_truncated_tail(project, b'{"cached_input_tokens":0,"co')
+
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is None
+    assert reason.startswith("unresolved provider cost: 1 call(s)")
+    held = [record for record in ledger.records() if record.call_id != "call-1"]
+    assert len(held) == 1
+    assert held[0].call_id.startswith("journal-repair:usage.jsonl.damaged-")
+    assert held[0].call_id.endswith(":2")
+    assert held[0].pricing_status == "unpriced" and held[0].cost_usd is None
+    acknowledge_unpriced_call(
+        global_root=tmp_path, project_id="p1", call_id=held[0].call_id,
+        liability_usd=0.5, reason="operator accepts the unidentified call at $0.50",
+    )
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+
+
+def test_the_repair_is_audited_under_the_cost_control_root_wherever_the_project_lives(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "work" / "p1"
+    _journal_with_truncated_tail(project, _truncated_codex_call(project, "call-2"))
+
+    reservation, reason = _reserve(tmp_path, project, "call-3")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
+    repaired = [row for row in _audit_rows(tmp_path) if row["type"] == "accounting.journal_repaired"]
+    assert len(repaired) == 1 and repaired[0]["project_id"] == "p1"
+    assert repaired[0]["liabilities"][0]["call_id"] == "call-2"
+    assert repaired[0]["liabilities"][0]["line"] == 2
+
+
 def test_truncated_trailing_line_is_corruption_unless_an_append_is_in_progress(
     tmp_path: Path,
 ) -> None:
@@ -218,7 +336,9 @@ def test_truncated_trailing_line_is_corruption_unless_an_append_is_in_progress(
     ledger = UsageLedger(project, migrate_legacy=False)
     ledger.append(_record(project, "call-1"))
     clean = ledger.path.read_bytes()
-    partial = json.dumps(_record(project, "call-2").to_jsonable()).encode("utf-8")[:64]
+    whole = json.dumps(_record(project, "call-2").to_jsonable()).encode("utf-8")
+    # The cut falls after the provider, before the model.
+    partial = whole[: whole.index(b'"model"')]
 
     # 1. Partial final line, no live writer: ENOSPC left a truncated record.
     ledger.path.write_bytes(clean + partial)

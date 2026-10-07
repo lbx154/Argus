@@ -18,7 +18,7 @@ import weakref
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Literal
+from typing import Any, Callable, Iterable, Iterator, Literal
 
 import portalocker
 
@@ -177,9 +177,19 @@ class UsageJournalRepair:
     damaged_copy: Path
     kept_records: int
     damaged: tuple[DamagedJournalLine, ...]
+    liabilities: tuple[dict[str, Any], ...] = ()
 
 
-def repair_usage_journal(path: Path) -> UsageJournalRepair | None:
+# Given the kept rows, the damaged lines and the evidence copy, the rows that
+# carry the cut-off calls as debt. Called before the journal is rewritten.
+RepairLiabilities = Callable[
+    [list[dict[str, Any]], tuple[DamagedJournalLine, ...], Path], list[dict[str, Any]]
+]
+
+
+def repair_usage_journal(
+    path: Path, *, liabilities: RepairLiabilities | None = None,
+) -> UsageJournalRepair | None:
     """Set a journal's damaged lines aside and keep every complete record.
 
     The caller holds the usage lock, so a final line without its newline is a
@@ -188,9 +198,11 @@ def repair_usage_journal(path: Path) -> UsageJournalRepair | None:
     never touched again: they are the evidence. Every complete record is
     kept, including one spliced after a truncated prefix. What each truncated
     prefix still said about its call is returned so the caller can carry the
-    call as a liability; nothing here decides what it cost. Returns ``None``
-    when no line is damaged. An ``OSError`` (a full disk) leaves the journal
-    untouched, so it stays refused.
+    call as a liability; nothing here decides what it cost. ``liabilities``
+    turns them into rows that land in the same atomic replace as the kept
+    records, so the debt is never absent from a journal that has lost its
+    damaged lines. Returns ``None`` when no line is damaged. An ``OSError``
+    (a full disk) leaves the journal untouched, so it stays refused.
     """
     try:
         original = path.read_bytes()
@@ -244,13 +256,23 @@ def repair_usage_journal(path: Path) -> UsageJournalRepair | None:
         except FileExistsError:
             attempt += 1
             copy = path.with_name(f"{path.name}.damaged-{stamp}-{attempt}")
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(original)
-        handle.flush()
-        os.fsync(handle.fileno())
-    _rewrite_usage_rows(path, rows)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(original)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError:
+        # A partial copy is not evidence; the journal itself is still intact.
+        try:
+            copy.unlink()
+        except OSError:
+            pass
+        raise
+    extra = list(liabilities(rows, tuple(damaged), copy)) if liabilities else []
+    _rewrite_usage_rows(path, [*rows, *extra], durable=True)
     return UsageJournalRepair(
         path=path, damaged_copy=copy, kept_records=len(rows), damaged=tuple(damaged),
+        liabilities=tuple(extra),
     )
 
 
@@ -1187,10 +1209,12 @@ class UsageLedger:
                 finally:
                     os.close(fd)
 
-    def repair_journal(self) -> UsageJournalRepair | None:
+    def repair_journal(
+        self, *, liabilities: RepairLiabilities | None = None,
+    ) -> UsageJournalRepair | None:
         """Repair this ledger's journal under its lock; see :func:`repair_usage_journal`."""
         with self._locked():
-            repair = repair_usage_journal(self.path)
+            repair = repair_usage_journal(self.path, liabilities=liabilities)
             if repair is not None:
                 with _CALL_ID_CACHE_LOCK:
                     _CALL_ID_CACHE.pop(str(self.path.resolve()), None)
@@ -1781,7 +1805,28 @@ def _read_usage_json_rows(path: Path) -> list[dict[str, Any]]:
     return list(_iter_usage_json_rows(path, writer_excluded=True))
 
 
-def _rewrite_usage_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+def _fsync_directory(directory: Path) -> None:
+    """Best effort: make a completed rename durable across a crash."""
+    try:
+        fd = os.open(str(directory), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def _rewrite_usage_rows(
+    path: Path, rows: list[dict[str, Any]], *, durable: bool = False,
+) -> None:
+    """Atomically replace ``path`` with ``rows``.
+
+    ``durable`` refuses to replace the journal unless the new bytes reached
+    the disk, and syncs the directory so the replace itself survives a crash.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
@@ -1800,8 +1845,11 @@ def _rewrite_usage_rows(path: Path, rows: list[dict[str, Any]]) -> None:
             try:
                 os.fsync(handle.fileno())
             except OSError:
-                pass
+                if durable:
+                    raise
         os.replace(tmp_name, path)
+        if durable:
+            _fsync_directory(path.parent)
     finally:
         try:
             os.unlink(tmp_name)
