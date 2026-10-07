@@ -978,11 +978,12 @@ class RunExecMixin:
             # invisible for hours while the operator saw only "exit code 1".
             state.turn_failed = True
             receipt = self._exit_receipt(process.returncode, state)
-            if state.model_progress_observed and not receipt:
+            if state.model_progress_observed and not receipt and state.stderr_lines:
                 # After observed model progress the record must open with the
                 # runner's own receipt: the stderr lines stay attached for the
                 # operator, but classification reads the receipt plus only the
                 # stderr written after the latest progress (this turn's end).
+                # With no stderr at all the bare receipt is the whole record.
                 receipt = _CLI_EXITED_WITHOUT_TURN
             state.fatal_error = _incomplete_turn_error(
                 state.stderr_lines,
