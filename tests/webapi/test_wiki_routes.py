@@ -530,7 +530,7 @@ def test_correcting_a_page_rewrites_its_lead_and_records_the_correction(tmp_path
     served = client.get(
         "/api/wiki/page", params={"scope": "project", "sid": "demo", "path": "pages/queue.md"}, headers=HEADERS
     ).json()
-    assert "corrected:" in served["markdown"]
+    assert ", corrected by operator: queue.py evicts at 1000 entries." in served["markdown"]
     rows = read_knowledge_events(home, kinds=["corrected"])
     assert len(rows) == 1 and rows[0]["path"] == "pages/queue.md" and rows[0]["note"] == "queue.py evicts at 1000 entries."
     events = [

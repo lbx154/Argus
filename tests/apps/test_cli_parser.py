@@ -910,7 +910,7 @@ def test_wiki_correct_command_rewrites_the_page_and_journals_it(tmp_path, monkey
     assert code == 0, out
     assert "corrected pages/lessons/regime.md (Regime)" in out and "previously: Trust it." in out
     text = page.read_text(encoding="utf-8")
-    assert "description: Recompute the regime" in text and "corrected_by: reviewer" in text
+    assert "description: Recompute the regime" in text and ", corrected by reviewer: " in text
     assert text.index("Recompute the regime from timings.") < text.index("## History")
     rows = read_knowledge_events(home, kinds=["corrected"])
     assert len(rows) == 1 and rows[0]["scope"] == "vertical" and rows[0]["vertical"] == "research"

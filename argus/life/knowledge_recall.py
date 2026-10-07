@@ -98,7 +98,7 @@ class PageMeta:
     source: str = ""
     created: str = ""
     body_lead: str = ""
-    # The date the page was corrected in place, when its front matter says so.
+    # The date the page was last corrected in place, read from its History entries.
     corrected: str = ""
 
 
@@ -257,6 +257,32 @@ def searchable_body(content: str) -> str:
     return "\n".join(kept)
 
 
+_CORRECTION_ENTRY_RE = re.compile(r"^\s*[-*]\s+(\d{4}-\d{2}-\d{2}),\s+corrected by\b")
+
+
+def _corrected_date(body: str) -> str:
+    """The latest ``- <date>, corrected by ...`` entry under the page's History heading.
+
+    The correction lives in the body rather than the front matter, so a page
+    rewritten through the two-field page format keeps it.
+    """
+    latest = ""
+    in_history = False
+    fenced = False
+    for line in body.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        heading = None if fenced else re.match(r"^#{1,6}\s+(.+)$", line)
+        if heading:
+            in_history = heading[1].strip().casefold() == "history"
+            continue
+        match = _CORRECTION_ENTRY_RE.match(line) if in_history and not fenced else None
+        if match and match[1] > latest:
+            latest = match[1]
+    return latest
+
+
 def _first_heading(body: str) -> str:
     for raw in body.splitlines():
         line = raw.strip()
@@ -298,7 +324,7 @@ def _describe(root: KnowledgeRoot, path: Path, content: str, mtime: float) -> Pa
         source=_clip(str(front.get("source") or "").strip(), 80),
         created=_iso_date(front.get("created"), mtime),
         body_lead=_clip(_first_prose_line(body)),
-        corrected=_clip(str(front.get("corrected") or "").strip(), 10),
+        corrected=_corrected_date(body),
     )
 
 

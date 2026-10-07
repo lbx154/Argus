@@ -37,8 +37,9 @@ home's shared libraries, and `POST /api/wiki/page/correct` from the web
 cockpit) replaces the page's opening paragraph with the corrected statement,
 replaces the summary when a new one is given, moves what the page said before
 into a `## History` section that recall does not search, keeps the earlier
-file under the library's `.history` directory, marks the front matter with
-`corrected: <date>` so recall shows "corrected <date>" in the page's line,
+file under the library's `.history` directory, starts that History entry with
+`- <date>, corrected by <who>:` so recall shows "corrected <date>" in the page's
+line (the front matter keeps its two fields; only the summary line changes),
 updates the index entry, and writes a `corrected` record to the knowledge
 journal so the feed shows it. A corrected shared page is newer than the
 project copy it was promoted from, so the next promotion keeps it. Recall searches topic and procedure content, excluding generic

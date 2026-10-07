@@ -1,4 +1,4 @@
-"""Read-only view of the knowledge Wikis for human readers.
+"""View of the knowledge Wikis for human readers, and in-place page correction.
 
 Agents maintain ``<workspace>/.autors/<project>/wiki`` themselves (INDEX.md
 plus semantic pages under ``pages/``). The host keeps two more tiers of the
@@ -12,7 +12,9 @@ Each page row also carries what its front matter says about it (``kind``,
 ``source``, ``created``) and how many times the host has handed it to a role,
 read from the knowledge journal (:mod:`argus.wiki.journal`). A vertical library
 adds its ``principles.md`` when one has been compiled, and ``/api/knowledge/feed``
-serves the journal itself newest-first. Nothing here writes.
+serves the journal itself newest-first. The only write is
+``POST /api/wiki/page/correct``, which hands a page to
+:func:`argus.wiki.correct.correct_page`; every other route only reads.
 """
 
 from __future__ import annotations
