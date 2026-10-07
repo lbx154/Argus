@@ -274,3 +274,72 @@ def test_stderr_before_progress_stays_history_after_generic_exit():
     assert raw.terminal_stderr_lines == []
     assert not _unauthorized_cause(raw)
     assert not result_has_pre_provider_refusal(raw)
+
+
+_CLAUDE_ASSISTANT_FRAME = (
+    '{"type":"assistant","message":{"role":"assistant","content":'
+    '[{"type":"text","text":"working on it"}],'
+    '"usage":{"input_tokens":1,"output_tokens":1}}}'
+)
+_COPILOT_DELTA_FRAME = (
+    '{"type":"assistant.message","data":{"content":"working on it"}}'
+)
+
+
+def _stream_then_exit(backend, frame, terminal, tmp_path):
+    """Drive a real child process: startup noise, a progress frame, the
+    turn's closing stderr line, then a nonzero exit."""
+    import subprocess
+    import sys
+
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+
+    script = tmp_path / "fake_cli.py"
+    script.write_text(
+        "import sys, time\n"
+        "sys.stderr.write('HTTP 503 recovered during startup\\n'); sys.stderr.flush()\n"
+        "time.sleep(0.3)\n"
+        f"sys.stdout.write({frame!r} + '\\n'); sys.stdout.flush()\n"
+        "time.sleep(0.3)\n"
+        f"sys.stderr.write({terminal!r} + '\\n'); sys.stderr.flush()\n"
+        "sys.exit(1)\n"
+    )
+    runner = AgentCliRunner(agent_bin=backend, backend=backend)
+    process = subprocess.Popen(
+        [sys.executable, str(script)], stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True,
+    )
+    options = RunnerOptions()
+    state = runner._stream_turn_output(
+        process=process, command=[backend], options=options,
+        run_label=None, thread_id="retained",
+    )
+    return runner._finalize_turn_result(
+        process=process, command=[backend], options=options, state=state
+    )
+
+
+@pytest.mark.parametrize(
+    "backend,frame",
+    [("claude", _CLAUDE_ASSISTANT_FRAME), ("copilot", _COPILOT_DELTA_FRAME)],
+)
+@pytest.mark.parametrize(
+    "terminal,kind,auth",
+    [
+        ("ERROR: 429 Too Many Requests: rate limit exceeded", "provider_cooldown", False),
+        ("HTTP 401 Unauthorized: token expired", "permanent_error", True),
+    ],
+)
+def test_non_codex_stream_classifies_closing_stderr_after_progress(
+    backend, frame, terminal, kind, auth, tmp_path
+):
+    raw = _stream_then_exit(backend, frame, terminal, tmp_path)
+    assert raw.exit_code == 1
+    assert raw.model_progress_observed
+    assert raw.terminal_stderr_lines == [terminal]
+    result = translate_result(
+        raw, resume_thread_id=None, copilot_usage=None, usage_accumulator=UsageAccumulator()
+    )
+    assert result.stop_kind == kind
+    assert terminal in result.fatal_error
+    assert bool(_unauthorized_cause(raw)) is auth

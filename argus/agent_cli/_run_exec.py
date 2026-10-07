@@ -88,6 +88,23 @@ def _consume_pipe_lines(
             enqueue((stream_name, None))
 
 
+_CODEX_PROGRESS_EVENT_TYPES = frozenset({
+    "turn.started", "turn.completed", "turn.failed",
+    "item.started", "item.updated", "item.completed",
+})
+
+
+def _mark_model_progress(state: "_StreamState") -> None:
+    """Record model progress for any backend dialect.
+
+    Sticky: survives the bounded event capture, so a later generic exit is
+    never read as a startup failure. Stderr written before this point is
+    history; only what follows is how the current turn ended.
+    """
+    state.model_progress_observed = True
+    state.stderr_since_progress.clear()
+
+
 @dataclass
 class _StreamState:
     """Mutable accumulator threaded through the stream/finalize phases.
@@ -659,18 +676,21 @@ class RunExecMixin:
                     if event is None:
                         continue
                     state.json_event_count += 1
-                    if event.get("type") in {
-                        "turn.started", "turn.completed", "turn.failed",
-                        "item.started", "item.updated", "item.completed",
-                    }:
-                        # Sticky: survives the bounded event capture, so a
-                        # later generic exit is never read as a startup failure.
-                        state.model_progress_observed = True
-                        state.stderr_since_progress.clear()
+                    ends_provider_turn = self._event_ends_provider_turn(event)
+                    has_tool_activity = self._event_has_tool_activity(event)
+                    # Backend-neutral model progress: a codex turn/item event,
+                    # a provider-turn receipt from any dialect, or tool use.
+                    # (New assistant text is checked after consumption below.)
+                    if (
+                        event.get("type") in _CODEX_PROGRESS_EVENT_TYPES
+                        or ends_provider_turn
+                        or has_tool_activity
+                    ):
+                        _mark_model_progress(state)
                     if (
                         provider_turn_cap > 0
                         and not state.watchdog_terminated
-                        and self._event_ends_provider_turn(event)
+                        and ends_provider_turn
                     ):
                         state.provider_turns += 1
                         if (
@@ -700,7 +720,7 @@ class RunExecMixin:
                                 include_detached_children=self.backend == BACKEND_OPENCODE,
                             )
                             state.watchdog_terminated = True
-                    if self._event_has_tool_activity(event):
+                    if has_tool_activity:
                         state.tool_activity_observed = True
                     observed_model = self._event_usage_model(event)
                     if observed_model:
@@ -725,6 +745,11 @@ class RunExecMixin:
                         copilot_write_state=state.copilot_write,
                         disable_tools=options.disable_tools,
                     )
+                    if len(state.agent_messages) > _msgs_before or (
+                        state.agent_messages
+                        and len(state.agent_messages[-1]) > _last_text_before
+                    ):
+                        _mark_model_progress(state)
                     # Stream each NEW assistant block to the opt-in callback the
                     # instant it lands — this is what lets the Manager chat front-door
                     # render the reply live instead of after the whole turn. Default
