@@ -92,7 +92,7 @@ the stage.
 | When needed | Open | Use it for |
 |---|---|---|
 | A route's novelty or closest work is uncertain | `engineer/novelty-check.md` | Test its novelty against primary sources |
-| The route needs a non-obvious mechanism lens | `engineer/references/ideation/ideation-patterns/overview.md` | Choose one relevant pattern, then one matched card |
+| The route needs a non-obvious mechanism lens | `engineer/references/ideation/ideation-patterns/overview.md` | Choose one relevant pattern as a mechanism lens |
 | A reviewer needs the strongest adversarial case | `reviewer/strongest-argument-against.md` | One decisive scientific objection |
 
 These sources answer a question about a route. They do not create another way

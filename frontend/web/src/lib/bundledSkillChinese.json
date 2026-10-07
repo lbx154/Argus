@@ -685,117 +685,12 @@
     "source": "argus/verticals/research/skills/engineer/paper-framework-figure-studio.md",
     "sourceSha256": "e01ffd101b8fcd701b86918d93994079dfc87d9df79dbcd348bdfe3508cfcd9b"
   },
-  "vertical/research/engineer/references/ideation/ideation-patterns/adapt_via_conditioning.md": {
-    "title": "构思参考：通过条件信息适应任务",
-    "summary": "研究如何利用条件输入和参考信息适应新任务，而不是对每个任务重新训练；需检验泛化边界。",
-    "originalName": "engineer/references/ideation/ideation-patterns/adapt_via_conditioning",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/adapt_via_conditioning.md",
-    "sourceSha256": "62dc2865c62d0adccfd14613312f9f746990baa930314be8dfc2b914e4a65865"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/algebraic_equivalence_unification.md": {
-    "title": "构思参考：用等价关系统一方法",
-    "summary": "寻找并证明不同表达之间的等价性，再据此简化或推广方法；类比本身不是证明。",
-    "originalName": "engineer/references/ideation/ideation-patterns/algebraic_equivalence_unification",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/algebraic_equivalence_unification.md",
-    "sourceSha256": "f52205190e01c73e751d586bafb44b53df85d3a75a6a58214922b6b0c45a9a33"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/architectural_operator_substitution.md": {
-    "title": "构思参考：替换算子或表示",
-    "summary": "定位结构性瓶颈，研究替代算子或表示，并验证必须保留的性质。",
-    "originalName": "engineer/references/ideation/ideation-patterns/architectural_operator_substitution",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/architectural_operator_substitution.md",
-    "sourceSha256": "3d19340d40077d188b19d8db29f6dc531068b2f94f474a814a12e6da47a220e7"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/assumption_audit_and_pivot.md": {
-    "title": "构思参考：审查并改变关键假设",
-    "summary": "找出真正影响结论的假设，研究更合适的条件与推导，不只作表面替换。",
-    "originalName": "engineer/references/ideation/ideation-patterns/assumption_audit_and_pivot",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/assumption_audit_and_pivot.md",
-    "sourceSha256": "7fb65ff9bc53521846363d63a24232dc7b60d82a2b7190e0b57fc1ed575e0b16"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass.md": {
-    "title": "构思参考：先刻画限制再突破",
-    "summary": "明确既有方法不能处理什么，再用可检验的结构或机制证明改进，而非设置弱基线。",
-    "originalName": "engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass.md",
-    "sourceSha256": "546e02ccfcf965d4084f8d3a00776268f93212b32a3849f2fa20c7a287db5001"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/controlled_diagnostic_design.md": {
-    "title": "构思参考：隔离混杂因素的诊断",
-    "summary": "设计能独立控制一个混杂因素的样例与检验，分清真实能力和表面得分。",
-    "originalName": "engineer/references/ideation/ideation-patterns/controlled_diagnostic_design",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/controlled_diagnostic_design.md",
-    "sourceSha256": "b92e7c4d77dfbe941f005d10804a72791043ba1637b70dd8e6d5725b09eb66e9"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/decompose_and_delegate.md": {
-    "title": "构思参考：拆解并交给合适求解器",
-    "summary": "把问题分成可检查的中间对象，交给适合的组件或求解器，并用结果闭环验证。",
-    "originalName": "engineer/references/ideation/ideation-patterns/decompose_and_delegate",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/decompose_and_delegate.md",
-    "sourceSha256": "5c07cc1f7e08ac4b50d771aa3b57c02c6430f24b60f99433e7f876795422dc27"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/generative_process_redesign.md": {
-    "title": "构思参考：重新设计生成过程",
-    "summary": "审视生成流程中被当作固定条件的组件或表示，验证改变它是否带来真实能力差异。",
-    "originalName": "engineer/references/ideation/ideation-patterns/generative_process_redesign",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/generative_process_redesign.md",
-    "sourceSha256": "d8d7a8633ff3243ab5d56f0e3ddabba88cb0314bf01b788922e369d4d19348d0"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/heterogeneous_decomposition.md": {
-    "title": "构思参考：按差异分别处理",
-    "summary": "识别组成部分的敏感性或冗余差异，采用不同处理方式，并核对误差与收益。",
-    "originalName": "engineer/references/ideation/ideation-patterns/heterogeneous_decomposition",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/heterogeneous_decomposition.md",
-    "sourceSha256": "08cc30a356d8aeb0c07109c914938c3da14d60c07be809613b2195efd45f4476"
-  },
   "vertical/research/engineer/references/ideation/ideation-patterns/overview.md": {
     "title": "研究构思模式总览",
     "summary": "用作各研究构思模式的导航，帮助选择进一步阅读的方向，不替代创新性与正确性验证。",
     "originalName": "engineer/references/ideation/ideation-patterns/overview",
     "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/overview.md",
     "sourceSha256": "92c96db8bd6326b9ae11d03db70c0335d65042b8b0a62689eef6aee72280c5e0"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/reframe_as_solvable_object.md": {
-    "title": "构思参考：转化为可求解对象",
-    "summary": "将模糊问题改写成定义明确、已有分析或求解工具可处理的对象，并核对转化是否忠实。",
-    "originalName": "engineer/references/ideation/ideation-patterns/reframe_as_solvable_object",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/reframe_as_solvable_object.md",
-    "sourceSha256": "ffd715c78896db4c4ce25c45a123418021a1df5d25994abb05b36c3c5cee2e08"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/relax_discrete_search_to_continuous.md": {
-    "title": "构思参考：把离散搜索松弛为连续问题",
-    "summary": "研究连续表达是否能简化搜索，同时说明松弛条件、误差和回到离散答案的边界。",
-    "originalName": "engineer/references/ideation/ideation-patterns/relax_discrete_search_to_continuous",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/relax_discrete_search_to_continuous.md",
-    "sourceSha256": "7a4db9933efa57024083886e5d42432ac5330f56a9ea6a7936de8fd70368b502"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/self_supervised_signal_engineering.md": {
-    "title": "构思参考：构造自监督信号",
-    "summary": "从已有数据或结构中构造监督依据，并验证信号与目标一致，防止循环论证。",
-    "originalName": "engineer/references/ideation/ideation-patterns/self_supervised_signal_engineering",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/self_supervised_signal_engineering.md",
-    "sourceSha256": "036371622e9e367ed5af220da88ecaf2b172d5d3ead1f2e2375f36c05b144ca4"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/structural_prior_encoding.md": {
-    "title": "构思参考：在结构中编码先验",
-    "summary": "通过构造保留任务所需性质，减少重新学习的负担；仍需检查表达能力与适用条件。",
-    "originalName": "engineer/references/ideation/ideation-patterns/structural_prior_encoding",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/structural_prior_encoding.md",
-    "sourceSha256": "3e48b13ac8b73ccb6e0260202674beecfe056f0084daaf8f2b8adde3aa53cc4b"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/targeted_self_supervised_objective.md": {
-    "title": "构思参考：面向特定性质的训练目标",
-    "summary": "让自监督目标对应明确的结构性质，并通过诊断和对照验证，而非只更换损失名称。",
-    "originalName": "engineer/references/ideation/ideation-patterns/targeted_self_supervised_objective",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/targeted_self_supervised_objective.md",
-    "sourceSha256": "a7e8ba7e87ea63a0446741ed89d53f38b2f7fc85a84c9f69dd75afcb67ba8df1"
-  },
-  "vertical/research/engineer/references/ideation/ideation-patterns/unify_into_shared_representation.md": {
-    "title": "构思参考：统一异构输入的表示",
-    "summary": "构造可承载不同输入的共同表示或接口，再验证其保留的信息与迁移效果。",
-    "originalName": "engineer/references/ideation/ideation-patterns/unify_into_shared_representation",
-    "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/unify_into_shared_representation.md",
-    "sourceSha256": "ebba3230237271e37d5280030ad147493deed2605fe53f5324f3ebb70f1d599c"
   },
   "vertical/research/engineer/references/paper-writing-craft.md": {
     "title": "论文写作方法参考",

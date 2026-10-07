@@ -108,8 +108,8 @@ _RETIRED_BUILTIN_SEED_HASHES = {
         "4e08e186b5cf37f6e71215cf47a0cd262a54ca574e89ed2e6c5162f616bda07a"
     ),
     # Research: the ideation sub-pattern cards, anti-patterns, companion
-    # combos and the vendored attribution page; the 15 pattern cards and
-    # their overview stay.
+    # combos and the vendored attribution page (#193). The 15 pattern cards
+    # follow further down; only their overview stays.
     "engineer/references/ideation/ideation-sub-patterns/C00.md": (
         "0bc790076bc61bc5a902094b3b1326375b20a2210540b9665c97728f8a869d56"
     ),
@@ -214,6 +214,55 @@ _RETIRED_BUILTIN_SEED_HASHES = {
     ),
     "engineer/references/ideation/ATTRIBUTION.md": (
         "768eb690ea6dc36812abc8bb7bc580739e38081c2fa6efe890401d49db5445fd"
+    ),
+    # Research: the 15 ideation pattern cards (2026-10-07). Zero opens in the
+    # audited projects, including the 11 whose agent opened the Idea playbook
+    # that points at them; overview.md keeps every pattern's definition,
+    # signature and when-to-apply, which is all a route choice needs.
+    "engineer/references/ideation/ideation-patterns/adapt_via_conditioning.md": (
+        "62dc2865c62d0adccfd14613312f9f746990baa930314be8dfc2b914e4a65865"
+    ),
+    "engineer/references/ideation/ideation-patterns/algebraic_equivalence_unification.md": (
+        "f52205190e01c73e751d586bafb44b53df85d3a75a6a58214922b6b0c45a9a33"
+    ),
+    "engineer/references/ideation/ideation-patterns/architectural_operator_substitution.md": (
+        "3d19340d40077d188b19d8db29f6dc531068b2f94f474a814a12e6da47a220e7"
+    ),
+    "engineer/references/ideation/ideation-patterns/assumption_audit_and_pivot.md": (
+        "7fb65ff9bc53521846363d63a24232dc7b60d82a2b7190e0b57fc1ed575e0b16"
+    ),
+    "engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass.md": (
+        "546e02ccfcf965d4084f8d3a00776268f93212b32a3849f2fa20c7a287db5001"
+    ),
+    "engineer/references/ideation/ideation-patterns/controlled_diagnostic_design.md": (
+        "b92e7c4d77dfbe941f005d10804a72791043ba1637b70dd8e6d5725b09eb66e9"
+    ),
+    "engineer/references/ideation/ideation-patterns/decompose_and_delegate.md": (
+        "5c07cc1f7e08ac4b50d771aa3b57c02c6430f24b60f99433e7f876795422dc27"
+    ),
+    "engineer/references/ideation/ideation-patterns/generative_process_redesign.md": (
+        "d8d7a8633ff3243ab5d56f0e3ddabba88cb0314bf01b788922e369d4d19348d0"
+    ),
+    "engineer/references/ideation/ideation-patterns/heterogeneous_decomposition.md": (
+        "08cc30a356d8aeb0c07109c914938c3da14d60c07be809613b2195efd45f4476"
+    ),
+    "engineer/references/ideation/ideation-patterns/reframe_as_solvable_object.md": (
+        "ffd715c78896db4c4ce25c45a123418021a1df5d25994abb05b36c3c5cee2e08"
+    ),
+    "engineer/references/ideation/ideation-patterns/relax_discrete_search_to_continuous.md": (
+        "7a4db9933efa57024083886e5d42432ac5330f56a9ea6a7936de8fd70368b502"
+    ),
+    "engineer/references/ideation/ideation-patterns/self_supervised_signal_engineering.md": (
+        "036371622e9e367ed5af220da88ecaf2b172d5d3ead1f2e2375f36c05b144ca4"
+    ),
+    "engineer/references/ideation/ideation-patterns/structural_prior_encoding.md": (
+        "3e48b13ac8b73ccb6e0260202674beecfe056f0084daaf8f2b8adde3aa53cc4b"
+    ),
+    "engineer/references/ideation/ideation-patterns/targeted_self_supervised_objective.md": (
+        "a7e8ba7e87ea63a0446741ed89d53f38b2f7fc85a84c9f69dd75afcb67ba8df1"
+    ),
+    "engineer/references/ideation/ideation-patterns/unify_into_shared_representation.md": (
+        "ebba3230237271e37d5280030ad147493deed2605fe53f5324f3ebb70f1d599c"
     ),
     # Software: the Verus plugin (kept in git history for the Vertical Store)
     # and the opt-in Manager grounding pass nobody enabled.
@@ -656,7 +705,7 @@ def iter_context_skill_assets(
     those cards are not independently matchable Skills. Excluding them from the
     seeder too left the owning Skill pointing at files that did not exist:
     run-01 had 43 of 94 research resources and none of the ideation cards
-    (15 pattern cards and their overview since the 2026-10-01 prune).
+    (only the pattern overview since the 2026-10-07 prune).
     """
     merged: dict[str, str] = {}
     for root in _vertical_skill_roots(vertical):
