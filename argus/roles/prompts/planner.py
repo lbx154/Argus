@@ -82,8 +82,8 @@ Plan from the mission workspace only; never read sibling projects or parent dire
   Optional `ADVANCE_TO_STAGE` must be Host-valid; omit to hold. `TASK_SCOPE`
   defaults to `bounded`. Also: `TASK_KEY`/`TASK_DEPS`, `TASK_HYPOTHESIS`,
   `TASK_GOAL_CONTRIBUTION`, `TASK_EXPECTED_REGRESSIONS`, `TASK_DECISION_RULE`,
-  `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`, `TASK_GPUS`,
-  and `TASK_VERTICAL`.
+  `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`, `TASK_VERTICAL`,
+  and `TASK_GPUS` (whole GPUs the task holds; JSON `gpu_count`).
 - Tasks co-run only when each sets `TASK_PARALLEL_SAFE=true` with disjoint,
   literal, relative `TASK_OWNS_PATHS` (no wildcards); stage-closing and
   framework-maintenance work runs alone. The digest shows slots and ownership.

@@ -271,6 +271,23 @@ class PlannerOrchestrationMixin:
                     "can run now."
                 )
 
+        # A task that asks for more GPUs than this machine has is failed at
+        # claim time; say so here so the Planner re-plans it smaller instead
+        # of re-emitting it. Rendered only while such a row exists.
+        from ..memory import GPU_UNFITTABLE_PREFIX
+
+        for item in [
+            row for row in backlog_rows
+            if row.status == "failed"
+            and str(getattr(row, "last_error", "") or "").startswith(
+                GPU_UNFITTABLE_PREFIX
+            )
+        ][-3:]:
+            slot_lines.append(
+                f"- gpu_unfittable: task {item.id} ({item.title}) failed: "
+                f"{item.last_error[len(GPU_UNFITTABLE_PREFIX):]}"
+            )
+
         def _active_item_line(item: Any) -> str:
             base = (
                 f"- {item.status} task {item.id}: {item.title}; "

@@ -974,10 +974,23 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
             raise TypeError(f"{name} must be true or false")
         return value
 
-    def integer(source: Mapping[str, Any], name: str) -> int:
-        value = source.get(name, 0)
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise TypeError(f"{name} must be a non-negative integer")
+    def gpu_count(source: Mapping[str, Any]) -> int | None:
+        # A whole number, or its decimal string ("2"); ``None`` for anything
+        # else, so only the task that carries it is dropped.
+        value = source.get("gpu_count", 0)
+        if value is None or value == "":
+            return 0
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped.isdigit():
+                return None
+            value = int(stripped)
+        if not isinstance(value, int) or value < 0:
+            return None
         return value
 
     def review_boolean(source: Mapping[str, Any], name: str) -> bool:
@@ -1088,6 +1101,13 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                 diagnostics.append(
                     f"task {task_index + 1} unsupported scope defaulted to bounded"
                 )
+            task_gpus = gpu_count(raw_task)
+            if task_gpus is None:
+                diagnostics.append(
+                    f"task {task_index + 1} skipped: gpu_count must be a "
+                    "non-negative whole number"
+                )
+                continue
             new_tasks.append(
                 TaskSpec(
                     title=title,
@@ -1116,7 +1136,7 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                     owns_paths=items(
                         raw_task.get("owns_paths", []), "owns_paths"
                     ),
-                    gpu_count=integer(raw_task, "gpu_count"),
+                    gpu_count=task_gpus,
                     vertical=text(raw_task, "vertical").strip(),
                 )
             )
