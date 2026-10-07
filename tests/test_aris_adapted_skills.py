@@ -67,8 +67,7 @@ def test_every_builtin_skill_has_frontmatter() -> None:
 @pytest.mark.parametrize(
     "skill_path,expected_name",
     [
-        ("engineer/citation-check.md", "Checking citations against primary sources"),
-        ("engineer/claims-against-evidence.md", "Reading claims against the evidence"),
+        ("engineer/sources-and-citations.md", "Checking claims and citations against their sources"),
     ],
 )
 def test_aris_adapted_skills_are_present(skill_path: str, expected_name: str) -> None:
@@ -80,9 +79,9 @@ def test_aris_adapted_skills_are_present(skill_path: str, expected_name: str) ->
 
 
 def test_claim_check_requires_fresh_source_level_verification() -> None:
-    text = (
-        RESEARCH_ROOT / "engineer" / "claims-against-evidence.md"
-    ).read_text(encoding="utf-8")
+    text = " ".join((
+        RESEARCH_ROOT / "engineer" / "sources-and-citations.md"
+    ).read_text(encoding="utf-8").split())
 
     assert "fresh-context" in text
     assert "direct source" in text
@@ -216,9 +215,9 @@ def test_rl_config_sanity_lives_in_collapse_diagnosis_skill() -> None:
 
 
 def test_research_review_uses_continuous_result_judgment() -> None:
-    results = (
+    results = " ".join((
         RESEARCH_ROOT / "reviewer" / "experiment-results-review.md"
-    ).read_text(encoding="utf-8")
+    ).read_text(encoding="utf-8").split())
 
     assert "hard numeric" in results
     assert "scientifically" in results

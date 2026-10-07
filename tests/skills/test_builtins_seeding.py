@@ -7,6 +7,7 @@ import json
 import pytest
 
 from argus.skills.builtins import (
+    _LEGACY_BUILTIN_SEED_HASHES,
     _RETIRED_BUILTIN_SEED_HASHES,
     _validate_builtin,
     iter_builtin_skill_texts,
@@ -46,30 +47,21 @@ RETIRED_NANOCHAT_SKILLS = {
 }
 
 RESEARCH_BASE_SKILLS = {
-    "engineer/citation-check.md",
-    "engineer/claims-against-evidence.md",
+    "engineer/sources-and-citations.md",
     "engineer/figure_spec_scripts/figure_renderer.py",
-    "engineer/hypothesis-implementation-contract.md",
-    "engineer/implementation-brief.md",
-    "engineer/write-for-review.md",
     "engineer/method-card.md",
-    "engineer/method_card_template.md",
-    "engineer/executable-spec.md",
-    "engineer/delta-on-reference.md",
     "engineer/research-grind.md",
-    "engineer/suspect-the-setup.md",
+    "engineer/training-infrastructure.md",
     "engineer/figure_spec_scripts/paper_chart_style.py",
     "engineer/figure_spec_scripts/paper_charts.py",
     "engineer/figure_spec_scripts/echarts_figure.py",
     "engineer/figure_spec_scripts/pptx_export.py",
     "engineer/paper-framework-figure-studio.md",
-    "engineer/research-visualization-router.md",
     "engineer/research_visual_scripts/browser_render.py",
     "research-idea-playbook.md",
     "research-experiment-playbook.md",
     "research-paper-playbook.md",
     "research-review-playbook.md",
-    "reviewer/reading-the-evidence.md",
     "reviewer/strongest-argument-against.md",
 }
 _RESEARCH_MOVE_MARKER = json.loads(
@@ -91,10 +83,6 @@ RESEARCH_SKILLS = RESEARCH_BASE_SKILLS | RESEARCH_MOVED_SKILLS | {
     "engineer/venue-paper-drafting.md",
     "engineer/venue-format-preflight.md",
     "reviewer/venue-academic-language-review.md",
-    "engineer/infrastructure-landscape-survey.md",
-    "engineer/framework-stand-up-pilot.md",
-    "engineer/recipe-anchored-tuning.md",
-    "reviewer/infrastructure-choice-review.md",
 }
 
 
@@ -108,7 +96,6 @@ def test_iter_vertical_skill_texts_unknown_or_skill_less_is_empty() -> None:
     software = dict(iter_vertical_skill_texts("software"))
     assert set(software) == {
         "engineer/software-change-implementation.md",
-        "planner/software-project-grounding.md",
         "reviewer/software-change-review.md",
     }
 
@@ -214,6 +201,84 @@ def test_retire_orphaned_builtin_seeds_archives_edited_copies(
         / "edited.md.retired"
     )
     assert archived.read_bytes() == edited_body
+
+
+def test_retiring_removes_an_unedited_copy_of_an_older_shipped_revision(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A workspace seeded long ago still holds the first shipped text, not the
+    # last one recorded as retired; that copy is factory-owned and goes away
+    # instead of being archived as if an operator had edited it.
+    import argus.skills.builtins as builtins
+
+    relative = "engineer/consolidated.md"
+    first_body = b"first shipped text\n"
+    last_body = b"last shipped text\n"
+    monkeypatch.setattr(
+        builtins,
+        "_RETIRED_BUILTIN_SEED_HASHES",
+        {relative: hashlib.sha256(last_body).hexdigest()},
+    )
+    monkeypatch.setattr(
+        builtins,
+        "_LEGACY_BUILTIN_SEED_HASHES",
+        {relative: hashlib.sha256(first_body).hexdigest()},
+    )
+    legacy_copy = tmp_path / relative
+    legacy_copy.parent.mkdir(parents=True)
+    legacy_copy.write_bytes(first_body)
+
+    removed = retire_orphaned_builtin_seeds(tmp_path, include_moved=False)
+
+    assert relative in removed
+    assert not legacy_copy.exists()
+    assert not (tmp_path / "_retired_builtin_skills").exists()
+
+
+def test_retiring_removes_a_copy_matching_the_recorded_seed(tmp_path, monkeypatch) -> None:
+    import argus.skills.builtins as builtins
+
+    relative = "engineer/consolidated.md"
+    seeded_body = b"text this workspace was seeded with\n"
+    monkeypatch.setattr(
+        builtins,
+        "_RETIRED_BUILTIN_SEED_HASHES",
+        {relative: hashlib.sha256(b"a later revision\n").hexdigest()},
+    )
+    monkeypatch.setattr(builtins, "_LEGACY_BUILTIN_SEED_HASHES", {})
+    (tmp_path / ".argus-builtin-seeds.json").write_text(
+        json.dumps({relative: hashlib.sha256(seeded_body).hexdigest()}),
+        encoding="utf-8",
+    )
+    copy = tmp_path / relative
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes(seeded_body)
+
+    retire_orphaned_builtin_seeds(tmp_path, include_moved=False)
+
+    assert not copy.exists()
+    assert not (tmp_path / "_retired_builtin_skills").exists()
+
+
+def test_pre_manifest_seed_digests_are_never_dropped() -> None:
+    # Workspaces seeded before the manifest existed are recognised only by
+    # these digests; retiring or merging a skill must keep its entry.
+    kept = {
+        "agent-md-optimize-project-template.md": "52fbd7e6",
+        "engineer/argus-engineer-role.md": "8823e0c0",
+        "engineer/mermaid-graphviz-diagrams.md": "d340f45b",
+        "engineer/environment-readiness.md": "f8615f2a",
+        "engineer/training-infrastructure-guide.md": "43d1cbc1",
+        "engineer/semantic-scholar-search.md": "9d4c7db9",
+        "engineer/stale-world-model.md": "1a461c11",
+        "engineer/presentation-master.md": "16fb15d8",
+        "manager/argus-manager-role.md": "dc193f31",
+        "planner/argus-planner-role.md": "30d16975",
+        "reviewer/guiding-the-engineer.md": "4636cfe9",
+    }
+    for relative, prefix in kept.items():
+        assert _LEGACY_BUILTIN_SEED_HASHES.get(relative, "").startswith(prefix), relative
 
 
 def test_seeding_retires_existing_obsolete_skill(
@@ -418,7 +483,7 @@ def test_remove_inactive_vertical_seeds_prunes_math_but_preserves_edits_and_acti
     assert set(removed) == MATH_SKILLS - {edited_name}
     assert edited.exists()
     assert (
-        tmp_path / "engineer" / "research-visualization-router.md"
+        tmp_path / "engineer" / "paper-framework-figure-studio.md"
     ).exists()
 
 
@@ -439,7 +504,7 @@ def test_seed_for_research_does_not_pull_another_verticals_skills(tmp_path) -> N
     seed_builtin_skills_for_vertical(tmp_path, "research", overwrite=True)
     for relative in MATH_SKILLS:
         assert not (tmp_path / relative).exists(), relative
-    assert (tmp_path / "engineer" / "research-visualization-router.md").is_file()
+    assert (tmp_path / "engineer" / "paper-framework-figure-studio.md").is_file()
 
 
 # --- seeds of verticals that left the package -------------------------------

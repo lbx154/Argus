@@ -441,7 +441,7 @@ def test_main_exports_builtin_skills(
     assert not (target / "engineer/auto-research-pipeline.md").exists()
     assert not (target / "engineer/emnlp-paper-drafting.md").exists()
     assert not (target / "engineer/arxiv-paper-search.md").exists()
-    assert not (target / "engineer/research-visualization-router.md").exists()
+    assert not (target / "engineer/paper-framework-figure-studio.md").exists()
     assert "exported built-in skills" in out
     assert "vertical: none (common skills only)" in out
     assert str(target) in out
@@ -461,7 +461,7 @@ def test_main_exports_decided_vertical_skills(
 
     assert rc == 0
     assert "vertical: research" in out
-    assert (target / "engineer/research-visualization-router.md").exists()
+    assert (target / "engineer/paper-framework-figure-studio.md").exists()
     for stage in ("idea", "experiment", "paper", "review"):
         assert (target / f"research-{stage}-playbook.md").exists()
     assert not (target / "engineer/auto-research-pipeline.md").exists()
@@ -485,7 +485,7 @@ def test_export_target_does_not_inherit_unrelated_cwd_vertical(
 
     assert rc == 0
     assert "vertical: none (common skills only)" in out
-    assert not (target / "engineer/research-visualization-router.md").exists()
+    assert not (target / "engineer/paper-framework-figure-studio.md").exists()
 
 
 def test_export_prunes_legacy_unmodified_research_fallback(
@@ -499,13 +499,13 @@ def test_export_prunes_legacy_unmodified_research_fallback(
 
     target = tmp_path / "legacy-project" / "argus_builtin_skills"
     seed_vertical_skills(target, "research")
-    assert (target / "engineer/research-visualization-router.md").exists()
+    assert (target / "engineer/paper-framework-figure-studio.md").exists()
 
     rc = main(["--export-builtin-skills", str(target), "--apply"])
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert not (target / "engineer/research-visualization-router.md").exists()
+    assert not (target / "engineer/paper-framework-figure-studio.md").exists()
     assert not (
         target / "engineer/research_visual_scripts/browser_render.py"
     ).exists()
@@ -520,7 +520,7 @@ def test_export_preserves_edited_legacy_research_fallback(
 
     target = tmp_path / "learned-project" / "argus_builtin_skills"
     seed_vertical_skills(target, "research")
-    router = target / "engineer/research-visualization-router.md"
+    router = target / "engineer/paper-framework-figure-studio.md"
     router.write_text(
         router.read_text(encoding="utf-8") + "\nproject-specific learning\n",
         encoding="utf-8",

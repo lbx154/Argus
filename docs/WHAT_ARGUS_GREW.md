@@ -324,7 +324,7 @@ repairs brittleness without becoming a way to silence a real alarm.
 
 That last row is a system learning where *not* to use a language model.
 
-**`verticals/kernel_engineering/skills/engineer/kernel-optimization-knowledge.md`** —
+**`verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`** —
 roofline-first methodology. "Step 0 — find the physical limit (roofline first,
 always)": compute arithmetic intensity, locate the ridge point, derive speed-of-light
 time, and only then choose levers from a bottleneck taxonomy (fuse passes, vectorize
@@ -335,7 +335,7 @@ guesswork with a denominator.
 variance, KL/clip, generation counts as health signals), `digital-circuit-error-guided-repair.md`
 (smallest evidence-supported repair, preserve cumulative correctness under a fixed
 iteration budget), `digital-circuit-first-pass-contract-closure.md`,
-`environment-readiness-gate.md`, `web-primary-source-evidence.md`,
+`web-primary-source-evidence.md`,
 `project-venv-package-management.md` ("never install into the Argus framework venv").
 
 ### 5.5 And some hardens into enforced rules

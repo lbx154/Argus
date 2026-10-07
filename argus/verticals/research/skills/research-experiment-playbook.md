@@ -62,7 +62,7 @@ from full-loop performance. Start with a meaningful pilot of that interface.
 2. For every method the project compares against or extends, clone the
    official implementation — or the strongest public one when no official
    code exists — at a pinned revision into `third_party/` and run one of its
-   shipped examples end to end (`engineer/delta-on-reference.md`). Build the
+   shipped examples end to end (`engineer/method-card.md`). Build the
    new method as a delta on that code so the code diff is the idea diff;
    reuse maintained components instead of reimplementing them from a paper
    summary. Also survey the released code of recent papers in the same area
@@ -77,7 +77,7 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    contaminate every result built on them, and convince no reviewer. Write
    custom infrastructure only when that infrastructure is itself the
    contribution being studied. Choose the framework with
-   `engineer/infrastructure-landscape-survey.md`, which replaces any
+   `engineer/training-infrastructure.md`, which replaces any
    remembered list of framework names with a dated, verified survey.
 3. Set up a clean project-local environment before writing method code: the
    project gets its own virtual environment on the system interpreter, with
@@ -111,7 +111,7 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    where the implementation must simplify the route, say so in the card's
    Notes column and mark the entry point `# @simplified` before running
    anything that bears a claim. Each implementation task arrives as a brief
-   (`engineer/implementation-brief.md`): claim verbatim from `METHOD.md`,
+   (the implementation brief in `engineer/method-card.md`): claim verbatim from `METHOD.md`,
    the components this task builds with their entry points, interfaces,
    the `tests/spec` ids that must pass, data and scale as the route states
    them, commands, environment prerequisites and an executable definition
@@ -119,7 +119,7 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    route before code is written, and the completion is named in the round
    summary; the brief is never narrowed to fit what is convenient. Write
    the code for the Reviewer that reads it without you present
-   (`engineer/write-for-review.md`): `# @component <name>` above every
+   (the anchors in `engineer/method-card.md`): `# @component <name>` above every
    component entry point, `# @simplified`, `# @reuses` and `# why:` where
    they apply; the host builds the review packet from these anchors.
 5. Beyond `tests/spec`, run only the smallest engineering checks needed to
@@ -316,14 +316,14 @@ run records before moving to the next:
 1. **Implementation fidelity** against the method card: every component
    anchored and reached on the executed path, knockouts that fail in the
    component's absence, differential tests against the oracle and the
-   pinned reference (`engineer/hypothesis-implementation-contract.md`).
+   pinned reference (`engineer/method-card.md`).
 2. **Setup and evaluator**: the positive control recovers a known signal
    through the same path, the data pipeline yields what the route describes,
    no leakage across splits, and the pilot is large enough to resolve the
-   promised margin (`engineer/suspect-the-setup.md`).
+   promised margin (`engineer/research-grind.md`).
 3. **Hyperparameters and recipe**: start from the framework's recipe at the
    pinned revision, then change one factor at a time with the reason beside
-   the value (`engineer/recipe-anchored-tuning.md`).
+   the value (`engineer/training-infrastructure.md`).
 4. **Scale and data**: the route's datasets and sizes, not a shrunken
    pilot; an effect absent at toy scale has not been tested.
 5. **Baseline fairness**: matched information, compute and tuning; a baseline
@@ -331,14 +331,18 @@ run records before moving to the next:
 6. **Method variants that still satisfy the claim as stated**: a different
    realization of the same components, never a different claim.
 
-At least three distinct, diagnosed attempts, each naming its rung and its
-evidence, precede any escalation. Escalation is an operator question carrying
-that evidence — a blocking question or `operator_options` with the diagnosed
-rungs, the numbers and the candidate changes to the claim — never a narrowed
-claim, never a "restricted case" or "negative result" paper, never a variant
-scheduled under a new title. Repeated development on the same panels is not
-confirmation, however many cycles it took; a further attempt needs a concrete,
-diagnosed cause from the ladder.
+An attempt counts toward that judgement when it named the rung it was testing
+and produced evidence that rules the rung in or out; a run that changed several
+things at once, or the same comparison repeated on the same panels, is not a
+diagnosed attempt however many cycles it took. A method is below its baseline
+for a reason you can name, and the ladder is worked until that reason is found
+or the rungs that remain could not change the claim's standing; that is when
+the work stops, not when a count of tries is reached. Escalation is then an
+operator question carrying that evidence — a blocking question or
+`operator_options` with the diagnosed rungs, the numbers and the candidate
+changes to the claim — never a narrowed claim, never a "restricted case" or
+"negative result" paper, never a variant scheduled under a new title. A further
+attempt needs a concrete, diagnosed cause from the ladder.
 
 Plan only on resources that are actually in hand. Human participants, ethics
 approval, paid annotation, credentials, external services, or compute the
@@ -369,11 +373,11 @@ only after the operator has changed that claim.
 
 ### Real system, not a stand-in
 
-A claim about a model, an agent, an environment or a dataset is evidence only when that system ran. A mock model, a fake environment, an oracle policy or synthetic data standing where the route names real data belongs in `tests/spec` (knockouts, differential tests) and nowhere in a claim-bearing run. When the real system cannot run on this machine, the honest moves are, in order: stand it up (a local open-weight model behind a serving engine on the idle GPU, the environment's official example end to end — `engineer/framework-stand-up-pilot.md`), shrink the scale while keeping the system real, or name the deviation in METHOD.md and stop the run from being claim-bearing. The host lists possible stand-ins with their call sites and the results footprint (files, minutes written) under "Run reality" in the task brief and the review packet; a 350-task benchmark whose results were written in four minutes is read for what it is. The same lines date each result file against the last edit to the code (a summary written 57 s after its script cannot hold a 32k-context sweep of two 7B models) and name measuring functions that build their inputs with random tensors: a mechanism sweep on random keys is a spec test, and a results file that lists real models above numbers such a sweep produced is a false account, not a deviation.
+A claim about a model, an agent, an environment or a dataset is evidence only when that system ran. A mock model, a fake environment, an oracle policy or synthetic data standing where the route names real data belongs in `tests/spec` (knockouts, differential tests) and nowhere in a claim-bearing run. When the real system cannot run on this machine, the honest moves are, in order: stand it up (a local open-weight model behind a serving engine on the idle GPU, the environment's official example end to end — `engineer/training-infrastructure.md`), shrink the scale while keeping the system real, or name the deviation in METHOD.md and stop the run from being claim-bearing. The host lists possible stand-ins with their call sites and the results footprint (files, minutes written) under "Run reality" in the task brief and the review packet; a 350-task benchmark whose results were written in four minutes is read for what it is. The same lines date each result file against the last edit to the code (a summary written 57 s after its script cannot hold a 32k-context sweep of two 7B models) and name measuring functions that build their inputs with random tensors: a mechanism sweep on random keys is a spec test, and a results file that lists real models above numbers such a sweep produced is a false account, not a deviation.
 
 ### Say what the claim got
 
-After a claim-bearing run, `.argus/claim_attainment.json` states per clause of the claim what was obtained, whether it is met, and which results file and field hold the number (`engineer/write-for-review.md`). The host resolves the pointer and shows the value; the Reviewer starts its reading there and the Planner decides the stage from it. A clause not met is the iteration signal this vertical runs on, not a sentence to soften.
+After a claim-bearing run, `.argus/claim_attainment.json` states per clause of the claim what was obtained, whether it is met, and which results file and field hold the number (`engineer/method-card.md`). The host resolves the pointer and shows the value; the Reviewer starts its reading there and the Planner decides the stage from it. A clause not met is the iteration signal this vertical runs on, not a sentence to soften.
 
 ## Method card
 
@@ -392,8 +396,8 @@ written by hand: the host derives them from the code, the
 and shows them beside the card in Atlas and to the Reviewer. It is a work
 product shown to human readers, the one named exception to the rule against
 extra files; the Reviewer reads it before the code and before the Engineer's
-account. `engineer/method-card.md` and `engineer/method_card_template.md`
-give the procedure and the body.
+account. `engineer/method-card.md` gives the procedure and, in its last
+section, the body.
 
 ## Executable spec
 
@@ -410,7 +414,7 @@ Outcome-shaped tests that assert the headline number prove nothing and do
 not belong here. Nothing blocks on the result; a
 failing test, an unexplained skip, or a test that was collected last round
 and is missing now is a repair the Reviewer names. Templates and the
-procedure are in `engineer/executable-spec.md`.
+procedure are in `engineer/method-card.md`.
 
 ## When the evidence is ready for Paper
 
@@ -439,24 +443,14 @@ decision, then return here. Do not read all the sources in advance.
 
 | When needed | Open | Use it for |
 |---|---|---|
-| The method must be stated before it is built, or has changed | `engineer/method-card.md` | Write and update the project-root `METHOD.md` from the selected route |
-| A baseline or extended method has public code | `engineer/delta-on-reference.md` | Clone it at a pinned revision under `third_party/`, run an example, build the delta and the parity test |
-| The spec suite must be written or extended | `engineer/executable-spec.md` | Oracle, differential, knockout and claim-shaped tests under `tests/spec` from the templates |
-| An implementation task must be handed over or checked for completeness | `engineer/implementation-brief.md` | The brief a Planner writes and an Engineer verifies before code: claim, components, interfaces, tests, data, commands, environment, definition of done |
-| Code must be readable by a Reviewer who was not there | `engineer/write-for-review.md` | `# @component`, `# @simplified`, `# @reuses` and `# why:` anchors the host turns into the review packet |
-| The thesis may have drifted from code | `engineer/hypothesis-implementation-contract.md` | Map the selected mechanism to the executed path |
+| The method must be stated before it is built or has changed, a baseline has public code, the spec suite is written or extended, an implementation task is briefed, or code must be readable by a Reviewer who was not there | `engineer/method-card.md` | Write `METHOD.md` once from the selected route; clone the reference at a pinned revision under `third_party/` and build the method as its diff; oracle, differential, knockout and claim-shaped tests under `tests/spec`; the brief a Planner writes before code; the `# @component`, `# @simplified`, `# @reuses` and `# why:` anchors the host turns into the review packet; keeping thesis and code aligned |
 | A fresh Reviewer must verify execution fidelity | `reviewer/claim-to-code-trace.md` | Trace claim-critical calls and formulas |
-| Training or large inference infrastructure is required | `engineer/infrastructure-landscape-survey.md` | Choose the framework from a current, verified survey; `engineer/training-infrastructure-guide.md` covers standing it up |
-| A project environment needs setup or repair | `project-venv-package-management.md` in the global library | Reuse the configured environment and install only required dependencies |
-| A concrete dependency or resource may block execution | `engineer/environment-readiness.md` in the global library | Check only the resources this implementation uses |
-| The method is below its baseline | `engineer/research-grind.md` | Work the diagnosis ladder against the fixed claim over many rounds |
-| The run may be misconfigured | `engineer/suspect-the-setup.md` | Separate setup failure from method evidence |
+| Training or large inference infrastructure is required | `engineer/training-infrastructure.md` | Choose the framework from a current, verified survey, stand it up in isolation, and tune from the official recipe |
+| A project environment needs setup or repair, or a dependency or resource may block a claim-bearing run | `project-venv-package-management.md` in the global library | Reuse the configured environment, install only required dependencies, and verify only the resources the run uses |
+| The method is below its baseline, the run may be misconfigured, or results must become a precise claim | `engineer/research-grind.md` | Work the diagnosis ladder against the fixed claim; separate setup failure from method evidence; relate direct evidence to the strongest supported thesis |
 | A mechanism needs one decisive ablation | `engineer/ablation-planner.md` | Choose only claim-changing ablations |
-| Raw evidence or evaluator behavior is disputed | `reviewer/reading-the-evidence.md` | Inspect code, configuration, evaluator, and rows |
-| The next experiment or Paper decision is unclear | `reviewer/experiment-results-review.md` | Independently judge what the evidence supports and what remains to learn |
-| Results must become a precise claim | `engineer/result-to-claim.md` | Relate direct evidence to the strongest supported thesis |
-| Confirmed results need tables or figures | `engineer/research-results-analysis-and-figures.md` | Produce claim-bearing paper visuals |
-| Data figures need publication styling | `engineer/paper-chart-styling.md` | Shared style helper: vector PDF, TrueType fonts, colorblind palette, error bars |
+| The next experiment or Paper decision is unclear, or raw evidence or evaluator behavior is disputed | `reviewer/experiment-results-review.md` | Independently judge what the evidence supports after inspecting code, configuration, evaluator and rows |
+| Confirmed results need tables or figures | `engineer/paper-framework-figure-studio.md` for conceptual figures, `engineer/paper-chart-styling.md` for data charts | Produce claim-bearing paper visuals from the raw rows |
 
 Specialist Skills answer one implementation or experiment question. They do not
 define a global plan, stage transition, or parallel report.

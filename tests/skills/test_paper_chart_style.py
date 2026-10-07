@@ -173,27 +173,19 @@ def test_research_data_figures_have_one_renderer_path() -> None:
     skill_root = pcs.__file__.rsplit("figure_spec_scripts", 1)[0]
 
     chart_skill = Path(skill_root, "paper-chart-styling.md").read_text(encoding="utf-8")
-    analysis_skill = Path(
-        skill_root, "research-results-analysis-and-figures.md"
-    ).read_text(encoding="utf-8")
-    router_skill = Path(
-        skill_root, "research-visualization-router.md"
+    # The figure studio now carries the routing the visualization router and
+    # the results-analysis skill used to state separately.
+    studio_skill = Path(
+        skill_root, "paper-framework-figure-studio.md"
     ).read_text(encoding="utf-8")
 
     normalized_chart = " ".join(chart_skill.split())
-    normalized_analysis = " ".join(analysis_skill.split())
-    normalized_router = " ".join(router_skill.split())
+    normalized_studio = " ".join(studio_skill.split())
 
-    assert "SciencePlots is mandatory for this route" in normalized_chart
-    assert "single SciencePlots/Matplotlib data-figure path" in normalized_analysis
-    assert "Any paper data/metric/result chart" in normalized_router
-    assert (
-        "Other conceptual or teaser figure | "
-        "Composing a conceptual paper figure"
-    ) in normalized_router
-    assert (
-        "Method pipeline or architecture overview | Composing a conceptual paper figure"
-    ) in normalized_router
+    assert "The route depends on SciencePlots" in normalized_chart
+    assert "single SciencePlots/Matplotlib data-figure path" in normalized_studio
+    assert "Any paper data/metric/result chart" in normalized_studio
+    assert "Composing a conceptual paper figure" in normalized_studio
 
 
 def test_chart_skill_has_no_builtin_venue_api() -> None:

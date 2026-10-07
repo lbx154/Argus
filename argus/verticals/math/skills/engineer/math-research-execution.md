@@ -22,11 +22,10 @@ will help the next attempt, then change the mathematical approach.
 
 In `scope`, settle what is already known before the mathematics starts: the
 results this work will lean on go into the ledger as assumptions with their
-citations, and so does an approach already known to fail. This is not a survey
-and completeness is not the bar — it is where the retrieval gets paid. Workers
-on the same goal cannot see each other's searches, so a lookup done here costs
-once and the same lookup done in `solve` costs once per worker. Finding nothing
-relevant is a result; so is being unable to obtain a source. Record either.
+citations, and so does an approach already known to fail, because workers on
+the same goal cannot see each other's searches and a lookup made here is paid
+for once. Finding nothing relevant is a result; so is being unable to obtain a
+source. Record either.
 
 Use ordinary working files suited to the task. Do not create process-only
 planning, status, or evidence files merely to satisfy the
@@ -241,41 +240,32 @@ nothing about that waits on you mid-proof. Run
     $C attribute --claim C1 --assumption RH \
         --excerpt-file read.txt --verdict supports --by "reader:whoever-looked"
 
-whenever it suits — between routes, while a compile runs, or as a task handed to
+whenever it suits — between routes, while a compile runs, or as a task given to
 another worker. The work list is derived from the ledger rather than stored, so
-several people can check at once without coordinating and a repeat costs
-nothing. `scope` and `solve` complete with citations outstanding. `review` does
-not: it is the delivery point, and a proof leaning on a theorem nobody opened
-the source for is a proof with a hole in it that no compiler will ever find.
+several people can check at once without coordinating. `scope` and `solve`
+complete with citations outstanding; `review` does not, because a proof leaning
+on a theorem nobody opened the source for has a hole no compiler will find.
 
-`resolve` asks the registry whether the identifier exists. It is the cheap catch
-for the fabricated reference and it settles nothing by itself — a DOI that
-resolves proves a paper is there, and your citation was about a theorem inside
-it, so a successful lookup is recorded as `inconclusive` and the citation stays
-open. Only `attribute` closes one, because only a reader can answer the question
-that was asked.
-
-So `--excerpt-file` holds the passage you actually read at that locator, and it
-is archived under `research/literature/` before your answer is recorded against
-it. That is the whole reason this is `literature` evidence rather than your
-opinion: a later reader can open what you read and disagree. Quote the statement
-including its hypotheses — a paper that has the theorem under conditions that do
-not hold here is the failure this is for, and it is invisible in a summary. A
-`refutes` needs an excerpt too: quote what is actually at that number.
+`resolve` only asks the registry whether the identifier exists: it catches a
+fabricated reference and settles nothing else, so a successful lookup is
+recorded as `inconclusive` and the citation stays open. Only `attribute` closes
+one, and `--excerpt-file` is why: the passage you actually read at that locator
+is archived under `research/literature/` before your answer is recorded, so a
+later reader can open it and disagree. Quote the statement with its hypotheses;
+a theorem that holds under conditions that do not hold here is the failure this
+is for. A `refutes` needs an excerpt too.
 
 One citation you cannot close is your own. `attribute` refuses a `supports`
 answer filed under the same name that ran `assume`, and a citation whose only
 support came from its filer reports as `self_checked` and does not clear
-delivery. This is not a comment on your care. You wrote "Theorem 3.2 of [K]"
-because you believed [K] has a Theorem 3.2 saying that; your going back and
-agreeing is that belief a second time, and the reading is exactly what is in
-question. Hand it to the Reviewer or to another worker. The other direction is
-always open: if you go back and find it is *not* there, file the `refutes`
-yourself — that is the one answer self-checking cannot manufacture, and it is
-worth more than any confirmation.
+delivery. You wrote "Theorem 3.2 of [K]" because you believed [K] has a Theorem
+3.2 saying that; your going back and agreeing is that belief a second time, and
+the reading is exactly what is in question. Give it to the Reviewer or another
+worker. The other direction is always open: if you find it is *not* there, file
+the `refutes` yourself; that is the one answer self-checking cannot manufacture.
 
 If the source cannot be obtained at all, say so instead of leaving the lookup
-open — restate the assumption with `--source` alone and no `--source-id`, which
+open: restate the assumption with `--source` alone and no `--source-id`, which
 reports it as `uncited` and puts the situation in front of the reviewer rather
 than behind a queue nobody can clear.
 

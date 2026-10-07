@@ -1,8 +1,9 @@
 """Infrastructure knowledge is a procedure plus a dated project record, never a name.
 
-The skills teach how to survey live sources, stand up pinned candidates and tune
-from the official recipe; Argus writes the current answer at project time as a
-dated decision record that later projects re-verify.
+One skill teaches how to survey live sources, stand up pinned candidates and
+tune from the official recipe; Argus writes the current answer at project time
+as a dated decision record that later projects re-verify. The Reviewer's side
+of that record lives in the experiment-results review.
 """
 from __future__ import annotations
 
@@ -17,13 +18,8 @@ from argus.verticals.research.prompt_policy import (
 )
 
 SKILLS_ROOT = Path(argus.__file__).parent / "verticals" / "research" / "skills"
-ENGINEER_SKILLS = (
-    "engineer/infrastructure-landscape-survey.md",
-    "engineer/framework-stand-up-pilot.md",
-    "engineer/recipe-anchored-tuning.md",
-)
-REVIEWER_SKILL = "reviewer/infrastructure-choice-review.md"
-GUIDE = "engineer/training-infrastructure-guide.md"
+GUIDE = "engineer/training-infrastructure.md"
+REVIEWER_SKILL = "reviewer/experiment-results-review.md"
 
 
 def _text(relative: str) -> str:
@@ -34,69 +30,76 @@ def _flat(relative: str) -> str:
     return " ".join(_text(relative).lower().split())
 
 
-def test_procedure_skills_exist_with_frontmatter() -> None:
-    for relative in (*ENGINEER_SKILLS, REVIEWER_SKILL, GUIDE):
-        text = _text(relative)
-        assert text.startswith("---\nname: "), relative
-        assert "\ndescription: " in text.split("---", 2)[1], relative
+def test_procedure_skill_exists_with_frontmatter_and_absorbed_the_chain() -> None:
+    text = _text(GUIDE)
+    assert text.startswith("---\nname: ")
+    assert "\ndescription: " in text.split("---", 2)[1]
+    for absorbed in (
+        "engineer/training-infrastructure-guide.md",
+        "engineer/infrastructure-landscape-survey.md",
+        "engineer/framework-stand-up-pilot.md",
+        "engineer/recipe-anchored-tuning.md",
+        "reviewer/infrastructure-choice-review.md",
+    ):
+        assert not (SKILLS_ROOT / absorbed).exists(), absorbed
 
 
-def test_survey_skill_teaches_successor_discovery_and_evidence_cards() -> None:
-    survey = _flat(ENGINEER_SKILLS[0])
+def test_survey_teaches_successor_discovery_and_evidence_cards() -> None:
+    survey = _flat(GUIDE)
     assert "successor discovery" in survey
     assert "evidence card" in survey
     assert "argus.tools.web_source" in survey
-    assert "semantic-scholar-search.md" in survey
-    assert "90" in survey and "180" in survey and "365" in survey
+    assert "sources-and-citations.md" in survey
     assert "no material update found" in survey
     assert "exclusion reason" in survey
+    # The window is a judgement the researcher states, not a fixed number of days.
+    assert "365" not in survey and "180" not in survey
 
 
 def test_stand_up_pilot_profiles_a_real_step_and_measures_engine_agreement() -> None:
-    pilot = _flat(ENGINEER_SKILLS[1])
+    pilot = _flat(GUIDE)
     assert "pinned" in pilot
     assert "third_party/<name>/" in pilot
     assert "phase table" in pilot
-    assert "log-prob agreement" in pilot
+    assert "log-prob" in pilot
     assert "engine on and off" in pilot
     assert "--intent 'stand-up pilot: <candidate>@<sha>'" in pilot
     assert "gpu-hours per valid update" in pilot
 
 
 def test_recipe_tuning_changes_one_factor_and_escalates_before_full_runs() -> None:
-    tuning = _flat(ENGINEER_SKILLS[2])
+    tuning = _flat(GUIDE)
     assert "one factor" in tuning
     assert "provenance comment" in tuning
     assert "escalation note" in tuning
     assert "research_notes.md" in tuning
-    assert "stop rule" in tuning
+    assert "stop" in tuning
     assert "rl-training-collapse-diagnosis.md" in tuning
 
 
-def test_reviewer_skill_checks_provenance_without_demanding_a_framework() -> None:
+def test_reviewer_checks_provenance_without_demanding_a_framework() -> None:
     review = _flat(REVIEWER_SKILL)
     assert "re-verify" in review
     assert "pinned" in review
     assert "log-prob agreement" in review
     assert "never demand a particular framework" in review
     assert "never hold because a newer release exists" in review
-    assert "never apply this skill to non-training experiments" in review
+    assert "never apply these checks to analysis, evaluation-only or data-preparation experiments" in review
     assert "unverified" in review
 
 
-def test_guide_routes_to_the_three_procedure_skills_without_naming_stacks() -> None:
+def test_guide_routes_to_the_collapse_diagnosis_without_naming_stacks() -> None:
     guide = _text(GUIDE)
-    for relative in ENGINEER_SKILLS:
-        assert relative in guide, relative
     assert "engineer/rl-training-collapse-diagnosis.md" in guide
-    # The guide is a procedure entry point: no dated recommendation, no
-    # "examples" list of stacks, no year that would age the advice.
+    assert "engineer/<task-class>-infrastructure-decision.md" in guide
+    # A procedure entry point: no dated recommendation, no "examples" list of
+    # stacks, no year that would age the advice.
     assert "examples, not required choices" not in guide
     assert re.search(r"\b20\d\d\b", guide) is None
 
 
 def test_procedure_skills_do_not_recommend_by_remembered_names() -> None:
-    for relative in (*ENGINEER_SKILLS, REVIEWER_SKILL, GUIDE):
+    for relative in (GUIDE, REVIEWER_SKILL):
         text = _text(relative)
         assert "dated hypotheses" in text or "re-verify" in text or "pinned" in text, relative
 

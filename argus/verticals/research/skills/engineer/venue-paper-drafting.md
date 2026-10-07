@@ -8,9 +8,8 @@ description: "Write the complete paper with the selected venue's author kit, in 
 Use this only in Paper after Experiment clears the paper-entry bar. Read
 the research notes in `RESEARCH_NOTES.md`, direct evidence, the selected venue
 in the project state, and that venue's current official author kit.
-Read `references/paper-writing-craft.md`
-once before drafting and keep it open while revising; it is the how, this file
-is the order.
+Read `references/paper-writing-craft.md` once before drafting and keep it open
+while revising; it is the how, this file is the order.
 
 Conceptual, method, and architecture figures follow
 `paper-framework-figure-studio.md`: **Method D is the default**, using an actual
@@ -21,7 +20,7 @@ unavailable or unsuitable. Do not introduce a separate SVG workflow.
 ## The standard
 
 The standard is a strong accepted paper at the selected venue, the kind the
-exemplar skill has you read. There is no house quota for sentences, words,
+next section has you read. There is no house quota for sentences, words,
 numbers, or caption format; the claim decides the form. The abstract is as long
 and as numerical as the venue's norm and the claim require: a large speedup is
 stated as a speedup, a narrow margin with its uncertainty, a mechanism finding
@@ -33,6 +32,23 @@ it matters, and hedge a sentence only when the evidence for that sentence is
 uncertain. Keep the complete method, baseline, control, adverse-result,
 uncertainty, and scope coverage in the paper; selection changes where evidence
 lives, never whether it is there.
+
+## Calibrating against strong published papers
+
+When the argument's shape or the visual composition needs a reference, or the
+final visual Review is unsure what standard to hold the paper to, read a small
+number of open-access accepted, Oral, Outstanding or Best Papers from the
+selected venue and the closest area. Look at how they handle contribution
+framing, section order and argument pacing; page rhythm, whitespace, column
+balance and float placement; figure and table density; publication-size
+typography; caption length and hierarchy; colour restraint and visual
+consistency. They calibrate judgement; they are not a section template or a
+source of prose. One careful read is what calibrates. Rereading the same PDFs
+every round replaces judgement with ritual and improves nothing, so record the
+concrete differences you found (through the visual review response, when the
+read happens in Review) and work from those. Do not download a permanent
+exemplar collection or create profiles, blueprints or reports about adherence
+to their example.
 
 ## 1. Shape the argument before writing prose
 
@@ -107,13 +123,18 @@ Include every intended claim-bearing experiment, figure, table, and citation.
 
 ## 3. Figures and tables
 
-Every figure and table carries a scientific claim. For a full paper, aim for
-three informative figures and include at least two distinct scientific figures.
-Figure 1 should explain the method or central mechanism; the others normally
-show the main comparison and an ablation, diagnostic, or generalization result.
-Choose distinct questions from actual evidence, without decorative filler or
-renumbered pieces of one diagram. Table 1 should normally present the main
-quantitative result. For a method pipeline, open `paper-framework-figure-studio.md`
+Every figure and table carries a scientific claim. A figure earns its place
+when the reader would take something from it that prose and tables cannot give
+as directly: the idea or the mechanism itself, which is what Figure 1 normally
+shows; a comparison whose shape matters more than its numbers; an ablation,
+diagnostic or generalization result whose pattern is the point. A full paper
+at a strong venue usually needs several such figures because it makes several
+such claims, each answering a distinct question from actual evidence; a paper
+with fewer claims that a picture serves needs fewer, and a figure added to
+reach a count, a decorative panel, or one diagram cut into renumbered pieces
+weakens the paper. Table 1 normally carries the main quantitative result,
+because a comparison across many conditions is read faster as numbers than as
+bars. For a method pipeline, open `paper-framework-figure-studio.md`
 and design the current code and paper as a composed, grouped figure through
 PPT Master; keep the native editable PPTX and include its vector PDF export.
 Use readable publication-scale

@@ -284,12 +284,11 @@ finding. Do not read all the sources in advance.
 | When needed | Open | Use it for |
 |---|---|---|
 | Scientific completeness is under review | `reviewer/academic-paper-peer-review-benchmark.md` | Judge contribution, evidence, and paper value |
-| A material claim or citation is disputed | `engineer/claims-against-evidence.md` or `engineer/citation-check.md` | Trace the claim to raw evidence or a primary source |
-| Visual quality needs venue calibration | `engineer/paper-exemplar-pdf-learning.md` | Compare the rendered paper with strong accepted work |
+| A material claim or citation is disputed | `engineer/sources-and-citations.md` | Trace the claim to raw evidence or a primary source |
+| Visual quality needs venue calibration | `engineer/venue-paper-drafting.md` | Compare the rendered paper with strong accepted work |
 | The method pipeline needs composition or visual repair | `engineer/paper-framework-figure-studio.md` | Repair the canonical composition and included vector PDF; inspect any delivered PPTX separately |
 | PDF-only argument and language are under review | `reviewer/venue-academic-language-review.md` | Judge evidence hierarchy and prose from the rendered paper without internal context |
-| Private implementation detail may have leaked | `engineer/paper-infrastructure-review.md` | Inspect the current paper for internal leakage |
-| A repaired paper needs venue compilation | `engineer/venue-format-preflight.md` | Recompile under the official author kit |
+| A repaired paper needs venue compilation, or private implementation detail may have leaked | `engineer/venue-format-preflight.md` | Recompile under the official author kit and inspect the paper for internal leakage |
 
 These Skills support one pass or repair. They do not create another review
 workflow or another review file.

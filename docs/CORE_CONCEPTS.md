@@ -54,13 +54,13 @@ as the front door, Planner as the next-work queueing role, Engineer as the L1
 implementation role, and Reviewer as the L2 acceptance role
 [`argus/core/role_config.py:14-64`].
 Manager selects workflow and is the only role allowed to change project stages
-[`argus/builtin_skills/manager/argus-manager-role.md:8-15`]. Planner reads
+[`argus/builtin_skills/manager/evidence-based-stage-decision.md`]. Planner reads
 current project state and delegates legal next work; it does not implement tasks
 or edit project files. Engineer produces the requested artifact, code, analysis,
 or experiment and hands checkable evidence to Reviewer. Reviewer independently
 judges the current mission and can accept, redirect, or block with statuses such
 as `done`, `continue`, `blocked`, or `replan_requested`
-[`argus/builtin_skills/reviewer/argus-reviewer-role.md:8-16`]. A
+[`argus/builtin_skills/reviewer/argus-reviewer-role.md`]. A
 **teammate** is a concurrent worker role for disjoint delegated tasks.
 
 A **role session** or **provider thread** is model/backend conversation

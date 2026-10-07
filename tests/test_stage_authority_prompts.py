@@ -26,7 +26,7 @@ def _src(rel: str) -> str:
 
 
 def test_planner_role_gives_stage_authority_to_manager() -> None:
-    text = load_builtin_skill_text("argus-planner-role.md")
+    text = load_builtin_skill_text("dependency-aware-task-decomposition.md")
     assert "Manager alone changes" in text
     assert ".argus/PIPELINE_STATE.json" in text
     assert "report an upstream stage defect" in text
