@@ -806,3 +806,44 @@ def test_background_delivery_retries_a_temporarily_busy_control_without_new_evid
         assert len(attempts) == 2 and len(backend.calls) == 1
     finally:
         assert supervision.shutdown_supervision(tmp_path) == 0
+
+
+def test_busy_control_is_not_reported_as_a_failure_on_every_attempt(tmp_path, monkeypatch):
+    """While the daemon runs the mission a decision concerns, delivery waits for
+    the next guidance boundary; that wait is not a stream of failure events."""
+    from argus.manager import supervision
+
+    project(tmp_path)
+    backend = EvidenceBackend()
+    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    attempts = []
+
+    def always_busy(*args, **kwargs):
+        attempts.append(True)
+        raise supervision.SupervisionBusy("daemon control is busy")
+
+    monkeypatch.setattr(supervision, "_apply", always_busy)
+    supervision.start_supervision(tmp_path)
+    assert supervision.schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+    try:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and len(attempts) < 8:
+            time.sleep(0.05)
+    finally:
+        assert supervision.shutdown_supervision(tmp_path) == 0
+    assert len(attempts) == 8 and len(backend.calls) == 1
+
+    latest = json.loads((tmp_path / "manager-supervision/latest.json").read_text())
+    assert latest["status"] == "issued" and latest["error_code"] == "busy"
+    assert "next guidance boundary" in latest["failure_reason"]
+    types = [json.loads(line)["type"] for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    assert types.count(EventType.LIFE_MANAGER_SUPERVISION_ISSUED) == 1
+    assert types.count(EventType.LIFE_MANAGER_SUPERVISION_FAILED) == 0
+
+    # Once control frees, the same issued decision is delivered without another model call.
+    monkeypatch.undo()
+    delivered = supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path,
+                          {"type": EventType.LIFE_MISSION_COMPLETED})
+    assert delivered["status"] == "applied" and len(backend.calls) == 1
+    types = [json.loads(line)["type"] for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    assert types.count(EventType.LIFE_MANAGER_SUPERVISION_APPLIED) == 1
