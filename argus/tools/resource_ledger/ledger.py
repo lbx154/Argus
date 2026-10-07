@@ -368,10 +368,22 @@ class ResourceLedger:
                 str(item.get("id") or ""),
             ),
         )
+        # Strict order holds only within one accelerator kind: once a request
+        # of a kind waits, later requests that could touch the same devices
+        # wait behind it, but a request for other (or no) accelerators is not
+        # held up by devices it never asked for.
+        blocked: set[str] = set()
         for request in queued:
+            kind = str(request["demand"].get("accelerator") or "any")
+            if kind != "none" and (kind in blocked or "any" in blocked or (kind == "any" and blocked)):
+                # A skipped waiter still holds its place: later requests that
+                # could take devices it is waiting for must queue behind it.
+                blocked.add(kind)
+                continue
             selected = self._select_devices(snapshot, request["demand"], grants)
             if selected is None and snapshot.get("enforcement") != "advisory":
-                break
+                blocked.add(kind)
+                continue
             granted = self._grant_record(request, snapshot, selected, now)
             self._write(self._record_path(self.grants_dir, granted["id"]), granted)
             self._record_path(self.queue_dir, granted["id"]).unlink(missing_ok=True)
@@ -491,6 +503,13 @@ class ResourceLedger:
                 self._write(self._record_path(self.grants_dir, identifier), granted)
                 return self._facts("granted", granted, snapshot)
             self._write(self._record_path(self.queue_dir, identifier), request)
+            if earlier_queue and selected is not None:
+                # Join the queue in order, then let promotion grant it if no
+                # earlier request of a conflicting kind is waiting.
+                self._promote_locked(snapshot, now)
+                granted = self._read(self._record_path(self.grants_dir, identifier))
+                if granted is not None:
+                    return self._facts("granted", granted, snapshot)
             return self._facts("queued", request, snapshot)
 
     def admit(

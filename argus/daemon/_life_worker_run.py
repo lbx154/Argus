@@ -31,6 +31,24 @@ log = logging.getLogger(__name__)
 
 _RUNNING_STALL_ERROR = "executor exited without completing the task"
 _RUNNING_STALL_POLL_SECONDS = 1.0
+_HELPER_WAKE_CHECK_SECONDS = 0.5
+
+
+def _backlog_fingerprint(supervisor: Any) -> tuple | None:
+    """Cheap change marker for the backlog a helper supervisor claims from."""
+    backlog = getattr(getattr(supervisor, "memory", None), "backlog", None)
+    paths = getattr(backlog, "storage_paths", None)
+    if not paths:
+        return None
+    marks: list[tuple[int, int, int] | None] = []
+    for path in paths:
+        try:
+            stat = Path(path).stat()
+        except OSError:
+            marks.append(None)
+            continue
+        marks.append((stat.st_ino, stat.st_mtime_ns, stat.st_size))
+    return tuple(marks)
 _SUBAGENT_INFLIGHT_STATES = frozenset({
     "discussing",
     "preflight",
@@ -447,6 +465,89 @@ class LifeWorkerRunMixin:
         finally:
             self._supervisor_execution_threads.pop(worker_id, None)
 
+    def _run_supervisor_passes(self, supervisors: list[Any]) -> dict:
+        """Run one primary pass with helpers kept busy for its whole length.
+
+        A helper that finds nothing claimable looks again (after a wakeable
+        wait) for as long as the primary pass runs, so items the primary
+        plans or resumes mid-pass are taken up in parallel instead of the
+        primary chaining them one after another. Returns the primary summary.
+        """
+        poll = float(getattr(getattr(self, "config", None), "poll_interval", 5.0) or 5.0)
+        with ThreadPoolExecutor(
+            max_workers=len(supervisors),
+            thread_name_prefix="argus-mission",
+        ) as executor:
+            # One copied context per submission, taken INSIDE the caller's
+            # ``with pipeline_lock`` so each worker carries this loop's
+            # pipeline-lock delegation entitlement (ContextVar) and its
+            # re-entry takes the in-process gate instead of deadlocking on the
+            # flock we are holding (the 2026-09-05 incident). A single Context
+            # cannot be entered concurrently.
+            def submit(supervisor: Any):
+                return executor.submit(
+                    contextvars.copy_context().run,
+                    self._run_supervisor_pass,
+                    supervisor,
+                )
+
+            primary = submit(supervisors[0])
+
+            def helper_loop(supervisor: Any) -> None:
+                while True:
+                    baseline = _backlog_fingerprint(supervisor)
+                    result = self._run_supervisor_pass(supervisor)
+                    if primary.done() or self._stop.is_set():
+                        return
+                    # Honour the supervisor's own backoff (it escalates for
+                    # holds, pauses and lost claims, and each idle pass journals
+                    # a status event), but wake early once the backlog changes:
+                    # the primary planning, claiming or resuming an item writes
+                    # the backlog, and that may have made work claimable.
+                    suggested = result.get("suggested_sleep") if isinstance(result, dict) else 0
+                    wait = max(float(suggested or 0), min(poll, 1.0))
+                    if self._wait_for_helper_wake(
+                        supervisor, wait, poll=poll, primary=primary, baseline=baseline,
+                    ):
+                        return
+
+            helpers = [
+                executor.submit(contextvars.copy_context().run, helper_loop, supervisor)
+                for supervisor in supervisors[1:]
+            ]
+            summary = primary.result()
+            for future in helpers:
+                future.result()
+            return summary
+
+    def _wait_for_helper_wake(
+        self,
+        supervisor: Any,
+        wait: float,
+        *,
+        poll: float,
+        primary: Any,
+        baseline: tuple | None,
+    ) -> bool:
+        """Sleep up to ``wait`` seconds; return True when the helper should stop.
+
+        Returns False early when the backlog changed since ``baseline`` (so a
+        newly ready item is claimed promptly). The checks are file stats only,
+        so watching for a change never journals anything.
+        """
+        deadline = time.monotonic() + wait
+        slice_s = max(0.01, min(_HELPER_WAKE_CHECK_SECONDS, poll))
+        while True:
+            if self._stop.is_set() or primary.done():
+                return True
+            if _backlog_fingerprint(supervisor) != baseline:
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if self._stop.wait(min(slice_s, remaining)):
+                return True
+
     def _start_running_stall_watcher(self, rf_state: _RunForeverState) -> None:
         def _watch() -> None:
             while not self._running_stall_stop.wait(_RUNNING_STALL_POLL_SECONDS):
@@ -680,28 +781,7 @@ class LifeWorkerRunMixin:
                         elif len(supervisors) == 1:
                             summary = self._run_supervisor_pass(rf_state.sup)
                         else:
-                            with ThreadPoolExecutor(
-                                max_workers=len(supervisors),
-                                thread_name_prefix="argus-mission",
-                            ) as executor:
-                                # Copied INSIDE the ``with pipeline_lock`` so
-                                # each worker carries this loop's pipeline-lock
-                                # delegation entitlement (ContextVar) and its
-                                # re-entry takes the in-process gate instead of
-                                # deadlocking on the flock we are holding (the
-                                # 2026-09-05 incident). One copy per worker: a
-                                # single Context cannot be entered concurrently.
-                                futures = [
-                                    executor.submit(
-                                        contextvars.copy_context().run,
-                                        self._run_supervisor_pass,
-                                        supervisor,
-                                    )
-                                    for supervisor in supervisors
-                                ]
-                                summary = futures[0].result()
-                                for future in futures[1:]:
-                                    future.result()
+                            summary = self._run_supervisor_passes(supervisors)
                         if summary.get("stopped_by") == "project_done":
                             current = read_continuous_state(rf_state.runtime_root)
                             if (

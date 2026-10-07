@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,22 +22,29 @@ def _default_subagent_family_failure_window_hours() -> float:
     return LifeSupervisorConfig.subagent_family_failure_window_hours
 
 
-AUTO_MISSION_WIDTH_MIN = 2
 AUTO_MISSION_WIDTH_MAX = 4
 
 
+def _usable_cpu_count() -> int:
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
 def resolve_auto_mission_width() -> int:
-    """The width ``--mission-width auto`` stands for on this machine.
+    """The worker ceiling ``--mission-width auto`` stands for on this machine.
 
-    One mission worker per GPU, so comparison arms that each hold a card can
-    run side by side, with a floor of two (a campaign always has work that
-    needs no GPU) and a ceiling of four (more workers share one provider
-    session budget and one operator's attention).
+    ``auto`` is an upper bound, not a target. How many missions actually run
+    together is decided at claim time: helpers only take ready, parallel-safe
+    items whose dependencies are met (the Planner's DAG), and each job's GPU
+    needs are admitted by the shared resource ledger. The bound is the cores
+    this process may use (a mission needs at least one), capped at four
+    because more workers share one provider session budget and one
+    operator's attention. GPU count does not set it: CPU-only campaigns are
+    common, and a card listing ignores ``CUDA_VISIBLE_DEVICES`` and load.
     """
-    from ..tools.gpu_lease import gpu_snapshot
-
-    gpus = len(gpu_snapshot())
-    return max(AUTO_MISSION_WIDTH_MIN, min(AUTO_MISSION_WIDTH_MAX, gpus))
+    return max(1, min(AUTO_MISSION_WIDTH_MAX, _usable_cpu_count()))
 
 
 @dataclass
@@ -59,8 +67,9 @@ class LifeWorkerConfig:
     engineer_reasoning_effort: str = "xhigh"
     reviewer_reasoning_effort: str = "high"
     global_daily_cap_usd: float = 0.0
-    # An integer, or "auto": one mission worker per GPU on this machine,
-    # at least two and at most four, resolved when the config is built.
+    # An integer, or "auto": a ceiling of up to four workers bounded by the
+    # usable cores, resolved when the config is built; the ready DAG and the
+    # resource ledger decide how many of them run at once.
     mission_width: int | str = 2
     planner_task_iteration_max_cycles: int = 0
     # See LifeSupervisorConfig.subagent_family_failure_streak_limit /

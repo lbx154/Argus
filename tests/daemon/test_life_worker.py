@@ -3573,3 +3573,74 @@ def test_resident_daemon_does_not_turn_a_queued_task_into_an_open_campaign(tmp_p
     assert cfg.continuous is False
     assert ns.open_ended is False
     assert ns.continuous_objective == ""
+
+
+def test_idle_helper_keeps_polling_while_primary_mission_runs(tmp_path: Path) -> None:
+    """A helper that finds nothing to claim must look again while the primary
+    worker is still busy, so work the primary plans mid-pass is picked up in
+    parallel instead of waiting for the primary's whole pass to end."""
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01))
+    primary_release = threading.Event()
+    helper_calls: list[int] = []
+
+    def primary_run() -> dict:
+        assert primary_release.wait(5.0)
+        return {"stopped_by": "backlog_empty"}
+
+    def helper_run() -> dict:
+        helper_calls.append(1)
+        if len(helper_calls) >= 3:
+            primary_release.set()
+        return {"stopped_by": "backlog_empty", "suggested_sleep": 0.01}
+
+    primary = SimpleNamespace(config=SimpleNamespace(worker_id="primary"), run=primary_run)
+    helper = SimpleNamespace(config=SimpleNamespace(worker_id="parallel-1"), run=helper_run)
+
+    summary = worker._run_supervisor_passes([primary, helper])
+
+    assert summary == {"stopped_by": "backlog_empty"}
+    assert len(helper_calls) >= 3
+    assert worker._supervisor_execution_threads == {}
+
+
+def test_idle_helper_honours_backoff_but_wakes_when_backlog_changes(tmp_path: Path) -> None:
+    """A helper told to back off for minutes must not re-run (and re-journal)
+    every poll while a long primary pass runs, yet an item the primary makes
+    ready mid-pass is still claimed promptly rather than after the backoff."""
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01))
+    backlog_file = tmp_path / "backlog.jsonl"
+    backlog_file.write_text("")
+    backlog = SimpleNamespace(storage_paths=(backlog_file,))
+    primary_release = threading.Event()
+    ready_item_claimed = threading.Event()
+    helper_calls: list[float] = []
+
+    def primary_run() -> dict:
+        time.sleep(0.5)
+        # Mid-pass, the primary plans a new ready item.
+        backlog_file.write_text('{"id": "ready"}\n')
+        assert ready_item_claimed.wait(5.0)
+        primary_release.wait(0.2)
+        return {"stopped_by": "backlog_empty"}
+
+    def helper_run() -> dict:
+        helper_calls.append(time.monotonic())
+        if backlog_file.read_text():
+            ready_item_claimed.set()
+            primary_release.set()
+        return {"stopped_by": "claim_lost", "suggested_sleep": 300.0}
+
+    primary = SimpleNamespace(config=SimpleNamespace(worker_id="primary"), run=primary_run)
+    helper = SimpleNamespace(
+        config=SimpleNamespace(worker_id="parallel-1"), run=helper_run, memory=SimpleNamespace(backlog=backlog),
+    )
+
+    started = time.monotonic()
+    summary = worker._run_supervisor_passes([primary, helper])
+
+    assert summary == {"stopped_by": "backlog_empty"}
+    assert ready_item_claimed.is_set()
+    # One idle pass, then the pass woken by the backlog change; no spinning.
+    assert len(helper_calls) == 2
+    assert time.monotonic() - started < 5.0
+    assert worker._supervisor_execution_threads == {}
