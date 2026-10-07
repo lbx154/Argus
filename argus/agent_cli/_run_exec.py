@@ -52,6 +52,8 @@ _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS = 0.1
 _POST_EXIT_PIPE_DRAIN_MAX_SECONDS = 5.0
 # This is process-group detach grace, not a role-turn deadline.
 _ORPHAN_GROUP_DETACH_GRACE_SECONDS = 0.5
+# Enough of the CLI's closing stderr to hold its terminal error line.
+_TERMINAL_STDERR_LINES = 20
 
 
 def _consume_pipe_lines(
@@ -112,6 +114,11 @@ class _StreamState:
     provider_turns: int = 0
     provider_turn_cap_hit: bool = False
     model_progress_observed: bool = False
+    # Stderr written after the latest model progress event: how the current
+    # turn ended, as opposed to startup noise the CLI recovered from.
+    stderr_since_progress: "deque[str]" = field(
+        default_factory=lambda: deque(maxlen=_TERMINAL_STDERR_LINES)
+    )
     tool_activity_observed: bool = False
     usage_model: str = ""
     watchdog_terminated: bool = False
@@ -659,6 +666,7 @@ class RunExecMixin:
                         # Sticky: survives the bounded event capture, so a
                         # later generic exit is never read as a startup failure.
                         state.model_progress_observed = True
+                        state.stderr_since_progress.clear()
                     if (
                         provider_turn_cap > 0
                         and not state.watchdog_terminated
@@ -743,6 +751,7 @@ class RunExecMixin:
                 else:
                     state.stderr_line_count += 1
                     state.stderr_lines.append(text)
+                    state.stderr_since_progress.append(text)
 
             if not pipe_errors.empty():
                 raise RuntimeError("Provider output reader failed") from pipe_errors.get()
@@ -915,7 +924,8 @@ class RunExecMixin:
             if state.model_progress_observed and not receipt:
                 # After observed model progress the record must open with the
                 # runner's own receipt: the stderr lines stay attached for the
-                # operator, but classification reads the receipt, not history.
+                # operator, but classification reads the receipt plus only the
+                # stderr written after the latest progress (this turn's end).
                 receipt = _CLI_EXITED_WITHOUT_TURN
             state.fatal_error = _incomplete_turn_error(
                 state.stderr_lines,
@@ -940,6 +950,11 @@ class RunExecMixin:
             provider_turns=state.provider_turns,
             provider_turn_cap_hit=state.provider_turn_cap_hit,
             model_progress_observed=state.model_progress_observed,
+            terminal_stderr_lines=(
+                list(state.stderr_since_progress)
+                if state.model_progress_observed
+                else []
+            ),
             tool_activity_observed=state.tool_activity_observed,
             usage_model=state.usage_model,
             orphan_process_group_id=state.orphan_process_group_id,

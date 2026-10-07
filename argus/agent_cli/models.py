@@ -27,6 +27,9 @@ class AgentRunResult:
     provider_turns: int = 0
     provider_turn_cap_hit: bool = False
     model_progress_observed: bool = False
+    # Stderr written after the latest model progress event (empty when none
+    # was observed): the CLI's account of how the current turn ended.
+    terminal_stderr_lines: list[str] = field(default_factory=list)
     tool_activity_observed: bool = False
     usage_model: str = ""
     orphan_process_group_id: int = 0

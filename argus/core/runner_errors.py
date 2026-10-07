@@ -73,7 +73,8 @@ def terminal_failure_diagnostic(result: Any) -> str:
     """Select one current diagnostic; stderr remains a separate history.
 
     Concrete terminal receipts win. Generic process-exit receipts may use the
-    latest startup diagnostic only when no model/tool progress was observed.
+    latest startup diagnostic only when no model/tool progress was observed;
+    after progress, only stderr written since the latest progress counts.
     This also supports older/external runners without diagnostic provenance.
     Never combine old stderr with the current failure for control decisions.
     """
@@ -90,6 +91,13 @@ def terminal_failure_diagnostic(result: Any) -> str:
     if _observed_model_progress(result):
         if not failed:
             return ""
+        # Stderr written after the latest model progress is how THIS turn
+        # ended (a 429, an expired token); only earlier stderr is history.
+        # Runners without that provenance fall back to the receipt.
+        for line in reversed(list(getattr(result, "terminal_stderr_lines", None) or [])):
+            text = str(line).strip()
+            if text:
+                return text
         return receipt or "Backend exited after progress without a terminal diagnostic."
     # Startup has no model turn to recover within. The last nonempty line is
     # the best available evidence; do not search backwards for a desired code.

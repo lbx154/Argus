@@ -84,20 +84,52 @@ def test_completed_turn_does_not_resurrect_old_auth():
     assert not result_has_pre_provider_refusal(raw)
 
 
-def test_missing_terminal_message_does_not_keep_recovered_event():
+def _consume_codex_events(events):
     from argus.agent_cli.agent_cli_runner import AgentCliRunner
 
     runner = AgentCliRunner(agent_bin="codex", backend="codex")
-    _, _, failed, error = runner._consume_codex_event(
-        event={"type": "turn.failed", "error": {}},
-        thread_id=None,
-        agent_messages=[],
-        turn_completed=False,
-        turn_failed=False,
-        fatal_error="HTTP 401 Unauthorized (recovered earlier)",
-    )
+    failed, error = False, None
+    for event in events:
+        _, _, failed, error = runner._consume_codex_event(
+            event=event,
+            thread_id=None,
+            agent_messages=[],
+            turn_completed=False,
+            turn_failed=failed,
+            fatal_error=error,
+        )
+    return failed, error
+
+
+@pytest.mark.parametrize("progress", ["turn.started", "item.started", "item.updated"])
+def test_missing_terminal_message_does_not_keep_recovered_event(progress):
+    failed, error = _consume_codex_events([
+        {"type": "error", "message": "HTTP 401 Unauthorized (recovered earlier)"},
+        {"type": progress, "item": {"type": "agent_message"}},
+        {"type": "turn.failed", "error": {}},
+    ])
     assert failed
-    assert "401" not in str(error)
+    assert error == "Backend reported a failed turn."
+
+
+@pytest.mark.parametrize("err", [{}, {"message": ""}, {"message": "  "}])
+def test_empty_failed_turn_keeps_immediately_preceding_provider_error(err):
+    failed, error = _consume_codex_events([
+        {"type": "turn.started"},
+        {"type": "error", "message": "HTTP 429 Too Many Requests"},
+        {"type": "turn.failed", "error": err},
+    ])
+    assert failed
+    assert error == "HTTP 429 Too Many Requests"
+
+
+def test_concrete_failed_turn_message_replaces_preceding_provider_error():
+    failed, error = _consume_codex_events([
+        {"type": "error", "message": "Reconnecting... 1/5"},
+        {"type": "turn.failed", "error": {"message": "HTTP 503 Service Unavailable"}},
+    ])
+    assert failed
+    assert error == "HTTP 503 Service Unavailable"
 
 
 def test_generic_exit_after_progress_cannot_be_startup_auth():
@@ -194,13 +226,51 @@ def test_new_provider_error_replaces_recoverable_error_and_progress_clears_it():
 
 
 def test_empty_terminal_error_replaces_recovered_401():
-    from argus.agent_cli.agent_cli_runner import AgentCliRunner
-
-    runner = AgentCliRunner(agent_bin="codex", backend="codex")
-    _, _, failed, error = runner._consume_codex_event(
-        event={"type": "turn.failed", "error": {}}, thread_id=None,
-        agent_messages=[], turn_completed=False, turn_failed=False,
-        fatal_error="HTTP 401 recovered",
-    )
+    failed, error = _consume_codex_events([
+        {"type": "error", "message": "HTTP 401 recovered"},
+        {"type": "item.completed", "item": {"type": "command_execution"}},
+        {"type": "turn.failed", "error": {}},
+    ])
     assert failed
     assert error == "Backend reported a failed turn."
+
+
+def _finalize_after_progress(stderr_before, stderr_after):
+    from argus.agent_cli._run_exec import _StreamState
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+
+    runner = AgentCliRunner(agent_bin="codex", backend="codex")
+    state = _StreamState(thread_id="retained", model_progress_observed=True)
+    state.stderr_lines.extend([*stderr_before, *stderr_after])
+    state.stderr_since_progress.extend(stderr_after)
+    return runner._finalize_turn_result(
+        process=SimpleNamespace(returncode=1), command=["codex"],
+        options=RunnerOptions(), state=state,
+    )
+
+
+@pytest.mark.parametrize(
+    "terminal,kind,auth",
+    [
+        ("HTTP 429 Too Many Requests", "provider_cooldown", False),
+        ("HTTP 401 Unauthorized: token expired", "permanent_error", True),
+    ],
+)
+def test_stderr_after_progress_classifies_current_failure(terminal, kind, auth):
+    raw = _finalize_after_progress(
+        ["HTTP 503 recovered during startup"], ["retrying request", terminal]
+    )
+    assert raw.terminal_stderr_lines == ["retrying request", terminal]
+    result = translate_result(
+        raw, resume_thread_id=None, copilot_usage=None, usage_accumulator=UsageAccumulator()
+    )
+    assert result.stop_kind == kind
+    assert terminal in result.fatal_error
+    assert bool(_unauthorized_cause(raw)) is auth
+
+
+def test_stderr_before_progress_stays_history_after_generic_exit():
+    raw = _finalize_after_progress(["HTTP 401 Unauthorized (recovered earlier)"], [])
+    assert raw.terminal_stderr_lines == []
+    assert not _unauthorized_cause(raw)
+    assert not result_has_pre_provider_refusal(raw)
