@@ -1,5 +1,6 @@
 {
   "event_types": [
+    "accounting.journal_repaired",
     "advisor.consultation.cancelled",
     "advisor.consultation.completed",
     "advisor.consultation.failed",
@@ -197,7 +198,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 169
+        "missing": 170
       },
       "fallback": "greppable",
       "handled": [
@@ -226,6 +227,7 @@
       ],
       "hidden": [],
       "missing": [
+        "accounting.journal_repaired",
         "advisor.consultation.cancelled",
         "advisor.consultation.completed",
         "advisor.consultation.failed",
@@ -399,12 +401,13 @@
     },
     "tui": {
       "counts": {
-        "handled": 100,
+        "handled": 101,
         "hidden": 91,
         "missing": 0
       },
       "fallback": "hide",
       "handled": [
+        "accounting.journal_repaired",
         "advisor.consultation.cancelled",
         "advisor.consultation.completed",
         "advisor.consultation.failed",
@@ -603,12 +606,13 @@
     },
     "web": {
       "counts": {
-        "handled": 100,
+        "handled": 101,
         "hidden": 91,
         "missing": 0
       },
       "fallback": "hide",
       "handled": [
+        "accounting.journal_repaired",
         "advisor.consultation.cancelled",
         "advisor.consultation.completed",
         "advisor.consultation.failed",

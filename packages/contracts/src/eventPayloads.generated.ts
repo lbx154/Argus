@@ -2101,6 +2101,17 @@ export interface UiArgusEvent extends EventMsg {
   "steps"?: Array<Record<string, unknown>>;
 }
 
+export interface AccountingJournalRepairedEvent extends EventMsg {
+  type: "accounting.journal_repaired";
+  payload_schema_version?: 1;
+  "project_id": string;
+  "path": string;
+  "damaged_copy": string;
+  "kept_records": number;
+  "damaged_lines": Array<{ "line"?: number; "detail"?: string; "call_id"?: string | null; "recovered_call_id"?: string | null; "lost_bytes"?: number; }>;
+  "liabilities": Array<{ "call_id"?: string; "cost_usd"?: number | null; "line"?: number; }>;
+}
+
 export interface EventPayloadByType {
   "life.peer.message.processed": LifePeerMessageProcessedEvent;
   "advisor.consultation.requested": AdvisorConsultationRequestedEvent;
@@ -2293,6 +2304,7 @@ export interface EventPayloadByType {
   "user.note": UserNoteEvent;
   "ui.operator": UiOperatorEvent;
   "ui.argus": UiArgusEvent;
+  "accounting.journal_repaired": AccountingJournalRepairedEvent;
 }
 
 export type TypedArgusEvent = EventPayloadByType[keyof EventPayloadByType];

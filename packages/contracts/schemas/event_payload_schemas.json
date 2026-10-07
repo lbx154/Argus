@@ -6131,6 +6131,86 @@
           }
         }
       }
+    },
+    "accounting.journal_repaired": {
+      "version": 1,
+      "required": [
+        "project_id",
+        "path",
+        "damaged_copy",
+        "kept_records",
+        "damaged_lines",
+        "liabilities"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "damaged_copy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kept_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "damaged_lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "detail": {
+                "type": "string"
+              },
+              "call_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recovered_call_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lost_bytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "liabilities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "call_id": {
+                "type": "string"
+              },
+              "cost_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
