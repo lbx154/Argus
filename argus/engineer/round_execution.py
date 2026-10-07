@@ -692,15 +692,19 @@ class RoundExecutionMixin:
             )
             # A silence stop is "the same cause" only when the same command
             # hung again; a different command (or the model itself) is a new
-            # attempt that already received the guidance.
-            signature = (
-                "idle termination: " + " ".join(running_tool.split())
-                if running_tool
-                else backend_failure_signature(
+            # attempt that already received the guidance. A stop whose
+            # transport did not name the command cannot be told apart from a
+            # different one, so it never counts as a repeat: those stops are
+            # bounded only by ``_IDLE_TERMINATION_ANY_COMMAND_LIMIT``.
+            if running_tool:
+                signature = "idle termination: " + " ".join(running_tool.split())
+            elif watchdog_failure:
+                signature = ""
+            else:
+                signature = backend_failure_signature(
                     fatal_error,
                     exit_code=engineer_result.exit_code,
                 )
-            )
             if signature and signature == state.backend_failure_signature:
                 state.backend_failure_same_cause_streak += 1
             else:

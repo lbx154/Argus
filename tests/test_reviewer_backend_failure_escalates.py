@@ -339,9 +339,12 @@ class _WatchdogThenHealthyEngineer:
             return RunnerResult(
                 exit_code=-1,
                 agent_messages=[],
+                # The same named command hangs each time: a repeat, not a
+                # new attempt. Unnamed stops are covered in
+                # tests/engineer/test_silent_command_limit.py.
                 fatal_error=(
                     "Forced restart after hard idle timeout "
-                    "(2700s without a model stream event)."
+                    "(2700s without a model stream event; running tool: sleep 9999)"
                 ),
             )
         return RunnerResult(

@@ -41,6 +41,7 @@ from ._idle_watchdog import (
     TERMINATE_STAGE,
     WARNING_STAGE,
     IdleEscalation,
+    running_tool_after_event,
 )
 from ._process_control import background_subprocess_kwargs
 from .models import AgentRunResult, InactivitySnapshot
@@ -111,6 +112,7 @@ class _StreamState:
     provider_turns: int = 0
     provider_turn_cap_hit: bool = False
     tool_activity_observed: bool = False
+    running_tool: str = ""
     usage_model: str = ""
     watchdog_terminated: bool = False
     watchdog_reason: str | None = None
@@ -616,9 +618,18 @@ class RunExecMixin:
                                 "until the hard deadline.",
                             )
                         elif stage == TERMINATE_STAGE:
+                            # Name the command the call was waiting on when the
+                            # stream announced it, in the same form the ACP
+                            # transport uses, so the next round is told which
+                            # command not to repeat as it was.
+                            waiting_on = (
+                                f"; running tool: {state.running_tool})"
+                                if state.running_tool
+                                else ")."
+                            )
                             state.watchdog_reason = (
                                 "Forced restart after hard idle timeout "
-                                f"({hard_idle}s without a model stream event)."
+                                f"({hard_idle}s without a model stream event{waiting_on}"
                             )
                             self._emit(
                                 self._stream_name("stderr", run_label),
@@ -685,6 +696,7 @@ class RunExecMixin:
                             state.watchdog_terminated = True
                     if self._event_has_tool_activity(event):
                         state.tool_activity_observed = True
+                    state.running_tool = running_tool_after_event(event, state.running_tool)
                     observed_model = self._event_usage_model(event)
                     if observed_model:
                         state.usage_model = observed_model
@@ -790,6 +802,7 @@ class RunExecMixin:
                     state.json_event_count += 1
                     if self._event_has_tool_activity(event):
                         state.tool_activity_observed = True
+                    state.running_tool = running_tool_after_event(event, state.running_tool)
                     observed_model = self._event_usage_model(event)
                     if observed_model:
                         state.usage_model = observed_model

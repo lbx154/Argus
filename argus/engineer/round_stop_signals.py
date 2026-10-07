@@ -483,6 +483,8 @@ def idle_termination_review_decision(
             f"limit={threshold}, error={error_text}"
         ),
         next_action=(
+            f"Argus stopped {what} after it stayed silent for the whole idle "
+            "limit. "
             "Read CHECKPOINT.md, then continue in a fresh session without "
             "repeating that command as it was: give it a time limit (for example "
             "`timeout 10m ...`), narrow it to the directories that matter instead "

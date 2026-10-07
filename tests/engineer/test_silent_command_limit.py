@@ -2,9 +2,16 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
+import pytest
+
 from argus.agent_cli import copilot_acp
+from argus.agent_cli._idle_watchdog import running_tool_after_event
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.copilot_acp import CopilotAcpClient
 from argus.engineer.round_config import SupervisedConfig
 from argus.engineer.round_stop_signals import (
@@ -38,6 +45,8 @@ def test_the_stopped_turn_names_the_command_and_says_what_to_do_instead() -> Non
     assert "model service" not in decision.reason
     assert "timeout" in decision.next_action and "background job" in decision.next_action
     assert "CHECKPOINT.md" in decision.next_action
+    # next_action is what reaches the next Engineer prompt, so it names the command too.
+    assert "find / -name '*pdftoppm*'" in decision.next_action
 
 
 def test_acp_turn_tracks_the_tool_in_flight() -> None:
@@ -121,12 +130,19 @@ def test_turning_the_hard_stop_off_keeps_the_stalled_alert(monkeypatch) -> None:
     assert 0 < options.watchdog_stalled_idle_seconds < 1800
 
 
+def _exec_stop(command: str | None) -> str:
+    """The stop record the non-ACP exec transport writes."""
+    waiting_on = f"; running tool: {command})" if command else ")."
+    return f"Forced restart after hard idle timeout (1800s without a model stream event{waiting_on}"
+
+
 class _SilentCommandsEngineer:
     """Each turn hangs on the next listed command; None means a healthy turn."""
 
-    def __init__(self, commands: list[str | None]) -> None:
+    def __init__(self, commands: list, *, exec_transport: bool = False) -> None:
         self.commands = list(commands)
         self.calls = 0
+        self.exec_transport = exec_transport
 
     def run_exec(self, **_kwargs):
         from argus.core.models import RunnerResult
@@ -139,8 +155,12 @@ class _SilentCommandsEngineer:
             exit_code=-15,
             agent_messages=[],
             fatal_error=(
-                "Forced restart after hard idle timeout (1800s without an ACP stream "
-                f"event; last event: tool_call; running tool: {command})"
+                _exec_stop(command or None)
+                if self.exec_transport
+                else (
+                    "Forced restart after hard idle timeout (1800s without an ACP stream "
+                    f"event; last event: tool_call; running tool: {command})"
+                )
             ),
         )
 
@@ -191,6 +211,8 @@ def test_a_different_silent_command_after_the_guidance_does_not_fail_the_round(t
     assert engineer.calls == 3
     # The next turn is told which command was stopped and how to run it instead.
     assert "background job" in prompts[1]
+    assert "pip install -e ." in prompts[1]
+    assert "python train.py" in prompts[2]
 
 
 def test_the_same_command_hanging_again_fails_the_round(tmp_path) -> None:
@@ -206,3 +228,89 @@ def test_silence_stops_across_different_commands_are_still_bounded(tmp_path) -> 
     status, _rounds, _reason, _prompts = _run_loop(tmp_path, engineer)
     assert status == "error"
     assert engineer.calls == 4
+
+
+def test_exec_transport_stops_with_different_commands_do_not_fail_the_round(tmp_path) -> None:
+    engineer = _SilentCommandsEngineer(["pip install -e .", "python train.py", None], exec_transport=True)
+    status, _rounds, _reason, prompts = _run_loop(tmp_path, engineer)
+    assert status == "done"
+    assert engineer.calls == 3
+    assert "pip install -e ." in prompts[1]
+
+
+def test_exec_transport_same_command_hanging_again_fails_the_round(tmp_path) -> None:
+    engineer = _SilentCommandsEngineer(["pip install -e ."], exec_transport=True)
+    status, _rounds, reason, _prompts = _run_loop(tmp_path, engineer)
+    assert status == "error"
+    assert engineer.calls == 2
+
+
+def test_unnamed_silence_stops_get_generic_guidance_and_are_bounded(tmp_path) -> None:
+    # A stream that never names its command cannot show a repeat, so two
+    # unnamed stops do not fail the round; the any-command limit still does.
+    engineer = _SilentCommandsEngineer(["", "", None], exec_transport=True)
+    status, _rounds, _reason, prompts = _run_loop(tmp_path, engineer)
+    assert status == "done"
+    assert engineer.calls == 3
+    assert "background job" in prompts[1] and "the command it was running" in prompts[1]
+
+    engineer = _SilentCommandsEngineer([""], exec_transport=True)
+    status, _rounds, _reason, _prompts = _run_loop(tmp_path / "again", engineer)
+    assert status == "error"
+    assert engineer.calls == 4
+
+
+@pytest.mark.parametrize(
+    ("started", "finished"),
+    [
+        (
+            {"type": "item.started", "item": {"type": "command_execution", "command": "pip install -e .", "status": "in_progress"}},
+            {"type": "item.completed", "item": {"type": "command_execution", "command": "pip install -e .", "status": "completed"}},
+        ),
+        (
+            {"type": "tool.execution_start", "data": {"toolName": "bash", "arguments": {"command": "pip install -e ."}}},
+            {"type": "tool.execution_complete", "data": {"toolCallId": "t1"}},
+        ),
+        (
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "pip install -e ."}}]}},
+            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "x"}]}},
+        ),
+        (
+            {"type": "tool_use", "part": {"tool": "bash", "state": {"status": "running", "input": {"command": "pip install -e ."}}}},
+            {"type": "tool_use", "part": {"tool": "bash", "state": {"status": "completed", "input": {"command": "pip install -e ."}}}},
+        ),
+    ],
+)
+def test_exec_stream_tracks_the_command_in_flight(started: dict, finished: dict) -> None:
+    current = running_tool_after_event(started, "")
+    assert current == "pip install -e ."
+    assert running_tool_after_event({"type": "token_count"}, current) == current
+    assert running_tool_after_event(finished, current) == ""
+
+
+def test_exec_transport_hard_idle_stop_names_the_command() -> None:
+    runner = AgentCliRunner(agent_bin=sys.executable)
+    script = (
+        "import json, time\n"
+        "print(json.dumps({'type': 'item.started', 'item': {'type': 'command_execution', "
+        "'command': 'pip install -e .', 'status': 'in_progress'}}), flush=True)\n"
+        "time.sleep(30)\n"
+    )
+    command = [sys.executable, "-c", script]
+    model_call = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        start_new_session=os.name != "nt",
+    )
+    try:
+        state = runner._stream_turn_output(
+            process=model_call, command=command,
+            options=RunnerOptions(watchdog_hard_idle_seconds=1),
+            run_label="test-watchdog", thread_id=None,
+        )
+        assert state.watchdog_terminated is True
+        assert fatal_error_is_idle_termination(state.watchdog_reason)
+        assert idle_termination_running_tool(state.watchdog_reason) == "pip install -e ."
+    finally:
+        if model_call.poll() is None:
+            model_call.terminate()
+            model_call.wait(timeout=3)
