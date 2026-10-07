@@ -53,6 +53,21 @@ class _ArgusArgumentParser(argparse.ArgumentParser):
         return _PUBLIC_HELP
 
 
+def _mission_width(value: str) -> int | str:
+    text = str(value or "").strip().lower()
+    if text == "auto":
+        return "auto"
+    try:
+        width = int(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "mission width must be a whole number or 'auto'"
+        ) from exc
+    if width < 0:
+        raise argparse.ArgumentTypeError("mission width must be zero or more")
+    return width
+
+
 def _tcp_port(value: str) -> int:
     """Reject a port the kernel can never bind, before anything offers a URL.
 
@@ -244,10 +259,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     daemon_grp.add_argument(
         "--mission-width",
-        type=int,
+        type=_mission_width,
         default=2,
         help="concurrent mission workers: 0 pauses, 1 is serial, N enables "
-             "path-disjoint parallel Planner tasks (default: 2)",
+             "path-disjoint parallel Planner tasks, auto is one per GPU on "
+             "this machine (at least 2, at most 4) (default: 2)",
     )
 
     cockpit_grp = parser.add_argument_group("cockpit")

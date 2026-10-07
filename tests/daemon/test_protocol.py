@@ -283,3 +283,18 @@ def test_daemon_source_ownership_requires_same_installation(
 
     assert daemon_runtime_owned_by_current_source(owned) is True
     assert daemon_runtime_owned_by_current_source(foreign) is False
+
+
+def test_mission_width_auto_is_one_worker_per_gpu_within_bounds(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.tools import gpu_lease
+
+    for gpus, expected in ((0, 2), (1, 2), (4, 4), (8, 4)):
+        monkeypatch.setattr(
+            gpu_lease, "gpu_snapshot",
+            lambda gpus=gpus: [{"index": i, "mem_used_mib": 1, "mem_total_mib": 46068, "util_pct": 0} for i in range(gpus)],
+        )
+        config = LifeWorkerConfig(life_dir=tmp_path, backend="memory", mission_width="auto")
+        assert config.mission_width == expected
+        assert config_from_payload(config_payload(config)).mission_width == expected

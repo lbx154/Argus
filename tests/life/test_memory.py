@@ -1049,3 +1049,121 @@ def test_operator_reply_continuation_starts_streak_tracked(
     stored = next(row for row in b.all() if row.id == continuation.id)
     assert stored.replan_streak_tracked is True
     assert stored.consecutive_replans == 0
+
+
+# ---------------------------------------------------------------------------
+# GPUs against the backlog
+# ---------------------------------------------------------------------------
+
+
+def _cards(total, busy=()):
+    return tuple((index, index in set(busy)) for index in range(total))
+
+
+def _gpu_backlog(tmp_path, monkeypatch, cards):
+    from argus.life import memory as memory_module
+
+    monkeypatch.setattr(memory_module, "_gpu_cards", lambda: cards)
+    memory = LifeMemory.open(tmp_path / "life")
+    return memory.backlog
+
+
+def test_a_task_that_holds_gpus_is_claimable_only_while_that_many_are_free(tmp_path, monkeypatch):
+    # Four cards; card 3 is busy with someone else's process right now.
+    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(4, busy={3}))
+    training = backlog.add(BacklogItem.new(
+        title="train the 27B arm", objective="train", gpu_count=2,
+        parallel_safe=True, owns_paths=["runs/27b"],
+    ))
+    assert [item.id for item in backlog.ready()] == [training.id]
+    claimed = backlog.claim_next()
+    assert claimed is not None and claimed.id == training.id
+    assert claimed.gpu_indices == [0, 1]
+    # Reserved 0 and 1, card 3 busy elsewhere: only card 2 remains.
+    assert backlog.gpu_summary() == {"total": 4, "busy": 1, "reserved": 2, "free": 1}
+    fits = backlog.add(BacklogItem.new(
+        title="train the small arm", objective="train", gpu_count=1,
+        parallel_safe=True, owns_paths=["runs/small"],
+    ))
+    too_big = backlog.add(BacklogItem.new(
+        title="train the huge arm", objective="train", gpu_count=2,
+        parallel_safe=True, owns_paths=["runs/huge"],
+    ))
+    no_gpu = backlog.add(BacklogItem.new(title="write the related work", objective="write"))
+    assert {item.id for item in backlog.ready()} == {fits.id, no_gpu.id}
+    assert backlog.next_pending(parallel_only=True).id == fits.id
+    # Once the running job actually occupies its own cards they are counted
+    # once, not twice.
+    monkeypatch.setattr("argus.life.memory._gpu_cards", lambda: _cards(4, busy={0, 1, 3}))
+    assert backlog.gpu_summary()["free"] == 1
+    assert too_big.id not in {item.id for item in backlog.ready()}
+
+
+def test_cards_busy_with_another_process_are_not_offset_by_our_reservations(tmp_path, monkeypatch):
+    # Two cards run someone else's training; our task reserved the other two
+    # but has not started its job yet. Nothing is free.
+    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(4, busy={2, 3}))
+    first = backlog.add(BacklogItem.new(
+        title="arm a", objective="train", gpu_count=2,
+        parallel_safe=True, owns_paths=["runs/a"],
+    ))
+    second = backlog.add(BacklogItem.new(
+        title="arm b", objective="train", gpu_count=1,
+        parallel_safe=True, owns_paths=["runs/b"],
+    ))
+    claimed = backlog.claim_next(parallel_only=True)
+    assert claimed is not None and claimed.id == first.id
+    assert backlog.gpu_summary()["free"] == 0
+    assert backlog.claim_next(parallel_only=True) is None
+    assert next(row for row in backlog.all() if row.id == second.id).status == "pending"
+
+
+def test_the_claim_applies_the_gpu_gate_the_peek_applied(tmp_path, monkeypatch):
+    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(2, busy={0, 1}))
+    gpu_task = backlog.add(BacklogItem.new(title="train", objective="train", gpu_count=1))
+    writing = backlog.add(BacklogItem.new(title="write", objective="write"))
+    assert backlog.next_pending().id == writing.id
+    # A claim pinned to the GPU task must not take it while no card is free.
+    assert backlog.claim_next(expected_id=gpu_task.id) is None
+    claimed = backlog.claim_next(expected_id=writing.id)
+    assert claimed is not None and claimed.id == writing.id
+    assert next(row for row in backlog.all() if row.id == gpu_task.id).status == "pending"
+
+
+def test_two_workers_cannot_both_claim_the_last_free_cards(tmp_path, monkeypatch):
+    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(2))
+    other_worker = LifeMemory.open(tmp_path / "life").backlog
+    for name in ("a", "b"):
+        backlog.add(BacklogItem.new(
+            title=f"arm {name}", objective="train", gpu_count=2,
+            parallel_safe=True, owns_paths=[f"runs/{name}"],
+        ))
+    assert backlog.claim_next(parallel_only=True) is not None
+    assert other_worker.claim_next(parallel_only=True) is None
+    assert sorted(row.status for row in backlog.all()) == ["pending", "running"]
+
+
+def test_a_task_asking_more_gpus_than_the_machine_has_fails_with_its_reason(tmp_path, monkeypatch):
+    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(4))
+    huge = backlog.add(BacklogItem.new(title="train", objective="train", gpu_count=8))
+    after = backlog.add(BacklogItem.new(title="eval", objective="eval", deps=[huge.id]))
+    assert backlog.next_pending() is None
+    rows = {row.id: row for row in backlog.all()}
+    assert rows[huge.id].status == "failed"
+    assert "asks for 8 GPUs" in rows[huge.id].last_error
+    assert "this machine has 4" in rows[huge.id].last_error
+    assert rows[after.id].status == "skipped"
+
+
+def test_without_a_visible_gpu_nothing_is_gated(tmp_path, monkeypatch):
+    backlog = _gpu_backlog(tmp_path, monkeypatch, None)
+    item = backlog.add(BacklogItem.new(title="train", objective="train", gpu_count=8))
+    assert backlog.gpu_summary() is None
+    assert [ready.id for ready in backlog.ready()] == [item.id]
+
+
+def test_gpu_count_survives_the_journal(tmp_path, monkeypatch):
+    backlog = _gpu_backlog(tmp_path, monkeypatch, None)
+    item = backlog.add(BacklogItem.new(title="train", objective="train", gpu_count=2))
+    reloaded = next(row for row in LifeMemory.open(tmp_path / "life").backlog.all() if row.id == item.id)
+    assert reloaded.gpu_count == 2
