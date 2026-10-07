@@ -339,9 +339,12 @@ class _WatchdogThenHealthyEngineer:
             return RunnerResult(
                 exit_code=-1,
                 agent_messages=[],
+                # The same named command hangs each time: a repeat, not a
+                # new attempt. Unnamed stops are covered in
+                # tests/engineer/test_silent_command_limit.py.
                 fatal_error=(
                     "Forced restart after hard idle timeout "
-                    "(2700s without a model stream event)."
+                    "(2700s without a model stream event; running tool: sleep 9999)"
                 ),
             )
         return RunnerResult(
@@ -429,7 +432,10 @@ def test_watchdog_retry_exhaustion_fails_loudly(tmp_path: Path) -> None:
     assert runner.resume_thread_ids == [None, None]
     assert reviewer.calls == 0
     assert len(rounds) == 2
-    assert reason.startswith("The model service dropped the Engineer's session")
+    # A turn Argus stopped for silence is reported as that, not as a model
+    # service failure, and the next round is told not to repeat the command.
+    assert reason.startswith("Argus stopped the Engineer's session")
+    assert "timeout" in rounds[-1].review.next_action
     assert "consecutive failures=2, limit=2" in reason
     watchdog_events = [
         event for event in events if event["type"].startswith("round.watchdog.retry")

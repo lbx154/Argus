@@ -42,7 +42,14 @@ _NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
 _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 0
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
+# A turn in which neither the model nor the command it is running has
+# produced anything for this long is stopped, and the next round is told which
+# command was running. The ACP transport delivers a command's output only when
+# the command ends, so this is in effect the time limit of one foreground
+# command: on 2026-09-23 a `find /` over a 19 TB volume and four network
+# mounts held a project for over half an hour with nothing to show. Long work
+# belongs in a background job, which the Engineer is told to use.
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 1800
 # Framework-owned fallback for ``EngineerConfig.live_search_stages``: the
 # research stage, where idea discovery / literature grounding happens. A
 # vertical that owns a different pipeline (math runs scope/solve/review and has

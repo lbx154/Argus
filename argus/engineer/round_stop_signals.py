@@ -432,6 +432,69 @@ def should_clear_thread_id_after_outcome(
     )
 
 
+_IDLE_TERMINATION_MARKER = "hard idle timeout"
+_RUNNING_TOOL_MARKER = "running tool: "
+
+
+def fatal_error_is_idle_termination(fatal_error: str | None) -> bool:
+    """Argus itself stopped the call because nothing was produced for the idle limit."""
+    return _IDLE_TERMINATION_MARKER in str(fatal_error or "").casefold()
+
+
+def idle_termination_running_tool(fatal_error: str | None) -> str:
+    """The command the stopped turn was waiting on, when the transport named it."""
+    text = str(fatal_error or "")
+    position = text.find(_RUNNING_TOOL_MARKER)
+    if position < 0:
+        return ""
+    tool = text[position + len(_RUNNING_TOOL_MARKER):].strip()
+    # The transport closes its parenthesised record after the command; drop
+    # only that one wrapper so commands ending in ``)`` survive intact.
+    if tool.endswith(")"):
+        tool = tool[:-1]
+    return tool.strip()
+
+
+def idle_termination_review_decision(
+    *,
+    fatal_error: str | None,
+    exit_code: int,
+    streak: int,
+    threshold: int,
+) -> ReviewDecision:
+    """The skipped-review record for a turn Argus stopped for silence.
+
+    Unlike a backend failure, nothing broke on the provider's side: a
+    command ran for the whole idle limit without finishing or printing. The
+    next round must not repeat it as it was, so the sentence names the
+    command when the transport recorded it and says what to do instead.
+    """
+    error_text = str(fatal_error or f"exit={exit_code}").strip()
+    tool = idle_termination_running_tool(fatal_error)
+    what = f"the command it was running (`{tool}`)" if tool else "the command it was running"
+    threshold = max(1, int(threshold or 1))
+    return ReviewDecision(
+        status="continue",
+        reason=(
+            "Argus stopped the Engineer's session because neither the model nor "
+            f"{what} produced anything for the whole idle limit; nothing was "
+            "judged. "
+            f"Technical record: consecutive failures={streak}, "
+            f"limit={threshold}, error={error_text}"
+        ),
+        next_action=(
+            f"Argus stopped {what} after it stayed silent for the whole idle "
+            "limit. "
+            "Read CHECKPOINT.md, then continue in a fresh session without "
+            "repeating that command as it was: give it a time limit (for example "
+            "`timeout 10m ...`), narrow it to the directories that matter instead "
+            "of the whole machine, or start it as a background job and wait for "
+            "the job. A command that stays silent for the whole limit is stopped "
+            "again."
+        ),
+    )
+
+
 def backend_failure_review_decision(
     *,
     fatal_error: str | None,
@@ -730,6 +793,9 @@ __all__ = [
     "runner_result_is_backend_failure",
     "should_clear_thread_id_after_outcome",
     "backend_failure_review_decision",
+    "fatal_error_is_idle_termination",
+    "idle_termination_review_decision",
+    "idle_termination_running_tool",
     "external_pause_review_decision",
     "execution_host_review_decision",
     "infrastructure_failure_review_decision",
