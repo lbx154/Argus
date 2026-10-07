@@ -447,7 +447,12 @@ def idle_termination_running_tool(fatal_error: str | None) -> str:
     position = text.find(_RUNNING_TOOL_MARKER)
     if position < 0:
         return ""
-    return text[position + len(_RUNNING_TOOL_MARKER):].strip().rstrip(")").strip()
+    tool = text[position + len(_RUNNING_TOOL_MARKER):].strip()
+    # The transport closes its parenthesised record after the command; drop
+    # only that one wrapper so commands ending in ``)`` survive intact.
+    if tool.endswith(")"):
+        tool = tool[:-1]
+    return tool.strip()
 
 
 def idle_termination_review_decision(

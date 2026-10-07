@@ -190,7 +190,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "1800", "model stream inactivity before likely-stalled alerting (0=off)", "mission"),
-    Knob("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "1800", "seconds a model call may go without any model or command output before Argus stops it and tells the next round which command was running; 0 disables", "mission"),
+    Knob("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "1800", "seconds an Engineer turn may go without any model or command output before Argus stops it and tells the next round which command was running (Engineer default 1800; other model calls such as the Reviewer apply it only when explicitly set); 0 disables", "mission"),
     Knob("ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS", "0", "optional round-boundary limit without reviewer-classified decision/evidence progress; disabled by default", "mission"),
     Knob("ARGUS_SKILL_CHECKPOINT_PERSIST", "true", "persist the reviewer checkpoint across missions/restarts", "mission"),
     Knob("ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS", "true", "send the full Engineer task/skill contract only on round 1; later rounds use reviewer guidance plus CHECKPOINT.md", "mission"),

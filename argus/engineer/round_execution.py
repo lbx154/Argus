@@ -51,11 +51,13 @@ from .round_stop_signals import (
     daemon_stop_review_decision,
     execution_host_review_decision,
     external_pause_review_decision,
+    fatal_error_is_idle_termination,
     fatal_error_looks_like_daemon_stop_request,
     fatal_error_looks_like_model_configuration,
     fatal_error_looks_like_operator_abort_request,
     fatal_error_looks_like_provider_turn_cap,
     idle_termination_review_decision,
+    idle_termination_running_tool,
     infrastructure_failure_review_decision,
     model_configuration_review_decision,
     operator_abort_review_decision,
@@ -72,6 +74,10 @@ log = logging.getLogger(__name__)
 # stop and abort signals. The hold itself can grow to the hour scale; a
 # shutdown or an abort must not wait behind it.
 _BACKEND_FAILURE_HOLD_SLICE_SECONDS = 0.2
+# Consecutive silence stops, across different commands, after which the round
+# fails even though no single command hung twice: each stop already cost one
+# full idle limit.
+_IDLE_TERMINATION_ANY_COMMAND_LIMIT = 4
 
 
 def _engineer_decision_message(payload: dict) -> str:
@@ -680,9 +686,20 @@ class RoundExecutionMixin:
         if runner_result_is_backend_failure(engineer_result):
             engineer_session.rotate("backend_failure")
             state.backend_failure_streak += 1
-            signature = backend_failure_signature(
-                fatal_error,
-                exit_code=engineer_result.exit_code,
+            watchdog_failure = fatal_error_is_idle_termination(fatal_error)
+            running_tool = (
+                idle_termination_running_tool(fatal_error) if watchdog_failure else ""
+            )
+            # A silence stop is "the same cause" only when the same command
+            # hung again; a different command (or the model itself) is a new
+            # attempt that already received the guidance.
+            signature = (
+                "idle termination: " + " ".join(running_tool.split())
+                if running_tool
+                else backend_failure_signature(
+                    fatal_error,
+                    exit_code=engineer_result.exit_code,
+                )
             )
             if signature and signature == state.backend_failure_signature:
                 state.backend_failure_same_cause_streak += 1
@@ -692,11 +709,6 @@ class RoundExecutionMixin:
             state.no_progress_streak = 0
             configured_threshold = max(
                 1, int(supervised_config.backend_failure_threshold or 1)
-            )
-            fatal_error_low = str(fatal_error or "").casefold()
-            watchdog_failure = (
-                "forced restart after hard idle timeout" in fatal_error_low
-                or "acp hard idle timeout" in fatal_error_low
             )
             threshold = (
                 min(configured_threshold, 2)
@@ -749,9 +761,31 @@ class RoundExecutionMixin:
                 fatal_error=engineer_result.fatal_error,
                 stop_kind=stop_kind,
             ))
+            if watchdog_failure:
+                # Hand the stop's guidance (which command, and how to bound or
+                # background it) to the next Engineer prompt; a skipped review
+                # otherwise leaves the previous reviewer's instruction in place.
+                previous = state.reviewer_next_action or ""
+                if review.next_action and review.next_action not in previous:
+                    state.reviewer_next_action = "\n\n".join(
+                        part for part in (previous, review.next_action) if part
+                    )
+                # A long command that is legitimately silent (a build, a
+                # download, a training step) gets one stop with guidance. The
+                # round fails when the SAME command hangs again after it, or
+                # when silence stops pile up across different commands.
+                budget_exhausted = (
+                    state.backend_failure_same_cause_streak >= threshold
+                    or state.backend_failure_streak
+                    >= max(configured_threshold, _IDLE_TERMINATION_ANY_COMMAND_LIMIT)
+                )
+            else:
+                budget_exhausted = (
+                    state.backend_failure_streak >= threshold and not same_cause_hold
+                )
             if watchdog_failure and on_event:
                 exhausted = (
-                    state.backend_failure_streak >= threshold
+                    budget_exhausted
                     or (
                         supervised_config.max_rounds > 0
                         and round_index >= supervised_config.max_rounds
@@ -781,9 +815,7 @@ class RoundExecutionMixin:
                     "operator_alert": True,
                     "fatal_error": fatal_error,
                 })
-            if (
-                state.backend_failure_streak >= threshold and not same_cause_hold
-            ) or (
+            if budget_exhausted or (
                 supervised_config.max_rounds > 0
                 and round_index >= supervised_config.max_rounds
             ):

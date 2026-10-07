@@ -431,8 +431,10 @@ class SupervisedEngineer(
             hard_idle_seconds = int(supervised_config.runner_hard_idle_seconds or 0)
             # Say which command is silent well before it is stopped, so the
             # operator's status line can show where the round is stuck.
+            # With the hard stop off, leave the backend's own likely-stalled
+            # alert in place (None = backend default) rather than disabling it.
             stalled_idle_seconds = (
-                min(600, max(1, hard_idle_seconds // 3)) if hard_idle_seconds > 0 else 0
+                min(600, max(1, hard_idle_seconds // 3)) if hard_idle_seconds > 0 else None
             )
         try:
             result = gateway_run_exec(
