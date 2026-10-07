@@ -376,6 +376,9 @@ class ResourceLedger:
         for request in queued:
             kind = str(request["demand"].get("accelerator") or "any")
             if kind != "none" and (kind in blocked or "any" in blocked or (kind == "any" and blocked)):
+                # A skipped waiter still holds its place: later requests that
+                # could take devices it is waiting for must queue behind it.
+                blocked.add(kind)
                 continue
             selected = self._select_devices(snapshot, request["demand"], grants)
             if selected is None and snapshot.get("enforcement") != "advisory":

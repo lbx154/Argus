@@ -31,6 +31,24 @@ log = logging.getLogger(__name__)
 
 _RUNNING_STALL_ERROR = "executor exited without completing the task"
 _RUNNING_STALL_POLL_SECONDS = 1.0
+_HELPER_WAKE_CHECK_SECONDS = 0.5
+
+
+def _backlog_fingerprint(supervisor: Any) -> tuple | None:
+    """Cheap change marker for the backlog a helper supervisor claims from."""
+    backlog = getattr(getattr(supervisor, "memory", None), "backlog", None)
+    paths = getattr(backlog, "storage_paths", None)
+    if not paths:
+        return None
+    marks: list[tuple[int, int, int] | None] = []
+    for path in paths:
+        try:
+            stat = Path(path).stat()
+        except OSError:
+            marks.append(None)
+            continue
+        marks.append((stat.st_ino, stat.st_mtime_ns, stat.st_size))
+    return tuple(marks)
 _SUBAGENT_INFLIGHT_STATES = frozenset({
     "discussing",
     "preflight",
@@ -477,14 +495,20 @@ class LifeWorkerRunMixin:
 
             def helper_loop(supervisor: Any) -> None:
                 while True:
+                    baseline = _backlog_fingerprint(supervisor)
                     result = self._run_supervisor_pass(supervisor)
                     if primary.done() or self._stop.is_set():
                         return
-                    # Always pause between passes (at most one poll interval)
-                    # so a helper stopped for any reason cannot spin.
+                    # Honour the supervisor's own backoff (it escalates for
+                    # holds, pauses and lost claims, and each idle pass journals
+                    # a status event), but wake early once the backlog changes:
+                    # the primary planning, claiming or resuming an item writes
+                    # the backlog, and that may have made work claimable.
                     suggested = result.get("suggested_sleep") if isinstance(result, dict) else 0
-                    wait = min(poll, max(float(suggested or 0), 1.0))
-                    if self._stop.wait(wait) or primary.done():
+                    wait = max(float(suggested or 0), min(poll, 1.0))
+                    if self._wait_for_helper_wake(
+                        supervisor, wait, poll=poll, primary=primary, baseline=baseline,
+                    ):
                         return
 
             helpers = [
@@ -495,6 +519,34 @@ class LifeWorkerRunMixin:
             for future in helpers:
                 future.result()
             return summary
+
+    def _wait_for_helper_wake(
+        self,
+        supervisor: Any,
+        wait: float,
+        *,
+        poll: float,
+        primary: Any,
+        baseline: tuple | None,
+    ) -> bool:
+        """Sleep up to ``wait`` seconds; return True when the helper should stop.
+
+        Returns False early when the backlog changed since ``baseline`` (so a
+        newly ready item is claimed promptly). The checks are file stats only,
+        so watching for a change never journals anything.
+        """
+        deadline = time.monotonic() + wait
+        slice_s = max(0.01, min(_HELPER_WAKE_CHECK_SECONDS, poll))
+        while True:
+            if self._stop.is_set() or primary.done():
+                return True
+            if _backlog_fingerprint(supervisor) != baseline:
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if self._stop.wait(min(slice_s, remaining)):
+                return True
 
     def _start_running_stall_watcher(self, rf_state: _RunForeverState) -> None:
         def _watch() -> None:

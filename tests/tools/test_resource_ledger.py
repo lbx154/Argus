@@ -424,3 +424,22 @@ def test_same_kind_requests_keep_strict_order_behind_a_waiting_head(tmp_path: Pa
     later = ledger.acquire(_demand("one-card"), owner=_owner(tmp_path, "later"))
 
     assert later["state"] == "queued"
+
+
+def test_skipped_any_waiter_still_holds_back_later_specific_kind(tmp_path: Path) -> None:
+    snapshot = _snapshot()
+    rocm = dict(snapshot["accelerators"][0], kind="rocm", visibility_env="HIP_VISIBLE_DEVICES")
+    rocm["devices"] = [dict(rocm["devices"][0], identity="ROCM-0")]
+    snapshot["accelerators"].append(rocm)
+    ledger = ResourceLedger(tmp_path, probe=lambda: snapshot)
+    ledger.acquire(_demand("holder"), owner=_owner(tmp_path, "holder"))
+    cuda_waiter = ledger.acquire(_demand("cuda-waiter"), owner=_owner(tmp_path, "cuda-waiter"))
+    assert cuda_waiter["state"] == "queued"
+    any_waiter = ledger.acquire(dict(_demand("any"), accelerator="any"), owner=_owner(tmp_path, "any"))
+    assert any_waiter["state"] == "queued"
+
+    later_rocm = ledger.acquire(dict(_demand("rocm"), accelerator="rocm"), owner=_owner(tmp_path, "rocm"))
+
+    # The rocm card is one the earlier any-kind waiter could use, so the later
+    # request must not jump ahead of it.
+    assert later_rocm["state"] == "queued"
