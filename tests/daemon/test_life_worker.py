@@ -3573,3 +3573,31 @@ def test_resident_daemon_does_not_turn_a_queued_task_into_an_open_campaign(tmp_p
     assert cfg.continuous is False
     assert ns.open_ended is False
     assert ns.continuous_objective == ""
+
+
+def test_idle_helper_keeps_polling_while_primary_mission_runs(tmp_path: Path) -> None:
+    """A helper that finds nothing to claim must look again while the primary
+    worker is still busy, so work the primary plans mid-pass is picked up in
+    parallel instead of waiting for the primary's whole pass to end."""
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01))
+    primary_release = threading.Event()
+    helper_calls: list[int] = []
+
+    def primary_run() -> dict:
+        assert primary_release.wait(5.0)
+        return {"stopped_by": "backlog_empty"}
+
+    def helper_run() -> dict:
+        helper_calls.append(1)
+        if len(helper_calls) >= 3:
+            primary_release.set()
+        return {"stopped_by": "backlog_empty", "suggested_sleep": 0.01}
+
+    primary = SimpleNamespace(config=SimpleNamespace(worker_id="primary"), run=primary_run)
+    helper = SimpleNamespace(config=SimpleNamespace(worker_id="parallel-1"), run=helper_run)
+
+    summary = worker._run_supervisor_passes([primary, helper])
+
+    assert summary == {"stopped_by": "backlog_empty"}
+    assert len(helper_calls) >= 3
+    assert worker._supervisor_execution_threads == {}

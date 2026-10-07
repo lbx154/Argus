@@ -391,3 +391,36 @@ def test_absent_hardware_is_unsatisfiable_not_queued(tmp_path: Path) -> None:
     assert result["state"] == "unsatisfiable"
     assert "no cuda hardware" in result["unsatisfiable_reason"]
     assert list((root / "queue").glob("*.json")) == []
+
+
+def test_request_without_accelerator_is_not_blocked_behind_waiting_gpu_request(
+    tmp_path: Path,
+) -> None:
+    ledger = ResourceLedger(tmp_path, probe=lambda: _snapshot())
+    ledger.acquire(_demand("holder"), owner=_owner(tmp_path, "holder"))
+    waiting_gpu = ledger.acquire(_demand("gpu-waiter"), owner=_owner(tmp_path, "gpu-waiter"))
+    assert waiting_gpu["state"] == "queued"
+
+    cpu_only = dict(_demand("cpu-only"), accelerator="none", device_count=0, mem_mib_estimate=0)
+    result = ledger.acquire(cpu_only, owner=_owner(tmp_path, "cpu-only"))
+
+    assert result["state"] == "granted"
+    still_waiting = ledger.acquire(
+        _demand("gpu-waiter"), owner=_owner(tmp_path, "gpu-waiter"), request_id=waiting_gpu["id"],
+    )
+    assert still_waiting["state"] == "queued"
+
+
+def test_same_kind_requests_keep_strict_order_behind_a_waiting_head(tmp_path: Path) -> None:
+    snapshot = _snapshot()
+    snapshot["accelerators"][0]["devices"].append(dict(
+        snapshot["accelerators"][0]["devices"][0], identity="GPU-stable-1", index="1", visibility="1",
+    ))
+    ledger = ResourceLedger(tmp_path, probe=lambda: snapshot)
+    ledger.acquire(_demand("holder"), owner=_owner(tmp_path, "holder"))
+    head = ledger.acquire(dict(_demand("two-cards"), device_count=2), owner=_owner(tmp_path, "head"))
+    assert head["state"] == "queued"
+
+    later = ledger.acquire(_demand("one-card"), owner=_owner(tmp_path, "later"))
+
+    assert later["state"] == "queued"
