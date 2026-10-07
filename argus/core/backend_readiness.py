@@ -126,6 +126,7 @@ class BackendReadiness:
     version: str = ""
     auth_checked: bool = False
     vault_path: str = ""
+    auth_source: str = ""
     problems: list[ReadinessProblem] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -875,6 +876,27 @@ def check_backend_readiness(
     if report.problems:
         return report
 
+    if profile.backend == "copilot":
+        from ..agent_cli.copilot_home import (
+            COPILOT_TOKEN_ENV,
+            COPILOT_TOKEN_FROM_ENV_KNOB,
+            copilot_auth_source,
+            copilot_env_token,
+            copilot_token_from_env_enabled,
+        )
+
+        report.auth_source = copilot_auth_source(env_map)
+        if copilot_token_from_env_enabled(env_map) and not copilot_env_token(env_map):
+            report.problems.append(
+                ReadinessProblem(
+                    "authentication",
+                    f"{COPILOT_TOKEN_FROM_ENV_KNOB}=1 but {COPILOT_TOKEN_ENV} is not set",
+                    f"export {COPILOT_TOKEN_ENV}, or unset {COPILOT_TOKEN_FROM_ENV_KNOB}",
+                )
+            )
+        if report.problems:
+            return report
+
     if profile.auth_mode == AUTH_MODE_MODEL_API:
         _check_model_api_routes(
             report,
@@ -985,6 +1007,8 @@ def format_backend_readiness(report: BackendReadiness) -> str:
         lines.append(f"  version: {report.version}")
     if report.vault_path:
         lines.append(f"  capability vault: {report.vault_path}")
+    if report.auth_source:
+        lines.append(f"  copilot auth source: {report.auth_source}")
     for warning in report.warnings:
         lines.append(f"  warning: {warning}")
     if report.ok:
