@@ -1651,13 +1651,27 @@ class PlanningContextMixin:
         return PLAN_AWAITING
 
     def _waiting_backlog_revision(self) -> str:
-        """A cheap stable revision for facts that can change scheduling."""
+        """A stable revision of the facts that can change scheduling.
+
+        Only which items exist and whether they are claimable count. The file
+        itself is rewritten by heartbeats, receipts and the cycle's own
+        bookkeeping while a job runs, and a revision read from its mtime made
+        every rewrite look like new evidence: a campaign on 2026-09-30 spent
+        four Planner turns in two minutes re-answering one live-job wait.
+        """
         try:
-            path = Path(self.memory.root) / "backlog.jsonl"
-            stat = path.stat()
-            return f"{stat.st_mtime_ns}:{stat.st_size}"
-        except OSError:
+            rows = sorted(
+                (
+                    str(item.id),
+                    str(item.status),
+                    tuple(str(dep) for dep in getattr(item, "deps", ()) or ()),
+                    int(getattr(item, "priority", 0) or 0),
+                )
+                for item in self.memory.backlog.active()
+            )
+        except Exception:  # noqa: BLE001 - an unreadable backlog is not new evidence
             return ""
+        return hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()[:24]
 
     def _planner_turn_available_during_wait(self, state: dict) -> bool:
         """Is the Planner owed a turn while this wait contract holds?
@@ -1995,6 +2009,22 @@ class PlanningContextMixin:
             ),
             "resolution_retry_count": (
                 int(previous.get("resolution_retry_count") or 0) if same_condition else 0
+            ),
+            # The one Planner turn granted during this wait is spent when the
+            # same wait is persisted again after it; handing it out afresh on
+            # every re-persist is the per-cycle poll the grant rules out.
+            **(
+                {
+                    key: previous[key]
+                    for key in (
+                        "idle_capacity_turn_used",
+                        "idle_capacity_turn_ts",
+                        "idle_capacity_backlog_revision",
+                    )
+                    if key in previous
+                }
+                if same_condition
+                else {}
             ),
             "active": True,
         }
