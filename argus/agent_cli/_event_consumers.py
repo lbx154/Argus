@@ -370,7 +370,12 @@ class EventConsumerMixin:
         event_type = event.get("type")
         if event_type == "thread.started":
             thread_id = event.get("thread_id", thread_id)
+        elif event_type in ("turn.started", "item.started", "item.updated") and not turn_failed:
+            # Progress after a provider error means the CLI recovered from it.
+            fatal_error = None
         elif event_type == "item.completed":
+            if not turn_failed:
+                fatal_error = None
             item = event.get("item", {})
             if not isinstance(item, dict):
                 return thread_id, turn_completed, turn_failed, fatal_error
@@ -389,13 +394,17 @@ class EventConsumerMixin:
         elif event_type == "turn.completed":
             turn_completed = True
         elif event_type == "turn.failed":
+            # A provider error with no progress since is this turn's cause; an
+            # empty failure receipt must not replace it with a generic one.
+            if not turn_failed and fatal_error is None:
+                fatal_error = "Backend reported a failed turn."
             turn_failed = True
             err = event.get("error", {})
             if isinstance(err, dict):
                 maybe_msg = err.get("message")
-                if isinstance(maybe_msg, str) and not is_execution_host_startup_error(fatal_error):
+                if isinstance(maybe_msg, str) and maybe_msg.strip() and not is_execution_host_startup_error(fatal_error):
                     fatal_error = maybe_msg
-        elif event_type == "error" and fatal_error is None:
+        elif event_type == "error" and not turn_failed:
             maybe_msg = event.get("message")
             if isinstance(maybe_msg, str):
                 fatal_error = maybe_msg

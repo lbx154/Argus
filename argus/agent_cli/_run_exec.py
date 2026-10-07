@@ -24,6 +24,7 @@ from ._env import (
     _CAPTURE_JSON_EVENTS_ENV,
     _CAPTURE_STDERR_LINES_ENV,
     _CAPTURE_STDOUT_LINES_ENV,
+    _CLI_EXITED_WITHOUT_TURN,
     _DEFAULT_CAPTURE_JSON_EVENTS,
     _DEFAULT_CAPTURE_STDERR_LINES,
     _DEFAULT_CAPTURE_STDOUT_LINES,
@@ -52,6 +53,8 @@ _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS = 0.1
 _POST_EXIT_PIPE_DRAIN_MAX_SECONDS = 5.0
 # This is process-group detach grace, not a role-turn deadline.
 _ORPHAN_GROUP_DETACH_GRACE_SECONDS = 0.5
+# Enough of the CLI's closing stderr to hold its terminal error line.
+_TERMINAL_STDERR_LINES = 20
 
 
 def _consume_pipe_lines(
@@ -86,6 +89,23 @@ def _consume_pipe_lines(
             enqueue((stream_name, None))
 
 
+_CODEX_PROGRESS_EVENT_TYPES = frozenset({
+    "turn.started", "turn.completed", "turn.failed",
+    "item.started", "item.updated", "item.completed",
+})
+
+
+def _mark_model_progress(state: "_StreamState") -> None:
+    """Record model progress for any backend dialect.
+
+    Sticky: survives the bounded event capture, so a later generic exit is
+    never read as a startup failure. Stderr written before this point is
+    history; only what follows is how the current turn ended.
+    """
+    state.model_progress_observed = True
+    state.stderr_since_progress.clear()
+
+
 @dataclass
 class _StreamState:
     """Mutable accumulator threaded through the stream/finalize phases.
@@ -111,6 +131,12 @@ class _StreamState:
     fatal_error: str | None = None
     provider_turns: int = 0
     provider_turn_cap_hit: bool = False
+    model_progress_observed: bool = False
+    # Stderr written after the latest model progress event: how the current
+    # turn ended, as opposed to startup noise the CLI recovered from.
+    stderr_since_progress: "deque[str]" = field(
+        default_factory=lambda: deque(maxlen=_TERMINAL_STDERR_LINES)
+    )
     tool_activity_observed: bool = False
     running_tool: str = ""
     usage_model: str = ""
@@ -680,10 +706,21 @@ class RunExecMixin:
                     if event is None:
                         continue
                     state.json_event_count += 1
+                    ends_provider_turn = self._event_ends_provider_turn(event)
+                    has_tool_activity = self._event_has_tool_activity(event)
+                    # Backend-neutral model progress: a codex turn/item event,
+                    # a provider-turn receipt from any dialect, or tool use.
+                    # (New assistant text is checked after consumption below.)
+                    if (
+                        event.get("type") in _CODEX_PROGRESS_EVENT_TYPES
+                        or ends_provider_turn
+                        or has_tool_activity
+                    ):
+                        _mark_model_progress(state)
                     if (
                         provider_turn_cap > 0
                         and not state.watchdog_terminated
-                        and self._event_ends_provider_turn(event)
+                        and ends_provider_turn
                     ):
                         state.provider_turns += 1
                         if (
@@ -713,7 +750,7 @@ class RunExecMixin:
                                 include_detached_children=self.backend == BACKEND_OPENCODE,
                             )
                             state.watchdog_terminated = True
-                    if self._event_has_tool_activity(event):
+                    if has_tool_activity:
                         state.tool_activity_observed = True
                     state.running_tool = running_tool_after_event(event, state.running_tool)
                     observed_model = self._event_usage_model(event)
@@ -739,6 +776,11 @@ class RunExecMixin:
                         copilot_write_state=state.copilot_write,
                         disable_tools=options.disable_tools,
                     )
+                    if len(state.agent_messages) > _msgs_before or (
+                        state.agent_messages
+                        and len(state.agent_messages[-1]) > _last_text_before
+                    ):
+                        _mark_model_progress(state)
                     # Stream each NEW assistant block to the opt-in callback the
                     # instant it lands — this is what lets the Manager chat front-door
                     # render the reply live instead of after the whole turn. Default
@@ -765,6 +807,7 @@ class RunExecMixin:
                 else:
                     state.stderr_line_count += 1
                     state.stderr_lines.append(text)
+                    state.stderr_since_progress.append(text)
 
             if not pipe_errors.empty():
                 raise RuntimeError("Provider output reader failed") from pipe_errors.get()
@@ -909,7 +952,14 @@ class RunExecMixin:
 
         if state.watchdog_terminated:
             state.turn_failed = True
-            if state.watchdog_reason and state.fatal_error is None:
+            if state.watchdog_reason and (
+                state.fatal_error is None
+                or state.watchdog_reason.startswith("External interrupt:")
+            ):
+                # An interrupt that actually ended the process is the terminal
+                # diagnostic, ahead of an earlier recoverable provider error.
+                # Housekeeping watchdogs (turn allowance, idle restart) only
+                # fill an absent reason.
                 state.fatal_error = state.watchdog_reason
         elif state.turn_completed and not state.turn_failed:
             state.fatal_error = None
@@ -927,9 +977,17 @@ class RunExecMixin:
             # reason usually is; a relay that died inside a container was
             # invisible for hours while the operator saw only "exit code 1".
             state.turn_failed = True
+            receipt = self._exit_receipt(process.returncode, state)
+            if state.model_progress_observed and not receipt and state.stderr_lines:
+                # After observed model progress the record must open with the
+                # runner's own receipt: the stderr lines stay attached for the
+                # operator, but classification reads the receipt plus only the
+                # stderr written after the latest progress (this turn's end).
+                # With no stderr at all the bare receipt is the whole record.
+                receipt = _CLI_EXITED_WITHOUT_TURN
             state.fatal_error = _incomplete_turn_error(
                 state.stderr_lines,
-                receipt=self._exit_receipt(process.returncode, state),
+                receipt=receipt,
                 log_hint=self._cli_log_hint(),
             )
 
@@ -949,6 +1007,12 @@ class RunExecMixin:
             fatal_error=state.fatal_error,
             provider_turns=state.provider_turns,
             provider_turn_cap_hit=state.provider_turn_cap_hit,
+            model_progress_observed=state.model_progress_observed,
+            terminal_stderr_lines=(
+                list(state.stderr_since_progress)
+                if state.model_progress_observed
+                else []
+            ),
             tool_activity_observed=state.tool_activity_observed,
             usage_model=state.usage_model,
             orphan_process_group_id=state.orphan_process_group_id,

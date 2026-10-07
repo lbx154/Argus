@@ -20,7 +20,9 @@ from ...core.models import RunnerResult
 from ...core.role_decision import extract_role_decisions
 from ...core.runner_errors import (
     is_execution_host_startup_error,
+    is_generic_exit_receipt,
     is_model_catalog_startup_error,
+    terminal_failure_diagnostic,
 )
 from ...core.runner_receipts import (
     is_provider_background_wait_receipt,
@@ -379,7 +381,11 @@ def translate_result(
             {**row, "model": authoritative_usage_model}
             for row in model_usage
         ]
-    raw_fatal_error = str(getattr(cli_result, "fatal_error", "") or "").strip()
+    # One current terminal diagnostic drives every control decision below;
+    # the recovered stderr history stays in ``stderr_lines`` and is never
+    # combined with it. The failure record itself keeps the runner's fuller
+    # account (its exit receipt followed by the CLI's last stderr lines).
+    failure_diagnostic = terminal_failure_diagnostic(cli_result)
     fatal_error = _normalize_fatal_error(cli_result.fatal_error)
     if (
         getattr(cli_result, "turn_failed", False)
@@ -388,27 +394,42 @@ def translate_result(
         fatal_error = _incomplete_turn_error(
             getattr(cli_result, "stderr_lines", None) or []
         )
-    failure_diagnostic = raw_fatal_error
-    authoritative_local_stop = (
-        is_provider_turn_cap_receipt(raw_fatal_error)
-        or is_provider_background_wait_receipt(raw_fatal_error)
-        or is_execution_host_startup_error(raw_fatal_error)
-    )
-    if not authoritative_local_stop and (
-        getattr(cli_result, "turn_failed", False)
-        or int(getattr(cli_result, "exit_code", 0) or 0) != 0
+    stderr_diagnostic = "\n".join(
+        map(str, getattr(cli_result, "stderr_lines", None) or [])
+    ).strip()
+    if (
+        failure_diagnostic
+        and is_generic_exit_receipt(getattr(cli_result, "fatal_error", None))
+        and is_model_catalog_startup_error(stderr_diagnostic)
+        and not is_model_catalog_startup_error(fatal_error)
     ):
-        stderr_diagnostic = "\n".join(
-            map(str, getattr(cli_result, "stderr_lines", None) or [])
-        ).strip()
-        if is_model_catalog_startup_error(stderr_diagnostic):
-            # CLI startup can provide only a generic terminal receipt while
-            # stderr explains that model discovery failed before any turn.
-            fatal_error = stderr_diagnostic
-        if stderr_diagnostic and stderr_diagnostic not in failure_diagnostic:
-            failure_diagnostic = "\n".join(
-                part for part in (failure_diagnostic, stderr_diagnostic) if part
-            )
+        # CLI startup can provide only a generic terminal receipt while
+        # stderr explains that model discovery failed before any turn. A
+        # concrete receipt (an operator stop, a provider error) is never
+        # replaced by that history.
+        fatal_error = stderr_diagnostic
+    stop_kind = normalize_stop_kind(
+        getattr(cli_result, "stop_kind", None)
+    ) or _raw_backend_stop_kind(
+        fatal_error=failure_diagnostic,
+        exit_code=cli_result.exit_code,
+    )
+    # Preserve the established Manager timeout backoff for its final explicit
+    # reconnect/429 notice. This narrow scheduling hint must not participate
+    # in auth replay, overwrite the receipt, or override an operator stop.
+    if (
+        stop_kind == "transient_error"
+        and failure_diagnostic.casefold().startswith(
+            "external interrupt: manager turn wall-clock limit reached"
+        )
+    ):
+        latest = next((
+            str(line).strip()
+            for line in reversed(getattr(cli_result, "stderr_lines", None) or [])
+            if str(line).strip()
+        ), "")
+        if latest.casefold().startswith("reconnecting") and has_http_status(latest, {429}):
+            stop_kind = "provider_cooldown"
     return RunnerResult(
         exit_code=cli_result.exit_code,
         agent_messages=list(cli_result.agent_messages or []),
@@ -417,13 +438,7 @@ def translate_result(
         stderr_lines=list(cli_result.stderr_lines or []),
         thread_id=cli_result.thread_id or resume_thread_id,
         fatal_error=fatal_error,
-        stop_kind=(
-            normalize_stop_kind(getattr(cli_result, "stop_kind", None))
-            or _raw_backend_stop_kind(
-                fatal_error=failure_diagnostic,
-                exit_code=cli_result.exit_code,
-            )
-        ),
+        stop_kind=stop_kind,
         input_tokens=input_tokens,
         cached_input_tokens=cached_input_tokens,
         cache_write_tokens=raw_usage.cache_write_tokens,

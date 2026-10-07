@@ -33,6 +33,7 @@ from ...core.runner_errors import (
     is_execution_host_startup_error,
     is_model_catalog_startup_error,
     result_has_pre_provider_refusal,
+    terminal_failure_diagnostic,
 )
 from ...core.runner_receipts import (
     ACCOUNTING_PENDING_LOST_SESSION_IDENTITY,
@@ -350,7 +351,8 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     fatal_error = str(getattr(cli_result, "fatal_error", "") or "")
     stderr_text = "\n".join(map(str, stderr_lines)).strip()
     # The runner's failure record already ends with the CLI's last stderr
-    # lines; add the rest only when it holds more than that.
+    # lines; add the rest only when it holds more than that. This fuller
+    # text is the persisted account of the call; it decides nothing.
     failure_text = (
         fatal_error
         if stderr_text and stderr_text in fatal_error
@@ -358,6 +360,12 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     )
     safe_failure_text = redact_secrets_text(
         failure_text,
+        known_values=backend._known_secret_values,
+    )
+    # One current terminal diagnostic decides auth/policy detection and the
+    # provider circuit; recovered stderr history never does.
+    terminal_diagnostic = redact_secrets_text(
+        terminal_failure_diagnostic(cli_result),
         known_values=backend._known_secret_values,
     )
     pre_provider_refusal = bool(
@@ -382,7 +390,7 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         failed
         and not is_provider_turn_cap_receipt(fatal_error)
         and not is_execution_host_startup_error(fatal_error)
-        and looks_like_auth_failure([failure_text])
+        and looks_like_auth_failure([terminal_diagnostic])
     ):
         backend._auth_failure_detected = True
         log.warning(
@@ -395,7 +403,7 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     finish_quota(
         ctx,
         premium_requests=translated.premium_requests,
-        error_text=safe_failure_text,
+        error_text=terminal_diagnostic,
         success=not failed,
     )
 
