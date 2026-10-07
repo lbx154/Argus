@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from dataclasses import replace as dataclass_replace
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..core.knobs import env_int
 from ..core.role_session import (
@@ -42,7 +42,14 @@ _NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
 _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 0
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
+# A turn in which neither the model nor the command it is running has
+# produced anything for this long is stopped, and the next round is told which
+# command was running. The ACP transport delivers a command's output only when
+# the command ends, so this is in effect the time limit of one foreground
+# command: on 2026-09-23 a `find /` over a 19 TB volume and four network
+# mounts held a project for over half an hour with nothing to show. Long work
+# belongs in a background job, which the Engineer is told to use.
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 1800
 # Framework-owned fallback for ``EngineerConfig.live_search_stages``: the
 # research stage, where idea discovery / literature grounding happens. A
 # vertical that owns a different pipeline (math runs scope/solve/review and has
@@ -363,6 +370,12 @@ class SupervisedConfig:
     )
     operator_questions_allowed: bool = True
     operator_question_policy_root: Path | None = None
+    # While the Engineer waits on work it started itself, the round keeps the
+    # mission slot for as long as this answers True, instead of pausing after
+    # one cadence and paying a Planner turn and a session restart to be resumed
+    # minutes later. The daemon answers from its backlog and inbox. None keeps
+    # the single-cadence pause for callers that run one mission at a time.
+    external_wait_hold: Callable[[], bool] | None = None
 
     def __post_init__(self) -> None:
         """Keep the round-budget guards reachable when ``max_rounds`` shrinks.

@@ -226,6 +226,18 @@ class PlannerOrchestrationMixin:
                 f"- mission_slots: {mission_slots} total; "
                 f"{len(running_rows)} running; {free_slots} free"
             )
+            gpu_summary = self.memory.backlog.gpu_summary()
+            if gpu_summary is not None:
+                slot_lines.append(
+                    f"- gpus: {gpu_summary['total']} on this machine; "
+                    f"{gpu_summary['busy']} busy now; "
+                    f"{gpu_summary['reserved']} reserved by active tasks; "
+                    f"{gpu_summary['free']} claimable. TASK_GPUS=<n> is how many "
+                    "GPUs a task holds while it runs; it is claimed only when that "
+                    "many are free. Arms that can run side by side (model sizes, "
+                    "training methods, seeds) belong in separate parallel-safe tasks "
+                    "with their own TASK_GPUS, not in one task that runs them in turn."
+                )
             # The claim gate also refuses everything while a paused external
             # job declares no owned paths, so those rows block a "free" slot
             # exactly like an unowned running mission does.
@@ -259,6 +271,23 @@ class PlannerOrchestrationMixin:
                     "can run now."
                 )
 
+        # A task that asks for more GPUs than this machine has is failed at
+        # claim time; say so here so the Planner re-plans it smaller instead
+        # of re-emitting it. Rendered only while such a row exists.
+        from ..memory import GPU_UNFITTABLE_PREFIX
+
+        for item in [
+            row for row in backlog_rows
+            if row.status == "failed"
+            and str(getattr(row, "last_error", "") or "").startswith(
+                GPU_UNFITTABLE_PREFIX
+            )
+        ][-3:]:
+            slot_lines.append(
+                f"- gpu_unfittable: task {item.id} ({item.title}) failed: "
+                f"{item.last_error[len(GPU_UNFITTABLE_PREFIX):]}"
+            )
+
         def _active_item_line(item: Any) -> str:
             base = (
                 f"- {item.status} task {item.id}: {item.title}; "
@@ -270,7 +299,8 @@ class PlannerOrchestrationMixin:
             safe = "true" if getattr(item, "parallel_safe", False) else "false"
             return (
                 f"{base}; parallel_safe={safe}; "
-                f"owns_paths=[{', '.join(owns)}]"
+                f"owns_paths=[{', '.join(owns)}]; "
+                f"gpus={int(getattr(item, 'gpu_count', 0) or 0)}"
             )
 
         # A subagent event wait is bound by matching the Planner's own words

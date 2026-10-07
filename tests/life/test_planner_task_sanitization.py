@@ -19,7 +19,7 @@ def test_sanitize_planner_task_text_removes_generic_legacy_deployment_paths() ->
     assert '"${ARGUS_SKILL_PYTHON:-python}" -m argus' in sanitized
     assert "operator-provided research playbook" in sanitized
     assert "active Argus source/package" in sanitized
-    assert "argus_builtin_skills/engineer/paper-illustration-image2.md" in sanitized
+    assert "argus_builtin_skills/engineer/paper-framework-figure-studio.md" in sanitized
 
 
 def test_sanitize_planner_task_text_rewrites_the_pre_rename_module_and_checkout() -> None:

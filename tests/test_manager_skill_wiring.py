@@ -24,13 +24,14 @@ _BUILTIN_ROOT = Path(_builtin.__file__).parent
 # 1. planner role skill relocation (the bug)
 # --------------------------------------------------------------------------
 def test_planner_role_skill_moved_to_planner_dir() -> None:
-    assert (_BUILTIN_ROOT / "planner" / "argus-planner-role.md").is_file()
+    assert (_BUILTIN_ROOT / "planner" / "dependency-aware-task-decomposition.md").is_file()
     assert not (_BUILTIN_ROOT / "engineer" / "argus-planner-role.md").exists()
+    assert not (_BUILTIN_ROOT / "planner" / "argus-planner-role.md").exists()
 
 
 def test_planner_role_skill_still_loads_from_new_location() -> None:
     # Bare role filenames resolve across bundled role directories.
-    text = load_builtin_skill_text("argus-planner-role.md")
+    text = load_builtin_skill_text("dependency-aware-task-decomposition.md")
     assert "The Planner's role" in text
 
 
@@ -40,7 +41,7 @@ def test_missing_required_role_skill_fails_loudly() -> None:
 
 
 def test_planner_role_skill_no_longer_classified_as_engineer() -> None:
-    p = _BUILTIN_ROOT / "planner" / "argus-planner-role.md"
+    p = _BUILTIN_ROOT / "planner" / "dependency-aware-task-decomposition.md"
     assert role_of_path(str(p), _BUILTIN_ROOT) == "planner"
 
 
@@ -60,8 +61,9 @@ def test_manager_in_role_subdirs_and_pools() -> None:
 
 
 def test_manager_role_skill_file_exists_and_loads() -> None:
-    assert (_BUILTIN_ROOT / "manager" / "argus-manager-role.md").is_file()
-    text = load_builtin_skill_text("argus-manager-role.md")
+    assert (_BUILTIN_ROOT / "manager" / "evidence-based-stage-decision.md").is_file()
+    assert not (_BUILTIN_ROOT / "manager" / "argus-manager-role.md").exists()
+    text = load_builtin_skill_text("evidence-based-stage-decision.md")
     compact = " ".join(text.split())
     assert "The Manager's role" in text
     assert "ordinary work supported by evidence and carried out in an isolated worktree" in text

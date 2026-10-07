@@ -87,6 +87,13 @@ KNOBS: tuple[Knob, ...] = (
         "--copilot-home PATH, then restart running Argus processes",
         "backend",
     ),
+    Knob(
+        "ARGUS_SKILL_COPILOT_TOKEN_FROM_ENV", "0",
+        "1 = authenticate Copilot children with COPILOT_GITHUB_TOKEN from Argus's "
+        "environment (headless/container hosts without a logged-in home); only that "
+        "token is passed, GH_TOKEN/GITHUB_TOKEN and git credentials stay stripped",
+        "backend",
+    ),
     Knob("ARGUS_SKILL_JACOBIAN_MCP_BIN", "(jacobian-mcp on PATH)", "optional Jacobian MCP sidecar executable used by the math vertical's isolated typed-operation bridge", "backend"),
     Knob("ARGUS_SKILL_PI_SESSION_DIR", "(~/.argus-skill/pi-sessions)", "Argus-owned Pi session storage, separate from interactive Pi history", "backend"),
     Knob("ARGUS_SKILL_PI_PROVIDER", "(unset — Pi resolves the id itself)", "provider prefix for bare model ids on the Pi backend; set it only to disambiguate an id two authenticated Pi catalogs both carry", "backend", cockpit=True),
@@ -190,7 +197,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "1800", "model stream inactivity before likely-stalled alerting (0=off)", "mission"),
-    Knob("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "0", "optional model stream inactivity limit before terminating the current provider process group; disabled by default", "mission"),
+    Knob("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "1800", "seconds an Engineer turn may go without any model or command output before Argus stops it and tells the next round which command was running (Engineer default 1800; other model calls such as the Reviewer apply it only when explicitly set); 0 disables", "mission"),
     Knob("ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS", "0", "optional round-boundary limit without reviewer-classified decision/evidence progress; disabled by default", "mission"),
     Knob("ARGUS_SKILL_CHECKPOINT_PERSIST", "true", "persist the reviewer checkpoint across missions/restarts", "mission"),
     Knob("ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS", "true", "send the full Engineer task/skill contract only on round 1; later rounds use reviewer guidance plus CHECKPOINT.md", "mission"),

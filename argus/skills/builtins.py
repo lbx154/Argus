@@ -94,6 +94,300 @@ _RETIRED_BUILTIN_SEED_HASHES = {
     "engineer/nanochat-pretrain-runner.md": (
         "5986a1df8ca519f1ad4a20b9c175647922711b1bad0cf1855c0fdfa30a7d3b46"
     ),
+    # Removed on 2026-10-01 after the skill usage audit (121 projects, 2026-08-28
+    # to 09-30): none of these was opened by any role, or the file duplicated a
+    # sibling. Seeded copies are removed when unedited, archived otherwise.
+    # Research: zero-opened figure and timeline files.
+    "engineer/academic-vector-figures.md": (
+        "7167cd0fbd87b470ab5a9faaaffb1a457f586742cbf52101d2835c14c24c442d"
+    ),
+    "engineer/figure-spec.md": (
+        "e63d1f7e807a3e918a79c02b5a5584ae531cc6e48de608a6fbb632ca6a16b2ca"
+    ),
+    "engineer/research-timeline.md": (
+        "4e08e186b5cf37f6e71215cf47a0cd262a54ca574e89ed2e6c5162f616bda07a"
+    ),
+    # Research: the ideation sub-pattern cards, anti-patterns, companion
+    # combos and the vendored attribution page; the 15 pattern cards and
+    # their overview stay.
+    "engineer/references/ideation/ideation-sub-patterns/C00.md": (
+        "0bc790076bc61bc5a902094b3b1326375b20a2210540b9665c97728f8a869d56"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C01.md": (
+        "7313de54f35bd19420a234d65261429f27555af69e6babde10bb204bd4cb82a8"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C02.md": (
+        "254f83ef47ab39d36ae3475bc05ed3e0eee3c8b4f40f970c3dbec0dd5703f119"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C03.md": (
+        "b0c71cc591da1a7a87579a7aaa983b8b8e1a53a9f51376dca9232ff5fd868a32"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C04.md": (
+        "e6caef00b214d780e5735e4323d10aac059d5d7c8c8c8ec16a5b050f6d81ba45"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C05.md": (
+        "543f82fee5c11136813c512e82bf493d6bbae00f8c857e8a0a523320e44b0dda"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C06.md": (
+        "d1570fddded634848788b33c6a731dbce440d0450e6f3c550f0f517d87a7bba8"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C07.md": (
+        "1cf23b65fbee15bbbffcda7f4af3542f60cc167134efce2e203cd0fc4aede69f"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C08.md": (
+        "ab97e07ed950cc256732ee18991001e3f4866a23b08f04aed402a8027b4fa538"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C09.md": (
+        "e178b7925e08f94311f28639a88030f84ece1468b7080707472afe432ff4126e"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C10.md": (
+        "8724aaff35a9704544a9be7625e6a05d58c606335f3a65e99a825d3bbce8366a"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C11.md": (
+        "65ba6973f962ab0e8e1cdea6f30da92ca27e6be3b6d08a09a1dc0e565e309e75"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C12.md": (
+        "6157bfd876ba96f837c0f577399f6afc1602e419c45fe77424f57b5e446a8927"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C13.md": (
+        "7e19113e0aff6d02e77fc4a9898c6c5edae5a1b20f6c46bf65cd78fae0e62d9b"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C14.md": (
+        "006232a2a76a5730b6746b8caf98a3601a369af0881749e38c3c6aeec332ec1c"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C15.md": (
+        "fce7d01cac2fe7f8562d5de2af87159547d7a7e9bb9b115560af14a00a6f8999"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C16.md": (
+        "0978269b1da55a84902d42087c8d481a3fb40c6d299870d760ff9a64df1ed70e"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C17.md": (
+        "95020d47a0cd32cd65240db80018e09119021d3616af43015b1a6797400c4303"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C18.md": (
+        "871ad780b2120f7f4bd0930a3ae0d2c66e3928368a5ffbf36f4777c3fb8d01a6"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C19.md": (
+        "27c570e775a3a845334dfd5d06494bfc382dbb79bad4928d349a30b9129c166a"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C20.md": (
+        "44b744d5822c8c662171e2f9607e78f0dd57246938254a22354e05386841c63f"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C21.md": (
+        "17fd8f2d33a83878dbd31bba149eb409be958e022ff666b52f1a8d169257b5a9"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C22.md": (
+        "094fa0747a14ae5f706575ad7be75604d7ccd307420e39ad22c79bc870c5a17c"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C23.md": (
+        "4f611478bb586c82f5f965e2ae8104c173355df780745af4193a721eb39ca0c1"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C24.md": (
+        "b87fd8132e773ee277b2387567d6d91ff3a6680fd9e57da7591900f582a4e2ee"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C25.md": (
+        "af5e435dd553c6e4893e9f17bd8da9c19e8dbf3cbc15699b0d716cf24f32b787"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C26.md": (
+        "8b3b77eb217046fa5c64a7f5fd38a67bbfc96550b92cc6249a46241d222318ae"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C27.md": (
+        "227cca6515c13719e55b5fd3393db32e50143795732fc252246997915eb52704"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C28.md": (
+        "3930ba042b73d11820201a4e191c2203a32b837934673465d2df908adf5bbff6"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C29.md": (
+        "1ad7523af2d0a5c1a2aa81e144cb6269a87fcba110397ce679604c8e3db22d9d"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/C30.md": (
+        "07a9807ff9890c993d50f8589f02014927aa320b9e9475d240ed609da97753cd"
+    ),
+    "engineer/references/ideation/ideation-sub-patterns/overview.md": (
+        "f38798c718bd61a1641075bbcea582ecea8c01c09756ecfd37ab86d68e720d92"
+    ),
+    "engineer/references/ideation/anti-patterns.md": (
+        "ec3f36e3281c2a7762e3af9142323e338b0c88911d290eec331451d3c60a7c95"
+    ),
+    "engineer/references/ideation/ideation-patterns/companion-combos.md": (
+        "eaaa98d1c54a360cf126c88345ca34c807f5206e07d0e579a36cb202592cbd86"
+    ),
+    "engineer/references/ideation/ATTRIBUTION.md": (
+        "768eb690ea6dc36812abc8bb7bc580739e38081c2fa6efe890401d49db5445fd"
+    ),
+    # Software: the Verus plugin (kept in git history for the Vertical Store)
+    # and the opt-in Manager grounding pass nobody enabled.
+    "engineer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": (
+        "d8b9d0454dba11e26939164ebced294115ec3441e36a732d1900c53835fde5b4"
+    ),
+    "engineer/formal-verification/verus-spec-generation-and-repair.md": (
+        "b8b75623f4beeccd7d1d49f88c846ae581509ba500471534f828320653bb4677"
+    ),
+    "manager/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": (
+        "99265e73d9466208838f9537d4c72616809530d81b0066d43ac3a865845d9cf2"
+    ),
+    "manager/formal-verification/verus-spec-generation-and-repair.md": (
+        "6fc81720d8d3d16a9b66b51179242143fb7c489362c195dfda42c778e26ab271"
+    ),
+    "planner/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": (
+        "0b80e1fb7dc18b9653f47a1ec40694b34d37c187bbf9ac3e6a3402f2177213fc"
+    ),
+    "planner/formal-verification/verus-spec-generation-and-repair.md": (
+        "ca5d22fa5f52a7e619b41b438d41f26be7668e7de7cba1a69a9093af1d1803a4"
+    ),
+    "references/verus-spec-generation-and-repair.zh-CN.md": (
+        "137e9d9e612a3f4b9a7a4d36a78da78faa03de8ef74899ca2aaa96d9cbeb2dbe"
+    ),
+    "reviewer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": (
+        "f34f3985042716c286604d8dcb9a30049ec02d41cbe8a84fabbad438c39fe755"
+    ),
+    "reviewer/formal-verification/verus-spec-generation-and-repair.md": (
+        "615c33c439f573a4a2495d9b3b4614be6e436ad014fabd87e339359d44f09103"
+    ),
+    "verus-spec-generation-and-repair.md": (
+        "e74c0de684a224d3edc2e986c7e5e16cbe512d7ccd8558d18a2fe2ef96797614"
+    ),
+    "manager/software-project-grounding.md": (
+        "0b1d8a2ab9b01b713568dd469bc6e44d6c59c7cc108b976e4168edbef0b44bb6"
+    ),
+    # Global library: identity text the prompt already carries, a diagram
+    # route whose renderers are not installed, and a duplicate of
+    # performance-profile-ground-truth.md.
+    "engineer/drawio-diagram-authoring.md": (
+        "c53d92072531bd3662ef181c7bd0459b0ecff10963a41b078e5ca6f5162b92e6"
+    ),
+    "engineer/mermaid-graphviz-diagrams.md": (
+        "6d544cb4ec918840a3ccbe07de86771831c660c3ec07d751b3b64fd26969af12"
+    ),
+    "engineer/argus-engineer-role.md": (
+        "3c4f983a645ed3a3be7742db797c741c1741362b93b9de72253bd5ca4b3334bf"
+    ),
+    "agent-md-optimize-project-template.md": (
+        "04635712c232d01b2b7ecae3af0e94f32071b89996094f43ca3b89c921296eaf"
+    ),
+    # Kernel engineering: a single B200 kernel's work log and an external
+    # reading list.
+    "engineer/kernel-optimization-process-trace.md": (
+        "84e8feb27c50abdeaee10413eff2147bc80cad71a52d9d5e05e0f9ac82f0cada"
+    ),
+    "engineer/modern-gpu-blackwell-kernel-techniques.md": (
+        "e4b21b069c4714e1f41fab19186cc6452d09f87193965ad0931f27e123a11ef8"
+    ),
+    # Merged on 2026-10-01: the same audit found the figure, diagnosis-ladder,
+    # method-card, infrastructure, source-checking, role-banner and wiki
+    # material each written three to five times across sibling files. Each
+    # cluster now lives in one file; these are the absorbed originals.
+    # Research vertical.
+    "engineer/result-to-claim.md": (
+        "f089b08ca0546150b55e594393c1e2a4aa20cc02ed8d77e38a68735913e66c1b"
+    ),
+    "engineer/suspect-the-setup.md": (
+        "44978c6edc4f4dbd126d40336edbb4af7079ef6f062a3cbd4be2ec1ec6494255"
+    ),
+    "engineer/method_card_template.md": (
+        "dc1a6b08dd80155e2f4a6332752d8ef9a12b435bc72f262b5836afba76b9c2d9"
+    ),
+    "engineer/executable-spec.md": (
+        "a5486acdd969b46fd6d464e2b408b43ecea398d6a41d7ea90718dbd10ee63e5b"
+    ),
+    "engineer/delta-on-reference.md": (
+        "236b2b124907bbef2b13ce3fb467503ba28780d64d64cb92478267232714f3ff"
+    ),
+    "engineer/write-for-review.md": (
+        "455ffba88572baf1e0945715cb892b00ab4384baebbede40a77f45b5fc50fce1"
+    ),
+    "engineer/hypothesis-implementation-contract.md": (
+        "5732ec92babec1a2d8f81ff223af8dbc38df3ecb4518acde78ff312e69adb5e3"
+    ),
+    "engineer/implementation-brief.md": (
+        "a48829e84b0b538ee83e869d03f306054ed895eed14fda69bffd1fcbb1a7b8e7"
+    ),
+    "engineer/research-visualization-router.md": (
+        "85dd3779ab694d38b0a80a4451780f1d550b7fff6a706072e93945e30760606f"
+    ),
+    "engineer/research-results-analysis-and-figures.md": (
+        "7cca016207fc39003028c43abab480e26f2f9b418d4ce439b833e532c30b68a6"
+    ),
+    "engineer/paper-illustration-image2.md": (
+        "567c6e25be4d3be443fe25833b7ff958ae2c3afd1207610f3faa62f8f06c7c34"
+    ),
+    "engineer/training-infrastructure-guide.md": (
+        "13db77beee6648eb5d5ab6e0d99c81dfdf142ef130c93ae80944ef546eee6707"
+    ),
+    "engineer/infrastructure-landscape-survey.md": (
+        "045d974fc5ee96077fbfeb4dfd66af3f11c55775cb5f58a1089f3c100e4bc09e"
+    ),
+    "engineer/framework-stand-up-pilot.md": (
+        "828921f48c22fc0edac47b2fb8629f001f9a1422a6a0eb0308a8bf7f6bf8d049"
+    ),
+    "engineer/recipe-anchored-tuning.md": (
+        "1a101849e7276b9370a87728ad540ebe1ccd3463955cc65421741b539ba9a8f0"
+    ),
+    "engineer/claims-against-evidence.md": (
+        "f7edc1fcaac5a573972af565ccb891e3821ef8bc9687bb3aaefca726edbe08f5"
+    ),
+    "engineer/citation-check.md": (
+        "1c865d8b4a38e95b35847f83b54aeac3e9b33f3632ca19e560c6ed2ad2f7093d"
+    ),
+    "engineer/semantic-scholar-search.md": (
+        "b80ebdca7fd1f60a9979dea04437da48f2ef5f29304aca35d28a7ce961bfa1c9"
+    ),
+    "engineer/paper-infrastructure-review.md": (
+        "31775a6b15692a938c75c31f434cb08fbf518616eab2ad08eba643388368b7b5"
+    ),
+    "engineer/paper-exemplar-pdf-learning.md": (
+        "e8435d84ea38da7f24e4ec9304e5c47705d9b14c7228ca61b5049605c2d8b617"
+    ),
+    "reviewer/reading-the-evidence.md": (
+        "b7b445df97f695fddcecde05fa42780a143af569a6d3935d62936020d7381e3a"
+    ),
+    "reviewer/infrastructure-choice-review.md": (
+        "6244075c1903ee733b9bef3995475d743a9b9e5c52975cd0f6f7692fd0055446"
+    ),
+    # Global library.
+    "engineer/stale-world-model.md": (
+        "714994de1046a062cd3ef6a06d80e55bb62aba75e1499aef51645be635064302"
+    ),
+    "engineer/environment-readiness.md": (
+        "726cfbbdc2952d253e800904d8e4bc4749e06c6de1ad8cad445dade753b0c625"
+    ),
+    "engineer/study-and-curate.md": (
+        "7b4ed6295967d305b13b0cadbb83ede8d5906eed81c775523f1426338c3d7561"
+    ),
+    "engineer/wiki-collector.md": (
+        "429e3feb524fecef7022d73998cb086e805251db779c2a200edf56bdcf0b8ff8"
+    ),
+    "reviewer/wiki-curator.md": (
+        "27112369581e1e255660c4a60408e7810abe5a4f6afd28bf2e2b53827a4b6d68"
+    ),
+    "planner/argus-planner-role.md": (
+        "d96d5258ecbfec8ffb7a16672ba812d331c8b24446be6b633df26fbc103f38e7"
+    ),
+    "reviewer/guiding-the-engineer.md": (
+        "0829bb50b5546b07a1b9b3a33cc544254c9ef6c37a3e67a3deccce2d4afa7ee6"
+    ),
+    "manager/argus-manager-role.md": (
+        "b3ac66146051884ec9523daf5d372d65d993687a8a6c9eb9a992a2a25a051cea"
+    ),
+    # Kernel engineering, software and learning verticals.
+    "engineer/kernel-optimization-knowledge.md": (
+        "95e726bbf4687e3d5f8929c4136e55de30b28aa508a24f357db65d8bebacc4a0"
+    ),
+    "engineer/kernel-environment-first-engineering.md": (
+        "a5e41f397ec10f57bceff7c853f788947464132f82861387f7d81739d3b56700"
+    ),
+    "reviewer/kernel-engineering-review.md": (
+        "43e801e03ffdca459ebeca46f9d8b15119e74d0f6e90522582dcde6e06e4f664"
+    ),
+    "planner/software-project-grounding.md": (
+        "70b38719478858afc0e4e8eb191ac54c70db9ffff304bb593983fca271ddd7c6"
+    ),
+    "engineer/learning-curation.md": (
+        "04b79b844bc15ab1aebd612001f624eb79551028cd14845c3223c5883fa5a59b"
+    ),
+    "reviewer/curation-review.md": (
+        "67ee5918b390ae7f278d983df34f939d30d18800935158a2fad8929dd90d3afa"
+    ),
 }
 
 
@@ -361,7 +655,8 @@ def iter_context_skill_assets(
     ``iter_context_skill_texts`` deliberately excludes ``references/`` because
     those cards are not independently matchable Skills. Excluding them from the
     seeder too left the owning Skill pointing at files that did not exist:
-    run-01 had 43 of 94 research resources and none of the 51 ideation cards.
+    run-01 had 43 of 94 research resources and none of the ideation cards
+    (15 pattern cards and their overview since the 2026-10-01 prune).
     """
     merged: dict[str, str] = {}
     for root in _vertical_skill_roots(vertical):
@@ -503,7 +798,15 @@ def retire_orphaned_builtin_seeds(skills_dir: Path, *, include_moved: bool = Tru
             body = path.read_bytes()
         except (FileNotFoundError, IsADirectoryError, OSError):
             continue
-        if expected_digest and expected_digest in _seed_content_digests(body):
+        # An unedited copy of any shipped revision is factory-owned: the last
+        # bundled text, the pre-manifest seed and whatever this workspace
+        # recorded when it was seeded.
+        factory_digests = {
+            expected_digest,
+            _LEGACY_BUILTIN_SEED_HASHES.get(relative_name, ""),
+            state.get(relative_name, ""),
+        } - {""}
+        if factory_digests & _seed_content_digests(body):
             try:
                 path.unlink()
             except OSError:

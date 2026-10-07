@@ -27,6 +27,13 @@ is always obeyed, including self-maintenance's private per-worktree home.
 An explicit ``ARGUS_SKILL_COPILOT_HOME`` account binding takes precedence over
 the caller's Copilot environment. Its credentials are owned by Copilot login,
 never seeded, synchronized, or pruned by Argus.
+
+Headless hosts (containers, CI) have no logged-in home at all. There the
+operator opts in with ``ARGUS_SKILL_COPILOT_TOKEN_FROM_ENV=1`` and supplies
+``COPILOT_GITHUB_TOKEN`` in Argus's own environment; that single token is then
+handed to every Copilot child, even sandboxed or workdir-isolated ones, while
+``GH_TOKEN`` / ``GITHUB_TOKEN`` and git credentials stay stripped. Use a
+fine-grained token limited to Copilot requests: the agent process can read it.
 """
 from __future__ import annotations
 
@@ -45,6 +52,9 @@ log = logging.getLogger(__name__)
 
 COPILOT_HOME_ENV = "COPILOT_HOME"
 COPILOT_ACCOUNT_HOME_KNOB = "ARGUS_SKILL_COPILOT_HOME"
+COPILOT_TOKEN_FROM_ENV_KNOB = "ARGUS_SKILL_COPILOT_TOKEN_FROM_ENV"
+COPILOT_TOKEN_ENV = "COPILOT_GITHUB_TOKEN"
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
 _COPILOT_HOME_DIR = "copilot-home"
 
 # Behaviour lives in these; a home without them would silently run with Copilot
@@ -87,11 +97,69 @@ def copilot_account_home(env: Mapping[str, str] | None = None) -> Path | None:
     return resolve_runtime_path(raw.strip(), context=COPILOT_ACCOUNT_HOME_KNOB).resolve()
 
 
+def copilot_token_from_env_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """Whether the operator opted in to authenticating Copilot by env token."""
+    from ..core.knob_store import persisted_knob
+    from ..trial.client import trial_enabled
+
+    source = os.environ if env is None else env
+    if trial_enabled(source):
+        return False
+    return persisted_knob(COPILOT_TOKEN_FROM_ENV_KNOB, env=source).strip().lower() in _TRUTHY
+
+
+def copilot_env_token(env: Mapping[str, str] | None = None) -> str:
+    """The operator-supplied Copilot token, or "" when not opted in / absent.
+
+    Read from Argus's own environment, never from a child env that a
+    sandbox may already have scrubbed.
+    """
+    source = os.environ if env is None else env
+    if not copilot_token_from_env_enabled(source):
+        return ""
+    return str(source.get(COPILOT_TOKEN_ENV) or "").strip()
+
+
+def apply_copilot_env_token(
+    env: dict[str, str],
+    source: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Hand only the opted-in Copilot token to a child; drop other GitHub tokens.
+
+    No-op unless ``ARGUS_SKILL_COPILOT_TOKEN_FROM_ENV`` is on and
+    ``COPILOT_GITHUB_TOKEN`` is set in ``source`` (default: this process's env).
+    """
+    token = copilot_env_token(os.environ if source is None else source)
+    if not token:
+        return env
+    env.pop("GH_TOKEN", None)
+    env.pop("GITHUB_TOKEN", None)
+    env[COPILOT_TOKEN_ENV] = token
+    return env
+
+
+def copilot_auth_source(env: Mapping[str, str] | None = None) -> str:
+    """Human-readable description of where Copilot children get credentials."""
+    from ..trial.client import trial_enabled
+
+    source = os.environ if env is None else env
+    if trial_enabled(source):
+        return "trial provider"
+    if copilot_token_from_env_enabled(source):
+        if copilot_env_token(source):
+            return f"{COPILOT_TOKEN_ENV} from environment ({COPILOT_TOKEN_FROM_ENV_KNOB}=1)"
+        return f"{COPILOT_TOKEN_ENV} from environment ({COPILOT_TOKEN_FROM_ENV_KNOB}=1) -- token missing"
+    home = copilot_account_home(source)
+    if home is not None:
+        return f"dedicated Copilot home {home}"
+    return "Copilot login mirrored from the operator home"
+
+
 def apply_copilot_account(env: dict[str, str]) -> dict[str, str]:
     """Bind Copilot children to the selected account, not ambient credentials."""
     home = copilot_account_home(env)
     if home is None:
-        return env
+        return apply_copilot_env_token(env)
     try:
         home.mkdir(parents=True, exist_ok=True, mode=0o700)
     except OSError as exc:
@@ -104,7 +172,7 @@ def apply_copilot_account(env: dict[str, str]) -> dict[str, str]:
     env[COPILOT_HOME_ENV] = str(home)
     # An unlogged-in profile must not silently fall back to the operator's gh.
     env["GH_CONFIG_DIR"] = str(home / "gh")
-    return env
+    return apply_copilot_env_token(env)
 
 
 def argus_copilot_home(env: Mapping[str, str] | None = None) -> Path:
@@ -339,6 +407,11 @@ __all__ = [
     "prune_copilot_sessions",
     "COPILOT_HOME_ENV",
     "COPILOT_ACCOUNT_HOME_KNOB",
+    "COPILOT_TOKEN_FROM_ENV_KNOB",
+    "apply_copilot_env_token",
+    "copilot_auth_source",
+    "copilot_env_token",
+    "copilot_token_from_env_enabled",
     "copilot_account_home",
     "apply_copilot_account",
     "apply_copilot_home",

@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 
 JOURNAL_FILENAME = "knowledge-journal.jsonl"
 JOURNAL_LOCK_FILENAME = ".knowledge-journal.lock"
-KINDS: tuple[str, ...] = ("learned", "recalled", "promoted")
+KINDS: tuple[str, ...] = ("learned", "recalled", "promoted", "corrected")
 SCOPES: tuple[str, ...] = ("private", "project", "vertical", "global")
 RECORD_FIELDS: tuple[str, ...] = (
     "kind", "scope", "vertical", "path", "title",

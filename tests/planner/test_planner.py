@@ -1492,3 +1492,65 @@ def test_parse_numbered_planner_objective_keeps_its_following_lines() -> None:
         "## Claim\nProduce the theorem.\n- one lemma per file"
     )
     assert verdict.new_tasks[0].acceptance_check == "Run the verifier."
+
+
+def test_parse_planner_reads_the_gpus_a_task_holds() -> None:
+    verdict = parse_planner_text(
+        "\n".join([
+            "PROJECT_DONE=false",
+            "REASON=two arms can train side by side",
+            "TASK_KEY=arm-27b",
+            "TASK_DEPS=",
+            "TASK_TITLE=Train the 27B arm",
+            "TASK_OBJECTIVE=Train it.",
+            "TASK_PARALLEL_SAFE=true",
+            "TASK_OWNS_PATHS=runs/27b",
+            "TASK_GPUS=2",
+            "TASK_KEY=writeup",
+            "TASK_DEPS=",
+            "TASK_TITLE=Draft the method section",
+            "TASK_OBJECTIVE=Write it.",
+            "TASK_GPUS=not-a-number",
+        ])
+    )
+    assert [task.gpu_count for task in verdict.new_tasks] == [2, 0]
+
+
+def test_structured_planner_payload_reads_gpu_count_as_number_or_numeric_text() -> None:
+    def task(key: str, gpus: object) -> dict:
+        return {
+            "key": key, "deps": [], "title": f"Train {key}",
+            "objective": "Train it.", "scope": "bounded", "gpu_count": gpus,
+        }
+
+    verdict = parse_planner_payload({
+        "project_done": False,
+        "reason": "arms train side by side",
+        "tasks": [task("a", 2), task("b", " 1 "), task("c", 3.0), {
+            "key": "d", "deps": [], "title": "Write", "objective": "Write it.",
+            "scope": "bounded",
+        }],
+    })
+
+    assert verdict.error == ""
+    assert [t.gpu_count for t in verdict.new_tasks] == [2, 1, 3, 0]
+
+
+@pytest.mark.parametrize("garbage", ["two", -1, True, 1.5, [2], {"n": 2}])
+def test_structured_planner_payload_drops_only_the_task_with_a_bad_gpu_count(
+    garbage: object,
+) -> None:
+    verdict = parse_planner_payload({
+        "project_done": False,
+        "reason": "two tasks",
+        "tasks": [
+            {"key": "bad", "deps": [], "title": "Train", "objective": "Train it.",
+             "scope": "bounded", "gpu_count": garbage},
+            {"key": "good", "deps": [], "title": "Write", "objective": "Write it.",
+             "scope": "bounded", "gpu_count": "0"},
+        ],
+    })
+
+    assert verdict.error == ""
+    assert [t.key for t in verdict.new_tasks] == ["good"]
+    assert any("task 1 skipped: gpu_count" in d for d in verdict.diagnostics)

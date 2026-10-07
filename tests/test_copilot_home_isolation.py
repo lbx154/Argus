@@ -474,3 +474,119 @@ def test_the_sweep_is_throttled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     prepare_copilot_home(env)  # second call within the hour
 
     assert (home / "session-state" / "stale").exists()
+
+
+# --- headless opt-in: operator-supplied Copilot token -----------------------
+
+_TOKEN_KNOB = "ARGUS_SKILL_COPILOT_TOKEN_FROM_ENV"
+_ONE_SHOT_MODES = [{}, {"sandbox_mode": "read-only"}, {"isolate_workdir": True}]
+
+
+def _headless_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, opt_in: bool) -> None:
+    for key, value in _argus_env(tmp_path).items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv(COPILOT_ACCOUNT_HOME_KNOB, raising=False)
+    monkeypatch.delenv(COPILOT_HOME_ENV, raising=False)
+    monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "fake-copilot-token")
+    monkeypatch.setenv("GH_TOKEN", "fake-gh-token")
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-github-token")
+    if opt_in:
+        monkeypatch.setenv(_TOKEN_KNOB, "1")
+    else:
+        monkeypatch.delenv(_TOKEN_KNOB, raising=False)
+
+
+@pytest.mark.parametrize("options", _ONE_SHOT_MODES)
+def test_opted_in_token_reaches_every_copilot_child_and_nothing_else_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict,
+) -> None:
+    _headless_env(tmp_path, monkeypatch, opt_in=True)
+
+    env = _child_env_for("copilot", working_dir=tmp_path, **options)
+
+    assert env["COPILOT_GITHUB_TOKEN"] == "fake-copilot-token"
+    assert "GH_TOKEN" not in env
+    assert "GITHUB_TOKEN" not in env
+    if options:
+        # Sandboxed/isolated children still lose push-capable credentials.
+        assert "GIT_ASKPASS" not in env
+        assert "SSH_AUTH_SOCK" not in env
+    if options.get("isolate_workdir"):
+        assert env["GIT_CONFIG_GLOBAL"] == os.devnull
+
+
+@pytest.mark.parametrize("options", [{"sandbox_mode": "read-only"}, {"isolate_workdir": True}])
+def test_without_opt_in_sandboxed_copilot_children_get_no_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict,
+) -> None:
+    _headless_env(tmp_path, monkeypatch, opt_in=False)
+
+    env = _child_env_for("copilot", working_dir=tmp_path, **options)
+
+    for key in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"):
+        assert key not in env
+
+
+def test_without_opt_in_plain_copilot_child_inherits_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _headless_env(tmp_path, monkeypatch, opt_in=False)
+
+    env = _child_env_for("copilot")
+
+    assert env["GH_TOKEN"] == "fake-gh-token"
+    assert env["GITHUB_TOKEN"] == "fake-github-token"
+    assert env["COPILOT_GITHUB_TOKEN"] == "fake-copilot-token"
+
+
+def test_opted_in_token_survives_a_dedicated_account_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _headless_env(tmp_path, monkeypatch, opt_in=True)
+    monkeypatch.setenv(COPILOT_ACCOUNT_HOME_KNOB, str(tmp_path / "dedicated"))
+
+    env = apply_copilot_account(dict(os.environ))
+
+    assert env["COPILOT_GITHUB_TOKEN"] == "fake-copilot-token"
+    assert "GH_TOKEN" not in env and "GITHUB_TOKEN" not in env
+
+
+def test_auth_source_names_where_credentials_come_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus.agent_cli.copilot_home import copilot_auth_source
+
+    _headless_env(tmp_path, monkeypatch, opt_in=False)
+    assert copilot_auth_source() == "Copilot login mirrored from the operator home"
+    monkeypatch.setenv(_TOKEN_KNOB, "1")
+    assert copilot_auth_source().startswith("COPILOT_GITHUB_TOKEN from environment")
+    assert "fake-copilot-token" not in copilot_auth_source()
+    monkeypatch.delenv("COPILOT_GITHUB_TOKEN")
+    assert copilot_auth_source().endswith("token missing")
+
+
+def test_readiness_reports_token_source_and_missing_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import subprocess
+
+    from argus.core import backend_readiness as br
+
+    _headless_env(tmp_path, monkeypatch, opt_in=True)
+    monkeypatch.setattr(br, "resolve_runner_bin", lambda *a, **k: "/fake/copilot")
+    monkeypatch.setattr(
+        br,
+        "_run_backend_version",
+        lambda *a, **k: subprocess.CompletedProcess([], 0, stdout="1.0.0\n", stderr=""),
+    )
+
+    ready = br.check_backend_readiness("copilot", "subscription", probe_auth=False)
+    rendered = br.format_backend_readiness(ready)
+    assert "copilot auth source: COPILOT_GITHUB_TOKEN from environment" in rendered
+    assert "fake-copilot-token" not in rendered
+
+    monkeypatch.delenv("COPILOT_GITHUB_TOKEN")
+    missing = br.check_backend_readiness("copilot", "subscription", probe_auth=False)
+    assert not missing.ok
+    assert missing.problems[0].capability == "authentication"
+    assert "COPILOT_GITHUB_TOKEN is not set" in missing.problems[0].detail

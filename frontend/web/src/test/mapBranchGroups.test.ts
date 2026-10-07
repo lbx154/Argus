@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  branchGroupOutcome,
   branchGroupTitle,
   buildMap,
   foldTeamBranches,
@@ -151,5 +152,32 @@ describe("folding parallel subtasks that share a state", () => {
     const x = (id: string) => positions[id].x + sizes[id].width / 2;
     expect(x("m")).toBeLessThan(x("team-group:m:pending"));
     expect(GROUP_FRAME.width).toBeGreaterThan(BRANCH_FRAME.width);
+  });
+});
+
+describe("what a folded group of finished routes concluded", () => {
+  it("adds the verdicts to the group's sentence instead of six green ticks", () => {
+    const routes = [
+      team("team:route1", "m", { ts: 10, team_role: "idea-route", team_task_id: "p/route-01", status: "done",
+        team_outcome: { kind: "route", verdict: "rejected", selected: false } }),
+      team("team:route2", "m", { ts: 11, team_role: "idea-route", team_task_id: "p/route-02", status: "done",
+        team_outcome: { kind: "route", verdict: "qualified", selected: true } }),
+      team("team:route3", "m", { ts: 12, team_role: "idea-route", team_task_id: "p/route-03", status: "done",
+        team_outcome: { kind: "route", verdict: "rejected", selected: false } }),
+      team("team:review1", "m", { ts: 20, team_role: "idea-review", team_task_id: "review-route-01", status: "done",
+        team_outcome: { kind: "review", verdict: "rejected" } }),
+    ];
+    const promoted = promote(routes);
+    expect(promoted.tasks.find((t) => t.id === "team:route2")?.team_outcome).toEqual({ kind: "route", verdict: "qualified", selected: true });
+    const folded = foldTeamBranches(promoted, new Set(), true);
+    const group = folded.tasks.find((t) => t.group)!;
+    expect(group.title).toBe("3 条研究路线与 1 次独立复核已经完成：路线 02 通过并被选中，路线 01、03 被驳回");
+    const english = foldTeamBranches(promoteTeamBranches(buildMap([task("m", "failed", 2)]), routes, false, 48), new Set(), false);
+    expect(english.tasks.find((t) => t.group)!.title)
+      .toBe("3 research routes and 1 independent review are complete: route 02 qualified and chosen; routes 01, 03 rejected");
+    expect(branchGroupOutcome([], true)).toBe("");
+    const members = promoted.tasks.filter((t) => t.branch && t.team_role === "idea-route")
+      .map((t) => ({ ...t, team_outcome: { ...t.team_outcome!, selected: undefined } }));
+    expect(branchGroupOutcome(members, true)).toBe("：路线 02 通过，等待选择，路线 01、03 被驳回");
   });
 });

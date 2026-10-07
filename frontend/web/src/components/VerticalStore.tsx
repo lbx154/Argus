@@ -112,6 +112,12 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
       <TriangleAlert size={14} className="mt-0.5 shrink-0" />
       <span>{t('verticals.missingPython', { packages: row.missing_python.join(', ') })}</span>
     </p>}
+    {!!row.runtime_issues?.length && <p role="status" className="mt-3 rounded-lg bg-warn/10 p-2.5 text-xs text-warn" data-testid="vertical-runtime-issues">
+      {t('verticals.runtimeIssues', { issues: row.runtime_issues.join('; ') })}
+    </p>}
+    {!!row.install_issues?.length && <p role="status" className="mt-3 rounded-lg bg-warn/10 p-2.5 text-xs text-warn" data-testid="vertical-install-issues">
+      {t('verticals.installIssues', { issues: row.install_issues.join('; ') })}
+    </p>}
     {row.used_by.length > 0 && <div className="mt-3 text-xs text-ink-faint">
       <button type="button" aria-expanded={showProjects} onClick={() => setShowProjects((value) => !value)} className="inline-flex items-center gap-1 transition-colors hover:text-ink" data-testid="vertical-used-by">
         {row.used_by.length === 1 ? t('verticals.usedByOne') : t('verticals.usedBy', { count: row.used_by.length })}

@@ -178,14 +178,11 @@ def test_team_worker_reads_the_card_and_leaves_editing_to_the_lead(monkeypatch) 
 
 
 def test_skill_documents_and_templates_exist() -> None:
-    for name in (
-        "method-card.md",
-        "method_card_template.md",
-        "executable-spec.md",
-        "delta-on-reference.md",
-    ):
+    for name in ("method-card.md",):
         assert (ENGINEER / name).is_file(), name
-    template = (ENGINEER / "method_card_template.md").read_text(encoding="utf-8")
+    for absorbed in ("method_card_template.md", "executable-spec.md", "delta-on-reference.md"):
+        assert not (ENGINEER / absorbed).exists(), absorbed
+    template = (ENGINEER / "method-card.md").read_text(encoding="utf-8")
     for heading in ("## Components", "## Protocol", "## What would falsify the claim"):
         assert heading in template
     # Hand-written only: the volatile sections are derived, not templated.
@@ -204,7 +201,7 @@ def test_skill_documents_and_templates_exist() -> None:
     assert "@pytest.mark.component" in skill
     assert "# why: ..." in skill
     assert "only when the method itself changes" in skill
-    spec = (ENGINEER / "executable-spec.md").read_text(encoding="utf-8")
+    spec = skill
     assert "## Component markers" in spec
     assert ".argus/spec_components.json" in spec
     assert "Proven by" not in spec
@@ -263,21 +260,20 @@ def test_spec_templates_are_collectable_with_todo_tests_skipped(tmp_path: Path) 
 def test_experiment_playbook_points_to_the_landscape_survey_for_infrastructure() -> None:
     text = (SKILLS / STAGE_PLAYBOOK_PATHS["experiment"]).read_text(encoding="utf-8")
 
-    assert "`engineer/infrastructure-landscape-survey.md`" in text
+    assert "`engineer/training-infrastructure.md`" in text
     assert "## Method card" in text
     assert "written once" in text and "touched again only when the method itself changes" in text
     assert "derives them from the code" in text
     assert "## Executable spec" in text
     assert "`engineer/method-card.md`" in text
-    assert "`engineer/executable-spec.md`" in text
-    assert "`engineer/delta-on-reference.md`" in text
+    assert "executable-spec.md" not in text and "delta-on-reference.md" not in text
     assert "pinned revision into `third_party/`" in text
     paper = (SKILLS / STAGE_PLAYBOOK_PATHS["paper"]).read_text(encoding="utf-8")
     assert "follow the project-root `METHOD.md`" in paper
 
 
 def test_contract_and_trace_skills_point_to_the_card() -> None:
-    contract = (ENGINEER / "hypothesis-implementation-contract.md").read_text(encoding="utf-8")
+    contract = (ENGINEER / "method-card.md").read_text(encoding="utf-8")
     trace = (SKILLS / "reviewer" / "claim-to-code-trace.md").read_text(encoding="utf-8")
 
     assert "METHOD.md" in contract

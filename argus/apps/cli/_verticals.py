@@ -40,6 +40,10 @@ def _print_table(rows: list[dict[str, Any]]) -> None:
     widths = [max(len(str(cell)) for cell in column) for column in zip(_LIST_COLUMNS, *table)]
     for line in (_LIST_COLUMNS, *table):
         print("  ".join(str(cell).ljust(width) for cell, width in zip(line, widths)).rstrip())
+    for row in rows:
+        for key in ("runtime_issues", "install_issues"):
+            if row.get(key):
+                print(f"{row['name']} {key}: {'; '.join(row[key])}", file=sys.stderr)
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
@@ -71,6 +75,7 @@ def _cmd_info(args: argparse.Namespace) -> int:
         "name", "kind", "purpose", "purpose_zh", "version", "installed_version", "enabled",
         "update_available", "requires", "shared", "python_requirements", "missing_python",
         "tags", "routing_path", "size_bytes", "used_by", "actions", "managed_by_host",
+        "runtime_issues", "install_issues",
     ):
         value = row.get(key)
         rendered = ", ".join(map(str, value)) if isinstance(value, list) else value

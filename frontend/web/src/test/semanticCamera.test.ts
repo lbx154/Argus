@@ -3,6 +3,7 @@ import {
   FOCUS_FILL,
   FOCUS_FILL_MAX,
   READER_HEADROOM,
+  detailZoom,
   focusZoom,
   motionDuration,
   overviewViewport,
@@ -153,5 +154,36 @@ describe("motionDuration", () => {
       expect(motionDuration(true, ms)).toBe(0);
       expect(motionDuration(false, ms)).toBe(ms);
     }
+  });
+});
+
+describe("detailZoom", () => {
+  // The live 1440x900 cockpit: 12px card text used to render at 6.5px.
+  const desktop = { width: 1176, height: 790 };
+  const desktopArea = { width: 1076, height: 600 };
+  const frame = { width: 1440, height: 1080 };
+
+  it("never lets an opened card's 12px text render below 12px on a desktop canvas", () => {
+    const layout = { width: 1008, steps: new Array(9), stacked: undefined };
+    const scale = Math.min(frame.width / 1008, frame.height / 880);
+    expect(detailZoom(desktop, desktopArea, frame, scale, layout)).toBeCloseTo(1 / scale, 6);
+    expect(detailZoom(desktop, desktopArea, frame, scale, layout) * scale).toBeGreaterThanOrEqual(1);
+  });
+
+  it("keeps the focus fill where it is already readable", () => {
+    const wide = { width: 3000, height: 1600 };
+    const area = { width: 2900, height: 1400 };
+    expect(detailZoom(wide, area, frame, 1.2, { width: 1008, steps: [] })).toBeCloseTo(focusZoom(wide, area, frame), 6);
+  });
+
+  it("fits a stacked card's width exactly on a phone, so nothing sits outside the viewport", () => {
+    const phone = { width: 390, height: 700 };
+    const area = { width: 350, height: 500 };
+    const layout = { width: 480, steps: new Array(9), stacked: true };
+    const scale = 900 / 480;
+    const zoom = detailZoom(phone, area, frame, scale, layout);
+    expect(layout.width * scale * zoom).toBeCloseTo(350, 6);
+    // A phone card that is not stacked keeps the earlier readable floor.
+    expect(detailZoom(phone, area, frame, scale, { ...layout, stacked: undefined })).toBeGreaterThanOrEqual(0.6 / scale);
   });
 });

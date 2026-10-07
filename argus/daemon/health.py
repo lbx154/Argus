@@ -26,6 +26,7 @@ _ACTIVE_EVENTS = frozenset({
     EventType.LIFE_PLANNER_START,
     EventType.LOOP_START,
     EventType.PROVIDER_REQUEST_STARTED,
+    EventType.ROUND_EXTERNAL_WORK_WAIT_COMPLETED,
     EventType.ROUND_REVIEW_STARTED,
     EventType.ROUND_START,
 })
@@ -41,6 +42,9 @@ _WAITING_EVENTS = frozenset({
     EventType.LIFE_OPERATOR_QUESTION_PENDING,
     EventType.LIFE_PLANNER_TERMINAL_IDLE,
     EventType.LIFE_PLANNER_WAITING,
+    # The lead is watching its own team's task board instead of spending a
+    # model round: a quiet hour here is patience, not a stall.
+    EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED,
 })
 _DEGRADED_EVENTS = frozenset({
     EventType.LIFE_DAEMON_DEGRADED,
@@ -60,6 +64,8 @@ _PROGRESS_EVENTS = frozenset({
     EventType.LIFE_PLANNER_TASK_ADDED,
     EventType.LIFE_PLANNER_VERDICT,
     EventType.PROVIDER_REQUEST_COMPLETED,
+    EventType.ROUND_EXTERNAL_WORK_WAIT_COMPLETED,
+    EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED,
     EventType.ROUND_MAIN_COMPLETED,
     EventType.ROUND_REVIEW_COMPLETED,
 })

@@ -136,6 +136,8 @@ class TaskSpec:
     allow_skill_changes: bool = False
     parallel_safe: bool = False
     owns_paths: list[str] = field(default_factory=list)
+    # GPUs the task holds while it runs; claimed only when that many are free.
+    gpu_count: int = 0
     # Mission-level role selected by Planner. Empty inherits the campaign
     # vertical chosen by Manager at the front door.
     vertical: str = ""
@@ -635,6 +637,7 @@ _TASK_KEY_VALUE_FIELDS = (
     "SCOPE",
     "PARALLEL_SAFE",
     "OWNS_PATHS",
+    "GPUS",
     "VERTICAL",
     "REQUIRE_INDEPENDENT_REVIEW",
 )
@@ -971,6 +974,25 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
             raise TypeError(f"{name} must be true or false")
         return value
 
+    def gpu_count(source: Mapping[str, Any]) -> int | None:
+        # A whole number, or its decimal string ("2"); ``None`` for anything
+        # else, so only the task that carries it is dropped.
+        value = source.get("gpu_count", 0)
+        if value is None or value == "":
+            return 0
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped.isdigit():
+                return None
+            value = int(stripped)
+        if not isinstance(value, int) or value < 0:
+            return None
+        return value
+
     def review_boolean(source: Mapping[str, Any], name: str) -> bool:
         # Mirrors the bounded-DAG validation contract: a structured boolean or
         # the literal strings "true"/"false"; anything else is a metadata error.
@@ -1079,6 +1101,13 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                 diagnostics.append(
                     f"task {task_index + 1} unsupported scope defaulted to bounded"
                 )
+            task_gpus = gpu_count(raw_task)
+            if task_gpus is None:
+                diagnostics.append(
+                    f"task {task_index + 1} skipped: gpu_count must be a "
+                    "non-negative whole number"
+                )
+                continue
             new_tasks.append(
                 TaskSpec(
                     title=title,
@@ -1107,6 +1136,7 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                     owns_paths=items(
                         raw_task.get("owns_paths", []), "owns_paths"
                     ),
+                    gpu_count=task_gpus,
                     vertical=text(raw_task, "vertical").strip(),
                 )
             )
@@ -1310,6 +1340,7 @@ def _planner_verdict_from_fields(
                     for path in row.get("TASK_OWNS_PATHS", "").split("|")
                     if path.strip()
                 ],
+                gpu_count=max(0, _key_value_int(row.get("TASK_GPUS", ""))),
                 vertical=row.get("TASK_VERTICAL", "").strip(),
             )
         )

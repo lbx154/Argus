@@ -603,6 +603,7 @@ class PlanningCycleEnqueueMixin:
                 allow_skill_changes=False,
                 parallel_safe=canonical_parallel,
                 owns_paths=canonical_owns_paths,
+                gpu_count=max(0, int(getattr(task, "gpu_count", 0) or 0)),
             )
             from ...skills.stage_machine import current_stage
             from ...skills.vertical_select import resolve_vertical
@@ -1002,6 +1003,7 @@ class PlanningCycleEnqueueMixin:
                 ),
                 parallel_safe=bool(getattr(task, "parallel_safe", False)),
                 owns_paths=list(getattr(task, "owns_paths", []) or []),
+                gpu_count=max(0, int(getattr(task, "gpu_count", 0) or 0)),
                 non_goals=list(getattr(task, "non_goals", []) or []),
                 original_objective=str(
                     getattr(self.config, "continuous_objective", "") or ""

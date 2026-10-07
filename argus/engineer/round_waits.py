@@ -54,6 +54,43 @@ def _team_wait_line(work_id: str) -> str:
     return json.dumps({"wait_for": "external_work", "wait_id": work_id})
 
 
+# An Engineer-requested wait keeps its mission slot at most this long while
+# the daemon has no other use for the slot; after that the round pauses and
+# the daemon resumes the mission when the work settles.
+_EXTERNAL_WAIT_HOLD_MAX_ENV = "ARGUS_EXTERNAL_WAIT_HOLD_MAX_SECONDS"
+_EXTERNAL_WAIT_HOLD_MAX_DEFAULT = 3600.0
+
+
+def _external_wait_hold_max_seconds() -> float:
+    try:
+        return max(0.0, float(
+            os.environ.get(_EXTERNAL_WAIT_HOLD_MAX_ENV, "") or _EXTERNAL_WAIT_HOLD_MAX_DEFAULT
+        ))
+    except ValueError:
+        return _EXTERNAL_WAIT_HOLD_MAX_DEFAULT
+
+
+def _keep_holding_external_wait(
+    hold: Callable[[], bool] | None, *, elapsed_s: float, budget_s: float,
+    workdir: Path, work_id: str,
+) -> bool:
+    """May the round wait another cadence instead of releasing its slot?
+
+    Only while the daemon says nobody needs the slot, the hold budget has not
+    run out, and the work is still healthy. Any doubt releases the slot, which
+    is the behaviour every caller had before the hold existed.
+    """
+    if hold is None or elapsed_s >= budget_s:
+        return False
+    current = inspect_external_work(workdir, work_id)
+    if current is None or not current.waitable:
+        return False
+    try:
+        return bool(hold())
+    except Exception:  # noqa: BLE001 - a failing answer is not a reason to hold
+        return False
+
+
 _LEAD_AUTO_WAIT_ENV = "ARGUS_TEAM_LEAD_AUTO_WAIT"
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
 
@@ -334,19 +371,34 @@ class RoundWaitsMixin:
         if source_matches and external_work.waitable:
             from . import runner as _runner_module
 
-            wait_reason, waited_s = _runner_module._run_external_work_wait(
-                workdir=workdir,
-                work_id=external_work.work_id,
-                round_index=round_index,
-                round_max=supervised_config.max_rounds,
-                on_event=on_event,
-                waited_total_s=0.0,
-            )
-            state.last_decision_progress_at = _pause_decision_clock(
-                state.last_decision_progress_at,
-                waited_s,
-            )
-            if wait_reason == "cadence_elapsed" and not process_stop.stop_requested():
+            hold = getattr(supervised_config, "external_wait_hold", None)
+            hold_budget = _external_wait_hold_max_seconds()
+            hold_started = time.monotonic()
+            waited_total = 0.0
+            while True:
+                wait_reason, waited_s = _runner_module._run_external_work_wait(
+                    workdir=workdir,
+                    work_id=external_work.work_id,
+                    round_index=round_index,
+                    round_max=supervised_config.max_rounds,
+                    on_event=on_event,
+                    waited_total_s=waited_total,
+                )
+                waited_total += waited_s
+                state.last_decision_progress_at = _pause_decision_clock(
+                    state.last_decision_progress_at,
+                    waited_s,
+                )
+                if wait_reason != "cadence_elapsed" or process_stop.stop_requested():
+                    break
+                if _keep_holding_external_wait(
+                    hold,
+                    elapsed_s=time.monotonic() - hold_started,
+                    budget_s=hold_budget,
+                    workdir=workdir,
+                    work_id=external_work.work_id,
+                ):
+                    continue
                 session = state.engineer_session
                 return control_return((
                     "paused_external_work",
