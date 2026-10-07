@@ -499,6 +499,96 @@ class RunExecMixin:
             state.watchdog_terminated = True
             return True
 
+        def check_idle_deadlines() -> None:
+            """Escalate on model-stream silence; a no-op once the run is over."""
+            nonlocal last_soft_check_at
+            if state.watchdog_terminated or process.poll() is not None:
+                return
+            now = time.monotonic()
+            idle_seconds = now - last_activity_at
+
+            check_external_interrupt()
+            check_wall_clock_limit()
+            if state.watchdog_terminated:
+                return
+
+            if (
+                soft_idle > 0
+                and options.inactivity_callback is not None
+                and idle_seconds >= soft_idle
+                and (now - last_soft_check_at) >= soft_idle
+            ):
+                last_soft_check_at = now
+                snapshot = InactivitySnapshot(
+                    idle_seconds=idle_seconds,
+                    command=command,
+                    thread_id=state.thread_id,
+                    last_agent_message=(
+                        state.agent_messages[-1] if state.agent_messages else ""
+                    ),
+                    stdout_tail=list(state.stdout_lines)[-50:],
+                    stderr_tail=list(state.stderr_lines)[-50:],
+                    run_label=run_label,
+                )
+                decision = options.inactivity_callback(snapshot)
+                if decision == "restart":
+                    state.watchdog_reason = (
+                        f"Restart requested by stall sub-agent after {int(idle_seconds)}s idle."
+                    )
+                    self._emit(
+                        self._stream_name("stderr", run_label),
+                        f"[watchdog] {state.watchdog_reason}",
+                    )
+                    self._terminate_process(
+                        process,
+                        include_detached_children=self.backend == BACKEND_OPENCODE,
+                    )
+                    state.watchdog_terminated = True
+                    # The restart reason is final: no later stage may emit
+                    # again or overwrite it.
+                    return
+
+            last_message_chars = len(state.agent_messages[-1]) if state.agent_messages else 0
+            for stage in idle_escalation.newly_due(idle_seconds):
+                if state.watchdog_terminated or process.poll() is not None:
+                    break
+                if stage == WARNING_STAGE:
+                    self._emit(
+                        self._stream_name("stderr", run_label),
+                        "[watchdog] No model stream event for "
+                        f"{int(idle_seconds)}s (warning threshold "
+                        f"{soft_idle}s, pid={process.pid}, "
+                        f"thread={state.thread_id or '-'}, "
+                        f"stdout_lines={state.stdout_line_count}, "
+                        f"stderr_lines={state.stderr_line_count}, "
+                        f"last_message_chars={last_message_chars}); "
+                        "capturing diagnostics and continuing.",
+                    )
+                elif stage == STALLED_STAGE:
+                    self._emit(
+                        self._stream_name("stderr", run_label),
+                        "[watchdog] Model call is likely stalled after "
+                        f"{int(idle_seconds)}s without a stream event "
+                        f"(threshold {stalled_idle}s, pid={process.pid}); "
+                        f"stdout_lines={state.stdout_line_count}, "
+                        f"stderr_lines={state.stderr_line_count}; continuing "
+                        "until the hard deadline.",
+                    )
+                elif stage == TERMINATE_STAGE:
+                    state.watchdog_reason = (
+                        "Forced restart after hard idle timeout "
+                        f"({hard_idle}s without a model stream event)."
+                    )
+                    self._emit(
+                        self._stream_name("stderr", run_label),
+                        f"[watchdog] {state.watchdog_reason}",
+                    )
+                    self._terminate_process(
+                        process,
+                        include_detached_children=self.backend == BACKEND_OPENCODE,
+                    )
+                    state.watchdog_terminated = True
+
         try:
             stdout_thread.start()
             stderr_thread.start()
@@ -549,86 +639,7 @@ class RunExecMixin:
                         )
                     raise
                 except queue.Empty:
-                    now = time.monotonic()
-                    idle_seconds = now - last_activity_at
-
-                    check_external_interrupt()
-                    check_wall_clock_limit()
-
-                    if (
-                        soft_idle > 0
-                        and options.inactivity_callback is not None
-                        and process.poll() is None
-                        and idle_seconds >= soft_idle
-                        and (now - last_soft_check_at) >= soft_idle
-                    ):
-                        last_soft_check_at = now
-                        snapshot = InactivitySnapshot(
-                            idle_seconds=idle_seconds,
-                            command=command,
-                            thread_id=state.thread_id,
-                            last_agent_message=(
-                                state.agent_messages[-1] if state.agent_messages else ""
-                            ),
-                            stdout_tail=list(state.stdout_lines)[-50:],
-                            stderr_tail=list(state.stderr_lines)[-50:],
-                            run_label=run_label,
-                        )
-                        decision = options.inactivity_callback(snapshot)
-                        if decision == "restart":
-                            state.watchdog_reason = (
-                                f"Restart requested by stall sub-agent after {int(idle_seconds)}s idle."
-                            )
-                            self._emit(
-                                self._stream_name("stderr", run_label),
-                                f"[watchdog] {state.watchdog_reason}",
-                            )
-                            self._terminate_process(
-                                process,
-                                include_detached_children=self.backend == BACKEND_OPENCODE,
-                            )
-                            state.watchdog_terminated = True
-
-                    last_message_chars = len(state.agent_messages[-1]) if state.agent_messages else 0
-                    for stage in idle_escalation.newly_due(idle_seconds):
-                        if process.poll() is not None:
-                            break
-                        if stage == WARNING_STAGE:
-                            self._emit(
-                                self._stream_name("stderr", run_label),
-                                "[watchdog] No model stream event for "
-                                f"{int(idle_seconds)}s (warning threshold "
-                                f"{soft_idle}s, pid={process.pid}, "
-                                f"thread={state.thread_id or '-'}, "
-                                f"stdout_lines={state.stdout_line_count}, "
-                                f"stderr_lines={state.stderr_line_count}, "
-                                f"last_message_chars={last_message_chars}); "
-                                "capturing diagnostics and continuing.",
-                            )
-                        elif stage == STALLED_STAGE:
-                            self._emit(
-                                self._stream_name("stderr", run_label),
-                                "[watchdog] Model call is likely stalled after "
-                                f"{int(idle_seconds)}s without a stream event "
-                                f"(threshold {stalled_idle}s, pid={process.pid}); "
-                                f"stdout_lines={state.stdout_line_count}, "
-                                f"stderr_lines={state.stderr_line_count}; continuing "
-                                "until the hard deadline.",
-                            )
-                        elif stage == TERMINATE_STAGE:
-                            state.watchdog_reason = (
-                                "Forced restart after hard idle timeout "
-                                f"({hard_idle}s without a model stream event)."
-                            )
-                            self._emit(
-                                self._stream_name("stderr", run_label),
-                                f"[watchdog] {state.watchdog_reason}",
-                            )
-                            self._terminate_process(
-                                process,
-                                include_detached_children=self.backend == BACKEND_OPENCODE,
-                            )
-                            state.watchdog_terminated = True
+                    check_idle_deadlines()
                     continue
 
                 if text is None:
@@ -638,8 +649,16 @@ class RunExecMixin:
                         stderr_closed = True
                     continue
 
-                last_activity_at = time.monotonic()
-                idle_escalation.reset()
+                if stream_name == "stdout":
+                    # Only the model's own stream is progress. Every backend
+                    # reports events on stdout; stderr carries diagnostics,
+                    # which a stuck CLI can print forever.
+                    last_activity_at = time.monotonic()
+                    idle_escalation.reset()
+                else:
+                    # A busy stderr keeps the queue nonempty, so the idle
+                    # deadlines must also be checked here, not only on timeout.
+                    check_idle_deadlines()
                 output_stream = self._stream_name(stream_name, run_label)
                 self._emit(output_stream, text)
 
