@@ -330,7 +330,11 @@ class PromptDeliveryMixin:
             # explicitly selected trial provider, never unrelated accounts.
             apply_copilot_provider(env)
             from ..core.sandbox import isolated_copilot_home
-            from .copilot_home import copilot_account_home
+            from .copilot_home import apply_copilot_env_token, copilot_account_home
+
+            # Headless opt-in: the operator's explicit Copilot token survives
+            # the scrub above; GH_TOKEN/GITHUB_TOKEN and git creds do not.
+            apply_copilot_env_token(env)
 
             if copilot_account_home(env) is not None:
                 home = isolated_copilot_home(options.working_dir)
