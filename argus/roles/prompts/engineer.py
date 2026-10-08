@@ -231,7 +231,11 @@ def build_mission_prompt(
             "or waiting for an earlier-stage mission. For each actionable suggestion, record the actual change "
             "and decisive evidence in the existing CHECKPOINT.md. If a suggested hypothesis "
             "fails, retain the result and explain the evidence-backed alternative; the "
-            "Reviewer decides whether that resolves the item.\n\n"
+            "Reviewer decides whether that resolves the item. "
+            "Never write values that your own labeled measurement contradicts just to "
+            "satisfy a review: record the labeled evidence and its command in "
+            "CHECKPOINT.md and hand back to the Reviewer asking it to resolve the "
+            "discrepancy.\n\n"
             + sanitize_model_visible_text(next_action)
         )
     # Section order in both shapes below: what is the same for every mission
@@ -386,7 +390,10 @@ def build_mission_prompt(
         return append_operator_context(prompt, operator_context)
     compact = (
         "## Continuation turn\n"
-        "Read CHECKPOINT.md, then execute the Reviewer next action. Do not repeat an "
+        "Read CHECKPOINT.md, then execute the Reviewer next action. If your own labeled "
+        "measurement contradicts a value the review asks for, do not write that value: "
+        "record the evidence in CHECKPOINT.md and ask the Reviewer to resolve the "
+        "discrepancy. Do not repeat an "
         "unchanged failure; use the most informative decisive diagnostic. The original task "
         "still applies.\n"
         + _PERFORMANCE_DIAGNOSTIC_RULE
