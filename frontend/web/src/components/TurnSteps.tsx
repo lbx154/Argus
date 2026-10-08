@@ -7,14 +7,15 @@ const GLYPH: Record<string, string> = { command_execution: '$', tool_use: '⚙',
 const FAILED = new Set(['failed', 'error', 'cancelled', 'canceled']);
 const LEADING_GLYPH = /^(?:[⚙✎↳$…∴▸]|✗ \$)\s*/u;
 
-/** The plain title of a step, then the command or arguments it ran with. */
+/**
+ * The plain "verb + object" label is what a step says; the raw command or
+ * arguments it ran with are `secondary`, folded away until asked for.
+ */
 export function stepText(step: TurnStep): { primary: string; secondary: string } {
   const label = step.label.replace(LEADING_GLYPH, '').trim();
   const tool = (step.tool ?? '').trim();
-  if (tool && tool !== label) {
-    return { primary: tool, secondary: step.kind === 'command_execution' ? label : (step.detail ?? '') };
-  }
-  return { primary: label || tool, secondary: step.detail ?? '' };
+  const detail = (step.detail ?? '').trim();
+  return { primary: label || tool, secondary: detail && detail !== label ? detail : '' };
 }
 
 /**
@@ -71,9 +72,10 @@ export function TurnSteps({ steps, live }: { steps: TurnStep[]; live: boolean })
                     {primary}
                   </span>
                   {secondary ? (
-                    <span className="ml-2 font-mono text-[11px] text-ink-faint" title={secondary}>
-                      {secondary.length > 96 ? `${secondary.slice(0, 95)}…` : secondary}
-                    </span>
+                    <details className="turn-step-raw inline">
+                      <summary className="ml-2 inline cursor-pointer list-none text-[11px] text-ink-faint hover:text-ink-dim">{t('chat.stepRaw')}</summary>
+                      <span className="mt-0.5 block break-all font-mono text-[11px] text-ink-faint">{secondary}</span>
+                    </details>
                   ) : null}
                   {isFailed && step.output ? (
                     <span className="mt-0.5 block font-mono text-[11px] text-err/80">{step.output}</span>

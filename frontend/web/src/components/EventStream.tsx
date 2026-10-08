@@ -7,6 +7,7 @@ import { isReasoning, type EventViewFilter } from '../../../core/src/events';
 import {
   foldFeedRows,
   groupSummary,
+  plainToolLabel,
   renderFeedRows,
   rowPreview,
   type FeedGroup,
@@ -61,8 +62,10 @@ function EventRow({
   const { locale, t } = useI18n();
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
+  const isToolCall = ev.type === 'engineer.progress' && String(ev.kind || '') === 'tool_use';
   const report = ['agent_message', 'assistant_message', 'message'].includes(String(ev.kind || '')) ? readableRecord(r.text) : r.text;
-  const plain = plainDetail(report, locale);
+  // A tool call reads as "verb + object"; its raw arguments fold into the tooltip.
+  const plain = isToolCall ? { text: plainToolLabel(ev, locale), technical: r.text } : plainDetail(report, locale);
   const resultText = result ? plainDetail(result.r.text, locale).text : '';
   const tooltip = [plain.technical, resultText ? `${t('stream.stepResult')}: ${resultText}` : ''].filter(Boolean).join('\n');
   return (

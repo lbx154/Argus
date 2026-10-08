@@ -420,6 +420,55 @@ export function toolTarget(ev: EventMsg): string {
   return '';
 }
 
+// A glob read as "which files", no slashes: "**" + "/*.py" becomes ".py 文件",
+// "src/" + "**" + "/*" becomes "src 里的 所有文件".
+export function readableGlob(pattern: string, locale: Locale): string {
+  const zh = locale === 'zh-CN';
+  const parts = pattern.trim().replace(/\\/g, '/').split('/').filter((part) => part && part !== '**' && part !== '.');
+  const leaf = parts[parts.length - 1] ?? '*';
+  const folders = parts.slice(0, -1).filter((part) => !/[*?]/.test(part));
+  let what: string;
+  if (leaf === '*' || leaf === '*.*') what = zh ? '所有文件' : 'all files';
+  else if (/^\*\.[\w.]+$/.test(leaf)) what = zh ? `${leaf.slice(1)} 文件` : `${leaf.slice(1)} files`;
+  else what = clip(leaf, 40);
+  const folder = folders[folders.length - 1];
+  return folder ? (zh ? `${folder} 里的 ${what}` : `${what} in ${folder}`) : what;
+}
+
+const GLOB_TOOLS = /^(glob|find|find_?files|list_?files|file_?search)$/i;
+
+/**
+ * One tool call as a person would say it — "查阅 main.py", "查找 .py 文件" —
+ * never `view: {"path": "/abs/…"}`. The raw arguments stay available to the
+ * caller (tooltip / expanded record); this is only the line a reader scans.
+ */
+export function plainToolLabel(ev: EventMsg, locale: Locale): string {
+  const zh = locale === 'zh-CN';
+  const name = toolName(ev);
+  const action = toolAction(name, progressKind(ev));
+  let target = toolTarget(ev);
+  if (action === 'search') {
+    // What was searched for says more than where: the pattern, not the path.
+    const args = field(ev, 'text').replace(/^[A-Za-z_][\w.-]{0,40}:\s*/, '');
+    const pattern = argument(null, args, ['pattern', 'query', 'regex', 'glob', 'q']);
+    if (pattern) target = clip(pattern, 48);
+  }
+  if (action === 'search' && GLOB_TOOLS.test(name) && target) return `${zh ? '查找' : 'Find'} ${readableGlob(target, locale)}`;
+  const shown = target.startsWith('/') ? basename(target) : target;
+  const say: Record<ToolAction, [string, string, string, string]> = {
+    read: ['查阅', '查阅文件', 'Read', 'Read a file'],
+    search: ['搜索：', '搜索', 'Search:', 'Search'],
+    fetch: ['读取', '读取网页', 'Open', 'Open a page'],
+    edit: ['修改', '修改文件', 'Edit', 'Edit a file'],
+    tool: ['调用', '调用工具', 'Use', 'Use a tool'],
+  };
+  const [zhVerb, zhBare, enVerb, enBare] = say[action];
+  const object = action === 'tool' ? name : shown;
+  if (!object) return zh ? zhBare : enBare;
+  const verb = zh ? zhVerb : enVerb;
+  return verb.endsWith('：') ? `${verb}${object}` : `${verb} ${object}`;
+}
+
 /** A tool action in the main status line; its full arguments stay in the record. */
 export function readableToolProgress(event: EventMsg, locale: Locale): { title: string; detail: string } | null {
   const kind = progressKind(event);
