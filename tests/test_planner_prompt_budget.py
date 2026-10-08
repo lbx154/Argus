@@ -43,8 +43,13 @@ from argus.skills.vertical_select import persist_vertical
 # prose cannot silently consume that dynamic-state allowance.
 # +100 on 2026-09-16 for one fixed policy line ("plan from the mission workspace
 # only") after the bounded Planner was seen listing sibling projects.
-MATH_SCOPE_BUDGET = 12_850
-MATURE_MATH_SCOPE_BUDGET = 18_650
+# +100 on 2026-10-08 for the fan-out line (emit independent input/config
+# variants together up to the free slots). It replaced "assign one task; split
+# only for dependencies or parallel work", which logs showed the Planner read as
+# one task per cycle even with free slots; the guidance had lived only in a
+# staged research checklist that direct/team routes never render.
+MATH_SCOPE_BUDGET = 12_950
+MATURE_MATH_SCOPE_BUDGET = 18_750
 RESEARCH_PLAN_DYNAMIC_BUDGET = 8_000
 
 
@@ -414,3 +419,19 @@ def test_oversize_research_plan_keeps_head_and_next_milestone_with_hard_cap(
     assert "living plan truncated" in rendered
     assert "## Next milestone" in rendered
     assert "independently checked mechanism" in rendered
+
+
+def test_planner_prompt_asks_for_fanout_of_independent_work(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The fan-out judgement ground must reach every route, not only staged
+    research: independent work that differs only in inputs and writes
+    disjoint outputs is emitted together up to the free slots, after any
+    shared code change it depends on."""
+    prompt, _ = _build_math_scope_prompt(tmp_path, monkeypatch)
+    flat = " ".join(prompt.split())
+
+    assert "differ only in inputs or config" in flat
+    assert "free slots" in flat
+    assert "shared code change goes first" in flat
