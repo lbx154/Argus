@@ -11,7 +11,7 @@ from pathlib import Path
 from ..core.json_codec import loads_finite_json
 from ..core.jsonl_reader import event_log_read_lock, read_jsonl_batch
 from ..life.memory import _jsonl_history_paths
-from .map_view import digest, normalize_events, turn_records, with_revisions
+from .map_view import digest, normalize_events, progress_workspace, turn_records, with_revisions
 
 PAGE_BYTES = 1024 * 1024
 PAGE_EVENTS = 500
@@ -165,7 +165,8 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
                 owners = known_ids | active | {
                     str(row.get("item_id") or row.get("mission_id") or "") for row in rows
                 }
-                normalized = normalize_events(rows, owners - {""}, active, segments)
+                normalized = normalize_events(rows, owners - {""}, active, segments,
+                                              progress_workspace(life_dir))
                 omitted.update(e["item_id"] for e in normalized if e["item_id"] not in known_ids)
                 events = [e for e in normalized if e["item_id"] in known_ids]
                 # Turn cards are derived from these very events, so their

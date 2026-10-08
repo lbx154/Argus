@@ -71,18 +71,66 @@ def test_tool_step_reads_as_verb_and_object(text: str, expected: str) -> None:
     assert detail.startswith(text.split(":", 1)[0])
 
 
-def test_repeated_start_and_complete_of_one_item_render_once() -> None:
+def test_completion_echo_of_one_call_renders_once() -> None:
     dedupe = ProgressDeduper()
-    start = {"kind": "tool_use", "item_id": "it-1", "text": 'view: {"path": "a.py"}'}
+    start = {"kind": "tool_use", "call_id": "c-1", "status": "running", "text": 'view: {"path": "a.py"}'}
     done = {**start, "status": "completed"}
-    label, _ = describe_progress_step(start)
-    assert dedupe.is_repeat(start, label) is False
+    assert dedupe.classify(start, describe_progress_step(start)[0]) == "new"
     assert dedupe.is_repeat(done, describe_progress_step(done)[0]) is True
-    # A changed label for the same item is an in-place update, not a repeat.
-    assert dedupe.is_repeat(done, "查阅 a.py ✗") is False
-    # Events without an id are never collapsed.
-    assert dedupe.is_repeat({"kind": "tool_use"}, label) is False
-    assert dedupe.is_repeat({"kind": "tool_use"}, label) is False
+
+
+# Shape of real runner rows: every call of a mission shares one item_id and
+# none carries a call id; a failure is the same text reported again.
+_MISSION = {"kind": "tool_use", "item_id": "7c17ec4c586c", "actor": "reviewer"}
+
+
+def test_mission_level_item_id_does_not_merge_distinct_calls() -> None:
+    dedupe = ProgressDeduper()
+    first = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/a/skill.md"}'}
+    second = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/b/notes.md"}'}
+    label = describe_progress_step(first, _WS)[0]
+    assert label == describe_progress_step(second, _WS)[0] == "查阅 Argus 内部文件"
+    assert dedupe.classify(first, label) == "new"
+    assert dedupe.classify(second, label) == "new", "a second call with the same label still happened"
+    again = dict(first)
+    assert dedupe.classify(again, label) == "new", "re-reading the same file is a new step"
+
+
+def test_failure_of_a_known_call_is_shown_as_an_update() -> None:
+    dedupe = ProgressDeduper()
+    tally = ProgressTally()
+    running = {**_MISSION, "status": "running", "text": 'view: {"path": "/work/proj/x.md"}'}
+    failed = {**running, "status": "failed"}
+    label = describe_progress_step(running, _WS)[0]
+    assert dedupe.classify(running, label) == "new"
+    assert dedupe.classify(failed, describe_progress_step(failed, _WS)[0]) == "update"
+    tally.observe(running)
+    tally.observe(failed)
+    assert tally.reads == 1, "an outcome is not a second read"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('glob: {"pattern": "**/*"}', "查找 所有文件"),
+        ('glob: {"pattern": "**/*.py"}', "查找 .py 文件"),
+        ('glob: {"pattern": "src/**/*.ts"}', "查找 src 里的 .ts 文件"),
+        ('glob: {"pattern": "METHOD.md"}', "查找 METHOD.md"),
+        ('rg: {"pattern": "route", "paths": "/work/proj/notes.md"}', "搜索：route"),
+        ('grep: {"query": "see /work/proj/deep/notes.md"}', "搜索：see notes.md"),
+    ],
+)
+def test_search_patterns_read_without_slashes(text: str, expected: str) -> None:
+    label, _ = describe_progress_step({"kind": "tool_use", "text": text}, _WS)
+    assert label == expected
+    assert "/" not in label
+
+
+def test_workspace_from_the_caller_marks_internal_files() -> None:
+    event = {"kind": "tool_use", "text": 'view: {"path": "/runtime/argus/verticals/research/skills/playbook.md"}'}
+    assert describe_progress_step(event, _WS)[0] == "查阅 Argus 内部文件"
+    inside = {"kind": "tool_use", "text": 'view: {"path": "/work/proj/RESEARCH_NOTES.md"}'}
+    assert describe_progress_step(inside, _WS)[0] == "查阅 RESEARCH_NOTES.md"
 
 
 def test_tally_summarises_a_long_turn_in_plain_counts() -> None:
@@ -90,7 +138,7 @@ def test_tally_summarises_a_long_turn_in_plain_counts() -> None:
     tally = ProgressTally(clock=lambda: now[0])
     for index in range(3):
         text = f'web_search: {{"query": "q{index}"}}'
-        event = {"kind": "tool_use", "item_id": f"s{index}", "text": text}
+        event = {"kind": "tool_use", "call_id": f"s{index}", "status": "running", "text": text}
         tally.observe(event)
         tally.observe({**event, "status": "completed"})
     for index in range(5):

@@ -26,7 +26,7 @@ from ..core.progress_step import (
 
 # Structured fields of one observable agent action that the cockpit can use
 # beyond the rendered label: which tool, which call, and how it ended.
-_PHASE_META_KEYS = ("item_id", "tool_name", "call_id", "tool_kind", "status", "exit_code", "output_excerpt")
+_PHASE_META_KEYS = ("tool_name", "call_id", "tool_kind", "status", "exit_code", "output_excerpt")
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.secret_guard import known_secret_values, redact_secrets_record
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -429,6 +429,14 @@ class SelfReplyMixin:
                 except Exception:  # noqa: BLE001 - UI callbacks never own the turn
                     return
 
+        # Progress events do not say where the agent works; files outside this
+        # root are Argus' own plumbing and are labelled as such.
+        progress_workspace = str(
+            Path(str(getattr(self._args, "operator_workspace", "") or "")).expanduser()
+            if getattr(self._args, "operator_workspace", "")
+            else workdir
+        )
+
         class _PhaseSink:
             def __init__(self, inner: EventSink) -> None:
                 self._inner = inner
@@ -448,7 +456,7 @@ class SelfReplyMixin:
                 elif event_type == "skill.library.available" and safe_event.get("vertical"):
                     _phase(f"正在使用 {safe_event['vertical']} 领域流程…", kind=event_type)
                 elif event_type == "engineer.progress" and not is_reply:
-                    label, detail = describe_progress_step(safe_event)
+                    label, detail = describe_progress_step(safe_event, progress_workspace)
                     self.tally.observe(safe_event)
                     if self._dedupe.is_repeat(safe_event, label):
                         self._inner.handle_event(safe_event)

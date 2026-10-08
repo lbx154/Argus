@@ -628,6 +628,19 @@ def test_engineer_progress_folds_into_work_segments_with_narration_and_steps():
     ]
 
 
+def test_team_tool_steps_read_as_plain_actions_without_absolute_paths():
+    rows = [
+        {"type": "life.mission.started", "item_id": "a", "ts": 1},
+        _progress("tool_use", "a", 2, text='view: {"path": "/proj/src/main.py"}', tool_name="view"),
+        _progress("tool_use", "a", 3, text='view: {"path": "/runtime/skills/playbook.md"}', tool_name="view"),
+        _progress("tool_use", "a", 4, text='glob: {"pattern": "**/*.py"}', tool_name="glob"),
+    ]
+    segments: dict = {}
+    events = normalize_events(rows, {"a"}, set(), segments, "/proj")
+    steps = [s for e in events if e["type"] == "work.segment" for s in e["steps"]]
+    assert [s["label"] for s in steps] == ["查阅 main.py", "查阅 Argus 内部文件", "查找 .py 文件"]
+
+
 def test_two_narrations_without_work_between_them_are_one_thought():
     rows = [
         _progress("agent_message", "a", 1, text="先看一眼。"),

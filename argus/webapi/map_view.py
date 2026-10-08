@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
 from ..core.json_codec import loads_finite_json
+from ..core.progress_step import describe_progress_step
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
 from ..life.memory import LifeMemory, _jsonl_history_paths
@@ -111,10 +112,15 @@ def _timestamp(value) -> float:
         return 0.0
 
 
-def _step_from_progress(row: dict) -> dict:
+def _step_from_progress(row: dict, workspace: str = "") -> dict:
+    kind = str(row.get("kind") or "")
+    label = row.get("text") or row.get("action_summary")
+    if kind in {"tool_use", "tool_call"}:
+        # The plain "verb + object" label, never ``view: {"path": "/abs"}``.
+        label = describe_progress_step(row, workspace)[0] or label
     step = {
-        "kind": str(row.get("kind") or ""),
-        "label": text(row.get("text") or row.get("action_summary"), STEP_LABEL_LIMIT),
+        "kind": kind,
+        "label": text(label, STEP_LABEL_LIMIT),
         "ts": _timestamp(row.get("ts")),
     }
     for key in ("tool_name", "status", "call_id"):
@@ -130,7 +136,9 @@ def _close_segment(segments: dict, owner: str) -> None:
         segments.setdefault("closed", []).append(segment)
 
 
-def fold_progress(segments: dict, owner: str, row: dict, association: str) -> None:
+def fold_progress(
+    segments: dict, owner: str, row: dict, association: str, workspace: str = "",
+) -> None:
     """Fold one ``engineer.progress`` row into the owner's open work segment.
 
     ``segments`` is ``{"open": {owner: segment}, "count": {owner: n},
@@ -184,7 +192,7 @@ def fold_progress(segments: dict, owner: str, row: dict, association: str) -> No
     if len(segment["steps"]) >= SEGMENT_STEP_LIMIT:
         segment["overflow"] += 1
         return
-    segment["steps"].append(_step_from_progress(row))
+    segment["steps"].append(_step_from_progress(row, workspace))
 
 
 def segment_events(segments: dict) -> list[dict]:
@@ -193,9 +201,29 @@ def segment_events(segments: dict) -> list[dict]:
     return [*closed, *sorted(segments.get("open", {}).values(), key=lambda s: s["ts"])]
 
 
+def progress_workspace(life_dir: Path, meta=None) -> str:
+    """The project root the agents work in, from the session meta.
+
+    Progress rows do not carry it; without it every absolute path outside the
+    project (skill libraries, session stores) would read like project work.
+    """
+    for source in (meta, None):
+        if source is None:
+            try:
+                source = json.loads((Path(life_dir) / "session.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+        get = source.get if isinstance(source, dict) else lambda key: getattr(source, key, "")
+        for key in ("workdir", "cwd"):
+            value = get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
 def normalize_events(
     rows: list[dict], task_ids: set[str], active: set[str] | None = None,
-    segments: dict | None = None,
+    segments: dict | None = None, workspace: str = "",
 ) -> list[dict]:
     if active is None:
         active = set()
@@ -218,7 +246,7 @@ def normalize_events(
             association = "single_active_window"
         if segments is not None and owner in task_ids:
             if kind == "engineer.progress":
-                fold_progress(segments, owner, row, association)
+                fold_progress(segments, owner, row, association, workspace)
             elif kind.startswith(SEGMENT_CLOSERS):
                 _close_segment(segments, owner)
         if owner in task_ids and kind.startswith(EVENT_PREFIXES):
@@ -581,7 +609,8 @@ def read_map(
             turns = turn_records(rows, turns, asks)
             events = list({e["id"]: e for e in [
                 *previous,
-                *normalize_events(rows, task_ids, active, segments),
+                *normalize_events(rows, task_ids, active, segments,
+                                  progress_workspace(life_dir, read_session_meta(root, sid))),
                 *(event for turn in turns.values() for event in turn["events"]),
             ]}.values())
             binding_truncated |= remember_formations(rows, task_ids, bindings)

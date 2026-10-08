@@ -149,6 +149,42 @@ def _tool_verb(name: str) -> str:
     return ""
 
 
+def _is_glob_tool(name: str) -> bool:
+    key = name.strip().lower().rsplit(".", 1)[-1].rsplit("__", 1)[-1]
+    return key in {"glob", "find", "find_files", "list_files", "file_search"}
+
+
+def _readable_glob(pattern: str) -> str:
+    """``**/*.py`` -> ``.py 文件``; ``src/**/*`` -> ``src 里的 所有文件``.
+
+    A glob is read as "which files": the directory part becomes the folder
+    the search ran in (last segment only) and the file part becomes the kind
+    of file, so no slash reaches the status line.
+    """
+    text = pattern.strip().strip("'\"").replace("\\", "/")
+    parts = [part for part in text.split("/") if part and part not in {"**", "."}]
+    leaf = parts[-1] if parts else "*"
+    folders = [part for part in parts[:-1] if "*" not in part and "?" not in part]
+    if leaf in {"*", "*.*"}:
+        what = "所有文件"
+    elif re.fullmatch(r"\*\.[\w.]+", leaf):
+        what = f"{leaf[1:]} 文件"
+    elif re.fullmatch(r"\*\.\{[\w,]+\}", leaf):
+        what = "、".join(f".{ext}" for ext in leaf[3:-1].split(",")) + " 文件"
+    else:
+        what = _clip(leaf, 40)
+    where = f"{folders[-1]} 里的 " if folders else ""
+    return _clip(f"{where}{what}", 60)
+
+
+def _no_paths(text: str) -> str:
+    """Keep a search phrase but reduce any absolute path in it to its last name."""
+    return " ".join(
+        _short_name(token) if token.startswith(("/", "~")) else token
+        for token in (text or "").split()
+    )
+
+
 def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
     """"Verb + object" for one tool call, with no raw JSON and no absolute path."""
     verb = _tool_verb(name)
@@ -165,7 +201,10 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
         query = _first_value(payload, _QUERY_KEYS)
         if not query and payload is None and args and "{" not in args:
             query = args
-        return f"搜索：{_clip(query, 48)}" if query else "搜索"
+        globbed = _first_value(payload, ("glob",)) and not _first_value(payload, ("pattern", "query", "q", "regex"))
+        if query and (_is_glob_tool(name) or globbed):
+            return f"查找 {_readable_glob(query)}"
+        return f"搜索：{_clip(_no_paths(query), 48)}" if query else "搜索"
     if verb == "fetch":
         url = _first_value(payload, _URL_KEYS) or (args if payload is None else "")
         host = urlparse(url.strip()).netloc if url else ""
@@ -176,8 +215,12 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
     return f"调用 {name}"
 
 
-def describe_progress_step(event: Any) -> tuple[str, str]:
+def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
     """Return ``(label, detail)`` describing one observable agent action.
+
+    ``workspace`` is the project root the agent works in; files outside it
+    are Argus' own plumbing and are named as such. Pass it from the session
+    meta, because progress events do not carry it themselves.
 
     Never raises: a malformed event degrades to a generic-but-honest label
     rather than breaking the turn that produced it.
@@ -205,7 +248,7 @@ def describe_progress_step(event: Any) -> tuple[str, str]:
         if kind in {"tool_use", "tool_call"}:
             name, args = _tool_label(raw_text)
             if name:
-                workspace = str(event.get("workspace") or event.get("cwd") or "")
+                workspace = str(event.get("workspace") or event.get("cwd") or workspace or "")
                 label = _clip(_humane_tool_label(name, args, workspace), _LABEL_LIMIT)
                 # The raw arguments stay available in the (collapsed) detail.
                 return label, _clip(f"{name}: {args}" if args else "", _DETAIL_LIMIT)
@@ -250,28 +293,66 @@ def describe_progress_step(event: Any) -> tuple[str, str]:
         return "working", ""
 
 
-class ProgressDeduper:
-    """Drop repeated start/complete renders of the same step.
+_TERMINAL_FAILURES = frozenset({"failed", "error", "errored", "cancelled", "canceled"})
 
-    Backends report one tool call twice (started, then completed). Keyed by
-    ``item_id``/``call_id``, a repeat with an unchanged label is redundant; a
-    changed label (for example a failure marker) is an in-place update.
+
+class ProgressDeduper:
+    """Tell a new tool call apart from a later report about the same call.
+
+    Backends report one call more than once: started, then completed or
+    failed. Identity is the call itself -- its ``call_id`` when the runner
+    sends one, otherwise the still-open call with the same kind, actor and
+    raw text. (``item_id`` is not a call identity: some runners stamp every
+    call of a mission with the same one.)
+
+    ``classify`` returns:
+
+    * ``"new"`` -- a call not seen before, even if it reads like an earlier
+      one (two reads of the same file are two things that happened);
+    * ``"update"`` -- a known call whose outcome is news worth showing
+      (it failed, or its label changed);
+    * ``"repeat"`` -- a known call reported again with nothing new, such as
+      a plain completion echo of a step already on screen.
     """
 
     def __init__(self) -> None:
-        self._seen: dict[str, str] = {}
+        self._by_call: dict[str, tuple[str, str]] = {}
+        self._open: dict[tuple[str, str, str], tuple[str, str]] = {}
+
+    @staticmethod
+    def _status(event: dict) -> str:
+        return str(event.get("status") or "").strip().lower()
+
+    def classify(self, event: Any, label: str) -> str:
+        if not isinstance(event, dict):
+            return "new"
+        status = self._status(event)
+        call_id = str(event.get("call_id") or "").strip()
+        kind = str(event.get("kind") or "")
+        if call_id:
+            key = f"{kind}:{call_id}"
+            previous = self._by_call.get(key)
+            self._by_call[key] = (label, status)
+            if previous is None:
+                return "new"
+        else:
+            text_key = (kind, str(event.get("actor") or event.get("agent_layer") or ""),
+                        str(event.get("text") or ""))
+            starting = status in {"", "running", "started", "in_progress", "pending"}
+            previous = None if starting else self._open.pop(text_key, None)
+            if previous is None:
+                if starting:
+                    self._open[text_key] = (label, status)
+                return "new"
+        before_label, before_status = previous
+        if label != before_label:
+            return "update"
+        if status in _TERMINAL_FAILURES and before_status not in _TERMINAL_FAILURES:
+            return "update"
+        return "repeat"
 
     def is_repeat(self, event: Any, label: str) -> bool:
-        if not isinstance(event, dict):
-            return False
-        ident = str(event.get("item_id") or event.get("call_id") or "").strip()
-        if not ident:
-            return False
-        key = f"{event.get('kind') or ''}:{ident}"
-        if self._seen.get(key) == label:
-            return True
-        self._seen[key] = label
-        return False
+        return self.classify(event, label) == "repeat"
 
 
 class ProgressTally:
@@ -293,7 +374,7 @@ class ProgressTally:
         if kind not in {"tool_use", "tool_call", "command_execution", "file_change"}:
             return
         label, _ = describe_progress_step(event)
-        if self._dedupe.is_repeat(event, label):
+        if self._dedupe.classify(event, label) != "new":
             return
         if kind == "command_execution":
             self.commands += 1
