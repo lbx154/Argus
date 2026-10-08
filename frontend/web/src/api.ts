@@ -118,7 +118,8 @@ export type WikiScope = 'private' | 'global' | 'vertical' | 'project';
 export type LearningChannel = 'knowledge' | 'skills' | 'preferences';
 export interface LearningJob {
   id: string;
-  status: 'queued' | 'running' | 'completed' | 'unchanged' | 'failed';
+  /** skipped = not attempted: nothing to learn, or model calls were paused by host policy. */
+  status: 'queued' | 'running' | 'completed' | 'unchanged' | 'skipped' | 'failed';
   created: number;
   updated: number;
   attempts: number;
@@ -126,7 +127,10 @@ export interface LearningJob {
   outcome: {
     counts?: Record<LearningChannel, number>;
     items?: { channel: LearningChannel; title: string; scope: string; path: string }[];
+    /** saved | no_new_learning | not_needed | paused | failed */
     reason?: string;
+    /** Why calls were paused: cost_unreconciled | budget_exhausted | provider_cooldown | operator_pause. */
+    detail?: string;
   };
 }
 export interface LearningState { jobs: LearningJob[]; pending: number; revision: number }

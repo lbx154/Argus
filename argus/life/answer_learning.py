@@ -104,7 +104,8 @@ def retry_learning(
     with _LOCK:
         with _database(root) as db:
             changed = db.execute(
-                "UPDATE jobs SET status='queued', updated=? WHERE id=? AND sid=? AND status='failed' AND id NOT LIKE 'mission-%'",
+                "UPDATE jobs SET status='queued', updated=? WHERE id=? AND sid=? AND (status='failed' OR (status='skipped' AND json_extract(outcome, '$.reason')='paused')) "
+                "AND id NOT LIKE 'mission-%'",
                 (time.time(), job_id, sid),
             ).rowcount
         if changed:
@@ -141,6 +142,27 @@ def _backend(root: Path, sid: str) -> Any:
     return backend
 
 
+# Calls the host refused before they started: nothing failed, learning simply waits.
+_PAUSE_KINDS = {
+    "cost_unreconciled": "cost_unreconciled",
+    "budget_exhausted": "budget_exhausted",
+    "provider_cooldown": "provider_cooldown",
+    "operator_pause": "operator_pause",
+}
+
+
+def _pause_reason(result: dict) -> str:
+    kind = str(result.get("stop_kind") or "")
+    if kind in _PAUSE_KINDS:
+        return _PAUSE_KINDS[kind]
+    text = str(result.get("failure") or "").lower()
+    if "unresolved provider cost" in text or "awaiting usage reconciliation" in text:
+        return "cost_unreconciled"
+    if "budget exhausted" in text:
+        return "budget_exhausted"
+    return ""
+
+
 def _finish(root: Path, job: dict, result: dict, entries: list[dict]) -> None:
     counts = {"knowledge": 0, "skills": 0, "preferences": 0}
     items = []
@@ -150,10 +172,20 @@ def _finish(root: Path, job: dict, result: dict, entries: list[dict]) -> None:
         counts[channel] += 1
         items.append({"channel": channel, "title": event.get("title", ""),
                       "scope": event.get("scope", ""), "path": event.get("path", "")})
-    failed = bool(result.get("failure") or result.get("skipped"))
-    status = "failed" if failed else "completed" if any(counts.values()) else "unchanged"
-    outcome = {"counts": counts, "items": items, "reason": "failed" if failed else (
-        "saved" if any(counts.values()) else "no_new_learning")}
+    paused = _pause_reason(result) if result.get("failure") else ""
+    outcome: dict[str, Any] = {"counts": counts, "items": items}
+    if paused:
+        # Denied before start by host policy: record why, not a failure.
+        status, outcome["reason"], outcome["detail"] = "skipped", "paused", paused
+    elif result.get("failure"):
+        status, outcome["reason"] = "failed", "failed"
+    elif result.get("skipped") and not any(counts.values()):
+        # Nothing to learn from (learning off, empty reply, no backend): stay quiet.
+        status, outcome["reason"] = "skipped", "not_needed"
+    elif any(counts.values()):
+        status, outcome["reason"] = "completed", "saved"
+    else:
+        status, outcome["reason"] = "unchanged", "no_new_learning"
     with _database(root) as db:
         db.execute("UPDATE jobs SET status=?, updated=?, outcome=? WHERE id=?",
                    (status, time.time(), json.dumps(outcome, ensure_ascii=False), job["id"]))
