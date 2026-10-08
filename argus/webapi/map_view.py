@@ -196,7 +196,24 @@ def fold_progress(
     if len(segment["steps"]) >= SEGMENT_STEP_LIMIT:
         segment["overflow"] += 1
         return
-    segment["steps"].append(_step_from_progress(row, workspace))
+    step = _step_from_progress(row, workspace)
+    last = segment["steps"][-1] if segment["steps"] else None
+    if last is not None and _same_call(last, step):
+        # A later report about the call just listed (started, then failed):
+        # one step whose status is the latest word, not a second step.
+        last.update({key: step[key] for key in ("status", "call_id") if key in step})
+        return
+    segment["steps"].append(step)
+
+
+def _same_call(previous: dict, step: dict) -> bool:
+    if previous.get("status") != "running" or step.get("status") in (None, "running"):
+        return False
+    if previous.get("call_id") and step.get("call_id"):
+        return previous["call_id"] == step["call_id"]
+    if previous.get("call_id") or step.get("call_id"):
+        return False
+    return all(previous.get(key) == step.get(key) for key in ("kind", "label", "tool"))
 
 
 def segment_events(segments: dict) -> list[dict]:

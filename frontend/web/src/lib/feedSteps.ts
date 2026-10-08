@@ -345,8 +345,8 @@ export function collapseRepeats(steps: FeedStep[], locale: Locale): FeedStep[] {
 
 const ACTION_BY_TOOL: Array<[RegExp, ToolAction]> = [
   [/^(view|read|read_?files?|cat|open|open_?file|notebook_?read|get_?file)$/, 'read'],
-  [/^(rg|grep|glob|find|search|ls|list|list_?dir|list_?files|codebase_?search|file_?search|semantic_?search)$/, 'search'],
-  [/^(web_?fetch|fetch|web_?search|http|browse|browser|curl|get_?url|search_?web)$/, 'fetch'],
+  [/^(rg|grep|glob|find|search|ls|list|list_?dir|list_?files|codebase_?search|file_?search|semantic_?search|web_?search|search_?web)$/, 'search'],
+  [/^(web_?fetch|fetch|http|browse|browser|curl|get_?url)$/, 'fetch'],
   [/^(apply_?patch|edit|write|create|create_?file|str_?replace|str_?replace_?editor|multi_?edit|patch|write_?file|notebook_?edit|save)$/, 'edit'],
 ];
 
@@ -369,7 +369,8 @@ const basename = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).po
 const clip = (text: string, n: number) => (text.length <= n ? text : `${text.slice(0, n - 1).trimEnd()}…`);
 // The query often IS the page (openreview.net/forum?id=…), so only the fragment goes.
 const shortUrl = (url: string) => clip(url.replace(/^[a-z]+:\/\/(?:www\.)?/i, '').replace(/#.*$/, '').replace(/\/$/, ''), 48);
-const PATCH_FILE = /\*\*\* (?:Add|Update|Delete|Move to) File: ([^\n]+)/;
+// Only the path: a patch saved on one line carries its hunks after it.
+const PATCH_FILE = /\*\*\* (?:Add|Update|Delete|Move to) File:\s*(\S+)/;
 
 /** A named argument, read from parsed JSON or, when the text was cut short, from the raw string. */
 function argument(parsed: Record<string, unknown> | null, raw: string, keys: string[]): string {

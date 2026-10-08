@@ -232,3 +232,12 @@ def test_failed_call_without_call_id_is_one_failed_step(kind: str, text: str, to
                                  "status": row["status"], "output": row.get("output_excerpt", "")}, now=ts)
     assert [step["status"] for step in steps] == ["failed"]
     assert steps[0]["ended_ts"] == 2
+
+
+def test_one_line_patch_names_only_the_file() -> None:
+    # A saved apply_patch detail has the hunk on the same line as the path.
+    text = (
+        "apply_patch: *** Begin Patch *** Update File: /data/state/config.json "
+        '@@ { + "SOME_SETTING": "x" } *** End Patch'
+    )
+    assert describe_progress_step({"kind": "tool_use", "text": text})[0] == "修改 config.json"

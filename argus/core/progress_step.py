@@ -315,7 +315,7 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
         return "working", ""
 
 
-_LEGACY_TOOL_LABEL = re.compile(r"^⚙\s*([\w.-]+)\s*·\s*(.*)$", re.S)
+_LEGACY_TOOL_LABEL = re.compile(r"^⚙\s*([\w.-]+)\s*(?:·\s*(.*))?$", re.S)
 _RAW_TOOL_TEXT = re.compile(r"^[A-Za-z_][\w.-]{0,40}:\s")
 
 
@@ -331,7 +331,7 @@ def plain_step_label(label: str, tool: str = "", detail: str = "", workspace: st
     legacy = _LEGACY_TOOL_LABEL.match(text)
     if legacy:
         name = str(tool or "").strip() or legacy.group(1)
-        args = str(detail or "").strip() or legacy.group(2)
+        args = str(detail or "").strip() or legacy.group(2) or ""
         # ``detail`` of a newer step already carries the ``name: `` prefix.
         raw = args if _RAW_TOOL_TEXT.match(args) else f"{name}: {args}"
         return describe_progress_step({"kind": "tool_use", "text": raw}, workspace)[0] or text

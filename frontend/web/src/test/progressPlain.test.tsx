@@ -63,3 +63,15 @@ describe('progress in plain words', () => {
     expect(html).toMatch(/上次更新 [45] 分钟前|last update [45]m ago/);
   });
 });
+
+describe('real rows from a dogfood session', () => {
+  it('a web search reads as a search, not as opening a page', () => {
+    const ev = tool('web_search: {"query": "site:arxiv.org 2026 AMA-Bench Evaluating Long-Horizon Memory"}', 'web_search');
+    expect(plainToolLabel(ev, 'zh-CN')).toBe('搜索：site:arxiv.org 2026 AMA-Bench Evaluating Long-H…');
+  });
+
+  it('a one-line patch names only its file, never the hunk after it', () => {
+    const ev = tool('apply_patch: *** Begin Patch *** Update File: /data/state/config.json @@ { + "SOME_SETTING": "x", "OTHER": "copilot" } *** End Patch', 'apply_patch');
+    expect(plainToolLabel(ev, 'zh-CN')).toBe('修改 config.json');
+  });
+});

@@ -252,3 +252,21 @@ describe("step readability in buildSubmap", () => {
     expect(rows.find((r) => r.kind === "execution")!.detail).toBe("Nothing has been written down for this step yet.");
   });
 });
+
+it("folds a started-then-failed report of one call into a single failed step", () => {
+  // Real rows: a read reported running, then failed, same text, no call id.
+  const label = 'read: {"cells": null, "includeOutputs": false, "limit": 100, "offset": 1, "pages": null, "path": "/data/proj/handoffs/0f40/CHECKPOINT.md"}';
+  const steps = buildSubmap({ ...task, kind: "turn" }, [
+    event("e1", "work.segment", {
+      role: "engineer", status: "recorded", text: "",
+      steps: [
+        { kind: "tool_use", label, ts: 1, tool: "read", status: "running" },
+        { kind: "tool_use", label, ts: 2, tool: "read", status: "failed" },
+      ],
+    }),
+  ], true);
+  const work = steps.find(step => step.id === "e1")!;
+  expect(work.title).toBe("做了 1 步操作");
+  expect(work.workCount).toBe(1);
+  expect(work.detail.match(/（失败）/g)).toHaveLength(1);
+});
