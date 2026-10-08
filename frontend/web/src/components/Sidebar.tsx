@@ -253,7 +253,7 @@ export function Sidebar({
                   const hasHumanLabel = hasHumanProjectLabel(project);
                   const name = hasHumanLabel
                     ? (project.label || project.display_name || '').trim()
-                    : project.objective.trim() || project.id || t('sidebar.unnamedSession');
+                    : project.objective.trim() || t('sidebar.unnamedSession');
                   const incompatible = project.daemon_alive && project.daemon_protocol_compatible === false;
                   // A release difference does not stop an existing executor.
                   // Keep actual protocol/capability failures visibly distinct.

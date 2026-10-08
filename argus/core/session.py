@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import time
 from collections.abc import Callable, Iterable, Iterator
@@ -184,6 +185,73 @@ def _filesystem_path(path: Path) -> Path:
 def normalize_session_name(value: str, *, limit: int = 80) -> str:
     """Normalize an operator-facing session label to one bounded line."""
     return " ".join((value or "").split())[:limit]
+
+
+# ``name_source`` for a title derived from the operator's first message. It is
+# shown immediately so a project never surfaces as a raw id, and any later
+# Agent-written topic summary replaces it.
+PROVISIONAL_NAME_SOURCE = "provisional"
+_PROVISIONAL_CJK_LIMIT = 24
+_PROVISIONAL_LATIN_LIMIT = 40
+_SENTENCE_END = re.compile(r"[\u3002\uff01\uff1f!?\n\r]|\.(?=\s|$)")
+
+
+def _has_cjk(text: str) -> bool:
+    return any(
+        "\u3040" <= ch <= "\u30ff" or "\u3400" <= ch <= "\u9fff" or "\uac00" <= ch <= "\ud7af"
+        for ch in text
+    )
+
+
+def provisional_session_name(text: str) -> str:
+    """Readable placeholder title from an operator message (first sentence, bounded)."""
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    match = _SENTENCE_END.search(raw)
+    first = raw[: match.start()] if match and match.start() > 0 else raw
+    first = " ".join(first.split()).strip(" ,;:，；：、")
+    if not first:
+        return ""
+    limit = _PROVISIONAL_CJK_LIMIT if _has_cjk(first) else _PROVISIONAL_LATIN_LIMIT
+    if len(first) <= limit:
+        return first
+    cut = first[: limit - 1]
+    if not _has_cjk(cut) and " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(" ,;:，；：、") + "…"
+
+
+def seed_provisional_session_name(global_root: Path | None, sid: str, text: str) -> str:
+    """Give an unnamed session a readable title at once; never overwrite a name."""
+    name = provisional_session_name(text)
+    if not name:
+        return ""
+    seeded = ""
+
+    def _seed(meta: SessionMeta) -> None:
+        nonlocal seeded
+        if meta.display_name.strip():
+            return
+        meta.display_name = normalize_session_name(name)
+        meta.name_source = PROVISIONAL_NAME_SOURCE
+        seeded = meta.display_name
+
+    try:
+        # Never mint metadata here: a missing record has its own (legacy) meaning.
+        update_session_meta(global_root, sid, _seed)
+    except Exception:  # noqa: BLE001 — naming is cosmetic
+        return ""
+    return seeded
+
+
+def session_name_is_open(meta: SessionMeta | None) -> bool:
+    """True while an Agent-written title may still fill or replace the name."""
+    return (
+        meta is None
+        or not meta.display_name.strip()
+        or meta.name_source == PROVISIONAL_NAME_SOURCE
+    )
 
 
 def _session_lock_path(root: Path, directory: str, lock_name: str) -> Path:

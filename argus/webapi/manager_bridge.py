@@ -386,7 +386,6 @@ def _manager_message(
             "kind": "error",
             "reply": "project no longer exists; the message was not processed",
         }
-
     # Native domain commands stay on this session and do not run a classifier.
     from ..core.workbench_plugins import native_plugin_command
     with _lock_for(sid):
@@ -435,6 +434,17 @@ def _manager_message(
     emitter.task_objective = operator_text
 
     from ..manager.ask_intent import strip_ask_prefix
+
+    if domain_answer is None:
+        # A readable title before any model call: the sidebar must never fall
+        # back to the raw session id while a topic summary is pending/denied.
+        # Seeded only after credentials are redacted and Atlas references are
+        # expanded, from the question itself for `/ask`.
+        from ..core.session import seed_provisional_session_name
+
+        seed_provisional_session_name(
+            mem.global_root, sid, strip_ask_prefix(operator_text) or operator_text
+        )
 
     # `/ask` fixes the route, but still uses the shared intake classification
     # before the separate Manager answer turn.
