@@ -20,6 +20,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -184,7 +185,7 @@ def is_pid_running(pid: int) -> bool:
     """Return True if *pid* is executing, excluding unreaped zombies."""
     if pid <= 0:
         return False
-    if os.name == "nt":  # pragma: no cover - exercised on Windows CI
+    if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI
         process_query_limited_information = 0x1000
         still_active = 259
         from ctypes import wintypes
