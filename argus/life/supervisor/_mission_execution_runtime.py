@@ -498,6 +498,7 @@ class MissionExecutionRuntimeMixin:
             "missions_started": self._missions_started,
             "attempt": item.attempt,
             "usage_attempt_id": state.usage_attempt_id,
+            "admission": dict(getattr(self, "_claim_admission", None) or {}),
         })
 
         # Phase-change callback.

@@ -84,7 +84,7 @@ Plan from the mission workspace only; never read sibling projects or parent dire
   defaults to `bounded`. Also: `TASK_KEY`/`TASK_DEPS`, `TASK_HYPOTHESIS`,
   `TASK_GOAL_CONTRIBUTION`, `TASK_EXPECTED_REGRESSIONS`, `TASK_DECISION_RULE`,
   `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`, `TASK_VERTICAL`,
-  and `TASK_GPUS` (whole GPUs the task holds; JSON `gpu_count`).
+  `TASK_GPUS`/`TASK_CPUS` (GPUs/cores held; JSON `gpu_count`/`cpu_count`).
 - Tasks co-run only when each sets `TASK_PARALLEL_SAFE=true` with disjoint,
   literal, relative `TASK_OWNS_PATHS` (no wildcards); stage-closing and
   framework-maintenance work runs alone. The digest shows slots and ownership.

@@ -41,7 +41,7 @@ from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator, Mapping
 
 import portalocker
 
@@ -969,6 +969,68 @@ def _free_gpu_indices(
     return free[unassigned:]
 
 
+def _usable_cpus() -> int:
+    """Cores this process may run on (its affinity mask, else the host count)."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, int(os.cpu_count() or 1))
+
+
+def task_cpu_count(item: Any, usable: int) -> int:
+    """Cores a task declares, at most the whole machine; 0 when it declares none.
+
+    Only a task that declares cores (TASK_CPUS) holds or waits for them; the
+    many tasks that mostly wait on model calls are not capped by the core
+    count. A task asking for more cores than exist takes the whole machine
+    rather than waiting forever for cores that will never appear.
+    """
+    try:
+        declared = int(getattr(item, "cpu_count", 0) or 0)
+    except (TypeError, ValueError):
+        declared = 0
+    return min(max(0, declared), max(1, usable))
+
+
+def cpu_reservation(items: Iterable[Any], usable: int) -> int:
+    """Cores declared by running tasks and by tasks parked on their own jobs."""
+    return sum(
+        task_cpu_count(item, usable)
+        for item in items
+        if getattr(item, "status", "") in _GPU_ACTIVE_STATUSES
+    )
+
+
+def admission_limit(admission: Mapping[str, Any], slots: int) -> dict[str, Any]:
+    """Name the limit that decided how many tasks a claim pass could start.
+
+    The ready tasks pass the GPU, CPU and path-ownership checks in turn; the
+    check after which the count reached its final value decided, unless fewer
+    mission slots are free than tasks survived, in which case slots decided.
+    """
+    record = dict(admission)
+    if not record:
+        return record
+    free_slots = max(0, int(slots) - int(record.get("running", 0) or 0))
+    record["slots_free"] = free_slots
+    claimable = int(record.get("claimable", 0) or 0)
+    if free_slots < claimable:
+        record["limit"] = "slots"
+        return record
+    stages = (
+        ("ready_tasks", "ready"),
+        ("gpu", "gpu_fit"),
+        ("cpu", "cpu_fit"),
+        ("ownership", "claimable"),
+    )
+    record["limit"] = next(
+        name
+        for name, key in stages
+        if int(record.get(key, 0) or 0) <= claimable
+    )
+    return record
+
+
 def gpu_capacity_summary(items: Iterable[Any]) -> dict[str, int] | None:
     cards = _gpu_cards()
     if cards is None:
@@ -1092,6 +1154,10 @@ class BacklogItem:
     # The cards assigned at claim time; they stay reserved while the task is
     # running or parked on its own job, whether or not they look busy.
     gpu_indices: list[int] = field(default_factory=list)
+    # CPU cores this task (and the background jobs it parks on) keeps busy.
+    # A task is claimed only when that many of the usable cores are not
+    # declared by other running or parked tasks.
+    cpu_count: int = 0
     outcome: dict[str, Any] = field(default_factory=dict)
     # Optional durable return receipt; kept separate from public outcome dimensions.
     mission_result: dict[str, Any] | None = None
@@ -1125,6 +1191,7 @@ class BacklogItem:
         parallel_safe: bool = False,
         owns_paths: list[str] | None = None,
         gpu_count: int = 0,
+        cpu_count: int = 0,
         acceptance_check: str = "",
         plan_hypothesis: str = "",
         goal_contribution: str = "",
@@ -1168,6 +1235,7 @@ class BacklogItem:
                 if str(path).strip()
             ],
             gpu_count=max(0, int(gpu_count or 0)),
+            cpu_count=max(0, int(cpu_count or 0)),
             acceptance_check=str(acceptance_check or "").strip(),
             plan_hypothesis=str(plan_hypothesis or "").strip(),
             goal_contribution=str(goal_contribution or "").strip(),
@@ -1273,6 +1341,7 @@ class BacklogItem:
                 if str(path).strip()
             ],
             gpu_count=max(0, int(row.get("gpu_count", 0) or 0)),
+            cpu_count=max(0, int(row.get("cpu_count", 0) or 0)),
             gpu_indices=[
                 int(index)
                 for index in (row.get("gpu_indices", []) or [])
@@ -1312,6 +1381,9 @@ class Backlog:
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
+        # Counts from the latest schedulability pass: how many tasks were
+        # ready and how many survived the GPU, CPU and ownership checks.
+        self.last_admission: dict[str, Any] = {}
         self.archive_path = self.path.with_name(f"{self.path.stem}.archive.jsonl")
         self._commit_path = self.path.with_name(f"{self.path.stem}.commit.json")
         self._lock_path = self.path.parent / f"{self.path.name}.lock"
@@ -1528,6 +1600,27 @@ class Backlog:
         ]
 
     @staticmethod
+    def _fit_cpus(
+        candidates: list[BacklogItem], items: Iterable[BacklogItem],
+    ) -> tuple[list[BacklogItem], int, int]:
+        """Drop candidates whose declared cores are not free right now.
+
+        Free cores are the usable cores minus those declared by running tasks
+        and tasks parked on their own background jobs. Returns the fitting
+        candidates, the usable core count and the free core count.
+        """
+        usable = _usable_cpus()
+        free = max(0, usable - cpu_reservation(items, usable))
+        return (
+            [
+                item for item in candidates
+                if task_cpu_count(item, usable) <= free
+            ],
+            usable,
+            free,
+        )
+
+    @staticmethod
     def _fail_unfittable_gpus(items: list[BacklogItem]) -> bool:
         """Fail pending tasks that ask for more GPUs than the machine has.
 
@@ -1592,7 +1685,17 @@ class Backlog:
         if examples:
             ready = [it for it in ready if it not in examples]
             changed = True
+        admission: dict[str, Any] = {"ready": len(ready)}
+        before_gpu = len(ready)
         ready = self._fit_gpus(ready, items)
+        admission["gpu_fit"] = len(ready)
+        cards = _gpu_cards() if before_gpu != len(ready) else None
+        if cards is not None:
+            admission["gpus_free"] = len(_free_gpu_indices(cards, items))
+        ready, usable_cpus, free_cpus = self._fit_cpus(ready, items)
+        admission.update(
+            cpu_fit=len(ready), cpus_usable=usable_cpus, cpus_free=free_cpus,
+        )
         if parallel_only or (
             respect_running
             and any(
@@ -1605,7 +1708,9 @@ class Backlog:
                 for item in ready
                 if self._parallel_worker_can_claim(item, items)
             ]
+        admission["claimable"] = len(ready)
         ready.sort(key=lambda it: (it.priority, it.ts))
+        self.last_admission = admission
         return ready, changed
 
     @staticmethod
@@ -2600,6 +2705,13 @@ class Backlog:
                     self._save(items)
                 return None
             head = ready[0]
+            admission = dict(self.last_admission)
+            admission["running"] = sum(
+                1 for item in items if item.status == "running"
+            )
+            # Not a dataclass field, so it is never persisted: the supervisor
+            # copies it onto the mission-start event.
+            head.admission = admission
             # Pick the cards while the head is still pending, so it does not
             # count as an active task that holds unassigned cards.
             indices: list[int] = []
@@ -2916,6 +3028,7 @@ class Backlog:
             history = self._dependency_history(items)
         done = self._done_ids([*history, *items])
         out = self._fit_gpus([it for it in items if self._is_ready(it, done)], items)
+        out = self._fit_cpus(out, items)[0]
         out.sort(key=lambda it: (it.priority, it.ts))
         return out
 
