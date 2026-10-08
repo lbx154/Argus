@@ -24,7 +24,7 @@ def advisor_mcp_args(environment: Mapping[str, str]) -> Iterator[list[str]]:
             "env": {**environment, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
             "tools": ["consult_advisor"],
         }}}
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = os.open(path, os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             json.dump(config, handle, ensure_ascii=False, allow_nan=False)
         yield ["--additional-mcp-config", "@" + str(path)]

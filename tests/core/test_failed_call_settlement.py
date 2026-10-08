@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -138,6 +139,10 @@ exit 1
 """
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the fake CLI is a bash shebang script, which Windows cannot execute from PATH",
+)
 @pytest.mark.parametrize(("mode", "settles"), [("", True), ("reasoning", False)])
 def test_cli_call_rejected_after_reasoning_stays_held(
     home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, settles: bool,

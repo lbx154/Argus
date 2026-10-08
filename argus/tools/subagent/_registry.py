@@ -6,6 +6,7 @@ ledger, structured RunWriter signal readers, and usage accounting helpers.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -279,8 +280,11 @@ def _launch_durable_command(
             "$__exit = [Environment]::GetEnvironmentVariable('ARGUS_DURABLE_EXIT', 'Process')\n"
             "$__rc = 1\n"
             "try {\n"
+            # Pass the operator command encoded: Windows PowerShell 5.1 drops
+            # embedded double quotes from arguments handed to native programs.
+            "  $__encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($__command))\n"
             "  & powershell.exe -NoProfile -NonInteractive "
-            "-Command $__command\n"
+            "-EncodedCommand $__encoded\n"
             "  if ($null -ne $global:LASTEXITCODE) {\n"
             "    $__rc = [int]$global:LASTEXITCODE\n"
             "  } elseif ($?) {\n"
@@ -308,8 +312,10 @@ def _launch_durable_command(
                 "powershell.exe",
                 "-NoProfile",
                 "-NonInteractive",
-                "-Command",
-                wrapper,
+                # Encoded, the wrapper reaches PowerShell exactly, independent
+                # of Windows command-line quoting rules.
+                "-EncodedCommand",
+                base64.b64encode(wrapper.encode("utf-16-le")).decode("ascii"),
             ],
             stdout=stdout,
             stderr=stderr,

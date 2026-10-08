@@ -299,7 +299,8 @@ def write_source(
     option_path.write_text(json.dumps(option, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     html_path = source_dir / "index.html"
     try:
-        echarts_src = os.path.relpath(echarts_js, source_dir)
+        # A URL path, so always forward slashes regardless of the host OS.
+        echarts_src = Path(os.path.relpath(echarts_js, source_dir)).as_posix()
     except ValueError:
         echarts_src = echarts_js.as_uri()
     html_path.write_text(

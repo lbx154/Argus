@@ -101,6 +101,19 @@ def test_locally_done_result_is_not_overridden_by_plan_advice(tmp_path) -> None:
     assert "skip-zero" in reason
 
 
+def _without_host_shell_guidance(prompt: str) -> str:
+    """Drop native-Windows shell guidance, which is host-specific by design."""
+    from argus.roles.prompts.engineer import _WINDOWS_LONG_EXPERIMENT_RULE
+    from argus.roles.task_contract import (
+        NATIVE_WINDOWS_SHELL_CONTRACT,
+        NATIVE_WINDOWS_SHELL_SUMMARY,
+    )
+
+    for text in (NATIVE_WINDOWS_SHELL_CONTRACT, _WINDOWS_LONG_EXPERIMENT_RULE, NATIVE_WINDOWS_SHELL_SUMMARY):
+        prompt = prompt.replace(text, "")
+    return prompt
+
+
 def test_compact_engineer_prompt_omits_static_skill_and_objective() -> None:
     full = SkillLoop._build_engineer_prompt(
         task="very long task " * 100,
@@ -122,4 +135,4 @@ def test_compact_engineer_prompt_omits_static_skill_and_objective() -> None:
     assert "Run the single failing case" in compact
     assert "very long skill" not in compact
     assert "very long task" not in compact
-    assert len(compact) < len(full) // 2
+    assert len(_without_host_shell_guidance(compact)) < len(_without_host_shell_guidance(full)) // 2

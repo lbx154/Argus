@@ -12,6 +12,7 @@ from pathlib import Path
 
 from . import DEFAULT_UPSTREAM_MODEL
 from .admin import issue_keys
+from .hosted_host import require_no_follow_directories, require_posix_accounts
 from .secrets import Vault, write_private
 
 DEFAULT_WEB_IMAGE = "argus-web-trial:pi-data-20260911-r6"
@@ -20,6 +21,7 @@ DEFAULT_WEB_IMAGE = "argus-web-trial:pi-data-20260911-r6"
 def initialize(root: Path, admin_token_file: Path, admin_url: str) -> None:
     from cryptography.fernet import Fernet
 
+    require_posix_accounts("Hosted trial initialization")
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     root.chmod(0o700)
     for directory in ("meter", "secrets", "compute", "model-socket",
@@ -102,6 +104,7 @@ def initialize(root: Path, admin_token_file: Path, admin_url: str) -> None:
 
 def prepare_tenant_directory(data: Path, key: str, uid: int, gid: int) -> None:
     """Anchor root writes to open directories, never tenant-controlled symlinks."""
+    require_no_follow_directories("Tenant directory provisioning")
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     root_fd = os.open(data, flags)
     try:
@@ -391,6 +394,7 @@ def main() -> None:
                         help="Permit releasing a source checkout with uncommitted changes")
     parser.add_argument("--no-restart-portal", action="store_true",
                         help="Roll containers and write the manifest without restarting the portal")
+    require_posix_accounts("Hosted trial provisioning")
     parser.add_argument("--uid", type=int, default=os.getuid())
     parser.add_argument("--gid", type=int, default=os.getgid())
     args = parser.parse_args()

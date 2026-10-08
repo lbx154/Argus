@@ -6,6 +6,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from hosted_platform import needs_fifo, needs_pread
 
 from argus.trial import journey_journal as journal_module
 from argus.trial.analytics import Analytics, AnalyticsError
@@ -302,7 +303,7 @@ def test_cross_tenant_lookup_never_falls_back_to_other_project(setup):
     assert journal.replay("tenant-two", "s-project")["events"] == other["events"]
 
 
-@pytest.mark.parametrize("unsafe", ["symlink", "hardlink", "fifo"])
+@pytest.mark.parametrize("unsafe", ["symlink", "hardlink", pytest.param("fifo", marks=needs_fifo)])
 def test_event_file_safety(setup, unsafe):
     _, journal, _, paths = setup
     source = paths["tenant-one"] / "events.jsonl"
@@ -623,6 +624,7 @@ def test_source_missing_is_an_explicit_gap_not_completion(setup):
     assert journal.poll()["inserted_events"] == 0
 
 
+@needs_pread
 def test_rotation_during_bounded_read_rolls_back_and_reports_gap(setup, monkeypatch):
     _, journal, _, paths = setup
     path = paths["tenant-one"]

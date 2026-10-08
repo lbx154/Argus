@@ -117,7 +117,7 @@ def save_embedding_config(state_root: Path | str, values: RecallEmbeddingConfig 
     _guard_recall_path(directory / "config.json")
     _guard_recall_path(directory / "config.lock")
     directory.mkdir(parents=True, exist_ok=True)
-    with open_regular_file(directory / "config.lock", os.O_RDWR | os.O_CREAT) as lock, exclusive_file_lock(lock):
+    with open_regular_file(directory / "config.lock", os.O_RDWR | getattr(os, "O_BINARY", 0) | os.O_CREAT) as lock, exclusive_file_lock(lock):
         document = values.to_dict() if isinstance(values, RecallEmbeddingConfig) else {
             **load_embedding_config(state_root).to_dict(), **values,
         }

@@ -168,7 +168,7 @@ def test_native_role_tools_preserve_workspace_permissions_and_role_boundary(tmp_
     assert options.extension_env is None
 
 
-def test_actual_gateway_composes_extensions_and_executes_native_experience_tool(tmp_path, monkeypatch):
+def test_actual_gateway_composes_extensions_and_executes_native_experience_tool(tmp_path, monkeypatch, platform_process_env):
     from argus.adapters.agent_cli_backend import AgentCliBackend, _core, _exec
     from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
     from argus.advisor.config import save_advisor_config
@@ -209,7 +209,7 @@ process.stdout.write(JSON.stringify(result.details));
         calls.append(ctx.call_id)
         assert {"consult_advisor", "send_peer_message", "revise_experience", "get_experience"} <= set(ctx.options.trusted_tool_names)
         assert len(ctx.options.trusted_extensions) == 4
-        assert any(path.endswith("skills/runtime_extension.mjs") for path in ctx.options.trusted_extensions)
+        assert any(Path(path).as_posix().endswith("skills/runtime_extension.mjs") for path in ctx.options.trusted_extensions)
         command = ctx.backend._runner._build_pi_command(resume_thread_id=None, options=ctx.options)
         names = command[command.index("--tools") + 1].split(",")
         assert "revise_experience" in names and not {"bash", "write", "edit"} & set(names)
@@ -218,7 +218,7 @@ process.stdout.write(JSON.stringify(result.details));
             [node, "--input-type=module", "-e", script,
              Path(experience_runtime.EXTENSION).with_name("experience_pi_tools.mjs").as_uri(),
              Path(experience_runtime.__file__).parents[1].joinpath("core/role_tool_bridge.mjs").as_uri(), item.id],
-            env={"PATH": os.defpath, **ctx.options.extension_env}, text=True, capture_output=True, timeout=10,
+            env={**platform_process_env, "PATH": os.defpath, **ctx.options.extension_env}, text=True, capture_output=True, timeout=10,
         )
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout)["revision"] == 2

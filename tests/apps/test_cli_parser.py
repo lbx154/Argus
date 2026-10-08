@@ -887,7 +887,7 @@ def test_parser_reads_a_wiki_correction():
         "--statement", "What is true.", "--reason", "Why the page was wrong.",
     ])
     assert args.command == "wiki" and args.wiki_cmd == "correct"
-    assert args.page == "pages/lessons/regime.md" and str(args.wiki) == "/tmp/w"
+    assert args.page == "pages/lessons/regime.md" and Path(args.wiki) == Path("/tmp/w")
     assert args.statement == "What is true." and args.reason == "Why the page was wrong."
     assert args.description == "" and args.by == "operator" and args.scope is None
     shared = p.parse_args([

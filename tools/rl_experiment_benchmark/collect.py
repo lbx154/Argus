@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import json
 import re
@@ -10,6 +9,8 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+
+import portalocker
 
 ROLE_EVENTS = {
     "agent.io.start", "agent.io.complete", "usage.recorded", "life.mission.started",
@@ -237,8 +238,8 @@ def main():
     args = parser.parse_args()
     with (args.root / ".collector.lock").open("w") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            portalocker.lock(lock, portalocker.LOCK_EX | portalocker.LOCK_NB)
+        except portalocker.exceptions.LockException:
             return
         while True:
             print(json.dumps(collect(args.root), ensure_ascii=False), flush=True)

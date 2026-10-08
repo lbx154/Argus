@@ -47,6 +47,12 @@ def copilot_home(tmp_path, monkeypatch):
     fake = tmp_path / "copilot"
     fake.write_text(_FAKE_COPILOT.format(python=sys.executable, calls=str(calls)))
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    if sys.platform == "win32":
+        # Windows cannot execute a shebang script; launch it through a .cmd shim
+        # the way npm installs the real CLI.
+        shim = tmp_path / "copilot.cmd"
+        shim.write_text(f'@"{sys.executable}" "{fake}" %*\r\n')
+        fake = shim
     stale = tmp_path / "pi"
     stale.mkdir()
     (stale / "models.json").write_text(

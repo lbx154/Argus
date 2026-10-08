@@ -264,7 +264,7 @@ def _acquire_daemon_spawn_lock(config: LifeWorkerConfig) -> int | None:
     """Serialize host-wide daemon admission through fork + pid publication."""
     root = _daemon_global_root(config)
     root.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(root / "daemon-spawn.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    fd = os.open(str(root / "daemon-spawn.lock"), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
     try:
         if _fcntl is not None:
             _fcntl.flock(fd, _fcntl.LOCK_EX)

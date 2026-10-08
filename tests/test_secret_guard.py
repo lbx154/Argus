@@ -657,7 +657,7 @@ def test_large_recent_text_artifact_surfaces_incomplete_coverage(
     monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 8)
     monkeypatch.setattr(secret_guard, "_HARD_MAX_ARTIFACT_BYTES", 8)
     payload = "x-api-key: response-secret-value\n"
-    (tmp_path / "large.txt").write_text(payload, encoding="utf-8")
+    (tmp_path / "large.txt").write_bytes(payload.encode("utf-8"))
     events: list[dict] = []
 
     report, reviewer_note = _apply_round_secret_guard(
@@ -936,7 +936,7 @@ def test_streaming_time_budget_exhaustion_skips_remaining_large_files(
     )
     payload = "padding line of text\n" * 8
     for name in ("large_a.log", "large_b.log"):
-        (tmp_path / name).write_text(payload, encoding="utf-8")
+        (tmp_path / name).write_bytes(payload.encode("utf-8"))
 
     report = scrub_recent_text_artifacts(
         tmp_path,
@@ -961,7 +961,7 @@ def test_file_budget_exhaustion_enumerates_remaining_candidates(
     monkeypatch.setattr(secret_guard, "_MAX_SCANNED_FILES", 1)
     line = "status: ok\n"
     for index in range(60):
-        (tmp_path / f"file_{index:02d}.txt").write_text(line, encoding="utf-8")
+        (tmp_path / f"file_{index:02d}.txt").write_bytes(line.encode("utf-8"))
 
     report, reviewer_note = _apply_round_secret_guard(
         workdir=tmp_path,

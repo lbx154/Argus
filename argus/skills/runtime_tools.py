@@ -15,21 +15,11 @@ from ..core.file_lock import exclusive_file_lock
 from ..core.role_tool_bridge import require_fields
 from ..wiki.bootstrap import init_wiki
 from ..wiki.schema import WikiPage, serialize_page
-from ..wiki.store import WikiStore, _atomic_write_text
+from ..wiki.store import WikiStore, _atomic_write_text, atomic_write_bytes
 from .runtime_worker import MAX_BYTES, validate_source
 from .store import Skill, SkillStore
 
 WORKER = Path(__file__).with_name('runtime_worker.py')
-
-
-def _atomic_write_bytes(path: Path, data: bytes) -> None:
-    """Restore a document byte-for-byte (text mode would translate newlines again)."""
-    temporary = path.with_name(f'.{path.name}.restoring-{os.getpid()}-{threading.get_ident()}')
-    try:
-        temporary.write_bytes(data)
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _json(value) -> str:
@@ -296,7 +286,7 @@ class RuntimeToolService:
                     if data is None:
                         path.unlink(missing_ok=True)
                     else:
-                        _atomic_write_bytes(path, data)
+                        atomic_write_bytes(path, data)
                 raise
         return {'revision': record['revision'], 'published': bool(spec),
                 'skill_path': str(skill_path), 'wiki_path': str(wiki_path)}

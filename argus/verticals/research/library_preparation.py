@@ -55,7 +55,7 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         state_root=context.state_root,
     )
     try:
-        display_root = team_root.relative_to(context.workdir)
+        display_root = team_root.relative_to(context.workdir).as_posix()
     except ValueError:
         display_root = team_root
     context.prompt_blocks.append(

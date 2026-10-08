@@ -42,7 +42,7 @@ def team_work_id(team_id: str) -> str:
 
 def _relative(path: Path, project_root: Path) -> str:
     try:
-        return str(path.resolve().relative_to(project_root.resolve()))
+        return path.resolve().relative_to(project_root.resolve()).as_posix()
     except (OSError, ValueError):
         return ""
 

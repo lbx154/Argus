@@ -38,7 +38,8 @@ def test_pi_profile_selects_all_roles_and_own_provider(tmp_path, monkeypatch):
     assert provider["apiKey"] == "test-only-credential"
     assert provider["baseUrl"] == "http://127.0.0.1:18765/v1"
     assert provider["models"] == [{"id": "gpt-5.5", "reasoning": True}]
-    assert path.stat().st_mode & 0o077 == 0
+    if os.name == "posix":  # Windows grants access through ACLs, not mode bits.
+        assert path.stat().st_mode & 0o077 == 0
 
 
 @pytest.mark.parametrize(("saved_effort", "environment_effort", "expected"), [

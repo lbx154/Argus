@@ -194,13 +194,15 @@ def test_dsh_resolves_beside_real_node_when_only_node_shim_is_on_path(
     shim_bin = tmp_path / "shims"
     prefix_bin.mkdir(parents=True)
     shim_bin.mkdir()
-    node = prefix_bin / "node"
-    dsh = prefix_bin / "dsh"
+    # Windows launchers carry PATHEXT suffixes: node.exe and npm's dsh.cmd.
+    windows = os.name == "nt"
+    node = prefix_bin / ("node.exe" if windows else "node")
+    dsh = prefix_bin / ("dsh.cmd" if windows else "dsh")
     node.write_text("", encoding="utf-8")
     dsh.write_text("", encoding="utf-8")
     node.chmod(0o755)
     dsh.chmod(0o755)
-    (shim_bin / "node").symlink_to(node)
+    (shim_bin / node.name).symlink_to(node)
     monkeypatch.setenv("PATH", str(shim_bin))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
 

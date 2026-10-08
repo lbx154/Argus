@@ -88,7 +88,7 @@ def _locked(root: Path) -> Iterator[None]:
         raise TimeoutError("timed out acquiring daemon command state thread lock")
     fd: int | None = None
     try:
-        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
         with os.fdopen(fd, "a+", encoding="utf-8", closefd=False) as handle:
             with exclusive_file_lock(
                 handle,
@@ -117,7 +117,7 @@ def _execution_lock(root: Path, *, blocking: bool) -> Iterator[bool]:
         return
     fd: int | None = None
     try:
-        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
         with os.fdopen(fd, "a+", encoding="utf-8", closefd=False) as handle:
             file_lock = exclusive_file_lock(
                 handle,

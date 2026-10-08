@@ -88,13 +88,13 @@ def _lean_dir(root: Path) -> Path:
 
 def _source(root: Path, text: str = THEOREM) -> Path:
     path = _lean_dir(root) / "Main.lean"
-    path.write_text(text, encoding="utf-8")
+    path.write_bytes(text.encode("utf-8"))  # Hashes below cover exact bytes.
     return path
 
 
 def _fidelity(root: Path, text: str = FIDELITY) -> Path:
     path = _lean_dir(root) / "statement_fidelity.md"
-    path.write_text(text, encoding="utf-8")
+    path.write_bytes(text.encode("utf-8"))
     return path
 
 

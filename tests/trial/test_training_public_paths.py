@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from hosted_platform import hosted_posix_paths
 
 from argus.core.role_session import RoleSessionCapsule
 from argus.engineer.checkpoint import shared_checkpoint_instructions
@@ -54,6 +55,7 @@ def hosted_engineer_prompt(task):
     )))
 
 
+@hosted_posix_paths
 def test_full_direct_role_template_includes_only_exact_public_library_directories():
     text = hosted_engineer_prompt("Write result.txt and read it back.")
     assert not _hosted_sensitive(text, sid=SID, mission_id=MISSION)
@@ -61,6 +63,7 @@ def test_full_direct_role_template_includes_only_exact_public_library_directorie
     assert _sample(sample, "synthetic", source=SOURCE)[0] == sample
 
 
+@hosted_posix_paths
 def test_actual_checkpoint_and_role_capsule_prompt_literals_preserve_bytes():
     checkpoint = Path(HANDOFF + "/CHECKPOINT.md")
     capsule = RoleSessionCapsule(role="engineer", policy="rolling", objective_revision="synthetic",

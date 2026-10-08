@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import json
-import shlex
 import sys
 from pathlib import Path
 
+from ..roles.task_contract import format_native_shell_command
 from ..tools.web_search import search_web
 
 
@@ -13,10 +13,10 @@ def lookup_subject(subject: str, workdir: Path) -> str:
     # Keep the user's spelling. Do not expand an unfamiliar acronym using a
     # model's training memory or silently substitute a familiar product.
     result = search_web(subject, workdir)
-    python = shlex.quote(sys.executable)
     tools = Path(__file__).resolve().parents[1] / "tools"
-    fetch_command = f"{python} {shlex.quote(str(tools / 'web_source.py'))}"
-    search_command = f"{python} {shlex.quote(str(tools / 'web_search.py'))}"
+    # Host-shell syntax: POSIX quoting, or a PowerShell call on native Windows.
+    fetch_command = format_native_shell_command([sys.executable, str(tools / "web_source.py")])
+    search_command = format_native_shell_command([sys.executable, str(tools / "web_search.py")])
     return (
         "\n\n## Research subject discovery\n"
         "The host has not selected a specialist workflow. The requested public subject "

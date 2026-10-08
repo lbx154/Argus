@@ -11,6 +11,7 @@ from pathlib import Path
 import httpx
 import pytest
 import uvicorn
+from hosted_platform import linux_host_deadlines
 
 from argus.trial import gateway, gateway_accounting
 from tests.trial.test_gateway_billing_responsiveness import KEY_ID, PAYLOAD, response_data
@@ -26,6 +27,7 @@ async def wait_until(condition, timeout=2):
     return True
 
 
+@linux_host_deadlines
 @pytest.mark.parametrize("phase", ["authorization", "headers", "body"])
 def test_actual_tcp_disconnect_releases_slot_before_upstream_gate(tmp_path, phase):
     settings = settings_for(tmp_path, timeout=3)
@@ -147,6 +149,7 @@ def test_actual_tcp_disconnect_releases_slot_before_upstream_gate(tmp_path, phas
     assert observation["attempts"][0]["outcome"] == "disconnected"
 
 
+@linux_host_deadlines
 def test_tcp_disconnect_then_shutdown_keeps_late_response_and_close_owned(tmp_path):
     settings = settings_for(tmp_path, timeout=3)
     observation = {"real_inbound_tcp": True, "external_provider_calls": 0}
