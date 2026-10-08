@@ -133,4 +133,4 @@ process.stdout.write(JSON.stringify(used));
     assert 'run_learned_tool' not in discovery  # Body is read only after selection.
     learned = list((state / 'skills').rglob('*.md'))
     assert any('run_learned_tool' in path.read_text() for path in learned)
-    assert '.autors/runtime/wiki' in render_knowledge_wiki_block(state, role='Engineer')
+    assert str(Path('.autors/runtime/wiki')) in render_knowledge_wiki_block(state, role='Engineer')
