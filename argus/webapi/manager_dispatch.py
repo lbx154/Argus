@@ -626,6 +626,9 @@ class _ClassifyResult:
     fast_reply: str
     greeting_reply: str
     frontdoor_failure: str
+    # The classifier's own SELF mode, before follow-ups are rerouted through
+    # the persistent Manager. Later phases reuse it to judge the turn.
+    classified_self_mode: str = ""
 
 
 # Only Chat fixes the topology. Task requests still need a scope decision.
@@ -782,6 +785,7 @@ def _classify_operator_turn(
     self_mode = str(
         chat_state.get("_frontdoor_self_mode", "inspect") or "inspect"
     ).strip().lower()
+    classified_self_mode = self_mode
     fast_reply = str(
         chat_state.pop("_frontdoor_fast_reply", "") or ""
     ).strip()
@@ -819,6 +823,7 @@ def _classify_operator_turn(
         fast_reply=fast_reply,
         greeting_reply=greeting_reply,
         frontdoor_failure=frontdoor_failure,
+        classified_self_mode=classified_self_mode,
     )
 
 

@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -87,6 +88,14 @@ def _latest_record(root: Path) -> dict[str, Any]:
     return latest
 
 
+def _short_error(exc: BaseException) -> str:
+    # Only checks written here have messages safe to persist; provider and
+    # runtime exception text can carry raw bodies or credentials.
+    if isinstance(exc, SupervisionDecisionError):
+        return " ".join(str(exc).split())[:300]
+    return type(exc).__name__
+
+
 def _emit(record: dict[str, Any], root: Path, phase: str) -> None:
     from ..life.event_log import JsonlEventSink
 
@@ -115,6 +124,9 @@ def _emit(record: dict[str, Any], root: Path, phase: str) -> None:
         ) if key in record})
         if record.get("error"):
             payload["error_type"] = record["error"]
+        # Every failure says what went wrong in a short message; the code stays
+        # absent only where nothing classified the provider failure.
+        payload["error_message"] = record.get("error_message") or record.get("error") or "unknown error"
     JsonlEventSink(None, life_dir=root).append(payload)
 
 
@@ -152,28 +164,81 @@ def mission_wait_reason(root: Path | str | None, mission_id: str | None) -> str:
     return f"Manager is waiting for the requested operator facts: {task.pending_question}"
 
 
+class SupervisionDecisionError(ValueError):
+    """A Manager reply that could not become a decision, with a stable code."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+_DECISION_KEYS = ("ACTION", "REASON", "DIRECTIVE", "EVIDENCE_REFS", "CONSULTATION_ID", "ADVISOR_DISPOSITION")
+_BARE_KEY_LINE = re.compile(
+    r"^[`*_]*(?P<key>" + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True)) + r")[`*_]*\s+(?P<value>\S.*)$"
+)
+
+_COLON_KEY_LINE = re.compile(
+    # Same decoration as role_reply's key pattern: a bullet, a quote marker or a
+    # list number before the key.
+    r"^(?:[-*+]\s*)?(?:[^\w`*]+\s*)?(?:\d+[.)]\s*)?[`*_]*(?:ARGUS_)?(?P<key>"
+    + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True))
+    + r")[`*_]*\s*[:=]\s*(?P<value>.*)$",
+    re.IGNORECASE,
+)
+
+
+def _bare_named_lines(text: str) -> dict[str, str]:
+    """Read named lines when the reply wrote any of them without the colon.
+
+    The key must be written in capitals at the start of its own line, exactly as
+    the prompt names it, so ordinary prose ("Action items ...") is not read as a
+    field. Like ``read_key_values`` this reads the final decision footer and the
+    last line for a key wins, so a draft block followed by a final block yields
+    the final answer; both the colon and colon-less forms are read in one pass
+    so their order is kept. Returns nothing when every line carried a colon.
+    """
+    from ..core.role_reply import decision_footer_text
+
+    found: dict[str, str] = {}
+    saw_bare = False
+    for raw in decision_footer_text(str(text or "")).splitlines():
+        line = raw.strip()
+        match = _COLON_KEY_LINE.match(line.strip("`").strip())
+        if match is None:
+            match = _BARE_KEY_LINE.match(line)
+            saw_bare = saw_bare or match is not None
+        if match is not None:
+            found[match.group("key").upper()] = match.group("value").strip().strip("`").strip()
+    return found if saw_bare else {}
+
+
 def _decision(text: str) -> dict[str, Any]:
     from ..core.role_reply import read_key_values
 
     try:
         value = json.loads(text)
     except ValueError:
-        fields = read_key_values(text, ("ACTION", "REASON", "DIRECTIVE", "EVIDENCE_REFS", "CONSULTATION_ID", "ADVISOR_DISPOSITION"))
+        fields = read_key_values(text, _DECISION_KEYS)
+        fields.update(_bare_named_lines(text))
         value = {key.lower(): val for key, val in fields.items()}
     if not isinstance(value, dict):
-        raise ValueError("Manager supervision returned no decision")
+        raise SupervisionDecisionError("decision_missing", "Manager supervision returned no decision")
     action = str(value.get("action") or "").strip().lower()
     reason = str(value.get("reason") or "").strip()
     directive = str(value.get("directive") or "").strip()
     if action not in {"continue", "steer", "wait"} or not reason or len(reason) > 4000:
-        raise ValueError("Manager supervision decision is incomplete")
+        raise SupervisionDecisionError(
+            "decision_incomplete",
+            "Manager supervision decision is incomplete "
+            f"(action={'unrecognized' if action else 'missing'}, reason={'present' if reason else 'missing'})",
+        )
     if action == "steer" and (not directive or len(directive) > 4000):
-        raise ValueError("Steering requires a bounded team instruction")
+        raise SupervisionDecisionError("directive_missing", "Steering requires a bounded team instruction")
     refs = value.get("evidence_refs", [])
     if isinstance(refs, str):
         refs = [ref.strip() for ref in refs.split(";") if ref.strip()]
     if not isinstance(refs, list) or not refs or not all(isinstance(ref, str) for ref in refs):
-        raise ValueError("Manager must cite the evidence used for its decision")
+        raise SupervisionDecisionError("evidence_uncited", "Manager must cite the evidence used for its decision")
     return {"action": action, "reason": reason, "directive": directive,
             "cited_refs": list(dict.fromkeys(refs)),
             "consultation_id": str(value.get("consultation_id") or "")[:128],
@@ -196,7 +261,7 @@ def _prompt(observation: ManagerObservation) -> str:
         "question prevents further work. WAIT pauses automatic planning and preserves the "
         "task and question. Do not use WAIT for ordinary implementation failures; steer a fix. "
         "You do not change the objective, acceptance standard, or pipeline stage here.\n"
-        "Return named lines ACTION, REASON, EVIDENCE_REFS (semicolon-separated paths from evidence_refs), "
+        "Return one line per field written as KEY: value — ACTION, REASON, EVIDENCE_REFS (semicolon-separated paths from evidence_refs), "
         "and DIRECTIVE (only for STEER). REASON must name "
         "the decisive observed condition and what should happen next.\n\n"
         + observation.render()
@@ -311,7 +376,7 @@ def _deliver(
         record["status"] = "applied"
         record["applied_at"] = time.time()
         record["completed_at"] = time.time()
-        for key in ("failure_reason", "failure_stage", "error", "error_type", "error_code", "stop_kind"):
+        for key in ("failure_reason", "failure_stage", "error", "error_type", "error_code", "error_message", "stop_kind"):
             record.pop(key, None)
         _write(path, record)
     except Exception as exc:
@@ -326,6 +391,7 @@ def _deliver(
         code = code or ("busy" if busy else None)
         record["status"] = "superseded" if superseded else "issued"
         record["error"] = type(exc).__name__
+        record["error_message"] = _short_error(exc)
         record["failure_stage"] = "commit"
         record.pop("stop_kind", None)
         record.pop("error_code", None)
@@ -428,7 +494,7 @@ def supervise(
                 if observation.incomplete_requirements:
                     failure_stage = "decision"
                     record["error_code"] = "observation_incomplete"
-                    raise ValueError("required project facts could not be fully observed")
+                    raise SupervisionDecisionError("observation_incomplete", "required project facts could not be fully observed")
                 session: Any = _ManagerSession(backend, root) if backend is not None else manager._session
                 from ._helpers import _manager_model, _manager_reasoning_effort
 
@@ -464,7 +530,11 @@ def supervise(
                 available = {ref["path"]: ref for ref in observation.facts["evidence_refs"]}
                 cited = decision["cited_refs"]
                 if any(ref not in available for ref in cited):
-                    raise ValueError("Manager cited evidence outside the observed project snapshot")
+                    outside = sum(ref not in available for ref in cited)
+                    raise SupervisionDecisionError(
+                        "evidence_outside_snapshot",
+                        f"Manager cited {outside} of {len(cited)} evidence references outside the observed project snapshot",
+                    )
                 record["available_refs"] = list(available.values())
                 record["cited_refs"] = [available[ref] for ref in cited]
                 record["evidence_refs"] = record["cited_refs"]
@@ -474,9 +544,9 @@ def supervise(
 
                     advice = read_receipt(root, consultation_id)
                     if not advice or advice.get("status") != "completed":
-                        raise ValueError("Manager referenced unavailable advisor evidence")
+                        raise SupervisionDecisionError("advisor_unavailable", "Manager referenced unavailable advisor evidence")
                     if decision.get("advisor_disposition") not in {"adopt", "reject"}:
-                        raise ValueError("Manager must explain whether it adopted the advisor result")
+                        raise SupervisionDecisionError("advisor_disposition_missing", "Manager must explain whether it adopted the advisor result")
                 record["decision"] = decision
                 failure_stage = "commit"
                 record["status"] = "issued"
@@ -493,7 +563,12 @@ def supervise(
                     return _deliver(root, event, durable, cancelled_or_expired, interruption_code=cancellation_code)
                 record["status"] = "superseded" if interrupted() or isinstance(exc, SupervisionSuperseded) else "failed"
                 record["error"] = type(exc).__name__
+                record["error_message"] = _short_error(exc)
                 record["failure_stage"] = failure_stage
+                if isinstance(exc, SupervisionDecisionError):
+                    record["error_code"] = exc.code
+                elif failure_stage == "decision":
+                    record["error_code"] = "decision_invalid"
                 if failure_stage == "provider":
                     record.update(_provider_failure_metadata(result, exc))
                 code = interruption_code()
