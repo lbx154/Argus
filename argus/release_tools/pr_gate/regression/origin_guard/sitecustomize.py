@@ -15,6 +15,31 @@ import threading
 import weakref
 from pathlib import Path
 
+# Windows has no O_ACCMODE; its access-mode bits are the same low two bits.
+ACCESS_MODE = getattr(os, "O_ACCMODE", os.O_RDONLY | os.O_WRONLY | os.O_RDWR)
+
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+
+    _command_line_to_argv = ctypes.windll.shell32.CommandLineToArgvW
+    _command_line_to_argv.argtypes = (wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int))
+    _command_line_to_argv.restype = ctypes.POINTER(wintypes.LPWSTR)
+    _local_free = ctypes.windll.kernel32.LocalFree
+    _local_free.argtypes = (wintypes.HLOCAL,)
+
+
+def _command_line_argv(command_line):
+    """Windows Popen audits one command-line string; recover its argv."""
+    count = ctypes.c_int()
+    argv = _command_line_to_argv(command_line, ctypes.byref(count))
+    if not argv:
+        raise ValueError("unparseable Windows command line")
+    try:
+        return [argv[index] for index in range(count.value)]
+    finally:
+        _local_free(ctypes.cast(argv, wintypes.HLOCAL))
+
 
 def _install():
     root = Path(os.environ["PR_GATE_SOURCE_ROOT"]).resolve()
@@ -170,12 +195,15 @@ def _install():
 
     def audit_child(executable, argv, environment, *, record=True):
         try:
-            executable = os.fsdecode(executable)
-            arguments = [os.fsdecode(value) for value in argv]
+            if isinstance(argv, str) and os.name == "nt":
+                arguments = _command_line_argv(argv)
+            else:
+                arguments = [os.fsdecode(value) for value in argv]
+            executable = os.fsdecode(arguments[0] if executable is None else executable)
             supplied = os.environ if environment is None else {
                 os.fsdecode(key): os.fsdecode(value) for key, value in environment.items()
             }
-        except (TypeError, ValueError, AttributeError) as exc:
+        except (TypeError, ValueError, AttributeError, IndexError, OSError) as exc:
             issue(f"untraceable_child_arguments: {exc}")
             return
         if not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?", Path(executable).name):
@@ -224,7 +252,7 @@ def _install():
                 issue(f"untracked_process_operation: {event}")
             elif event == "open":
                 filename, _mode, flags = arguments
-                if flags & os.O_ACCMODE == os.O_WRONLY:
+                if flags & ACCESS_MODE == os.O_WRONLY:
                     return
                 if isinstance(filename, (str, bytes, os.PathLike)):
                     path = Path(os.path.abspath(os.fsdecode(filename)))

@@ -110,7 +110,7 @@ def native(
     audit_native(work, metadata)
     if code or result.reason:
         raise GateError(f"Copilot invocation ended with exit {code} ({result.reason}); inspect the private run log.")
-    tools = run.validate_skill_session(root / "copilot.jsonl", skill_path=str(skill))
+    tools = run.validate_skill_session(root / "copilot.jsonl", skill_path=skill.as_posix())
     return {
         "status": "completed", "isolation": "native", "source_audit": True,
         "observed_tools": tools, "python": sys.version.split()[0],
