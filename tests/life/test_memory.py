@@ -1220,12 +1220,12 @@ def test_a_task_asking_more_cores_than_exist_takes_the_whole_machine(tmp_path, m
     assert claimed is not None and claimed.id == big.id
 
 
-def test_cpu_count_defaults_to_one_and_survives_the_journal(tmp_path, monkeypatch):
+def test_cpu_count_defaults_to_none_reserved_and_survives_the_journal(tmp_path, monkeypatch):
     backlog = _cpu_backlog(tmp_path, monkeypatch, 8)
     plain = backlog.add(BacklogItem.new(title="write", objective="write"))
     wide = backlog.add(BacklogItem.new(title="fit", objective="fit", cpu_count=3))
     rows = {row.id: row for row in LifeMemory.open(tmp_path / "life").backlog.all()}
-    assert rows[plain.id].cpu_count == 1
+    assert rows[plain.id].cpu_count == 0
     assert rows[wide.id].cpu_count == 3
     assert "admission" not in rows[wide.id].to_jsonable()
 
@@ -1243,3 +1243,12 @@ def test_admission_names_the_limit_that_decided():
     assert admission_limit({**base, "running": 2}, 4) == {
         **base, "running": 2, "slots_free": 2, "limit": "slots",
     }
+
+
+def test_tasks_that_declare_no_cores_are_not_capped_by_the_core_count(tmp_path, monkeypatch):
+    # Model-bound tasks mostly wait on calls; only declared cores are held.
+    backlog = _cpu_backlog(tmp_path, monkeypatch, 2)
+    for index in range(4):
+        backlog.add(BacklogItem.new(title=f"t{index}", objective="o", parallel_safe=True))
+    claimed = [backlog.claim_next() for _ in range(4)]
+    assert all(item is not None for item in claimed)

@@ -139,7 +139,7 @@ class TaskSpec:
     # GPUs the task holds while it runs; claimed only when that many are free.
     gpu_count: int = 0
     # CPU cores the task keeps busy; claimed only when that many are free.
-    cpu_count: int = 1
+    cpu_count: int = 0
     # Mission-level role selected by Planner. Empty inherits the campaign
     # vertical chosen by Manager at the front door.
     vertical: str = ""
@@ -1113,7 +1113,7 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                     "non-negative whole number"
                 )
                 continue
-            task_cpus = gpu_count(raw_task, "cpu_count", 1)
+            task_cpus = gpu_count(raw_task, "cpu_count", 0)
             if task_cpus is None:
                 diagnostics.append(
                     f"task {task_index + 1} skipped: cpu_count must be a "
@@ -1149,7 +1149,7 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                         raw_task.get("owns_paths", []), "owns_paths"
                     ),
                     gpu_count=task_gpus,
-                    cpu_count=max(1, task_cpus),
+                    cpu_count=max(0, task_cpus),
                     vertical=text(raw_task, "vertical").strip(),
                 )
             )
@@ -1354,7 +1354,7 @@ def _planner_verdict_from_fields(
                     if path.strip()
                 ],
                 gpu_count=max(0, _key_value_int(row.get("TASK_GPUS", ""))),
-                cpu_count=max(1, _key_value_int(row.get("TASK_CPUS", ""))),
+                cpu_count=max(0, _key_value_int(row.get("TASK_CPUS", ""))),
                 vertical=row.get("TASK_VERTICAL", "").strip(),
             )
         )

@@ -978,16 +978,18 @@ def _usable_cpus() -> int:
 
 
 def task_cpu_count(item: Any, usable: int) -> int:
-    """Cores a task declares, at least one and at most the whole machine.
+    """Cores a task declares, at most the whole machine; 0 when it declares none.
 
-    A task asking for more cores than exist takes the whole machine rather
-    than waiting forever for cores that will never appear.
+    Only a task that declares cores (TASK_CPUS) holds or waits for them; the
+    many tasks that mostly wait on model calls are not capped by the core
+    count. A task asking for more cores than exist takes the whole machine
+    rather than waiting forever for cores that will never appear.
     """
     try:
-        declared = int(getattr(item, "cpu_count", 1) or 1)
+        declared = int(getattr(item, "cpu_count", 0) or 0)
     except (TypeError, ValueError):
-        declared = 1
-    return min(max(1, declared), max(1, usable))
+        declared = 0
+    return min(max(0, declared), max(1, usable))
 
 
 def cpu_reservation(items: Iterable[Any], usable: int) -> int:
@@ -1155,7 +1157,7 @@ class BacklogItem:
     # CPU cores this task (and the background jobs it parks on) keeps busy.
     # A task is claimed only when that many of the usable cores are not
     # declared by other running or parked tasks.
-    cpu_count: int = 1
+    cpu_count: int = 0
     outcome: dict[str, Any] = field(default_factory=dict)
     # Optional durable return receipt; kept separate from public outcome dimensions.
     mission_result: dict[str, Any] | None = None
@@ -1189,7 +1191,7 @@ class BacklogItem:
         parallel_safe: bool = False,
         owns_paths: list[str] | None = None,
         gpu_count: int = 0,
-        cpu_count: int = 1,
+        cpu_count: int = 0,
         acceptance_check: str = "",
         plan_hypothesis: str = "",
         goal_contribution: str = "",
@@ -1233,7 +1235,7 @@ class BacklogItem:
                 if str(path).strip()
             ],
             gpu_count=max(0, int(gpu_count or 0)),
-            cpu_count=max(1, int(cpu_count or 1)),
+            cpu_count=max(0, int(cpu_count or 0)),
             acceptance_check=str(acceptance_check or "").strip(),
             plan_hypothesis=str(plan_hypothesis or "").strip(),
             goal_contribution=str(goal_contribution or "").strip(),
@@ -1339,7 +1341,7 @@ class BacklogItem:
                 if str(path).strip()
             ],
             gpu_count=max(0, int(row.get("gpu_count", 0) or 0)),
-            cpu_count=max(1, int(row.get("cpu_count", 1) or 1)),
+            cpu_count=max(0, int(row.get("cpu_count", 0) or 0)),
             gpu_indices=[
                 int(index)
                 for index in (row.get("gpu_indices", []) or [])

@@ -1572,7 +1572,7 @@ def test_planner_reads_the_cores_a_task_keeps_busy() -> None:
             "TASK_OBJECTIVE=Write it.",
         ])
     )
-    assert [task.cpu_count for task in verdict.new_tasks] == [8, 1]
+    assert [task.cpu_count for task in verdict.new_tasks] == [8, 0]
     payload = parse_planner_payload({
         "project_done": False,
         "reason": "arms fit side by side",
@@ -1585,5 +1585,5 @@ def test_planner_reads_the_cores_a_task_keeps_busy() -> None:
              "scope": "bounded", "cpu_count": "many"},
         ],
     })
-    assert [t.cpu_count for t in payload.new_tasks] == [16, 1]
+    assert [t.cpu_count for t in payload.new_tasks] == [16, 0]
     assert any("task 3 skipped: cpu_count" in d for d in payload.diagnostics)
