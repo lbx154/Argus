@@ -267,3 +267,65 @@ def test_an_inline_answer_never_falls_through_to_dispatch(
     assert "nothing was queued" in result["reply"]
     assert ("No conversational backend" if failure == "missing" else "backend down") in result["reply"]
     assert memory.backlog.all() == []
+
+
+@pytest.mark.parametrize("channel", ["telegram", "feishu"])
+@pytest.mark.parametrize("prefix", ASK_PREFIXES)
+@pytest.mark.parametrize("failure", [False, True])
+def test_chat_router_reuses_intake_memory_and_runner(
+    tmp_path, monkeypatch, channel, prefix, failure,
+) -> None:
+    from types import SimpleNamespace
+
+    from argus.apps import _runtime
+    from argus.core.models import RunnerResult
+    from argus.life.chat.router import CommandRouter
+    from argus.life.memory import LifeMemory
+    from argus.manager import config_intent, front_door
+
+    life = tmp_path / "projects" / "s-router-ask"
+    memory = LifeMemory.open(life)
+    replies = []
+    router = CommandRouter(
+        life_dir=life,
+        transport=SimpleNamespace(channel=channel, send=replies.append),
+    )
+    intake_memory = []
+    builds = []
+
+    def classify(mem, text, state, **kwargs):
+        intake_memory.append(mem)
+        assert state is router._state
+        assert front_door._ensure_manager_runner(state, mem) is backend
+        return None, None, "complex"
+
+    def build_runner(ns):
+        assert ns.manager_memory is intake_memory[0]
+        assert ns.global_root == str(tmp_path)
+        assert ns.manager_session_root == str(life)
+        builds.append(ns)
+        return backend
+
+    def answer(*, prompt, options, run_label):
+        assert run_label == "manager-ask"
+        assert options.force_safe_mode and options.sandbox_mode == "read-only"
+        if failure:
+            raise RuntimeError("backend <offline>")
+        return RunnerResult(exit_code=0, agent_messages=["Ready <now>"])
+
+    backend = SimpleNamespace(run_exec=answer)
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(_runtime, "build_life_runner", build_runner)
+    monkeypatch.setattr(
+        router, "_queue_task", lambda *a, **k: pytest.fail("Explicit asks must not queue work"),
+    )
+
+    router.dispatch(f"{prefix} what is running?")
+
+    assert len(intake_memory) == len(builds) == len(replies) == 1
+    if failure:
+        assert "backend &lt;offline&gt;" in replies[0]
+        assert "\u672a\u6392\u5165\u4efb\u4f55\u4efb\u52a1" in replies[0]
+    else:
+        assert replies == ["Ready &lt;now&gt;"]
+    assert memory.backlog.all() == []

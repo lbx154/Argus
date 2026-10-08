@@ -164,11 +164,13 @@ def _recent_team_replay(
     return None
 
 
-def _answer_inline(sid: str, mem: MemoryBundle, question: str) -> str:
+def _answer_inline(
+    mem: MemoryBundle, question: str, chat_state: dict[str, Any],
+) -> str:
     """Answer *question* with the Manager alone — no backlog.
 
-    Reuse the intake's memory bundle so runner construction retains both the
-    global account context and the project's session root.
+    Reuse the intake's memory and chat state so runner construction retains
+    the global account context, project session root and cached runner.
     Failures propagate to the turn boundary as errors, never as successful
     replies or queued work.
     """
@@ -181,7 +183,6 @@ def _answer_inline(sid: str, mem: MemoryBundle, question: str) -> str:
     from ..roles.prompts.manager import build_quick_reply_prompt
 
     life_dir = mem.project_root
-    chat_state = _chat_state_for(sid)
     runner = _ensure_manager_runner(chat_state, mem)
     if runner is None:
         raise RuntimeError(
@@ -465,9 +466,9 @@ def _manager_message(
         )
         try:
             reply = _answer_inline(
-                sid,
                 mem,
                 compose_message_body(_ask_question, resolved_attachments),
+                chat_state,
             )
         except Exception as exc:  # noqa: BLE001 - report failure without dispatch
             log.exception("ask: inline reply failed")
