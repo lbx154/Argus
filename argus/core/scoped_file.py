@@ -52,10 +52,21 @@ def open_regular_file(path: Path, flags: int = os.O_RDONLY) -> BinaryIO:
 
 
 _REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+# Reparse tags with the name-surrogate bit redirect to another path (symlinks,
+# junctions). Others, such as cloud-sync placeholders, are ordinary files.
+_NAME_SURROGATE_TAG_BIT = 0x20000000
+
+
+def _is_link(info: os.stat_result) -> bool:
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    if not getattr(info, "st_file_attributes", 0) & _REPARSE_POINT:
+        return False
+    return bool(getattr(info, "st_reparse_tag", _NAME_SURROGATE_TAG_BIT) & _NAME_SURROGATE_TAG_BIT)
 
 
 def _reject_link_components(absolute: Path) -> None:
-    """Refuse a path whose parents or leaf are symlinks or reparse points."""
+    """Refuse a path whose parents or leaf are symlinks or junctions."""
     current = Path(absolute.anchor)
     for part in absolute.parts[1:]:
         current = current / part
@@ -63,5 +74,5 @@ def _reject_link_components(absolute: Path) -> None:
             info = os.lstat(current)
         except FileNotFoundError:
             return
-        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & _REPARSE_POINT:
+        if _is_link(info):
             raise ValueError("file path must not traverse a symlink or reparse point")

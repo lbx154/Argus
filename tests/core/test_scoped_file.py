@@ -76,7 +76,7 @@ def test_platform_without_dir_fd_rejects_a_parent_swapped_during_open(tmp_path, 
         open_regular_file(parent / "evidence.txt")
 
 
-def test_platform_without_dir_fd_rejects_a_reparse_point_component(tmp_path, monkeypatch):
+def test_platform_without_dir_fd_rejects_a_junction_but_not_a_cloud_placeholder(tmp_path, monkeypatch):
     from argus.core import scoped_file
 
     _without_dir_fd(monkeypatch)
@@ -86,17 +86,24 @@ def test_platform_without_dir_fd_rejects_a_reparse_point_component(tmp_path, mon
     real_lstat = os.lstat
 
     class _Reparse:
-        def __init__(self, result):
+        def __init__(self, result, tag):
             self._result = result
             self.st_file_attributes = scoped_file._REPARSE_POINT
+            self.st_reparse_tag = tag
 
         def __getattr__(self, name):
             return getattr(self._result, name)
 
+    tag = {"value": 0xA0000003}  # junction (mount point)
+
     def lstat(path, *args, **kwargs):
         result = real_lstat(path, *args, **kwargs)
-        return _Reparse(result) if os.fspath(path) == os.fspath(directory) else result
+        return _Reparse(result, tag["value"]) if os.fspath(path) == os.fspath(directory) else result
 
     monkeypatch.setattr(scoped_file.os, "lstat", lstat)
     with pytest.raises(ValueError, match="symlink or reparse point"):
         open_regular_file(directory / "evidence.txt")
+    # A cloud-sync placeholder is a reparse point too, but not a redirection.
+    tag["value"] = 0x9000001A
+    with open_regular_file(directory / "evidence.txt") as handle:
+        assert handle.read() == b"data"
