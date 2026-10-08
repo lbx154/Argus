@@ -345,26 +345,48 @@ def _front_door_classify(
 _MODEL_SENTINELS = frozenset({"auto", "inherit", "default"})
 
 
+def _target_backends(entry: Any, entries: list[Any]) -> list[str]:
+    """The backend each role this model change targets will run on.
+
+    A backend change in the same message wins over the role's current backend,
+    so ``SET backend ALL copilot; SET model ALL x`` vets ``x`` against Copilot.
+    """
+    from ..core.knobs import resolve_role_backend_with_source
+
+    pending: dict[str, str] = {}
+    for other in entries:
+        if str(getattr(other, "knob", "")) == "backend":
+            for role in (list(other.roles) or list(_ROLE_BACKEND_ENVS)):
+                pending[role] = str(other.value).strip().lower()
+    backends: list[str] = []
+    for role in list(entry.roles) or list(_ROLE_MODEL_ENVS):
+        backend = pending.get(role)
+        if not backend:
+            try:
+                backend = resolve_role_backend_with_source(role, default="codex")[0]
+            except Exception:  # noqa: BLE001 - an unreadable store never blocks a change
+                backend = ""
+        backend = str(backend or "").strip().lower()
+        if backend and backend not in backends:
+            backends.append(backend)
+    return backends
+
+
 def _vet_model_value(
     value: str,
-    model_catalog: Callable[[], Any] | None,
+    backends: list[str],
+    model_catalog: Callable[[str], Any] | None,
     chat_state: dict[str, Any],
 ) -> tuple[str, str | None]:
-    """Check a requested model id against the backend's own model list.
+    """Check a requested model id against each target backend's own model list.
 
-    Returns ``(value_to_write, refusal)``. A refusal lists the closest
-    candidates and asks the operator to confirm; repeating the same id on the
-    next request confirms it (a catalog can lag the provider). With no list
-    available the id is written as given.
+    Returns ``(value_to_write, refusal)``. A refusal names the backend, lists
+    its closest models and asks the operator to confirm; repeating the same id
+    on the next request confirms it (a list can lag the provider). A backend
+    with no list available does not block the change.
     """
     raw = str(value or "").strip()
     if not raw or raw.lower() in _MODEL_SENTINELS or not callable(model_catalog):
-        return raw, None
-    try:
-        catalog = [str(m).strip() for m in (model_catalog() or ()) if str(m).strip()]
-    except Exception:  # noqa: BLE001 - an unreadable list never blocks a change
-        catalog = []
-    if not catalog:
         return raw, None
     from ..core.knobs import normalize_cockpit_knob_value
 
@@ -372,22 +394,33 @@ def _vet_model_value(
         raw = normalize_cockpit_knob_value("ARGUS_SKILL_MODEL", raw)
     except ValueError:
         return raw, None  # not a model id at all: the apply path explains that
-    by_lower = {m.lower(): m for m in catalog}
-    if raw.lower() in by_lower:
-        chat_state.pop("_pending_model_confirm", None)
-        return by_lower[raw.lower()], None
-    if chat_state.pop("_pending_model_confirm", None) == raw.lower():
-        return raw, None
-    chat_state["_pending_model_confirm"] = raw.lower()
-    import difflib
+    canonical = raw
+    for backend in backends:
+        try:
+            catalog = [str(m).strip() for m in (model_catalog(backend) or ()) if str(m).strip()]
+        except Exception:  # noqa: BLE001 - an unreadable list never blocks a change
+            catalog = []
+        if not catalog:
+            continue
+        by_lower = {m.lower(): m for m in catalog}
+        if raw.lower() in by_lower:
+            canonical = by_lower[raw.lower()]
+            continue
+        if chat_state.get("_pending_model_confirm") == raw.lower():
+            continue
+        chat_state["_pending_model_confirm"] = raw.lower()
+        import difflib
 
-    close = difflib.get_close_matches(raw.lower(), list(by_lower), n=5, cutoff=0.3)
-    candidates = [by_lower[m] for m in close] or catalog[:5]
-    return raw, (
-        f"“{raw}” is not in the active backend's model list, so I left the model "
-        f"unchanged. Closest available: {', '.join(candidates)}. Reply with one of "
-        f"these, or ask for “{raw}” again to use it anyway."
-    )
+        close = difflib.get_close_matches(raw.lower(), list(by_lower), n=5, cutoff=0.3)
+        candidates = [by_lower[m] for m in close] or catalog[:5]
+        return raw, (
+            f"“{raw}” is not in the {backend} backend's model list, so I left the "
+            f"model unchanged. Closest available: {', '.join(candidates)}. Reply "
+            f"with one of these, or ask for “{raw}” again to use it anyway."
+        )
+    if chat_state.get("_pending_model_confirm") == raw.lower():
+        chat_state.pop("_pending_model_confirm", None)
+    return canonical, None
 
 
 def _apply_config_intent(
@@ -430,16 +463,24 @@ def _apply_config_intent(
         return True
 
     intents = list(intent) if isinstance(intent, (tuple, list)) else []
+    entries = intents or [intent]
     vetted: list[Any] = []
-    for entry in intents or [intent]:
+    refusals: list[str] = []
+    for entry in entries:
         if str(getattr(entry, "knob", "")) == "model":
-            model_value, refusal = _vet_model_value(entry.value, model_catalog, chat_state)
+            model_value, refusal = _vet_model_value(
+                entry.value, _target_backends(entry, entries), model_catalog, chat_state
+            )
             if refusal is not None:
-                _confirm(refusal)
-                return True
+                refusals.append(refusal)  # the other settings still apply
+                continue
             if model_value != entry.value:
                 entry = type(entry)(knob=entry.knob, roles=entry.roles, value=model_value)
         vetted.append(entry)
+    for refusal in refusals:
+        _confirm(refusal)
+    if not vetted:
+        return True
     if intents:
         intents = vetted
     else:

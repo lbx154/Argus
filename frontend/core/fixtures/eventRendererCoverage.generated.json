@@ -404,8 +404,8 @@
     "tui": {
       "counts": {
         "handled": 101,
-        "hidden": 91,
-        "missing": 1
+        "hidden": 92,
+        "missing": 0
       },
       "fallback": "hide",
       "handled": [
@@ -530,6 +530,7 @@
         "idea.search.started",
         "knowledge.learned",
         "knowledge.recalled",
+        "life.config.parse_failed",
         "life.curator.backend_resolved",
         "life.daemon.ready",
         "life.engineer.backend_resolved",
@@ -604,15 +605,13 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": [
-        "life.config.parse_failed"
-      ]
+      "missing": []
     },
     "web": {
       "counts": {
         "handled": 101,
-        "hidden": 91,
-        "missing": 1
+        "hidden": 92,
+        "missing": 0
       },
       "fallback": "hide",
       "handled": [
@@ -737,6 +736,7 @@
         "idea.search.started",
         "knowledge.learned",
         "knowledge.recalled",
+        "life.config.parse_failed",
         "life.curator.backend_resolved",
         "life.daemon.ready",
         "life.engineer.backend_resolved",
@@ -811,9 +811,7 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": [
-        "life.config.parse_failed"
-      ]
+      "missing": []
     }
   },
   "schema_version": 1

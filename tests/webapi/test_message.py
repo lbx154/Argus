@@ -2866,9 +2866,8 @@ def test_changing_the_default_model_in_chat_is_one_reply_without_tools_or_missio
     ensure = lambda chat_state, mem: SimpleNamespace(manager=_Manager())  # noqa: E731
     monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
     monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
-    monkeypatch.setattr(mission_items, "model_options", lambda _root=None: [
-        {"model": "house-model-2", "source": "backend"},
-        {"model": "house-model-3", "source": "backend"},
+    monkeypatch.setattr(mission_items, "backend_model_ids", lambda _backend, _root=None: [
+        "house-model-2", "house-model-3",
     ])
     monkeypatch.setattr(front_door, "manager_triage", lambda *a, **k: (_ for _ in ()).throw(
         AssertionError("a settings change must not reach the full Manager turn")))

@@ -382,8 +382,10 @@ def _parse_config_decision(line: str | None) -> ConfigDecision:
     seen: set[tuple[str, tuple[str, ...]]] = set()
     for clause in clauses:
         intent = _parse_config_line(clause)
-        if intent is None or (intent.knob in _CONFIG_ROLE_KNOBS and " " in intent.value):
-            # "SET model ALL to X" keeps the filler in the strict value.
+        if intent is None or " " in intent.value:
+            # "SET model ALL to X" / "SET telegram - on for ALL" keep the filler
+            # in the strict value; a multi-word value the lenient pass cannot
+            # pin to one token (e.g. "50 USD") stays as the strict parse had it.
             intent = _parse_config_line_lenient(clause) or intent
         if intent is None:
             return None

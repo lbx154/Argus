@@ -182,7 +182,7 @@ def test_model_outside_the_backend_list_is_not_written(tmp_path, monkeypatch) ->
     monkeypatch.delenv("ARGUS_SKILL_MODEL", raising=False)
     mem = SimpleNamespace(project=SimpleNamespace(root=tmp_path))
     intent = ConfigIntent(knob="model", roles=(), value="house-model-9")
-    catalog = lambda: ["house-model-2", "house-model-3", "other-model"]  # noqa: E731
+    catalog = lambda _backend: ["house-model-2", "house-model-3", "other-model"]  # noqa: E731
     confirmations: list[str] = []
     chat_state: dict = {}
 
@@ -213,6 +213,6 @@ def test_model_in_the_backend_list_is_written(tmp_path, monkeypatch) -> None:
 
     assert _apply_config_intent(
         mem, intent, {}, on_confirm=lambda _line: None,
-        model_catalog=lambda: ["house-model-2", "house-model-3"],
+        model_catalog=lambda _backend: ["house-model-2", "house-model-3"],
     )
     assert read_persisted_knobs()["ARGUS_SKILL_MODEL"] == "house-model-3"
