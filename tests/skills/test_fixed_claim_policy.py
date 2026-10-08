@@ -114,6 +114,21 @@ def test_planner_fragment_never_rewrites_the_claim_and_hands_over_a_brief() -> N
     assert "refuted closes its family" not in text
 
 
+def test_planner_fragment_finishes_the_shared_runner_and_fans_arms_out() -> None:
+    """A scaffold bundled with the first arm, then 'extend the runner, run arm X'
+    per arm, gave every arm the same owner and serialized them."""
+    text = _fragment("planner", "experiment", operation="plan")
+
+    assert "finishes the shared runner" in text
+    assert "every planned arm, baseline and config as an argument" in text
+    assert "per-arm output directory" in text
+    assert "emit them together in one plan as TASK_PARALLEL_SAFE=true tasks" in text
+    assert "only its own output and config paths" in text
+    assert "free mission_slots and parallel_slot" in text
+    assert "chains every arm behind one owner" in text
+    assert "finishes the shared runner" not in _fragment("planner", "idea", operation="plan")
+
+
 def test_reviewer_fragment_reads_the_packet_first_and_refuses_claim_drift() -> None:
     text = _fragment("reviewer", "experiment", operation="evaluate")
 
