@@ -69,7 +69,7 @@ def test_digest_shows_time_block_with_deadline_and_measured_runs(
     assert len(time_lines) == 1
     line = time_lines[0]
     assert "30.0h remaining" in line
-    assert "median" in line and "4.0h over 3" in line
+    assert "median 4.0h over 3" in line
     assert running.id in line
 
 
@@ -82,4 +82,77 @@ def test_digest_time_block_says_when_no_deadline_or_history(tmp_path: Path) -> N
 
     line = next(row for row in note.splitlines() if row.startswith("- time:"))
     assert "no deadline" in line
-    assert "no finished runs" in line
+    assert "no completed missions" in line
+
+
+def test_crashed_missions_do_not_drag_the_measured_median_down(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    backlog = supervisor.memory.backlog
+    _finished(backlog, "train", 5.0)
+    now = time.time()
+    for index in range(6):
+        crash = BacklogItem.new(title=f"crash {index}", objective="start")
+        backlog.add(crash)
+        backlog.update(
+            crash.id, status="failed", started_ts=now - 100, finished_ts=now - 95
+        )
+
+    note = supervisor._planner_current_reality_note()
+
+    line = next(row for row in note.splitlines() if row.startswith("- time:"))
+    assert "median 5.0h over 1" in line
+    assert "6 failed/aborted not counted" in line
+
+
+def test_elapsed_time_falls_back_to_project_creation(tmp_path: Path) -> None:
+    import json
+
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    (supervisor.memory.root / "session.json").write_text(
+        json.dumps({"created": time.time() - 3 * 86400}), encoding="utf-8"
+    )
+
+    note = supervisor._planner_current_reality_note()
+
+    line = next(row for row in note.splitlines() if row.startswith("- time:"))
+    assert "project started 72.0h ago" in line
+
+
+def test_finished_background_jobs_are_measured_separately(tmp_path: Path) -> None:
+    import json
+
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    registry = project / ".argus_external_work"
+    registry.mkdir()
+    now = time.time()
+    for name, hours, outcome in (
+        ("a", 10.0, "completed"),
+        ("b", 14.0, "completed"),
+        ("c", 0.01, "failed: out of memory"),
+    ):
+        (registry / f"{name}.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "work_id": name,
+                    "state": "terminal",
+                    "outcome": outcome,
+                    "started_at": now - hours * 3600 - 60,
+                    "heartbeat_at": now - 60,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    note = supervisor._planner_current_reality_note()
+
+    line = next(row for row in note.splitlines() if row.startswith("- time:"))
+    assert "finished background jobs: median 12.0h over 2" in line

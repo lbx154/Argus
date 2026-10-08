@@ -163,37 +163,61 @@ def _audit_integrity_directive(context: str) -> str:
     )
 
 
-def _changed_artifact_block(working_dir: str | Path | None) -> str:
-    """List workspace files changed or added, so the Reviewer reads artifacts."""
-    import subprocess
+_ARTIFACT_SCAN_SKIP_DIRS = frozenset(
+    {".git", ".argus", "node_modules", "__pycache__", ".venv", "venv", ".cache"}
+)
+_ARTIFACT_SCAN_MAX_ENTRIES = 50_000
 
-    root = Path(working_dir or Path.cwd()).expanduser()
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain=v1", "--untracked-files=all"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+
+def _changed_artifact_block(
+    working_dir: str | Path | None, since_ts: float | None
+) -> str:
+    """List workspace files modified since the round started.
+
+    Mission workspaces are usually not git repositories, so this reads file
+    modification times under the workspace itself rather than version control.
+    Paths are relative to the workspace and never leave it.
+    """
+    if since_ts is None or working_dir is None:
         return ""
-    if result.returncode != 0:
+    root = Path(working_dir).expanduser()
+    if not root.is_dir():
         return ""
-    paths = [
-        line[3:].strip()
-        for line in result.stdout.splitlines()
-        if len(line) >= 4 and not line[3:].strip().startswith(".argus/")
-    ]
-    if not paths:
+    changed: list[tuple[float, str]] = []
+    seen = 0
+    stack = [root]
+    while stack and seen < _ARTIFACT_SCAN_MAX_ENTRIES:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
+            continue
+        for entry in entries:
+            seen += 1
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir():
+                    if entry.name not in _ARTIFACT_SCAN_SKIP_DIRS:
+                        stack.append(Path(entry.path))
+                    continue
+                mtime = entry.stat().st_mtime
+            except OSError:
+                continue
+            if mtime >= since_ts:
+                rel = Path(entry.path).relative_to(root).as_posix()
+                changed.append((mtime, rel))
+    if not changed:
         return ""
+    changed.sort(reverse=True)
+    paths = [rel for _, rel in changed]
     shown = ", ".join(paths[:20])
     if len(paths) > 20:
         shown += f", +{len(paths) - 20} more"
     return (
-        "\nChanged workspace artifacts (open the ones a claim rests on; the "
-        f"account above is a summary): {sanitize_model_visible_text(shown)}\n"
+        "\nWorkspace files modified during this round, newest first (open the "
+        "ones a claim rests on; the account above is a summary): "
+        f"{sanitize_model_visible_text(shown)}\n"
     )
 
 
@@ -277,6 +301,7 @@ def render_reviewer_prompt(
     vertical_state_root: str | Path | None = None,
     vertical: str = "",
     workflow_mode: str | None = None,
+    round_started_ts: float | None = None,
 ) -> tuple[str, str]:
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``."""
     from ...core.project import resolve_project_root
@@ -605,7 +630,7 @@ def render_reviewer_prompt(
     # Given only the Engineer's summary, reviewers missed evaluation on the
     # training split; given the artifacts, they caught it. Point at the files
     # this round touched so the Reviewer opens them rather than the account.
-    artifact_block = _changed_artifact_block(working_dir)
+    artifact_block = _changed_artifact_block(working_dir, round_started_ts)
     # Source handoff is a workspace fact, not another unconditional role rule.
     # Keep ordinary reviews small and the static prefix stable across projects.
     source_block = ""

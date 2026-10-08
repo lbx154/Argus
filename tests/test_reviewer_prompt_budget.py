@@ -361,14 +361,9 @@ def test_reviewer_checks_metric_split_and_requested_deliverable(monkeypatch):
     assert "operator's own words" in flat
 
 
-def test_reviewer_receives_changed_artifact_paths(tmp_path, monkeypatch):
-    import subprocess
-
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    (tmp_path / "eval_results.json").write_text("{}", encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
+def _artifact_prompt(workdir, round_started_ts):
     r = Reviewer(runner=None, skill_store=None)
-    prompt = r._build_prompt(
+    return r._build_prompt(
         objective="evaluate the model",
         operator_messages=[],
         planner_review_instruction="",
@@ -377,7 +372,40 @@ def test_reviewer_receives_changed_artifact_paths(tmp_path, monkeypatch):
         main_summary="accuracy 0.93",
         main_error=None,
         prior_checkpoint={},
-        working_dir=str(tmp_path),
+        working_dir=str(workdir),
+        round_started_ts=round_started_ts,
     )
 
-    assert "eval_results.json" in prompt
+
+def test_reviewer_receives_files_modified_this_round_without_git(tmp_path):
+    """Mission workspaces are not git repositories; the list must still appear,
+    scoped to the workspace and to this round."""
+    import os
+    import time
+
+    workspace = tmp_path / "my project"
+    (workspace / "results").mkdir(parents=True)
+    old = workspace / "train.py"
+    old.write_text("x", encoding="utf-8")
+    hidden = workspace / ".argus" / "state.json"
+    hidden.parent.mkdir()
+    hidden.write_text("{}", encoding="utf-8")
+    long_ago = time.time() - 3600
+    os.utime(old, (long_ago, long_ago))
+    round_start = time.time() - 60
+    (workspace / "results" / "eval results.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "outside.txt").write_text("x", encoding="utf-8")
+
+    prompt = _artifact_prompt(workspace, round_start)
+
+    line = next(row for row in prompt.splitlines() if "modified during this round" in row)
+    assert "results/eval results.json" in line
+    assert "train.py" not in line
+    assert ".argus" not in line
+    assert "outside.txt" not in line
+
+
+def test_reviewer_artifact_list_absent_without_round_start(tmp_path):
+    (tmp_path / "eval.json").write_text("{}", encoding="utf-8")
+
+    assert "modified during this round" not in _artifact_prompt(tmp_path, None)
