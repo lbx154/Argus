@@ -238,10 +238,10 @@ class CopilotAcpClient:
         # Startup is a transport handshake, not a model-thinking turn.
         startup_timeout_s: float = 30.0,
     ) -> None:
-        from ..trial.client import trial_model_options
+        from ._sandbox_commands import copilot_model_options
 
         self._agent_bin = agent_bin
-        self._model, self._reasoning_effort = trial_model_options(model, reasoning_effort)
+        self._model, self._reasoning_effort = copilot_model_options(model, reasoning_effort)
         self._lean = bool(lean)
         self._read_only = bool(read_only)
         self._add_dirs = tuple(str(path) for path in add_dirs if str(path).strip())

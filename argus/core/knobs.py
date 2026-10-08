@@ -140,10 +140,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "auto", "model for the L2 reviewer; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_SUPERVISOR_MODEL", "auto", "model for supervised subagent health decisions; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "auto", "model for the L4 planner; auto uses the selected backend's default", "models", cockpit=True),
-    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on copilot, planner model otherwise; set an id to override", "models"),
-    Knob("ARGUS_SKILL_REWRITE_MODEL", "auto", "interactive prompt rewrite model: gpt-5.5 on copilot, Manager model otherwise; set an id to override", "models"),
+    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on copilot (follows an environment model of auto), planner model otherwise; set an id to override", "models"),
+    Knob("ARGUS_SKILL_REWRITE_MODEL", "auto", "interactive prompt rewrite model: gpt-5.5 on copilot (follows an environment model of auto), Manager model otherwise; set an id to override", "models"),
     Knob("ARGUS_SKILL_MANAGER_REPLY_MODEL", "inherit", "operator-facing Manager SELF model; inherit uses the configured Manager/shared route model", "models", cockpit=True),
-    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on copilot, Manager model otherwise", "models"),
+    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on copilot (follows an environment model of auto), Manager model otherwise", "models"),
     Knob("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "low", "reasoning effort for the LLM-only front-door and STEER confirmation", "models"),
     # --- reasoning effort ---
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "high", "manager reasoning effort", "reasoning", cockpit=True),
@@ -191,7 +191,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_RESEARCH_SPEC_CHECKS", "on", "research vertical: after each Engineer round the host runs the project's own tests/spec (and tests/parity) suite with zero model tokens and shows the outcome to the Reviewer and next Engineer round as evidence, never as a gate; off disables", "mission"),
     Knob("ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS", "600", "research vertical: wall-clock limit for one host-run spec check (30-3600 seconds); the whole process group is killed and the timeout reported as evidence", "mission"),
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
-    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-5.4-mini on copilot, planner model otherwise", "mission"),
+    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-5.4-mini on copilot (follows an environment model of auto), planner model otherwise", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Engineer turn; disabled by default", "mission"),
     Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
@@ -978,6 +978,23 @@ def resolve_task_route_model(
     return fallback if value.lower() in _AUTO_MODEL_SENTINELS else value
 
 
+def _main_model_requested_auto(role_env: str, env: Mapping[str, str]) -> bool:
+    """Whether the environment explicitly asks the role's model to be automatic.
+
+    Only the process environment counts: the cockpit stores ``auto`` as the
+    ordinary default, so a persisted ``auto`` must keep today's cheap-route
+    behaviour. The role-specific variable outranks the shared one, matching
+    :func:`resolve_role_model`.
+    """
+    for name in (role_env, "ARGUS_SKILL_MODEL"):
+        if not name:
+            continue
+        value = str(env.get(name, "") or "").strip()
+        if value:
+            return value.lower() in _AUTO_MODEL_SENTINELS
+    return False
+
+
 def resolve_cheap_route_model(
     *,
     knob: str,
@@ -997,7 +1014,9 @@ def resolve_cheap_route_model(
     for ``gpt-5.4-mini`` and all four routes hard-failed, no matter how
     carefully the operator had configured Argus's documented model knobs.
 
-    Precedence: an explicit knob value wins; Copilot gets ``catalog_default``;
+    Precedence: an explicit knob value wins; Copilot gets ``catalog_default``
+    unless the environment sets the role's model (or the shared model) to
+    ``auto``, in which case the route follows that automatic choice too;
     Codex and provider-agnostic backends fall back to the role's own model.
     Codex may authenticate through a ChatGPT account whose catalog does not
     include Argus's historical cheap model ids.
@@ -1039,6 +1058,16 @@ def resolve_cheap_route_model(
     if backend_name != "codex" and backend_uses_openai_catalog(
         backend_name, env=env_map,
     ):
+        if _main_model_requested_auto(role_env, env_map):
+            # The operator asked this process to let the backend choose (e.g.
+            # a Copilot token that can only use automatic selection). A fixed
+            # small id would be rejected there, so the side route follows.
+            return resolve_role_model(
+                role,
+                role_env=role_env,
+                backend=backend_name,
+                env=env_map,
+            )
         return catalog_default
     return resolve_role_model(
         role,

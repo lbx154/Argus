@@ -138,6 +138,9 @@ class _StreamState:
         default_factory=lambda: deque(maxlen=_TERMINAL_STDERR_LINES)
     )
     tool_activity_observed: bool = False
+    # Copilot persists a session only once it emits a durable (non-ephemeral)
+    # event; startup-only ephemeral events leave nothing to resume.
+    provider_session_observed: bool = False
     running_tool: str = ""
     usage_model: str = ""
     watchdog_terminated: bool = False
@@ -193,6 +196,7 @@ class RunExecMixin:
         )
         if spawn_failure is not None:
             return spawn_failure
+        prebound = None if resume_thread_id else self._prebound_session_id(options)
         try:
             state = self._stream_turn_output(
                 process=process,
@@ -202,11 +206,25 @@ class RunExecMixin:
                 # A new Copilot session is already bound to the identity the
                 # CLI was given, so a watchdog kill, timeout, or missing
                 # terminal ``result`` no longer loses the session (#129).
-                thread_id=resume_thread_id or self._prebound_session_id(options),
+                thread_id=resume_thread_id or prebound,
             )
-            return self._finalize_turn_result(
+            result = self._finalize_turn_result(
                 process=process, command=command, options=options, state=state
             )
+            if (
+                prebound
+                and result.thread_id == prebound
+                and not result.turn_completed
+                and not state.watchdog_terminated
+                and process.returncode not in (None, 0)
+                and not state.provider_session_observed
+            ):
+                # The CLI exited on its own before it created the session (a
+                # rejected model, say): the pre-bound id names nothing, and
+                # resuming it fails with "No session ... matched" on every
+                # later call. A watchdog kill keeps the identity (#129).
+                result.thread_id = None
+            return result
         finally:
             # Includes callback/reader/setup exceptions. Windows ownership is
             # handle-based and remains valid even after the provider exits.
@@ -706,6 +724,8 @@ class RunExecMixin:
                     if event is None:
                         continue
                     state.json_event_count += 1
+                    if not event.get("ephemeral"):
+                        state.provider_session_observed = True
                     ends_provider_turn = self._event_ends_provider_turn(event)
                     has_tool_activity = self._event_has_tool_activity(event)
                     # Backend-neutral model progress: a codex turn/item event,
