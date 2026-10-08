@@ -596,6 +596,7 @@
 .argus-map .map-progress i[data-bucket="question"] { background: var(--pig-gamboge); }
 .argus-map .map-progress i[data-bucket="failed"] { background: var(--pig-vermilion); }
 .argus-map .map-progress i[data-bucket="review_unavailable"] { background: var(--pig-ochre); }
+.argus-map .map-progress i[data-bucket="held"] { background: var(--pig-ochre); opacity: .6; }
 
 .argus-map .map-final-review {
   display: flex;

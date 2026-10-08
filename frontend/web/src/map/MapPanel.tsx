@@ -9,7 +9,7 @@ import { Activity, PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
 import type { MapSend, DispatchObserver } from './submission';
-import { attentionReason, splitDraft } from './presentation';
+import { attentionSummary, projectBrief, splitDraft } from './presentation';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
 import './motion.css';
@@ -977,20 +977,22 @@ export function MapCanvas({
   // a failed task that also carries a question.
   const tally = useMemo(() => {
     const ended = new Set(scene.cards.filter((card) => card.completionScope).map((card) => card.task.id));
-    const buckets = { done: 0, ended: 0, running: 0, question: 0, review_unavailable: 0, failed: 0, other: 0 };
+    const buckets = { done: 0, ended: 0, running: 0, question: 0, review_unavailable: 0, held: 0, failed: 0, other: 0 };
     for (const task of data.tasks) {
       if (ended.has(task.id)) buckets.ended++;
       else if (task.status === "done") buckets.done++;
       else if (ACTIVE.has(task.status)) buckets.running++;
       else if (task.pending_question) buckets.question++;
       else if (statusKey(task) === "review_unavailable") buckets.review_unavailable++;
-      else if (statusKey(task) === "held") buckets.other++;
+      else if (statusKey(task) === "held") buckets.held++;
       else if (task.status === "failed") buckets.failed++;
       else buckets.other++;
     }
     return buckets;
   }, [data.tasks, scene.cards]);
   const complete = tally.done;
+  const brief = useMemo(() => data.tasks.some((task) => task.turn_kind !== "qa" && task.kind !== "turn")
+    ? projectBrief(data.tasks, data.events, zh) : null, [data.tasks, data.events, zh]);
   const focus = (id: string) => {
     setTraceId(null);
     setFocusFeedback("");
@@ -1134,6 +1136,13 @@ export function MapCanvas({
         {copy.generation_error.code === 'cost_unreconciled' && (zh
           ? ' 调用费用待对账，并非预算耗尽。' : ' Provider usage awaits reconciliation, not budget exhaustion.')}
       </div>}
+      {data.kind === "live" && !replaying && brief && (
+        <dl className="map-brief" aria-label={zh ? "项目简报" : "Project brief"}>
+          <div><dt>{zh ? "目标" : "Goal"}</dt><dd title={brief.goal}>{brief.goal}</dd></div>
+          <div><dt>{zh ? "结论" : "Conclusion"}</dt><dd>{brief.conclusion}</dd></div>
+          <div><dt>{zh ? "下一步" : "Next"}</dt><dd>{brief.next}</dd></div>
+        </dl>
+      )}
       {/* The second header line: one sentence on where the work stands, and,
           when something waits on the reader, a link straight to it. */}
       <div className="map-status-row">
@@ -1141,7 +1150,7 @@ export function MapCanvas({
             it in words: the eye takes the proportion, the sentence the detail. */}
         {data.tasks.length > 0 && (
           <span className="map-progress" aria-hidden="true">
-            {(["done", "ended", "running", "question", "review_unavailable", "failed", "other"] as const).map((bucket) =>
+            {(["done", "ended", "running", "question", "review_unavailable", "held", "failed", "other"] as const).map((bucket) =>
               tally[bucket] > 0 ? <i key={bucket} data-bucket={bucket} style={{ flexGrow: tally[bucket] }} /> : null)}
           </span>
         )}
@@ -1154,6 +1163,7 @@ export function MapCanvas({
               complete,
               ended: tally.ended,
               reviewUnavailable: tally.review_unavailable,
+              held: tally.held,
               running: tally.running,
               pending: composer.pending,
               paused,
@@ -1205,7 +1215,14 @@ export function MapCanvas({
       {camera.detailed && attentionIndex >= 0 && (
         <div className="map-attention-detail" role="status">
           <strong>{zh ? "待处理" : "Needs attention"} {attentionIndex + 1} / {attention.length}</strong>
-          <p tabIndex={0}>{attentionReason(attention[attentionIndex], data.events, zh)}</p>
+          {(() => {
+            const summary = attentionSummary(attention[attentionIndex], data.events, zh);
+            return <div tabIndex={0}>
+              <p>{summary.reason}</p>
+              <p>{summary.next}</p>
+              {summary.detail && <details><summary>{zh ? "原始记录" : "Recorded words"}</summary><p>{summary.detail}</p></details>}
+            </div>;
+          })()}
         </div>
       )}
       {tracedTask && dependencies && (

@@ -1,4 +1,5 @@
 import type { Dataset, MapEvent, MapTask } from "./model";
+import { ACTIVE, isStageHold, latestCertifiedTask, statusKey } from "./model";
 import type { SubmapStep } from "./submap";
 import { humanizeHarnessNote, readableRecord } from "./submap";
 
@@ -20,6 +21,82 @@ export function attentionReason(task: MapTask, events: MapEvent[], zh: boolean):
   const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
   return note.summary || prose ||
     (zh ? "这项任务没有完成，记录里没有写明原因。" : "This task did not finish, and the record does not say why.");
+}
+
+/** The recorded words, stripped of the harness prefix; shown as detail. */
+function recordedDetail(task: MapTask): string {
+  return (task.last_error || "").replace(/^manager stage (?:hold|rollback):\s*/i, "").trim();
+}
+
+/** What waits on the reader, as a short reason and next step in the reader's
+ * language, with the agent's own (possibly other-language) words kept apart
+ * as detail rather than shown as the headline. */
+export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean): { reason: string; next: string; detail: string } {
+  if (task.pending_question) return {
+    reason: task.pending_question,
+    next: zh ? "下一步：回答这个问题，团队才会继续。" : "Next: answer this question so the team can continue.",
+    detail: "",
+  };
+  if (isStageHold(task)) return {
+    reason: zh
+      ? "阶段暂停：这一轮工作已审查，但 Manager 判断当前阶段还不能推进。"
+      : "Stage on hold: this round was reviewed, but the Manager judged the stage cannot advance yet.",
+    next: zh
+      ? "下一步：等待团队按暂停原因安排后续工作；如方向不对，可在对话里直接说明。"
+      : "Next: the team plans follow-up work for the hold reason; if the direction is wrong, say so in the conversation.",
+    detail: recordedDetail(task),
+  };
+  const reason = attentionReason(task, events, zh);
+  const detail = recordedDetail(task);
+  return {
+    reason: zh ? `执行失败：${reason}` : `Execution failed: ${reason}`,
+    next: zh ? "下一步：查看原因后重试，或在对话里调整任务。" : "Next: check the reason, then retry or adjust the task in the conversation.",
+    detail: detail && !reason.includes(detail) ? detail : "",
+  };
+}
+
+const clip = (text: string, size = 80) => text.length > size ? `${text.slice(0, size)}…` : text;
+
+/** Three lines an outsider can read: the current goal, what has been
+ * concluded (only an acceptance still standing counts), and what comes next. */
+export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean): { goal: string; conclusion: string; next: string } {
+  const work = tasks.filter((task) => task.turn_kind !== "qa" && task.kind !== "turn");
+  const byTime = [...work].sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
+  const latest = byTime[0];
+  const goal = latest ? clip((latest.objective || latest.title).trim()) : (zh ? "还没有任务" : "No task yet");
+  const accepted = latestCertifiedTask(tasks, events);
+  const label = (task: MapTask) => {
+    const key = statusKey(task);
+    return ({
+      held: zh ? "阶段暂停" : "stage on hold",
+      failed: zh ? "执行失败" : "execution failed",
+      review_unavailable: zh ? "审查异常" : "review error",
+      done: zh ? "已完成" : "done",
+      running: zh ? "进行中" : "running",
+      pending: zh ? "待开始" : "planned",
+      question: zh ? "等你回答" : "waiting on you",
+      paused: zh ? "已暂停" : "paused",
+    } as Record<string, string>)[key] || key;
+  };
+  const conclusion = accepted
+    ? zh ? `已通过验收：${clip(accepted.title, 60)}` : `Accepted: ${clip(accepted.title, 60)}`
+    : latest
+      ? zh ? `尚无通过验收的最终结论；最近一项：${label(latest)}（${clip(latest.title, 40)}）`
+        : `No accepted conclusion yet; latest task: ${label(latest)} (${clip(latest.title, 40)})`
+      : zh ? "尚无结论" : "No conclusion yet";
+  const running = work.find((task) => ACTIVE.has(task.status));
+  const waiting = byTime.find((task) => ["question", "held", "failed", "review_unavailable"].includes(statusKey(task)));
+  const queued = [...work].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0)).find((task) => statusKey(task) === "pending");
+  const next = running
+    ? zh ? `正在进行：${clip(running.title, 60)}` : `In progress: ${clip(running.title, 60)}`
+    : waiting && waiting === latest
+      ? attentionSummary(waiting, events, zh).next
+      : queued
+        ? zh ? `下一步：${clip(queued.title, 60)}` : `Next: ${clip(queued.title, 60)}`
+        : accepted
+          ? zh ? "没有排定的后续工作。" : "No further work is scheduled."
+          : zh ? "下一步：没有排定的任务，可在对话里给出方向。" : "Next: nothing is scheduled; give a direction in the conversation.";
+  return { goal, conclusion, next };
 }
 
 /** Background explanation of recorded work, never an additional research result. */

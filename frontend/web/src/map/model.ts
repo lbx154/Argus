@@ -247,7 +247,7 @@ export function statusKey(task: MapTask): string {
   // The Manager kept the stage open after a reviewed attempt: the work is
   // waiting on the next step, not broken. The backlog still records it as
   // failed so retry accounting is unchanged; only the reading differs.
-  if (task.status === "failed" && task.outcome?.stage_certification === "not_certified") return "held";
+  if (task.status === "failed" && isStageHold(task)) return "held";
   if (task.status.startsWith("paused") || task.status === "blocked")
     return "paused";
   return [
@@ -267,6 +267,15 @@ export function statusKey(task: MapTask): string {
  * says "the project is done" only until work starts again: once any mission
  * starts after it (a new goal, an operator redirect, a retry of the same task),
  * the earlier acceptance describes a past state and must not headline the map. */
+/** The Manager kept this stage open. Read from the current outcome when a
+ * terminal event bound one; otherwise from the backlog row's own error, which
+ * the settlement writes in the same update that sets ``failed`` and so always
+ * describes the current attempt. */
+export function isStageHold(task: MapTask): boolean {
+  if (task.outcome?.stage_certification === "not_certified") return true;
+  return !task.outcome?.execution_status && /^manager stage hold:/i.test(task.last_error || "");
+}
+
 export function latestCertifiedTask(tasks: MapTask[], events: MapEvent[]): MapTask | undefined {
   const reopenedAfter = (ts: number) => events.some((event) =>
     event.type === "life.mission.started" && event.ts > ts);
