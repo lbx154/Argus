@@ -81,8 +81,15 @@ def _isolate_argus_state_roots(
     # Argus session, child-env tests inherit the real worker home and stop
     # exercising the "no explicit home was chosen" path. Start from a clean slate;
     # a test that needs a value sets it itself.
-    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_TEAM_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
+    # Trial configuration also sets plural deployment defaults in-process.
+    # Without clearing them, a later ordinary WebAPI test installs real plugins.
+    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_TEAM_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN_", "ARGUS_PLUGINS_", "ARGUS_VERTICALS_", "ARGUS_CRYSTALPILOT_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
         monkeypatch.delenv(name, raising=False)
+    # Explicit empty deployments also prevent setdefault() in an entry point
+    # from silently turning an ordinary test into a real dependency installer.
+    # Deployment/default tests opt in themselves after this fixture runs.
+    monkeypatch.setenv("ARGUS_PLUGINS_PREINSTALL", "")
+    monkeypatch.setenv("ARGUS_VERTICALS_PREINSTALL", "")
     monkeypatch.delenv("COPILOT_HOME", raising=False)
     # The life-worker boot path setdefault()s the workbench host root into
     # os.environ in-process; a test that booted a worker would otherwise hand

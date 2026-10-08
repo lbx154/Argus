@@ -82,7 +82,7 @@ def test_workbench_can_browse_open_and_upload_its_own_data(hosted_plugin):
 
 
 @pytest.mark.parametrize("escape", ["absolute", "traversal", "symlink"])
-def test_hosted_folder_and_project_entry_cannot_escape_account(hosted_plugin, tmp_path, escape):
+def test_hosted_folder_and_project_entry_cannot_escape_account(hosted_plugin, tmp_path, escape, request):
     client, workspace, calls = hosted_plugin
     outside = tmp_path / "other-account"
     outside.mkdir()
@@ -90,6 +90,7 @@ def test_hosted_folder_and_project_entry_cannot_escape_account(hosted_plugin, tm
     if escape == "traversal":
         path = str(workspace / ".." / ".." / "other-account")
     elif escape == "symlink":
+        request.getfixturevalue("require_symlink_support")
         link = workspace / "linked-account"
         link.symlink_to(outside, target_is_directory=True)
         path = str(link / "sample")
