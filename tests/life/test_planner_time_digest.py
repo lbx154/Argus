@@ -124,6 +124,54 @@ def test_elapsed_time_falls_back_to_project_creation(tmp_path: Path) -> None:
     assert "project started 72.0h ago" in line
 
 
+def test_split_memory_daemon_reads_project_creation_from_the_project(
+    tmp_path: Path,
+) -> None:
+    """Web and CLI daemons hold split memory whose ``root`` is the shared home.
+
+    The project's session record lives under the project's own state
+    directory, so the elapsed-time anchor must be read from there.
+    """
+    import json
+
+    from argus.life.memory import GlobalMemory, MemoryBundle, ProjectMemory
+
+    global_root = tmp_path / "home"
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    project = ProjectMemory.open("s-clock", label="s-clock", global_root=global_root)
+    memory = MemoryBundle(
+        global_mem=GlobalMemory.open(global_root),
+        project=project,
+        project_worktree=workspace,
+    )
+    memory.init()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=object(),
+        sink=JsonlEventSink(None, life_dir=project.root, verbosity="full"),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(),
+            continuous=True,
+            continuous_objective="train and evaluate",
+            open_ended=True,
+            project_worktree=workspace,
+            artifact_root=workspace,
+            project_state_dir=project.root,
+        ),
+    )
+    persist_vertical(workspace, "software", workflow_mode="direct")
+    (project.root / "session.json").write_text(
+        json.dumps({"created": time.time() - 2 * 86400}), encoding="utf-8"
+    )
+    assert not (global_root / "session.json").exists()
+
+    note = supervisor._planner_current_reality_note()
+
+    line = next(row for row in note.splitlines() if row.startswith("- time:"))
+    assert "project started 48.0h ago" in line
+
+
 def test_finished_background_jobs_are_measured_separately(tmp_path: Path) -> None:
     import json
 

@@ -214,7 +214,7 @@ class PlannerOrchestrationMixin:
         time_line = _planner_time_line(
             pipeline,
             backlog_rows,
-            project_created_ts=_project_created_ts(getattr(self.memory, "root", None)),
+            project_created_ts=_project_created_ts(self._project_state_root()),
             background_jobs=_finished_background_job_hours(project_root),
         )
 
