@@ -17,11 +17,16 @@ from ..core.knobs import (
 )
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
-from ..core.progress_step import REPLY_KINDS, describe_progress_step
+from ..core.progress_step import (
+    REPLY_KINDS,
+    ProgressDeduper,
+    ProgressTally,
+    describe_progress_step,
+)
 
 # Structured fields of one observable agent action that the cockpit can use
 # beyond the rendered label: which tool, which call, and how it ended.
-_PHASE_META_KEYS = ("tool_name", "call_id", "tool_kind", "status", "exit_code", "output_excerpt")
+_PHASE_META_KEYS = ("item_id", "tool_name", "call_id", "tool_kind", "status", "exit_code", "output_excerpt")
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.secret_guard import known_secret_values, redact_secrets_record
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -427,6 +432,8 @@ class SelfReplyMixin:
         class _PhaseSink:
             def __init__(self, inner: EventSink) -> None:
                 self._inner = inner
+                self._dedupe = ProgressDeduper()
+                self.tally = ProgressTally()
 
             def handle_event(self, event: dict[str, Any]) -> None:
                 safe_event = _redact_live_event(event)
@@ -442,6 +449,10 @@ class SelfReplyMixin:
                     _phase(f"正在使用 {safe_event['vertical']} 领域流程…", kind=event_type)
                 elif event_type == "engineer.progress" and not is_reply:
                     label, detail = describe_progress_step(safe_event)
+                    self.tally.observe(safe_event)
+                    if self._dedupe.is_repeat(safe_event, label):
+                        self._inner.handle_event(safe_event)
+                        return
                     meta = {
                         key: safe_event[key]
                         for key in _PHASE_META_KEYS
@@ -847,10 +858,16 @@ class SelfReplyMixin:
         def _self_inactivity(snapshot: Any) -> str | None:
             try:
                 idle = int(getattr(snapshot, "idle_seconds", 0) or 0)
+                tally = getattr(sink, "tally", None)
+                text = (
+                    f"仍在进行：{tally.summary()}"
+                    if isinstance(tally, ProgressTally)
+                    else f"仍在进行，已有 {idle} 秒没有新的输出…"
+                )
                 sink.handle_event({
                     "type": "engineer.progress",
                     "kind": "codex_idle",
-                    "text": f"模型还在运行，已有 {idle} 秒没有新的输出…",
+                    "text": text,
                 })
             except Exception:  # noqa: BLE001
                 pass

@@ -20,7 +20,12 @@ step was useful, on-track, or complete — that stays with the agent.
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import time
 from typing import Any
+from urllib.parse import urlparse
 
 from .secret_guard import redact_secrets_text
 
@@ -79,6 +84,98 @@ def _tool_label(text: str) -> tuple[str, str]:
     return _first_line(body), ""
 
 
+_INTERNAL_FILE = "Argus 内部文件"
+
+_READ_TOOLS = frozenset({"view", "read", "read_file", "readfile", "cat", "open", "open_file", "ls", "list_dir"})
+_SEARCH_TOOLS = frozenset({
+    "grep", "glob", "search", "rg", "find", "web_search", "websearch", "search_files",
+    "file_search", "codebase_search",
+})
+_FETCH_TOOLS = frozenset({"fetch", "web_fetch", "webfetch", "browse", "open_url", "http_get", "curl"})
+_EDIT_TOOLS = frozenset({
+    "edit", "write", "write_file", "apply_patch", "create", "create_file", "str_replace",
+    "str_replace_editor", "patch", "multiedit", "multi_edit", "edit_file", "notebookedit",
+})
+_PATH_KEYS = ("path", "file_path", "filePath", "file", "filename", "target_file", "notebook_path")
+_QUERY_KEYS = ("query", "pattern", "q", "regex", "glob", "search", "prompt")
+_URL_KEYS = ("url", "uri", "href")
+_PATCH_FILE = re.compile(r"\*\*\* (?:Update|Add|Delete) File:\s*(\S+)")
+
+
+def _short_name(path: str, workspace: str = "") -> str:
+    """Return a path the operator can read: a basename, never an absolute path.
+
+    Paths outside the active workspace are Argus' own plumbing (session
+    stores, skill libraries); they are named as such rather than spelled out.
+    """
+    text = str(path or "").strip().strip("'\"")
+    if not text:
+        return ""
+    if os.path.isabs(text) or text.startswith("~"):
+        root = str(workspace or "").rstrip("/")
+        if root and not (text == root or text.startswith(root + "/")):
+            return _INTERNAL_FILE
+    return os.path.basename(text.rstrip("/")) or text
+
+
+def _parse_args(args: str) -> Any:
+    try:
+        return json.loads(args)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_value(payload: Any, keys: tuple[str, ...]) -> str:
+    if isinstance(payload, dict):
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
+def _tool_verb(name: str) -> str:
+    """Classify a tool name into one of: read / search / fetch / edit / ''."""
+    key = name.strip().lower().replace("-", "_")
+    key = key.rsplit(".", 1)[-1].rsplit("__", 1)[-1]
+    if key in _READ_TOOLS:
+        return "read"
+    if key in _SEARCH_TOOLS or "search" in key or "grep" in key:
+        return "search"
+    if key in _FETCH_TOOLS or "fetch" in key:
+        return "fetch"
+    if key in _EDIT_TOOLS or "patch" in key or key.startswith(("edit", "write")):
+        return "edit"
+    return ""
+
+
+def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
+    """"Verb + object" for one tool call, with no raw JSON and no absolute path."""
+    verb = _tool_verb(name)
+    payload = _parse_args(args)
+    path = _first_value(payload, _PATH_KEYS)
+    if verb == "edit" and not path:
+        match = _PATCH_FILE.search(args or "")
+        if match:
+            path = match.group(1)
+    if verb == "read":
+        target = _short_name(path, workspace)
+        return f"查阅 {target}" if target else "查阅文件"
+    if verb == "search":
+        query = _first_value(payload, _QUERY_KEYS)
+        if not query and payload is None and args and "{" not in args:
+            query = args
+        return f"搜索：{_clip(query, 48)}" if query else "搜索"
+    if verb == "fetch":
+        url = _first_value(payload, _URL_KEYS) or (args if payload is None else "")
+        host = urlparse(url.strip()).netloc if url else ""
+        return f"读取 {host}" if host else "读取网页"
+    if verb == "edit":
+        target = _short_name(path, workspace)
+        return f"修改 {target}" if target else "修改文件"
+    return f"调用 {name}"
+
+
 def describe_progress_step(event: Any) -> tuple[str, str]:
     """Return ``(label, detail)`` describing one observable agent action.
 
@@ -108,9 +205,10 @@ def describe_progress_step(event: Any) -> tuple[str, str]:
         if kind in {"tool_use", "tool_call"}:
             name, args = _tool_label(raw_text)
             if name:
-                label = _clip(f"⚙ {name}" + (f" · {_clip(args, 48)}" if args else ""), _LABEL_LIMIT)
-                detail = _clip(args, _DETAIL_LIMIT)
-                return label, "" if not detail or detail in label else detail
+                workspace = str(event.get("workspace") or event.get("cwd") or "")
+                label = _clip(_humane_tool_label(name, args, workspace), _LABEL_LIMIT)
+                # The raw arguments stay available in the (collapsed) detail.
+                return label, _clip(f"{name}: {args}" if args else "", _DETAIL_LIMIT)
             return summary or "using a tool", ""
 
         if kind == "file_change":
@@ -152,4 +250,84 @@ def describe_progress_step(event: Any) -> tuple[str, str]:
         return "working", ""
 
 
-__all__ = ["REPLY_KINDS", "describe_progress_step", "strip_shell_wrapper"]
+class ProgressDeduper:
+    """Drop repeated start/complete renders of the same step.
+
+    Backends report one tool call twice (started, then completed). Keyed by
+    ``item_id``/``call_id``, a repeat with an unchanged label is redundant; a
+    changed label (for example a failure marker) is an in-place update.
+    """
+
+    def __init__(self) -> None:
+        self._seen: dict[str, str] = {}
+
+    def is_repeat(self, event: Any, label: str) -> bool:
+        if not isinstance(event, dict):
+            return False
+        ident = str(event.get("item_id") or event.get("call_id") or "").strip()
+        if not ident:
+            return False
+        key = f"{event.get('kind') or ''}:{ident}"
+        if self._seen.get(key) == label:
+            return True
+        self._seen[key] = label
+        return False
+
+
+class ProgressTally:
+    """Running counts of what a long turn has done, for the idle notice."""
+
+    def __init__(self, *, clock: Any = time.monotonic) -> None:
+        self._clock = clock
+        self._started = clock()
+        self._dedupe = ProgressDeduper()
+        self.searches = 0
+        self.reads = 0
+        self.edits = 0
+        self.commands = 0
+
+    def observe(self, event: Any) -> None:
+        if not isinstance(event, dict):
+            return
+        kind = str(event.get("kind") or "")
+        if kind not in {"tool_use", "tool_call", "command_execution", "file_change"}:
+            return
+        label, _ = describe_progress_step(event)
+        if self._dedupe.is_repeat(event, label):
+            return
+        if kind == "command_execution":
+            self.commands += 1
+        elif kind == "file_change":
+            self.edits += 1
+        else:
+            name, _ = _tool_label(redact_secrets_text(str(event.get("text") or "")))
+            verb = _tool_verb(name)
+            if verb == "search":
+                self.searches += 1
+            elif verb in {"read", "fetch"}:
+                self.reads += 1
+            elif verb == "edit":
+                self.edits += 1
+
+    def summary(self) -> str:
+        parts = []
+        if self.searches:
+            parts.append(f"已搜索 {self.searches} 次")
+        if self.reads:
+            parts.append(f"读了 {self.reads} 页")
+        if self.edits:
+            parts.append(f"改了 {self.edits} 处")
+        if self.commands:
+            parts.append(f"跑了 {self.commands} 条命令")
+        elapsed = max(0, int(self._clock() - self._started))
+        parts.append(f"用时 {elapsed // 60} 分钟" if elapsed >= 60 else f"用时 {elapsed} 秒")
+        return " · ".join(parts)
+
+
+__all__ = [
+    "REPLY_KINDS",
+    "ProgressDeduper",
+    "ProgressTally",
+    "describe_progress_step",
+    "strip_shell_wrapper",
+]
