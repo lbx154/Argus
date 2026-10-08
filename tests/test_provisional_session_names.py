@@ -94,3 +94,22 @@ def test_web_message_names_the_project_even_when_no_model_title_arrives(tmp_path
     session = json.loads((tmp_path / "projects" / sid / "session.json").read_text())
     assert session["display_name"] == "你好"
     assert session["name_source"] == PROVISIONAL_NAME_SOURCE
+
+
+def test_web_message_never_names_the_project_with_a_pasted_credential(tmp_path, monkeypatch):
+    from argus.manager import config_intent
+    from argus.webapi import manager_bridge, manager_state
+
+    sid = _session(tmp_path, "s-credential-web", origin="web")
+    manager_state._STATES.clear()
+    secret = "sk-proj-A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0"
+
+    def classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_greeting_reply"] = "ok"
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    manager_bridge.manager_message(sid, secret, global_root=tmp_path)
+
+    session = json.loads((tmp_path / "projects" / sid / "session.json").read_text())
+    assert "A1b2C3d4" not in session.get("display_name", "")
