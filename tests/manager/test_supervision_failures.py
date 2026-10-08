@@ -218,8 +218,10 @@ def test_invalid_decisions_have_decision_stage_and_no_control_effects(tmp_path, 
     code = "decision_incomplete" if invalid == "action" else "evidence_outside_snapshot"
     emitted = assert_failure(tmp_path, record, stage="decision", code=code, exit_code=0, call_id=CALL_ID)
     assert emitted["error_message"] and emitted["error_message"] == record["error_message"]
+    # Only our own check text is persisted, never text the model wrote.
+    assert "unobserved/private.json" not in emitted["error_message"]
     if invalid == "unobserved-reference":
-        assert "unobserved/private.json" in emitted["error_message"]
+        assert "1 of" in emitted["error_message"]
     assert controls(tmp_path) == before and load_active_manager_directive(tmp_path) is None
     assert len(backend.calls) == 1
 
@@ -254,6 +256,27 @@ def test_named_lines_without_a_colon_are_read_as_the_decision(tmp_path, decorate
     assert record["status"] == "applied", record.get("failure_reason")
     assert record["decision"]["action"] == "continue"
     assert [ref["path"] for ref in record["cited_refs"]] == ["backlog.jsonl"]
+
+
+def test_model_written_action_value_is_not_persisted_in_the_failure(tmp_path):
+    event = project(tmp_path)
+    text = "ACTION: escalate-to-secret-channel\nREASON: odd\nEVIDENCE_REFS: backlog.jsonl"
+    outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=[text])
+    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome), memory_maintenance_enabled=False), tmp_path, event)
+    emitted = assert_failure(tmp_path, record, stage="decision", code="decision_incomplete", exit_code=0, call_id=CALL_ID)
+    assert "escalate" not in emitted["error_message"] and "action=unrecognized" in emitted["error_message"]
+
+
+@pytest.mark.parametrize("final_colon", [False, True])
+def test_colon_less_reply_uses_the_final_block_not_the_draft(final_colon):
+    sep = ": " if final_colon else " "
+    text = (
+        "ACTION STEER\nREASON draft thought\nDIRECTIVE redo everything\nEVIDENCE_REFS draft.json\n\n"
+        f"ACTION{sep}CONTINUE\nREASON{sep}final answer\nEVIDENCE_REFS{sep}backlog.jsonl"
+    )
+    decision = supervision._decision(text)
+    assert decision["action"] == "continue" and decision["reason"] == "final answer"
+    assert decision["cited_refs"] == ["backlog.jsonl"]
 
 
 def test_prose_starting_with_a_key_word_is_not_read_as_a_field():

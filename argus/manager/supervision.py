@@ -177,20 +177,36 @@ _BARE_KEY_LINE = re.compile(
     r"^[`*_]*(?P<key>" + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True)) + r")[`*_]*\s+(?P<value>\S.*)$"
 )
 
+_COLON_KEY_LINE = re.compile(
+    r"^(?:[-*+]\s*)?[`*_]*(?:ARGUS_)?(?P<key>" + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True))
+    + r")[`*_]*\s*[:=]\s*(?P<value>.*)$",
+    re.IGNORECASE,
+)
+
 
 def _bare_named_lines(text: str) -> dict[str, str]:
-    """Read ``ACTION CONTINUE``-style named lines that omit the colon.
+    """Read named lines when the reply wrote any of them without the colon.
 
     The key must be written in capitals at the start of its own line, exactly as
     the prompt names it, so ordinary prose ("Action items ...") is not read as a
-    field; this only covers the separator the model left out.
+    field. Like ``read_key_values`` this reads the final decision footer and the
+    last line for a key wins, so a draft block followed by a final block yields
+    the final answer; both the colon and colon-less forms are read in one pass
+    so their order is kept. Returns nothing when every line carried a colon.
     """
+    from ..core.role_reply import decision_footer_text
+
     found: dict[str, str] = {}
-    for raw in str(text or "").splitlines():
-        match = _BARE_KEY_LINE.match(raw.strip())
-        if match and match.group("key") not in found:
-            found[match.group("key")] = match.group("value").strip().strip("`").strip()
-    return found
+    saw_bare = False
+    for raw in decision_footer_text(str(text or "")).splitlines():
+        line = raw.strip()
+        match = _COLON_KEY_LINE.match(line.strip("`").strip())
+        if match is None:
+            match = _BARE_KEY_LINE.match(line)
+            saw_bare = saw_bare or match is not None
+        if match is not None:
+            found[match.group("key").upper()] = match.group("value").strip().strip("`").strip()
+    return found if saw_bare else {}
 
 
 def _decision(text: str) -> dict[str, Any]:
@@ -200,8 +216,7 @@ def _decision(text: str) -> dict[str, Any]:
         value = json.loads(text)
     except ValueError:
         fields = read_key_values(text, _DECISION_KEYS)
-        for key, val in _bare_named_lines(text).items():
-            fields.setdefault(key, val)
+        fields.update(_bare_named_lines(text))
         value = {key.lower(): val for key, val in fields.items()}
     if not isinstance(value, dict):
         raise SupervisionDecisionError("decision_missing", "Manager supervision returned no decision")
@@ -211,8 +226,8 @@ def _decision(text: str) -> dict[str, Any]:
     if action not in {"continue", "steer", "wait"} or not reason or len(reason) > 4000:
         raise SupervisionDecisionError(
             "decision_incomplete",
-            f"Manager supervision decision is incomplete (action={action or 'missing'!s:.40}, "
-            f"reason={'present' if reason else 'missing'})",
+            "Manager supervision decision is incomplete "
+            f"(action={'unrecognized' if action else 'missing'}, reason={'present' if reason else 'missing'})",
         )
     if action == "steer" and (not directive or len(directive) > 4000):
         raise SupervisionDecisionError("directive_missing", "Steering requires a bounded team instruction")
@@ -508,10 +523,10 @@ def supervise(
                 available = {ref["path"]: ref for ref in observation.facts["evidence_refs"]}
                 cited = decision["cited_refs"]
                 if any(ref not in available for ref in cited):
+                    outside = sum(ref not in available for ref in cited)
                     raise SupervisionDecisionError(
                         "evidence_outside_snapshot",
-                        "Manager cited evidence outside the observed project snapshot: "
-                        + ", ".join(ref for ref in cited if ref not in available)[:200],
+                        f"Manager cited {outside} of {len(cited)} evidence references outside the observed project snapshot",
                     )
                 record["available_refs"] = list(available.values())
                 record["cited_refs"] = [available[ref] for ref in cited]
