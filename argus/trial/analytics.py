@@ -39,6 +39,8 @@ from urllib.parse import urlsplit
 from argus.core.secret_guard import redact_secrets_record
 from argus.core.session import SESSION_META_FILE
 
+from .hosted_host import require_no_follow_directories
+
 POLICY_VERSION = "operator-analytics-v1"
 MAX_FILE_BYTES = 1024 * 1024
 MAX_META_BYTES = 64 * 1024
@@ -145,6 +147,7 @@ def _safe_row(row):
 @contextmanager
 def _directory(path):
     """Walk from / without following any symlink, including intermediate ones."""
+    require_no_follow_directories("Hosted analytics")
     fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in Path(path).absolute().parts[1:]:

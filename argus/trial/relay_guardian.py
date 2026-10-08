@@ -9,6 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from .hosted_host import require_unix_sockets
 from .secrets import write_private
 
 LOG = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ def probe_script() -> str:
 
 class Guardian:
     def __init__(self, root: Path):
+        require_unix_sockets("Relay recovery")
         self.root = root
         self.children: dict[tuple[str, int], subprocess.Popen] = {}
         source = Path(__file__).with_name("socket_forward.py").read_bytes()

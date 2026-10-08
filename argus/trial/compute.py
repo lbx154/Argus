@@ -37,6 +37,7 @@ import portalocker
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from .hosted_host import require_mounted_volumes
 from .store import Store, TrialError
 
 LOG = logging.getLogger(__name__)
@@ -146,6 +147,7 @@ class DockerExecutor:
     """Only this boundary executes host commands; tests replace it entirely."""
 
     def validate_volume(self, root, tenant):
+        require_mounted_volumes("Hosted compute")
         if not root.is_mount():
             raise InfrastructureError(f"Tenant {tenant} data volume is not mounted")
         try:

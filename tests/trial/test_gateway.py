@@ -13,6 +13,7 @@ import portalocker
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
+from hosted_platform import needs_posix_modes
 from starlette.requests import ClientDisconnect
 
 from argus.trial import store as store_module
@@ -970,6 +971,7 @@ def test_cached_and_reasoning_tokens_not_double_counted():
     assert usage_total({"usage": {"prompt_tokens": True, "completion_tokens": 1}}) is None
 
 
+@needs_posix_modes
 def test_vault_tampering_and_file_permissions(settings):
     vault = Vault(settings.key_file, settings.state_dir / "github-token.enc")
     assert vault.read() == GITHUB_SECRET

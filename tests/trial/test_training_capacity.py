@@ -131,7 +131,7 @@ def test_v2_event_above_previous_four_mib_limit_is_retained(training):
     assert len(records) == 1 and records[0]["payload"] == payload
 
 
-def test_bridge_rejects_oversized_rpc_before_dispatch(tmp_path):
+def test_bridge_rejects_oversized_rpc_before_dispatch(socket_dir):
     dispatched = []
 
     class Bridge:
@@ -139,7 +139,7 @@ def test_bridge_rejects_oversized_rpc_before_dispatch(tmp_path):
             dispatched.append(True)
             return {"unexpected_dispatch": True}
 
-    server = _Server(str(tmp_path / "bounded.sock"), _Handler)
+    server = _Server(str(socket_dir / "bounded.sock"), _Handler)
     server.bridge = Bridge()
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:

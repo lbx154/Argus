@@ -3,6 +3,7 @@ import os
 import socket
 
 import pytest
+from hosted_platform import needs_fifo, needs_posix_accounts
 
 from argus.trial.egress import public_addresses
 from argus.trial.web_admin import initialize, prepare_tenant_directory
@@ -91,6 +92,7 @@ def test_web_quota_increase_keeps_usage_and_enforces_exact_new_boundary(tmp_path
 
 
 @pytest.mark.parametrize("entry", ["home", "workspace", ".tenant-volume"])
+@needs_posix_accounts
 def test_root_initialization_rejects_tenant_symlinks(tmp_path, entry):
     tenant = tmp_path / "tenant"
     tenant.mkdir()
@@ -102,6 +104,7 @@ def test_root_initialization_rejects_tenant_symlinks(tmp_path, entry):
     assert list(outside.iterdir()) == []
 
 
+@needs_posix_accounts
 def test_root_initialization_keeps_writes_anchored_during_replacement(tmp_path, monkeypatch):
     tenant, outside = tmp_path / "tenant", tmp_path / "outside"
     tenant.mkdir()
@@ -121,6 +124,8 @@ def test_root_initialization_keeps_writes_anchored_during_replacement(tmp_path, 
     assert (tenant / "original-workspace/AGENTS.md").is_file()
 
 
+@needs_fifo
+@needs_posix_accounts
 def test_root_initialization_rejects_nonregular_identity_without_blocking(tmp_path):
     os.mkfifo(tmp_path / ".tenant-volume")
     with pytest.raises(ValueError, match="regular file"):

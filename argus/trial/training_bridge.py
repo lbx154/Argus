@@ -15,6 +15,7 @@ import socketserver
 import sqlite3
 import stat
 import struct
+import sys
 import threading
 import time
 from collections import Counter
@@ -22,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .analytics import AnalyticsError
+from .hosted_host import HostedHostRequired, boot_id, require_linux_process_identity
 from .research_controls import SID
 from .training_capture import (
     HOSTED_PAYLOAD_BYTES,
@@ -40,6 +42,26 @@ _SPAWN_HELPER_ARGV = (
     ["-m", "argus.daemon.spawn_helper"],
     ["-m", "argus_skill.daemon.spawn_helper"],
 )
+
+
+# macOS reports a Unix peer through SOL_LOCAL options instead of SO_PEERCRED.
+_SOL_LOCAL, _LOCAL_PEERPID = 0, 2
+_LOCAL_PEERCRED = getattr(socket, "LOCAL_PEERCRED", 1)
+_XUCRED = struct.Struct("IIh16I")  # cr_version, cr_uid, cr_ngroups, cr_groups[NGROUPS]
+PEER_CREDENTIALS = hasattr(socket, "SO_PEERCRED") or sys.platform == "darwin"
+
+
+def _peer_credentials(connection):
+    """Kernel-reported (pid, uid, gid) of a connected Unix-socket peer."""
+    if hasattr(socket, "SO_PEERCRED"):
+        return struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+    if sys.platform == "darwin":
+        version, uid, ngroups, *groups = _XUCRED.unpack(
+            connection.getsockopt(_SOL_LOCAL, _LOCAL_PEERCRED, _XUCRED.size))
+        if version != 0 or ngroups < 1:
+            raise OSError("Unexpected Unix peer credential format")
+        return connection.getsockopt(_SOL_LOCAL, _LOCAL_PEERPID), uid, groups[0]
+    raise HostedHostRequired("Training IPC needs kernel-reported Unix peer credentials, which this platform lacks")
 
 
 def _process(pid):
@@ -63,7 +85,7 @@ class PeerVerifier:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as endpoint:
             endpoint.settimeout(0.25)
             endpoint.connect(self.web_uds)
-            root_pid, uid, _ = struct.unpack("3i", endpoint.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+            root_pid, uid, _ = _peer_credentials(endpoint)
         if uid != os.getuid():
             raise AnalyticsError(403, "training_runtime_parent_untrusted")
         current = proc
@@ -189,7 +211,7 @@ class TrainingBridge:
         self.last_error_code = None
         self.last_diagnostic = None
         self.last_event_at = None
-        self.boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        self.boot_id = boot_id()
         with training.analytics._db() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS training_runtime_workers (
                 tenant_id TEXT NOT NULL, sid TEXT NOT NULL, pid INTEGER NOT NULL, started TEXT NOT NULL,
@@ -410,7 +432,7 @@ class TrainingBridge:
             raise ValueError("Invalid training bridge action")
 
 
-if hasattr(socketserver, "UnixStreamServer") and hasattr(socket, "SO_PEERCRED"):
+if hasattr(socketserver, "UnixStreamServer") and PEER_CREDENTIALS:
     class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         daemon_threads = True
         block_on_close = False
@@ -418,15 +440,15 @@ else:
     class _Server:
         def __init__(self, *args, **kwargs):
             # Importing shared training/portal logic must work on Windows, but
-            # never substitute unauthenticated TCP for Linux peer credentials.
-            raise OSError("Hosted training IPC requires Unix sockets and SO_PEERCRED")
+            # never substitute unauthenticated TCP for kernel peer credentials.
+            raise HostedHostRequired("Hosted training IPC requires Unix sockets with kernel-reported peer credentials")
 
 
 class _Handler(socketserver.StreamRequestHandler):
     def handle(self):
         self.connection.settimeout(3)
         try:
-            peer = struct.unpack("3i", self.connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+            peer = _peer_credentials(self.connection)
             raw = self.rfile.readline(HOSTED_PAYLOAD_BYTES + 8193)
             if len(raw) > HOSTED_PAYLOAD_BYTES + 8192 or not raw.endswith(b"\n"):
                 raise ValueError("Training bridge request exceeds capacity")
@@ -478,6 +500,8 @@ def start_training_bridges(training, tenants):
             directory = Path(uds).parent
             if not directory.is_dir():
                 continue
+            # Peer verification reads /proc; elsewhere every request would be refused.
+            require_linux_process_identity("Hosted training capture")
             path = directory / "training.sock"
             if path.exists():
                 mode = path.lstat()

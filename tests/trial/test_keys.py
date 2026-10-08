@@ -1,4 +1,5 @@
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -30,7 +31,8 @@ def test_fixed_ten_keys_and_rerun_preserves_usage(pool, tmp_path):
     assert store.status("trial-01")["tokens_used"] == 30
     keys = json.loads(exported)
     assert len(keys) == len({k["api_key"] for k in keys}) == 10
-    assert (tmp_path / "operator-keys.json").stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":  # Windows grants access through ACLs, not mode bits.
+        assert (tmp_path / "operator-keys.json").stat().st_mode & 0o777 == 0o600
     with pytest.raises(ValueError, match="10 trial keys"):
         store.issue("eleventh", vault.credential("eleventh"))
     assert all(k["api_key"].encode() not in store.path.read_bytes() for k in keys)

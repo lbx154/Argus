@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .analytics import AnalyticsError, _directory
 from .collaboration_data import _role
+from .hosted_host import require_no_follow_directories
 from .training_capture import HOSTED_PROFILE, OBSERVED_POLICY
 from .training_data import _json
 
@@ -93,6 +94,7 @@ class _SessionSource:
         self.stack = ExitStack()
 
     def __enter__(self):
+        require_no_follow_directories("Legacy session recovery")
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         try:
             self.directories = []

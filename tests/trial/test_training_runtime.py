@@ -17,6 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hosted_platform import needs_unix_sockets
 
 from argus.trial import training_bridge as bridge_module
 from argus.trial import training_runtime as runtime
@@ -146,6 +147,7 @@ def test_every_role_registers_text_only_isolated_and_resumed_calls(monkeypatch, 
     assert options._training_environment is None and options._training_extension is None
 
 
+@needs_unix_sockets
 def test_parent_binding_rejects_tool_spawned_python_despite_argus_label(monkeypatch):
     peer = bridge_module.PeerVerifier.__new__(bridge_module.PeerVerifier)
     peer.web_uds = "/synthetic-only/web.sock"
@@ -169,6 +171,8 @@ def test_parent_binding_rejects_tool_spawned_python_despite_argus_label(monkeypa
             return struct.pack("3i", 100, os.getuid(), os.getgid())
 
     monkeypatch.setattr(bridge_module.socket, "socket", lambda *_args: Endpoint())
+    monkeypatch.setattr(bridge_module, "_peer_credentials",
+                        lambda endpoint: struct.unpack("3i", endpoint.getsockopt()))
     monkeypatch.setattr(bridge_module, "_process", lambda pid: table[pid])
     monkeypatch.setattr(bridge_module.os, "readlink", lambda path: "/usr/bin/node" if int(path.parent.name) == 102 else "/usr/bin/python3.11")
     peer._runtime_parent(table[101])
