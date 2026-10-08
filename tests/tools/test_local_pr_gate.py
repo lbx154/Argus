@@ -39,7 +39,7 @@ def repo(tmp_path, monkeypatch):
     root.mkdir()
     git(root, "init", "--quiet", "--template=")
     git(root, "symbolic-ref", "HEAD", "refs/heads/main")
-    (root / "app.py").write_text("VALUE = 1\n")
+    (root / "app.py").write_bytes(b"VALUE = 1\n")
     (root / "README.md").write_text("# Fixture\n")
     git(root, "add", ".")
     commit(root, "base")
@@ -49,7 +49,7 @@ def repo(tmp_path, monkeypatch):
 
 
 def stage_change(repo):
-    (repo / "app.py").write_text("VALUE = 2\n")
+    (repo / "app.py").write_bytes(b"VALUE = 2\n")
     git(repo, "add", "app.py")
 
 
@@ -776,9 +776,9 @@ def test_prompt_reuses_paths_without_recursive_replacement(tmp_path):
     skill = tmp_path / "work" / "policy" / "SKILL.md"
     runner = tmp_path / "work" / "runner"
     prompt = entry.build_prompt(work=work, runner=runner, skill=skill)
-    assert f"Skill at {skill}" in prompt
-    assert f"python {runner}/probe.py" in prompt
-    assert str(work / "input.json") in prompt
+    assert f"Skill at {skill.as_posix()}" in prompt
+    assert f"python {runner.as_posix()}/probe.py" in prompt
+    assert (work / "input.json").as_posix() in prompt
 
 
 def test_native_command_does_not_enable_all_paths():

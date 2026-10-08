@@ -16,6 +16,10 @@ import weakref
 from pathlib import Path
 
 
+# Windows has no O_ACCMODE; its access-mode bits are the same low two bits.
+ACCESS_MODE = getattr(os, "O_ACCMODE", os.O_RDONLY | os.O_WRONLY | os.O_RDWR)
+
+
 def _install():
     root = Path(os.environ["PR_GATE_SOURCE_ROOT"]).resolve()
     context = os.environ["PR_GATE_CONTEXT_ID"]
@@ -224,7 +228,7 @@ def _install():
                 issue(f"untracked_process_operation: {event}")
             elif event == "open":
                 filename, _mode, flags = arguments
-                if flags & os.O_ACCMODE == os.O_WRONLY:
+                if flags & ACCESS_MODE == os.O_WRONLY:
                     return
                 if isinstance(filename, (str, bytes, os.PathLike)):
                     path = Path(os.path.abspath(os.fsdecode(filename)))

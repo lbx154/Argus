@@ -7,7 +7,9 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -75,6 +77,18 @@ def run_directory(repo: Path) -> Path:
         raise GateError("The run cache must be outside the repository being checked.")
     cache.mkdir(parents=True, exist_ok=True, mode=0o700)
     return Path(tempfile.mkdtemp(prefix="prgate-", dir=cache))
+
+
+def _remove_tree(path: Path) -> None:
+    """Delete a disposable tree, including Git's read-only objects on Windows."""
+    def retry_writable(function, name, _error) -> None:
+        os.chmod(name, stat.S_IWRITE | stat.S_IREAD)
+        function(name)
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=retry_writable)
+    else:
+        shutil.rmtree(path, onerror=retry_writable)
 
 
 def _failure_message(exc: Exception) -> str:
@@ -196,7 +210,7 @@ def check(
                 if path.is_symlink():
                     path.unlink()
                 elif path.is_dir():
-                    shutil.rmtree(path)
+                    _remove_tree(path)
     report["execution"]["duration_seconds"] = round(time.monotonic() - started, 3)
     report["execution"]["timeout_seconds"] = timeout
     report["scope"] = analyze_scope(

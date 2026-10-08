@@ -61,12 +61,20 @@ def replace_driver(work, program):
         (work / side / "tests/_regression_probe/check.py").write_text(program)
 
 
+def site_packages(environment):
+    return next(
+        path for pattern in ("lib/python*/site-packages", "Lib/site-packages")
+        for path in environment.glob(pattern)
+    )
+
+
 def private_python(work, pth):
     environment = work / "private-python"
-    venv.EnvBuilder(with_pip=False).create(environment)
-    site_packages = next(environment.glob("lib/python*/site-packages"))
-    (site_packages / "private-editable.pth").write_text(pth + "\n")
-    return environment / "bin/python"
+    # A copied Windows venv python.exe is a launcher that re-runs the base
+    # interpreter as a child; a symlinked one is the interpreter itself.
+    venv.EnvBuilder(with_pip=False, symlinks=os.name == "nt").create(environment)
+    (site_packages(environment) / "private-editable.pth").write_text(pth + "\n")
+    return environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
 def developer_product(work):
@@ -351,8 +359,7 @@ def test_project_module_preloaded_by_editable_pth_fails_closed(work):
 def test_editable_meta_path_finder_cannot_override_snapshot_sources(work):
     source = developer_product(work)
     executable = private_python(work, "import editable_finder")
-    site_packages = next(executable.parent.parent.glob("lib/python*/site-packages"))
-    (site_packages / "editable_finder.py").write_text(
+    (site_packages(executable.parent.parent) / "editable_finder.py").write_text(
         "import importlib.util, sys\n"
         "class Finder:\n"
         "    @classmethod\n"
@@ -845,6 +852,10 @@ def test_pytest_cannot_silently_consume_unfrozen_parent_configuration(work):
     ("import os,signal; os.kill(os.getpid(), signal.SIGKILL)", "signal_terminated"),
     (f"import sys; sys.stdout.write('x' * {probe.OUTPUT_LIMIT_BYTES * 3})", "output_limit"),
 ])
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="legacy probes run `bash -c` inside the Linux Docker worker; Docker mode is Linux-only",
+)
 def test_legacy_run_one_preserves_exit_signal_and_output_cap_contract(work, code, error):
     observation = probe.run_one(
         root=work / "base", command=shlex.join([sys.executable, "-c", code]),
