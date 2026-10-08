@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { startLibraryFixture } from './library-navigation-fixture.mjs';
+import { deferred, FIXTURE_AUTH } from './session-context-fixture.mjs';
 let fixture: Awaited<ReturnType<typeof startLibraryFixture>>;
 let errors: string[], outside: string[];
 test.beforeEach(async ({ page }) => { errors = []; outside = []; page.on('pageerror', error => errors.push(error.message)); });
@@ -14,7 +15,7 @@ async function sidebar(page: Page) {
   if (!await resources.isVisible()) await page.locator('.mobile-tabbar').getByRole('button', { name: /Open projects|打开项目/ }).click();
   await expect(resources).toBeVisible(); return resources;
 }
-async function open(page: Page, width = 1280, locale = 'zh-CN', theme = 'light', pluginState = 'manual', height = 820) {
+async function open(page: Page, width = 1280, locale = 'zh-CN', theme = 'light', pluginState = 'manual', height = 820, snapshotDelayMs = 0) {
   fixture = await startLibraryFixture(pluginState);
   await page.setViewportSize({ width, height });
   await page.addInitScript(({ locale, theme }) => { localStorage.setItem('argus.locale', locale); localStorage.setItem('argus.theme', theme); }, { locale, theme });
@@ -23,12 +24,48 @@ async function open(page: Page, width = 1280, locale = 'zh-CN', theme = 'light',
     outside.push(url.origin + url.pathname); return route.abort('blockedbyclient');
   });
   await page.context().routeWebSocket('**/*', socket => socket.close());
-  await page.goto(fixture.url('s-A'));
+  const isSnapshot = (url: string) => {
+    const parsed = new URL(url);
+    return parsed.origin === fixture.origin && parsed.pathname === '/api/projects/s-A/snapshot';
+  };
+  const gate = deferred();
+  let delay: ReturnType<typeof setTimeout> | undefined;
+  const delaySnapshot = (request: import('@playwright/test').Request) => {
+    if (!isSnapshot(request.url()) || request.method() !== 'GET') return;
+    page.off('request', delaySnapshot);
+    delay = setTimeout(() => gate.resolve(), snapshotDelayMs);
+  };
+  if (snapshotDelayMs) {
+    fixture.state.delays.set('s-A:/snapshot', gate.promise);
+    page.on('request', delaySnapshot);
+  }
+  try {
+    // The workspace only mounts after its authenticated initial snapshot arrives.
+    const [snapshot] = await Promise.all([
+      page.waitForResponse(response => isSnapshot(response.url()) && response.request().method() === 'GET'),
+      page.goto(fixture.url('s-A')),
+    ]);
+    expect(snapshot.status()).toBe(200);
+    expect(snapshot.request().headers().authorization).toBe(`Bearer ${FIXTURE_AUTH}`);
+    expect((await snapshot.json()).session.id).toBe('s-A');
+  } finally {
+    page.off('request', delaySnapshot);
+    clearTimeout(delay);
+    gate.resolve();
+  }
   await expect(page.locator('.conversation-composer textarea')).toBeVisible();
   await page.locator('.conversation-composer textarea').fill('D preview unsent draft');
   return sidebar(page);
 }
 async function close(page: Page) { await page.getByRole('dialog').getByRole('button', { name: /close|关闭/i }).first().click(); }
+
+test('library startup waits for an authenticated snapshot slower than the default UI assertion', async ({ page }) => {
+  const resources = await open(page, 960, 'zh-CN', 'light', 'manual', 820, 6500);
+  await resources.getByRole('button', { name: '技能库', exact: true }).click();
+  await expect(page.locator('[data-skill-library]')).toBeVisible();
+  await close(page);
+  await expect(page.locator('.conversation-composer textarea')).toHaveValue('D preview unsent draft');
+});
 
 for (const width of [960, 1280, 1920]) for (const locale of ['zh-CN', 'en']) for (const theme of ['light', 'dark']) {
   test(`Libraries ${width}px ${locale} ${theme}: top entries, purpose, original text and private knowledge`, async ({ page }, info) => {
