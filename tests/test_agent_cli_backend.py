@@ -664,7 +664,7 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
     assert "global daily budget exhausted" in str(denied.fatal_error)
 
 
-def test_unpriced_call_blocks_provider_spawn_and_acknowledged_risk_still_obeys_cap(
+def test_unpriceable_model_is_refused_up_front_and_acknowledged_risk_still_obeys_cap(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -708,12 +708,20 @@ def test_unpriced_call_blocks_provider_spawn_and_acknowledged_risk_still_obeys_c
         run_label="reviewer",
     )
 
+    repeat = backend.run_exec(
+        prompt="same unpriced model again",
+        options=RunnerOptions(model="future-model"),
+        run_label="engineer-r1b",
+    )
+
     assert first.pricing_status == "unpriced"
     assert first.cost_usd is None
-    assert calls == ["engineer-r1"]
-    assert "unresolved provider cost" in second.fatal_error
-    assert second.stop_kind == "cost_unreconciled"
-    assert second.pricing_status == "not_billed"
+    # A model without a price never settles; it must not hold priced calls.
+    assert second.pricing_status == "priced" and not second.fatal_error
+    assert calls == ["engineer-r1", "reviewer"]
+    assert "unpriced model: future-model" in repeat.fatal_error
+    assert repeat.stop_kind == "cost_unreconciled"
+    assert repeat.pricing_status == "not_billed"
     state = json.loads((root / "cost-control.json").read_text())
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
     from argus.core.cost_control import acknowledge_unpriced_call
@@ -728,7 +736,7 @@ def test_unpriced_call_blocks_provider_spawn_and_acknowledged_risk_still_obeys_c
         options=RunnerOptions(model="gpt-5.6-sol"),
         run_label="engineer-r2",
     )
-    assert calls == ["engineer-r1"]
+    assert calls == ["engineer-r1", "reviewer"]
     assert denied.stop_kind == "budget_exhausted"
     assert denied.pricing_status == "not_billed"
     assert "global daily budget exhausted" in denied.fatal_error

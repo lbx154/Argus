@@ -608,6 +608,50 @@ def _observed_tokens(records: list[UsageRecord], state: dict[str, Any]) -> tuple
     return count(summarize_usage(settled)) + unsettled, unsettled
 
 
+MISSING_PRICE_REASON_PREFIX = "no configured price for model"
+
+
+def _is_missing_price(row: dict[str, Any]) -> bool:
+    """True when no later usage report can ever settle this row's cost.
+
+    Copilot calls are priced from session logs that arrive later; a token call
+    whose model is absent from the price catalog has nothing to wait for.
+    """
+    if str(row.get("provider") or "").strip().lower() == "copilot":
+        return False
+    return str(row.get("reason") or "").startswith(MISSING_PRICE_REASON_PREFIX)
+
+
+def _missing_price_reason(
+    records: list[UsageRecord], state_rows: list[dict[str, Any]], *,
+    provider: str, model: str,
+) -> str:
+    """Refuse a call that would repeat a known-unpriceable model.
+
+    Evidence-based: only a call already recorded today without a price for the
+    same backend (and the same model, when the caller names one) is matched,
+    so backends that are not billed per token are never refused on a guess.
+    """
+    wanted_provider = str(provider or "").strip().lower()
+    wanted_model = str(model or "").strip().lower()
+    matches = [
+        row for row in _unresolved_costs(records, state_rows)
+        if _is_missing_price(row)
+        and str(row.get("provider") or "").strip().lower() == wanted_provider
+        and (not wanted_model or str(row.get("model") or "").strip().lower() == wanted_model)
+    ]
+    if not matches:
+        return ""
+    first = matches[-1]
+    priced_model = str(first.get("model") or wanted_model or "(missing)")
+    return (
+        f"unpriced model: {priced_model} has no configured price "
+        f"(provider={first.get('provider') or provider}, call={first.get('call_id') or '(unknown)'}); "
+        f"{len(matches)} earlier call(s) are recorded with token counts but no cost, "
+        "and no usage report will ever settle them"
+    )
+
+
 def _budget_reason(
     records: list[UsageRecord], state: dict[str, Any], cap: float,
     *, check_unresolved: bool = True, token_cap: int = 0,
@@ -621,8 +665,12 @@ def _budget_reason(
     if cap > 0 and spent >= cap:
         return f"global daily budget exhausted (${cap - spent:.6f} available)"
     if check_unresolved and _unpriced_policy() == "block":
+        # A call whose model has no price will never be reconciled, so holding
+        # every later call for it would block forever. Those calls stay in the
+        # ledger as unpriced (with their token counts) and are refused up front
+        # by ``_missing_price_reason`` instead, which names the model.
         unresolved = [row for row in _unresolved_costs(records, list(state["unresolved"]))
-                      if row.get("call_id") not in liabilities]
+                      if row.get("call_id") not in liabilities and not _is_missing_price(row)]
         if unresolved:
             first = unresolved[0]
             detail = (
@@ -1103,6 +1151,23 @@ def reserve_call_budget(
             global_records.extend(record for record in project_records
                                   if record.call_id not in known_ids)
 
+    if _unpriced_policy() == "block":
+        try:
+            prior_state = _read_state(root, timestamp)
+        except CostControlStateError:
+            prior_state = _default_state(timestamp)
+        reason = _missing_price_reason(
+            global_records, list(prior_state["unresolved"]), provider=provider, model=model,
+        )
+        if reason:
+            _append_audit(
+                root, EventType.BUDGET_RESERVATION_DENIED, call_id=call_id,
+                project_id=project.name if project is not None else "",
+                mission_id=mission_key or None, provider=provider, model=model,
+                run_label=run_label, reason=reason,
+            )
+            return None, reason
+
     global_spend = _known_cost(global_records)
     available = global_cap - global_spend
     if global_cap > 0 and available <= 0:
@@ -1383,7 +1448,8 @@ def cost_control_snapshot(
     reservations, live_cost, observed_unknown, liabilities = _cost_projection(
         records, {**state, "unresolved": unresolved, "reservations": reservations},
     )
-    blocking = [row for row in unresolved if row.get("call_id") not in liabilities]
+    blocking = [row for row in unresolved
+                if row.get("call_id") not in liabilities and not _is_missing_price(row)]
     tokens, unsettled_tokens = _observed_tokens(records, state)
     payload = {
         "day": state["day"],
@@ -1414,7 +1480,9 @@ def cost_control_snapshot(
                         "created_at",
                     )
                 },
-                "blocking": _unpriced_policy() == "block" and row.get("call_id") not in liabilities,
+                "blocking": (_unpriced_policy() == "block" and row.get("call_id") not in liabilities
+                             and not _is_missing_price(row)),
+                "missing_price": _is_missing_price(row),
                 "acknowledgement": state.get("acknowledgements", {}).get(row.get("call_id")),
             }
             for row in unresolved
