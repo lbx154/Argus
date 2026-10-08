@@ -52,7 +52,7 @@ def test_receipt_comes_first_and_an_empty_stderr_is_said_so() -> None:
         [], receipt="Copilot CLI exited with code 1.", log_hint="/srv/argus/copilot-home/logs",
     ) == (
         "Copilot CLI exited with code 1. It printed nothing on stderr; "
-        f"its own log is under {Path('/srv/argus/copilot-home') / 'logs'}."
+        "its own log is under /srv/argus/copilot-home/logs."
     )
     assert _incomplete_turn_error([], receipt="dsh exited with code 2.") == (
         "dsh exited with code 2. It printed nothing on stderr."

@@ -312,8 +312,8 @@ def _launch_durable_command(
                 "powershell.exe",
                 "-NoProfile",
                 "-NonInteractive",
-                # A multi-line script given to -Command is not reliably run
-                # past its first line; the encoded form is exact.
+                # Encoded, the wrapper reaches PowerShell exactly, independent
+                # of Windows command-line quoting rules.
                 "-EncodedCommand",
                 base64.b64encode(wrapper.encode("utf-16-le")).decode("ascii"),
             ],
