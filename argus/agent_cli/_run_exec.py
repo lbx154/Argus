@@ -203,6 +203,8 @@ class RunExecMixin:
         )
         if spawn_failure is not None:
             return spawn_failure
+        # ``_spawn_turn_process`` returns either a failure result or a live process.
+        assert process is not None
         prebound = None if resume_thread_id else self._prebound_session_id(options)
         # A new Copilot session is already bound to the identity the CLI was
         # given, so a watchdog kill, timeout, or missing terminal ``result``
@@ -223,7 +225,7 @@ class RunExecMixin:
                 # session; whether the CLI ever wrote a durable event is the
                 # evidence it needs.
                 if prebound:
-                    exc.provider_session_observed = state.provider_session_observed
+                    setattr(exc, "provider_session_observed", state.provider_session_observed)
                 raise
             result = self._finalize_turn_result(
                 process=process, command=command, options=options, state=state

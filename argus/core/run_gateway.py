@@ -116,7 +116,8 @@ class RunExecGateway:
         reason = interrupt() if interrupt is not None else None
         result = (RunnerResult(exit_code=130, fatal_error=f"External interrupt: {reason}")
                   if reason else self.backend.run_exec(**kwargs))
-        resumed = isinstance(request.resume_thread_id, str) and bool(request.resume_thread_id)
+        resume_id = request.resume_thread_id if isinstance(request.resume_thread_id, str) else None
+        resumed = bool(resume_id)
         if (
             resumed
             and request.fresh_on_missing_resume
@@ -142,7 +143,7 @@ class RunExecGateway:
         if not result.call_id:
             result.call_id = f"gateway-{uuid.uuid4().hex}"
         if result.thread_id is None and resumed:
-            result.thread_id = request.resume_thread_id
+            result.thread_id = resume_id
         if result.started_at <= 0:
             result.started_at = started_at
         if result.completed_at <= 0:

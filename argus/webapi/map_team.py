@@ -105,7 +105,8 @@ def _sources(sid: str, root: Path, life_dir: Path, bindings: dict):
         return ("unavailable-workdir",), [], [], False
     files = []
     formations = []
-    signature = [str(workdir)]
+    # The workdir, then (path, stamp) and binding tuples: hashable cache-key parts.
+    signature: list[object] = [str(workdir)]
     truncated = False
     seen = set()
     for raw, binding in sorted(bindings.items()):

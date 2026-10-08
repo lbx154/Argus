@@ -78,10 +78,10 @@
   },
   "global/reviewer/argus-reviewer-role.md": {
     "title": "评审者的职责与给执行者的下一步",
-    "summary": "独立判断执行结果是否成立、需要补充或转向，把检查结果提炼成执行者需要的那一个下一步；不替执行者作完成声明。",
+    "summary": "独立判断执行结果是否成立、需要补充或转向，把检查结果提炼成执行者需要的那一个下一步；评审有争议时以带标签的证据而非角色权威定论，不替执行者作完成声明。",
     "originalName": "The Reviewer's role",
     "source": "argus/builtin_skills/reviewer/argus-reviewer-role.md",
-    "sourceSha256": "ad4e35957c6da8081b33247b6dd4dd2d3ca81da1e2180bf97903e207478b5b4a"
+    "sourceSha256": "8457a177a4376eab0e4bef7a652e3276ce3b6f9a0ab421fd15bd96eb057cf852"
   },
   "global/reviewer/engineer-process-audit.md": {
     "title": "核对执行过程与证据",
@@ -687,10 +687,10 @@
   },
   "vertical/research/engineer/references/ideation/ideation-patterns/overview.md": {
     "title": "研究构思模式总览",
-    "summary": "用作各研究构思模式的导航，帮助选择进一步阅读的方向，不替代创新性与正确性验证。",
+    "summary": "汇总各研究构思模式的定义、操作特征与适用时机，帮助为路线挑选机制视角；模式在语料中常见不代表适合当前问题，也不替代创新性与正确性验证。",
     "originalName": "engineer/references/ideation/ideation-patterns/overview",
     "source": "argus/verticals/research/skills/engineer/references/ideation/ideation-patterns/overview.md",
-    "sourceSha256": "92c96db8bd6326b9ae11d03db70c0335d65042b8b0a62689eef6aee72280c5e0"
+    "sourceSha256": "8b2b43b5ce63c70a1b54c0ff5fb3f1954bc8ef6c05bda95a71a011d2f5f4eb34"
   },
   "vertical/research/engineer/references/paper-writing-craft.md": {
     "title": "论文写作方法参考",
@@ -760,7 +760,7 @@
     "summary": "从来源中发现候选可能性，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceSha256": "ead87e83f7e729874edbc1d6e9c4a3313a062ac8ada05d6513a7871a8398f79e"
+    "sourceSha256": "91104461d9115ee280db1f5e89d3c35bc8301422bfd7d9a70c66fa559c09eed6"
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",

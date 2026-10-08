@@ -343,7 +343,9 @@ class RoundWaitsMixin:
                 )
             )
         )
-        if source_matches and not external_work.waitable:
+        if external_work is None or not source_matches:
+            return control_proceed()
+        if not external_work.waitable:
             if process_stop.stop_requested():
                 session = state.engineer_session
                 return control_return((
@@ -368,7 +370,7 @@ class RoundWaitsMixin:
                         ),
                     })
                 return control_continue_loop()
-        if source_matches and external_work.waitable:
+        if external_work.waitable:
             from . import runner as _runner_module
 
             hold = getattr(supervised_config, "external_wait_hold", None)

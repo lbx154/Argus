@@ -15,12 +15,15 @@ phases live in two sibling mixins so no single module grows unwieldy:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..memory import BacklogItem
 from ._mission_execution_runtime import MissionExecutionRuntimeMixin
 from ._mission_execution_settlement import MissionExecutionSettlementMixin
 from .backlog_guard import ensure_manager_decision
+
+if TYPE_CHECKING:
+    from ._config import LifeSupervisorConfig
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +34,10 @@ class MissionExecutionMixin(
     MissionExecutionRuntimeMixin, MissionExecutionSettlementMixin,
 ):
     _emit: Callable[[dict[str, Any]], bool]
+
+    if TYPE_CHECKING:
+        # Provided by LifeSupervisor (_core.py).
+        config: LifeSupervisorConfig
 
     def _run_one(self, item: BacklogItem) -> dict[str, Any]:
         """Claim -> prepare -> execute -> meter -> settle -> publish one attempt.
@@ -87,7 +94,7 @@ class MissionExecutionMixin(
         from ..memory import admission_limit
 
         self._claim_admission = admission_limit(
-            getattr(claimed, "admission", None) or {},
+            claimed.admission,
             int(getattr(self.config, "mission_slots", 1) or 1),
         )
         # Resolve the claimed node before consulting any repository-facing
