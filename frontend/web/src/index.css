@@ -832,3 +832,18 @@ button {
     @apply inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-xs;
   }
 }
+
+/* A new delivery is announced near the top of the workspace, clear of the
+ * composer dock and its send button at every width; it never covers the reply. */
+.delivery-toast {
+  position: fixed; top: 68px; left: 50%; transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: 10px;
+  width: max-content; max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 12px; border-radius: 10px;
+  background: rgb(var(--panel-raised)); color: rgb(var(--ink));
+  border: 1px solid rgb(var(--line)); box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  font-size: 13px;
+}
+.delivery-toast span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.delivery-toast button { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.delivery-toast button:first-of-type { color: rgb(var(--blue)); font-weight: 600; }

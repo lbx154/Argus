@@ -341,7 +341,11 @@ describe('App desktop delivery session navigation', () => {
       primary_target: { path: 'results/report.md', label: 'Report', source: 'delivery', why: 'Synthetic fixture' }, targets: [] };
     fixture.turns = [{ role: 'argus', ts: 2, text: 'Synthetic result', delivery: receipt }];
     refresh();
-    act(() => renderer.root.findAllByType(ArtifactModal).find(node => node.props.path)!.props.onClose());
+    // A new delivery announces itself without taking over the screen.
+    expect(openPaths()).toEqual([]);
+    const deliveryToast = renderer.root.find(node => node.type === 'div' && node.props.className === 'delivery-toast');
+    act(() => deliveryToast.findAll(node => node.type === 'button').at(-1)!.props.onClick());
+    expect(renderer.root.findAll(node => node.type === 'div' && node.props.className === 'delivery-toast')).toEqual([]);
     await toast(undefined, receipt.delivery_id);
     expect(api.artifact).toHaveBeenCalledWith('s-A', 'results/report.md', expect.any(AbortSignal));
     expect(openPaths()).toEqual([{ sid: 's-A', path: 'results/report.md' }]);

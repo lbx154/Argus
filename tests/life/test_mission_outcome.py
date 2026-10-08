@@ -202,6 +202,8 @@ def test_direct_reviewed_website_delivers_when_both_final_messages_omit_files(tm
     assert completed["delivery_candidates"] == ["index.html"]
     assert completed["delivery"]["primary_target"]["path"] == "index.html"
     assert completed["delivery"]["review_status"] == "done"
+    # The receipt says who settled ``done`` so the UI can tell review from self-check.
+    assert completed["delivery"]["review_source"] == "reviewer"
 
 
 @pytest.mark.parametrize(

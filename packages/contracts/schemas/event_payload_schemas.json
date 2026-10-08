@@ -1448,6 +1448,9 @@
             "review_status": {
               "type": "string"
             },
+            "review_source": {
+              "type": "string"
+            },
             "delivered_at": {
               "type": "number",
               "minimum": 0

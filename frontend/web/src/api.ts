@@ -1101,6 +1101,9 @@ export const api = {
   },
   gitDiff: (sid: string, signal?: AbortSignal) =>
     getJson<GitDiffView>(P(sid, '/git-diff'), signal),
+  deliveryDiff: (sid: string, change: { path: string; before: string; after: string }, signal?: AbortSignal) =>
+    getJson<{ path: string; available: boolean; diff: string; truncated: boolean }>(
+      P(sid, `/delivery-diff?${new URLSearchParams(change)}`), signal),
   metrics: (signal?: AbortSignal) =>
     getJson<MetricsSnapshot>('/api/metrics', signal),
   sourceUpdateStatus: (signal?: AbortSignal) =>

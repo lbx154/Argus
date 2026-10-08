@@ -1027,6 +1027,11 @@ export default function App() {
           void projectCostsQ.refetch();
         }}
       />
+      {deliveryCenter.fresh && !deliveryCenter.selection && <div className="delivery-toast" role="status" aria-live="polite">
+        <span>{locale === 'zh-CN' ? '新交付：' : 'New delivery: '}{deliveryCenter.fresh.title}</span>
+        <button type="button" onClick={() => openDelivery(deliveryCenter.fresh!)}>{locale === 'zh-CN' ? '查看' : 'Open'}</button>
+        <button type="button" aria-label={locale === 'zh-CN' ? '关闭' : 'Dismiss'} onClick={deliveryCenter.dismissFresh}>×</button>
+      </div>}
       {deliveryCenter.selection && <ArtifactModal
         key={`${deliveryCenter.selection.sid}:${deliveryCenter.selection.receipt.delivery_id}`}
         sid={deliveryCenter.selection.sid} path={deliveryCenter.selection.path}

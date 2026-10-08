@@ -401,7 +401,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "stop_kind"?: "budget_exhausted" | "cost_unreconciled" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "recoverable"?: boolean;
   "delivery_id"?: string;
-  "delivery"?: { "schema_version"?: number; "delivery_id"?: string; "kind"?: string; "item_id"?: string; "title"?: string; "summary"?: string; "status"?: string; "review_status"?: string; "delivered_at"?: number; "primary_target"?: Record<string, unknown> | null; "targets"?: Array<Record<string, unknown>>; } | null;
+  "delivery"?: { "schema_version"?: number; "delivery_id"?: string; "kind"?: string; "item_id"?: string; "title"?: string; "summary"?: string; "status"?: string; "review_status"?: string; "review_source"?: string; "delivered_at"?: number; "primary_target"?: Record<string, unknown> | null; "targets"?: Array<Record<string, unknown>>; } | null;
   "operator_question"?: string;
   "stop_reason"?: string;
   "failure_kind"?: string;

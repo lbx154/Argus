@@ -1062,7 +1062,10 @@ class SelfReplyMixin:
         )
         auth_failure = self._consume_auth_failure()
         delivery = None
-        if success and executing:
+        # Execution turns and tool-using research/inspection turns both deliver
+        # the files they created and named in the reply. The model decides
+        # whether an answer deserves a kept file; a plain chat reply has none.
+        if success and not lean:
             from ..core.secret_guard import known_secret_values, redact_secrets_text
             from ..life.delivery import (
                 build_delivery_receipt,
@@ -1093,6 +1096,7 @@ class SelfReplyMixin:
                     overall_complete=True,
                     status="done",
                     review_status="not_assessed",
+                    review_source="solo_output",
                     final_submission_certified=False,
                     workspace=workdir,
                     state_root=(

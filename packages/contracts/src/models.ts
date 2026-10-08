@@ -121,9 +121,20 @@ export interface DeliveryReceipt {
   summary: string;
   status: string;
   review_status: string;
+  /** Who settled ``review_status``: ``reviewer`` is an independent review role; anything else is the worker's own check. Absent on older receipts. */
+  review_source?: string;
   delivered_at: number;
   primary_target: DeliveryTarget | null;
   targets: DeliveryTarget[];
+  /** Content hash of each delivered file; ``stored`` text versions can be diffed. */
+  snapshots?: DeliverySnapshot[];
+}
+
+export interface DeliverySnapshot {
+  path: string;
+  sha256: string;
+  size: number;
+  stored: boolean;
 }
 
 export interface ContinuousState {

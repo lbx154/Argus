@@ -48,7 +48,7 @@ def test_delivery_receipt_prefers_reviewer_evidence_and_rejects_unsafe_paths(
     )
 
     assert receipt is not None
-    assert receipt["delivery_id"] == "delivery:task-1:task_completed"
+    assert receipt["delivery_id"].startswith("delivery:task-1:task_completed:")
     assert receipt["primary_target"]["path"] == "final.md"
     assert [target["path"] for target in receipt["targets"]] == ["final.md"]
 
@@ -241,3 +241,157 @@ def test_failed_file_edits_or_reads_do_not_become_delivery_evidence(tmp_path, fa
     (tmp_path / "events.jsonl").write_text("\n".join(map(json.dumps, events)), encoding="utf-8")
 
     assert reviewed_change_paths(tmp_path, tmp_path, "task-web") == []
+
+
+def test_first_delivery_stays_readable_after_a_later_delivery_overwrites_the_file(
+    tmp_path: Path,
+) -> None:
+    from argus.life.delivery import (
+        MAX_SNAPSHOT_BYTES,
+        delivery_snapshot_diff,
+        read_delivery_snapshot,
+    )
+
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+
+    def deliver(item: str) -> dict:
+        receipt = build_delivery_receipt(
+            item_id=item, title=item, summary="", success=True, overall_complete=True,
+            status="done", review_status="done", final_submission_certified=False,
+            workspace=workspace, state_root=state,
+            reviewer_artifacts=["app.py", "big.txt"],
+        )
+        assert receipt is not None
+        return receipt
+
+    (workspace / "app.py").write_text("print('v1')\n", encoding="utf-8")
+    (workspace / "big.txt").write_text("x" * (MAX_SNAPSHOT_BYTES + 1), encoding="utf-8")
+    first = deliver("task-1")
+    (workspace / "app.py").write_text("print('v2')\n", encoding="utf-8")
+    second = deliver("task-2")
+
+    first_app = next(s for s in first["snapshots"] if s["path"] == "app.py")
+    second_app = next(s for s in second["snapshots"] if s["path"] == "app.py")
+    assert read_delivery_snapshot(state, first_app["sha256"]) == "print('v1')\n"
+    assert read_delivery_snapshot(state, second_app["sha256"]) == "print('v2')\n"
+    diff = delivery_snapshot_diff(state, first_app, second_app) or ""
+    assert "-print('v1')" in diff and "+print('v2')" in diff
+
+    # Large files are identified by hash only; nothing is copied.
+    big = next(s for s in first["snapshots"] if s["path"] == "big.txt")
+    assert big["stored"] is False and len(big["sha256"]) == 64
+    assert read_delivery_snapshot(state, big["sha256"]) is None
+
+
+def test_redelivering_the_same_item_is_a_new_delivery_with_its_own_snapshot(
+    tmp_path: Path,
+) -> None:
+    from argus.life.delivery import read_delivery_snapshot
+
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+
+    def deliver() -> dict:
+        receipt = build_delivery_receipt(
+            item_id="site", title="site", summary="", success=True, overall_complete=True,
+            status="done", review_status="done", final_submission_certified=False,
+            workspace=workspace, state_root=state, reviewer_artifacts=["index.html"],
+        )
+        assert receipt is not None
+        return receipt
+
+    (workspace / "index.html").write_text("<p>v1</p>\n", encoding="utf-8")
+    first = deliver()
+    (workspace / "index.html").write_text("<p>v2</p>\n", encoding="utf-8")
+    second = deliver()
+
+    # A later round that changes the same item must reach the operator again.
+    assert first["delivery_id"] != second["delivery_id"]
+    assert read_delivery_snapshot(state, first["snapshots"][0]["sha256"]) == "<p>v1</p>\n"
+
+
+def test_snapshot_store_keeps_only_recent_versions_per_item(tmp_path: Path) -> None:
+    from argus.life.delivery import (
+        MAX_SNAPSHOT_DELIVERIES_PER_ITEM,
+        SNAPSHOT_DIRNAME,
+        read_delivery_snapshot,
+    )
+
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+    receipts = []
+    for n in range(MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 5):
+        (workspace / "notes.md").write_text(f"version {n}\n", encoding="utf-8")
+        receipt = build_delivery_receipt(
+            item_id="notes", title="notes", summary="", success=True, overall_complete=True,
+            status="done", review_status="done", final_submission_certified=False,
+            workspace=workspace, state_root=state, reviewer_artifacts=["notes.md"],
+        )
+        assert receipt is not None
+        receipts.append(receipt)
+
+    blobs = [p for p in (state / SNAPSHOT_DIRNAME).iterdir() if len(p.name) == 64]
+    assert len(blobs) == MAX_SNAPSHOT_DELIVERIES_PER_ITEM
+    assert read_delivery_snapshot(state, receipts[0]["snapshots"][0]["sha256"]) is None
+    assert read_delivery_snapshot(state, receipts[-1]["snapshots"][0]["sha256"]) == (
+        f"version {MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 4}\n"
+    )
+
+
+def test_rebuilding_an_unchanged_delivery_does_not_evict_older_versions(
+    tmp_path: Path,
+) -> None:
+    from argus.life.delivery import MAX_SNAPSHOT_DELIVERIES_PER_ITEM, read_delivery_snapshot
+
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+
+    def deliver() -> dict:
+        receipt = build_delivery_receipt(
+            item_id="notes", title="notes", summary="", success=True, overall_complete=True,
+            status="done", review_status="done", final_submission_certified=False,
+            workspace=workspace, state_root=state, reviewer_artifacts=["notes.md"],
+        )
+        assert receipt is not None
+        return receipt
+
+    (workspace / "notes.md").write_text("version 1\n", encoding="utf-8")
+    first = deliver()
+    (workspace / "notes.md").write_text("version 2\n", encoding="utf-8")
+    for _ in range(MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 3):
+        deliver()  # replays and reconnects rebuild the same content
+
+    # The earlier version is still the real previous version and stays diffable.
+    assert read_delivery_snapshot(state, first["snapshots"][0]["sha256"]) == "version 1\n"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [("reviewer", "reviewer"), ("engineer_self_review", "engineer_self_review"), ("", "")],
+)
+def test_receipt_records_who_settled_the_review(
+    tmp_path: Path, source: str, expected: str
+) -> None:
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+    (workspace / "report.md").write_text("result\n", encoding="utf-8")
+    receipt = build_delivery_receipt(
+        item_id="r", title="r", summary="", success=True, overall_complete=True,
+        status="done", review_status="done", final_submission_certified=False,
+        review_source=source,
+        workspace=workspace, state_root=state, reviewer_artifacts=["report.md"],
+    )
+    assert receipt is not None
+    # ``done`` alone cannot tell an independent review from the worker's own check.
+    assert receipt["review_source"] == expected
