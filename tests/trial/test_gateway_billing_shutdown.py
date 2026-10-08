@@ -8,8 +8,10 @@ import time
 
 import httpx
 import portalocker
+import pytest
 from cryptography.fernet import Fernet
 
+from argus.trial import gateway
 from argus.trial.gateway import Settings, create_app, prepare
 from argus.trial.secrets import Vault, write_private
 from tests.trial.test_gateway_billing_responsiveness import (
@@ -157,10 +159,28 @@ def test_shutdown_keeps_lock_until_cancel_swallowing_send_and_late_close_finish(
     assert len(observation["ledger"]) == 1 and observation["ledger"][0]["state"] == "unknown"
 
 
-def test_sse_timeout_ends_before_billing_writer_releases(tmp_path):
-    settings = settings_for(tmp_path, timeout=0.05)
+@pytest.mark.parametrize("headers_delay", [0, 0.1])
+def test_sse_timeout_ends_before_billing_writer_releases(tmp_path, monkeypatch, headers_delay):
+    # Admission and headers must finish before the 50ms stream scenario starts.
+    # Keep the real gateway timeout scope, and arm it when the writer is held.
+    settings = settings_for(tmp_path, timeout=2)
     payload = {**PAYLOAD, "stream": True}
     observation = {}
+
+    class GatewayAsyncio:
+        stream_scope = None
+        scope_task = None
+
+        def __getattr__(self, name):
+            return getattr(asyncio, name)
+
+        def timeout(self, delay):
+            self.stream_scope = asyncio.timeout(delay)
+            self.scope_task = asyncio.current_task()
+            return self.stream_scope
+
+    controlled_asyncio = GatewayAsyncio()
+    monkeypatch.setattr(gateway, "asyncio", controlled_asyncio)
 
     async def run():
         started = None
@@ -176,6 +196,9 @@ def test_sse_timeout_ends_before_billing_writer_releases(tmp_path):
                 nonlocal started
                 writer.start()
                 started = time.monotonic()
+                assert controlled_asyncio.scope_task is asyncio.current_task()
+                assert controlled_asyncio.stream_scope.when() > asyncio.get_running_loop().time()
+                controlled_asyncio.stream_scope.reschedule(asyncio.get_running_loop().time() + 0.05)
                 stream_entered.set()
                 yield b'data: {"type":"response.output_text.delta","delta":"offline"}\n\n'
                 await asyncio.Event().wait()
@@ -187,6 +210,7 @@ def test_sse_timeout_ends_before_billing_writer_releases(tmp_path):
         async def provider(request):
             assert str(request.url) == "https://api.githubcopilot.com/responses"
             calls.append(str(request.url))
+            await asyncio.sleep(headers_delay)
             return httpx.Response(200, stream=WaitingStream())
 
         app = create_app(settings, transport=httpx.MockTransport(provider))
@@ -206,6 +230,7 @@ def test_sse_timeout_ends_before_billing_writer_releases(tmp_path):
                     observation["health_seconds"] = time.monotonic() - started
                     await asyncio.wait_for(asyncio.shield(request_task), 1.5)
                     observation["request_end_seconds"] = time.monotonic() - started
+                    observation["stream_timeout_expired"] = controlled_asyncio.stream_scope.expired()
                     observation["writer_held_at_request_end"] = not writer.finished.is_set()
                     observation["slots_at_request_end"] = app.state.request_slots._value
                     await asyncio.wait_for(stream_closed.wait(), 0.25)
@@ -230,6 +255,7 @@ def test_sse_timeout_ends_before_billing_writer_releases(tmp_path):
     asyncio.run(run())
     (tmp_path / "billing-sse-timeout.json").write_text(json.dumps(observation, indent=2) + "\n")
     assert observation["request_end_seconds"] < 0.25, observation
+    assert observation["stream_timeout_expired"], observation
     assert observation["health_status"] == 200 and observation["health_seconds"] < 0.25, observation
     assert observation["writer_held_at_request_end"] and observation["writer_held_when_response_closed"], observation
     assert observation["slots_at_request_end"] == 10
