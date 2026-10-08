@@ -1260,7 +1260,7 @@ def _maybe_apply_config_intent(
     the same turn instead of enqueuing a mission. Returns ``None`` when
     ``intent`` is falsy or the apply failed, so manager_message keeps going
     (triage/dispatch)."""
-    from ..manager.config_intent import _apply_config_intent
+    from ..manager.config_intent import _apply_config_intent, localize_config_confirmation
 
     if intent is None:
         return None
@@ -1279,6 +1279,8 @@ def _maybe_apply_config_intent(
         applied = False
     if not applied:
         return None
+    chinese = bool(chat_state.get("_operator_text_cjk"))
+    cfg_lines = [localize_config_confirmation(line, chinese=chinese) for line in cfg_lines]
     if on_fragment is not None:
         for _ln in cfg_lines:
             fragment("delta", {
@@ -1286,7 +1288,7 @@ def _maybe_apply_config_intent(
                 "message_id": "config",
                 "fragment_mode": "append",
             })
-    reply = "\n".join(cfg_lines).strip() or "Done — setting applied."
+    reply = "\n".join(cfg_lines).strip() or ("已应用设置。" if chinese else "Done — setting applied.")
     _journal_argus_reply(life_dir, turn_id, reply)
     return {"kind": "chat", "reply": reply}
 

@@ -432,6 +432,32 @@ def _vet_model_value(
     return canonical, None
 
 
+
+_CONFIRM_ZH: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^Set all Argus roles' CLI backend to (.+)\.$"), r"已把所有角色的后端改为 \1。"),
+    (re.compile(r"^Set all Argus roles' model to (.+)\.$"), r"已把所有角色的模型改为 \1，下一次调用起生效。"),
+    (re.compile(r"^Set (.+) CLI backend to (.+)\.$"), r"已把 \1 的后端改为 \2。"),
+    (re.compile(r"^Set (.+) model to (.+)\.$"), r"已把 \1 的模型改为 \2，下一次调用起生效。"),
+    (re.compile(r"^Set (.+) reasoning effort to (.+)\.$"), r"已把 \1 的推理强度改为 \2。"),
+    (re.compile(r"^Set (\S+) = (.+)\.$"), r"已设置 \1 = \2。"),
+    (re.compile(r"^Could not persist configuration; nothing changed\.$"), "设置没能保存，没有任何改动。"),
+    (re.compile(r"^Could not apply (?:configuration|backend); nothing changed: (.+)$"), r"设置没能生效，没有任何改动：\1"),
+)
+
+
+def localize_config_confirmation(line: str, *, chinese: bool) -> str:
+    """The operator's language for a confirmation the apply path wrote in English.
+
+    Lines without a known shape (refusals already phrased for the operator,
+    model ids) pass through unchanged.
+    """
+    if not chinese:
+        return line
+    for pattern, template in _CONFIRM_ZH:
+        if pattern.match(line):
+            return pattern.sub(template, line)
+    return line
+
 def _apply_config_intent(
     mem: Any,
     intent: Any,

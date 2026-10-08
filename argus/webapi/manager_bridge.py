@@ -751,6 +751,7 @@ def _manager_message(
                 return _cancelled_result()
             return _handle_abort_control(operator_text, life_dir, emitter)
 
+        chat_state["_operator_text_cjk"] = uses_cjk(operator_text)
         config_result = _maybe_apply_config_intent(
             mem,
             intent,
