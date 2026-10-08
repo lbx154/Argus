@@ -2283,3 +2283,52 @@ def test_the_config_snapshot_offers_model_options_from_catalog_usage_and_knobs(c
     assert options["seen-x"] == "seen"
     assert "failed-only" not in options and "ancient" not in options
     assert body["model_options"][0]["model"] == "seen-x"  # most recently used first
+
+
+def _model_options_env(monkeypatch, tmp_path, root, catalog_ids, current):
+    catalog = tmp_path / "pi"
+    catalog.mkdir(exist_ok=True)
+    (catalog / "models.json").write_text(
+        json.dumps({"providers": {"argus": {"models": [{"id": m} for m in catalog_ids]}}})
+    )
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(catalog))
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    (root / "config.json").write_text(json.dumps({"ARGUS_SKILL_MODEL": current}))
+
+
+def test_model_options_follow_the_selected_backend(ctx, monkeypatch, tmp_path) -> None:
+    from argus.webapi import mission_items
+
+    root, _, _ = ctx
+    _model_options_env(monkeypatch, tmp_path, root, ["harness-1"], "harness-1")
+    backend = {"value": "pi"}
+    monkeypatch.setattr(
+        mission_items,
+        "_backend_model_catalog",
+        lambda _root: (["account-new-9", "account-old-2"], "account-new-9") if backend["value"] == "copilot" else None,
+    )
+    monkeypatch.setattr(mission_items, "_active_backend", lambda: (backend["value"], "/bin/x"))
+    pi_models = [row["model"] for row in mission_items.model_options(root)]
+    assert "harness-1" in pi_models and "account-new-9" not in pi_models
+    backend["value"] = "copilot"
+    rows = mission_items.model_options(root)
+    assert [row["model"] for row in rows][:2] == ["account-new-9", "account-old-2"]
+    assert rows[0].get("default") is True
+    stale = next(row for row in rows if row["model"] == "harness-1")
+    assert stale["invalid"] is True  # configured, but the account does not offer it
+
+
+def test_model_options_mark_a_current_value_missing_from_the_catalog(ctx, monkeypatch, tmp_path) -> None:
+    from argus.webapi import mission_items
+
+    root, _, _ = ctx
+    _model_options_env(monkeypatch, tmp_path, root, ["family-2.1", "family-10.0", "family-3"], "made-up-id")
+    monkeypatch.setattr(mission_items, "_backend_model_catalog", lambda _root: None)
+    monkeypatch.setattr(mission_items, "_active_backend", lambda: ("copilot", "/bin/x"))
+    rows = mission_items.model_options(root)
+    by_model = {row["model"]: row for row in rows}
+    assert by_model["made-up-id"]["invalid"] is True
+    assert "invalid" not in by_model["family-3"]
+    assert by_model["family-3"]["offline"] is True  # live list failed: catalog fallback is flagged
+    catalog_order = [row["model"] for row in rows if row["source"] == "catalog"]
+    assert catalog_order == ["family-10.0", "family-3", "family-2.1"]  # newest version first

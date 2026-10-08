@@ -535,6 +535,15 @@ def _seen_model_ids(global_root: Path | str | None, *, now: float | None = None)
     return seen
 
 
+def _version_desc_key(model: str) -> tuple[tuple[int, ...], str]:
+    """Sort key putting the newest release of a family first (numbers compared numerically, descending)."""
+    import re as _re
+
+    numbers = tuple(-int(part) for part in _re.findall(r"\d+", model))
+    family = _re.sub(r"[\d.]+", "", model)
+    return (numbers, family) if numbers else ((1,), model)
+
+
 def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]:
     """What the quick picker offers instead of a text box.
 
@@ -561,8 +570,17 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
         if default:
             options.setdefault(default, {"model": default, "source": "backend"})["default"] = True
     else:
+        # A backend that should have a live list but did not answer gets the
+        # harness catalog, flagged so the picker can say "offline list".
+        try:
+            offline = _active_backend()[0] == "copilot"
+        except Exception:  # noqa: BLE001
+            offline = False
         for model in _catalog_model_ids():
             options[model] = {"model": model, "source": "catalog"}
+            if offline:
+                options[model]["offline"] = True
+    listed = set(options)
     for model, ts in sorted(_seen_model_ids(global_root).items(), key=lambda kv: -kv[1]):
         options.setdefault(model, {"model": model, "source": "seen"})["last_used_at"] = ts
     try:
@@ -572,16 +590,21 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
     for knob in ("ARGUS_SKILL_MODEL", *ROLE_MODEL_KNOBS, "ARGUS_SKILL_FIGURE_MODEL"):
         model = str(os.environ.get(knob) or persisted.get(knob) or "").strip()
         if model and model.lower() not in {"auto", "inherit", "default"}:
-            options.setdefault(model, {"model": model, "source": "current"})
+            row = options.setdefault(model, {"model": model, "source": "current"})
+            if listed and model not in listed:
+                # Named by a knob but absent from the backend's list: show it
+                # so the operator sees what is configured, marked unavailable.
+                row["invalid"] = True
     rows = list(options.values())
+    unranked = len(rows)  # list.sort empties the list while sorting, so not len(rows) inside the key
     rows.sort(
         # The default first, then the backend's own order (newest first for an
         # account list), then recently used, then the rest by name.
         key=lambda row: (
             not row.get("default"),
-            row.get("rank", len(rows)),
+            row.get("rank", unranked),
             -(row.get("last_used_at") or 0.0),
-            row["model"],
+            _version_desc_key(row["model"]),
         )
     )
     for row in rows:
@@ -600,6 +623,10 @@ def get_config(
         snapshot["model_options"] = model_options(global_root)
     except Exception:  # noqa: BLE001 - the snapshot must never fail on the options
         snapshot["model_options"] = []
+    # What "auto" resolves to right now, so the picker can say "auto -> X".
+    snapshot["model_auto_resolves_to"] = next(
+        (row["model"] for row in snapshot["model_options"] if row.get("default")), ""
+    )
     if project_state_dir is None:
         return snapshot
     from ..core.knobs import resolve_budget_caps

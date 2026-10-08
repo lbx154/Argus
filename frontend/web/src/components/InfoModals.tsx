@@ -326,12 +326,25 @@ export function ConfigModal({
                   aria-label={t('settings.model')}
                   className="h-8 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue"
                 >
-                  <option value="auto">{t('settings.modelPlaceholder')}</option>
+                  <option value="auto">
+                    {data.model_auto_resolves_to
+                      ? `auto → ${data.model_auto_resolves_to}`
+                      : t('settings.modelPlaceholder')}
+                  </option>
                   {(() => {
-                    const options = (data.model_options ?? []).map(option => option.model);
+                    const rows = data.model_options ?? [];
+                    const invalid = new Set(rows.filter(option => option.invalid).map(option => option.model));
+                    const options = rows.map(option => option.model);
                     const current = quickModelValue.trim();
-                    if (current && current !== 'auto' && !options.includes(current)) options.unshift(current);
-                    return options.map(model => <option key={model} value={model}>{model}</option>);
+                    if (current && current !== 'auto' && !options.includes(current)) {
+                      options.unshift(current);
+                      invalid.add(current);
+                    }
+                    return options.map(model => (
+                      <option key={model} value={model}>
+                        {invalid.has(model) ? `${model} (${t('settings.modelUnavailable')})` : model}
+                      </option>
+                    ));
                   })()}
                 </select>
                 <button type="button" onClick={() => void applyModel()} disabled={quickConfigBusy} className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40">
@@ -356,6 +369,9 @@ export function ConfigModal({
                   })()}
                 </select>
               </div>
+              {(data.model_options ?? []).some(option => option.offline) && (
+                <p className="mt-1 text-[10px] text-ink-faint" data-model-offline>{t('settings.modelOfflineList')}</p>
+              )}
               {snapshot?.cost_control?.daily_tokens != null && <p className="mt-2 text-[10px] tabular-nums text-ink-faint">
                 {t('settings.tokensUsed', { count: snapshot.cost_control.daily_tokens.toLocaleString() })}
               </p>}
