@@ -11,7 +11,10 @@ export function attentionReason(task: MapTask, events: MapEvent[], zh: boolean):
   const failure = events.filter((event) => event.item_id === task.id &&
     (event.status === "failed" || event.success === false || event.type.endsWith(".failed")))
     .sort((a, b) => b.ts - a.ts)[0];
-  const raw = failure?.reason || failure?.text || "";
+  // A stage hold or a settled failure often records its reason only on the
+  // backlog row; the Manager's own sentence follows the harness prefix.
+  const recorded = (task.last_error || "").replace(/^manager stage (?:hold|rollback):\s*/i, "");
+  const raw = failure?.reason || failure?.text || recorded;
   const note = humanizeHarnessNote(raw, zh);
   const cut = note.receipt ? raw.lastIndexOf(note.receipt) : -1;
   const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);

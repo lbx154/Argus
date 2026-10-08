@@ -338,6 +338,7 @@
   --state: #bd923f;
 }
 .map-state-paused,
+.map-state-held,
 .map-state-review_unavailable {
   --state: #a58a56;
 }

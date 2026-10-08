@@ -358,6 +358,7 @@
 .argus-map .map-state-question { --state: var(--pig-gamboge); }
 .argus-map .map-state-paused { --state: var(--pig-ochre); }
 .argus-map .map-state-review_unavailable { --state: var(--pig-ochre); }
+.argus-map .map-state-held { --state: var(--pig-ochre); }
 .argus-map .map-state-superseded { --state: var(--pig-lotus); }
 .argus-map .map-state-recorded,
 .argus-map .map-state-aborted,

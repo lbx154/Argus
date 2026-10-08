@@ -7,6 +7,8 @@ export interface MapTask
   > {
   revision?: string;
   content_revision?: string;
+  /** The backlog's last recorded error, e.g. why a stage was held. */
+  last_error?: string;
   ts?: number;
   started_ts?: number | null;
   finished_ts?: number | null;
@@ -242,6 +244,10 @@ export function statusKey(task: MapTask): string {
   if (task.pending_question) return "question";
   if (ACTIVE.has(task.status)) return "running";
   if (task.outcome?.review_status === "unavailable") return "review_unavailable";
+  // The Manager kept the stage open after a reviewed attempt: the work is
+  // waiting on the next step, not broken. The backlog still records it as
+  // failed so retry accounting is unchanged; only the reading differs.
+  if (task.status === "failed" && task.outcome?.stage_certification === "not_certified") return "held";
   if (task.status.startsWith("paused") || task.status === "blocked")
     return "paused";
   return [
@@ -257,11 +263,19 @@ export function statusKey(task: MapTask): string {
     : "unknown";
 }
 
+/** The project's concluding acceptance, if it still is one. A certification
+ * says "the project is done" only until work starts again: once any mission
+ * starts after it (a new goal, an operator redirect, a retry of the same task),
+ * the earlier acceptance describes a past state and must not headline the map. */
 export function latestCertifiedTask(tasks: MapTask[], events: MapEvent[]): MapTask | undefined {
+  const reopenedAfter = (ts: number) => events.some((event) =>
+    event.type === "life.mission.started" && event.ts > ts);
   return tasks.filter(task => task.status === "done"
     && task.outcome?.review_status === "done"
-    && task.outcome.stage_certification === "certified"
-    && latestMissionCompletion(task, events)?.overall_complete === true)
+    && task.outcome.stage_certification === "certified")
+    .map(task => ({ task, completion: latestMissionCompletion(task, events) }))
+    .filter(({ completion }) => completion?.overall_complete === true && !reopenedAfter(completion.ts))
+    .map(({ task }) => task)
     .sort((a, b) => (b.finished_ts ?? b.ts ?? 0) - (a.finished_ts ?? a.ts ?? 0))[0];
 }
 

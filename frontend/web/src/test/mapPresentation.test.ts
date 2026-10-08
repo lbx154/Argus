@@ -61,6 +61,14 @@ it("shows the recorded question or most recent explicit failure, never an unrela
   expect(attentionReason(task, [], false)).toBe("This task did not finish, and the record does not say why.");
 });
 
+it("explains a held or failed task from its recorded error when no failure event carries a reason", () => {
+  const task: MapTask = { id: "a", title: "Experiment", objective: "", status: "failed", deps: [],
+    last_error: "manager stage hold: Previous simulated data was invalidated; rerun on real traces" };
+  const settled: MapEvent = { id: "s", item_id: "a", ts: 2, type: "life.mission.completed", text: "", success: false };
+  expect(attentionReason(task, [settled], false)).toBe("Previous simulated data was invalidated; rerun on real traces");
+  expect(attentionReason({ ...task, last_error: "disk full" }, [], false)).toBe("disk full");
+});
+
 it("keeps new model settings when an earlier generation finishes", () => {
   const previous = { cards: {}, relations: [], model_revision: "new-model", available: false };
   const result = { cards: {}, relations: [], model_revision: "old-model" };
