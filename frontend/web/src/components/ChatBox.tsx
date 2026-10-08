@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { MessageRouteOverride } from '../api';
 import { isImeComposing } from '../lib/ime';
 import { spinnerFrame } from '../lib/soul';
@@ -38,7 +38,7 @@ export function handlePromptRewriteShortcut(event: RewriteShortcutEvent, state: 
 export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, steps = [], onRewrite, rewriting = false,
-  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange,
+  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -57,6 +57,8 @@ export function ChatBox({
   onSlashSelectionChange: (n: number) => void;
   routeOverride?: MessageRouteOverride;
   onRouteOverrideChange?: (value: MessageRouteOverride) => void;
+  /** Shown under the input, like the map composer's runtime line. */
+  footer?: ReactNode;
 }) {
   const { t } = useI18n();
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -189,5 +191,6 @@ export function ChatBox({
           {rewriting ? `${spinnerFrame(thinkTick)} ${t('chat.rewriting')}` : t('chat.rewrite')}
         </button> : null}
       </>} />
+    {footer}
   </div>;
 }

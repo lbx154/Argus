@@ -657,6 +657,12 @@ def classify_front_door(
             intake_type = "objective_amendment"
         else:
             intake_type = "ephemeral"
+    if intent is not None and intake_type == "standing_directive":
+        # A parsed CONFIG change is persisted (and confirmed) by the config
+        # store. Recording the same sentence as a standing directive would
+        # duplicate it, announce it a second time and keep steering prompts
+        # after the setting itself is changed again.
+        intake_type = "preference"
     intake_scope = fields["intake_scope"].strip().lower()
     if intake_scope not in {"mission", "project", "global"}:
         intake_scope = "mission" if intake_type == "objective_amendment" else "project"

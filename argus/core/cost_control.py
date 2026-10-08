@@ -732,7 +732,7 @@ def cost_admission_reason(
 
 
 def acknowledge_unpriced_call(
-    *, global_root: Path | str, project_id: str, call_id: str,
+    *, global_root: Path | str | None, project_id: str, call_id: str,
     liability_usd: float, reason: str,
 ) -> dict[str, Any]:
     """Approve one unknown call with a budgeted liability, preserving its ledger.

@@ -7,7 +7,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ._config import LifeSupervisorConfig
 from ._constants import (
@@ -23,6 +23,9 @@ from ._subagent_family_failures import (
     SubagentFamilyFailure,
     recent_subagent_family_failures,
 )
+
+if TYPE_CHECKING:
+    from ._config import _MemoryView
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +48,13 @@ _QUARANTINE_WINDOW_KINDS = frozenset({"mission_failed"}) | (
 
 
 class PlannerOrchestrationMixin:
+    if TYPE_CHECKING:
+        # Provided by LifeSupervisor (_core.py); same shapes as the sibling mixins.
+        memory: _MemoryView
+        config: LifeSupervisorConfig
+
+        def _project_state_root(self) -> Path: ...
+
     def _live_subagent_id_line(self) -> str:
         """Name the live subagent work_ids, or say nothing.
 
@@ -554,7 +564,7 @@ def _deadline_ts(pipeline: dict[str, Any]) -> float | None:
 
     for key in ("deadline", "deadline_ts"):
         raw = pipeline.get(key)
-        if raw in (None, ""):
+        if raw is None or raw == "":
             continue
         try:
             return float(raw)
@@ -685,6 +695,8 @@ def _planner_time_line(
         seen.add(item_id)
         if status != "done":
             unfinished += 1
+            continue
+        if finished_ts is None or started_ts is None:
             continue
         try:
             span = float(finished_ts) - float(started_ts)

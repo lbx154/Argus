@@ -7,6 +7,7 @@ import { emptyMissionView } from '../../../core/src/missionView';
 import App from '../App';
 import { api } from '../api';
 import { ChatBox } from '../components/ChatBox';
+import { ComposerRuntime } from '../components/ComposerRuntime';
 import { Sidebar } from '../components/Sidebar';
 import { ArtifactModal } from '../components/ArtifactModal';
 import { ResearchCanvas } from '../components/ResearchCanvas';
@@ -128,6 +129,11 @@ afterEach(() => {
 });
 
 describe('App session composer ownership', () => {
+  it('gives the chat composer the same runtime line as the map composer', () => {
+    const footer = props().footer as { type?: unknown; props?: { sid?: string } };
+    expect(footer?.type).toBe(ComposerRuntime);
+    expect(footer?.props?.sid).toBe('s-A');
+  });
   it('keeps A text and File references in A, with a clean B draft', () => {
     const file = new File(['A attachment'], 'report.md');
     type('A draft');

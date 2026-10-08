@@ -64,7 +64,7 @@ function sidebarMarkup(
 }
 
 describe('Sidebar session identity and health', () => {
-  it('shows stable identifiers when unnamed sessions would otherwise look identical', () => {
+  it('keeps stable identifiers in the tooltip when unnamed sessions would otherwise look identical', () => {
     const unnamed = rows.map((project, index) => ({
       ...project,
       id: `session-${index + 1}`,
@@ -74,10 +74,12 @@ describe('Sidebar session identity and health', () => {
 
     const markup = sidebarMarkup(unnamed);
 
-    expect(markup).toContain('title="session-1"');
-    expect(markup).toContain('title="session-2"');
-    expect(markup).toContain('>session-1</span>');
-    expect(markup).toContain('>session-2</span>');
+    // The raw id is never the visible name; it stays in each row's tooltip
+    // so otherwise identical unnamed sessions remain distinguishable.
+    expect(markup).toMatch(/title="[^"]*· session-1"/);
+    expect(markup).toMatch(/title="[^"]*· session-2"/);
+    expect(markup).not.toContain('>session-1</span>');
+    expect(markup).not.toContain('>session-2</span>');
     expect(markup).toContain('aria-label="Resume"');
     expect(markup).not.toContain('Codex · gpt-5');
   });

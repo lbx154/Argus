@@ -48,14 +48,17 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
   const settled = paused || (!busy && job.status === 'failed');
   const names = zh ? { knowledge: '知识库', skills: '技能库', preferences: '用户偏好' }
     : { knowledge: 'Knowledge base', skills: 'Skill library', preferences: 'Preferences' };
-  const channels: LearningChannel[] = channel ? [channel] : ['knowledge', 'skills', 'preferences'];
+  const allChannels: LearningChannel[] = channel ? [channel] : ['knowledge', 'skills', 'preferences'];
+  // A finished check that added nothing is noise for the operator; only what
+  // changed (or is still being worked on) is shown. The event log keeps the rest.
+  const channels = busy ? allChannels : allChannels.filter(kind => (job.outcome.counts?.[kind] ?? 0) > 0);
+  if (!busy && !settled && !channels.length) return null;
   const message = (kind: LearningChannel) => {
     const count = job.outcome.counts?.[kind] ?? 0;
     if (busy) return job.status === 'running'
       ? (zh ? `${names[kind]}正在更新` : `Updating ${names[kind].toLowerCase()}`)
       : (zh ? `${names[kind]}等待更新` : `${names[kind]} update queued`);
-    return count ? (zh ? `${names[kind]}已更新 · ${count} 条` : `${names[kind]} updated · ${count}`)
-      : (zh ? `${names[kind]}已检查，无新增` : `${names[kind]} checked, no additions`);
+    return zh ? `${names[kind]}已更新 · ${count} 条` : `${names[kind]} updated · ${count}`;
   };
   const items = (job.outcome.items ?? []).filter(item => !channel || item.channel === channel);
   return <div className="px-2 py-1.5 text-[11px] leading-5 text-ink-dim" data-learning-status={job.status}>
