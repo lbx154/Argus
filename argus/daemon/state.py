@@ -1301,11 +1301,22 @@ def _process_argv(pid: int) -> list[str]:
     import psutil
 
     try:
-        return list(psutil.Process(pid).cmdline())
+        argv = list(psutil.Process(pid).cmdline())
     except psutil.NoSuchProcess as error:
         raise ProcessLookupError(pid) from error
-    except psutil.Error as error:
-        raise OSError(str(error)) from error
+    except psutil.Error:
+        argv = []
+    if argv:
+        return argv
+    # The argument area can be briefly unreadable (macOS KERN_PROCARGS2);
+    # ps reads the same table and its whitespace split keeps module tokens.
+    completed = subprocess.run(
+        ["ps", "-ww", "-o", "command=", "-p", str(pid)],
+        capture_output=True, text=True, timeout=5, check=False,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        raise ProcessLookupError(pid)
+    return completed.stdout.split()
 
 
 def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
@@ -1317,7 +1328,7 @@ def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
         try:
             argv = _process_argv(int(pid))
             pgid = os.getpgid(int(pid))
-        except (OSError, ProcessLookupError, ValueError):
+        except (OSError, ValueError, subprocess.SubprocessError):
             continue
         if (
             any(module in argv for module in _TEAMMATE_ENTRY_MODULES)
