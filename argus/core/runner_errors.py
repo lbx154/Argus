@@ -41,6 +41,10 @@ _GENERIC_EXIT_RECEIPT_RE = re.compile(
     r"(?: it printed nothing on stderr(?:; its own log is under .+)?\.)?$",
     re.IGNORECASE,
 )
+# The CLI's receipt for an HTTP request the provider (or a relay in front of
+# it) answered with an error status instead of a response stream. Such a
+# request generated nothing, so there is no usage to wait for.
+_PROVIDER_HTTP_REJECTION_RE = re.compile(r"\bunexpected status [45]\d\d\b", re.IGNORECASE)
 _MODEL_PROGRESS_EVENT_TYPES = frozenset({
     "turn.started", "turn.completed", "turn.failed",
     "item.started", "item.updated", "item.completed",
@@ -174,6 +178,79 @@ def is_unrecoverable_resume_error(value: object) -> bool:
     )
 
 
+def is_provider_http_rejection(value: object) -> bool:
+    """The provider endpoint answered the request with an HTTP error status."""
+    return bool(_PROVIDER_HTTP_REJECTION_RE.search(str(value or "")))
+
+
+# Events a CLI emits around a request whether or not the model produced
+# anything: opening the session/turn, and reporting that it failed.
+_REQUEST_LIFECYCLE_EVENT_TYPES = frozenset({
+    "thread.started", "turn.started", "turn.failed", "error",
+})
+
+
+def model_output_observed(cli_result: Any) -> bool:
+    """Whether the runner saw the model produce anything during this call.
+
+    Any item (reasoning included), assistant text, tool use, provider-turn
+    receipt, or event outside the request lifecycle counts. When the retained
+    event capture is incomplete, or progress was observed without retained
+    events to explain it, the answer is yes: absence of output must be proven.
+    """
+    if (
+        getattr(cli_result, "model_output_observed", False)
+        or getattr(cli_result, "agent_messages", None)
+        or getattr(cli_result, "tool_activity_observed", False)
+        or getattr(cli_result, "provider_turns", 0)
+    ):
+        return True
+    events = list(getattr(cli_result, "json_events", None) or [])
+    if int(getattr(cli_result, "json_event_count", 0) or 0) > len(events):
+        return True
+    if getattr(cli_result, "model_progress_observed", False) and not events:
+        return True
+    return any(
+        not isinstance(event, dict)
+        or str(event.get("type") or "") not in _REQUEST_LIFECYCLE_EVENT_TYPES
+        for event in events
+    )
+
+
+def result_rejected_before_output(
+    result: Any, *, error: object = "", model_output: bool | None = None,
+) -> bool:
+    """A failed call whose provider rejected the request before any output.
+
+    Requires every piece of evidence to agree: the process failed, the runner
+    reports no model output of any kind (``model_output`` is
+    :func:`model_output_observed` of the raw runner result; unknown counts as
+    output), the result carries no assistant text, tool activity or provider
+    turn, and its terminal diagnostic is an HTTP error status from the provider
+    endpoint. A call that ran and merely lost its usage report never satisfies
+    this, so it stays fail-closed.
+    """
+    if model_output is None or model_output:
+        return False
+    failed = bool(
+        int(getattr(result, "exit_code", 0) or 0) != 0
+        or getattr(result, "turn_failed", False)
+        or getattr(result, "fatal_error", None)
+        or error
+    )
+    if not failed:
+        return False
+    if "accounting_pending:" in str(error or ""):
+        return False
+    if getattr(result, "agent_messages", None) or getattr(result, "tool_activity_observed", False):
+        return False
+    if getattr(result, "provider_turns", 0):
+        return False
+    evidence = [error, getattr(result, "fatal_error", None),
+                *list(getattr(result, "stderr_lines", None) or [])[-5:]]
+    return any(is_provider_http_rejection(item) for item in evidence)
+
+
 def result_has_missing_resume_target(result: Any) -> bool:
     return is_missing_resume_target_error(terminal_failure_diagnostic(result))
 
@@ -193,6 +270,9 @@ __all__ = [
     "is_missing_resume_target_error",
     "is_model_catalog_startup_error",
     "is_pre_provider_refusal_error",
+    "is_provider_http_rejection",
+    "model_output_observed",
+    "result_rejected_before_output",
     "is_unrecoverable_resume_error",
     "result_has_missing_resume_target",
     "result_has_pre_provider_refusal",

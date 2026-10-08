@@ -93,6 +93,9 @@ _CODEX_PROGRESS_EVENT_TYPES = frozenset({
     "turn.started", "turn.completed", "turn.failed",
     "item.started", "item.updated", "item.completed",
 })
+# Request lifecycle only: the CLI opened or closed a turn. Neither shows the
+# model produced anything (a request the provider rejects still emits both).
+_REQUEST_LIFECYCLE_EVENT_TYPES = frozenset({"turn.started", "turn.failed"})
 
 
 def _mark_model_progress(state: "_StreamState") -> None:
@@ -132,6 +135,10 @@ class _StreamState:
     provider_turns: int = 0
     provider_turn_cap_hit: bool = False
     model_progress_observed: bool = False
+    # The model produced something (an item of any kind, including reasoning,
+    # assistant text, tool use, or a provider-turn receipt), as opposed to
+    # request lifecycle events alone.
+    model_output_observed: bool = False
     # Stderr written after the latest model progress event: how the current
     # turn ended, as opposed to startup noise the CLI recovered from.
     stderr_since_progress: "deque[str]" = field(
@@ -752,6 +759,12 @@ class RunExecMixin:
                         or has_tool_activity
                     ):
                         _mark_model_progress(state)
+                        if (
+                            event.get("type") not in _REQUEST_LIFECYCLE_EVENT_TYPES
+                            or ends_provider_turn
+                            or has_tool_activity
+                        ):
+                            state.model_output_observed = True
                     if (
                         provider_turn_cap > 0
                         and not state.watchdog_terminated
@@ -816,6 +829,7 @@ class RunExecMixin:
                         and len(state.agent_messages[-1]) > _last_text_before
                     ):
                         _mark_model_progress(state)
+                        state.model_output_observed = True
                     # Stream each NEW assistant block to the opt-in callback the
                     # instant it lands — this is what lets the Manager chat front-door
                     # render the reply live instead of after the whole turn. Default
@@ -1043,6 +1057,7 @@ class RunExecMixin:
             provider_turns=state.provider_turns,
             provider_turn_cap_hit=state.provider_turn_cap_hit,
             model_progress_observed=state.model_progress_observed,
+            model_output_observed=state.model_output_observed,
             terminal_stderr_lines=(
                 list(state.stderr_since_progress)
                 if state.model_progress_observed

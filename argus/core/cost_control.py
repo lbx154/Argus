@@ -673,17 +673,34 @@ def _budget_reason(
                       if row.get("call_id") not in liabilities and not _is_missing_price(row)]
         if unresolved:
             first = unresolved[0]
+            call_id = str(first.get('call_id') or '(unknown)')
+            project_id = str(first.get('project_id') or '(unknown)')
             detail = (
-                f"call={first.get('call_id') or '(unknown)'}, "
+                f"call={call_id}, "
+                f"role={first.get('run_label') or '(unknown)'}, "
+                f"project={project_id}, "
                 f"provider={first.get('provider') or '(unknown)'}, "
                 f"model={first.get('model') or '(missing)'}; "
                 f"{str(first.get('reason') or 'usage is incomplete')[:240]}"
             )
             return (
                 f"unresolved provider cost: {len(unresolved)} call(s) "
-                f"awaiting usage reconciliation ({detail})"
+                f"awaiting usage reconciliation ({detail}); "
+                f"unblock: {unblock_instruction(project_id, call_id)}"
             )
     return ""
+
+
+def unblock_instruction(project_id: str, call_id: str) -> str:
+    """The exact operator action that releases one held call."""
+    return (
+        f"argus cost acknowledge {call_id} --project {project_id} "
+        '--liability-usd <approved USD> --reason "<why>" (or '
+        f"POST /api/projects/{project_id}/cost-control/acknowledge "
+        f'{{"call_id": "{call_id}", "liability_usd": <approved USD>, "reason": "<why>"}}'
+        "; either approves this call with a budgeted liability), or set "
+        "ARGUS_SKILL_UNPRICED_COST_POLICY=allow"
+    )
 
 
 def global_daily_usage_summary(
@@ -1308,6 +1325,7 @@ def _close_reservation(
             "mission_id": record.mission_id,
             "provider": record.provider,
             "model": record.model,
+            "run_label": record.run_label,
             "pricing_status": record.pricing_status,
             "reason": usage_pricing_reason(record),
             "blocking": _unpriced_policy() == "block",
@@ -1539,6 +1557,7 @@ __all__ = [
     "CostControlLockBusyError",
     "CostControlStateError",
     "acknowledge_unpriced_call",
+    "unblock_instruction",
     "cost_admission_reason",
     "global_daily_usage_summary",
     "cost_control_enabled",

@@ -498,6 +498,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_correct(args))
     if args.command == "learn":
         return _run_with_path_resolution_errors(lambda: _cmd_learn(args))
+    if args.command == "cost":
+        from ._cost import run_cost_command
+
+        return run_cost_command(args)
     if args.command == "verticals":
         from ._verticals import run_verticals_command
 
