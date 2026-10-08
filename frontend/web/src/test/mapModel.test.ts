@@ -29,6 +29,25 @@ describe("progress map data semantics", () => {
     expect(latestCertifiedTask([{ ...accepted, status: "running" }], [completion])).toBeUndefined();
     expect(rows[0].status).toBe("failed");
   });
+  it("drops a final-acceptance banner once later work reopens the project", () => {
+    const cleanup = { ...task("cleanup", [], "done", 20), finished_ts: 20,
+      outcome: { review_status: "done", stage_certification: "certified" } };
+    const completion: MapEvent = { id: "end", item_id: "cleanup", type: "life.mission.completed",
+      ts: 21, text: "", overall_complete: true };
+    const reopened: MapEvent = { id: "next", item_id: "paper", type: "life.mission.started", ts: 40, text: "" };
+    const rows = [cleanup, task("paper", [], "failed", 40)];
+    expect(latestCertifiedTask(rows, [completion])).toBe(cleanup);
+    expect(latestCertifiedTask(rows, [completion, reopened])).toBeUndefined();
+    // A restart of the certified task itself is the same reopening.
+    expect(latestCertifiedTask(rows, [completion, { ...reopened, item_id: "cleanup" }])).toBeUndefined();
+  });
+  it("shows a stage hold as held, not as an execution failure", () => {
+    const held = { ...task("exp", [], "failed"), last_error: "manager stage hold: keep Experiment open",
+      outcome: { execution_status: "failed", review_status: "done", stage_certification: "not_certified" } };
+    expect(statusKey(held)).toBe("held");
+    expect(held.status).toBe("failed");
+    expect(statusKey({ ...held, outcome: { ...held.outcome, stage_certification: "not_assessed" } })).toBe("failed");
+  });
   it("orders actionable questions before failures without duplicating or mutating tasks", () => {
     const rows = [
       task("failed", [], "failed"),

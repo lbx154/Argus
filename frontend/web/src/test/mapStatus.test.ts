@@ -6,7 +6,7 @@ describe("map status sentence", () => {
     expect(mapStatusSentence({ total: 6, complete: 6, running: 0, pending: false, paused: true, hasOpenWork: false, zh: true }))
       .toBe("6 个任务 · 已全部完成");
     expect(mapStatusSentence({ total: 3, complete: 1, running: 1, pending: false, paused: false, hasOpenWork: true, role: "engineer", zh: true }))
-      .toBe("3 个任务 · 已完成 1 · 进行中 1 · Engineer 正在工作");
+      .toBe("3 个任务 · 已完成 1 个 · 进行中 1 个 · Engineer 正在工作");
     expect(mapStatusSentence({ total: 3, complete: 1, running: 0, pending: false, paused: true, hasOpenWork: true, zh: false }))
       .toBe("3 tasks · 1 done · paused");
     expect(mapStatusSentence({ total: 0, complete: 0, running: 0, pending: true, paused: true, hasOpenWork: false, zh: false }))
@@ -16,14 +16,14 @@ describe("map status sentence", () => {
   it("lets the wait sentence stand in for the role at work", () => {
     expect(mapStatusSentence({ total: 1, complete: 0, running: 1, pending: false, paused: false, hasOpenWork: true, role: "engineer",
       waiting: "正在等待后台团队：3 条研究路线全部完成", zh: true }))
-      .toBe("1 个任务 · 进行中 1 · 正在等待后台团队：3 条研究路线全部完成");
+      .toBe("1 个任务 · 进行中 1 个 · 正在等待后台团队：3 条研究路线全部完成");
   });
 
   it("counts partial executions separately and never calls them overall completion", () => {
     const input = { total: 2, complete: 1, ended: 1, running: 0, pending: false, paused: true, hasOpenWork: false };
     expect(mapStatusSentence({ ...input, zh: false }))
       .toBe("2 tasks · 1 done · 1 execution ended · nothing in progress · execution completion is not overall completion");
-    expect(mapStatusSentence({ ...input, zh: true })).toContain("1 次执行已结束");
+    expect(mapStatusSentence({ ...input, zh: true })).toContain("已结束 1 个");
     expect(mapStatusSentence({ ...input, zh: true })).not.toContain("已全部完成");
   });
 
@@ -42,7 +42,7 @@ describe("map status sentence", () => {
     expect(completionScope(event, true)).toBe("");
     expect(completionScope({ ...event, outcome: { review_status: "not_assessed" } }, true)).toContain("当时");
     expect(mapStatusSentence({ total: 8, complete: 6, reviewUnavailable: 2, running: 0,
-      pending: false, paused: true, hasOpenWork: false, zh: true })).toContain("已完成 6 · 2 次审查异常");
+      pending: false, paused: true, hasOpenWork: false, zh: true })).toContain("已完成 6 个 · 审查异常 2 个");
   });
 });
 

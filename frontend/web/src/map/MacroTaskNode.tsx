@@ -118,6 +118,7 @@ const STATES: Record<string, [string, string]> = {
   pending: ["待开始", "Planned"],
   failed: ["执行失败", "Execution failed"],
   review_unavailable: ["当次审查异常", "Review error on this attempt"],
+  held: ["阶段暂停，等待下一步", "Stage on hold, next step pending"],
   aborted: ["已取消", "Cancelled"],
   cancelled: ["已取消", "Cancelled"],
   skipped: ["已跳过", "Skipped"],
@@ -444,7 +445,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   <TriangleAlert size={11} />
                 ) : state === "question" ? (
                   <HelpCircle size={11} />
-                ) : state === "paused" ? (
+                ) : state === "paused" || state === "held" ? (
                   <Pause size={11} />
                 ) : (
                   <span className="map-state-dot" />
