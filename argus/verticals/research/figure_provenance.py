@@ -14,6 +14,7 @@ from typing import Iterable
 
 import portalocker
 
+from ...core.atomic_replace import replace as _replace
 from ...core.file_digest import sha256_file as _sha256
 
 FIGURE_PROVENANCE_PATH = Path("paper/figures/FIGURE_PROVENANCE.json")
@@ -105,7 +106,7 @@ def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:
         json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
-    os.replace(temporary, path)
+    _replace(temporary, path)
 
 
 def _file_record(project_root: Path, raw: Path | str) -> dict[str, str]:
