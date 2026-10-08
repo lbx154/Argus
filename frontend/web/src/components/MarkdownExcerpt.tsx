@@ -1,13 +1,13 @@
 import { memo, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { excerptRehypePlugins, markdownRemarkPlugins } from './markdownMath';
 import { cleanDeliverySummary } from './deliveryPresentation';
 
 const inline = ({ children }: { children?: ReactNode }) => <span>{children} </span>;
 
 /** Non-interactive Markdown for clickable cards: formatting without nested controls. */
 export const MarkdownExcerpt = memo(function MarkdownExcerpt({ children }: { children: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+  return <ReactMarkdown remarkPlugins={markdownRemarkPlugins} rehypePlugins={excerptRehypePlugins} components={{
     p: inline, h1: inline, h2: inline, h3: inline, h4: inline, h5: inline, h6: inline,
     ul: inline, ol: inline, blockquote: inline, pre: inline,
     li: ({ children: text }) => <span className="markdown-excerpt-item">{text} </span>,

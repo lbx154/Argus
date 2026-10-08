@@ -116,7 +116,7 @@ def format_journal_tail(mem: Any, n: int) -> str:
     return "\n".join(lines)
 
 
-def append_note(mem: Any, text: str) -> str:
+def append_note(mem: Any, text: str, *, tags: list[str] | None = None) -> str:
     note_id = uuid.uuid4().hex[:12]
     try:
         from ..life.event_log import JsonlEventSink
@@ -129,7 +129,7 @@ def append_note(mem: Any, text: str) -> str:
                 "id": note_id,
                 "title": "manual note",
                 "summary": text.strip(),
-                "tags": [],
+                "tags": list(tags or []),
             })
     except Exception:  # noqa: BLE001
         pass

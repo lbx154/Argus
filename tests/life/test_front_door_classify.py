@@ -924,6 +924,23 @@ def test_front_door_standing_reply_turn_keeps_the_model_judgement() -> None:
     assert intakes[0]["kind"] == "standing_directive"
 
 
+def test_front_door_applied_config_change_is_not_a_standing_directive() -> None:
+    # The config store owns a setting change; it must not also become a
+    # standing instruction that is announced and steers every later turn.
+    intakes: list[dict] = []
+    intent, _control, _route = classify_front_door(
+        "把默认模型改成 x-model",
+        run_exec=_exec(
+            "CONFIG: SET model ALL x-model\nCONTROL: NONE\nROUTE: SELF\n"
+            "SELF_MODE: REPLY\nINTAKE_TYPE: STANDING_DIRECTIVE\nREPLY: NONE\nNAME: NONE"
+        ),
+        intake_sink=intakes.append,
+    )
+
+    assert intent is not None
+    assert intakes[0]["kind"] == "preference"
+
+
 def test_front_door_prompt_lets_greeting_reply_when_replies_are_off() -> None:
     prompt = build_front_door_prompt("你好", allow_reply=False)
     assert "REPLY must be NONE except for a GREETING" in prompt
@@ -937,3 +954,5 @@ def test_front_door_prompt_grounds_intake_in_ongoing_intent() -> None:
     assert "govern later turns" in prompt
     assert "以后都用中文" in prompt
     assert "message's language" in prompt
+    # A greeting has no topic; titling it yields an untranslated label.
+    assert "greeting/chat/settings NONE" in prompt

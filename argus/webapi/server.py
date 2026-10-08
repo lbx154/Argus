@@ -256,6 +256,16 @@ def create_app(
     from .index_cache import CacheWaitTimeout, QueryExecutor, QueryUnavailable
 
     token = auth_token if auth_token is not None else os.environ.get("ARGUS_SKILL_WEB_TOKEN")
+    from ..core.knob_store import KnobStoreCorruptError
+    from .mission_items import prefer_saved_over_deployment_env
+
+    # Deployment env is a default; a runner/model choice saved in config.json
+    # wins. Done here, not only in ``serve``, because deployments also build the
+    # app directly and run their own uvicorn.
+    try:
+        prefer_saved_over_deployment_env()
+    except KnobStoreCorruptError:
+        pass  # the settings page reports the unreadable store
     primary_root = project_state.resolve_global_root(global_root).expanduser().resolve()
     roots: list[Path] = [primary_root]
     if session_roots is not None:
@@ -531,10 +541,6 @@ def serve(
         raise RuntimeError(f"webapi refused inconsistent release: {release_error}")
     import uvicorn
 
-    from .mission_items import prefer_saved_over_deployment_env
-
-    # Deployment env is a default; a runner/model choice saved in config.json wins.
-    prefer_saved_over_deployment_env()
     uvicorn.run(
         create_app(global_root=global_root, auth_token=auth_token),
         host=host,

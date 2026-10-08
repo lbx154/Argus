@@ -280,7 +280,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_re
         "STANDING_DIRECTIVE only to govern later turns (`以后都用中文`; "
         "PREFERENCE_VALUE=lasting rule only); "
         "or PREFERENCE|CREDENTIAL_GRANT|REVOCATION. Unsure: EPHEMERAL.\n\n"
-        "CONFIG: standing setting as `SET model ALL <id>`, `SET effort planner,engineer "
+        "CONFIG: setting as `SET model ALL <id>`, `SET effort planner,engineer "
         "high`: roles ALL or some of manager,planner,engineer,"
         "reviewer for backend|model|effort; `-` for global_daily_cap,max_daemons,"
         "codex_daily_requests,copilot_daily_requests,copilot_daily_premium,safe_mode,"
@@ -311,7 +311,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_re
         "intent; BOUNDED_INCREMENT=limited stage; STANDING=ongoing intent. "
         "SELF: NONE.\n\n"
         "GREETING: pure greetings; REPLY greets + 2-3 starter asks. "
-        "NAME: topic in the message's language; chat/settings NONE.\n\n"
+        "NAME: topic in the message's language; greeting/chat/settings NONE.\n\n"
         + decision_footer_instruction(
             "INTAKE_TYPE: EPHEMERAL\n"
             "INTAKE_SCOPE: PROJECT\n"

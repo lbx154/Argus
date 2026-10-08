@@ -39,6 +39,11 @@ describe('the web feed line', () => {
     expect(line({ type: 'some.unknown.internal', text: 'kept for grep' })).toBeNull();
   });
 
+  it('hides the grounding note of a chat config change but keeps operator notes', () => {
+    const note = { type: 'user.note', title: 'manual note', summary: "Set all Argus roles' model to x." };
+    expect(line({ ...note, tags: ['config'] })).toBeNull();
+    expect(line({ ...note, tags: [] })?.text).toContain("Set all Argus roles' model");
+  });
   it('explains a refused Manager check without claiming a team decision failed', () => {
     const event = {
       type: 'life.manager.supervision.failed', status: 'failed', failure_stage: 'provider',

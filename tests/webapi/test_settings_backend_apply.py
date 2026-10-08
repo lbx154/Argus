@@ -85,3 +85,28 @@ def test_startup_lets_a_saved_choice_override_the_deployment_env(tmp_path, monke
 
     assert prefer_saved_over_deployment_env(env) == ["ARGUS_SKILL_RUNNER_BACKEND"]
     assert env == {"ARGUS_SKILL_MODEL": "deploy-model"}
+
+
+def test_an_app_built_directly_reports_the_saved_backend_as_saved(tmp_path, monkeypatch) -> None:
+    # Deployments may build the app and run their own server instead of
+    # calling ``serve``; the saved choice must still win over their env.
+    import pytest
+
+    pytest.importorskip("fastapi")
+    from argus.core.config_snapshot import build_config_snapshot
+    from argus.webapi.server import create_app
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"ARGUS_SKILL_RUNNER_BACKEND": "copilot"}), encoding="utf-8"
+    )
+
+    create_app(global_root=tmp_path, auth_token="t")
+
+    knob = next(
+        row for row in build_config_snapshot()["operator_knobs"]
+        if row["name"] == "ARGUS_SKILL_RUNNER_BACKEND"
+    )
+    assert (knob["value"], knob["source"]) == ("copilot", "persisted")
+

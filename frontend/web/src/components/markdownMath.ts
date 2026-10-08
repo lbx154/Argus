@@ -39,3 +39,13 @@ function rehypeMathWithNotice({ zh }: { zh: boolean }) {
 export function markdownRehypePlugins(zh: boolean): PluggableList {
   return [[rehypeMathWithNotice, { zh }]];
 }
+
+function rehypeExcerptMath() {
+  return (tree: Root, file: VFile) => {
+    // Cards have no room for the error notice; KaTeX keeps a failed formula's source.
+    rehypeKatex({ ...mathOptions, macros: { ...mathMacros } })(tree, file);
+  };
+}
+
+/** Math for one-line excerpts (map cards, notices): formulas render, nothing is added around them. */
+export const excerptRehypePlugins: PluggableList = [rehypeExcerptMath];
