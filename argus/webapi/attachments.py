@@ -512,14 +512,18 @@ def _windows_open_attachment_session_root(
 
 def _windows_write_file_atomic(parent: Path, name: str, content: bytes) -> None:
     _validate_storage_component(name)
-    temporary = parent / f".{name}.tmp-{os.getpid()}-{time.time_ns()}-{uuid4().hex}"
+    # A valid target path must not exceed MAX_PATH solely because the temporary
+    # filename repeats the payload name and adds process/timestamp suffixes.
+    temporary = parent / f".argus-{uuid4().hex}.tmp"
     target = parent / name
     descriptor: int | None = None
+    created = False
     try:
         descriptor = os.open(
             temporary,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOINHERIT", 0),
         )
+        created = True
         with os.fdopen(descriptor, "wb", closefd=True) as handle:
             descriptor = None
             handle.write(content)
@@ -529,8 +533,9 @@ def _windows_write_file_atomic(parent: Path, name: str, content: bytes) -> None:
     finally:
         if descriptor is not None:
             os.close(descriptor)
-        with suppress(FileNotFoundError):
-            temporary.unlink()
+        if created:
+            with suppress(FileNotFoundError):
+                temporary.unlink()
 
 
 def _windows_store_prepared_attachment(
