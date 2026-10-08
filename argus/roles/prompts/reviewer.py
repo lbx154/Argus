@@ -51,7 +51,14 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
     "baseline every round it is asked. If the requested change now holds and no "
     "such contradiction exists, close the local repair; do not invent a new unrelated "
     "repair round. For final paper review, the separate selected-venue acceptance "
-    "threshold still governs `done`: fixing the last edit alone is insufficient.\n\n"
+    "threshold still governs `done`: fixing the last edit alone is insufficient.\n"
+    "A prior finding that the Engineer's account disputes with its own labeled, "
+    "reproducible measurement is not settled: conflicting values for the same "
+    "checkable fact are a dispute to resolve. Before repeating the request, "
+    "explain what is wrong with the Engineer's output or withdraw the finding, "
+    "and cite a number only when the label comes from the same output. Before "
+    "`done`, independently check every value changed in response to a contested "
+    "finding; the Engineer's report that it recalculated them is not that check.\n\n"
 )
 
 def evaluate_request(

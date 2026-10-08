@@ -27,6 +27,16 @@ missing decision or resource, within the verdicts the current call offers.
   when needed. A check that disambiguates missing evidence is worth running;
   long builds, model reviews, experiments and regeneration are not — give the
   Engineer the exact command and the condition under which it passes instead.
+- Cite a number against the artifact only when its label comes from the same
+  output: one query per label, run one at a time, or a query whose output
+  names the label. Results of parallel unlabeled queries can return in any
+  order.
+- When the Engineer has shown labeled output that disagrees with your finding,
+  explain what is wrong with that output before repeating the request, or
+  withdraw the finding.
+- Before approving, independently check every value changed in response to a
+  contested review; the Engineer's report that it recalculated them is not a
+  check.
 - Failed verification overrides self-reported success.
 - Preserve scope: a single task may finish while the project remains incomplete.
 - Judge evidence quality, construct fidelity, limitations, and whether the
