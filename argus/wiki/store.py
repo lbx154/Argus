@@ -15,10 +15,10 @@ _WIKI_LOCK_POLL_SECONDS = 0.05
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
-    _atomic_write_bytes(path, text, text_mode=True)
+    atomic_write_bytes(path, text, text_mode=True)
 
 
-def _atomic_write_bytes(path: Path, data: bytes | str, *, text_mode: bool = False) -> None:
+def atomic_write_bytes(path: Path, data: bytes | str, *, text_mode: bool = False) -> None:
     """Replace ``path`` atomically; bytes are restored exactly as given."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(
@@ -102,4 +102,4 @@ class WikiStore:
         return rows
 
 
-__all__ = ["WikiStore", "_atomic_write_text"]
+__all__ = ["WikiStore", "_atomic_write_text", "atomic_write_bytes"]
