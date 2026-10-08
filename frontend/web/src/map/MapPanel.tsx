@@ -353,7 +353,9 @@ export function MapCanvas({
   const ordinalOf = useMemo(() => new Map(scene.cards.map((card) => [card.id, card.ordinal])), [scene.cards]);
   const growth = useMapGrowth(scene, !!data.history_loading);
   const plannedWidths = useMemo(() => formationWidths(data.events), [data.events]);
-  const submitFromMap: MapSend = async (text, files = []) => {
+  const submitFromMap: MapSend = async (text, files = [], _observe, options) => {
+    // A note for the running turn has no flight of its own; it joins that turn.
+    if (options?.whileRunning) return composer.onSend(text, files, undefined, options);
     const id = ++dispatchSerial.current;
     const source = canvasRef.current?.querySelector('.map-composer')?.getBoundingClientRect();
     setFlight({ id, text: splitDraft(text).text.replace(/\s+/g, ' ').slice(0, 180), origin: { x: source?.left ?? 20, y: source?.top ?? innerHeight - 100, width: source?.width ?? 260, height: source?.height ?? 56 } });
@@ -1744,7 +1746,7 @@ export const MapPanel = memo(function MapPanel({
       mounted.current = false;
     };
   }, []);
-  const send: MapSend = useCallback(async (text, files = [], observe) => {
+  const send: MapSend = useCallback(async (text, files = [], observe, options) => {
     let failedBeforeAcceptance = false;
     const accepted = await onSend(text, files, (result) => {
       if (result.type === 'settled' && result.outcome === 'error') failedBeforeAcceptance = true;
@@ -1754,7 +1756,7 @@ export const MapPanel = memo(function MapPanel({
         setAttachments((current) => current.length ? current : files);
       }
       observe?.(result);
-    });
+    }, options);
     if (accepted && !failedBeforeAcceptance && mounted.current) {
       if (currentDraft.current === text) onDraftChange("");
       setAttachments((current) =>
