@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
@@ -271,6 +272,7 @@ class SupervisedEngineer(
                 engineer_prompt += "\n\n" + state.pending_external_work_followup
                 state.pending_external_work_followup = ""
 
+            state.round_started_wall = time.time()
             outcome = self._run_engineer_turn(
                 round_index=round_index,
                 engineer_prompt=engineer_prompt,

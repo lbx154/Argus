@@ -63,6 +63,10 @@ Plan from the mission workspace only; never read sibling projects or parent dire
 - Reuse settled and Manager decisions. Give each task its decision, inputs, and
   check. Emit items that differ only in inputs or config, with disjoint outputs,
   together up to the free slots; a shared code change goes first as their dep.
+- Ask before emitting: at the measured throughput in the digest's time line, can
+  this plan reach its first held-out number in the time remaining? If not, which
+  smaller end-to-end version comes first? What other independent work can start
+  this cycle?
 - Cited `life.planner.error`/`life.manager.intent.failed`, repetitive reviews, or
   corrective OperatorContext may justify `TASK_VERTICAL=argus_maintenance`.
   Require a harness hypothesis, executable check, exclusions, isolated

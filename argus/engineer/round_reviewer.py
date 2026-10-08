@@ -323,6 +323,7 @@ class RoundReviewerMixin:
                     self.reviewer_config,
                     working_dir=str(workdir),
                     artifact_root=str(workdir),
+                    round_started_ts=state.round_started_wall,
                 ),
                 prev_review_summary=_previous_review_summary(state),
                 # Host-gathered round evidence (e.g. a vertical's spec checks):
