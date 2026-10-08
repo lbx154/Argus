@@ -828,10 +828,10 @@ def _standing_notice_text(instruction: str) -> str:
     if len(text) > 60:
         text = text[:59] + "…"
     if any("\u3400" <= ch <= "\u9fff" for ch in text):
-        return f"已记为长期指令：{text}（之后每一轮都会遵守；说“取消”即可撤销）"
+        return f"已记为长期指令：{text}（之后每一轮都会遵守；说“取消这条长期指令”即可撤销）"
     return (
         f"Saved as a standing instruction: {text} (applies to every later turn; "
-        "say “cancel that” to revoke it)"
+        "say “cancel that standing instruction” to revoke it)"
     )
 
 

@@ -317,7 +317,9 @@ def _front_door_classify(
                 )
                 intake_commit_started = False
                 if recorded is not None and intake_payload.get("kind") == "standing_directive":
-                    chat_state["_frontdoor_standing_notice"] = text.strip()
+                    chat_state["_frontdoor_standing_notice"] = str(
+                        getattr(recorded, "text", "") or text
+                    ).strip()
         return (
             intent,
             control if control in {"abort", "pause", "no_dispatch", "steer"} else None,

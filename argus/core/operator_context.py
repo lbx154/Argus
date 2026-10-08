@@ -1090,6 +1090,8 @@ def freeze_operator_intake(
                     scope, lifetime = "mission", "bounded_increment"
             elif decision.kind == "objective_amendment":
                 scope, lifetime = "mission", "bounded_increment"
+            elif decision.kind == "standing_directive":
+                normalized = decision.preference_value.strip() or normalized
             elif decision.kind == "revocation":
                 normalized = f"Revocation request needs a target revision: {normalized}"
                 scope, lifetime = "mission", "once"
@@ -1178,6 +1180,8 @@ def persist_intake_decision(
         normalized = f"Revocation request needs a target revision: {normalized}"
         lifetime = "once"
         scope = "mission"
+    elif decision.kind == "standing_directive":
+        normalized = decision.preference_value.strip() or normalized
     return append_directive(
         life_dir,
         normalized,
