@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from ...core.event_catalog import EventType
 from ...core.metrics import metrics_root_for_project, record_metric
 from ...core.models import RunnerResult
+from ...core.runner_errors import result_rejected_before_output
 from ...core.secret_guard import redact_secrets_text
 from ...core.stop_kinds import normalize_stop_kind
 from ...core.token_usage import TokenUsage
@@ -168,6 +169,10 @@ def finalize_result(
                 model_usage=result.model_usage,
                 error=persisted_error,
                 startup_receipt=startup_receipt,
+                rejected_before_output=(
+                    status == "error"
+                    and result_rejected_before_output(result, error=persisted_error)
+                ),
             )
             appended = UsageLedger(
                 ctx.usage_project_root,

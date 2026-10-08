@@ -465,6 +465,7 @@ class UsageSummary:
 
 _ARGUS_INTERRUPT_PREFIX = "external interrupt:"
 INTERRUPTED_REQUEST_TIER = "copilot_interrupted_request"
+PROVIDER_REJECTED_TIER = "provider_rejected"
 
 
 def _is_argus_interrupt(error: object) -> bool:
@@ -624,6 +625,7 @@ def build_usage_record(
     error: str = "",
     source: UsageSource = "run_exec",
     startup_receipt: dict[str, Any] | None = None,
+    rejected_before_output: bool = False,
 ) -> UsageRecord:
     usage = token_usage or TokenUsage()
     normalized_model_usage = _normalize_model_usage(model_usage)
@@ -652,6 +654,18 @@ def build_usage_record(
         and not usage.observed
         and not (premium_requests or 0.0)
     )
+    # The provider answered with an HTTP error before producing anything: the
+    # call failed, and no usage report will ever arrive for it. Any reported
+    # usage overrides this, so a call that did run is still priced normally.
+    provider_rejected = (
+        rejected_before_output
+        and status == "error"
+        and total_nano_aiu is None
+        and provider_cost_usd is None
+        and not normalized_model_usage
+        and not usage.observed
+        and not (premium_requests or 0.0)
+    )
     interrupted_empty_turn = (
         normalized_provider == "copilot"
         and not hosted_trial
@@ -671,6 +685,11 @@ def build_usage_record(
         pricing_status: PricingStatus = "not_billed"
         pricing_tier = "not_started"
         cost_usd: float | None = 0.0
+        cost_basis = "none"
+    elif provider_rejected:
+        pricing_status = "not_billed"
+        pricing_tier = PROVIDER_REJECTED_TIER
+        cost_usd = 0.0
         cost_basis = "none"
     elif interrupted_empty_turn:
         premium_quote = quote_copilot_usage(1.0)
