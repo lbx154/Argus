@@ -13,7 +13,7 @@ import portalocker
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
-from hosted_platform import needs_posix_modes
+from hosted_platform import linux_host_deadlines, needs_posix_modes
 from starlette.requests import ClientDisconnect
 
 from argus.trial import store as store_module
@@ -126,6 +126,7 @@ def gateway_attempts(store, key_id=KEY_ID):
             "SELECT * FROM trial_gateway_attempts WHERE key_id=? ORDER BY id", (key_id,))]
 
 
+@linux_host_deadlines
 def test_model_burst_waits_for_slots_without_failing_tasks(settings):
     active = peak = 0
     overlap = None
@@ -162,6 +163,7 @@ def test_model_burst_waits_for_slots_without_failing_tasks(settings):
                    and row["selected_response_status"] == 200 for row in observed)
 
 
+@linux_host_deadlines
 def test_cancelled_queued_request_does_not_spend_or_leak_slot(settings):
     async def scenario():
         app = create_app(settings, transport=httpx.MockTransport(upstream))
@@ -565,6 +567,7 @@ def test_ledger_atomic_quota_and_recovery(tmp_path):
     assert store.status(KEY_ID)["tokens_remaining"] == 0
 
 
+@linux_host_deadlines
 def test_gateway_limits_ten_concurrent_requests(settings):
     async def run():
         started = 0
@@ -784,6 +787,7 @@ def test_observation_storage_failure_does_not_change_response_or_cleanup(setting
             assert rows[0]["outcome"] is None and rows[0]["finished_at"] is None
 
 
+@linux_host_deadlines
 def test_provider_timeout_cannot_hold_slot_or_refund_unknown_work(settings):
     from dataclasses import replace
 
@@ -938,6 +942,7 @@ def test_upstream_rate_limit_keeps_retry_delay_and_refunds_without_retry(
         assert observed["retry_after"] == expected_delay
 
 
+@linux_host_deadlines
 def test_provider_metadata_cannot_redirect_credentials(settings):
     visited = []
 

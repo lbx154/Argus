@@ -9,6 +9,7 @@ import time
 import httpx
 import portalocker
 from cryptography.fernet import Fernet
+from hosted_platform import linux_host_deadlines
 
 from argus.trial.gateway import Settings, create_app, prepare
 from argus.trial.secrets import Vault, write_private
@@ -157,6 +158,7 @@ def test_shutdown_keeps_lock_until_cancel_swallowing_send_and_late_close_finish(
     assert len(observation["ledger"]) == 1 and observation["ledger"][0]["state"] == "unknown"
 
 
+@linux_host_deadlines
 def test_sse_timeout_ends_before_billing_writer_releases(tmp_path):
     settings = settings_for(tmp_path, timeout=0.05)
     payload = {**PAYLOAD, "stream": True}

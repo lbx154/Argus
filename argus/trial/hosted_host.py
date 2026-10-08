@@ -22,8 +22,12 @@ from pathlib import Path
 HOSTED_HOST = "the hosted trial service runs on its Linux operator host (docs/hosted-research-trial.md)"
 
 
-class HostedHostRequired(RuntimeError):
-    """A hosted-trial operation needs an OS capability this platform lacks."""
+class HostedHostRequired(Exception):
+    """A hosted-trial operation needs an OS capability this platform lacks.
+
+    Deliberately not an OSError or RuntimeError: handlers that turn those into
+    "unsafe path" or "unavailable" results must not hide a wrong host.
+    """
 
 
 # Directory descriptors that refuse every symlink, opened relative to a parent.

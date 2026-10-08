@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .analytics import AnalyticsError
-from .hosted_host import HostedHostRequired, boot_id, require_linux_process_identity
+from .hosted_host import HOSTED_HOST, HostedHostRequired, boot_id, require_linux_process_identity
 from .research_controls import SID
 from .training_capture import (
     HOSTED_PAYLOAD_BYTES,
@@ -61,7 +61,7 @@ def _peer_credentials(connection):
         if version != 0 or ngroups < 1:
             raise OSError("Unexpected Unix peer credential format")
         return connection.getsockopt(_SOL_LOCAL, _LOCAL_PEERPID), uid, groups[0]
-    raise HostedHostRequired("Training IPC needs kernel-reported Unix peer credentials, which this platform lacks")
+    raise HostedHostRequired(f"Training IPC needs kernel-reported Unix peer credentials, which this platform lacks; {HOSTED_HOST}")
 
 
 def _process(pid):
@@ -441,7 +441,7 @@ else:
         def __init__(self, *args, **kwargs):
             # Importing shared training/portal logic must work on Windows, but
             # never substitute unauthenticated TCP for kernel peer credentials.
-            raise HostedHostRequired("Hosted training IPC requires Unix sockets with kernel-reported peer credentials")
+            raise HostedHostRequired(f"Hosted training IPC needs Unix sockets with kernel-reported peer credentials, which this platform lacks; {HOSTED_HOST}")
 
 
 class _Handler(socketserver.StreamRequestHandler):
