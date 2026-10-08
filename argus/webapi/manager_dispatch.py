@@ -1206,6 +1206,16 @@ def _handle_abort_control(
     )
 
 
+def _model_catalog_ids(chat_state: dict[str, Any]) -> list[str]:
+    """The model ids the settings picker offers, for vetting chat model changes."""
+    from .mission_items import model_options
+
+    rows = model_options(chat_state.get("global_root"))
+    if not any(row.get("source") != "current" for row in rows):
+        return []  # only the knobs' own values: no list to vet against
+    return [str(row["model"]) for row in rows]
+
+
 def _maybe_apply_config_intent(
     mem: Any,
     intent: Any,
@@ -1228,7 +1238,13 @@ def _maybe_apply_config_intent(
         return _cancelled_result()
     cfg_lines: list[str] = []
     try:
-        applied = _apply_config_intent(mem, intent, chat_state, on_confirm=cfg_lines.append)
+        applied = _apply_config_intent(
+            mem,
+            intent,
+            chat_state,
+            on_confirm=cfg_lines.append,
+            model_catalog=lambda: _model_catalog_ids(chat_state),
+        )
     except Exception:  # noqa: BLE001 — a config-apply hiccup must never block the message
         applied = False
     if not applied:

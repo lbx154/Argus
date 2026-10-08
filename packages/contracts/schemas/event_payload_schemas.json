@@ -50,6 +50,21 @@
         }
       }
     },
+    "life.config.parse_failed": {
+      "version": 1,
+      "required": [
+        "raw"
+      ],
+      "properties": {
+        "raw": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
     "advisor.consultation.requested": {
       "version": 1,
       "required": [

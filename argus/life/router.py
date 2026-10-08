@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, cast
 
@@ -315,6 +316,54 @@ def _parse_config_line(line: str) -> "ConfigIntent | None":
     return ConfigIntent(knob=knob, roles=roles, value=value)
 
 
+_CONFIG_FILLER = frozenset({"role", "roles", "for", "to", "of", "=", "-", "->", ":"})
+
+
+def _parse_config_line_lenient(line: str) -> "ConfigIntent | None":
+    """Normalize the near-miss spellings classifiers actually emit.
+
+    ``SET role model=X for ALL``, ``SET model=X``, ``SET model ALL=X``,
+    ``SET model for ALL to X`` all mean ``SET model ALL X``. Accepted only when
+    BOTH the knob and a single value token are recognized; anything vaguer stays
+    unparsed so a fuzzy sentence is never swallowed as a setting change.
+    """
+    text = (line or "").strip()
+    head, _, rest = text.partition(" ")
+    if head.upper() != "SET" or not rest.strip():
+        return None
+    tokens: list[str] = []
+    for raw in re.split(r"\s+", rest.strip()):
+        tokens.extend(part for part in re.split(r"(=)", raw) if part)
+    knob = ""
+    roles: list[str] = []
+    all_roles = False
+    values: list[str] = []
+    for token in tokens:
+        low = token.strip().strip("`\"'").lower()
+        if not low or low in _CONFIG_FILLER:
+            continue
+        if not knob and low in _CONFIG_KNOBS:
+            knob = low
+            continue
+        if low == "all":
+            all_roles = True
+            continue
+        role_tokens = [r for r in low.split(",") if r]
+        if role_tokens and all(r in _CONFIG_ROLES for r in role_tokens):
+            roles.extend(r for r in role_tokens if r not in roles)
+            continue
+        values.append(token.strip().strip("`\"'"))
+    if not knob or len(values) != 1 or not values[0]:
+        return None
+    if knob not in _CONFIG_ROLE_KNOBS:
+        return ConfigIntent(knob=knob, roles=(), value=values[0])
+    return ConfigIntent(
+        knob=knob,
+        roles=() if all_roles or not roles else tuple(roles),
+        value=values[0],
+    )
+
+
 def _parse_config_decision(line: str | None) -> ConfigDecision:
     """Parse one or more ``SET`` clauses separated by semicolons.
 
@@ -333,6 +382,9 @@ def _parse_config_decision(line: str | None) -> ConfigDecision:
     seen: set[tuple[str, tuple[str, ...]]] = set()
     for clause in clauses:
         intent = _parse_config_line(clause)
+        if intent is None or (intent.knob in _CONFIG_ROLE_KNOBS and " " in intent.value):
+            # "SET model ALL to X" keeps the filler in the strict value.
+            intent = _parse_config_line_lenient(clause) or intent
         if intent is None:
             return None
         identity = (intent.knob, intent.roles)
@@ -384,6 +436,7 @@ def classify_front_door(
     authorization_sink: Callable[[tuple[str, ...]], None] | None = None,
     intake_sink: Callable[[dict[str, Any]], None] | None = None,
     failure_sink: Callable[[str], None] | None = None,
+    config_failure_sink: Callable[[str], None] | None = None,
     active_mission: bool = False,
     domain_sink: Callable[[dict[str, str]], None] | None = None,
     domain_prompt: str = "",
@@ -411,6 +464,15 @@ def classify_front_door(
         return None, None, "complex"
     fields = _front_door_fields(result)
     intent = _parse_config_decision(fields["config"])
+    raw_config = str(fields["config"] or "").strip()
+    if intent is None and raw_config and raw_config.upper() != "NONE":
+        # Never drop a setting change silently: the Manager sees the raw line.
+        log.warning("front-door CONFIG line not understood: %r", raw_config[:240])
+        if callable(config_failure_sink):
+            try:
+                config_failure_sink(raw_config[:600])
+            except Exception:  # noqa: BLE001 - diagnostics never own routing
+                pass
     subject = fields["lookup_subject"].strip().strip('"`')
     lookup_requested = bool(subject and subject.upper() != "NONE")
     if subject.upper() == "NONE" or not 1 <= len(subject) <= 160 or subject.casefold() not in cleaned.casefold():

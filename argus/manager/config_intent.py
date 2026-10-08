@@ -93,6 +93,7 @@ def _front_door_classify(
     operator_question_policies: list[str] = []
     authorization_decisions: list[tuple[str, ...]] = []
     classifier_failures: list[str] = []
+    config_failures: list[str] = []
     intake_decisions: list[dict[str, Any]] = []
     domain_decisions: list[dict[str, str]] = []
     intake_commit_started = False
@@ -110,6 +111,7 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_skill_vertical", None)
     chat_state.pop("_frontdoor_lookup_subject", None)
     chat_state.pop("_frontdoor_is_task", None)
+    chat_state.pop("_frontdoor_config_unparsed", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
@@ -158,6 +160,8 @@ def _front_door_classify(
             kwargs["active_mission"] = bool(active_mission)
         if accepts(mgr.classify_front_door, "failure_sink"):
             kwargs["failure_sink"] = classifier_failures.append
+        if accepts(mgr.classify_front_door, "config_failure_sink"):
+            kwargs["config_failure_sink"] = config_failures.append
         model_text = str(
             chat_state.get("_frontdoor_contextual_text") or text
         )
@@ -196,6 +200,8 @@ def _front_door_classify(
             chat_state["_frontdoor_is_task"] = intake_decisions[-1].get("kind") == "objective_amendment"
         if classifier_failures:
             chat_state["_frontdoor_failure"] = classifier_failures[-1]
+        if config_failures and intent is None:
+            chat_state["_frontdoor_config_unparsed"] = config_failures[-1]
         if normalized_route == "simple":
             existing_thread = bool(chat_state.get("last_thread_id"))
             self_mode = next(
@@ -336,12 +342,67 @@ def _front_door_classify(
             )
 
 
+_MODEL_SENTINELS = frozenset({"auto", "inherit", "default"})
+
+
+def _vet_model_value(
+    value: str,
+    model_catalog: Callable[[], Any] | None,
+    chat_state: dict[str, Any],
+) -> tuple[str, str | None]:
+    """Check a requested model id against the backend's own model list.
+
+    Returns ``(value_to_write, refusal)``. A refusal lists the closest
+    candidates and asks the operator to confirm; repeating the same id on the
+    next request confirms it (a catalog can lag the provider). With no list
+    available the id is written as given.
+    """
+    raw = str(value or "").strip()
+    if not raw or raw.lower() in _MODEL_SENTINELS or not callable(model_catalog):
+        return raw, None
+    try:
+        catalog = [str(m).strip() for m in (model_catalog() or ()) if str(m).strip()]
+    except Exception:  # noqa: BLE001 - an unreadable list never blocks a change
+        catalog = []
+    if not catalog:
+        return raw, None
+    from ..core.knobs import normalize_cockpit_knob_value
+
+    try:
+        raw = normalize_cockpit_knob_value("ARGUS_SKILL_MODEL", raw)
+    except ValueError:
+        return raw, None  # not a model id at all: the apply path explains that
+    by_lower = {m.lower(): m for m in catalog}
+    if raw.lower() in by_lower:
+        chat_state.pop("_pending_model_confirm", None)
+        return by_lower[raw.lower()], None
+    if chat_state.pop("_pending_model_confirm", None) == raw.lower():
+        return raw, None
+    chat_state["_pending_model_confirm"] = raw.lower()
+    import difflib
+
+    close = difflib.get_close_matches(raw.lower(), list(by_lower), n=5, cutoff=0.3)
+    candidates = [by_lower[m] for m in close] or catalog[:5]
+    return raw, (
+        f"“{raw}” is not in the active backend's model list, so I left the model "
+        f"unchanged. Closest available: {', '.join(candidates)}. Reply with one of "
+        f"these, or ask for “{raw}” again to use it anyway."
+    )
+
+
 def _apply_config_intent(
-    mem: Any, intent: Any, chat_state: dict[str, Any], *, on_confirm: Any = None
+    mem: Any,
+    intent: Any,
+    chat_state: dict[str, Any],
+    *,
+    on_confirm: Any = None,
+    model_catalog: Callable[[], Any] | None = None,
 ) -> bool:
     """Apply a parsed ConfigIntent and persist it to its authoritative file.
 
     Backend/model/effort and the host-global budget use knob_store.
+    ``model_catalog`` returns the backend's model ids; a model id outside it is
+    not written until the operator confirms it.
     """
     from ..core.knob_store import write_persisted_knobs
 
@@ -369,6 +430,20 @@ def _apply_config_intent(
         return True
 
     intents = list(intent) if isinstance(intent, (tuple, list)) else []
+    vetted: list[Any] = []
+    for entry in intents or [intent]:
+        if str(getattr(entry, "knob", "")) == "model":
+            model_value, refusal = _vet_model_value(entry.value, model_catalog, chat_state)
+            if refusal is not None:
+                _confirm(refusal)
+                return True
+            if model_value != entry.value:
+                entry = type(entry)(knob=entry.knob, roles=entry.roles, value=model_value)
+        vetted.append(entry)
+    if intents:
+        intents = vetted
+    else:
+        intent = vetted[0]
     if intents:
         from ..core.knobs import normalize_cockpit_knob_value
 

@@ -2007,7 +2007,7 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
         global_root=tmp_path,
     )
 
-    assert result["kind"] == "chat"
+    assert result["kind"] == "chat", result
     rows = LifeMemory.open(life).backlog.all()
     assert len(rows) == 1
     assert rows[0].pending_question == "Which GPU may I use?"
@@ -2837,3 +2837,49 @@ def test_web_daemon_config_honors_persisted_runner_backend(
     cfg = daemon_lifecycle._worker_config_from_env(life_dir, tmp_path)
 
     assert cfg.backend == "copilot"
+
+
+def test_changing_the_default_model_in_chat_is_one_reply_without_tools_or_mission(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.core.knob_store import read_persisted_knobs
+    from argus.life.router import classify_front_door
+
+    sid = "s-config-chat"
+    life = _make_project(tmp_path, sid)
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    for name in ("ARGUS_SKILL_MODEL", "ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_PLANNER_MODEL",
+                 "ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    manager_state._STATES.clear()
+    classifier_output = (
+        "CONFIG: SET role model=house-model-3 for ALL\n"
+        "CONTROL: NONE\nROUTE: SELF\nSELF_MODE: MICRO\nINTAKE_TYPE: PREFERENCE\n"
+    )
+
+    class _Manager:
+        def classify_front_door(self, text, *, root_task_id=None, **kwargs):
+            result = SimpleNamespace(exit_code=0, last_agent_message=classifier_output,
+                                     role_decisions=[], fatal_error=None)
+            return classify_front_door(text, run_exec=lambda _prompt: result, **kwargs)
+
+    ensure = lambda chat_state, mem: SimpleNamespace(manager=_Manager())  # noqa: E731
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
+    monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
+    monkeypatch.setattr(mission_items, "model_options", lambda _root=None: [
+        {"model": "house-model-2", "source": "backend"},
+        {"model": "house-model-3", "source": "backend"},
+    ])
+    monkeypatch.setattr(front_door, "manager_triage", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("a settings change must not reach the full Manager turn")))
+
+    result = manager_bridge.manager_message(sid, "把默认模型改成 house-model-3", global_root=tmp_path)
+
+    assert result["kind"] == "chat", result
+    assert result["reply"].count("\n") == 0 and "house-model-3" in result["reply"]
+    assert read_persisted_knobs()["ARGUS_SKILL_MODEL"] == "house-model-3"
+    assert LifeMemory.open(life).backlog.all() == []
+    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
+    assert not any("tool" in str(event.get("type", "")) or event.get("type") in {
+        "life.manager.task.started", "life.planner.task_added", "life.mission.started",
+    } for event in events[1:])

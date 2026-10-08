@@ -172,3 +172,47 @@ def test_manager_config_failure_does_not_change_environment(
 
     assert "ARGUS_SKILL_ENGINEER_MODEL" not in os.environ
     assert confirmations == ["Could not persist configuration; nothing changed."]
+
+
+def test_model_outside_the_backend_list_is_not_written(tmp_path, monkeypatch) -> None:
+    from argus.core.knob_store import read_persisted_knobs
+    from argus.life.router import ConfigIntent
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.delenv("ARGUS_SKILL_MODEL", raising=False)
+    mem = SimpleNamespace(project=SimpleNamespace(root=tmp_path))
+    intent = ConfigIntent(knob="model", roles=(), value="house-model-9")
+    catalog = lambda: ["house-model-2", "house-model-3", "other-model"]  # noqa: E731
+    confirmations: list[str] = []
+    chat_state: dict = {}
+
+    assert _apply_config_intent(
+        mem, intent, chat_state, on_confirm=confirmations.append, model_catalog=catalog
+    )
+
+    assert "ARGUS_SKILL_MODEL" not in read_persisted_knobs()
+    assert "ARGUS_SKILL_MODEL" not in os.environ
+    assert len(confirmations) == 1
+    assert "house-model-2" in confirmations[0] and "house-model-3" in confirmations[0]
+
+    # Asking for the same id again is the operator's confirmation.
+    assert _apply_config_intent(
+        mem, intent, chat_state, on_confirm=confirmations.append, model_catalog=catalog
+    )
+    assert read_persisted_knobs()["ARGUS_SKILL_MODEL"] == "house-model-9"
+
+
+def test_model_in_the_backend_list_is_written(tmp_path, monkeypatch) -> None:
+    from argus.core.knob_store import read_persisted_knobs
+    from argus.life.router import ConfigIntent
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.delenv("ARGUS_SKILL_MODEL", raising=False)
+    mem = SimpleNamespace(project=SimpleNamespace(root=tmp_path))
+    intent = ConfigIntent(knob="model", roles=(), value="house-model-3")
+
+    assert _apply_config_intent(
+        mem, intent, {}, on_confirm=lambda _line: None,
+        model_catalog=lambda: ["house-model-2", "house-model-3"],
+    )
+    assert read_persisted_knobs()["ARGUS_SKILL_MODEL"] == "house-model-3"

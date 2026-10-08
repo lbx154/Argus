@@ -52,6 +52,7 @@ class EventType(StrEnum):
     LIFE_MANAGER_SUPERVISION_APPLIED = "life.manager.supervision.applied"
     LIFE_MANAGER_SUPERVISION_FAILED = "life.manager.supervision.failed"
     LIFE_PEER_MESSAGE_PROCESSED = "life.peer.message.processed"
+    LIFE_CONFIG_PARSE_FAILED = "life.config.parse_failed"
     AGENT_IO_START = "agent.io.start"
     AGENT_IO_STREAM = "agent.io.stream"
     AGENT_IO_COMPLETE = "agent.io.complete"
@@ -261,6 +262,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_MANAGER_SUPERVISION_APPLIED,
     EventType.LIFE_MANAGER_SUPERVISION_FAILED,
     EventType.LIFE_PEER_MESSAGE_PROCESSED,
+    EventType.LIFE_CONFIG_PARSE_FAILED,
     # One line per role per boot, and the exact line an operator needs when a
     # role turns out to be running on a backend they did not choose. Cheap
     # enough to keep even in the verdict-only log.
