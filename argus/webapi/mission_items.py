@@ -762,6 +762,28 @@ def role_model_pins(persisted: Mapping[str, str] | None = None) -> dict[str, str
     return pins
 
 
+_BACKEND_CONFIG_KNOBS = frozenset(
+    {
+        "ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_ENGINEER_BACKEND",
+        "ARGUS_SKILL_REVIEWER_BACKEND", "ARGUS_SKILL_PLANNER_BACKEND",
+        "ARGUS_SKILL_MANAGER_BACKEND",
+    }
+)
+
+
+def _effective_knob(env_name: str) -> Any:
+    """The value ``env_name`` resolves to right now, with its source (env/persisted/default)."""
+    from ..core.knobs import KNOBS, resolve_knob
+
+    knob = next((row for row in KNOBS if row.name == env_name), None)
+    if knob is None or knob.default.startswith("("):
+        # A per-role knob without its own setting follows the shared one; only
+        # an explicit value counts as "in effect" for it.
+        resolved = resolve_knob(env_name, "")
+        return resolved if resolved.value else None
+    return resolve_knob(env_name, knob.default)
+
+
 def set_operator_config(
     name: str,
     value: str,
@@ -779,6 +801,19 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
+    if env_name in _BACKEND_CONFIG_KNOBS:
+        # A form that re-submits the backend it was showing must not turn the
+        # effective choice (often from the process environment) into a saved
+        # one: a later restart without that environment would then run on a
+        # backend nobody picked. Same value as now in effect: nothing to write.
+        effective = _effective_knob(env_name)
+        if effective is not None and effective.value.strip().lower() == val.lower():
+            return {
+                "name": env_name, "value": val, "unchanged": True,
+                "source": effective.source,
+                "released_role_pins": [], "role_pins": role_model_pins(),
+                "restart_required": False,
+            }
     released: list[str] = []
     if apply_to_roles and env_name == "ARGUS_SKILL_MODEL":
         # The shared choice is meant for every role: release the role pins so

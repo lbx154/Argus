@@ -27,6 +27,7 @@ import {
   backendLabel,
   backendOption,
   configuredBackend,
+  configuredBackendSource,
   type BackendOption,
 } from '../lib/backend';
 
@@ -211,8 +212,11 @@ export function ConfigModal({
     await queryClient.invalidateQueries({ queryKey: ['map-copy'] });
   };
   const currentBackend = configuredBackend(data);
+  const currentBackendSource = configuredBackendSource(data);
   const setBackend = async (backend: BackendOption) => {
-    if (quickConfigBusy) return;
+    // Only a backend the operator actually changed is sent: re-sending the one
+    // in effect would save it, and a saved copy outlives the environment that chose it.
+    if (quickConfigBusy || backend === backendOption(currentBackend)) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
     setQuickConfigError(false);
@@ -352,6 +356,11 @@ export function ConfigModal({
                 >
                   {t('settings.applyModel')}
                 </button>
+                {currentBackendSource && (
+                  <span className="text-[10px] text-ink-faint" data-backend-source={currentBackendSource}>
+                    {t(`settings.backendSource.${currentBackendSource}`)}
+                  </span>
+                )}
               </label>
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.model')}</span>

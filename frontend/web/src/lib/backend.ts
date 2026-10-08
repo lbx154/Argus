@@ -44,6 +44,12 @@ export function configuredBackend(config?: ConfigSnapshot): string {
     ?? '';
 }
 
+/** Where the backend in effect comes from: the process environment, a saved setting, or the built-in default. */
+export function configuredBackendSource(config?: ConfigSnapshot): 'env' | 'persisted' | 'default' | '' {
+  const source = config?.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_RUNNER_BACKEND')?.source ?? '';
+  return source === 'env' || source === 'persisted' || source === 'default' ? source : '';
+}
+
 export function configuredModel(config?: ConfigSnapshot): string {
   return config?.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_MODEL')?.value
     ?? config?.roles[0]?.model

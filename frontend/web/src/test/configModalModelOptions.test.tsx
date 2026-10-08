@@ -84,3 +84,23 @@ it("shows today's premium requests and their cost by run label, not just tokens"
   expect(text).toContain('engineer 9');
   expect(textOf(renderer!.root.findByProps({ 'data-today-usage': true }) as unknown as { children: unknown[] })).not.toContain('0 tokens');
 });
+
+it('changing only the model sends only the model, and the backend shows where it comes from', async () => {
+  const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
+  const config = baseConfig();
+  config.operator_knobs[0] = { name: 'ARGUS_SKILL_RUNNER_BACKEND', value: 'copilot', source: 'env' } as ConfigSnapshot['operator_knobs'][number];
+  await mount(config);
+  expect(renderer!.root.findByProps({ 'aria-label': 'Backend' }).props.value).toBe('copilot');
+  const source = renderer!.root.findByProps({ 'data-backend-source': 'env' });
+  expect(textOf(source as unknown as { children: unknown[] })).toBe('set by the server environment');
+  const model = renderer!.root.findByProps({ 'aria-label': 'Model' });
+  await act(async () => { model.props.onChange({ target: { value: 'm-1' } }); });
+  const applyModel = renderer!.root.findAll(node => node.type === 'button' && node.props.onClick && !node.props['data-apply-backend'] && textOf(node as unknown as { children: unknown[] }) === 'Apply')[0];
+  await act(async () => { applyModel.props.onClick(); });
+  expect(setConfig).toHaveBeenCalledTimes(1);
+  expect(setConfig).toHaveBeenCalledWith('one', 'ARGUS_SKILL_MODEL', 'm-1', true);
+  const applyBackend = renderer!.root.findByProps({ 'data-apply-backend': true });
+  expect(applyBackend.props.disabled).toBe(true);
+  await act(async () => { applyBackend.props.onClick(); });
+  expect(setConfig).toHaveBeenCalledTimes(1);
+});
