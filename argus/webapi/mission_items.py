@@ -391,6 +391,111 @@ def _catalog_model_ids() -> list[str]:
     return []
 
 
+_BACKEND_MODELS_TTL_S = 6 * 3600
+#: How long the config endpoint waits for a live probe before answering from
+#: the cache (or the harness catalog). The probe keeps running and fills the
+#: cache for the next request.
+_BACKEND_MODELS_WAIT_S = 2.5
+_BACKEND_MODELS_PROBE_TIMEOUT_S = 20.0
+_backend_models_lock = threading.Lock()
+_backend_models_inflight: dict[str, threading.Thread] = {}
+
+
+def _backend_models_cache(root: Path) -> Path:
+    return root / "cache" / "backend_models.json"
+
+
+def _read_backend_models(root: Path, key: str) -> dict[str, Any] | None:
+    import json as _json
+
+    try:
+        entry = _json.loads(_backend_models_cache(root).read_text(encoding="utf-8")).get(key)
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(entry, dict) or not isinstance(entry.get("models"), list):
+        return None
+    return entry
+
+
+def _write_backend_models(root: Path, key: str, models: list[str], default: str) -> None:
+    import json as _json
+
+    path = _backend_models_cache(root)
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            data = {}
+    except (OSError, ValueError):
+        data = {}
+    data[key] = {"models": models, "default": default, "fetched_at": time.time()}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_text(_json.dumps(data), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def _active_backend() -> tuple[str, str]:
+    """The backend the runner will use and its resolved executable (``""`` if absent)."""
+    from ..agent_cli.runner_backend import resolve_runner_bin
+    from ..core.backend_readiness import resolve_backend_profile
+    from ..core.knob_store import read_persisted_knobs
+    from ..core.knobs import resolve_runner_bin_setting
+
+    backend = resolve_backend_profile().backend
+    configured = str(
+        resolve_runner_bin_setting(backend=backend, env=os.environ, persisted=read_persisted_knobs())
+        or ""
+    ).strip()
+    return backend, resolve_runner_bin(backend, configured or None) or ""
+
+
+def _backend_model_catalog(global_root: Path | str | None) -> tuple[list[str], str] | None:
+    """The ACTIVE backend's own model list and its automatic default.
+
+    Only Copilot exposes the account's live list (on the ACP ``session/new``
+    handshake). ``None`` means "this backend has no live list": the caller
+    falls back to the harness catalog. Never blocks longer than
+    ``_BACKEND_MODELS_WAIT_S``; a slow probe finishes in the background and
+    fills the cache under the Argus home for the next request.
+    """
+    backend, executable = _active_backend()
+    if backend != "copilot" or not executable:
+        return None
+    root = _global_root(global_root)
+    key = f"{backend}:{executable}"
+    cached = _read_backend_models(root, key)
+    fresh = cached is not None and time.time() - float(cached.get("fetched_at") or 0) < _BACKEND_MODELS_TTL_S
+    if fresh:
+        return list(cached["models"]), str(cached.get("default") or "")
+
+    def _probe() -> None:
+        from ..core.backend_readiness import probe_copilot_models
+
+        try:
+            models, default = probe_copilot_models(executable, _BACKEND_MODELS_PROBE_TIMEOUT_S)
+        except Exception:  # noqa: BLE001 - a failed probe leaves the old cache
+            models, default = [], ""
+        if models:
+            _write_backend_models(root, key, models, default)
+        with _backend_models_lock:
+            _backend_models_inflight.pop(key, None)
+
+    with _backend_models_lock:
+        worker = _backend_models_inflight.get(key)
+        if worker is None:
+            worker = threading.Thread(target=_probe, name="argus-backend-models", daemon=True)
+            _backend_models_inflight[key] = worker
+            worker.start()
+    worker.join(_BACKEND_MODELS_WAIT_S)
+    latest = _read_backend_models(root, key) or cached
+    if latest is None:
+        return None
+    return list(latest["models"]), str(latest.get("default") or "")
+
+
 def _seen_model_ids(global_root: Path | str | None, *, now: float | None = None) -> dict[str, float]:
     """Models that answered on this home in the last thirty days, with the newest time each."""
     import json as _json
@@ -433,7 +538,9 @@ def _seen_model_ids(global_root: Path | str | None, *, now: float | None = None)
 def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]:
     """What the quick picker offers instead of a text box.
 
-    The harness catalog first, then models that have actually answered on
+    The ACTIVE backend's own list first (for Copilot, the account's live
+    models, with the one it picks unasked marked ``default``; otherwise the
+    harness catalog), then models that have actually answered on
     this home (a catalog can lag the provider: gpt-6-astra answered for weeks
     before any catalog listed it), then whatever the knobs currently name.
     Bare model ids only; never provider URLs or credentials.
@@ -441,8 +548,21 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
     from ..core.knob_store import read_persisted_knobs
 
     options: dict[str, dict[str, Any]] = {}
-    for model in _catalog_model_ids():
-        options[model] = {"model": model, "source": "catalog"}
+    try:
+        live = _backend_model_catalog(global_root)
+    except Exception:  # noqa: BLE001 - the options must never fail on the probe
+        live = None
+    if live is not None:
+        models, default = live
+        for rank, model in enumerate(models):
+            if model.lower() in {"auto", "inherit", "default"}:
+                continue  # "let the backend pick" is the empty choice, not a model
+            options[model] = {"model": model, "source": "backend", "rank": rank}
+        if default:
+            options.setdefault(default, {"model": default, "source": "backend"})["default"] = True
+    else:
+        for model in _catalog_model_ids():
+            options[model] = {"model": model, "source": "catalog"}
     for model, ts in sorted(_seen_model_ids(global_root).items(), key=lambda kv: -kv[1]):
         options.setdefault(model, {"model": model, "source": "seen"})["last_used_at"] = ts
     try:
@@ -454,7 +574,18 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
         if model and model.lower() not in {"auto", "inherit", "default"}:
             options.setdefault(model, {"model": model, "source": "current"})
     rows = list(options.values())
-    rows.sort(key=lambda row: (-(row.get("last_used_at") or 0.0), row["model"]))
+    rows.sort(
+        # The default first, then the backend's own order (newest first for an
+        # account list), then recently used, then the rest by name.
+        key=lambda row: (
+            not row.get("default"),
+            row.get("rank", len(rows)),
+            -(row.get("last_used_at") or 0.0),
+            row["model"],
+        )
+    )
+    for row in rows:
+        row.pop("rank", None)
     return rows[:_MODEL_OPTION_LIMIT]
 
 

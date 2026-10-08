@@ -262,6 +262,10 @@ class CopilotAcpClient:
         self._session_premium_totals: dict[str, float] = {}
         self._session_premium_multipliers: dict[str, float] = {}
         self._session_models: dict[str, str] = {}
+        #: Model ids the account offered on the most recent ``session/new``,
+        #: with the one the CLI picked by itself (``currentModelId``).
+        self.available_models: list[str] = []
+        self.default_model: str = ""
         self._session_events_root: Path | None = None
         self._agent_caps: dict[str, Any] = {}
         self._active_turn: _Turn | None = None
@@ -768,6 +772,14 @@ class CopilotAcpClient:
         models_value = result.get("models")
         models: dict[str, Any] = models_value if isinstance(models_value, dict) else {}
         current = str(models.get("currentModelId") or self._model or "")
+        offered = [
+            str(row.get("modelId") or "")
+            for row in models.get("availableModels") or []
+            if isinstance(row, dict) and row.get("modelId")
+        ]
+        if offered:
+            self.available_models = offered
+            self.default_model = str(models.get("currentModelId") or "")
         multiplier = 1.0
         for model in models.get("availableModels") or []:
             if not isinstance(model, dict) or str(model.get("modelId") or "") != current:
