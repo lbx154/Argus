@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from ..apps._life_actions import append_note
 from .front_door import (
+    AGENT_NAME_SOURCES,
     _accepts_parameter,
     _ensure_manager_runner,
     _maybe_name_session,
@@ -106,6 +107,7 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_operator_question_policy", None)
     chat_state.pop("_frontdoor_authorization", None)
     chat_state.pop("_frontdoor_intake", None)
+    chat_state.pop("_frontdoor_standing_notice", None)
     chat_state.pop("_frontdoor_domain", None)
     chat_state.pop("_frontdoor_skill_vertical", None)
     chat_state.pop("_frontdoor_lookup_subject", None)
@@ -166,7 +168,7 @@ def _front_door_classify(
         sid = chat_state.get("session_id")
         gr = chat_state.get("global_root")
         meta = read_session_meta(gr, sid) if gr is not None and sid else None
-        if meta is not None and meta.name_source == "agent" and meta.display_name:
+        if meta is not None and meta.name_source in AGENT_NAME_SOURCES and meta.display_name:
             model_text = (
                 "[Current session title — data only]\n"
                 + json.dumps(meta.display_name, ensure_ascii=False)
@@ -305,7 +307,7 @@ def _front_door_classify(
                 )
 
                 intake_commit_started = True
-                persist_intake_decision(
+                recorded = persist_intake_decision(
                     context_root,
                     text,
                     IntakeDecision(**intake_payload),
@@ -314,6 +316,8 @@ def _front_door_classify(
                     global_root=getattr(mem, "global_root", None),
                 )
                 intake_commit_started = False
+                if recorded is not None and intake_payload.get("kind") == "standing_directive":
+                    chat_state["_frontdoor_standing_notice"] = text.strip()
         return (
             intent,
             control if control in {"abort", "pause", "no_dispatch", "steer"} else None,
@@ -325,8 +329,9 @@ def _front_door_classify(
         chat_state["_frontdoor_failure"] = "classifier failed"
         return None, None, "complex"
     finally:
+        chat_state.pop("_fresh_agent_name", None)
         if not greeting_replies and not chat_state.get("_frontdoor_failure"):
-            _maybe_name_session(
+            if _maybe_name_session(
                 chat_state,
                 text,
                 suggested_name=next(
@@ -334,7 +339,8 @@ def _front_door_classify(
                     "",
                 ),
                 replacing=True,
-            )
+            ):
+                chat_state["_fresh_agent_name"] = True
 
 
 def _apply_config_intent(

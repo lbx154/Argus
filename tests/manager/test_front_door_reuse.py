@@ -352,3 +352,43 @@ def test_reply_generation_is_disabled_before_classification_when_context_is_need
     _front_door_classify(object(), 'Explain SFT.', state, ensure_runner=lambda *a: runner,
                          allow_reply=context != 'handoff')
     assert seen == [context == 'first']
+
+
+@pytest.mark.parametrize(
+    ("kind", "expects_notice"),
+    [("standing_directive", True), ("ephemeral", False)],
+)
+def test_recorded_standing_instruction_is_announced_once(
+    tmp_path, kind, expects_notice,
+) -> None:
+    from argus.core.operator_context import build_operator_context_block
+    from argus.core.transcript import read_turns
+    from argus.webapi.manager_dispatch import _announce_standing_directive
+
+    class _IntakeManager:
+        @staticmethod
+        def classify_front_door(_text, *, intake_sink):
+            intake_sink({"kind": kind})
+            return None, None, "simple"
+
+    state: dict = {}
+    _front_door_classify(
+        SimpleNamespace(project_root=tmp_path),
+        "以后都用中文回答",
+        state,
+        ensure_runner=lambda *_args: SimpleNamespace(manager=_IntakeManager()),
+    )
+    _announce_standing_directive(state, tmp_path, "t1")
+
+    replies = [turn["text"] for turn in read_turns(tmp_path) if turn.get("role") == "argus"]
+    if expects_notice:
+        assert len(replies) == 1
+        assert "已记为长期指令：以后都用中文回答" in replies[0]
+        assert "取消" in replies[0]
+        # The Manager can name the record when the operator says "取消".
+        block, _ = build_operator_context_block("manager", tmp_path, consume_once=False)
+        assert "revision 1" in block and "以后都用中文回答" in block
+    else:
+        assert replies == []
+    _announce_standing_directive(state, tmp_path, "t2")
+    assert len([t for t in read_turns(tmp_path) if t.get("role") == "argus"]) == len(replies)

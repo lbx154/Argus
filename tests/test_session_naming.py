@@ -208,3 +208,47 @@ def test_agent_name_changes_once_across_three_turns(tmp_path):
 
     _maybe_name_session(cs, "换个题目", suggested_name="新主题", replacing=True)
     assert read_session_meta(tmp_path, sid).display_name == "新主题"
+
+
+def test_first_task_replaces_a_chit_chat_title_once(tmp_path):
+    from argus.core.session import read_session_meta, resolve_session
+
+    sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
+    cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
+    # A chit-chat turn that started no task still produced a title.
+    _maybe_name_session(cs, "随便聊聊", suggested_name="闲聊", replacing=True)
+    cs.pop("_fresh_agent_name", None)  # the next turn's front door ran
+
+    _maybe_name_session(
+        cs, "帮我调研扩散模型", suggested_name="扩散模型调研", promote_task_name=True,
+    )
+    assert read_session_meta(tmp_path, sid).display_name == "扩散模型调研"
+
+    _maybe_name_session(
+        cs, "重点看视频生成", suggested_name="视频生成", promote_task_name=True,
+    )
+    assert read_session_meta(tmp_path, sid).display_name == "扩散模型调研"
+
+
+def test_task_keeps_the_title_the_front_door_gave_this_turn(tmp_path):
+    from argus.core.session import read_session_meta, resolve_session
+
+    sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
+    cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
+    assert _maybe_name_session(
+        cs, "帮我调研扩散模型", suggested_name="扩散模型调研", replacing=True,
+    )
+    cs["_fresh_agent_name"] = True  # set by the front door for this turn
+
+    _maybe_name_session(
+        cs, "帮我调研扩散模型", suggested_name="Diffusion survey", promote_task_name=True,
+    )
+    meta = read_session_meta(tmp_path, sid)
+    assert meta.display_name == "扩散模型调研"
+    assert meta.name_source == "agent_task"
+
+    # Once task-owned, a later task handoff no longer renames it.
+    _maybe_name_session(
+        cs, "再补充评测", suggested_name="评测指标", promote_task_name=True,
+    )
+    assert read_session_meta(tmp_path, sid).display_name == "扩散模型调研"

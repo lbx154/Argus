@@ -39,7 +39,7 @@ LIFETIME：TEAM 对有限结果使用 BOUNDED；只有明确限定的阶段使�
 
 GREETING：只有纯问候使用 GREETING；此时 REPLY 用操作员的语言简短回应，并给出两三个可以直接开始的例子。NAME：用与用户消息相同的语言给出简短主题标题；问候、闲聊和设置变更写 NONE。
 
-INTAKE_TYPE：一次性的问题、调研或任务属于 EPHEMERAL（或只改当前任务的 OBJECTIVE_AMENDMENT）；只有明确的持续意图（如“以后都用中文回答”、from now on）才算 STANDING_DIRECTIVE；拿不准时选 EPHEMERAL。
+INTAKE_TYPE：做完即结束的请求，无论多大多重要（如“帮我调研X”“解释这篇论文”），都属于 EPHEMERAL（改变当前任务时为 OBJECTIVE_AMENDMENT）；只有操作员希望它约束以后每一轮时（如“以后都用中文”“从现在起每次先跑测试”）才算 STANDING_DIRECTIVE；拿不准时选 EPHEMERAL。记为长期指令时 Manager 会单独告知，操作员可说“取消”撤销。
 
 决定明确后，立即发送这一行：
 ARGUS_ROLE_DECISION={"role":"manager","payload":{"config":"NONE","control":"NONE","authorization":"NONE","steer_directive":"NONE","route":"SELF","self_mode":"REPLY","reply":"完整用户可见回答","lifetime":"NONE","greeting":"NONE","name":"简短标题"}}

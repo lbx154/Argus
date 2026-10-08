@@ -593,14 +593,6 @@ def classify_front_door(
             intake_type = "objective_amendment"
         else:
             intake_type = "ephemeral"
-    if (
-        intake_type == "standing_directive"
-        and route == "simple"
-        and self_mode in {"reply", "synthesize"}
-    ):
-        # A conversational or synthesis turn answered in place is a one-off
-        # ask; persisting it would steer every later prompt invisibly.
-        intake_type = "ephemeral"
     intake_scope = fields["intake_scope"].strip().lower()
     if intake_scope not in {"mission", "project", "global"}:
         intake_scope = "mission" if intake_type == "objective_amendment" else "project"

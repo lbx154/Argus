@@ -1246,7 +1246,9 @@ def build_operator_context_block(
             if role == "manager" and directive.source.endswith(".standing_sounding")
             else ""
         )
-        lines.append(f"- directive [{directive.scope}{flag}]: {directive.text}")
+        # The Manager sees the revision so "取消"/"cancel that" can name it.
+        revision = f"; revision {directive.revision}" if role == "manager" else ""
+        lines.append(f"- directive [{directive.scope}{revision}{flag}]: {directive.text}")
     if role in {"planner", "engineer", "teammate"}:
         from ..manager.directive import load_active_manager_directive
 
