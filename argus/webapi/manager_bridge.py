@@ -65,12 +65,21 @@ def _schedule_answer_learning(
     reply: str,
     turn_id: str = "",
     evidence: str = "",
+    frontdoor: dict[str, Any] | None = None,
 ) -> threading.Thread | None:
-    """Queue every delivered answer durably; an earlier pass never drops a turn."""
+    """Queue every delivered answer durably; an earlier pass never drops a turn.
+
+    ``frontdoor`` carries what the front-door classifier already decided about
+    this turn. When it marked the turn as small talk, a settings change, a
+    control, or a message-only reply with no observed work, there is nothing to
+    learn and the paid learning call is not made.
+    """
     from ..life.answer_learning import enqueue_answer
     from ..life.reflection import answer_learning_enabled
 
     if not answer_learning_enabled() or not str(reply or "").strip() or global_root is None:
+        return None
+    if _frontdoor_says_nothing_to_learn(frontdoor):
         return None
     state = _chat_state_for(sid, manager_activity=False)
     backend = getattr(state.get("manager_runner"), "_backend", None)
@@ -94,6 +103,21 @@ def _schedule_answer_learning(
     except Exception:  # learning never prevents delivery of an already completed reply
         log.exception("could not queue answer learning for %s", sid)
         return None
+
+
+def _frontdoor_says_nothing_to_learn(frontdoor: dict[str, Any] | None) -> bool:
+    """Reuse the classifier's own judgement of the turn; add no new heuristic."""
+    if not frontdoor:
+        return False
+    if frontdoor.get("greeting") or frontdoor.get("config"):
+        return True
+    if frontdoor.get("control") in {"steer", "pause", "abort", "authorization"}:
+        return True
+    return (
+        frontdoor.get("intake_type") == "ephemeral"
+        and frontdoor.get("self_mode") == "reply"
+        and not frontdoor.get("tool_evidence")
+    )
 
 
 def _answer_learning_evidence(steps: list[dict[str, Any]], workdir: str | None) -> str:
@@ -360,7 +384,12 @@ def _manager_message(
     life_dir = mem.project_root
     credential_record = None
 
+    # Filled in once the front door has classified this turn.
+    frontdoor_class: dict[str, Any] = {}
+
     def _after_reply(reply: str) -> None:
+        if frontdoor_class:
+            frontdoor_class["tool_evidence"] = bool(turn_steps)
         _schedule_answer_learning(
             sid,
             life_dir=life_dir,
@@ -371,6 +400,7 @@ def _manager_message(
             evidence=_answer_learning_evidence(
                 turn_steps, _chat_state_for(sid).get("manager_runner_workdir"),
             ),
+            frontdoor=dict(frontdoor_class) or None,
         )
 
     emitter = _TurnEmitter(
@@ -638,6 +668,20 @@ def _manager_message(
         intent, control, route = classify.intent, classify.control, classify.route
         send_body, root_task_id = classify.send_body, classify.root_task_id
         frontdoor_failure = classify.frontdoor_failure
+        frontdoor_intake = chat_state.get("_frontdoor_intake")
+        frontdoor_class.update({
+            "greeting": bool(
+                classify.greeting_reply and intent is None and control is None and route == "simple"
+            ),
+            "config": intent is not None,
+            "control": (
+                "authorization" if chat_state.get("_frontdoor_authorization") else control
+            ),
+            "intake_type": (
+                str(frontdoor_intake.get("kind") or "") if isinstance(frontdoor_intake, dict) else ""
+            ),
+            "self_mode": classify.classified_self_mode or classify.self_mode,
+        })
 
         greeting_result = _maybe_greeting_reply(classify, body, emitter)
         if greeting_result is not None:
