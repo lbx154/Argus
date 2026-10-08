@@ -115,3 +115,15 @@ def test_only_explicit_reviewer_recommendation_records_checkpoint(tmp_path) -> N
     loop._capture_reviewed_round(mission(root), record(True))
 
     assert [event["type"] for event in loop.events] == ["round.checkpoint.recorded"]
+
+
+def test_checkpoint_without_git_executable_is_a_clean_no_op(tmp_path, monkeypatch) -> None:
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    (workdir / "out.txt").write_text("result\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+
+    result = checkpoint_round(workdir, mission_id="m", round_index=1, message="r1")
+
+    assert result.recorded is False
+    assert result.ref == ""

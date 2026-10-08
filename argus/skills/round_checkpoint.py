@@ -17,13 +17,17 @@ class CheckpointResult:
 
 
 def _run(args: list[str], cwd: Path, env: dict[str, str] | None = None):
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        # No git executable (or it cannot start): behave like "not a repository".
+        return subprocess.CompletedProcess(["git", *args], 127, "", str(exc))
 
 
 def _ref_part(value: str) -> str:
