@@ -197,17 +197,27 @@ class RunExecMixin:
         if spawn_failure is not None:
             return spawn_failure
         prebound = None if resume_thread_id else self._prebound_session_id(options)
+        # A new Copilot session is already bound to the identity the CLI was
+        # given, so a watchdog kill, timeout, or missing terminal ``result``
+        # no longer loses the session (#129).
+        state = self._new_stream_state(resume_thread_id or prebound)
         try:
-            state = self._stream_turn_output(
-                process=process,
-                command=command,
-                options=options,
-                run_label=run_label,
-                # A new Copilot session is already bound to the identity the
-                # CLI was given, so a watchdog kill, timeout, or missing
-                # terminal ``result`` no longer loses the session (#129).
-                thread_id=resume_thread_id or prebound,
-            )
+            try:
+                state = self._stream_turn_output(
+                    process=process,
+                    command=command,
+                    options=options,
+                    run_label=run_label,
+                    thread_id=resume_thread_id or prebound,
+                    state=state,
+                )
+            except Exception as exc:
+                # The caller decides whether the pre-bound id names a real
+                # session; whether the CLI ever wrote a durable event is the
+                # evidence it needs.
+                if prebound:
+                    exc.provider_session_observed = state.provider_session_observed
+                raise
             result = self._finalize_turn_result(
                 process=process, command=command, options=options, state=state
             )
@@ -395,16 +405,9 @@ class RunExecMixin:
             raise
         return command, process, None, prompt_path
 
-    def _stream_turn_output(
-        self,
-        *,
-        process: subprocess.Popen[str],
-        command: list[str],
-        options,
-        run_label: str | None,
-        thread_id: str | None,
-    ) -> _StreamState:
-        state = _StreamState(
+    @staticmethod
+    def _new_stream_state(thread_id: str | None) -> _StreamState:
+        return _StreamState(
             thread_id=thread_id,
             stdout_lines=deque(
                 maxlen=_positive_env_int(
@@ -426,6 +429,18 @@ class RunExecMixin:
             ),
         )
 
+    def _stream_turn_output(
+        self,
+        *,
+        process: subprocess.Popen[str],
+        command: list[str],
+        options,
+        run_label: str | None,
+        thread_id: str | None,
+        state: _StreamState | None = None,
+    ) -> _StreamState:
+        if state is None:
+            state = self._new_stream_state(thread_id)
         line_queue: queue.Queue[tuple[str, str | None]] = queue.Queue(
             maxsize=_positive_env_int(
                 _STREAM_QUEUE_LINES_ENV,

@@ -140,6 +140,33 @@ def bind_provider_session(ctx: "_ExecContext", cli_options: Any) -> str | None:
     return session_id
 
 
+def _session_id_after_exception(ctx: "_ExecContext", exc: BaseException) -> str | None:
+    """The session a call that raised may name, or ``None``.
+
+    A resumed call keeps its existing session. A pre-bound NEW identity names
+    a session only when Copilot made it durable: the runner saw a durable
+    event, or the session store holds the session. Otherwise the CLI never
+    created it, and reporting the id makes every later call try to resume a
+    session that does not exist.
+    """
+    if ctx.resume_thread_id:
+        return ctx.resume_thread_id
+    session_id = ctx.provider_session_id
+    if not session_id:
+        return None
+    if getattr(exc, "provider_session_observed", False):
+        return session_id
+    cursor = getattr(ctx, "copilot_usage_cursor", None)
+    if cursor is None:
+        return None
+    try:
+        stored = read_copilot_usage_since(cursor, session_id=session_id)
+    except Exception:  # noqa: BLE001 — evidence lookup only
+        log.debug("session-store lookup after a failed call raised", exc_info=True)
+        return None
+    return session_id if stored is not None else None
+
+
 def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     """Execute the provider subprocess and return a finalised ``RunnerResult``.
 
@@ -202,7 +229,7 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             ctx,
             RunnerResult(
                 exit_code=1,
-                thread_id=ctx.resume_thread_id or ctx.provider_session_id,
+                thread_id=_session_id_after_exception(ctx, exc),
                 fatal_error=exc.cause,
                 stop_kind="permanent_error",
             ),
@@ -262,9 +289,9 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             ctx,
             RunnerResult(
                 exit_code=-1,
-                # The bound identity outlives the exception; failed work
-                # stays failed, but its usage remains reachable.
-                thread_id=ctx.provider_session_id,
+                # A session the CLI really created outlives the exception;
+                # failed work stays failed, but its usage remains reachable.
+                thread_id=_session_id_after_exception(ctx, exc),
                 fatal_error=f"{type(exc).__name__}: {exc}",
                 stop_kind="backend_unavailable",
             ),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from contextlib import contextmanager
@@ -12,6 +13,9 @@ from typing import Any, Callable, Iterator
 
 from .models import RunnerOptions, RunnerResult
 from .ports import RunnerBackend
+from .runner_errors import result_has_missing_resume_target
+
+log = logging.getLogger(__name__)
 
 _RESUME_UNSET = object()
 _INTERRUPT: ContextVar[Callable[[], str | None] | None] = ContextVar("argus_run_interrupt", default=None)
@@ -69,6 +73,16 @@ class RunExecRequest:
     run_label: str
     options: Any = None
     resume_thread_id: str | None | object = _RESUME_UNSET
+    # A caller that rebuilds its own context for a lost session (a handoff)
+    # turns this off and handles the missing-session failure itself.
+    fresh_on_missing_resume: bool = True
+
+
+_MISSING_SESSION_NOTE = (
+    "[Note: the previous provider session for this conversation could not be "
+    "resumed, so this is a fresh session without its history. Rely on this "
+    "message and the project state on disk; re-read whatever you need.]\n\n"
+)
 
 
 class RunExecGateway:
@@ -102,12 +116,32 @@ class RunExecGateway:
         reason = interrupt() if interrupt is not None else None
         result = (RunnerResult(exit_code=130, fatal_error=f"External interrupt: {reason}")
                   if reason else self.backend.run_exec(**kwargs))
+        resumed = isinstance(request.resume_thread_id, str) and bool(request.resume_thread_id)
+        if (
+            resumed
+            and request.fresh_on_missing_resume
+            and isinstance(result, RunnerResult)
+            and result_has_missing_resume_target(result)
+        ):
+            # The provider has no such session (it was never created, or it
+            # was removed): resuming it can never succeed, so the role
+            # continues once in a fresh session instead of failing on it.
+            log.warning(
+                "provider session %s no longer exists; %s continues in a fresh session",
+                request.resume_thread_id, request.run_label,
+            )
+            resumed = False
+            kwargs["resume_thread_id"] = None
+            kwargs["prompt"] = _MISSING_SESSION_NOTE + kwargs["prompt"]
+            reason = interrupt() if interrupt is not None else None
+            result = (RunnerResult(exit_code=130, fatal_error=f"External interrupt: {reason}")
+                      if reason else self.backend.run_exec(**kwargs))
         completed_at = time.time()
         if not isinstance(result, RunnerResult):
             return result
         if not result.call_id:
             result.call_id = f"gateway-{uuid.uuid4().hex}"
-        if result.thread_id is None and isinstance(request.resume_thread_id, str):
+        if result.thread_id is None and resumed:
             result.thread_id = request.resume_thread_id
         if result.started_at <= 0:
             result.started_at = started_at
@@ -133,6 +167,7 @@ def run_exec(
     run_label: str,
     options: Any = None,
     resume_thread_id: str | None | object = _RESUME_UNSET,
+    fresh_on_missing_resume: bool = True,
 ) -> Any:
     """Convenience entry point used by application code."""
     return RunExecGateway(backend).execute(
@@ -141,6 +176,7 @@ def run_exec(
             options=options,
             run_label=run_label,
             resume_thread_id=resume_thread_id,
+            fresh_on_missing_resume=fresh_on_missing_resume,
         )
     )
 
