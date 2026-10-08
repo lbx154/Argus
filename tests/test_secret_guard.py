@@ -1117,3 +1117,19 @@ def test_atomic_scrub_refuses_to_overwrite_concurrent_change(
         )
 
     assert b"concurrent-secret-value" in path.read_bytes()
+
+
+def test_scrub_without_git_executable_falls_back_to_mtime_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Minimal task containers ship no git binary at all; the round must still
+    # scrub new artifacts instead of raising FileNotFoundError.
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    artifact = tmp_path / "artifact.yml"
+    now = time.time()
+    artifact.write_text("client_secret: newly-written-secret\n", encoding="utf-8")
+
+    report = scrub_recent_text_artifacts(tmp_path, modified_since=now - 5)
+
+    assert report.redacted_paths == ("artifact.yml",)
+    assert "<REDACTED:secret>" in artifact.read_text(encoding="utf-8")

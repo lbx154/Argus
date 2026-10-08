@@ -342,23 +342,30 @@ def _stream_file_digest(path: Path) -> bytes:
 
 
 def _git_changed_paths(root: Path) -> set[str] | None:
-    """Return Git-visible worktree changes, or ``None`` outside a usable repo."""
-    result = subprocess.run(
-        [
-            "git",
-            "-c",
-            f"safe.directory={root}",
-            "-C",
-            str(root),
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
+    """Return Git-visible worktree changes, or ``None`` outside a usable repo.
+
+    A host without a ``git`` executable (minimal containers) counts as "no usable
+    repo": the caller falls back to the mtime scan instead of aborting the round.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"safe.directory={root}",
+                "-C",
+                str(root),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return None
     if result.returncode != 0:
         return None
     records = result.stdout.split(b"\0")
