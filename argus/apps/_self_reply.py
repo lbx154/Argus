@@ -1096,6 +1096,7 @@ class SelfReplyMixin:
                     overall_complete=True,
                     status="done",
                     review_status="not_assessed",
+                    review_source="solo_output",
                     final_submission_certified=False,
                     workspace=workdir,
                     state_root=(

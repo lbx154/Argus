@@ -98,8 +98,17 @@ it('keeps intermediate deliveries accessible and announces once their downstream
 
 it('labels who checked a delivery and finds the previous version of a redelivered file', async () => {
   const { deliveryReviewLabel, previousDeliveryVersion } = await import('../components/deliveryPresentation');
-  expect(deliveryReviewLabel({ ...receipt('r'), review_status: 'done' }, true).independent).toBe(true);
-  expect(deliveryReviewLabel({ ...receipt('r'), review_status: 'done' }, true).text).toContain('独立复核');
+  const reviewed = deliveryReviewLabel({ ...receipt('r'), review_status: 'done', review_source: 'reviewer' }, true);
+  expect(reviewed.independent).toBe(true);
+  expect(reviewed.text).toBe('独立复核通过');
+  // A worker that settles its own task as done has not been independently reviewed.
+  const selfDone = deliveryReviewLabel({ ...receipt('e'), review_status: 'done', review_source: 'engineer_self_review' }, false);
+  expect(selfDone.independent).toBe(false);
+  expect(selfDone.text).toMatch(/not independently reviewed/i);
+  // Older receipts never recorded who checked them; do not claim independence.
+  const legacy = deliveryReviewLabel({ ...receipt('l'), review_status: 'done' }, false);
+  expect(legacy.independent).toBe(false);
+  expect(legacy.text).toMatch(/not recorded/i);
   const self = deliveryReviewLabel({ ...receipt('s'), review_status: 'not_assessed' }, false);
   expect(self.independent).toBe(false);
   expect(self.text).toMatch(/self-check/i);

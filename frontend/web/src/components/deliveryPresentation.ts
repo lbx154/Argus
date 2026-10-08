@@ -45,20 +45,31 @@ export function hasPendingDeliveryDependents(items: BacklogItem[], itemId?: stri
   return items.some((item) => item.id !== itemId && downstream.has(item.id) && ['pending', 'running', 'in_progress', 'claimed'].includes(item.status));
 }
 
-const INDEPENDENTLY_REVIEWED = new Set(['done', 'passed', 'approved', 'accepted']);
+const REVIEW_PASSED = new Set(['done', 'passed', 'approved', 'accepted']);
 
-/** Who vouched for this delivery: an independent reviewer, or only the worker that made it. */
+/**
+ * Who vouched for this delivery: an independent reviewer, or only the worker that made it.
+ * A passing status alone does not say which: a mission without required independent
+ * review settles ``done`` from the worker's own check. Only ``review_source=reviewer``
+ * counts as independent.
+ */
 export function deliveryReviewLabel(receipt: DeliveryReceipt, zh: boolean): { independent: boolean; text: string; title: string } {
   const status = String(receipt.review_status || '').toLowerCase();
-  if (INDEPENDENTLY_REVIEWED.has(status)) return {
+  const source = String(receipt.review_source || '').toLowerCase();
+  if (REVIEW_PASSED.has(status) && source === 'reviewer') return {
     independent: true,
     text: zh ? '独立复核通过' : 'Independently reviewed',
     title: zh ? '另一个审查角色检查过这份成果' : 'A separate reviewer checked this result',
   };
-  if (!status || status === 'not_assessed') return {
+  if (!status || status === 'not_assessed' || (REVIEW_PASSED.has(status) && source)) return {
     independent: false,
     text: zh ? '实现者自检 · 未独立复核' : 'Self-checked · not independently reviewed',
     title: zh ? '只有完成它的人自己检查过，没有另外的审查' : 'Only the worker that produced it checked it; no separate review',
+  };
+  if (REVIEW_PASSED.has(status)) return {
+    independent: false,
+    text: zh ? '已完成 · 未记录是否独立复核' : 'Completed · review source not recorded',
+    title: zh ? '这份较早的交付没有记录是谁检查的，不能确认经过独立复核' : 'This older delivery did not record who checked it, so independent review cannot be confirmed',
   };
   return {
     independent: false,

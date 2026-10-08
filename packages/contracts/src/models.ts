@@ -121,6 +121,8 @@ export interface DeliveryReceipt {
   summary: string;
   status: string;
   review_status: string;
+  /** Who settled ``review_status``: ``reviewer`` is an independent review role; anything else is the worker's own check. Absent on older receipts. */
+  review_source?: string;
   delivered_at: number;
   primary_target: DeliveryTarget | null;
   targets: DeliveryTarget[];

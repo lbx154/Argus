@@ -343,3 +343,55 @@ def test_snapshot_store_keeps_only_recent_versions_per_item(tmp_path: Path) -> N
     assert read_delivery_snapshot(state, receipts[-1]["snapshots"][0]["sha256"]) == (
         f"version {MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 4}\n"
     )
+
+
+def test_rebuilding_an_unchanged_delivery_does_not_evict_older_versions(
+    tmp_path: Path,
+) -> None:
+    from argus.life.delivery import MAX_SNAPSHOT_DELIVERIES_PER_ITEM, read_delivery_snapshot
+
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+
+    def deliver() -> dict:
+        receipt = build_delivery_receipt(
+            item_id="notes", title="notes", summary="", success=True, overall_complete=True,
+            status="done", review_status="done", final_submission_certified=False,
+            workspace=workspace, state_root=state, reviewer_artifacts=["notes.md"],
+        )
+        assert receipt is not None
+        return receipt
+
+    (workspace / "notes.md").write_text("version 1\n", encoding="utf-8")
+    first = deliver()
+    (workspace / "notes.md").write_text("version 2\n", encoding="utf-8")
+    for _ in range(MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 3):
+        deliver()  # replays and reconnects rebuild the same content
+
+    # The earlier version is still the real previous version and stays diffable.
+    assert read_delivery_snapshot(state, first["snapshots"][0]["sha256"]) == "version 1\n"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [("reviewer", "reviewer"), ("engineer_self_review", "engineer_self_review"), ("", "")],
+)
+def test_receipt_records_who_settled_the_review(
+    tmp_path: Path, source: str, expected: str
+) -> None:
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+    (workspace / "report.md").write_text("result\n", encoding="utf-8")
+    receipt = build_delivery_receipt(
+        item_id="r", title="r", summary="", success=True, overall_complete=True,
+        status="done", review_status="done", final_submission_certified=False,
+        review_source=source,
+        workspace=workspace, state_root=state, reviewer_artifacts=["report.md"],
+    )
+    assert receipt is not None
+    # ``done`` alone cannot tell an independent review from the worker's own check.
+    assert receipt["review_source"] == expected

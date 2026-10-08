@@ -434,7 +434,11 @@ def _record_and_prune_snapshots(state_root: Path, item_id: str, digests: list[st
                 if isinstance(value, list)
             }
             history = index.setdefault(item_id, [])
-            history.append(digests)
+            # A rebuild or replay of unchanged files is not a new version; only
+            # record it when the content differs, so it cannot push genuinely
+            # older versions out of the kept window.
+            if not history or sorted(history[-1]) != sorted(digests):
+                history.append(digests)
             del history[:-MAX_SNAPSHOT_DELIVERIES_PER_ITEM]
             tmp = index_path.with_suffix(f".{os.getpid()}.tmp")
             tmp.write_text(json.dumps(index), encoding="utf-8")
@@ -486,6 +490,7 @@ def build_delivery_receipt(
     status: str,
     review_status: str,
     final_submission_certified: bool,
+    review_source: str = "",
     workspace: Path | str | None,
     state_root: Path | str | None,
     stage: str = "",
@@ -563,6 +568,10 @@ def build_delivery_receipt(
         "status": str(status or "done").strip()[:80] or "done",
         "review_status": str(review_status or "not_assessed").strip()[:80]
         or "not_assessed",
+        # Who settled that status: ``reviewer`` is a separate review role;
+        # ``engineer_self_review`` and friends are the worker checking itself.
+        # A ``done`` status alone does not say which, so the UI needs this.
+        "review_source": str(review_source or "").strip()[:80],
         "delivered_at": delivered_at,
         "primary_target": dict(targets[0]),
         "targets": targets,

@@ -1030,6 +1030,7 @@
           "primary_target": {
             "value": "recorded"
           },
+          "review_source": "review source",
           "review_status": "review status",
           "schema_version": 1,
           "status": "completed",
