@@ -37,7 +37,6 @@ from argus.reviewer.validation import (
 )
 from argus.skills.store import SkillStore
 
-
 # The sandbox mounts host paths at identical container paths, runs as the host
 # uid/gid and requires a local Unix-socket daemon. On other hosts the product
 # stops before any Docker step with an explicit "requires Linux Docker" error

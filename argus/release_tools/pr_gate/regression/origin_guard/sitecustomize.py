@@ -15,7 +15,6 @@ import threading
 import weakref
 from pathlib import Path
 
-
 # Windows has no O_ACCMODE; its access-mode bits are the same low two bits.
 ACCESS_MODE = getattr(os, "O_ACCMODE", os.O_RDONLY | os.O_WRONLY | os.O_RDWR)
 
