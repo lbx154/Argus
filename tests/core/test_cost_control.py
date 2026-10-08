@@ -450,3 +450,27 @@ def test_corrupt_global_cost_state_fails_closed(tmp_path: Path) -> None:
     reservation, reason = _reserve(tmp_path, None, "call-1")
     assert reservation is None
     assert "cost control unavailable" in reason
+
+
+def test_snapshot_reports_todays_premium_requests_and_cost_by_run_label(tmp_path: Path, monkeypatch) -> None:
+    # A request-billed backend can spend real money while recording zero
+    # tokens; the snapshot must say what today's requests cost and for what.
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST", "0.04")
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    now = time.time()
+    ledger = UsageLedger(project, migrate_legacy=False)
+    for call_id, label, requests in (("a", "engineer", 3.0), ("b", "engineer", 1.0), ("c", "planner", 1.0)):
+        ledger.append(build_usage_record(
+            call_id=call_id, project_root=project, mission_id="m", provider="copilot",
+            model="any-model", run_label=label, started_at=now - 1, completed_at=now,
+            status="completed", premium_requests=requests,
+        ))
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["daily_premium_requests"] == 5.0
+    assert snapshot["daily_premium_usd"] == pytest.approx(0.20)
+    by_label = {row["run_label"]: row for row in snapshot["premium_by_run_label"]}
+    assert by_label["engineer"]["premium_requests"] == 4.0
+    assert by_label["engineer"]["calls"] == 2
+    assert by_label["planner"]["usd"] == pytest.approx(0.04)
+    assert snapshot["premium_by_run_label"][0]["run_label"] == "engineer"  # costliest first

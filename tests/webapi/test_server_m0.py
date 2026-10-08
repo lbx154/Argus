@@ -619,6 +619,7 @@ def test_build_snapshot_shape_and_failsoft(
         "session",
         "daemon",
         "roles",
+        "last_call",
         "backlog",
         "pending_questions",
         "recent_events",

@@ -1,0 +1,86 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { afterEach, expect, it, vi } from 'vitest';
+import { api, type ConfigSnapshot } from '../api';
+import { ConfigModal } from '../components/InfoModals';
+
+let renderer: ReactTestRenderer | undefined;
+let client: QueryClient | undefined;
+afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; client?.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+const textOf = (node: { children: unknown[] }): string =>
+  node.children.map(child => (typeof child === 'string' ? child : textOf(child as { children: unknown[] }))).join('');
+
+it('names what auto resolves to, marks a configured model the backend does not offer, and flags an offline list', async () => {
+  const config: ConfigSnapshot = {
+    schema_version: 1, generated_at_utc: '', roles: [], how_to_change: [],
+    operator_knobs: [{ name: 'ARGUS_SKILL_MODEL', value: 'stale-id' } as ConfigSnapshot['operator_knobs'][number]],
+    model_options: [
+      { model: 'newest-9', source: 'catalog', offline: true },
+      { model: 'stale-id', source: 'current', invalid: true },
+    ],
+    model_auto_resolves_to: 'newest-9',
+  };
+  vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:8000' } });
+  vi.spyOn(api, 'config').mockResolvedValue(config);
+  client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  client.setQueryData(['config', 'one'], config);
+  await act(async () => {
+    renderer = create(<QueryClientProvider client={client!}><ConfigModal sid="one" open onClose={() => {}} /></QueryClientProvider>);
+  });
+  const select = renderer!.root.findByProps({ 'aria-label': 'Model' });
+  const labels = select.findAllByType('option').map(textOf);
+  expect(labels[0]).toBe('auto → newest-9');
+  expect(labels).toContain('stale-id (unavailable)');
+  expect(labels).toContain('newest-9');
+  expect(renderer!.root.findAllByProps({ 'data-model-offline': true })).toHaveLength(1);
+});
+
+const baseConfig = (): ConfigSnapshot => ({
+  schema_version: 1, generated_at_utc: '', roles: [], how_to_change: [],
+  operator_knobs: [
+    { name: 'ARGUS_SKILL_RUNNER_BACKEND', value: 'pi' } as ConfigSnapshot['operator_knobs'][number],
+    { name: 'ARGUS_SKILL_MODEL', value: 'auto' } as ConfigSnapshot['operator_knobs'][number],
+  ],
+  model_options: [{ model: 'm-1', source: 'catalog' }],
+});
+
+async function mount(config: ConfigSnapshot, snapshot?: unknown) {
+  vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:8000' } });
+  vi.spyOn(api, 'config').mockResolvedValue(config);
+  client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  client.setQueryData(['config', 'one'], config);
+  if (snapshot) client.setQueryData(['snapshot', 'one'], snapshot);
+  await act(async () => {
+    renderer = create(<QueryClientProvider client={client!}><ConfigModal sid="one" open onClose={() => {}} /></QueryClientProvider>);
+  });
+}
+
+it('saves a backend switch only on Apply, never on the dropdown change', async () => {
+  const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
+  await mount(baseConfig());
+  const select = renderer!.root.findByProps({ 'aria-label': 'Backend' });
+  await act(async () => { select.props.onChange({ target: { value: 'copilot' } }); });
+  expect(setConfig).not.toHaveBeenCalled();
+  const apply = renderer!.root.findByProps({ 'data-apply-backend': true });
+  expect(apply.props.disabled).toBe(false);
+  await act(async () => { apply.props.onClick(); });
+  expect(setConfig).toHaveBeenCalledWith('one', 'ARGUS_SKILL_RUNNER_BACKEND', 'copilot');
+});
+
+it("shows today's premium requests and their cost by run label, not just tokens", async () => {
+  await mount(baseConfig(), {
+    daemon: { alive: false },
+    cost_control: {
+      day: 'd', active_reservations: 0, unresolved_calls: 0, unresolved: [], policy: 'allow',
+      daily_tokens: 0, daily_premium_requests: 12, daily_premium_usd: 0.48,
+      premium_by_run_label: [{ run_label: 'engineer', premium_requests: 9, usd: 0.36, calls: 9 }],
+    },
+  });
+  const usage = renderer!.root.findByProps({ 'data-premium-usage': true });
+  const text = textOf(usage as unknown as { children: unknown[] });
+  expect(text).toContain('Premium requests today: 12');
+  expect(text).toContain('0.48');
+  expect(text).toContain('engineer 9');
+  expect(textOf(renderer!.root.findByProps({ 'data-today-usage': true }) as unknown as { children: unknown[] })).not.toContain('0 tokens');
+});

@@ -422,6 +422,9 @@ select optgroup {
 .composer-runtime-model { min-width: 0; overflow-wrap: anywhere; }
 .composer-runtime button { flex-shrink: 0; color: rgb(var(--blue)); text-decoration: underline; text-underline-offset: 3px; }
 .composer-runtime button:focus-visible { outline: 2px solid rgb(var(--blue)); outline-offset: 3px; }
+.composer-runtime button.composer-runtime-model { flex-shrink: 1; color: inherit; text-decoration: none; text-align: left; cursor: pointer; }
+.composer-runtime button.composer-runtime-model:hover { color: rgb(var(--blue)); text-decoration: underline; }
+.composer-runtime-next { color: rgb(var(--gold)); }
 
 .send-control {
   border-color: rgb(var(--blue) / 34%);
