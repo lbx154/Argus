@@ -350,3 +350,34 @@ def test_reviewer_accepts_implementation_grounding_proportionally(
     assert "`replan_requested` for a wrong target" in prompt
     assert 'Stay within this profile; require no future-proofing' in prompt
     assert 'require experimental or research feedback' in prompt
+
+
+def test_reviewer_checks_metric_split_and_requested_deliverable(monkeypatch):
+    """Given only a summary, no reviewer noticed evaluation on training data;
+    given the artifacts, every one did. The judgement question names it."""
+    flat = " ".join(_prompt(measured=False, monkeypatch=monkeypatch).split())
+
+    assert "which data split" in flat
+    assert "operator's own words" in flat
+
+
+def test_reviewer_receives_changed_artifact_paths(tmp_path, monkeypatch):
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "eval_results.json").write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    r = Reviewer(runner=None, skill_store=None)
+    prompt = r._build_prompt(
+        objective="evaluate the model",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="accuracy 0.93",
+        main_error=None,
+        prior_checkpoint={},
+        working_dir=str(tmp_path),
+    )
+
+    assert "eval_results.json" in prompt

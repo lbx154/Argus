@@ -211,6 +211,8 @@ class PlannerOrchestrationMixin:
             status = str(getattr(item, "status", "") or "unknown")
             backlog_counts[status] = backlog_counts.get(status, 0) + 1
 
+        time_line = _planner_time_line(pipeline, backlog_rows)
+
         # Width-2 daemons spent months running serially because the Planner
         # could not see the second slot: admission needs every co-running
         # task to declare disjoint owned paths, and nothing ever said so.
@@ -381,6 +383,7 @@ class PlannerOrchestrationMixin:
             [
                 "## Host current-reality digest",
                 *presence_lines,
+                time_line,
                 f"- vertical: {pipeline.get('vertical') or '(unresolved)'}",
                 f"- workflow_mode: {pipeline.get('workflow_mode') or '(unset)'}",
                 f"- current_stage: {pipeline.get('current_stage') or self._current_pipeline_stage() or '(unset)'}",
@@ -538,3 +541,88 @@ class PlannerOrchestrationMixin:
 
 
 __all__ = ["PlannerOrchestrationMixin"]
+
+
+def _deadline_ts(pipeline: dict[str, Any]) -> float | None:
+    """Read an operator deadline (epoch seconds or ISO 8601) from pipeline state."""
+    from datetime import datetime
+
+    for key in ("deadline", "deadline_ts"):
+        raw = pipeline.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            pass
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.astimezone()
+        return parsed.timestamp()
+    timeout_h = pipeline.get("time_budget_hours")
+    started = pipeline.get("started_ts") or pipeline.get("created_ts")
+    try:
+        if timeout_h is not None and started is not None:
+            return float(started) + float(timeout_h) * 3600.0
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def _planner_time_line(pipeline: dict[str, Any], rows: list[Any]) -> str:
+    """Remaining time and measured run durations, shown on every digest.
+
+    A Planner given a one-week window scheduled about six weeks of runs: it
+    could see neither the clock nor how long finished runs had really taken.
+    This is information for its judgement, not a gate on the plan.
+    """
+    import statistics
+
+    now = time.time()
+    deadline = _deadline_ts(pipeline)
+    if deadline is None:
+        remaining = "no deadline declared"
+    else:
+        hours = (deadline - now) / 3600.0
+        remaining = (
+            f"{hours:.1f}h remaining before the deadline"
+            if hours >= 0
+            else f"deadline passed {-hours:.1f}h ago"
+        )
+    durations = [
+        float(item.finished_ts) - float(item.started_ts)
+        for item in rows
+        if getattr(item, "status", "") in {"done", "failed"}
+        and getattr(item, "started_ts", None)
+        and getattr(item, "finished_ts", None)
+        and float(item.finished_ts) > float(item.started_ts)
+    ]
+    median = statistics.median(durations) if durations else None
+    if median is None:
+        measured = "no finished runs measured yet"
+    else:
+        measured = (
+            f"median finished-run wall time {median / 3600.0:.1f}h "
+            f"over {len(durations)}"
+        )
+    running = []
+    for item in rows:
+        started = getattr(item, "started_ts", None)
+        if getattr(item, "status", "") != "running" or not started:
+            continue
+        elapsed = (now - float(started)) / 3600.0
+        if median is None:
+            running.append(f"{item.id} running {elapsed:.1f}h")
+        else:
+            left = (float(started) + median - now) / 3600.0
+            running.append(
+                f"{item.id} running {elapsed:.1f}h, "
+                + (f"~{left:.1f}h left at median" if left >= 0 else "past the median")
+            )
+    parts = [remaining, measured]
+    if running:
+        parts.append("in flight: " + "; ".join(running[:4]))
+    return "- time: " + "; ".join(parts)

@@ -118,7 +118,10 @@ def _verification_directive() -> str:
     return (
         "Trust consistent evidence; recheck gaps, stale evidence, contradictions, or "
         "implausibility only. Read beyond git diff. Identity drift proves neither "
-        "failure nor causation without this mission's mutation command.\n\n"
+        "failure nor causation without this mission's mutation command. "
+        "Check which data split each reported metric was computed on, and "
+        "whether the deliverable is still what the operator's own words asked "
+        "for.\n\n"
     )
 
 
@@ -157,6 +160,40 @@ def _audit_integrity_directive(context: str) -> str:
         "do not treat a summarized command log as the missing byte-faithful command. "
         "Preserve useful corrections, but return `continue`, `replan_requested`, or "
         "`blocked` when the required historical integrity is irrecoverable.\n\n"
+    )
+
+
+def _changed_artifact_block(working_dir: str | Path | None) -> str:
+    """List workspace files changed or added, so the Reviewer reads artifacts."""
+    import subprocess
+
+    root = Path(working_dir or Path.cwd()).expanduser()
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    paths = [
+        line[3:].strip()
+        for line in result.stdout.splitlines()
+        if len(line) >= 4 and not line[3:].strip().startswith(".argus/")
+    ]
+    if not paths:
+        return ""
+    shown = ", ".join(paths[:20])
+    if len(paths) > 20:
+        shown += f", +{len(paths) - 20} more"
+    return (
+        "\nChanged workspace artifacts (open the ones a claim rests on; the "
+        f"account above is a summary): {sanitize_model_visible_text(shown)}\n"
     )
 
 
@@ -565,6 +602,10 @@ def render_reviewer_prompt(
         if raw_evidence.strip()
         else ""
     )
+    # Given only the Engineer's summary, reviewers missed evaluation on the
+    # training split; given the artifacts, they caught it. Point at the files
+    # this round touched so the Reviewer opens them rather than the account.
+    artifact_block = _changed_artifact_block(working_dir)
     # Source handoff is a workspace fact, not another unconditional role rule.
     # Keep ordinary reviews small and the static prefix stable across projects.
     source_block = ""
@@ -763,6 +804,7 @@ def render_reviewer_prompt(
         + engineer_account
         + "\n\n"
         + f"{evidence_block}"
+        + artifact_block
         + source_block
         # OperatorContext is intentionally the final live-facts block: this
         # preserves the static cache prefix and improves steering recency.
@@ -789,6 +831,7 @@ def render_reviewer_prompt(
             "shared_context": shared_context_block + incremental_review_block,
             "main_summary": main_summary,
             "raw_evidence": evidence_block,
+            "changed_artifacts": artifact_block,
             "web_sources": source_block,
         }
     )

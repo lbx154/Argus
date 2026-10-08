@@ -48,8 +48,11 @@ from argus.skills.vertical_select import persist_vertical
 # only for dependencies or parallel work", which logs showed the Planner read as
 # one task per cycle even with free slots; the guidance had lived only in a
 # staged research checklist that direct/team routes never render.
-MATH_SCOPE_BUDGET = 12_950
-MATURE_MATH_SCOPE_BUDGET = 18_750
+# +300 on 2026-10-08 for the time-fit and concurrency judgement questions: a
+# plan sized against no clock overran a one-week window about sixfold, and the
+# digest's time line is useless unless the Planner is asked to read it.
+MATH_SCOPE_BUDGET = 13_250
+MATURE_MATH_SCOPE_BUDGET = 19_050
 RESEARCH_PLAN_DYNAMIC_BUDGET = 8_000
 
 
@@ -435,3 +438,19 @@ def test_planner_prompt_asks_for_fanout_of_independent_work(
     assert "differ only in inputs or config" in flat
     assert "free slots" in flat
     assert "shared code change goes first" in flat
+
+
+def test_planner_prompt_asks_time_fit_and_concurrency_questions(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A plan sized against no clock overran a one-week window sixfold; a
+    Planner that is never asked what else can start emits one task a cycle.
+    Both are judgement questions, not gates."""
+    prompt, _ = _build_math_scope_prompt(tmp_path, monkeypatch)
+    flat = " ".join(prompt.split())
+
+    assert "measured throughput" in flat
+    assert "first held-out number" in flat
+    assert "smaller end-to-end version" in flat
+    assert "independent work can start this cycle" in flat
