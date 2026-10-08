@@ -74,7 +74,12 @@ Two things follow from that design and explain most of what you will see:
 
 - **A background worker does the work.** Your cockpit, browser tab or terminal
   can close; the project's daemon keeps running and keeps its state under
-  `~/.argus-skill/projects/<id>/`.
+  `~/.argus-skill/projects/<id>/`. A project started from a terminal (no
+  `--new`/`--resume`) gets a 12-hex-digit id derived from its directory (or
+  from the git remote when the directory is a clone), for example
+  `projects/6b8fe5b2f41b`; a session started with `--new`, or from the web UI
+  or API, gets an id such as `s-02d3c282`.
+  `argus --status` prints the full path on its `project` line.
 - **Nothing is "done" until the Reviewer says so.** A task usually takes
   several Engineer rounds. Expect the first small task to take minutes, not
   seconds.
@@ -122,7 +127,9 @@ uv tool install --force --python 3.12 "argus @ https://github.com/microsoft/Argu
 ```
 
 On Linux, `argus` below means `$HOME/Argus/.venv/bin/argus` unless the venv is
-active. Everywhere, `python -m argus ...` runs the same CLI without ever
+active (`source "$HOME/Argus/.venv/bin/activate"`; with it active, `python`
+in this guide and in [building a vertical](building-a-vertical.md) is also the
+venv's interpreter, which is the one that can import `argus`). Everywhere, `python -m argus ...` runs the same CLI without ever
 starting the Node cockpit; it is what you want in scripts and over SSH without
 a terminal.
 
@@ -170,7 +177,13 @@ all blocking checks passed
 ```
 
 A `!` line is advice, not a failure; the desktop warning above only matters if
-you intend to build the desktop app from this checkout. When something is
+you intend to build the desktop app from this checkout. A fresh source checkout
+may show other `!` lines too, for example `ARGUS-ASSET-002
+[install/assets_stale]` (the committed Web/TUI bundle predates a frontend
+source change; its fix is for maintainers, and the bundled UI still works) or
+`ARGUS-PATH-001 [install/path_memory_missing]` (no path memory recorded yet).
+Only a line that is not `✓` or `!`, and a final line other than `all blocking
+checks passed`, needs action before you continue. When something is
 wrong, `argus doctor --fix-safe` applies the repairs the doctor itself marked
 safe and reruns; `argus doctor --advisor auto` lets one of the installed agent
 CLIs inspect and repair. Without one of those two options `doctor` changes
@@ -274,7 +287,13 @@ Its log runs from 08:11:39Z to 08:23:33Z (12 minutes), one task in two
 attempts, `continuous.json` ends with `"done_reason": "planner declared project
 done"`, and it cost $0.91 (12 model calls in `usage.jsonl`). The README it
 wrote gives maximum errors of 6.0e-07, 1.6e-07 and 5.1e-07 for the three
-damping cases against the analytic solution.
+damping cases against the analytic solution. A newcomer dry run on
+2026-10-07 gave this objective to a fresh install (`--bounded --mission-width 1`,
+copilot backend) and the Manager routed it to `vertical=software` (the
+`pipeline` line of `argus --status`), so expect `software` for a small
+script-and-README task like this one. The research campaign above, whose
+objective asks for a short paper and an internal review, ran with
+`vertical=research`.
 
 ### Watch, steer, stop
 

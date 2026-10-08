@@ -40,6 +40,8 @@ def test_parser_exposes_the_verticals_subcommands() -> None:
     assert parser.parse_args(["verticals", "update"]).names == []
     remove = parser.parse_args(["verticals", "remove", "quant", "--force"])
     assert remove.name == "quant" and remove.force is True
+    uninstall = parser.parse_args(["verticals", "uninstall", "quant"])
+    assert uninstall.verticals_cmd == "uninstall" and uninstall.name == "quant"
     assert parser.parse_args(["verticals", "enable", "quant"]).verticals_cmd == "enable"
     assert parser.parse_args(["verticals", "disable", "quant"]).verticals_cmd == "disable"
     assert parser.parse_args(["verticals", "refresh"]).verticals_cmd == "refresh"
@@ -87,7 +89,7 @@ def test_list_install_info_remove_round_trip(capsys) -> None:
 
     assert main(["verticals", "remove", "base_v"]) == 1
     assert "required by installed vertical(s) child_v" in capsys.readouterr().err
-    assert main(["verticals", "remove", "child_v"]) == 0
+    assert main(["verticals", "uninstall", "child_v"]) == 0
     assert "child_v: uninstall finished" in capsys.readouterr().out
     assert set(store.installed()) == {"base_v"}
 

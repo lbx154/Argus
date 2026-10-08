@@ -777,7 +777,9 @@ def _add_verticals_subcommand(subparsers: argparse._SubParsersAction) -> None:
         "update", help="Reinstall verticals whose catalog version changed (all when no NAME)",
     )
     update_parser.add_argument("names", nargs="*", metavar="NAME")
-    remove_parser = commands.add_parser("remove", help="Remove an installed vertical")
+    remove_parser = commands.add_parser(
+        "remove", aliases=["uninstall"], help="Remove an installed vertical",
+    )
     remove_parser.add_argument("name")
     remove_parser.add_argument(
         "--force", action="store_true",

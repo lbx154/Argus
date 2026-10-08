@@ -219,7 +219,7 @@ argus verticals info chip_design [--json]   # one row: requires, shared, python_
 argus verticals install materials chip_design   # dependencies first; waits and prints progress
 argus verticals update [NAME ...]           # reinstall when the catalog's version/sha changed (all when no NAME)
 argus verticals disable quant / enable quant
-argus verticals remove chip_design [--force]    # --force: even when a session's PIPELINE_STATE.json names it
+argus verticals remove chip_design [--force]    # --force: even when a session's PIPELINE_STATE.json names it; `uninstall` is the same command
 ```
 
 Exit status: 0 success, 1 the store refused or the job failed (message on stderr),

@@ -150,7 +150,7 @@ def run_verticals_command(args: argparse.Namespace) -> int:
             return _cmd_install(args)
         if command == "update":
             return _cmd_update(args)
-        if command == "remove":
+        if command in ("remove", "uninstall"):  # `info` lists the store action as "uninstall"
             return _cmd_remove(args)
         if command == "enable":
             return _cmd_toggle(args, True)
