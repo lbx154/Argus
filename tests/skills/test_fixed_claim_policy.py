@@ -123,6 +123,7 @@ def test_planner_fragment_finishes_the_shared_runner_and_fans_arms_out() -> None
     assert "every planned arm, baseline and config as an argument" in text
     assert "per-arm output directory" in text
     assert "emit them together in one plan as TASK_PARALLEL_SAFE=true tasks" in text
+    assert "each with TASK_DEPS on the runner" in text
     assert "only its own output and config paths" in text
     assert "free mission_slots and parallel_slot" in text
     assert "chains every arm behind one owner" in text
