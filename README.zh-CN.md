@@ -127,6 +127,10 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 通过浏览器登录目标账号，setup 成功后重启已有 Argus 进程；之后普通启动即使用该后端账号，
 不改变当前终端或外层 Agent 的登录。详见[账号绑定、优先级与恢复默认](docs/agent-install.md#dedicated-copilot-account)。
 
+**研究 Trace：**默认保留 Copilot 会话；显式启用会话回收或原始 I/O 轮转时，
+先保存并校验压缩归档，再回收在线文件。归档不会自动到期删除，请在设置中查看
+实际保留策略并关注磁盘空间，详见 [Trace 保留与导出](docs/trace-retention.zh-CN.md)。
+
 <a id="argus-pi-preview"></a>
 <details>
 <summary><strong>试用 Argus-Pi：安装、接入与回退</strong></summary>

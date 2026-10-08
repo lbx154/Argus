@@ -39,6 +39,10 @@ const BUDGET_FIELDS = [
 ] as const;
 
 const KNOB_TEXT: Record<string, { label: string; doc: string }> = {
+  ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS: { label: 'settings.knob.sessionArchive', doc: 'settings.knob.sessionArchiveDoc' },
+  ARGUS_SKILL_AGENT_IO_MAX_BYTES: { label: 'settings.knob.traceSize', doc: 'settings.knob.traceSizeDoc' },
+  ARGUS_SKILL_AGENT_IO_KEEP: { label: 'settings.knob.traceKeep', doc: 'settings.knob.traceKeepDoc' },
+  ARGUS_SKILL_AGENT_IO_MODE: { label: 'settings.knob.traceMode', doc: 'settings.knob.traceModeDoc' },
   ARGUS_SKILL_MAX_ACTIVE_DAEMONS: { label: 'settings.knob.activeDaemons', doc: 'settings.knob.activeDaemonsDoc' },
   ARGUS_SKILL_SAFE_MODE: { label: 'settings.knob.safeMode', doc: 'settings.knob.safeModeDoc' },
   ARGUS_SKILL_ENABLE_TELEGRAM: { label: 'settings.knob.telegram', doc: 'settings.knob.telegramDoc' },
@@ -46,6 +50,7 @@ const KNOB_TEXT: Record<string, { label: string; doc: string }> = {
 };
 
 const GROUP_TEXT: Record<string, string> = {
+  Storage: 'settings.group.storage',
   Limits: 'settings.group.limits',
   Safety: 'settings.group.safety',
   Interface: 'settings.group.interface',
@@ -296,6 +301,14 @@ export function ConfigModal({
         {!isLoading && !isError && !hasData && <EmptyHint>{t('settings.empty')}</EmptyHint>}
         {!isLoading && !isError && hasData && data && (
           <div className="space-y-4">
+            <section className="rounded-lg border border-gold/40 bg-gold/5 p-3" aria-label={t('settings.traceTitle')}>
+              <h3 className="text-sm font-semibold text-ink">{t('settings.traceTitle')}</h3>
+              <p className="mt-1 text-xs leading-relaxed text-ink-dim">{t('settings.traceHint')}</p>
+              <p className="mt-2 text-xs text-ink-dim">{t('settings.traceCurrent', {
+                days: data.operator_knobs.find(knob => knob.name === 'ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS')?.value ?? '0',
+                mode: data.operator_knobs.find(knob => knob.name === 'ARGUS_SKILL_AGENT_IO_MODE')?.value ?? 'full',
+              })}</p>
+            </section>
             {!data.trial_mode && <section className="rounded-lg border border-line glass-card p-3">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.quickConfig')}</div>
               <label className="flex flex-wrap items-center gap-2">

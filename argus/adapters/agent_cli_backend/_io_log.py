@@ -15,11 +15,17 @@ import logging
 import os
 import threading
 import time
+import uuid
+import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import portalocker
+
 from ...core.event_catalog import EventType, normalize_event_envelope
 from ...core.secret_guard import redact_secrets_record, redact_secrets_text
+from ...core.trace_archive import archive_trace, reject_links, trace_snapshot
 
 log = logging.getLogger(__name__)
 
@@ -27,12 +33,8 @@ _AGENT_IO_LOG_ENV = "ARGUS_SKILL_AGENT_IO_LOG"
 _AGENT_IO_MODE_ENV = "ARGUS_SKILL_AGENT_IO_MODE"
 _AGENT_IO_BATCH_BYTES_ENV = "ARGUS_SKILL_AGENT_IO_BATCH_BYTES"
 _AGENT_IO_FLUSH_INTERVAL_ENV = "ARGUS_SKILL_AGENT_IO_FLUSH_INTERVAL_S"
-# ``agent_io.jsonl`` is the verbatim provider transcript — a DEBUG artifact.
-# ``events.jsonl`` is the authoritative history, and it already rotates. This
-# one did not, so a long-lived session grew it without bound: measured 6.1 GiB
-# in a single session and 33 GiB across sessions on one box. Bound it as a ring
-# (cap x (keep + 1)) so the recent window stays debuggable without the daemon
-# slowly filling the disk.
+# Keep a small online window, compressing old generations as research evidence.
+# Archives are retained until explicitly removed; rotation never discards them.
 _AGENT_IO_MAX_BYTES_ENV = "ARGUS_SKILL_AGENT_IO_MAX_BYTES"
 _AGENT_IO_KEEP_ENV = "ARGUS_SKILL_AGENT_IO_KEEP"
 _DEFAULT_AGENT_IO_MAX_BYTES = 128 * 1024 * 1024
@@ -95,7 +97,9 @@ _PROGRESS_STREAM_MARKERS = (
 
 def _agent_io_mode(run_label: str) -> str:
     """Persistence mode: full-once (default) or summary-only compact."""
-    mode = os.environ.get(_AGENT_IO_MODE_ENV, "full").strip().lower()
+    from ...core.knob_store import persisted_knob
+
+    mode = (persisted_knob(_AGENT_IO_MODE_ENV) or "full").strip().lower()
     if mode in {"compact", "summary", "off"}:
         return "compact"
     return "full"
@@ -163,37 +167,75 @@ def _command_metadata(command: Any) -> list[str]:
 
 
 def _jsonl_append(path: Path, row: dict[str, Any], lock: threading.Lock) -> None:
+    path = path.parent.resolve() / path.name
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
     except Exception:  # noqa: BLE001
         return
     try:
-        with lock:
+        with lock, _trace_write_lock(path):
+            if path.name == _RAW_TRANSCRIPT_NAME:
+                _roll_agent_io_log(path)
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
-    except OSError:
+    except (OSError, portalocker.exceptions.LockException):
+        _preserve_pending_trace(path, line + "\n")
+
+
+@contextmanager
+def _trace_write_lock(path: Path):
+    if path.name != _RAW_TRANSCRIPT_NAME:
+        yield
         return
+    reject_links(path.parent)
+    lock_path = path.with_name(f".{path.name}.lock")
+    if lock_path.exists():
+        reject_links(lock_path)
+    # No timeout: clearing an in-memory stream batch and then timing out here
+    # would silently lose it. Every logger/process uses the same stable lock.
+    with portalocker.Lock(lock_path, mode="a", flags=portalocker.LOCK_EX):
+        yield
+
+
+def _preserve_pending_trace(path: Path, payload: str) -> None:
+    log.error("Could not append trace to %s", path, exc_info=True)
+    if path.name != _RAW_TRANSCRIPT_NAME:
+        return
+    try:
+        pending = path.parent / "trace-archives" / "pending"
+        pending.mkdir(parents=True, exist_ok=True, mode=0o700)
+        reject_links(pending)
+        with (pending / f"{time.time_ns():020d}-{uuid.uuid4().hex}.jsonl").open("x", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError:
+        log.error("Could not preserve pending trace for %s", path, exc_info=True)
 
 
 def _positive_int_env(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
+    from ...core.knob_store import persisted_knob
+
+    raw = persisted_knob(name).strip()
     if not raw:
         return default
     try:
-        return max(0, int(raw))
+        value = int(raw)
+        if value < 0:
+            raise ValueError(raw)
+        return value
     except ValueError:
+        log.warning("Invalid trace storage setting %s=%r; using %d", name, raw, default)
         return default
 
 
 def _roll_agent_io_log(path: Path) -> None:
-    """Rotate ``path`` once it exceeds the cap, keeping a bounded ring.
+    """Rotate the online window only after verifying archives of reclaimed files.
 
-    ``path`` -> ``path.1`` -> ... -> ``path.<keep>``; the oldest generation is
-    dropped. Unlike ``events.jsonl`` (the authoritative history, which retains
-    every generation) this transcript is reproducible debug output, so bounding
-    total disk is worth more than infinite retention. Best-effort: a failed
-    rotation must never break the provider call that is trying to log.
+    The caller holds the cross-process write lock through rotation and append.
+    Failed archives leave every original generation in place, and appending
+    continues to the current file. Compressed history has no automatic expiry.
     """
     max_bytes = _positive_int_env(_AGENT_IO_MAX_BYTES_ENV, _DEFAULT_AGENT_IO_MAX_BYTES)
     if max_bytes <= 0:
@@ -205,17 +247,28 @@ def _roll_agent_io_log(path: Path) -> None:
         return
     keep = _positive_int_env(_AGENT_IO_KEEP_ENV, _DEFAULT_AGENT_IO_KEEP)
     try:
-        if keep <= 0:
-            path.unlink(missing_ok=True)
+        reclaim = [
+            candidate for candidate in path.parent.glob(path.name + ".*")
+            if candidate.name[len(path.name) + 1:].isdigit()
+            and int(candidate.name[len(path.name) + 1:]) >= keep
+        ]
+        if keep == 0:
+            reclaim.append(path)
+        archived = [(candidate, archive_trace(candidate, path.parent / "trace-archives" / "agent_io"))
+                    for candidate in reclaim]
+        if any(trace_snapshot(candidate) != result.snapshot for candidate, result in archived):
+            raise OSError("trace changed before rotation")
+        for candidate, _ in archived:
+            candidate.unlink()
+        if keep == 0:
             return
-        oldest = path.with_name(f"{path.name}.{keep}")
-        oldest.unlink(missing_ok=True)
         for index in range(keep - 1, 0, -1):
             src = path.with_name(f"{path.name}.{index}")
             if src.exists():
                 src.replace(path.with_name(f"{path.name}.{index + 1}"))
         path.replace(path.with_name(f"{path.name}.1"))
-    except OSError:
+    except (OSError, ValueError, zipfile.BadZipFile):
+        log.warning("Trace archival failed for %s; retaining the online files", path, exc_info=True)
         return
 
 
@@ -224,6 +277,7 @@ def _jsonl_append_lines(
     lines: list[str],
     lock: threading.Lock,
 ) -> None:
+    path = path.parent.resolve() / path.name
     if not lines:
         return
     try:
@@ -232,12 +286,12 @@ def _jsonl_append_lines(
     except Exception:  # noqa: BLE001
         return
     try:
-        with lock:
+        with lock, _trace_write_lock(path):
             _roll_agent_io_log(path)
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(payload)
-    except OSError:
-        return
+    except (OSError, portalocker.exceptions.LockException):
+        _preserve_pending_trace(path, payload)
 
 
 class AgentIOLogger:

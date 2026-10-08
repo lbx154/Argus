@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import queue
+import subprocess
 import threading
 import time
 
@@ -34,6 +35,7 @@ class _FakeAcpProc:
         self._q: "queue.Queue" = queue.Queue()
         self._script = script
         self._alive = True
+        self._exited = threading.Event()
         self.session_seq = 0
         self.written: list[dict] = []
         self.stdin = self._Stdin(self)
@@ -49,7 +51,19 @@ class _FakeAcpProc:
 
     def eof(self) -> None:
         self._alive = False
+        self._exited.set()
         self._q.put(None)  # closes stdout → reader loop ends
+
+    def wait(self, timeout=None):
+        if not self._exited.wait(timeout):
+            raise subprocess.TimeoutExpired("fake-copilot", timeout)
+        return 0
+
+    def terminate(self):
+        self.eof()
+
+    def kill(self):
+        self.eof()
 
     class _Stdin:
         def __init__(self, p) -> None:
@@ -344,6 +358,37 @@ def test_acp_uses_persisted_dedicated_account(tmp_path, monkeypatch) -> None:
     assert captured["COPILOT_HOME"] == str(chosen)
     assert captured["GH_CONFIG_DIR"] == str(chosen / "gh")
     assert "COPILOT_GITHUB_TOKEN" not in captured
+
+
+def test_warm_managed_process_protects_idle_sessions_until_exit(tmp_path, monkeypatch):
+    import os
+
+    from argus.agent_cli.copilot_home import argus_copilot_home, prune_copilot_sessions
+
+    home = argus_copilot_home()
+    home.mkdir(parents=True)
+    monkeypatch.setenv("COPILOT_HOME", str(home))
+    proc = _FakeAcpProc(_happy_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *args, **kwargs: proc)
+    client = CopilotAcpClient("copilot-bin")
+    try:
+        client.prewarm(str(tmp_path))
+        session = home / "session-state" / "old-session"
+        session.mkdir(parents=True)
+        events = session / "events.jsonl"
+        events.write_text("{}\n", encoding="utf-8")
+        stamp = time.time() - 30 * 86400
+        os.utime(events, (stamp, stamp))
+        os.utime(session, (stamp, stamp))
+        env = {"ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS": "7"}
+        assert prune_copilot_sessions(home, env=env) == 0
+        assert events.exists()
+    finally:
+        client.close()
+    deadline = time.monotonic() + 2
+    while prune_copilot_sessions(home, env=env) == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not session.exists()
 
 
 def test_content_filter_notice_is_a_permanent_failure_not_agent_output(

@@ -139,6 +139,11 @@ After setup succeeds and existing Argus processes are restarted, ordinary Argus
 launches use that account without changing the caller's login.
 See [account binding, precedence and reset](docs/agent-install.md#dedicated-copilot-account).
 
+**Research traces:** Copilot sessions are preserved by default. Opt-in session
+reclamation and raw I/O rotation now archive verified copies before reclaiming
+online files; archives do not expire automatically. Review the effective policy
+in Settings and monitor disk space. See [trace retention and export](docs/trace-retention.md).
+
 <a id="argus-pi-preview"></a>
 <details>
 <summary><strong>Try Argus-Pi: install, connect and roll back</strong></summary>

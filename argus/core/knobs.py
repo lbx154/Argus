@@ -205,7 +205,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_METRICS_MAX_BYTES", "16777216", "rotate metrics.jsonl after this many bytes", "telemetry"),
     Knob("ARGUS_SKILL_METRICS_RETENTION_DAYS", "7", "delete rotated metrics archives older than this many days", "telemetry"),
     Knob("ARGUS_SKILL_METRICS_MAX_ARCHIVES", "14", "maximum number of rotated metrics archives to retain", "telemetry"),
-    Knob("ARGUS_SKILL_AGENT_IO_MODE", "full", "agent I/O persistence: full saves prompt and every raw stream frame exactly once plus a summary; compact stores summary only", "telemetry"),
+    Knob("ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS", "0", "inactive days before verified session archival and reclamation; 0 preserves online sessions; archives never expire automatically", "storage", cockpit=True),
+    Knob("ARGUS_SKILL_AGENT_IO_MAX_BYTES", "134217728", "online raw trace rotation size in bytes; 0 disables rotation; reclaimed generations are compressed and retained", "storage", cockpit=True),
+    Knob("ARGUS_SKILL_AGENT_IO_KEEP", "2", "old raw trace generations kept online; older generations are verified and archived, including when this is 0", "storage", cockpit=True),
+    Knob("ARGUS_SKILL_AGENT_IO_MODE", "full", "full preserves raw prompts and streams; compact only records summaries and cannot provide a complete research trace", "storage", cockpit=True),
     Knob("ARGUS_SKILL_SAFE_MODE", "off", "extra-conservative guardrails", "lifecycle", cockpit=True),
     # --- learning (what Argus keeps from missions and answers) ---
     Knob("ARGUS_SKILL_REFLECTION", "1", "after each mission, look back once and keep at most one lesson page, two fact pages and one procedure when something durable was learned", "learning", cockpit=True),
@@ -287,10 +290,13 @@ _NON_NEGATIVE_INT_KNOBS = frozenset(
         "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
         "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
         "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
+        "ARGUS_SKILL_AGENT_IO_MAX_BYTES",
+        "ARGUS_SKILL_AGENT_IO_KEEP",
     }
 )
 _NON_NEGATIVE_FLOAT_KNOBS = frozenset({
     "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
+    "ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS",
 })
 # A path knob names one absolute filesystem location. ``~`` expands at persist
 # time; a relative path would silently depend on whichever cwd the reading
@@ -539,6 +545,11 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
     if name in BUDGET_KNOB_DEFAULTS:
         number = _parse_budget_value(name, raw.removeprefix("$"))
         return f"{number:g}"
+    if name == "ARGUS_SKILL_AGENT_IO_MODE":
+        mode = raw.lower()
+        if mode not in {"full", "compact"}:
+            raise ValueError(f"{name} must be full or compact")
+        return mode
     if name in _NON_NEGATIVE_INT_KNOBS:
         try:
             number = int(raw)

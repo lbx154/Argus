@@ -32,14 +32,27 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import shutil
 import tempfile
 import time
+import uuid
+import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Mapping
 
+import portalocker
+
 from ..core.paths import global_root
+from ..core.trace_archive import (
+    archive_trace,
+    reject_links,
+    restore_trace,
+    sync_directory,
+    trace_snapshot,
+)
 
 log = logging.getLogger(__name__)
 
@@ -56,15 +69,13 @@ _CONFIG_HEADER = (
     "// This file is managed automatically.\n"
 )
 
-# Relocating the working state bounds nothing on its own: at the observed ~115
-# sessions/hour a 7x24 host writes roughly 2.6 GB a day, so an unpruned Argus
-# home simply becomes the next 47 GB somewhere else. Sessions are per-turn
-# scratch — only a recent one can still be resumed — so they get an age limit,
-# and the sweep is throttled because it runs on the child-env path.
+# Raw sessions are research evidence. Preserve them by default; an operator
+# may opt into verified archival and reclamation after an inactivity window.
 _RETENTION_DAYS_ENV = "ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS"
-_DEFAULT_RETENTION_DAYS = 7.0
+_DEFAULT_RETENTION_DAYS = 0.0
 _SWEEP_INTERVAL_SECONDS = 3600.0
 _SWEEP_STAMP = ".argus-last-sweep"
+_USE_LOCK = ".argus-session-use.lock"
 
 
 def copilot_account_home(env: Mapping[str, str] | None = None) -> Path | None:
@@ -116,13 +127,108 @@ def argus_copilot_home(env: Mapping[str, str] | None = None) -> Path:
 
 
 def _retention_days(env: Mapping[str, str]) -> float:
-    raw = str(env.get(_RETENTION_DAYS_ENV) or "").strip()
+    from ..core.knob_store import persisted_knob
+
+    raw = persisted_knob(_RETENTION_DAYS_ENV, env=env).strip()
     if not raw:
         return _DEFAULT_RETENTION_DAYS
     try:
-        return max(0.0, float(raw))
+        days = float(raw)
+        if not math.isfinite(days) or days < 0:
+            raise ValueError(raw)
+        return days
     except ValueError:
+        log.warning("Invalid Copilot trace retention %r; preserving sessions", raw)
         return _DEFAULT_RETENTION_DAYS
+
+
+@contextmanager
+def _home_lock(home: Path, flags):
+    # A linked state root is valid for normal workers. Lock its actual home;
+    # archival still rejects the original linked path before reclamation.
+    home = home.resolve()
+    reject_links(home)
+    path = home / _USE_LOCK
+    if path.exists():
+        reject_links(path)
+    with path.open("a+b") as handle:
+        portalocker.lock(handle, flags)
+        try:
+            yield
+        finally:
+            portalocker.unlock(handle)
+
+
+def _session_path(home: Path, session_id: str) -> Path:
+    if not session_id or session_id in {".", ".."} or Path(session_id).name != session_id or "\\" in session_id or "/" in session_id:
+        raise ValueError("invalid Copilot session id")
+    root = home / "session-state"
+    reject_links(home)
+    if root.exists():
+        reject_links(root)
+    return root / session_id
+
+
+def restore_copilot_session(home: Path, session_id: str) -> bool:
+    """Restore an archived session before resume; caller holds the use lock."""
+    target = _session_path(home, session_id)
+    archives = home / "session-archives" / session_id
+    if not archives.is_dir():
+        return False
+    reject_links(archives)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with portalocker.Lock(archives / ".restore.lock", mode="a", flags=portalocker.LOCK_EX):
+        marker = archives / ".reclaim-in-progress"
+        if target.exists() and not marker.exists():
+            reject_links(target)
+            return False
+        if marker.exists():
+            reject_links(marker)
+            name = marker.read_text(encoding="utf-8").strip()
+            if Path(name).name != name or not name.endswith(".zip"):
+                raise OSError("invalid incomplete reclamation marker")
+            candidates = [archives / name]
+        else:
+            candidates = sorted(archives.glob("*.zip"), reverse=True)
+        if not candidates:
+            if marker.exists():
+                raise OSError("incomplete Copilot reclamation has no archive")
+            return False
+        reject_links(candidates[0])
+        if target.exists():
+            reject_links(target)
+            # Interrupted rmtree may leave a partial directory. Keep that
+            # remainder too, and restore the verified complete snapshot.
+            target.rename(archives / f"partial-{uuid.uuid4().hex}")
+            sync_directory(target.parent)
+            sync_directory(archives)
+        restore_trace(candidates[0], target)
+        marker.unlink(missing_ok=True)
+        sync_directory(archives)
+    log.info("Restored archived Copilot session %s", session_id)
+    return True
+
+
+@contextmanager
+def copilot_session_use(env: Mapping[str, str] | None = None, *, session_id: str | None = None):
+    """Protect the whole lifetime of a worker using the automatically managed home."""
+    source = os.environ if env is None else env
+    home = argus_copilot_home(source)
+    configured = copilot_account_home(source)
+    if configured is None and str(source.get(COPILOT_HOME_ENV) or "").strip():
+        configured = Path(source[COPILOT_HOME_ENV]).expanduser()
+    if configured is not None and configured.resolve() != home.resolve():
+        yield False
+        return
+    home.mkdir(parents=True, exist_ok=True)
+    # Reclaim only while idle. A resumed session is protected even before its
+    # process has started; touching it closes the gap before the shared lock.
+    if configured is None:
+        _sweep_home(home, source, protected_session_id=session_id)
+    with _home_lock(home, portalocker.LOCK_SH):
+        if session_id:
+            restore_copilot_session(home.resolve(), session_id)
+        yield True
 
 
 def prune_copilot_sessions(
@@ -131,47 +237,86 @@ def prune_copilot_sessions(
     env: Mapping[str, str] | None = None,
     now: float | None = None,
 ) -> int:
-    """Delete session scratch older than the retention window. Returns the count.
+    """Archive inactive sessions before reclaiming them; default 0 preserves all.
 
-    Only ever called on the Argus-owned home — the operator's ``~/.copilot`` is
-    theirs and is never swept. Age is the directory's own mtime, so a session
-    that is still being written to or was just resumed looks fresh and survives.
-
-    Deleting a session directory is safe even though ``session-store.db`` keeps
-    its row: verified by removing one from a scratch home and running the CLI
-    again, which worked with the orphaned record still present. Setting the
-    retention to ``0`` disables pruning.
+    Called only on the automatically managed home. Any live worker's shared
+    use lock prevents reclamation, including workers currently producing no
+    output. Archives are never expired automatically and are restored on resume.
     """
     source = env if env is not None else os.environ
+    if not home.is_dir():
+        return 0
+    try:
+        with _home_lock(home, portalocker.LOCK_EX | portalocker.LOCK_NB):
+            return _prune_sessions_locked(home, source, now=now)
+    except (OSError, portalocker.exceptions.LockException):
+        return 0
+
+
+def _prune_sessions_locked(home: Path, source: Mapping[str, str], *, now=None, protected_session_id=None) -> int:
     days = _retention_days(source)
     if days <= 0:
         return 0
+    reject_links(home)
     root = Path(home) / "session-state"
     if not root.is_dir():
         return 0
 
+    reject_links(root)
     cutoff = (now if now is not None else time.time()) - days * 86400.0
     removed = 0
     for entry in root.iterdir():
-        if not entry.is_dir():
+        if entry.name == protected_session_id or not entry.is_dir():
             continue
         try:
-            if entry.stat().st_mtime >= cutoff:
+            if (home / "session-archives" / entry.name / ".reclaim-in-progress").exists():
                 continue
+            snapshot = trace_snapshot(entry)
+            if max(row[3] for row in snapshot) / 1e9 >= cutoff:
+                continue
+            archived = archive_trace(entry, home / "session-archives" / entry.name)
+            if trace_snapshot(entry) != archived.snapshot:
+                continue
+            if entry.resolve().parent != root.resolve():
+                continue
+            marker = archived.path.parent / ".reclaim-in-progress"
+            with marker.open("w", encoding="utf-8") as handle:
+                handle.write(archived.path.name)
+                handle.flush()
+                os.fsync(handle.fileno())
+            sync_directory(marker.parent)
             shutil.rmtree(entry)
-        except OSError:  # noqa: PERF203 — one undeletable session must not stop the sweep
+            sync_directory(root)
+            marker.unlink(missing_ok=True)
+            sync_directory(marker.parent)
+        except (OSError, ValueError, zipfile.BadZipFile):  # one bad archive must not lose evidence
+            log.warning("Could not archive Copilot session %s; preserving it", entry.name, exc_info=True)
             continue
         removed += 1
     if removed:
-        log.info("copilot home: pruned %d session(s) older than %.1fd", removed, days)
+        log.info("copilot home: archived and reclaimed %d session(s) inactive for %.1fd", removed, days)
     return removed
+
+
+def _sweep_home(home: Path, env: Mapping[str, str], *, protected_session_id=None) -> None:
+    try:
+        with _home_lock(home, portalocker.LOCK_EX | portalocker.LOCK_NB):
+            if protected_session_id:
+                target = _session_path(home.resolve(), protected_session_id)
+                if target.is_dir():
+                    reject_links(target)
+                    target.touch()
+            now = time.time()
+            if _retention_days(env) > 0 and _sweep_is_due(home, now):
+                _prune_sessions_locked(home, env, now=now, protected_session_id=protected_session_id)
+    except (OSError, portalocker.exceptions.LockException):
+        return
 
 
 def _sweep_is_due(home: Path, now: float) -> bool:
     """True at most once per :data:`_SWEEP_INTERVAL_SECONDS`, and claim the slot.
 
-    The stamp is written *before* the sweep so that concurrent workers — and
-    there are many — do not all scan the directory at once.
+    The caller holds the exclusive use lock, serializing concurrent sweepers.
     """
     stamp = Path(home) / _SWEEP_STAMP
     try:
@@ -281,9 +426,19 @@ def prepare_copilot_home(env: Mapping[str, str] | None = None) -> Path | None:
     # turn would collapse the storage/state isolation this module provides.
     _sync_operator_auth(personal / "config.json", home / "config.json")
 
-    now = time.time()
-    if _sweep_is_due(home, now):
-        prune_copilot_sessions(home, env=source, now=now)
+    _sweep_home(home, source)
+    notice = home / ".argus-trace-policy-v1"
+    try:
+        with notice.open("x", encoding="utf-8") as handle:
+            handle.write("Session traces are preserved by default; opt-in reclamation archives first.\n")
+        log.warning(
+            "Copilot traces: automatic session reclamation is disabled by default; "
+            "positive %s archives inactive sessions before reclaiming them. "
+            "Archives in %s are kept until you remove them; monitor disk space.",
+            _RETENTION_DAYS_ENV, home / "session-archives",
+        )
+    except OSError:
+        pass
     return home
 
 
@@ -337,6 +492,8 @@ def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:
 
 __all__ = [
     "prune_copilot_sessions",
+    "copilot_session_use",
+    "restore_copilot_session",
     "COPILOT_HOME_ENV",
     "COPILOT_ACCOUNT_HOME_KNOB",
     "copilot_account_home",

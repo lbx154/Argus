@@ -15,8 +15,10 @@ import subprocess
 import threading
 import time
 from collections import deque
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from ..core.runner_receipts import PROVIDER_BACKGROUND_WAIT_RECEIPT
 from ..core.windows_job import spawn_owned_process, terminate_owned_process
@@ -122,6 +124,10 @@ class _StreamState:
 class RunExecMixin:
     """Owns the public ``run_exec`` entry point and its private phases."""
 
+    # Required hooks supplied by the runner that combines these mixins.
+    backend: str
+    _terminate_process: Callable[..., None]
+
     def run_exec(
         self,
         *,
@@ -160,11 +166,28 @@ class RunExecMixin:
             )
             if acp_result is not None:
                 return acp_result
+        from .copilot_home import copilot_session_use
+
+        guard = (
+            copilot_session_use(session_id=resume_thread_id)
+            if self.backend == BACKEND_COPILOT else nullcontext()
+        )
+        with guard:
+            return self._run_one_shot_exec(
+                prompt=prompt, resume_thread_id=resume_thread_id,
+                options=options, run_label=run_label,
+            )
+
+    def _run_one_shot_exec(
+        self, *, prompt: str, resume_thread_id: str | None, options,
+        run_label: str | None = None,
+    ) -> AgentRunResult:
         command, process, spawn_failure, prompt_path = self._spawn_turn_process(
             prompt=prompt, resume_thread_id=resume_thread_id, options=options
         )
         if spawn_failure is not None:
             return spawn_failure
+        assert process is not None
         try:
             state = self._stream_turn_output(
                 process=process,
@@ -180,6 +203,8 @@ class RunExecMixin:
                 process=process, command=command, options=options, state=state
             )
         finally:
+            if self.backend == BACKEND_COPILOT and process.poll() is None:
+                self._terminate_process(process)
             # Includes callback/reader/setup exceptions. Windows ownership is
             # handle-based and remains valid even after the provider exits.
             if getattr(process, "_argus_windows_job", None) is not None:
@@ -325,7 +350,19 @@ class RunExecMixin:
                     ),
                     prompt_path,
                 )
+        process = None
+        process_use = None
+        lease_handed_off = False
         try:
+            child_env = self._child_env(options, executable=command[0])
+            if self.backend == BACKEND_COPILOT:
+                from .copilot_home import copilot_session_use
+
+                process_use = copilot_session_use(child_env)
+                lease_active = process_use.__enter__()
+                if not lease_active:
+                    process_use.__exit__(None, None, None)
+                    process_use = None
             with self._prompt_stdin(stdin_prompt) as child_stdin:
                 process = spawn_owned_process(
                     command,
@@ -340,10 +377,24 @@ class RunExecMixin:
                     errors="replace",
                     bufsize=1,
                     cwd=options.working_dir or None,
-                    env=self._child_env(options, executable=command[0]),
+                    env=child_env,
                     **background_subprocess_kwargs(),
                 )
+            if process_use is not None:
+                def release_process_use():
+                    try:
+                        while process.poll() is None:
+                            time.sleep(0.05)
+                    finally:
+                        process_use.__exit__(None, None, None)
+
+                threading.Thread(target=release_process_use, name="copilot-trace-use", daemon=True).start()
+                lease_handed_off = True
         except BaseException:
+            if process is not None:
+                self._terminate_process(process)
+            if process_use is not None and not lease_handed_off:
+                process_use.__exit__(None, None, None)
             if prompt_path is not None:
                 prompt_path.unlink(missing_ok=True)
             raise

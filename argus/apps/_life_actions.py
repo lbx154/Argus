@@ -245,6 +245,12 @@ _ROLE_EFFORT_ENVS: dict[str, str] = {
     "reviewer_effort": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
 }
 _EFFORT_VALUES = {"low", "medium", "high", "xhigh", "max"}
+_TRACE_STORAGE_KNOBS = {
+    "copilot_session_retention_days": "ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS",
+    "agent_io_max_bytes": "ARGUS_SKILL_AGENT_IO_MAX_BYTES",
+    "agent_io_keep": "ARGUS_SKILL_AGENT_IO_KEEP",
+    "agent_io_mode": "ARGUS_SKILL_AGENT_IO_MODE",
+}
 
 
 def render_config_cmd(
@@ -268,6 +274,13 @@ def render_config_cmd(
             else:
                 config_lines.append(f"  {key:20s} = {value}")
         config_lines.append("")
+        from ..core.knobs import KNOBS, resolve_knob
+
+        for knob in KNOBS:
+            if knob.group == "storage":
+                resolved = resolve_knob(knob.name, knob.default)
+                config_lines.append(f"  {knob.name} = {resolved.value} ({resolved.source}; host-wide)")
+        config_lines.append("  Trace archives have no automatic expiry; monitor disk space.")
         config_lines.append(
             "  usage: /config cycles=10 budget=50 daily_cap=300 engineer_effort=xhigh"
         )
@@ -281,6 +294,23 @@ def render_config_cmd(
             continue
         key, _, val = tok.partition("=")
         key = key.strip().lower().replace("-", "_")
+        storage_knob = _TRACE_STORAGE_KNOBS.get(key)
+        if storage_knob is None and key.upper() in _TRACE_STORAGE_KNOBS.values():
+            storage_knob = key.upper()
+        if storage_knob is not None:
+            from ..core.knob_store import write_persisted_knob
+            from ..core.knobs import normalize_cockpit_knob_value
+
+            try:
+                normalized = normalize_cockpit_knob_value(storage_knob, val.strip())
+            except ValueError as exc:
+                lines.append(f"  bad value for {key}: {exc}")
+                continue
+            if write_persisted_knob(storage_knob, normalized):
+                lines.append(f"  {storage_knob} = {normalized} (saved; host-wide; environment overrides still win)")
+            else:
+                lines.append(f"  failed to persist {key}; nothing changed")
+            continue
         if key not in DEFAULT_LIFE_CONFIG:
             lines.append(
                 f"  unknown key: {key!r}  "

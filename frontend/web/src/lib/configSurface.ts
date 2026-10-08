@@ -17,6 +17,26 @@ export interface ConnectionTopology {
 
 const ESSENTIAL_KNOBS: EssentialKnob[] = [
   {
+    name: 'ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS', group: 'Storage',
+    label: 'Copilot session archive window',
+    description: '0 preserves online sessions; positive days archive inactive sessions before reclamation.',
+  },
+  {
+    name: 'ARGUS_SKILL_AGENT_IO_MAX_BYTES', group: 'Storage',
+    label: 'Raw trace online file size',
+    description: 'Rotate raw traces at this size; older generations are compressed and retained. 0 disables rotation.',
+  },
+  {
+    name: 'ARGUS_SKILL_AGENT_IO_KEEP', group: 'Storage',
+    label: 'Raw trace online generations',
+    description: 'Older generations kept online; all reclaimed generations are archived.',
+  },
+  {
+    name: 'ARGUS_SKILL_AGENT_IO_MODE', group: 'Storage',
+    label: 'Trace capture mode',
+    description: 'Use full for research traces; compact saves summaries only.',
+  },
+  {
     name: 'ARGUS_SKILL_MAX_ACTIVE_DAEMONS',
     group: 'Limits',
     label: 'Active daemon limit',

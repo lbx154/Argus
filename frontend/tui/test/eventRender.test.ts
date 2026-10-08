@@ -226,7 +226,11 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
     const semantic = semanticProjection(renderSemanticEvent(fixture.event, context));
     const correction = oldRendererBugs[fixture.id];
     if (correction) {
-      assert.partialDeepStrictEqual(semantic, correction, fixture.id);
+      // Node 22.12 is supported and has no partialDeepStrictEqual yet.
+      // Compare every corrected field without reducing the assertion scope.
+      for (const key of Object.keys(correction) as Array<keyof typeof correction>) {
+        assert.deepEqual(semantic[key], correction[key], `${fixture.id}.${key}`);
+      }
       assert.notDeepEqual(current, semantic, fixture.id);
     } else {
       assert.deepEqual(semantic, current, fixture.id);

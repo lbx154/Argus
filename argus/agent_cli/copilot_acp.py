@@ -327,7 +327,43 @@ class CopilotAcpClient:
         self._session_events_root = Path(
             child_env.get("COPILOT_HOME") or Path.home() / ".copilot"
         ).expanduser() / "session-state"
-        self._proc = subprocess.Popen(
+        from .copilot_home import copilot_session_use
+
+        # ACP continues using its sessions between prompts. Hold a lease until
+        # the subprocess exits, rather than releasing it at the end of a turn.
+        use = copilot_session_use({**child_env, "COPILOT_HOME": str(self._session_events_root.parent)})
+        lease_active = use.__enter__()
+        try:
+            self._proc = self._spawn_with_session_use(cmd, child_env)
+        except BaseException:
+            use.__exit__(None, None, None)
+            raise
+        proc = self._proc
+
+        def release_on_exit():
+            try:
+                while proc.poll() is None:
+                    time.sleep(0.05)
+            finally:
+                use.__exit__(None, None, None)
+
+        lease_handed_off = False
+        try:
+            if lease_active:
+                threading.Thread(target=release_on_exit, name="copilot-trace-use", daemon=True).start()
+                lease_handed_off = True
+            else:
+                use.__exit__(None, None, None)
+                lease_handed_off = True
+            self._initialize_spawned_process()
+        except BaseException:
+            self._terminate_subprocess(proc)
+            if not lease_handed_off:
+                use.__exit__(None, None, None)
+            raise
+
+    def _spawn_with_session_use(self, cmd, child_env):
+        return subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -341,6 +377,8 @@ class CopilotAcpClient:
             env=child_env,
             **background_subprocess_kwargs(),
         )
+
+    def _initialize_spawned_process(self):
         self._alive = True
         with self._pending_lock:
             self._pending.clear()
@@ -373,6 +411,7 @@ class CopilotAcpClient:
         )
         if resp is None or "error" in resp:
             self._alive = False
+            self._terminate_subprocess(self._proc)
             raise RuntimeError(f"acp initialize failed: {resp}")
         init_result = resp.get("result") or {}
         auth_methods = init_result.get("authMethods") or []
@@ -380,6 +419,7 @@ class CopilotAcpClient:
             method_id = str(auth_methods[0].get("id") or "").strip()
             if not method_id:
                 self._alive = False
+                self._terminate_subprocess(self._proc)
                 raise RuntimeError("acp initialize returned an authentication method without an id")
             auth_resp = self._request(
                 "authenticate",
@@ -388,6 +428,7 @@ class CopilotAcpClient:
             )
             if auth_resp is None or "error" in auth_resp:
                 self._alive = False
+                self._terminate_subprocess(self._proc)
                 raise RuntimeError(f"acp authenticate failed: {auth_resp}")
         self._agent_caps = init_result.get("agentCapabilities") or {}
 
@@ -808,6 +849,12 @@ class CopilotAcpClient:
             if sid:
                 return sid
             if self._agent_caps.get("loadSession"):
+                if self._session_events_root is not None:
+                    from .copilot_home import argus_copilot_home, restore_copilot_session
+
+                    home = self._session_events_root.parent.resolve()
+                    if home == argus_copilot_home().resolve():
+                        restore_copilot_session(home, resume_thread_id)
                 resp = self._request(
                     "session/load",
                     {"sessionId": resume_thread_id, "cwd": cwd, "mcpServers": []},

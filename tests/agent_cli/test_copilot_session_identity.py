@@ -14,6 +14,8 @@ faked subprocess (no binary, no network, no spend).
 from __future__ import annotations
 
 import json
+import subprocess
+import threading
 
 import pytest
 
@@ -66,6 +68,7 @@ class _LiveFakeProc:
         self.stdin = _FakeStdin()
         self.returncode: int | None = None
         self.terminated = False
+        self._exited = threading.Event()
 
     def _endless_turns(self):
         index = 0
@@ -84,14 +87,15 @@ class _LiveFakeProc:
     def poll(self):
         return self.returncode
 
-    def wait(self, timeout=None):  # noqa: ARG002
-        if self.returncode is None:
-            self.returncode = 0
+    def wait(self, timeout=None):
+        if not self._exited.wait(timeout):
+            raise subprocess.TimeoutExpired("fake-copilot", timeout)
         return self.returncode
 
     def mark_terminated(self) -> None:
         self.terminated = True
         self.returncode = -9
+        self._exited.set()
 
 
 def _runner(monkeypatch: pytest.MonkeyPatch, process) -> AgentCliRunner:

@@ -400,6 +400,7 @@ def _session(home: Path, name: str, *, age_days: float) -> Path:
     d.mkdir(parents=True)
     (d / "events.jsonl").write_text("{}\n", encoding="utf-8")
     stamp = time.time() - age_days * 86400
+    os.utime(d / "events.jsonl", (stamp, stamp))
     os.utime(d, (stamp, stamp))
     return d
 
@@ -412,7 +413,7 @@ def test_stale_sessions_are_pruned_and_recent_ones_kept(tmp_path: Path) -> None:
     edge = _session(home, "edge", age_days=6.9)
     fresh = _session(home, "fresh", age_days=0)
 
-    assert prune_copilot_sessions(home, env={}) == 1
+    assert prune_copilot_sessions(home, env={"ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS": "7"}) == 1
     assert not old.exists()
     assert edge.exists() and fresh.exists()
 
@@ -466,7 +467,7 @@ def test_the_sweep_is_throttled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     # prepare_copilot_home runs on the child-env path, once per provider turn;
     # scanning tens of thousands of directories every time would be the cost of
     # the fix exceeding the problem.
-    env = _argus_env(tmp_path)
+    env = _argus_env(tmp_path, ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS="7")
     home = prepare_copilot_home(env)
     assert home is not None
     _session(home, "stale", age_days=30)

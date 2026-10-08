@@ -538,6 +538,10 @@ _CONFIG_ALIASES = {
     "copilot_daily_premium": "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
     "safe_mode": "ARGUS_SKILL_SAFE_MODE",
     "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
+    "copilot_session_retention_days": "ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS",
+    "agent_io_max_bytes": "ARGUS_SKILL_AGENT_IO_MAX_BYTES",
+    "agent_io_keep": "ARGUS_SKILL_AGENT_IO_KEEP",
+    "agent_io_mode": "ARGUS_SKILL_AGENT_IO_MODE",
     "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
 }
 
