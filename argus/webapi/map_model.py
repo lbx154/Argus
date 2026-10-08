@@ -1,4 +1,4 @@
-"""Map text generation through the configured research runner."""
+"""Map text generation through the front-door (Manager) runner at a light effort tier."""
 
 from __future__ import annotations
 
@@ -66,21 +66,40 @@ class MapModel:
         return replace(self, effort=self.review_effort or self.effort, review_effort=None)
 
 
+# Map copy is read-time presentation, not research: opening a project must not
+# spend the engineer's deep-reasoning budget. ``auto`` follows the front-door
+# role (the lighter triage model) at a low drafting effort, with a medium
+# check pass; explicit operator settings still win.
+MAP_AUTO_EFFORT = "low"
+MAP_AUTO_REVIEW_EFFORT = "medium"
+MAP_AUTO_ROLE = "manager"
+
+
 def resolve_map_model() -> MapModel:
-    research = resolve_role_config("engineer")
+    base = resolve_role_config(MAP_AUTO_ROLE)
+    role = MAP_AUTO_ROLE
+    if base.backend == "memory":
+        # A front door without a real runner cannot write map text; the map
+        # keeps the research runner rather than going dark.
+        research = resolve_role_config("engineer")
+        if research.backend != "memory":
+            base, role = research, "engineer"
     model = resolve_knob("ARGUS_SKILL_MAP_MODEL", "auto").value
     effort = resolve_knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto").value
     review_effort = resolve_knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto").value
-    runner = resolve_runner_bin_setting("engineer", backend=research.backend)
-    if not runner and research.backend != "memory":
-        runner = default_runner_bin(normalize_runner_backend(research.backend))
+    runner = resolve_runner_bin_setting(role, backend=base.backend)
+    if not runner and base.backend != "memory":
+        runner = default_runner_bin(normalize_runner_backend(base.backend))
+    reasoning = base.effort is not None or model.lower() != "auto"
+    auto_effort = MAP_AUTO_EFFORT if reasoning else None
+    auto_review = MAP_AUTO_REVIEW_EFFORT if reasoning else None
     return MapModel(
-        backend=research.backend,
-        model=research.model if model.lower() == "auto" else model,
-        effort=research.effort if effort.lower() == "auto" else effort,
+        backend=base.backend,
+        model=base.model if model.lower() == "auto" else model,
+        effort=auto_effort if effort.lower() == "auto" else effort,
         runner_bin=runner,
         extra_args=tuple(shlex.split(os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", ""))),
-        review_effort=None if review_effort.lower() == "auto" else review_effort,
+        review_effort=auto_review if review_effort.lower() == "auto" else review_effort,
     )
 
 

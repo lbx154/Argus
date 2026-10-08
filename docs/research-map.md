@@ -34,17 +34,17 @@ Subsequent requests use cursors and return changed tasks and new events. Unchang
 
 The recent-record `/map` endpoint remains available: it reads at most the last 8 MiB and retains up to 2,000 matching events, with `coverage.truncated` indicating partial coverage. Full-history pages are not limited to that tail. Index writes, partial trailing lines, file replacement and stale cursors are handled separately from scheduler records.
 
-Card summaries use the same runner, account and provider configuration as the research Engineer. By default, the model and reasoning effort also follow that role. The map does not require a separate API URL or key.
+Card summaries use the runner, account and provider configuration of the Manager (front-door) role, falling back to the research Engineer's when the Manager has no runner. By default they use that model at a light reasoning effort (`low` for drafting, `medium` for the teaching check), independent of the research effort. The map does not require a separate API URL or key.
 
-Open Map model settings from the map header or the existing Settings window to choose a summary model or reasoning effort. Leave the model blank, or choose **Follow research settings**, to restore inheritance. These are instance-wide settings, consistent with the existing research settings. They use the existing authenticated `/api/projects/{sid}/config/set` endpoint and take effect on subsequent generation requests without restarting Argus.
+Open Map model settings from the map header or the existing Settings window to choose a summary model or reasoning effort. Leave the model blank, or choose **Follow the front-door model**, to restore the default model; choose **Auto (light)** or **Auto (medium)** to restore the default draft or check effort. These are instance-wide settings, consistent with the existing research settings. They use the existing authenticated `/api/projects/{sid}/config/set` endpoint and take effect on subsequent generation requests without restarting Argus.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
-| `ARGUS_SKILL_MAP_MODEL` | `auto` | Follow the research Engineer model; a model ID overrides summaries only |
-| `ARGUS_SKILL_MAP_REASONING_EFFORT` | `auto` | Follow the research Engineer effort; accepts `low`, `medium`, `high`, `xhigh`, `max` |
-| `ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT` | `auto` | Follow the summary effort; override the existing teaching check only, using the same effort choices |
+| `ARGUS_SKILL_MAP_MODEL` | `auto` | Use the Manager (front-door) model and runner, or the Engineer's when the Manager has no runner; a model ID overrides map text only |
+| `ARGUS_SKILL_MAP_REASONING_EFFORT` | `auto` | `low` drafting effort, independent of research effort; accepts `low`, `medium`, `high`, `xhigh`, `max` |
+| `ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT` | `auto` | `medium` check effort; override the existing teaching check only, using the same effort choices |
 
-The hosted trial defaults to `medium` for drafting and `high` for teaching review. Both calls share a 170-second deadline. Review effort changes neither the research roles nor the number of generation stages. Review receipts are keyed by the actual checker configuration; card freshness includes both draft and review settings.
+The hosted trial also uses `auto` (a restart releases the `medium`/`high` pair earlier trial runtimes wrote on their own). Map text is cached per task by its input digest, which includes the map model revision: after upgrading, each project rewrites its card words once, and reopening an unchanged project starts no model call. Both calls share a 170-second deadline. Review effort changes neither the research roles nor the number of generation stages. Review receipts are keyed by the actual checker configuration; card freshness includes both draft and review settings.
 
 Pi and Codex receive each call's output schema through the shared runner option. Pi's OpenAI providers use Chat Completions `response_format.json_schema` or Responses `text.format`; the hosted gateway converts between these standard formats, preserving schema definitions and references. The training capture records the format actually sent. Local validation still checks returned content; valid JSON alone does not establish a correct or understandable explanation.
 

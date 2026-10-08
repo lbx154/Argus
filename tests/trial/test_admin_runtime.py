@@ -83,8 +83,8 @@ def test_existing_workspace_enrolls_with_trial_meter_and_live_capture_without_mo
         assert os.environ["ARGUS_TRIAL_HARNESS"] == "argus-pi"
         assert os.environ["ARGUS_SKILL_HOME"] == str(root)
         assert os.environ["ARGUS_SKILL_PI_SESSION_DIR"] == str(root / "pi-sessions")
-        assert os.environ["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "medium"
-        assert os.environ["ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT"] == "high"
+        assert os.environ["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "auto"
+        assert os.environ["ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT"] == "auto"
     assert transcript.read_text() == '{"text":"original project history"}\n'
 
 
