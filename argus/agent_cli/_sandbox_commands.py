@@ -221,6 +221,28 @@ _READ_ONLY_VALUE_SWITCHES = frozenset({
 
 _COPILOT_IDENTITY_FLAGS = ("--resume", "--session-id", "--continue")
 
+# Model values that mean "let Copilot choose" rather than naming a model id.
+# Copilot's automatic selection rejects ``--reasoning-effort``, so a call that
+# leaves the choice to Copilot sends neither flag.
+_COPILOT_AUTO_MODELS = frozenset({"", "auto", "default", "inherit"})
+
+
+def copilot_model_options(
+    model: str | None, effort: str | None,
+) -> tuple[str | None, str | None]:
+    """The ``--model``/``--reasoning-effort`` values one Copilot process gets.
+
+    With no model named, Copilot chooses one itself. Its automatic choice
+    rejects ``--reasoning-effort``, and some tokens can use nothing else, so
+    such a call names neither flag. A named model keeps the configured effort.
+    """
+    from ..trial.client import trial_model_options
+
+    model, effort = trial_model_options(model, effort)
+    if str(model or "").strip().casefold() in _COPILOT_AUTO_MODELS:
+        return None, None
+    return model, effort
+
 
 def _copilot_session_identity_args(
     *,
@@ -589,9 +611,7 @@ class CommandBuilderMixin:
             "on",
             "--no-ask-user",
         ]
-        from ..trial.client import trial_model_options
-
-        model, effort = trial_model_options(options.model, options.reasoning_effort)
+        model, effort = copilot_model_options(options.model, options.reasoning_effort)
         if model:
             command.extend(["--model", model])
         if effort:
