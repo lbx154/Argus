@@ -94,6 +94,13 @@ KNOBS: tuple[Knob, ...] = (
         "token is passed, GH_TOKEN/GITHUB_TOKEN and git credentials stay stripped",
         "backend",
     ),
+    Knob(
+        "ARGUS_SKILL_FRAMEWORK_PYTHON_ON_PATH", "1",
+        "1 = daemon child shells find Argus's own interpreter first on PATH; 0 = keep "
+        "the host PATH (hosts whose work needs their own python3, e.g. task "
+        "containers); ARGUS_SKILL_PYTHON still names the Argus interpreter",
+        "backend",
+    ),
     Knob("ARGUS_SKILL_JACOBIAN_MCP_BIN", "(jacobian-mcp on PATH)", "optional Jacobian MCP sidecar executable used by the math vertical's isolated typed-operation bridge", "backend"),
     Knob("ARGUS_SKILL_PI_SESSION_DIR", "(~/.argus-skill/pi-sessions)", "Argus-owned Pi session storage, separate from interactive Pi history", "backend"),
     Knob("ARGUS_SKILL_PI_PROVIDER", "(unset — Pi resolves the id itself)", "provider prefix for bare model ids on the Pi backend; set it only to disambiguate an id two authenticated Pi catalogs both carry", "backend", cockpit=True),

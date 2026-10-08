@@ -108,3 +108,17 @@ def test_cli_entrypoint_normalizes_framework_python_before_argument_handling(
     framework_python = os.environ["ARGUS_SKILL_PYTHON"]
     assert framework_python
     assert os.environ["PATH"] == str(tmp_path / "unrelated-python")
+
+
+def test_framework_python_path_prepend_can_be_turned_off(tmp_path, monkeypatch) -> None:
+    # A host that must run work with its own interpreter keeps PATH untouched,
+    # while Argus still exports its interpreter for its own helpers.
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    interpreter = tmp_path / "framework-venv" / ("Scripts" if os.name == "nt" else "bin") / "python"
+    system_bin = tmp_path / "system-bin"
+    env = {"PATH": str(system_bin), "ARGUS_SKILL_FRAMEWORK_PYTHON_ON_PATH": "0"}
+
+    configure_framework_python_env(env, executable=interpreter, prepend_python_path=True)
+
+    assert env["PATH"] == str(system_bin)
+    assert env["ARGUS_SKILL_PYTHON"] == str(interpreter)
