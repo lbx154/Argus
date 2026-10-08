@@ -258,6 +258,7 @@ def manager_message(
     route_override: str = "",
     defer_dispatch_ack: bool = False,
     domain_answer: dict[str, Any] | None = None,
+    turn_id: str = "",
 ) -> dict[str, Any]:
     """Run a Manager turn with request-scoped provider interruption."""
     from ..core.run_gateway import run_interrupt_scope
@@ -278,6 +279,7 @@ def manager_message(
             on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
             source_message_id=source_message_id, route_override=route_override,
             defer_dispatch_ack=defer_dispatch_ack, domain_answer=domain_answer,
+            turn_id=turn_id,
         )
 
 
@@ -294,6 +296,7 @@ def _manager_message(
     route_override: str = "",
     defer_dispatch_ack: bool = False,
     domain_answer: dict[str, Any] | None = None,
+    turn_id: str = "",
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -339,7 +342,7 @@ def _manager_message(
     message_attachment_refs = attachment_context_refs(resolved_attachments)
 
     control_generation = manager_control_generation(sid)
-    turn_id = f"web-{time.time_ns()}"
+    turn_id = turn_id or f"web-{time.time_ns()}"
 
     def _cancelled() -> bool:
         if manager_control_generation(sid) != control_generation:

@@ -64,13 +64,10 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty nudge text")
         try:
-            root = ctx.project_root_or_404(sid)
             ctx.not_found_if_none(
-                mission_items.enqueue_running_message(
-                    sid, body.text, request_id=body.request_id, global_root=root,
-                )
-                if body.while_running
-                else mission_items.enqueue_nudge(sid, body.text, global_root=root),
+                mission_items.enqueue_nudge(
+                    sid, body.text, global_root=ctx.project_root_or_404(sid)
+                ),
                 sid,
             )
         except InboxPressure as exc:
@@ -82,8 +79,6 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
             raise HTTPException(
                 status_code=503, detail="指令暂未接收，请稍后重试。",
             ) from exc
-        if body.while_running:
-            return {"ok": True, "queued": True}
         return {"ok": True}
 
     @app.post(

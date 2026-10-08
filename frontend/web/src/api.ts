@@ -1296,10 +1296,10 @@ export const api = {
     };
     await readSSE(res, 'Manager stream', dispatch, signal);
   },
-  nudge: (sid: string, text: string, options?: { whileRunning?: boolean; requestId?: string }) =>
-    postJson<{ ok: boolean; queued?: boolean }>(P(sid, '/nudge'), options?.whileRunning
-      ? { text, while_running: true, request_id: options.requestId ?? '' }
-      : { text }),
+  nudge: (sid: string, text: string) => postJson(P(sid, '/nudge'), { text }),
+  /** A message typed while a Manager reply runs: shown now, answered as the next turn. */
+  queueFollowup: (sid: string, text: string, routeOverride: MessageRouteOverride = 'auto') =>
+    postJson<{ ok: boolean; queued: boolean; message_id: string }>(P(sid, '/message/followup'), { text, route_override: routeOverride }),
   note: (sid: string, text: string) => postJson(P(sid, '/note'), { text }),
   previewPlan: (sid: string, text: string) =>
     postJson<PlanPreview>(P(sid, '/plan'), { text }),

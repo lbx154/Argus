@@ -72,8 +72,7 @@ export function MapComposer({
   const sentTimer = useRef<ReturnType<typeof setTimeout>>();
   const [attachmentNotice, setAttachmentNotice] = useState("");
   const [sent, setSent] = useState(false);
-  // A message accepted while a turn was running waits in the inbox until
-  // Argus reads it — between steps, or straight into the turn if it is urgent.
+  // A message accepted while a reply was running is answered as the next turn.
   const [queued, setQueued] = useState(false);
   // Expansion follows the pointer or explicit intent — hovering the island,
   // the pill click, the "c" key, an app focus request, or a fresh reference
@@ -218,7 +217,7 @@ export function MapComposer({
     if (!text.trim() || submitting.current || tooLong) return;
     const whileRunning = pending;
     if (whileRunning && attachments.length) {
-      setAttachmentNotice(zh ? "附件要等当前一步结束后再发送" : "Attachments can be sent once the current step finishes");
+      setAttachmentNotice(zh ? "附件要等这条回复结束后再发送" : "Attachments can be sent once this reply finishes");
       return;
     }
     submitting.current = true;
@@ -272,7 +271,7 @@ export function MapComposer({
     : undefined;
   const queuedCopy = [
     zh ? "已排队" : "Queued",
-    zh ? "当前一步结束后处理；紧急的会立即插入" : "Handled after the current step; urgent notes go in right away",
+    zh ? "这条回复结束后立即处理" : "Answered right after this reply",
   ];
   const headline = feedback?.[0] || (pending && queued ? queuedCopy[0] : pending
     ? (zh ? "Argus 正在处理" : "Argus is working")
@@ -471,7 +470,7 @@ export function MapComposer({
                 ? (zh ? "在 Argus 工作时发送" : "Send while Argus works")
                 : (zh ? "发送消息" : "Send message")}
               title={pending
-                ? (zh ? "排队到当前一步之后；紧急的会立即插入" : "Queued after the current step; urgent notes go in right away")
+                ? (zh ? "排队到这条回复之后处理" : "Queued right after this reply")
                 : undefined}
               className="map-send"
             >

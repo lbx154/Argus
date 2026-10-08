@@ -911,16 +911,21 @@ export default function App() {
     const draft = captureDraft(sidRef.current);
     if (!draft) return false;
     if (options?.whileRunning) {
-      // The running turn keeps its own request; this note goes to the inbox,
-      // where Argus decides whether it steers now or waits for the next step.
+      // The running reply keeps its own request. Commands still run as
+      // commands; a plain message is shown now and answered as the next turn
+      // (Argus decides whether it steers a live mission or is answered in chat).
       try {
-        await api.nudge(draft.sid, text, { whileRunning: true, requestId: newRequestId() });
+        if (!files.length) {
+          const command = await dispatchWebCommand(text, commandHandlers);
+          if (command.kind === 'error') { notify('error', command.message); return false; }
+          if (command.kind === 'handled') { consumeDraft(draft, files); return true; }
+        }
+        await api.queueFollowup(draft.sid, text, routeOverride);
       } catch (error) {
         notify('error', errorText(error));
         return false;
       }
       consumeDraft(draft, files);
-      snapQ.refetch?.();
       return true;
     }
     let cleared: DraftSnapshot | null = null;
