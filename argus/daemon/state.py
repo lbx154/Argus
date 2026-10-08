@@ -1293,6 +1293,32 @@ def _terminate_windows_process_tree(
 _TEAMMATE_ENTRY_MODULES = ("argus.team.teammate_entry", "argus_skill.team.teammate_entry")
 
 
+def _process_argv(pid: int) -> list[str]:
+    """Return a live process's argv; ``/proc`` on Linux, the kernel's process table elsewhere."""
+    proc = Path(f"/proc/{pid}/cmdline")
+    if proc.parent.parent.is_dir() and Path("/proc/self/cmdline").exists():
+        return [value.decode("utf-8", "replace") for value in proc.read_bytes().split(b"\0") if value]
+    import psutil
+
+    try:
+        argv = list(psutil.Process(pid).cmdline())
+    except psutil.NoSuchProcess as error:
+        raise ProcessLookupError(pid) from error
+    except psutil.Error:
+        argv = []
+    if argv:
+        return argv
+    # The argument area can be briefly unreadable (macOS KERN_PROCARGS2);
+    # ps reads the same table and its whitespace split keeps module tokens.
+    completed = subprocess.run(
+        ["ps", "-ww", "-o", "command=", "-p", str(pid)],
+        capture_output=True, text=True, timeout=5, check=False,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        raise ProcessLookupError(pid)
+    return completed.stdout.split()
+
+
 def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
     """Return verified POSIX process groups led by Team teammate entries."""
     if os.name == "nt":
@@ -1300,13 +1326,9 @@ def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
     groups: list[int] = []
     for pid in pids:
         try:
-            argv = [
-                value.decode("utf-8", "replace")
-                for value in Path(f"/proc/{int(pid)}/cmdline").read_bytes().split(b"\0")
-                if value
-            ]
+            argv = _process_argv(int(pid))
             pgid = os.getpgid(int(pid))
-        except (OSError, ProcessLookupError, ValueError):
+        except (OSError, ValueError, subprocess.SubprocessError):
             continue
         if (
             any(module in argv for module in _TEAMMATE_ENTRY_MODULES)

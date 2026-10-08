@@ -216,7 +216,20 @@ def is_pid_running(pid: int) -> bool:
         return True
     except OSError:
         return False
+    if identity is None:
+        # Without /proc (macOS, BSD), ask the kernel's process table for the
+        # state so an exited-but-unreaped child is not mistaken for a live one.
+        return not _non_proc_zombie(pid)
     return True
+
+
+def _non_proc_zombie(pid: int) -> bool:
+    try:
+        import psutil
+
+        return psutil.Process(pid).status() in {psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD}
+    except Exception:  # noqa: BLE001 - liveness stays the kill(0) answer
+        return False
 
 
 def is_process_group_running(process_group_id: int) -> bool:

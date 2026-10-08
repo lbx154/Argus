@@ -69,14 +69,54 @@ def _deny_io(event, _args):
         raise ValueError('runtime tools cannot access files, network, or processes')
 
 
-def main() -> None:
-    # Limits apply inside the worker, never through preexec_fn in the threaded host.
-    if sys.platform != 'win32':
-        import resource
+MEMORY_BYTES = 256 * 1024 * 1024
 
-        resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
-        resource.setrlimit(resource.RLIMIT_AS, (256 * 1024 * 1024, 256 * 1024 * 1024))
-        resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+
+def _memory_watchdog(resource) -> None:
+    """Enforce the memory cap where the kernel ignores RLIMIT_AS (macOS)."""
+    import os
+    import threading
+    import time
+
+    # ru_maxrss is bytes on macOS and KiB on Linux/BSD.
+    scale = 1 if sys.platform == 'darwin' else 1024
+
+    def watch():
+        while True:
+            if resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * scale > MEMORY_BYTES:
+                sys.stdout.write(json.dumps({'error': 'MemoryError: runtime tool exceeded 256 MiB'}))
+                sys.stdout.flush()
+                os._exit(1)
+            time.sleep(0.005)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
+def _limit() -> None:
+    """Bound CPU, memory and file writes inside the worker.
+
+    Applied here, never through preexec_fn in the threaded host. Linux enforces
+    RLIMIT_AS; macOS rejects or ignores an address-space cap below its large
+    reserved mappings, so there a resident-size watchdog holds the same cap.
+    """
+    if sys.platform == 'win32':
+        return
+    import resource
+
+    resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+    if sys.platform.startswith('linux'):
+        resource.setrlimit(resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES))
+    else:
+        _memory_watchdog(resource)
+
+
+def main() -> None:
+    try:
+        _limit()
+    except (ValueError, OSError) as error:
+        sys.stdout.write(json.dumps({'error': f'runtime limits unavailable: {str(error)[:200]}'}))
+        raise SystemExit(1) from None
     raw = sys.stdin.buffer.read(MAX_BYTES + 1)
     try:
         if len(raw) > MAX_BYTES:
