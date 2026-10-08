@@ -19,6 +19,10 @@ class TaskIn(BaseModel):
 
 class NudgeIn(BaseModel):
     text: str = Field(max_length=MESSAGE_MAX_CHARS)
+    # Sent from the composer while a turn is running: also show it as the
+    # operator's own conversation message, not only as background guidance.
+    while_running: bool = False
+    request_id: str = Field(default="", max_length=128)
 
 
 class AttachmentRefIn(BaseModel):

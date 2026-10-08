@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -31,6 +33,8 @@ _roles_list = project_state.roles_list
 _daemon_dict = project_state.daemon_dict
 _stat_signature = project_state.stat_signature
 project_life_dir = project_state.project_life_dir
+
+log = logging.getLogger(__name__)
 
 
 # Duplicated trivial literal (matches server.py's ``EVENT_FILE``) to avoid a
@@ -148,6 +152,41 @@ def enqueue_nudge(
     if life_dir is None:
         return None
     queue_inbox_message(life_dir, text.strip(), source=source)
+    return True
+
+
+def enqueue_running_message(
+    sid: str, text: str, *, request_id: str = "", global_root: Path | str | None = None,
+) -> bool | None:
+    """Accept a composer message typed while a turn is running.
+
+    The text goes to the inbox, where the front door's own reading decides
+    whether it steers the running turn or waits for the next one. The
+    operator also sees it in the conversation at once, so it never vanishes.
+    """
+    accepted = enqueue_nudge(sid, text, global_root=global_root, source="web-composer")
+    if not accepted:
+        return accepted
+    life_dir = project_life_dir(sid, global_root=global_root)
+    body = text.strip()
+    message_id = f"{request_id or uuid.uuid4().hex[:12]}-operator"
+    fields = {"queued_while_running": True}
+    try:
+        from ..core.file_lock import bounded_file_lock_wait
+        from ..core.transcript import append_turn
+        from ..life.event_log import JsonlEventSink
+
+        with bounded_file_lock_wait(timeout_seconds=0.2):
+            if append_turn(life_dir, "operator", body, message_id=message_id, metadata=fields):
+                JsonlEventSink(None, life_dir=Path(life_dir)).append({
+                    "type": "ui.operator",
+                    "agent_layer": "operator",
+                    "message_id": message_id,
+                    "text": body,
+                    **fields,
+                })
+    except Exception:  # noqa: BLE001 - the inbox receipt is already durable
+        log.warning("running-turn message queued; conversation mirror not written", exc_info=True)
     return True
 
 

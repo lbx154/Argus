@@ -1296,7 +1296,10 @@ export const api = {
     };
     await readSSE(res, 'Manager stream', dispatch, signal);
   },
-  nudge: (sid: string, text: string) => postJson(P(sid, '/nudge'), { text }),
+  nudge: (sid: string, text: string, options?: { whileRunning?: boolean; requestId?: string }) =>
+    postJson<{ ok: boolean; queued?: boolean }>(P(sid, '/nudge'), options?.whileRunning
+      ? { text, while_running: true, request_id: options.requestId ?? '' }
+      : { text }),
   note: (sid: string, text: string) => postJson(P(sid, '/note'), { text }),
   previewPlan: (sid: string, text: string) =>
     postJson<PlanPreview>(P(sid, '/plan'), { text }),

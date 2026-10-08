@@ -505,6 +505,31 @@ def test_post_nudge_queues_inbox_and_emits_event(ctx) -> None:
     assert "life.inbox.queued" in types
 
 
+def test_composer_message_while_running_is_queued_as_operator_turn(ctx) -> None:
+    """Typing into the composer during a running turn must not vanish: the
+    message lands in the inbox (where the front door decides steer vs. queue)
+    and shows up in the conversation as the operator's own message."""
+    root, sid, life = ctx
+    client = TestClient(server.create_app(global_root=root))
+    r = client.post(
+        f"/api/projects/{sid}/nudge",
+        json={"text": "also cover the empty-input case", "while_running": True, "request_id": "req-1"},
+    )
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert r.json()["queued"] is True
+    from argus.apps._inbox import count_pending_inbox_messages
+    from argus.core.transcript import read_turns
+
+    assert count_pending_inbox_messages(life) == 1
+    events = client.get(f"/api/projects/{sid}/events").json()["events"]
+    operator = [e for e in events if e["type"] == "ui.operator"]
+    assert len(operator) == 1
+    assert operator[0]["text"] == "also cover the empty-input case"
+    assert operator[0]["queued_while_running"] is True
+    turns = [t for t in read_turns(life) if t.get("role") == "operator"]
+    assert [t.get("text") for t in turns] == ["also cover the empty-input case"]
+
+
 def test_nudge_pressure_rejects_without_a_success_receipt(ctx, monkeypatch):
     from argus.apps import _inbox_protocol
     from argus.apps._inbox import count_pending_inbox_messages

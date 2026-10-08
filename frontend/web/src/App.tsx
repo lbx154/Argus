@@ -1,4 +1,4 @@
-import type { DispatchObserver } from './map/submission';
+import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useGitDiff } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
@@ -907,9 +907,22 @@ export default function App() {
   const sendMessageRef = useRef(sendMessage);
   sendMessageRef.current = sendMessage;
 
-  const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver): Promise<boolean> => {
+  const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver, options?: MapSendOptions): Promise<boolean> => {
     const draft = captureDraft(sidRef.current);
     if (!draft) return false;
+    if (options?.whileRunning) {
+      // The running turn keeps its own request; this note goes to the inbox,
+      // where Argus decides whether it steers now or waits for the next step.
+      try {
+        await api.nudge(draft.sid, text, { whileRunning: true, requestId: newRequestId() });
+      } catch (error) {
+        notify('error', errorText(error));
+        return false;
+      }
+      consumeDraft(draft, files);
+      snapQ.refetch?.();
+      return true;
+    }
     let cleared: DraftSnapshot | null = null;
     let failedBeforeAcceptance = false;
     // /rewrite owns its pending revision until its preview lands, not a send.

@@ -72,6 +72,9 @@ export function MapComposer({
   const sentTimer = useRef<ReturnType<typeof setTimeout>>();
   const [attachmentNotice, setAttachmentNotice] = useState("");
   const [sent, setSent] = useState(false);
+  // A message accepted while a turn was running waits in the inbox until
+  // Argus reads it — between steps, or straight into the turn if it is urgent.
+  const [queued, setQueued] = useState(false);
   // Expansion follows the pointer or explicit intent — hovering the island,
   // the pill click, the "c" key, an app focus request, or a fresh reference
   // chip. Focusing a card flips the camera to detail view and must never
@@ -208,13 +211,25 @@ export function MapComposer({
       setExpanded(false);
     }, 320);
   };
+  useEffect(() => { if (!pending) setQueued(false); }, [pending]);
   const submit = async () => {
-    if (!text.trim() || pending || submitting.current || tooLong) return;
+    // One send at a time: a second Enter before the first is confirmed must
+    // not queue a duplicate turn.
+    if (!text.trim() || submitting.current || tooLong) return;
+    const whileRunning = pending;
+    if (whileRunning && attachments.length) {
+      setAttachmentNotice(zh ? "附件要等当前一步结束后再发送" : "Attachments can be sent once the current step finishes");
+      return;
+    }
     submitting.current = true;
     try {
-      if ((await onSend(value, attachments)) && mounted.current) {
+      const accepted = whileRunning
+        ? await onSend(value, [], undefined, { whileRunning: true })
+        : await onSend(value, attachments);
+      if (accepted && mounted.current) {
         setAttachmentNotice("");
         setSent(true);
+        setQueued(whileRunning);
         if (!currentValue.current.trim() || currentValue.current === value) collapse();
         clearTimeout(sentTimer.current);
         sentTimer.current = setTimeout(() => setSent(false), 1800);
@@ -255,10 +270,14 @@ export function MapComposer({
         cancelled: [zh ? "正在停止回复" : "Stopping reply", zh ? "可以发送新消息" : "You can send another message"],
       }[dispatchStatus]
     : undefined;
-  const headline = feedback?.[0] || (pending
+  const queuedCopy = [
+    zh ? "已排队" : "Queued",
+    zh ? "当前一步结束后处理；紧急的会立即插入" : "Handled after the current step; urgent notes go in right away",
+  ];
+  const headline = feedback?.[0] || (pending && queued ? queuedCopy[0] : pending
     ? (zh ? "Argus 正在处理" : "Argus is working")
     : sent ? (zh ? "已发送给 Argus" : "Sent to Argus") : (zh ? "交给 Argus" : "Ask Argus"));
-  const detail = feedback?.[1] || (pending
+  const detail = feedback?.[1] || (pending && queued ? queuedCopy[1] : pending
     ? pendingLabel || (zh ? "正在处理你的消息…" : "Processing your message…")
     : sent ? (zh ? "点此继续对话" : "Tap to keep the conversation going")
       : hasDraft ? (zh ? "草稿已保留，点此继续" : "Draft saved — tap to continue")
@@ -427,12 +446,12 @@ export function MapComposer({
           <div className="map-island-toolbar">
             <button type="button" className="map-island-collapse" tabIndex={compact ? -1 : 0} onClick={collapse} aria-label={zh ? "收起消息输入" : "Collapse message composer"} title={zh ? "收起（草稿会保留）" : "Collapse (draft is kept)"}><ChevronDown size={15} /></button>
             {onRouteOverrideChange && <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={pending} tabIndex={compact ? -1 : 0} />}
-            {pending ? (
+            {pending && (
               <button
+                key="stop"
                 type="button"
                 onClick={(event) => {
-                  // Cancellation can turn this same DOM button into Submit
-                  // before the click's default action runs.
+                  // Keyed apart from Submit so a cancel never lands on it.
                   event.preventDefault();
                   onCancel();
                 }}
@@ -442,17 +461,22 @@ export function MapComposer({
               >
                 <Square size={15} />
               </button>
-            ) : (
-              <button
-                type="submit"
-                tabIndex={compact ? -1 : 0}
-                disabled={!text.trim() || tooLong}
-                aria-label={zh ? "发送消息" : "Send message"}
-                className="map-send"
-              >
-                <ArrowUp size={20} />
-              </button>
             )}
+            <button
+              key="send"
+              type="submit"
+              tabIndex={compact ? -1 : 0}
+              disabled={!text.trim() || tooLong}
+              aria-label={pending
+                ? (zh ? "在 Argus 工作时发送" : "Send while Argus works")
+                : (zh ? "发送消息" : "Send message")}
+              title={pending
+                ? (zh ? "排队到当前一步之后；紧急的会立即插入" : "Queued after the current step; urgent notes go in right away")
+                : undefined}
+              className="map-send"
+            >
+              <ArrowUp size={20} />
+            </button>
           </div>
         </form>
       </div>
@@ -461,6 +485,8 @@ export function MapComposer({
       <span className="map-composer-caption" role="status">
         {feedback
           ? `${feedback[0]} · ${feedback[1]}`
+          : pending && queued
+            ? `${queuedCopy[0]} · ${queuedCopy[1]}`
           : pending
             ? pendingLabel || (zh ? "Argus 正在处理…" : "Argus is responding…")
           : sent
