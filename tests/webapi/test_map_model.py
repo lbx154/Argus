@@ -380,3 +380,14 @@ def test_historical_generation_requires_an_owning_session(tmp_path, monkeypatch)
     with TestClient(create_app(global_root=tmp_path)) as client:
         response = client.post("/api/map-copy/dataset/history", json={"cards": [{"key": "a", "task_id": "a", "kind": "task"}]})
         assert response.status_code == 422
+
+
+def test_map_keeps_the_research_runner_when_the_front_door_has_none(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "memory")
+    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "codex")
+    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_RUNNER_BIN", sys.executable)
+    config = map_model.resolve_map_model()
+    assert config.backend == "codex"
+    assert config.runner_bin == sys.executable
+    assert config.available

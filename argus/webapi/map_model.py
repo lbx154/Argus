@@ -77,10 +77,17 @@ MAP_AUTO_ROLE = "manager"
 
 def resolve_map_model() -> MapModel:
     base = resolve_role_config(MAP_AUTO_ROLE)
+    role = MAP_AUTO_ROLE
+    if base.backend == "memory":
+        # A front door without a real runner cannot write map text; the map
+        # keeps the research runner rather than going dark.
+        research = resolve_role_config("engineer")
+        if research.backend != "memory":
+            base, role = research, "engineer"
     model = resolve_knob("ARGUS_SKILL_MAP_MODEL", "auto").value
     effort = resolve_knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto").value
     review_effort = resolve_knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto").value
-    runner = resolve_runner_bin_setting(MAP_AUTO_ROLE, backend=base.backend)
+    runner = resolve_runner_bin_setting(role, backend=base.backend)
     if not runner and base.backend != "memory":
         runner = default_runner_bin(normalize_runner_backend(base.backend))
     reasoning = base.effort is not None or model.lower() != "auto"

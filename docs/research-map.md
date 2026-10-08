@@ -40,11 +40,11 @@ Open Map model settings from the map header or the existing Settings window to c
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
-| `ARGUS_SKILL_MAP_MODEL` | `auto` | Follow the research Engineer model; a model ID overrides summaries only |
-| `ARGUS_SKILL_MAP_REASONING_EFFORT` | `auto` | Follow the research Engineer effort; accepts `low`, `medium`, `high`, `xhigh`, `max` |
-| `ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT` | `auto` | Follow the summary effort; override the existing teaching check only, using the same effort choices |
+| `ARGUS_SKILL_MAP_MODEL` | `auto` | Use the Manager (front-door) model and runner, or the Engineer's when the Manager has no runner; a model ID overrides map text only |
+| `ARGUS_SKILL_MAP_REASONING_EFFORT` | `auto` | `low` drafting effort, independent of research effort; accepts `low`, `medium`, `high`, `xhigh`, `max` |
+| `ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT` | `auto` | `medium` check effort; override the existing teaching check only, using the same effort choices |
 
-The hosted trial defaults to `medium` for drafting and `high` for teaching review. Both calls share a 170-second deadline. Review effort changes neither the research roles nor the number of generation stages. Review receipts are keyed by the actual checker configuration; card freshness includes both draft and review settings.
+The hosted trial also uses `auto` (a restart releases the `medium`/`high` pair earlier trial runtimes wrote on their own). Map text is cached per task by its input digest, which includes the map model revision: after upgrading, each project rewrites its card words once, and reopening an unchanged project starts no model call. Both calls share a 170-second deadline. Review effort changes neither the research roles nor the number of generation stages. Review receipts are keyed by the actual checker configuration; card freshness includes both draft and review settings.
 
 Pi and Codex receive each call's output schema through the shared runner option. Pi's OpenAI providers use Chat Completions `response_format.json_schema` or Responses `text.format`; the hosted gateway converts between these standard formats, preserving schema definitions and references. The training capture records the format actually sent. Local validation still checks returned content; valid JSON alone does not establish a correct or understandable explanation.
 

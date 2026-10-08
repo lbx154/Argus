@@ -44,9 +44,19 @@ it("shows the inherited connection and a separate map model override without cre
   expect(html).not.toContain('type="password"');
 });
 
+it("names the front-door connection the map actually uses, not the research engineer", () => {
+  const withManager: ConfigSnapshot = { ...config, roles: [...config.roles,
+    { ...config.roles[0], role: "manager", backend: "codex", backend_label: "Codex", model: "front-door-model" }] };
+  const html = renderToStaticMarkup(<MapModelSettings sid="s-settings" config={withManager} onSaved={async () => {}} />);
+  expect(html).toContain("Codex");
+  expect(html).toContain("front-door-model");
+  expect(html).not.toContain("research-model");
+  expect(html).toContain("Follow the front-door model");
+});
+
 it.each([
-  ["en", "Explanation effort", "Explanation review effort", "Follow research settings", "Follow explanation effort"],
-  ["zh-CN", "讲解生成强度", "讲解复核强度", "跟随科研设置", "跟随讲解生成强度"],
+  ["en", "Explanation effort", "Explanation review effort", "Auto (light)", "Auto (medium)"],
+  ["zh-CN", "讲解生成强度", "讲解复核强度", "自动（轻量）", "自动（中）"],
 ])("explains the review auto setting in %s as following explanation effort", (locale, generation, review, followResearch, followGeneration) => {
   language.locale = locale;
   act(() => { renderer = create(<MapModelSettings sid="s-settings" config={withEfforts()} onSaved={async () => {}} />); });

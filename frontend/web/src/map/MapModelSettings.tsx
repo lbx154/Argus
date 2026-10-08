@@ -13,7 +13,10 @@ export function MapModelSettings({
 }) {
   const { locale } = useI18n();
   const zh = locale === "zh-CN";
-  const research = config.roles.find((role) => role.role === "engineer");
+  const manager = config.roles.find((role) => role.role === "manager");
+  const engineer = config.roles.find((role) => role.role === "engineer");
+  // Map text uses the front door unless it has no runner of its own.
+  const base = manager && manager.backend !== "memory" ? manager : engineer;
   const values = new Map(config.operator_knobs.map((knob) => [knob.name, knob.value]));
   const selectedModel = values.get("ARGUS_SKILL_MAP_MODEL") || "auto";
   const [busy, setBusy] = useState(false);
@@ -33,21 +36,21 @@ export function MapModelSettings({
       setBusy(false);
     }
   };
-  const follow = zh ? "跟随科研设置" : "Follow research settings";
-  const followModel = zh ? "跟随执行模型" : "Follow the execution model";
+  const follow = zh ? "自动（轻量）" : "Auto (light)";
+  const followModel = zh ? "跟随前台模型" : "Follow the front-door model";
   const effortSettings = [
     { name: "ARGUS_SKILL_MAP_REASONING_EFFORT", label: zh ? "讲解生成强度" : "Explanation effort", follow },
     { name: "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", label: zh ? "讲解复核强度" : "Explanation review effort",
-      follow: zh ? "跟随讲解生成强度" : "Follow explanation effort" },
+      follow: zh ? "自动（中）" : "Auto (medium)" },
   ];
   return (
     <section className="map-model-settings rounded-lg border border-line glass-card p-3" aria-label={zh ? "地图模型" : "Map model"}>
       <div className="text-xs font-semibold text-ink">{zh ? "地图模型" : "Map model"}</div>
       <p className="mt-1 text-xs text-ink-dim">
-        {zh ? "地图讲解与摘要用的模型；沿用执行模型的接入与账号。可以选一个便宜的。" : "The model that writes map explanations and summaries, on the execution model's runner and account. A cheaper one is fine."}
+        {zh ? "地图讲解与摘要用的模型；默认沿用前台（经理）的接入与账号，以低强度起草，不占用科研的推理预算。可以选一个便宜的。" : "The model that writes map explanations and summaries. By default it uses the front-door (Manager) runner and account at a light effort, not the research budget. A cheaper one is fine."}
       </p>
       <p className="mt-1 text-xs text-ink-faint">
-        {research?.backend_label} · {research?.model || (zh ? "接入默认模型" : "Runner default model")}
+        {base?.backend_label} · {base?.model || (zh ? "接入默认模型" : "Runner default model")}
       </p>
       <label className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-dim">
         {zh ? "摘要模型" : "Summary model"}
