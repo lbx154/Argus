@@ -344,6 +344,8 @@ export interface ConfigSnapshot {
   /** Models the quick picker offers: the harness catalog, models that answered here recently, the current knobs. */
   model_options?: Array<{ model: string; source: 'backend' | 'catalog' | 'seen' | 'current'; default?: boolean; last_used_at?: number; invalid?: boolean; offline?: boolean }>;
   model_auto_resolves_to?: string;
+  /** What map text actually runs on; `note` says why a saved pin was set aside for auto. */
+  map_model?: { backend: string; model: string; note: string } | null;
   how_to_change: string[];
 }
 export interface AdvisorConfig {

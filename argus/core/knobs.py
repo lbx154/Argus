@@ -132,6 +132,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_MODEL", "auto", "model for the L1 engineer; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_FIGURE_MODEL", "auto", "model for figure tasks (the method figure through PPT Master, data figures); auto follows the engineer model", "models", cockpit=True),
     Knob("ARGUS_SKILL_MAP_MODEL", "auto", "map summaries model; auto uses the Manager (front-door) model, or the engineer when the Manager has no runner", "models", cockpit=True),
+    Knob("ARGUS_SKILL_MAP_MODEL_BACKEND", "(unset)", "runner that was active when the map model was pinned; under another runner the pin must be in that runner's list or follows auto", "models"),
     Knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto", "map summaries reasoning effort; auto is a light drafting effort (low), independent of research effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto", "map teaching review reasoning effort; auto is medium, independent of research effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "600", "map-only generation deadline in seconds (1-3600); does not limit research turns", "map", cockpit=True),

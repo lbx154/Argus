@@ -498,8 +498,12 @@ def _backend_model_catalog(
     return list(latest["models"]), str(latest.get("default") or "")
 
 
-def _seen_model_ids(global_root: Path | str | None, *, now: float | None = None) -> dict[str, float]:
-    """Models that answered on this home in the last thirty days, with the newest time each."""
+def _seen_model_ids(
+    global_root: Path | str | None, *, now: float | None = None, provider: str | None = None,
+) -> dict[str, float]:
+    """Models that answered on this home in the last thirty days, with the newest time each.
+
+    ``provider`` keeps only calls made through that backend."""
     import json as _json
 
     root = _global_root(global_root)
@@ -533,6 +537,8 @@ def _seen_model_ids(global_root: Path | str | None, *, now: float | None = None)
                 continue
             if row.get("error") and not row.get("output_tokens"):
                 continue  # a model that only ever failed is not an option
+            if provider is not None and str(row.get("provider") or "") != provider:
+                continue
             seen[model] = max(seen.get(model, 0.0), float(ts))
     return seen
 
@@ -662,6 +668,13 @@ def get_config(
     snapshot["model_auto_resolves_to"] = next(
         (row["model"] for row in snapshot["model_options"] if row.get("default")), ""
     )
+    try:
+        from .map_model import resolve_map_model
+
+        resolved = resolve_map_model(global_root=Path(global_root) if global_root is not None else None)
+        snapshot["map_model"] = {"backend": resolved.backend, "model": resolved.model, "note": resolved.note}
+    except Exception:  # noqa: BLE001 - the snapshot must never fail on the map runner
+        snapshot["map_model"] = None
     if project_state_dir is None:
         return snapshot
     from ..core.knobs import resolve_budget_caps
@@ -806,7 +819,17 @@ def set_operator_config(
         )
     # Budget caps are ordinary config.json knobs now (budget.json retired) — they
     # fall through to the generic knob_store write path below like any other knob.
-    if not write_persisted_knob(env_name, val):
+    if env_name == "ARGUS_SKILL_MAP_MODEL":
+        # A map pin is chosen from the active runner's list; remember which
+        # runner, so a later backend switch does not send it somewhere that
+        # never offered it (it follows auto there instead).
+        from .map_model import MAP_MODEL_BACKEND_KNOB, map_base_role
+
+        pinned_backend = "" if val == "auto" else map_base_role()[1].backend
+        if not write_persisted_knobs({env_name: val, MAP_MODEL_BACKEND_KNOB: pinned_backend}):
+            raise RuntimeError(f"config setting could not be persisted: {env_name}")
+        os.environ[MAP_MODEL_BACKEND_KNOB] = pinned_backend
+    elif not write_persisted_knob(env_name, val):
         raise RuntimeError(f"config setting could not be persisted: {env_name}")
     os.environ[env_name] = val
     return {

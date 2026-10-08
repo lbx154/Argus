@@ -127,3 +127,16 @@ it("keeps the saved review setting and reports a failed update without refreshin
   expect(select("Explanation review effort").props.disabled).toBe(false);
   expect(renderer!.root.findByProps({ role: "alert" }).children).toEqual(["Could not save review effort"]);
 });
+
+it("says when a saved summary model was set aside because the current runner does not offer it", () => {
+  const html = renderToStaticMarkup(<MapModelSettings sid="s-settings" config={{ ...config,
+    map_model: { backend: "codex", model: "front-door-model", note: "Map model follows auto: summary-model was chosen for another runner and has not answered through codex." } }}
+    onSaved={async () => {}} />);
+  expect(html).toContain("data-map-model-note");
+  expect(html).toContain("has not answered through codex");
+  language.locale = "zh-CN";
+  const zh = renderToStaticMarkup(<MapModelSettings sid="s-settings" config={{ ...config,
+    map_model: { backend: "codex", model: "front-door-model", note: "x" } }} onSaved={async () => {}} />);
+  expect(zh).toContain("已改用自动");
+  expect(renderToStaticMarkup(<MapModelSettings sid="s-settings" config={config} onSaved={async () => {}} />)).not.toContain("data-map-model-note");
+});

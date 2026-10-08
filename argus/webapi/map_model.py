@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
@@ -20,7 +20,7 @@ from ..adapters.agent_cli_backend import AgentCliBackend
 from ..agent_cli.runner_backend import default_runner_bin, normalize_runner_backend
 from ..core.knobs import normalize_cockpit_knob_value, resolve_knob, resolve_runner_bin_setting
 from ..core.models import RunnerOptions, RunnerResult
-from ..core.role_config import resolve_role_config
+from ..core.role_config import RoleConfig, resolve_role_config
 from ..core.run_gateway import run_exec
 from .map_view import digest
 
@@ -52,6 +52,10 @@ class MapModel:
     runner_bin: str
     extra_args: tuple[str, ...] = ()
     review_effort: str | None = None
+    # Why a pinned map model was set aside for ``auto``; empty when the pin
+    # (or auto) is used as configured. Not part of the revision: the model
+    # that actually runs already is.
+    note: str = field(default="", compare=False)
 
     @property
     def available(self) -> bool:
@@ -75,16 +79,65 @@ MAP_AUTO_REVIEW_EFFORT = "medium"
 MAP_AUTO_ROLE = "manager"
 
 
-def resolve_map_model() -> MapModel:
+MAP_MODEL_KNOB = "ARGUS_SKILL_MAP_MODEL"
+MAP_MODEL_BACKEND_KNOB = "ARGUS_SKILL_MAP_MODEL_BACKEND"
+
+
+def map_base_role() -> tuple[str, RoleConfig]:
+    """The role whose runner writes map text: the front door, else the engineer."""
     base = resolve_role_config(MAP_AUTO_ROLE)
-    role = MAP_AUTO_ROLE
     if base.backend == "memory":
         # A front door without a real runner cannot write map text; the map
         # keeps the research runner rather than going dark.
         research = resolve_role_config("engineer")
         if research.backend != "memory":
-            base, role = research, "engineer"
-    model = resolve_knob("ARGUS_SKILL_MAP_MODEL", "auto").value
+            return "engineer", research
+    return MAP_AUTO_ROLE, base
+
+
+def pinned_map_model_unavailable(model: str, backend: str, *, global_root: Path | None = None) -> str:
+    """Why ``backend`` cannot run the pinned map ``model`` (empty when it can).
+
+    A pin is chosen from one backend's list; switching the runner keeps the
+    config entry but not its meaning. A backend that publishes its models
+    decides by its list. One that does not is trusted only with a model pinned
+    while it was the active backend, or one that has already answered
+    through it here.
+    """
+    from .mission_items import _seen_model_ids, backend_model_ids
+
+    try:
+        listed = backend_model_ids(backend, global_root)
+    except Exception:  # noqa: BLE001 - an unreachable list falls through to the history check
+        listed = []
+    if listed:
+        if model in listed:
+            return ""
+        return f"{model} is not in the {backend} model list"
+    recorded = resolve_knob(MAP_MODEL_BACKEND_KNOB, "").value.strip()
+    if recorded == backend:
+        return ""
+    try:
+        if model in _seen_model_ids(global_root, provider=backend):
+            return ""
+    except Exception:  # noqa: BLE001 - history is a hint, never a failure
+        pass
+    origin = f"while {recorded} was the runner" if recorded else "for another runner"
+    return f"{model} was chosen {origin} and has not answered through {backend}"
+
+
+def resolve_map_model(*, global_root: Path | None = None) -> MapModel:
+    role, base = map_base_role()
+    pinned = resolve_knob(MAP_MODEL_KNOB, "auto")
+    model, note = pinned.value, ""
+    # Only a saved cockpit choice is vetted: it outlives the runner it was
+    # picked for. A process-env pin is the deployment speaking for itself.
+    if pinned.source == "persisted" and model.lower() != "auto" and base.backend != "memory":
+        reason = pinned_map_model_unavailable(model, base.backend, global_root=global_root)
+        if reason:
+            note = f"Map model follows auto: {reason}."
+            logging.getLogger(__name__).warning(note)
+            model = "auto"
     effort = resolve_knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto").value
     review_effort = resolve_knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto").value
     runner = resolve_runner_bin_setting(role, backend=base.backend)
@@ -100,6 +153,7 @@ def resolve_map_model() -> MapModel:
         runner_bin=runner,
         extra_args=tuple(shlex.split(os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", ""))),
         review_effort=auto_review if review_effort.lower() == "auto" else review_effort,
+        note=note,
     )
 
 
