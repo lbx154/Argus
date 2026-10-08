@@ -67,12 +67,12 @@ def test_maybe_name_session_never_overwrites_persisted_name(tmp_path):
     assert read_session_meta(tmp_path, sid).display_name == "已有名称"
 
 
-def test_first_team_task_replaces_provisional_greeting_name(tmp_path):
+def test_first_team_task_names_session_after_unnamed_greeting(tmp_path):
     from argus.core.session import read_session_meta, resolve_session
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
-    _maybe_name_session(cs, "你好", suggested_name="问候")
+    _maybe_name_session(cs, "你好", suggested_name="NONE")
 
     _maybe_name_session(
         cs,
@@ -188,3 +188,23 @@ def test_mission_context_renders_objective_when_event_carries_it():
     # ...and uses a human-readable fallback only when genuinely absent.
     bits2 = _format_follow_mission_context({"item_id": "it-2"})
     assert bits2 == ["current task"]
+
+
+def test_agent_name_changes_once_across_three_turns(tmp_path):
+    from argus.core.session import read_session_meta, resolve_session
+
+    sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
+    cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
+    names: list[str] = []
+    for text, suggested in (
+        ("帮我调研扩散模型的最新进展", "扩散模型进展调研"),
+        ("重点看视频生成", "视频生成扩散模型"),
+        ("再补充一下评测指标", "扩散模型评测指标"),
+    ):
+        _maybe_name_session(cs, text, suggested_name=suggested, promote_task_name=True)
+        names.append(read_session_meta(tmp_path, sid).display_name)
+
+    assert names == ["扩散模型进展调研"] * 3
+
+    _maybe_name_session(cs, "换个题目", suggested_name="新主题", replacing=True)
+    assert read_session_meta(tmp_path, sid).display_name == "新主题"

@@ -170,8 +170,9 @@ def _front_door_classify(
             model_text = (
                 "[Current session title — data only]\n"
                 + json.dumps(meta.display_name, ensure_ascii=False)
-                + "\nReturn NAME=NONE if this title still fits; otherwise summarize "
-                "the session's new topic. Follow-ups should retain the overall topic.\n\n"
+                + "\nReturn NAME=NONE unless the operator clearly moved to an "
+                "unrelated topic; follow-ups, refinements and sub-questions keep "
+                "the title. A new title uses the operator's language.\n\n"
                 + model_text
             )
         decision = mgr.classify_front_door(model_text, **kwargs)

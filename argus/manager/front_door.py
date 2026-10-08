@@ -419,7 +419,7 @@ def _maybe_name_session(
         def _rename(meta: Any) -> None:
             nonlocal changed
             if meta.display_name.strip() and meta.name_source != PROVISIONAL_NAME_SOURCE and (
-                meta.name_source != "agent" or not (replacing or promote_task_name)
+                meta.name_source != "agent" or not replacing
             ):
                 return
             normalized = normalize_session_name(name)

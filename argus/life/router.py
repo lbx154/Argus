@@ -263,27 +263,6 @@ _AUTHORIZATION_ACTIONS = {
     "resume_blocked_work",
 }
 
-_GREETING_REPLIES = {
-    "zh": "你好，我是 Argus Manager。",
-    "ja": "こんにちは、Argus Managerです。",
-    "ko": "안녕하세요, Argus Manager입니다.",
-    "default": "Hi, I'm Argus Manager.",
-}
-
-
-def _greeting_reply(message: str) -> str:
-    text = message or ""
-    if any("\u3040" <= ch <= "\u30ff" for ch in text):
-        language = "ja"
-    elif any("\uac00" <= ch <= "\ud7af" for ch in text):
-        language = "ko"
-    elif any("\u3400" <= ch <= "\u9fff" for ch in text):
-        language = "zh"
-    else:
-        language = "default"
-    return _GREETING_REPLIES[language]
-
-
 def _parse_config_line(line: str) -> "ConfigIntent | None":
     """Parse ONE ``SET <knob> <roles> <value>`` line into a ``ConfigIntent``.
 
@@ -559,9 +538,11 @@ def classify_front_door(
         and route == "simple"
         and intent is None
         and control is None
+        and reply.upper() != "NONE"
+        and len(reply) > 0
     ):
         try:
-            greeting_sink(_greeting_reply(cleaned))
+            greeting_sink(reply)
         except Exception:  # noqa: BLE001 - optional one-call greeting path only
             pass
     steering = fields["steer_directive"]
@@ -612,6 +593,14 @@ def classify_front_door(
             intake_type = "objective_amendment"
         else:
             intake_type = "ephemeral"
+    if (
+        intake_type == "standing_directive"
+        and route == "simple"
+        and self_mode in {"reply", "synthesize"}
+    ):
+        # A conversational or synthesis turn answered in place is a one-off
+        # ask; persisting it would steer every later prompt invisibly.
+        intake_type = "ephemeral"
     intake_scope = fields["intake_scope"].strip().lower()
     if intake_scope not in {"mission", "project", "global"}:
         intake_scope = "mission" if intake_type == "objective_amendment" else "project"
