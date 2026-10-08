@@ -13,6 +13,8 @@
 .agent-current h3{font-size:16px;line-height:1.45;font-weight:650;margin:8px 0}
 .agent-live-indicator{display:flex;align-items:center;gap:5px;font-size:9px;letter-spacing:1px;color:var(--agent-role-color)}
 .agent-live-indicator i{width:5px;height:5px;background:currentColor;border-radius:50%;animation:agent-live-breathe 2s ease-in-out infinite}
+.agent-live-indicator[data-stale] i{animation:none;opacity:.45}
+.agent-live-stale{letter-spacing:0;font-size:10px;color:var(--ink-faint,#8a8f98);margin-left:4px}
 .agent-current-summary{font-size:13px;line-height:1.7;color:rgb(var(--ink-dim));max-height:220px;overflow:auto;overflow-wrap:anywhere}
 .agent-current-summary p{margin:4px 0}
 .agent-current-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px;color:rgb(var(--ink-faint));font-size:10px;margin-top:12px}

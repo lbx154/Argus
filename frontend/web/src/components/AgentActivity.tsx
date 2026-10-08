@@ -5,7 +5,7 @@ import { useI18n } from '../i18n';
 import { MarkdownContent } from './MarkdownContent';
 import { agentRoleColor, agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { currentWorkStartedAt } from '../lib/workStatus';
-import { AGENT_ROLES, activityTitle, agentIsActive, agentWork, latestAgentTool } from './agentActivityModel';
+import { AGENT_ROLES, activityTitle, agentIsActive, agentWork, latestAgentTool, liveStaleness } from './agentActivityModel';
 import './agentActivity.css';
 
 export function AgentActivity({ view, roles = [], events = [], taskId, paused = false, selectedRole,
@@ -33,6 +33,8 @@ export function AgentActivity({ view, roles = [], events = [], taskId, paused = 
     : activityTitle(toolIsLatest ? String(tool.kind) : last?.kind || 'task', zh, toolIsLatest ? String(tool.tool_name || '') : '');
   const model = roles.find((r) => r.role === role)?.model || view?.roles.find((r) => r.role === role)?.model;
   const seconds = last ? Math.max(0, Math.floor(now / 1000 - last.ts)) : 0;
+  const newest = Math.max(last?.ts ?? 0, toolIsLatest ? Number(tool?.ts || 0) : 0);
+  const stale = active && newest ? liveStaleness(now / 1000 - newest, zh) : '';
   useEffect(() => {
     if (!active) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -51,14 +53,14 @@ export function AgentActivity({ view, roles = [], events = [], taskId, paused = 
     </div>}
     <div className="agent-current" data-active={active}>
       <div className="agent-current-kicker"><span>{active ? name(role) + (zh ? ' Agent 正在工作' : ' is working') : paused ? (zh ? '会话已暂停' : 'Session paused') : (zh ? '最近进度' : 'Latest progress')}</span>
-        {active ? <span className="agent-live-indicator"><i />LIVE</span> : <Pause size={12} />}
+        {active ? <span className="agent-live-indicator" data-stale={stale ? true : undefined}><i />LIVE{stale && <small className="agent-live-stale">{stale}</small>}</span> : <Pause size={12} />}
       </div>
       <h3>{last || toolIsLatest ? currentTitle : active
         ? (zh ? '尚无本次工作记录' : 'No work recorded for this attempt yet')
         : (zh ? '等待任务分配' : 'Waiting for an assignment')}</h3>
       {update?.detail && <div className="agent-current-summary"><MarkdownContent>{update.detail}</MarkdownContent></div>}
       {!update && last?.detail && <p className="agent-current-summary">{last.detail}</p>}
-      {last && <div className="agent-current-meta"><Clock3 size={12} /><span>{zh ? `${seconds < 60 ? seconds + ' 秒' : Math.floor(seconds / 60) + ' 分钟'}前更新` : `Updated ${seconds < 60 ? seconds + 's' : Math.floor(seconds / 60) + 'm'} ago`}</span>{model && <span>{model}</span>}</div>}
+      {last && <div className="agent-current-meta"><Clock3 size={12} /><span>{zh ? `${seconds < 60 ? seconds + ' 秒' : seconds < 3600 ? Math.floor(seconds / 60) + ' 分钟' : seconds < 86400 ? Math.floor(seconds / 3600) + ' 小时' : Math.floor(seconds / 86400) + ' 天'}前更新` : `Updated ${seconds < 60 ? seconds + 's' : seconds < 3600 ? Math.floor(seconds / 60) + 'm' : seconds < 86400 ? Math.floor(seconds / 3600) + 'h' : Math.floor(seconds / 86400) + 'd'} ago`}</span>{model && <span>{model}</span>}</div>}
     </div>
     <div className="agent-records-heading"><span>{zh ? '工作记录' : 'Work log'}</span><span>{records.length} {zh ? '条' : 'records'}</span></div>
     <div className="agent-records" role="log" aria-live="off">

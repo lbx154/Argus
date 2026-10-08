@@ -50,3 +50,21 @@ export function agentIsActive(view: MissionView | null | undefined, roles: Role[
   if (roles.length) return roles.some((r) => r.role === role && r.active);
   return view?.active_role === role && ['working', 'grounding', 'framed', 'running'].includes(view?.mission.status ?? '');
 }
+
+/** Past this many seconds without a new record, a LIVE badge also says how old its news is. */
+export const LIVE_STALE_AFTER_S = 30;
+
+/**
+ * "上次更新 3 分钟前" for a LIVE badge whose last record is getting old, so a
+ * quiet agent is not mistaken for one that is visibly working right now.
+ * Empty while the news is fresh.
+ */
+export function liveStaleness(seconds: number, zh: boolean): string {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < LIVE_STALE_AFTER_S) return '';
+  const [value, zhUnit, enUnit] = s < 60 ? [s, '秒', 's']
+    : s < 3600 ? [Math.floor(s / 60), '分钟', 'm']
+      : s < 86400 ? [Math.floor(s / 3600), '小时', 'h']
+        : [Math.floor(s / 86400), '天', 'd'];
+  return zh ? `上次更新 ${value} ${zhUnit}前` : `last update ${value}${enUnit} ago`;
+}

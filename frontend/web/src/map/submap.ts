@@ -263,9 +263,9 @@ function stepVerb(step: WorkStep): StepVerb {
   if (step.kind === "command_execution") return "run";
   if (step.kind === "file_change") return "edit";
   if (/^(view|read|cat|open|read_file|str_replace_editor)$/.test(name)) return "read";
-  if (/^(rg|grep|search|find_text|semantic_search|codebase_search)$/.test(name)) return "search";
+  if (/^(rg|grep|search|find_text|semantic_search|codebase_search|web_search|search_web)$/.test(name)) return "search";
   if (/^(glob|find|list|ls|list_dir|find_files)$/.test(name)) return "search";
-  if (/^(web_fetch|fetch|web_search|http_get|browse)$/.test(name)) return "fetch";
+  if (/^(web_fetch|fetch|http_get|browse)$/.test(name)) return "fetch";
   if (/^(apply_patch|edit|write|create|write_file|edit_file|replace_in_file|str_replace)$/.test(name)) return "edit";
   if (/^(bash|shell|sh|execute|terminal|run)$/.test(name)) return "run";
   return "other";
@@ -317,12 +317,27 @@ export function stepsSummary(steps: WorkStep[], overflow: number, zh: boolean): 
   return parts.length ? (zh ? `${parts.join("，")}。` : `${parts.join(", ")}.`) : "";
 }
 
+/** A call reported twice — started, then failed — with no id to tell them
+ * apart is one step carrying the later status, not two. */
+export function mergeReports(steps: WorkStep[]): WorkStep[] {
+  const out: WorkStep[] = [];
+  for (const step of steps) {
+    const last = out[out.length - 1];
+    const sameCall = last && last.status === "running" && step.status && step.status !== "running"
+      && (last.call_id && step.call_id ? last.call_id === step.call_id
+        : !last.call_id && !step.call_id && last.kind === step.kind && last.label === step.label && (last.tool ?? "") === (step.tool ?? ""));
+    if (sameCall) out[out.length - 1] = { ...last, status: step.status, ...(step.call_id ? { call_id: step.call_id } : {}) };
+    else out.push(step);
+  }
+  return out;
+}
+
 /** A stretch of tool activity: the agent's own words for what it was doing,
  * then the calls it made. It is not a stage of the task. `buildSubmap` places
  * it inside the round of work or review it happened in; it stands as a step of
  * its own only where there is no such round (a single-agent turn). */
 function workSegmentStep(event: MapEvent, zh: boolean): SubmapStep {
-  const steps = event.steps ?? [];
+  const steps = mergeReports(event.steps ?? []);
   const narration = readableRecord(event.text);
   const missingDetails = event.tool_details_recorded === false;
   const note = missingDetails

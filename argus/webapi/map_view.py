@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
 from ..core.json_codec import loads_finite_json
+from ..core.progress_step import plain_step_label
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
 from ..life.memory import LifeMemory, _jsonl_history_paths
@@ -111,10 +112,19 @@ def _timestamp(value) -> float:
         return 0.0
 
 
-def _step_from_progress(row: dict) -> dict:
+def _step_from_progress(row: dict, workspace: str = "") -> dict:
+    kind = str(row.get("kind") or "")
+    label = row.get("text") or row.get("action_summary")
+    if kind in {"tool_use", "tool_call"}:
+        # The plain "verb + object" label, never ``view: {"path": "/abs"}``;
+        # a label that already reads plainly (a manager turn step) is kept.
+        label = plain_step_label(
+            redact_secrets_text(str(label or "")), str(row.get("tool_name") or ""),
+            redact_secrets_text(str(row.get("detail") or "")), workspace,
+        ) or label
     step = {
-        "kind": str(row.get("kind") or ""),
-        "label": text(row.get("text") or row.get("action_summary"), STEP_LABEL_LIMIT),
+        "kind": kind,
+        "label": text(label, STEP_LABEL_LIMIT),
         "ts": _timestamp(row.get("ts")),
     }
     for key in ("tool_name", "status", "call_id"):
@@ -130,7 +140,9 @@ def _close_segment(segments: dict, owner: str) -> None:
         segments.setdefault("closed", []).append(segment)
 
 
-def fold_progress(segments: dict, owner: str, row: dict, association: str) -> None:
+def fold_progress(
+    segments: dict, owner: str, row: dict, association: str, workspace: str = "",
+) -> None:
     """Fold one ``engineer.progress`` row into the owner's open work segment.
 
     ``segments`` is ``{"open": {owner: segment}, "count": {owner: n},
@@ -184,7 +196,24 @@ def fold_progress(segments: dict, owner: str, row: dict, association: str) -> No
     if len(segment["steps"]) >= SEGMENT_STEP_LIMIT:
         segment["overflow"] += 1
         return
-    segment["steps"].append(_step_from_progress(row))
+    step = _step_from_progress(row, workspace)
+    last = segment["steps"][-1] if segment["steps"] else None
+    if last is not None and _same_call(last, step):
+        # A later report about the call just listed (started, then failed):
+        # one step whose status is the latest word, not a second step.
+        last.update({key: step[key] for key in ("status", "call_id") if key in step})
+        return
+    segment["steps"].append(step)
+
+
+def _same_call(previous: dict, step: dict) -> bool:
+    if previous.get("status") != "running" or step.get("status") in (None, "running"):
+        return False
+    if previous.get("call_id") and step.get("call_id"):
+        return previous["call_id"] == step["call_id"]
+    if previous.get("call_id") or step.get("call_id"):
+        return False
+    return all(previous.get(key) == step.get(key) for key in ("kind", "label", "tool"))
 
 
 def segment_events(segments: dict) -> list[dict]:
@@ -193,9 +222,29 @@ def segment_events(segments: dict) -> list[dict]:
     return [*closed, *sorted(segments.get("open", {}).values(), key=lambda s: s["ts"])]
 
 
+def progress_workspace(life_dir: Path, meta=None) -> str:
+    """The project root the agents work in, from the session meta.
+
+    Progress rows do not carry it; without it every absolute path outside the
+    project (skill libraries, session stores) would read like project work.
+    """
+    for source in (meta, None):
+        if source is None:
+            try:
+                source = json.loads((Path(life_dir) / "session.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+        get = source.get if isinstance(source, dict) else lambda key: getattr(source, key, "")
+        for key in ("workdir", "cwd"):
+            value = get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
 def normalize_events(
     rows: list[dict], task_ids: set[str], active: set[str] | None = None,
-    segments: dict | None = None,
+    segments: dict | None = None, workspace: str = "",
 ) -> list[dict]:
     if active is None:
         active = set()
@@ -218,7 +267,7 @@ def normalize_events(
             association = "single_active_window"
         if segments is not None and owner in task_ids:
             if kind == "engineer.progress":
-                fold_progress(segments, owner, row, association)
+                fold_progress(segments, owner, row, association, workspace)
             elif kind.startswith(SEGMENT_CLOSERS):
                 _close_segment(segments, owner)
         if owner in task_ids and kind.startswith(EVENT_PREFIXES):
@@ -305,6 +354,7 @@ def ask_title(asked: str) -> str:
 
 def turn_records(
     rows: list[dict], turns: dict | None = None, asks: dict | None = None,
+    workspace: str = "",
 ) -> dict:
     """Single-agent turns as map cards: what was asked, the work, the answer.
 
@@ -455,7 +505,14 @@ def turn_records(
                     "steps": [
                         {
                             "kind": str(step.get("kind") or "tool_use"),
-                            "label": text(step.get("label"), STEP_LABEL_LIMIT),
+                            "label": text(
+                                plain_step_label(
+                                    str(step.get("label") or ""), str(step.get("tool") or ""),
+                                    str(step.get("detail") or ""), workspace,
+                                ) if str(step.get("kind") or "tool_use") in {"tool_use", "tool_call"}
+                                else step.get("label"),
+                                STEP_LABEL_LIMIT,
+                            ),
                             "ts": _timestamp(step.get("started_ts")),
                             **({"tool": text(step["tool"], 120)} if step.get("tool") else {}),
                             **({"status": text(step["status"], 40)} if step.get("status") else {}),
@@ -578,10 +635,11 @@ def read_map(
                         rows.append(row)
                 except ValueError:
                     continue
-            turns = turn_records(rows, turns, asks)
+            workspace = progress_workspace(life_dir, read_session_meta(root, sid))
+            turns = turn_records(rows, turns, asks, workspace)
             events = list({e["id"]: e for e in [
                 *previous,
-                *normalize_events(rows, task_ids, active, segments),
+                *normalize_events(rows, task_ids, active, segments, workspace),
                 *(event for turn in turns.values() for event in turn["events"]),
             ]}.values())
             binding_truncated |= remember_formations(rows, task_ids, bindings)

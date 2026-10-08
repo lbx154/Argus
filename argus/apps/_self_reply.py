@@ -17,7 +17,12 @@ from ..core.knobs import (
 )
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
-from ..core.progress_step import REPLY_KINDS, describe_progress_step
+from ..core.progress_step import (
+    REPLY_KINDS,
+    ProgressDeduper,
+    ProgressTally,
+    describe_progress_step,
+)
 
 # Structured fields of one observable agent action that the cockpit can use
 # beyond the rendered label: which tool, which call, and how it ended.
@@ -424,9 +429,19 @@ class SelfReplyMixin:
                 except Exception:  # noqa: BLE001 - UI callbacks never own the turn
                     return
 
+        # Progress events do not say where the agent works; files outside this
+        # root are Argus' own plumbing and are labelled as such.
+        progress_workspace = str(
+            Path(str(getattr(self._args, "operator_workspace", "") or "")).expanduser()
+            if getattr(self._args, "operator_workspace", "")
+            else workdir
+        )
+
         class _PhaseSink:
             def __init__(self, inner: EventSink) -> None:
                 self._inner = inner
+                self._dedupe = ProgressDeduper()
+                self.tally = ProgressTally()
 
             def handle_event(self, event: dict[str, Any]) -> None:
                 safe_event = _redact_live_event(event)
@@ -441,13 +456,18 @@ class SelfReplyMixin:
                 elif event_type == "skill.library.available" and safe_event.get("vertical"):
                     _phase(f"正在使用 {safe_event['vertical']} 领域流程…", kind=event_type)
                 elif event_type == "engineer.progress" and not is_reply:
-                    label, detail = describe_progress_step(safe_event)
+                    label, detail = describe_progress_step(safe_event, progress_workspace)
+                    self.tally.observe(safe_event)
+                    phase_kind = self._dedupe.phase_kind(safe_event, label)
+                    if not phase_kind:
+                        self._inner.handle_event(safe_event)
+                        return
                     meta = {
                         key: safe_event[key]
                         for key in _PHASE_META_KEYS
                         if safe_event.get(key) not in (None, "")
                     }
-                    _phase(label, kind=kind, detail=detail, meta=meta or None)
+                    _phase(label, kind=phase_kind, detail=detail, meta=meta or None)
                 self._inner.handle_event(safe_event)
 
             def handle_stream_line(self, stream: str, line: str) -> None:
@@ -847,10 +867,16 @@ class SelfReplyMixin:
         def _self_inactivity(snapshot: Any) -> str | None:
             try:
                 idle = int(getattr(snapshot, "idle_seconds", 0) or 0)
+                tally = getattr(sink, "tally", None)
+                text = (
+                    f"仍在进行：{tally.summary()}"
+                    if isinstance(tally, ProgressTally)
+                    else f"仍在进行，已有 {idle} 秒没有新的输出…"
+                )
                 sink.handle_event({
                     "type": "engineer.progress",
                     "kind": "codex_idle",
-                    "text": f"模型还在运行，已有 {idle} 秒没有新的输出…",
+                    "text": text,
                 })
             except Exception:  # noqa: BLE001
                 pass

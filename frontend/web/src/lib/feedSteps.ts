@@ -345,8 +345,8 @@ export function collapseRepeats(steps: FeedStep[], locale: Locale): FeedStep[] {
 
 const ACTION_BY_TOOL: Array<[RegExp, ToolAction]> = [
   [/^(view|read|read_?files?|cat|open|open_?file|notebook_?read|get_?file)$/, 'read'],
-  [/^(rg|grep|glob|find|search|ls|list|list_?dir|list_?files|codebase_?search|file_?search|semantic_?search)$/, 'search'],
-  [/^(web_?fetch|fetch|web_?search|http|browse|browser|curl|get_?url|search_?web)$/, 'fetch'],
+  [/^(rg|grep|glob|find|search|ls|list|list_?dir|list_?files|codebase_?search|file_?search|semantic_?search|web_?search|search_?web)$/, 'search'],
+  [/^(web_?fetch|fetch|http|browse|browser|curl|get_?url)$/, 'fetch'],
   [/^(apply_?patch|edit|write|create|create_?file|str_?replace|str_?replace_?editor|multi_?edit|patch|write_?file|notebook_?edit|save)$/, 'edit'],
 ];
 
@@ -369,7 +369,8 @@ const basename = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).po
 const clip = (text: string, n: number) => (text.length <= n ? text : `${text.slice(0, n - 1).trimEnd()}…`);
 // The query often IS the page (openreview.net/forum?id=…), so only the fragment goes.
 const shortUrl = (url: string) => clip(url.replace(/^[a-z]+:\/\/(?:www\.)?/i, '').replace(/#.*$/, '').replace(/\/$/, ''), 48);
-const PATCH_FILE = /\*\*\* (?:Add|Update|Delete|Move to) File: ([^\n]+)/;
+// Only the path: a patch saved on one line carries its hunks after it.
+const PATCH_FILE = /\*\*\* (?:Add|Update|Delete|Move to) File:\s*(\S+)/;
 
 /** A named argument, read from parsed JSON or, when the text was cut short, from the raw string. */
 function argument(parsed: Record<string, unknown> | null, raw: string, keys: string[]): string {
@@ -418,6 +419,55 @@ export function toolTarget(ev: EventMsg): string {
   const patch = args.match(PATCH_FILE);
   if (patch) return basename(patch[1].trim());
   return '';
+}
+
+// A glob read as "which files", no slashes: "**" + "/*.py" becomes ".py 文件",
+// "src/" + "**" + "/*" becomes "src 里的 所有文件".
+export function readableGlob(pattern: string, locale: Locale): string {
+  const zh = locale === 'zh-CN';
+  const parts = pattern.trim().replace(/\\/g, '/').split('/').filter((part) => part && part !== '**' && part !== '.');
+  const leaf = parts[parts.length - 1] ?? '*';
+  const folders = parts.slice(0, -1).filter((part) => !/[*?]/.test(part));
+  let what: string;
+  if (leaf === '*' || leaf === '*.*') what = zh ? '所有文件' : 'all files';
+  else if (/^\*\.[\w.]+$/.test(leaf)) what = zh ? `${leaf.slice(1)} 文件` : `${leaf.slice(1)} files`;
+  else what = clip(leaf, 40);
+  const folder = folders[folders.length - 1];
+  return folder ? (zh ? `${folder} 里的 ${what}` : `${what} in ${folder}`) : what;
+}
+
+const GLOB_TOOLS = /^(glob|find|find_?files|list_?files|file_?search)$/i;
+
+/**
+ * One tool call as a person would say it — "查阅 main.py", "查找 .py 文件" —
+ * never `view: {"path": "/abs/…"}`. The raw arguments stay available to the
+ * caller (tooltip / expanded record); this is only the line a reader scans.
+ */
+export function plainToolLabel(ev: EventMsg, locale: Locale): string {
+  const zh = locale === 'zh-CN';
+  const name = toolName(ev);
+  const action = toolAction(name, progressKind(ev));
+  let target = toolTarget(ev);
+  if (action === 'search') {
+    // What was searched for says more than where: the pattern, not the path.
+    const args = field(ev, 'text').replace(/^[A-Za-z_][\w.-]{0,40}:\s*/, '');
+    const pattern = argument(null, args, ['pattern', 'query', 'regex', 'glob', 'q']);
+    if (pattern) target = clip(pattern, 48);
+  }
+  if (action === 'search' && GLOB_TOOLS.test(name) && target) return `${zh ? '查找' : 'Find'} ${readableGlob(target, locale)}`;
+  const shown = target.startsWith('/') ? basename(target) : target;
+  const say: Record<ToolAction, [string, string, string, string]> = {
+    read: ['查阅', '查阅文件', 'Read', 'Read a file'],
+    search: ['搜索：', '搜索', 'Search:', 'Search'],
+    fetch: ['读取', '读取网页', 'Open', 'Open a page'],
+    edit: ['修改', '修改文件', 'Edit', 'Edit a file'],
+    tool: ['调用', '调用工具', 'Use', 'Use a tool'],
+  };
+  const [zhVerb, zhBare, enVerb, enBare] = say[action];
+  const object = action === 'tool' ? name : shown;
+  if (!object) return zh ? zhBare : enBare;
+  const verb = zh ? zhVerb : enVerb;
+  return verb.endsWith('：') ? `${verb}${object}` : `${verb} ${object}`;
 }
 
 /** A tool action in the main status line; its full arguments stay in the record. */

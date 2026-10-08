@@ -20,7 +20,12 @@ step was useful, on-track, or complete — that stays with the agent.
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import time
 from typing import Any
+from urllib.parse import urlparse
 
 from .secret_guard import redact_secrets_text
 
@@ -79,8 +84,165 @@ def _tool_label(text: str) -> tuple[str, str]:
     return _first_line(body), ""
 
 
-def describe_progress_step(event: Any) -> tuple[str, str]:
+_INTERNAL_FILE = "Argus 内部文件"
+
+_READ_TOOLS = frozenset({"view", "read", "read_file", "readfile", "cat", "open", "open_file", "ls", "list_dir"})
+_SEARCH_TOOLS = frozenset({
+    "grep", "glob", "search", "rg", "find", "web_search", "websearch", "search_files",
+    "file_search", "codebase_search",
+})
+_FETCH_TOOLS = frozenset({"fetch", "web_fetch", "webfetch", "browse", "open_url", "http_get", "curl"})
+_EDIT_TOOLS = frozenset({
+    "edit", "write", "write_file", "apply_patch", "create", "create_file", "str_replace",
+    "str_replace_editor", "patch", "multiedit", "multi_edit", "edit_file", "notebookedit",
+})
+_PATH_KEYS = ("path", "file_path", "filePath", "file", "filename", "target_file", "notebook_path")
+_QUERY_KEYS = ("query", "pattern", "q", "regex", "glob", "search", "prompt")
+_URL_KEYS = ("url", "uri", "href")
+_PATCH_FILE = re.compile(r"\*\*\* (?:Update|Add|Delete) File:\s*(\S+)")
+
+
+# Path segments that only Argus' own plumbing uses: session stores, shared
+# skill libraries, team shards, handoff checkpoints, the shipped verticals.
+# A team's artifacts (routes, reviews) are work products and keep their names.
+_PLUMBING_SEGMENTS = (
+    ("state", "projects"), ("state", "skills"), ("state", "workspaces", "*", ".autors"),
+    ("argus", "verticals"), (".argus", "teams", "*", "shards"), (".autors",),
+    ("role-sessions",), ("copilot-home",),
+)
+
+
+def _is_plumbing(parts: list[str]) -> bool:
+    for marker in _PLUMBING_SEGMENTS:
+        for start in range(len(parts) - len(marker) + 1):
+            if all(want in {"*", parts[start + offset]} for offset, want in enumerate(marker)):
+                return True
+    return False
+
+
+def _short_name(path: str, workspace: str = "") -> str:
+    """Return a path the operator can read: a basename, never an absolute path.
+
+    Files of Argus' own plumbing (session stores, skill libraries, team
+    shards) are named as such rather than spelled out. Any other file --
+    including a repository outside the session workspace that the operator
+    asked about -- is named by its file name, because reading it is the work.
+    """
+    text = str(path or "").strip().strip("'\"")
+    if not text:
+        return ""
+    parts = [part for part in text.replace("\\", "/").split("/") if part]
+    if _is_plumbing(parts[:-1]):
+        return _INTERNAL_FILE
+    return os.path.basename(text.rstrip("/")) or text
+
+
+def _parse_args(args: str) -> Any:
+    try:
+        return json.loads(args)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_value(payload: Any, keys: tuple[str, ...]) -> str:
+    if isinstance(payload, dict):
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
+def _tool_verb(name: str) -> str:
+    """Classify a tool name into one of: read / search / fetch / edit / ''."""
+    key = name.strip().lower().replace("-", "_")
+    key = key.rsplit(".", 1)[-1].rsplit("__", 1)[-1]
+    if key in _READ_TOOLS:
+        return "read"
+    if key in _SEARCH_TOOLS or "search" in key or "grep" in key:
+        return "search"
+    if key in _FETCH_TOOLS or "fetch" in key:
+        return "fetch"
+    if key in _EDIT_TOOLS or "patch" in key or key.startswith(("edit", "write")):
+        return "edit"
+    return ""
+
+
+def _is_glob_tool(name: str) -> bool:
+    key = name.strip().lower().rsplit(".", 1)[-1].rsplit("__", 1)[-1]
+    return key in {"glob", "find", "find_files", "list_files", "file_search"}
+
+
+def _readable_glob(pattern: str) -> str:
+    """``**/*.py`` -> ``.py 文件``; ``src/**/*`` -> ``src 里的 所有文件``.
+
+    A glob is read as "which files": the directory part becomes the folder
+    the search ran in (last segment only) and the file part becomes the kind
+    of file, so no slash reaches the status line.
+    """
+    text = pattern.strip().strip("'\"").replace("\\", "/")
+    parts = [part for part in text.split("/") if part and part not in {"**", "."}]
+    leaf = parts[-1] if parts else "*"
+    folders = [part for part in parts[:-1] if "*" not in part and "?" not in part]
+    if leaf in {"*", "*.*"}:
+        what = "所有文件"
+    elif re.fullmatch(r"\*\.[\w.]+", leaf):
+        what = f"{leaf[1:]} 文件"
+    elif re.fullmatch(r"\*\.\{[\w,]+\}", leaf):
+        what = "、".join(f".{ext}" for ext in leaf[3:-1].split(",")) + " 文件"
+    else:
+        what = _clip(leaf, 40)
+    where = f"{folders[-1]} 里的 " if folders else ""
+    return _clip(f"{where}{what}", 60)
+
+
+def _no_paths(text: str) -> str:
+    """Keep a search phrase but reduce any absolute path in it to its last name."""
+    return " ".join(
+        _short_name(token) if token.startswith(("/", "~")) else token
+        for token in (text or "").split()
+    )
+
+
+def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
+    """"Verb + object" for one tool call, with no raw JSON and no absolute path."""
+    verb = _tool_verb(name)
+    payload = _parse_args(args)
+    path = _first_value(payload, _PATH_KEYS)
+    if verb in {"read", "edit"} and not path and payload is None and args and "{" not in args:
+        # A bare ``read: notes.md`` names its file directly.
+        path = args.split()[0]
+    if verb == "edit" and not path:
+        match = _PATCH_FILE.search(args or "")
+        if match:
+            path = match.group(1)
+    if verb == "read":
+        target = _short_name(path, workspace)
+        return f"查阅 {target}" if target else "查阅文件"
+    if verb == "search":
+        query = _first_value(payload, _QUERY_KEYS)
+        if not query and payload is None and args and "{" not in args:
+            query = args
+        globbed = _first_value(payload, ("glob",)) and not _first_value(payload, ("pattern", "query", "q", "regex"))
+        if query and (_is_glob_tool(name) or globbed):
+            return f"查找 {_readable_glob(query)}"
+        return f"搜索：{_clip(_no_paths(query), 48)}" if query else "搜索"
+    if verb == "fetch":
+        url = _first_value(payload, _URL_KEYS) or (args if payload is None else "")
+        host = urlparse(url.strip()).netloc if url else ""
+        return f"读取 {host}" if host else "读取网页"
+    if verb == "edit":
+        target = _short_name(path, workspace)
+        return f"修改 {target}" if target else "修改文件"
+    return f"调用 {name}"
+
+
+def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
     """Return ``(label, detail)`` describing one observable agent action.
+
+    ``workspace`` is the project root the agent works in; files outside it
+    are Argus' own plumbing and are named as such. Pass it from the session
+    meta, because progress events do not carry it themselves.
 
     Never raises: a malformed event degrades to a generic-but-honest label
     rather than breaking the turn that produced it.
@@ -108,9 +270,10 @@ def describe_progress_step(event: Any) -> tuple[str, str]:
         if kind in {"tool_use", "tool_call"}:
             name, args = _tool_label(raw_text)
             if name:
-                label = _clip(f"⚙ {name}" + (f" · {_clip(args, 48)}" if args else ""), _LABEL_LIMIT)
-                detail = _clip(args, _DETAIL_LIMIT)
-                return label, "" if not detail or detail in label else detail
+                workspace = str(event.get("workspace") or event.get("cwd") or workspace or "")
+                label = _clip(_humane_tool_label(name, args, workspace), _LABEL_LIMIT)
+                # The raw arguments stay available in the (collapsed) detail.
+                return label, _clip(f"{name}: {args}" if args else "", _DETAIL_LIMIT)
             return summary or "using a tool", ""
 
         if kind == "file_change":
@@ -152,4 +315,162 @@ def describe_progress_step(event: Any) -> tuple[str, str]:
         return "working", ""
 
 
-__all__ = ["REPLY_KINDS", "describe_progress_step", "strip_shell_wrapper"]
+_LEGACY_TOOL_LABEL = re.compile(r"^⚙\s*([\w.-]+)\s*(?:·\s*(.*))?$", re.S)
+_RAW_TOOL_TEXT = re.compile(r"^[A-Za-z_][\w.-]{0,40}:\s")
+
+
+def plain_step_label(label: str, tool: str = "", detail: str = "", workspace: str = "") -> str:
+    """Say a stored tool step plainly, whatever shape it was saved in.
+
+    Turn steps saved before plain labels existed read ``⚙ view · {json}``
+    with the full arguments in ``detail``; those are relabelled from the tool
+    and its arguments. A raw ``name: {json}`` text is relabelled the same way.
+    A label that is already plain is returned unchanged, never wrapped again.
+    """
+    text = str(label or "").strip()
+    legacy = _LEGACY_TOOL_LABEL.match(text)
+    if legacy:
+        name = str(tool or "").strip() or legacy.group(1)
+        args = str(detail or "").strip() or legacy.group(2) or ""
+        # ``detail`` of a newer step already carries the ``name: `` prefix.
+        raw = args if _RAW_TOOL_TEXT.match(args) else f"{name}: {args}"
+        return describe_progress_step({"kind": "tool_use", "text": raw}, workspace)[0] or text
+    if _RAW_TOOL_TEXT.match(text):
+        return describe_progress_step({"kind": "tool_use", "text": text}, workspace)[0] or text
+    return text
+
+
+_TERMINAL_FAILURES = frozenset({"failed", "error", "errored", "cancelled", "canceled"})
+
+
+class ProgressDeduper:
+    """Tell a new tool call apart from a later report about the same call.
+
+    Backends report one call more than once: started, then completed or
+    failed. Identity is the call itself -- its ``call_id`` when the runner
+    sends one, otherwise the still-open call with the same kind, actor and
+    raw text. (``item_id`` is not a call identity: some runners stamp every
+    call of a mission with the same one.)
+
+    ``classify`` returns:
+
+    * ``"new"`` -- a call not seen before, even if it reads like an earlier
+      one (two reads of the same file are two things that happened);
+    * ``"update"`` -- a known call whose outcome is news worth showing
+      (it failed, or its label changed);
+    * ``"repeat"`` -- a known call reported again with nothing new, such as
+      a plain completion echo of a step already on screen.
+    """
+
+    def __init__(self) -> None:
+        self._by_call: dict[str, tuple[str, str]] = {}
+        self._open: dict[tuple[str, str, str], tuple[str, str]] = {}
+
+    @staticmethod
+    def _status(event: dict) -> str:
+        return str(event.get("status") or "").strip().lower()
+
+    def classify(self, event: Any, label: str) -> str:
+        if not isinstance(event, dict):
+            return "new"
+        status = self._status(event)
+        call_id = str(event.get("call_id") or "").strip()
+        kind = str(event.get("kind") or "")
+        if call_id:
+            key = f"{kind}:{call_id}"
+            previous = self._by_call.get(key)
+            self._by_call[key] = (label, status)
+            if previous is None:
+                return "new"
+        else:
+            text_key = (kind, str(event.get("actor") or event.get("agent_layer") or ""),
+                        str(event.get("text") or ""))
+            starting = status in {"", "running", "started", "in_progress", "pending"}
+            previous = None if starting else self._open.pop(text_key, None)
+            if previous is None:
+                if starting:
+                    self._open[text_key] = (label, status)
+                return "new"
+        before_label, before_status = previous
+        if label != before_label:
+            return "update"
+        if status in _TERMINAL_FAILURES and before_status not in _TERMINAL_FAILURES:
+            return "update"
+        return "repeat"
+
+    def is_repeat(self, event: Any, label: str) -> bool:
+        return self.classify(event, label) == "repeat"
+
+    def phase_kind(self, event: Any, label: str) -> str:
+        """The phase kind to stream for ``event``, or ``""`` to stay silent.
+
+        A new call streams under its own kind. A later report about a call
+        already on screen (it failed) streams as ``tool_result`` so the open
+        step changes in place: a failed read is one failed step, not a
+        "completed" step followed by a second, failed copy of itself.
+        """
+        verdict = self.classify(event, label)
+        if verdict == "repeat":
+            return ""
+        kind = str(event.get("kind") or "") if isinstance(event, dict) else ""
+        return "tool_result" if verdict == "update" else kind
+
+
+class ProgressTally:
+    """Running counts of what a long turn has done, for the idle notice."""
+
+    def __init__(self, *, clock: Any = time.monotonic) -> None:
+        self._clock = clock
+        self._started = clock()
+        self._dedupe = ProgressDeduper()
+        self.searches = 0
+        self.reads = 0
+        self.edits = 0
+        self.commands = 0
+
+    def observe(self, event: Any) -> None:
+        if not isinstance(event, dict):
+            return
+        kind = str(event.get("kind") or "")
+        if kind not in {"tool_use", "tool_call", "command_execution", "file_change"}:
+            return
+        label, _ = describe_progress_step(event)
+        if self._dedupe.classify(event, label) != "new":
+            return
+        if kind == "command_execution":
+            self.commands += 1
+        elif kind == "file_change":
+            self.edits += 1
+        else:
+            name, _ = _tool_label(redact_secrets_text(str(event.get("text") or "")))
+            verb = _tool_verb(name)
+            if verb == "search":
+                self.searches += 1
+            elif verb in {"read", "fetch"}:
+                self.reads += 1
+            elif verb == "edit":
+                self.edits += 1
+
+    def summary(self) -> str:
+        parts = []
+        if self.searches:
+            parts.append(f"已搜索 {self.searches} 次")
+        if self.reads:
+            parts.append(f"读了 {self.reads} 页")
+        if self.edits:
+            parts.append(f"改了 {self.edits} 处")
+        if self.commands:
+            parts.append(f"跑了 {self.commands} 条命令")
+        elapsed = max(0, int(self._clock() - self._started))
+        parts.append(f"用时 {elapsed // 60} 分钟" if elapsed >= 60 else f"用时 {elapsed} 秒")
+        return " · ".join(parts)
+
+
+__all__ = [
+    "REPLY_KINDS",
+    "ProgressDeduper",
+    "ProgressTally",
+    "describe_progress_step",
+    "plain_step_label",
+    "strip_shell_wrapper",
+]

@@ -90,6 +90,7 @@ function normalize(label: string): string {
  *    it; a result for a call the trail never saw is dropped;
  *  - a heartbeat replaces a previous heartbeat instead of stacking duplicates,
  *    because it carries no new action, only a longer quiet time;
+ *  - a result without a call id ends the open step with its status;
  *  - a repeat of the current label refreshes it in place;
  *  - anything else appends a new step; an anonymous open step ends then,
  *    while a step identified by call id waits for its own result.
@@ -130,6 +131,18 @@ export function appendPhaseStep(
   }
 
   const last = next[next.length - 1];
+  if (kind === 'tool_result') {
+    // A result that names no call reports on the open step (the backend's
+    // turn steps fold it the same way); it never becomes a step of its own.
+    if (!last || last.endedTs || last.heartbeat) return next;
+    next[next.length - 1] = {
+      ...last,
+      output: (fragment.output || '').trim() || last.output,
+      status: status || 'completed',
+      endedTs: ts,
+    };
+    return next;
+  }
   if (last && !last.endedTs) {
     const sameLabel = normalize(last.label) === normalize(label);
     if (sameLabel || (heartbeat && last.heartbeat)) {

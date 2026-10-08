@@ -1,20 +1,33 @@
 import { useEffect, useState } from 'react';
-import { useI18n } from '../i18n';
+import { useI18n, type Locale } from '../i18n';
+import { plainToolLabel } from '../lib/feedSteps';
+import type { EventMsg } from '../api';
 import { spinnerFrame } from '../lib/soul';
 import { formatStepSeconds, turnStepsElapsedS, type TurnStep } from '../../../core/src/phaseTrail';
 
 const GLYPH: Record<string, string> = { command_execution: '$', tool_use: '⚙', file_change: '✎' };
 const FAILED = new Set(['failed', 'error', 'cancelled', 'canceled']);
 const LEADING_GLYPH = /^(?:[⚙✎↳$…∴▸]|✗ \$)\s*/u;
+const LEGACY_TOOL_LABEL = /^⚙\s*([\w.-]+)\s*·\s*(.*)$/su;
 
-/** The plain title of a step, then the command or arguments it ran with. */
-export function stepText(step: TurnStep): { primary: string; secondary: string } {
-  const label = step.label.replace(LEADING_GLYPH, '').trim();
+/**
+ * The plain "verb + object" label is what a step says; the raw command or
+ * arguments it ran with are `secondary`, folded away until asked for.
+ */
+export function stepText(step: TurnStep, locale: Locale = 'zh-CN'): { primary: string; secondary: string } {
   const tool = (step.tool ?? '').trim();
-  if (tool && tool !== label) {
-    return { primary: tool, secondary: step.kind === 'command_execution' ? label : (step.detail ?? '') };
+  const detail = (step.detail ?? '').trim();
+  // Turns saved before plain labels stored `⚙ name · {json args}`; say them
+  // the same way new turns do instead of showing the raw call.
+  const legacy = step.label.match(LEGACY_TOOL_LABEL);
+  if (legacy) {
+    const name = legacy[1];
+    const args = detail || legacy[2];
+    const event = { type: 'engineer.progress', kind: 'tool_use', tool_name: tool || name, text: `${name}: ${args}` } as unknown as EventMsg;
+    return { primary: plainToolLabel(event, locale), secondary: args };
   }
-  return { primary: label || tool, secondary: step.detail ?? '' };
+  const label = step.label.replace(LEADING_GLYPH, '').trim();
+  return { primary: label || tool, secondary: detail && detail !== label ? detail : '' };
 }
 
 /**
@@ -23,7 +36,7 @@ export function stepText(step: TurnStep): { primary: string; secondary: string }
  * list under a one-line summary so the answer stays in front.
  */
 export function TurnSteps({ steps, live }: { steps: TurnStep[]; live: boolean }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(live);
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -57,7 +70,7 @@ export function TurnSteps({ steps, live }: { steps: TurnStep[]; live: boolean })
       {open ? (
         <ol className="space-y-1 border-t border-line/40 px-3 py-2">
           {steps.map((step, index) => {
-            const { primary, secondary } = stepText(step);
+            const { primary, secondary } = stepText(step, locale);
             const isRunning = step.status === 'running';
             const isFailed = FAILED.has(step.status);
             const elapsed = formatStepSeconds(Math.max(0, (step.ended_ts || now) - step.started_ts));
@@ -71,9 +84,10 @@ export function TurnSteps({ steps, live }: { steps: TurnStep[]; live: boolean })
                     {primary}
                   </span>
                   {secondary ? (
-                    <span className="ml-2 font-mono text-[11px] text-ink-faint" title={secondary}>
-                      {secondary.length > 96 ? `${secondary.slice(0, 95)}…` : secondary}
-                    </span>
+                    <details className="turn-step-raw inline">
+                      <summary className="ml-2 inline cursor-pointer list-none text-[11px] text-ink-faint hover:text-ink-dim">{t('chat.stepRaw')}</summary>
+                      <span className="mt-0.5 block break-all font-mono text-[11px] text-ink-faint">{secondary}</span>
+                    </details>
                   ) : null}
                   {isFailed && step.output ? (
                     <span className="mt-0.5 block font-mono text-[11px] text-err/80">{step.output}</span>

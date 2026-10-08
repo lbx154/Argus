@@ -47,6 +47,18 @@ describe('phase trail with tool call ids', () => {
     expect(trail[0].endedTs).toBe(3);
   });
 
+  it('folds a failure that names no call into the open step', () => {
+    // Runners without call ids report a failed read as running then failed.
+    let trail: PhaseStep[] = [];
+    trail = appendPhaseStep(trail, { label: '查阅 CHECKPOINT.md', kind: 'tool_use', tool: 'read', status: 'running' }, 1);
+    trail = appendPhaseStep(trail, {
+      label: '查阅 CHECKPOINT.md', kind: 'tool_result', tool: 'read', status: 'failed', output: 'bad selection',
+    }, 2);
+
+    expect(trail).toHaveLength(1);
+    expect(trail[0]).toMatchObject({ kind: 'tool_use', status: 'failed', endedTs: 2, output: 'bad selection' });
+  });
+
   it('closes every open step when the turn ends', () => {
     let trail: PhaseStep[] = [];
     trail = appendPhaseStep(trail, call('$ one', 'c1'), 1);
