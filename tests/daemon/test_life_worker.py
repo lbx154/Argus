@@ -3677,3 +3677,68 @@ def test_dispatcher_resumes_paused_missions_once_before_any_worker_claims(tmp_pa
     assert order.count("resume") == 1
     assert primary._dispatcher_resumes is True
     assert helper._dispatcher_resumes is True
+
+
+def _bounded_worker_with_scripted_supervisor(tmp_path: Path, outcomes: list[str]):
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            project_workdir=tmp_path,
+            poll_interval=0.0,
+            continuous_open_ended=False,
+        )
+    )
+    worker._curator = None
+    calls: list[str] = []
+
+    class FakeSupervisor:
+        config = SimpleNamespace(budget=SimpleNamespace(can_start=lambda **_kwargs: (True, "")))
+        memory = SimpleNamespace(root=tmp_path)
+        _missions_started = 0
+        _planning_cycles = 0
+
+        def run(self):
+            outcome = outcomes[min(len(calls), len(outcomes) - 1)]
+            calls.append(outcome)
+            return {"stopped_by": outcome, "suggested_sleep": 0.0}
+
+    rf_state = SimpleNamespace(
+        runtime_root=tmp_path,
+        cfg=worker.config,
+        runner=SimpleNamespace(manager=None),
+        sup=FakeSupervisor(),
+    )
+    return worker, rf_state, calls
+
+
+def test_bounded_daemon_exits_when_runtime_failure_circuit_is_open(
+    tmp_path: Path,
+) -> None:
+    # The circuit only clears under a different runtime, so a finite worker
+    # parked behind it must release its slot instead of waiting forever.
+    from argus.life.runtime_failure_circuit import record_runtime_failure_circuit
+
+    try:
+        raise FileNotFoundError(2, "No such file or directory", "tool")
+    except FileNotFoundError as exc:
+        record_runtime_failure_circuit(tmp_path, exc, item_id="item-1")
+    worker, rf_state, calls = _bounded_worker_with_scripted_supervisor(
+        tmp_path, ["awaiting_external", "backlog_empty"]
+    )
+
+    worker._rf_main_loop(rf_state)
+
+    assert calls == ["awaiting_external"]
+
+
+def test_bounded_daemon_keeps_waiting_on_external_work_without_a_circuit(
+    tmp_path: Path,
+) -> None:
+    worker, rf_state, calls = _bounded_worker_with_scripted_supervisor(
+        tmp_path, ["awaiting_external", "backlog_empty"]
+    )
+
+    worker._rf_main_loop(rf_state)
+
+    assert calls == ["awaiting_external", "backlog_empty"]
