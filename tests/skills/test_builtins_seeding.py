@@ -537,7 +537,13 @@ def test_pre_split_seeds_of_an_uninstalled_vertical_are_pruned_but_edits_survive
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import argus.skills.builtins as builtins
+    import argus.skills.vertical_select as vertical_select
 
+    # "Uninstalled" must hold even in a venv that carries the community package.
+    real_available = vertical_select.available_verticals
+    monkeypatch.setattr(
+        vertical_select, "available_verticals", lambda: [v for v in real_available() if v != "quant"],
+    )
     factory = "factory quant playbook as seeded on dev\n"
     monkeypatch.setattr(builtins, "_MOVED_VERTICAL_SEED_HASHES", {
         "quant": {

@@ -197,3 +197,50 @@ def build_community_release(destination: Path, *, tag: str = "vtest") -> Path | 
         check=True, capture_output=True, text=True, cwd=copy,
     )
     return dist / "catalog.json"
+
+
+class _PermanentPatch:
+    """The two ``pytest.MonkeyPatch`` calls the hider needs, applied for good (fresh subprocesses)."""
+
+    @staticmethod
+    def setattr(target: Any, name: str, value: Any) -> None:
+        setattr(target, name, value)
+
+    @staticmethod
+    def delitem(mapping: dict, key: str, raising: bool = True) -> None:
+        mapping.pop(key, None)
+
+
+def hide_installed_community_package(monkeypatch: Any = None) -> None:
+    """Make discovery behave as if no ``argus_verticals`` distribution were installed.
+
+    A developer venv may carry the community package; its entry points and its
+    importable ``argus_verticals`` would otherwise shadow or extend the trees a
+    store test installs. Pass ``monkeypatch`` for an undoable patch; without it
+    the patch is permanent (for the code run in a fresh subprocess).
+    """
+    import importlib.util
+
+    from argus.verticals import _registry
+
+    patch = monkeypatch if monkeypatch is not None else _PermanentPatch()
+    package = "argus_verticals"
+    for name in [n for n in sys.modules if n == package or n.startswith(package + ".")]:
+        patch.delitem(sys.modules, name, raising=False)
+    real_find_spec = importlib.util.find_spec
+
+    def find_spec(name: str, package_name: str | None = None):
+        if name == package and package not in sys.modules:
+            return None
+        return real_find_spec(name, package_name)
+
+    patch.setattr(importlib.util, "find_spec", find_spec)
+    real_entry_points = _registry.entry_points
+
+    def entry_points(**kwargs: Any) -> list:
+        return [
+            ep for ep in real_entry_points(**kwargs)
+            if not str(getattr(ep, "value", "")).startswith(package)
+        ]
+
+    patch.setattr(_registry, "entry_points", entry_points)

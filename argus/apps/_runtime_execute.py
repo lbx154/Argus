@@ -800,10 +800,11 @@ class SkillLoopExecuteMixin:
         # structured Manager rollback verdict with a bounded completion.
         config_kwargs["open_ended"] = bool(getattr(args, "open_ended", False))
         config_kwargs["continuous_objective"] = str(getattr(args, "continuous_objective", "") or "")
+        # The Manager-persisted decision (fallback ``staged``) is authoritative;
+        # the vertical's WORKFLOW_MODE only shapes the evidence policy of a
+        # staged run, never direct vs staged orchestration.
         resolved_workflow_mode = (
-            workflow_mode_override.strip().lower()
-            or _workflow_mode_for_project_root(_proot)
-            or (active_contract.workflow_mode if active_contract is not None else "")
+            workflow_mode_override.strip().lower() or _workflow_mode_for_project_root(_proot)
         )
         config_kwargs["workflow_mode"] = resolved_workflow_mode
         if resolved_workflow_mode == "direct":
