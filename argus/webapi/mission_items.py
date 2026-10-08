@@ -554,8 +554,10 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
         live = None
     if live is not None:
         models, default = live
-        for model in models:
-            options[model] = {"model": model, "source": "backend"}
+        for rank, model in enumerate(models):
+            if model.lower() in {"auto", "inherit", "default"}:
+                continue  # "let the backend pick" is the empty choice, not a model
+            options[model] = {"model": model, "source": "backend", "rank": rank}
         if default:
             options.setdefault(default, {"model": default, "source": "backend"})["default"] = True
     else:
@@ -573,8 +575,17 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
             options.setdefault(model, {"model": model, "source": "current"})
     rows = list(options.values())
     rows.sort(
-        key=lambda row: (not row.get("default"), -(row.get("last_used_at") or 0.0), row["model"])
+        # The default first, then the backend's own order (newest first for an
+        # account list), then recently used, then the rest by name.
+        key=lambda row: (
+            not row.get("default"),
+            row.get("rank", len(rows)),
+            -(row.get("last_used_at") or 0.0),
+            row["model"],
+        )
     )
+    for row in rows:
+        row.pop("rank", None)
     return rows[:_MODEL_OPTION_LIMIT]
 
 

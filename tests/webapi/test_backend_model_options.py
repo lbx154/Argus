@@ -26,8 +26,10 @@ for line in sys.stdin:
         res = {{"sessionId": "s1", "models": {{
             "currentModelId": "fake-newest",
             "availableModels": [
+                {{"modelId": "auto", "name": "Auto"}},
+                {{"modelId": "zz-fake-newest-but-late-alphabet", "name": "Second"}},
                 {{"modelId": "fake-newest", "name": "Newest"}},
-                {{"modelId": "fake-older", "name": "Older"}},
+                {{"modelId": "aa-fake-older", "name": "Older"}},
             ]}}}}
     else:
         res = {{}}
@@ -65,8 +67,13 @@ def test_copilot_options_come_from_the_account_with_the_default_marked(copilot_h
     assert "stale-catalog-model" not in by_model
     assert by_model["fake-newest"]["source"] == "backend"
     assert by_model["fake-newest"].get("default") is True
-    assert by_model["fake-older"]["source"] == "backend" and not by_model["fake-older"].get("default")
+    assert by_model["aa-fake-older"]["source"] == "backend" and not by_model["aa-fake-older"].get("default")
     assert rows[0]["model"] == "fake-newest"
+    # "auto" means no explicit model, not a choice; the account order is kept.
+    assert "auto" not in by_model
+    names = [row["model"] for row in rows]
+    assert names.index("zz-fake-newest-but-late-alphabet") < names.index("aa-fake-older")
+    assert all("rank" not in row for row in rows)
     # A second request inside the TTL is answered from the cache, no new CLI.
     mission_items.model_options(root)
     assert calls.read_text().count("start") == 1
