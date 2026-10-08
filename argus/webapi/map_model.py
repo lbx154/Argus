@@ -130,9 +130,12 @@ def resolve_map_model(*, global_root: Path | None = None) -> MapModel:
     role, base = map_base_role()
     pinned = resolve_knob(MAP_MODEL_KNOB, "auto")
     model, note = pinned.value, ""
-    # Only a saved cockpit choice is vetted: it outlives the runner it was
-    # picked for. A process-env pin is the deployment speaking for itself.
-    if pinned.source == "persisted" and model.lower() != "auto" and base.backend != "memory":
+    # Every pin is vetted against the runner that will carry it, whatever its
+    # source: a saved choice outlives the runner it was picked for, a settings
+    # save in this process also lands in the environment (so the source alone
+    # cannot tell a user choice from a deployment default), and a deployment
+    # default is overridable rather than a guarantee the runner can serve it.
+    if model.lower() != "auto" and base.backend != "memory":
         reason = pinned_map_model_unavailable(model, base.backend, global_root=global_root)
         if reason:
             note = f"Map model follows auto: {reason}."

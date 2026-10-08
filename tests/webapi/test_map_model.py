@@ -179,9 +179,40 @@ def test_saved_map_pin_is_checked_against_a_runner_that_lists_its_models(tmp_pat
     assert config.model == "front-door-model" and "not in the copilot model list" in config.note
     write_persisted_knobs({"ARGUS_SKILL_MAP_MODEL": "listed-model"})
     assert map_model.resolve_map_model(global_root=tmp_path).model == "listed-model"
-    # A process-env pin is the deployment's own statement and is not second-guessed.
+    # A deployment-env pin is a default, not a promise the runner can keep:
+    # it is checked against the same list and says why when it is set aside.
     monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "unlisted-model")
-    assert map_model.resolve_map_model(global_root=tmp_path).model == "unlisted-model"
+    config = map_model.resolve_map_model(global_root=tmp_path)
+    assert config.model == "front-door-model" and "not in the copilot model list" in config.note
+
+
+def test_map_pin_saved_in_settings_follows_auto_after_switching_runner(tmp_path, monkeypatch):
+    """Pin under one runner through settings, switch the runner in the same
+    server process: the pin is checked against the new runner, whatever
+    source the knob resolver reports for it."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "copilot")
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "front-door-model")
+    monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "auto")
+    monkeypatch.delenv("ARGUS_SKILL_MAP_MODEL_BACKEND", raising=False)
+    from argus.webapi import mission_items
+    lists = {"copilot": ["first-runner-model"], "codex": ["second-runner-model"]}
+    monkeypatch.setattr(mission_items, "backend_model_ids", lambda backend, root=None: lists.get(backend, []))
+    write_session_meta(tmp_path, SessionMeta(id="s-switch", created=1, last_active=1))
+    with TestClient(create_app(global_root=tmp_path, auth_token="test")) as client:
+        headers = {"Authorization": "Bearer test"}
+        path = "/api/projects/s-switch/config/set"
+        saved = client.post(path, json={"name": "ARGUS_SKILL_MAP_MODEL", "value": "first-runner-model"},
+                            headers=headers)
+        assert saved.status_code == 200
+        pinned = map_model.resolve_map_model(global_root=tmp_path)
+        assert (pinned.backend, pinned.model, pinned.note) == ("copilot", "first-runner-model", "")
+        runner = client.post(path, json={"name": "ARGUS_SKILL_MANAGER_BACKEND", "value": "codex"},
+                             headers=headers)
+        assert runner.status_code == 200
+        switched = map_model.resolve_map_model(global_root=tmp_path)
+        assert (switched.backend, switched.model) == ("codex", "front-door-model")
+        assert "first-runner-model" in switched.note and "codex" in switched.note
 
 
 def test_opening_a_project_never_inherits_deep_research_effort(monkeypatch):
