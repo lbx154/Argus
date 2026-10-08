@@ -211,6 +211,13 @@ class PlannerOrchestrationMixin:
             status = str(getattr(item, "status", "") or "unknown")
             backlog_counts[status] = backlog_counts.get(status, 0) + 1
 
+        time_line = _planner_time_line(
+            pipeline,
+            backlog_rows,
+            project_created_ts=_project_created_ts(self._project_state_root()),
+            background_jobs=_finished_background_job_hours(project_root),
+        )
+
         # Width-2 daemons spent months running serially because the Planner
         # could not see the second slot: admission needs every co-running
         # task to declare disjoint owned paths, and nothing ever said so.
@@ -381,6 +388,7 @@ class PlannerOrchestrationMixin:
             [
                 "## Host current-reality digest",
                 *presence_lines,
+                time_line,
                 f"- vertical: {pipeline.get('vertical') or '(unresolved)'}",
                 f"- workflow_mode: {pipeline.get('workflow_mode') or '(unset)'}",
                 f"- current_stage: {pipeline.get('current_stage') or self._current_pipeline_stage() or '(unset)'}",
@@ -538,3 +546,181 @@ class PlannerOrchestrationMixin:
 
 
 __all__ = ["PlannerOrchestrationMixin"]
+
+
+def _deadline_ts(pipeline: dict[str, Any]) -> float | None:
+    """Read an operator deadline (epoch seconds or ISO 8601) from pipeline state."""
+    from datetime import datetime
+
+    for key in ("deadline", "deadline_ts"):
+        raw = pipeline.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            pass
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.astimezone()
+        return parsed.timestamp()
+    timeout_h = pipeline.get("time_budget_hours")
+    started = pipeline.get("started_ts") or pipeline.get("created_ts")
+    try:
+        if timeout_h is not None and started is not None:
+            return float(started) + float(timeout_h) * 3600.0
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def _project_created_ts(state_root: Any) -> float | None:
+    """Project creation time from the project's session record, if any."""
+    import json
+
+    if state_root is None:
+        return None
+    try:
+        payload = json.loads((Path(state_root) / "session.json").read_text("utf-8"))
+        created = float(payload.get("created") or 0.0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return created if created > 0 else None
+
+
+def _finished_background_job_hours(workdir: Any) -> list[float]:
+    """Wall hours of durable background jobs that finished successfully.
+
+    Long training/evaluation jobs register as external work; their lifetimes
+    are the throughput a schedule of further jobs depends on, unlike mission
+    rows that also include seconds-long crashes and short edits.
+    """
+    try:
+        from ...engineer.external_work import ExternalWorkState, scan_external_work
+
+        statuses = scan_external_work(workdir, include_subagents=False)
+    except Exception:  # noqa: BLE001 - digest is advisory
+        return []
+    hours: list[float] = []
+    for status in statuses:
+        if status.state is not ExternalWorkState.TERMINAL:
+            continue
+        if any(word in status.outcome.lower() for word in ("fail", "error", "abort", "cancel")):
+            continue
+        if status.started_at > 0 and status.heartbeat_at > status.started_at:
+            hours.append((status.heartbeat_at - status.started_at) / 3600.0)
+    return hours
+
+
+def _row_kind(item: Any) -> str:
+    for tag in getattr(item, "tags", None) or []:
+        if str(tag).startswith("stage:"):
+            return str(tag)[len("stage:"):]
+    return "other"
+
+
+def _fmt_hours(hours: float) -> str:
+    return f"{hours * 60:.0f}m" if hours < 1 else f"{hours:.1f}h"
+
+
+def _planner_time_line(
+    pipeline: dict[str, Any],
+    rows: list[Any],
+    *,
+    project_created_ts: float | None = None,
+    background_jobs: list[float] | None = None,
+    now: float | None = None,
+) -> str:
+    """Remaining time and measured run durations, shown on every digest.
+
+    A Planner given a one-week window scheduled about six weeks of runs: it
+    could see neither the clock nor how long finished runs had really taken.
+    This is information for its judgement, not a gate on the plan.
+    """
+    import statistics
+
+    now = time.time() if now is None else now
+    deadline = _deadline_ts(pipeline)
+    started = pipeline.get("started_ts") or project_created_ts
+    parts: list[str] = []
+    if deadline is None:
+        parts.append(
+            "no deadline recorded; if the operator's words state a deadline or "
+            "time budget, plan against it"
+        )
+    else:
+        hours = (deadline - now) / 3600.0
+        parts.append(
+            f"{_fmt_hours(hours)} remaining before the deadline"
+            if hours >= 0
+            else f"deadline passed {_fmt_hours(-hours)} ago"
+        )
+    try:
+        if started:
+            parts.append(f"project started {_fmt_hours((now - float(started)) / 3600.0)} ago")
+    except (TypeError, ValueError):
+        pass
+    jobs = [h for h in (background_jobs or []) if h > 0]
+    if jobs:
+        parts.append(
+            f"finished background jobs: median {_fmt_hours(statistics.median(jobs))} "
+            f"over {len(jobs)}"
+        )
+    # Missions of different kinds (a paper draft, a code cleanup, a crash after
+    # seconds) are not one population. Only completed runs measure throughput,
+    # grouped by stage; failures are counted, not averaged in.
+    by_kind: dict[str, list[float]] = {}
+    unfinished = 0
+    seen: set[str] = set()
+    for item in rows:
+        item_id = str(getattr(item, "id", "") or "")
+        status = getattr(item, "status", "")
+        started_ts = getattr(item, "started_ts", None)
+        finished_ts = getattr(item, "finished_ts", None)
+        if status not in {"done", "failed", "aborted"} or item_id in seen:
+            continue
+        seen.add(item_id)
+        if status != "done":
+            unfinished += 1
+            continue
+        try:
+            span = float(finished_ts) - float(started_ts)
+        except (TypeError, ValueError):
+            continue
+        if span > 0:
+            by_kind.setdefault(_row_kind(item), []).append(span / 3600.0)
+    medians = {kind: statistics.median(v) for kind, v in by_kind.items()}
+    if medians:
+        parts.append(
+            "completed missions by stage: "
+            + ", ".join(
+                f"{kind} median {_fmt_hours(medians[kind])} over {len(by_kind[kind])}"
+                for kind in sorted(by_kind)
+            )
+        )
+    else:
+        parts.append("no completed missions measured yet")
+    if unfinished:
+        parts.append(f"{unfinished} failed/aborted not counted")
+    running = []
+    for item in rows:
+        started_ts = getattr(item, "started_ts", None)
+        if getattr(item, "status", "") != "running" or not started_ts:
+            continue
+        elapsed = (now - float(started_ts)) / 3600.0
+        median = medians.get(_row_kind(item))
+        text = f"{item.id} running {_fmt_hours(elapsed)}"
+        if median is not None:
+            left = median - elapsed
+            text += (
+                f", ~{_fmt_hours(left)} left at its stage median"
+                if left >= 0
+                else ", past its stage median"
+            )
+        running.append(text)
+    if running:
+        parts.append("in flight: " + "; ".join(running[:4]))
+    return "- time: " + "; ".join(parts)

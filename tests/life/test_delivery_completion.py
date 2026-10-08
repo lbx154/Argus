@@ -403,4 +403,4 @@ def test_terminal_delivery_recovers_reviewed_product_from_an_older_direct_settle
     receipt = supervisor._build_terminal_project_delivery("Complete")
 
     assert receipt["primary_target"]["path"] == "index.html"
-    assert receipt["delivery_id"] == f"delivery:project-{memory.root.name}-{item_id}:task_completed"
+    assert receipt["delivery_id"].startswith(f"delivery:project-{memory.root.name}-{item_id}:task_completed:")

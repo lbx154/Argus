@@ -1,4 +1,4 @@
-import type { DispatchObserver } from './map/submission';
+import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useGitDiff } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
@@ -907,9 +907,27 @@ export default function App() {
   const sendMessageRef = useRef(sendMessage);
   sendMessageRef.current = sendMessage;
 
-  const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver): Promise<boolean> => {
+  const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver, options?: MapSendOptions): Promise<boolean> => {
     const draft = captureDraft(sidRef.current);
     if (!draft) return false;
+    if (options?.whileRunning) {
+      // The running reply keeps its own request. Commands still run as
+      // commands; a plain message is shown now and answered as the next turn
+      // (Argus decides whether it steers a live mission or is answered in chat).
+      try {
+        if (!files.length) {
+          const command = await dispatchWebCommand(text, commandHandlers);
+          if (command.kind === 'error') { notify('error', command.message); return false; }
+          if (command.kind === 'handled') { consumeDraft(draft, files); return true; }
+        }
+        await api.queueFollowup(draft.sid, text, routeOverride);
+      } catch (error) {
+        notify('error', errorText(error));
+        return false;
+      }
+      consumeDraft(draft, files);
+      return true;
+    }
     let cleared: DraftSnapshot | null = null;
     let failedBeforeAcceptance = false;
     // /rewrite owns its pending revision until its preview lands, not a send.
@@ -1009,6 +1027,11 @@ export default function App() {
           void projectCostsQ.refetch();
         }}
       />
+      {deliveryCenter.fresh && !deliveryCenter.selection && <div className="delivery-toast" role="status" aria-live="polite">
+        <span>{locale === 'zh-CN' ? '新交付：' : 'New delivery: '}{deliveryCenter.fresh.title}</span>
+        <button type="button" onClick={() => openDelivery(deliveryCenter.fresh!)}>{locale === 'zh-CN' ? '查看' : 'Open'}</button>
+        <button type="button" aria-label={locale === 'zh-CN' ? '关闭' : 'Dismiss'} onClick={deliveryCenter.dismissFresh}>×</button>
+      </div>}
       {deliveryCenter.selection && <ArtifactModal
         key={`${deliveryCenter.selection.sid}:${deliveryCenter.selection.receipt.delivery_id}`}
         sid={deliveryCenter.selection.sid} path={deliveryCenter.selection.path}

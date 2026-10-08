@@ -34,6 +34,7 @@
     "knowledge.recalled",
     "life.auth_failure",
     "life.budget.pause",
+    "life.config.parse_failed",
     "life.curator.backend_resolved",
     "life.daemon.degraded",
     "life.daemon.idle_timeout",
@@ -198,7 +199,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 170
+        "missing": 171
       },
       "fallback": "greppable",
       "handled": [
@@ -260,6 +261,7 @@
         "knowledge.recalled",
         "life.auth_failure",
         "life.budget.pause",
+        "life.config.parse_failed",
         "life.curator.backend_resolved",
         "life.daemon.degraded",
         "life.daemon.idle_timeout",
@@ -402,7 +404,7 @@
     "tui": {
       "counts": {
         "handled": 101,
-        "hidden": 91,
+        "hidden": 92,
         "missing": 0
       },
       "fallback": "hide",
@@ -528,6 +530,7 @@
         "idea.search.started",
         "knowledge.learned",
         "knowledge.recalled",
+        "life.config.parse_failed",
         "life.curator.backend_resolved",
         "life.daemon.ready",
         "life.engineer.backend_resolved",
@@ -607,7 +610,7 @@
     "web": {
       "counts": {
         "handled": 101,
-        "hidden": 91,
+        "hidden": 92,
         "missing": 0
       },
       "fallback": "hide",
@@ -733,6 +736,7 @@
         "idea.search.started",
         "knowledge.learned",
         "knowledge.recalled",
+        "life.config.parse_failed",
         "life.curator.backend_resolved",
         "life.daemon.ready",
         "life.engineer.backend_resolved",

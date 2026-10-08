@@ -1510,6 +1510,7 @@ class LifeSupervisor(
                 overall_complete=True,
                 status="done",
                 review_status=str(outcome.get("review_status") or "not_assessed"),
+                review_source=str(latest.get("review_source") or ""),
                 final_submission_certified=final_submission_certified,
                 workspace=workspace,
                 state_root=self._project_state_root(),

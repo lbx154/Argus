@@ -626,6 +626,9 @@ class _ClassifyResult:
     fast_reply: str
     greeting_reply: str
     frontdoor_failure: str
+    # The classifier's own SELF mode, before follow-ups are rerouted through
+    # the persistent Manager. Later phases reuse it to judge the turn.
+    classified_self_mode: str = ""
 
 
 # Only Chat fixes the topology. Task requests still need a scope decision.
@@ -783,6 +786,7 @@ def _classify_operator_turn(
     self_mode = str(
         chat_state.get("_frontdoor_self_mode", "inspect") or "inspect"
     ).strip().lower()
+    classified_self_mode = self_mode
     fast_reply = str(
         chat_state.pop("_frontdoor_fast_reply", "") or ""
     ).strip()
@@ -820,6 +824,7 @@ def _classify_operator_turn(
         fast_reply=fast_reply,
         greeting_reply=greeting_reply,
         frontdoor_failure=frontdoor_failure,
+        classified_self_mode=classified_self_mode,
     )
 
 
@@ -1234,6 +1239,13 @@ def _handle_abort_control(
     )
 
 
+def _model_catalog_ids(chat_state: dict[str, Any], backend: str) -> list[str]:
+    """The model ids ``backend`` accepts, for vetting chat model changes."""
+    from .mission_items import backend_model_ids
+
+    return backend_model_ids(backend, chat_state.get("global_root"))
+
+
 def _maybe_apply_config_intent(
     mem: Any,
     intent: Any,
@@ -1256,7 +1268,13 @@ def _maybe_apply_config_intent(
         return _cancelled_result()
     cfg_lines: list[str] = []
     try:
-        applied = _apply_config_intent(mem, intent, chat_state, on_confirm=cfg_lines.append)
+        applied = _apply_config_intent(
+            mem,
+            intent,
+            chat_state,
+            on_confirm=cfg_lines.append,
+            model_catalog=lambda backend: _model_catalog_ids(chat_state, backend),
+        )
     except Exception:  # noqa: BLE001 — a config-apply hiccup must never block the message
         applied = False
     if not applied:

@@ -118,7 +118,10 @@ def _verification_directive() -> str:
     return (
         "Trust consistent evidence; recheck gaps, stale evidence, contradictions, or "
         "implausibility only. Read beyond git diff. Identity drift proves neither "
-        "failure nor causation without this mission's mutation command.\n\n"
+        "failure nor causation without this mission's mutation command. "
+        "Check which data split each reported metric was computed on, and "
+        "whether the deliverable is still what the operator's own words asked "
+        "for.\n\n"
     )
 
 
@@ -157,6 +160,64 @@ def _audit_integrity_directive(context: str) -> str:
         "do not treat a summarized command log as the missing byte-faithful command. "
         "Preserve useful corrections, but return `continue`, `replan_requested`, or "
         "`blocked` when the required historical integrity is irrecoverable.\n\n"
+    )
+
+
+_ARTIFACT_SCAN_SKIP_DIRS = frozenset(
+    {".git", ".argus", "node_modules", "__pycache__", ".venv", "venv", ".cache"}
+)
+_ARTIFACT_SCAN_MAX_ENTRIES = 50_000
+
+
+def _changed_artifact_block(
+    working_dir: str | Path | None, since_ts: float | None
+) -> str:
+    """List workspace files modified since the round started.
+
+    Mission workspaces are usually not git repositories, so this reads file
+    modification times under the workspace itself rather than version control.
+    Paths are relative to the workspace and never leave it.
+    """
+    if since_ts is None or working_dir is None:
+        return ""
+    root = Path(working_dir).expanduser()
+    if not root.is_dir():
+        return ""
+    changed: list[tuple[float, str]] = []
+    seen = 0
+    stack = [root]
+    while stack and seen < _ARTIFACT_SCAN_MAX_ENTRIES:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
+            continue
+        for entry in entries:
+            seen += 1
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir():
+                    if entry.name not in _ARTIFACT_SCAN_SKIP_DIRS:
+                        stack.append(Path(entry.path))
+                    continue
+                mtime = entry.stat().st_mtime
+            except OSError:
+                continue
+            if mtime >= since_ts:
+                rel = Path(entry.path).relative_to(root).as_posix()
+                changed.append((mtime, rel))
+    if not changed:
+        return ""
+    changed.sort(reverse=True)
+    paths = [rel for _, rel in changed]
+    shown = ", ".join(paths[:20])
+    if len(paths) > 20:
+        shown += f", +{len(paths) - 20} more"
+    return (
+        "\nWorkspace files modified during this round, newest first (open the "
+        "ones a claim rests on; the account above is a summary): "
+        f"{sanitize_model_visible_text(shown)}\n"
     )
 
 
@@ -240,6 +301,7 @@ def render_reviewer_prompt(
     vertical_state_root: str | Path | None = None,
     vertical: str = "",
     workflow_mode: str | None = None,
+    round_started_ts: float | None = None,
 ) -> tuple[str, str]:
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``."""
     from ...core.project import resolve_project_root
@@ -565,6 +627,10 @@ def render_reviewer_prompt(
         if raw_evidence.strip()
         else ""
     )
+    # Given only the Engineer's summary, reviewers missed evaluation on the
+    # training split; given the artifacts, they caught it. Point at the files
+    # this round touched so the Reviewer opens them rather than the account.
+    artifact_block = _changed_artifact_block(working_dir, round_started_ts)
     # Source handoff is a workspace fact, not another unconditional role rule.
     # Keep ordinary reviews small and the static prefix stable across projects.
     source_block = ""
@@ -763,6 +829,7 @@ def render_reviewer_prompt(
         + engineer_account
         + "\n\n"
         + f"{evidence_block}"
+        + artifact_block
         + source_block
         # OperatorContext is intentionally the final live-facts block: this
         # preserves the static cache prefix and improves steering recency.
@@ -789,6 +856,7 @@ def render_reviewer_prompt(
             "shared_context": shared_context_block + incremental_review_block,
             "main_summary": main_summary,
             "raw_evidence": evidence_block,
+            "changed_artifacts": artifact_block,
             "web_sources": source_block,
         }
     )

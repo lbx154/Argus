@@ -569,7 +569,7 @@ def test_natural_language_config_change_is_applied_inline(tmp_path: Path, monkey
         # config request → non-None intent (apply path); else None + route.
         return (object() if "xhigh" in text else None), "simple"
 
-    def _fake_apply(mem, intent, chat_state, *, on_confirm=None):
+    def _fake_apply(mem, intent, chat_state, *, on_confirm=None, **_kw):
         if on_confirm:
             on_confirm("Set Engineer reasoning effort to xhigh.")
         return True
@@ -618,7 +618,7 @@ def test_active_mission_config_change_is_still_applied_inline(
         lambda *a, **k: (intent, None, "complex"),
     )
 
-    def _apply(mem, candidate, chat_state, *, on_confirm=None):
+    def _apply(mem, candidate, chat_state, *, on_confirm=None, **_kw):
         applied.append(candidate)
         if on_confirm:
             on_confirm("Set budget to $20.")

@@ -42,7 +42,7 @@ export function ChatBox({
 }: {
   value: string;
   onChange: (text: string) => void;
-  onSend: (text: string, attachments?: File[]) => boolean | Promise<boolean>;
+  onSend: (text: string, attachments?: File[], observe?: undefined, options?: { whileRunning?: boolean }) => boolean | Promise<boolean>;
   onCancel: () => void;
   disabled: boolean;
   pending: boolean;
@@ -67,6 +67,8 @@ export function ChatBox({
   const [attachmentNotice, setAttachmentNotice] = useState('');
   const [dragDepth, setDragDepth] = useState(0);
   const [focused, setFocused] = useState(false);
+  const [queuedNotice, setQueuedNotice] = useState(false);
+  useEffect(() => { if (!pending) setQueuedNotice(false); }, [pending]);
   useEffect(() => {
     if (!pending && !rewriting) return;
     // CSS animates the eye; only elapsed durations need a once-per-second tick.
@@ -89,15 +91,22 @@ export function ChatBox({
     taRef.current?.focus();
   };
   const submit = async () => {
-    if (!value.trim() || pending || disabled || rewriting || submitting.current) return;
+    if (!value.trim() || disabled || rewriting || submitting.current) return;
+    // Typing during a running reply is a follow-up, not a lost keystroke.
+    const whileRunning = pending;
+    if (whileRunning && attachments.length) { setAttachmentNotice(t('chat.attachWhileRunning')); return; }
     submitting.current = true;
     try {
       // The shared App controller owns draft/attachment clearance, including
       // when the operator switches to the map during an upload.
-      if (await onSend(value.trim(), attachments)) {
+      const accepted = whileRunning
+        ? await onSend(value.trim(), [], undefined, { whileRunning: true })
+        : await onSend(value.trim(), attachments);
+      if (accepted) {
         onSlashSelectionChange(0);
         setMenuDismissed(false);
         setAttachmentNotice('');
+        setQueuedNotice(whileRunning);
       }
     } finally { submitting.current = false; }
   };
@@ -151,7 +160,7 @@ export function ChatBox({
           {seconds ? <span className="shrink-0 font-mono tabular-nums text-ink-faint">{seconds}</span> : null}
         </li>;
       })}</ol> : null}
-      <div className="mt-1 text-xs text-ink-faint">{t('chat.stopWaitingHint')}</div>
+      <div className="mt-1 text-xs text-ink-faint" role="status">{queuedNotice ? t('chat.queuedWhileRunning') : t('chat.stopWaitingHint')}</div>
     </div> : null}
     {completionOpen ? <SlashCompletionMenu query={value} selected={bounded} onSelect={applySelected} /> : null}
     {(attachments.length || attachmentNotice || dragDepth > 0) ? <div className="px-3 py-2">

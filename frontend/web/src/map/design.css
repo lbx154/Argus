@@ -358,6 +358,7 @@
 .argus-map .map-state-question { --state: var(--pig-gamboge); }
 .argus-map .map-state-paused { --state: var(--pig-ochre); }
 .argus-map .map-state-review_unavailable { --state: var(--pig-ochre); }
+.argus-map .map-state-held { --state: var(--pig-ochre); }
 .argus-map .map-state-superseded { --state: var(--pig-lotus); }
 .argus-map .map-state-recorded,
 .argus-map .map-state-aborted,
@@ -595,6 +596,7 @@
 .argus-map .map-progress i[data-bucket="question"] { background: var(--pig-gamboge); }
 .argus-map .map-progress i[data-bucket="failed"] { background: var(--pig-vermilion); }
 .argus-map .map-progress i[data-bucket="review_unavailable"] { background: var(--pig-ochre); }
+.argus-map .map-progress i[data-bucket="held"] { background: var(--pig-ochre); opacity: .6; }
 
 .argus-map .map-final-review {
   display: flex;

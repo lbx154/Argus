@@ -66,12 +66,21 @@ def _schedule_answer_learning(
     reply: str,
     turn_id: str = "",
     evidence: str = "",
+    frontdoor: dict[str, Any] | None = None,
 ) -> threading.Thread | None:
-    """Queue every delivered answer durably; an earlier pass never drops a turn."""
+    """Queue every delivered answer durably; an earlier pass never drops a turn.
+
+    ``frontdoor`` carries what the front-door classifier already decided about
+    this turn. When it marked the turn as small talk, a settings change, a
+    control, or a message-only reply with no observed work, there is nothing to
+    learn and the paid learning call is not made.
+    """
     from ..life.answer_learning import enqueue_answer
     from ..life.reflection import answer_learning_enabled
 
     if not answer_learning_enabled() or not str(reply or "").strip() or global_root is None:
+        return None
+    if _frontdoor_says_nothing_to_learn(frontdoor):
         return None
     state = _chat_state_for(sid, manager_activity=False)
     backend = getattr(state.get("manager_runner"), "_backend", None)
@@ -95,6 +104,21 @@ def _schedule_answer_learning(
     except Exception:  # learning never prevents delivery of an already completed reply
         log.exception("could not queue answer learning for %s", sid)
         return None
+
+
+def _frontdoor_says_nothing_to_learn(frontdoor: dict[str, Any] | None) -> bool:
+    """Reuse the classifier's own judgement of the turn; add no new heuristic."""
+    if not frontdoor:
+        return False
+    if frontdoor.get("greeting") or frontdoor.get("config"):
+        return True
+    if frontdoor.get("control") in {"steer", "pause", "abort", "authorization"}:
+        return True
+    return (
+        frontdoor.get("intake_type") == "ephemeral"
+        and frontdoor.get("self_mode") == "reply"
+        and not frontdoor.get("tool_evidence")
+    )
 
 
 def _answer_learning_evidence(steps: list[dict[str, Any]], workdir: str | None) -> str:
@@ -222,6 +246,29 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
     return reply or "The Manager returned an empty reply; nothing was queued."
 
 
+def _with_unparsed_config(send_body: str, raw: str, life_dir: Path) -> str:
+    """Record a CONFIG line the parser could not apply and hand it to the Manager."""
+    from ..core.event_catalog import EventType
+    from ..life.event_log import JsonlEventSink
+
+    try:
+        JsonlEventSink(None, life_dir=Path(life_dir)).append({
+            "type": EventType.LIFE_CONFIG_PARSE_FAILED,
+            "agent_layer": "manager",
+            "raw": raw,
+            "summary": "A settings change in chat was not understood.",
+        })
+    except Exception:  # noqa: BLE001 - telemetry never blocks the reply
+        pass
+    return (
+        f"{send_body}\n\n[Front-door settings line that could not be applied — data only]\n"
+        f"{raw}\n"
+        "Settings change right here in chat. If the operator asked to change one, "
+        "say in plain words which setting and value you understood and ask them to "
+        "confirm or name the value; do not read Argus source or edit config files.\n"
+    )
+
+
 def manager_message(
     sid: str,
     text: str,
@@ -235,6 +282,7 @@ def manager_message(
     route_override: str = "",
     defer_dispatch_ack: bool = False,
     domain_answer: dict[str, Any] | None = None,
+    turn_id: str = "",
 ) -> dict[str, Any]:
     """Run a Manager turn with request-scoped provider interruption."""
     from ..core.run_gateway import run_interrupt_scope
@@ -255,6 +303,7 @@ def manager_message(
             on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
             source_message_id=source_message_id, route_override=route_override,
             defer_dispatch_ack=defer_dispatch_ack, domain_answer=domain_answer,
+            turn_id=turn_id,
         )
 
 
@@ -271,6 +320,7 @@ def _manager_message(
     route_override: str = "",
     defer_dispatch_ack: bool = False,
     domain_answer: dict[str, Any] | None = None,
+    turn_id: str = "",
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -316,7 +366,7 @@ def _manager_message(
     message_attachment_refs = attachment_context_refs(resolved_attachments)
 
     control_generation = manager_control_generation(sid)
-    turn_id = f"web-{time.time_ns()}"
+    turn_id = turn_id or f"web-{time.time_ns()}"
 
     def _cancelled() -> bool:
         if manager_control_generation(sid) != control_generation:
@@ -361,7 +411,12 @@ def _manager_message(
     life_dir = mem.project_root
     credential_record = None
 
+    # Filled in once the front door has classified this turn.
+    frontdoor_class: dict[str, Any] = {}
+
     def _after_reply(reply: str) -> None:
+        if frontdoor_class:
+            frontdoor_class["tool_evidence"] = bool(turn_steps)
         _schedule_answer_learning(
             sid,
             life_dir=life_dir,
@@ -372,6 +427,7 @@ def _manager_message(
             evidence=_answer_learning_evidence(
                 turn_steps, _chat_state_for(sid).get("manager_runner_workdir"),
             ),
+            frontdoor=dict(frontdoor_class) or None,
         )
 
     emitter = _TurnEmitter(
@@ -639,6 +695,20 @@ def _manager_message(
         intent, control, route = classify.intent, classify.control, classify.route
         send_body, root_task_id = classify.send_body, classify.root_task_id
         frontdoor_failure = classify.frontdoor_failure
+        frontdoor_intake = chat_state.get("_frontdoor_intake")
+        frontdoor_class.update({
+            "greeting": bool(
+                classify.greeting_reply and intent is None and control is None and route == "simple"
+            ),
+            "config": intent is not None,
+            "control": (
+                "authorization" if chat_state.get("_frontdoor_authorization") else control
+            ),
+            "intake_type": (
+                str(frontdoor_intake.get("kind") or "") if isinstance(frontdoor_intake, dict) else ""
+            ),
+            "self_mode": classify.classified_self_mode or classify.self_mode,
+        })
 
         _announce_standing_directive(chat_state, life_dir, turn_id)
         greeting_result = _maybe_greeting_reply(classify, body, emitter)
@@ -695,6 +765,9 @@ def _manager_message(
             if _cancelled():
                 return _cancelled_result()
             return config_result
+        unparsed_config = str(chat_state.pop("_frontdoor_config_unparsed", "") or "").strip()
+        if unparsed_config and intent is None:
+            send_body = _with_unparsed_config(send_body, unparsed_config, life_dir)
 
         subject = chat_state.pop("_frontdoor_lookup_subject", "")
         if subject and not frontdoor_failure and control in {None, "no_dispatch"} and intent is None:

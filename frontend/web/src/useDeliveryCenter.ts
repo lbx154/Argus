@@ -7,10 +7,13 @@ function readSeen(key: string): string[] {
   try { const ids: unknown = JSON.parse(readLocalStorage(key) || '[]'); return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []; } catch { return []; }
 }
 
-/** Historical receipts stay accessible; only a newly received file delivery interrupts. */
+/** Historical receipts stay accessible; a newly received file delivery is announced
+ * (badge + dismissible toast) but never opens the full-screen viewer on its own,
+ * so the reply and the composer draft stay visible. */
 export function useDeliveryCenter(sid: string | null, ready: boolean, receipt: DeliveryReceipt | null, canAutoOpen = true) {
   const observed = useRef<{ sid: string; ids: Set<string> }>();
   const [selection, setSelection] = useState<{ sid: string; receipt: DeliveryReceipt; path: string | null } | null>(null);
+  const [fresh, setFresh] = useState<{ sid: string; receipt: DeliveryReceipt } | null>(null);
   const markSeen = useCallback((id: string) => {
     if (!sid) return;
     const key = `argus.delivery.seen.v1:${sid}`;
@@ -22,6 +25,7 @@ export function useDeliveryCenter(sid: string | null, ready: boolean, receipt: D
     const files = deliveryFiles(next);
     const path = files.find((file) => file.path === preferredPath)?.path || files[0]?.path || null;
     setSelection({ sid, receipt: next, path });
+    setFresh(null);
   }, [sid, markSeen]);
   useEffect(() => {
     if (!sid || !ready) return;
@@ -29,15 +33,18 @@ export function useDeliveryCenter(sid: string | null, ready: boolean, receipt: D
     if (observed.current?.sid !== sid) {
       observed.current = { sid, ids: new Set(id ? [id] : []) };
       setSelection(null);
+      setFresh(null);
       return;
     }
     if (!id || observed.current.ids.has(id) || !canAutoOpen) return;
     observed.current.ids.add(id);
-    if (receipt && deliveryFiles(receipt).length && !readSeen(`argus.delivery.seen.v1:${sid}`).includes(id)) open(receipt);
-  }, [sid, ready, receipt, open, canAutoOpen]);
+    if (receipt && deliveryFiles(receipt).length && !readSeen(`argus.delivery.seen.v1:${sid}`).includes(id)) setFresh({ sid, receipt });
+  }, [sid, ready, receipt, canAutoOpen]);
   return {
     selection: selection?.sid === sid ? selection : null,
     open,
+    fresh: fresh?.sid === sid ? fresh.receipt : null,
+    dismissFresh: useCallback(() => setFresh(null), []),
     close: useCallback(() => setSelection(null), []),
     selectPath: useCallback((path: string) => setSelection((current) => current ? { ...current, path } : current), []),
   };

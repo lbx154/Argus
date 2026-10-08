@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from . import DEFAULT_UPSTREAM_MODEL, MAP_REASONING_DEFAULTS
+from . import DEFAULT_UPSTREAM_MODEL, map_reasoning_knobs
 from .copilot import BASE_URL, HEADERS, Copilot
 from .model_catalog import configured_model_ids
 from .secrets import Vault, write_private
@@ -19,7 +19,7 @@ from .secrets import Vault, write_private
 def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str | None = None,
                        model_port: int = 18765, training_socket: Path | None = None) -> None:
     from ..core.knob_store import write_persisted_knobs
-    from ..core.knobs import KNOBS, resolve_knob
+    from ..core.knobs import KNOBS
 
     if not agent_bin.is_file() or not os.access(agent_bin, os.X_OK):
         raise ValueError("The configured Argus-Pi executable is unavailable")
@@ -45,7 +45,7 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str
         "ARGUS_SKILL_BACKEND_AUTH_MODE": "subscription_cli",
         "ARGUS_SKILL_PI_PROVIDER": "argus",
         "ARGUS_SKILL_COPILOT_TRIAL": "0",
-        **{name: resolve_knob(name, default).value for name, default in MAP_REASONING_DEFAULTS.items()},
+        **map_reasoning_knobs(),
         **{knob.name: DEFAULT_UPSTREAM_MODEL for knob in KNOBS if knob.name.endswith("_MODEL")},
     }
     for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR", "CURATOR"):

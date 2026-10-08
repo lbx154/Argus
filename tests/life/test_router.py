@@ -125,7 +125,8 @@ def test_build_quick_reply_prompt_never_points_operator_at_the_backend_cli() -> 
     silently regress."""
     out = build_quick_reply_prompt(objective="把你的模型换成sonnet 5")
     assert "backend's CLI" in out
-    assert "/backend" in out and "/config" in out
+    assert "/backend" not in out and "/config" not in out
+    assert "by saying so in this chat" in out
 
 
 def test_build_quick_reply_prompt_includes_identity_when_given() -> None:
@@ -165,7 +166,8 @@ def test_build_simple_prompt_never_points_operator_at_the_backend_cli() -> None:
     without this guard."""
     out = build_simple_prompt(objective="把你的模型换成sonnet 5")
     assert "backend's CLI" in out
-    assert "/backend" in out and "/config" in out
+    assert "/backend" not in out and "/config" not in out
+    assert "by saying so in this chat" in out
 
 
 def test_build_simple_prompt_omits_mission_status_block_when_empty() -> None:

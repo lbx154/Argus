@@ -324,6 +324,12 @@ class CommandRouter:
             f"🎯 {_esc(queued.objective[:200])}"
         )
 
+    def _backend_model_ids(self, backend: str) -> list[str]:
+        """The model ids ``backend`` accepts, the same list the web chat vets against."""
+        from ...webapi.mission_items import backend_model_ids
+
+        return backend_model_ids(backend, self.life_dir.parent.parent)
+
     def _cmd_free_text(self, text: str) -> None:
         """Route natural chat text to the most timely useful action."""
         from ...apps._inbox import queue_inbox_message
@@ -365,6 +371,7 @@ class CommandRouter:
                 intent,
                 self._state,
                 on_confirm=confirmations.append,
+                model_catalog=self._backend_model_ids,
             ):
                 self._reply("\n".join(confirmations))
                 return

@@ -8,8 +8,11 @@ become completion receipts.
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 import html
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -18,6 +21,15 @@ from urllib.parse import unquote, urlsplit
 
 DELIVERY_SCHEMA_VERSION = 1
 MAX_DELIVERY_TARGETS = 6
+# Snapshots keep each delivery readable after later turns overwrite the same
+# file. Only modest text files are copied; anything larger or binary is
+# recorded by hash so the history still proves *which* version was delivered.
+MAX_SNAPSHOT_BYTES = 512 * 1024
+SNAPSHOT_DIRNAME = "delivery_snapshots"
+# Each work item keeps the files of its most recent deliveries; older versions
+# no item still references are deleted so the store cannot grow without bound.
+MAX_SNAPSHOT_DELIVERIES_PER_ITEM = 10
+_SNAPSHOT_INDEX = "index.json"
 
 _MARKDOWN_TARGET_RE = re.compile(
     r"!?\[[^\]\r\n]*\]\(\s*(?:<(?P<angled>[^>\r\n]+)>|(?P<plain>[^\s)\r\n]+))",
@@ -357,6 +369,117 @@ def _vertical_primary_targets(
     ]
 
 
+def _snapshot_dir(state_root: Path) -> Path:
+    return state_root / SNAPSHOT_DIRNAME
+
+
+def snapshot_delivery_targets(
+    workspace: Path,
+    state_root: Path,
+    targets: Iterable[dict[str, str]],
+    *,
+    item_id: str = "",
+) -> list[dict[str, Any]]:
+    """Content-address each delivered file so later deliveries cannot erase it."""
+    out: list[dict[str, Any]] = []
+    for target in targets:
+        rel = str(target.get("path") or "")
+        try:
+            data = (workspace / rel).read_bytes()
+        except OSError:
+            continue
+        digest = hashlib.sha256(data).hexdigest()
+        entry: dict[str, Any] = {"path": rel, "sha256": digest, "size": len(data), "stored": False}
+        if len(data) <= MAX_SNAPSHOT_BYTES and b"\0" not in data:
+            try:
+                data.decode("utf-8")
+                dest = _snapshot_dir(state_root) / digest
+                if not dest.exists():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    tmp = dest.with_suffix(f".{os.getpid()}.tmp")
+                    tmp.write_bytes(data)
+                    tmp.replace(dest)
+                entry["stored"] = True
+            except (UnicodeDecodeError, OSError):
+                pass
+        out.append(entry)
+    stored = [entry["sha256"] for entry in out if entry["stored"]]
+    if stored:
+        _record_and_prune_snapshots(state_root, item_id or "_", stored)
+    return out
+
+
+def _record_and_prune_snapshots(state_root: Path, item_id: str, digests: list[str]) -> None:
+    """Remember which versions each item delivered and drop unreferenced old ones."""
+    root = _snapshot_dir(state_root)
+    lock_path = root / ".lock"
+    try:
+        import fcntl
+
+        root.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            index_path = root / _SNAPSHOT_INDEX
+            try:
+                raw = json.loads(index_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raw = {}
+            index: dict[str, list[list[str]]] = {
+                str(key): [
+                    [d for d in group if isinstance(d, str)]
+                    for group in value
+                    if isinstance(group, list)
+                ]
+                for key, value in (raw.items() if isinstance(raw, dict) else [])
+                if isinstance(value, list)
+            }
+            history = index.setdefault(item_id, [])
+            # A rebuild or replay of unchanged files is not a new version; only
+            # record it when the content differs, so it cannot push genuinely
+            # older versions out of the kept window.
+            if not history or sorted(history[-1]) != sorted(digests):
+                history.append(digests)
+            del history[:-MAX_SNAPSHOT_DELIVERIES_PER_ITEM]
+            tmp = index_path.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(index), encoding="utf-8")
+            tmp.replace(index_path)
+            keep = {d for groups in index.values() for group in groups for d in group}
+            for blob in root.iterdir():
+                if re.fullmatch(r"[0-9a-f]{64}", blob.name) and blob.name not in keep:
+                    blob.unlink(missing_ok=True)
+    except OSError:
+        return
+
+
+def read_delivery_snapshot(state_root: Path | str, sha256: str) -> str | None:
+    """Return the stored text of a delivered file version, if it was snapshotted."""
+    if not re.fullmatch(r"[0-9a-f]{64}", str(sha256 or "")):
+        return None
+    try:
+        return (_snapshot_dir(Path(state_root)) / sha256).read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def delivery_snapshot_diff(
+    state_root: Path | str, previous: dict[str, Any], current: dict[str, Any]
+) -> str | None:
+    """Unified diff between two delivered versions of the same file."""
+    before = read_delivery_snapshot(state_root, str(previous.get("sha256") or ""))
+    after = read_delivery_snapshot(state_root, str(current.get("sha256") or ""))
+    if before is None or after is None:
+        return None
+    path = str(current.get("path") or previous.get("path") or "file")
+    return "".join(
+        difflib.unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+        )
+    )
+
+
 def build_delivery_receipt(
     *,
     item_id: str,
@@ -367,6 +490,7 @@ def build_delivery_receipt(
     status: str,
     review_status: str,
     final_submission_certified: bool,
+    review_source: str = "",
     workspace: Path | str | None,
     state_root: Path | str | None,
     stage: str = "",
@@ -419,11 +543,24 @@ def build_delivery_receipt(
         return None
 
     kind = "submission_certified" if final_submission_certified else "task_completed"
+    delivered_at = time.time()
+    snapshots = (
+        snapshot_delivery_targets(root, manifest_root, targets, item_id=normalized_item_id)
+        if root is not None and manifest_root is not None
+        else []
+    )
+    # The same item can be delivered again after later work changes its files.
+    # The revision is the delivered content: a replay or rebuild of unchanged
+    # files keeps this ID (no duplicate notice), while a redelivery with changed
+    # files gets a new one (new notice, its own snapshot in history).
+    revision = hashlib.sha256(
+        json.dumps(
+            [[t["path"] for t in targets], [(s["path"], s["sha256"]) for s in snapshots]]
+        ).encode()
+    ).hexdigest()[:12]
     return {
         "schema_version": DELIVERY_SCHEMA_VERSION,
-        # An item reaches a given terminal completion state once.  A stable ID
-        # lets every surface deduplicate reconnect/replay notifications.
-        "delivery_id": f"delivery:{normalized_item_id}:{kind}",
+        "delivery_id": f"delivery:{normalized_item_id}:{kind}:{revision}",
         "kind": kind,
         "item_id": normalized_item_id,
         "title": str(title or "Completed task").strip()[:240] or "Completed task",
@@ -431,9 +568,14 @@ def build_delivery_receipt(
         "status": str(status or "done").strip()[:80] or "done",
         "review_status": str(review_status or "not_assessed").strip()[:80]
         or "not_assessed",
-        "delivered_at": time.time(),
+        # Who settled that status: ``reviewer`` is a separate review role;
+        # ``engineer_self_review`` and friends are the worker checking itself.
+        # A ``done`` status alone does not say which, so the UI needs this.
+        "review_source": str(review_source or "").strip()[:80],
+        "delivered_at": delivered_at,
         "primary_target": dict(targets[0]),
         "targets": targets,
+        "snapshots": snapshots,
     }
 
 
@@ -441,6 +583,9 @@ __all__ = [
     "DELIVERY_SCHEMA_VERSION",
     "MAX_DELIVERY_TARGETS",
     "build_delivery_receipt",
+    "delivery_snapshot_diff",
+    "read_delivery_snapshot",
+    "snapshot_delivery_targets",
     "referenced_delivery_paths",
     "reviewed_change_paths",
 ]

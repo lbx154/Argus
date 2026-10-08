@@ -634,6 +634,9 @@ class ReviewerConfig:
     isolate_workdir: bool = False
     working_dir: str | None = None
     artifact_root: str | None = None
+    # Wall-clock start of the Engineer turn under review; workspace files
+    # modified since then are listed for the Reviewer to open.
+    round_started_ts: float | None = None
     vertical_state_root: str | None = None
     narrative_snapshot_root: str | None = None
     review_policy_context: str = ""
@@ -799,6 +802,7 @@ class Reviewer:
             vertical_state_root=config.vertical_state_root,
             vertical=config.active_vertical,
             workflow_mode=config.workflow_mode,
+            round_started_ts=config.round_started_ts,
         )
         venue_policy = ""
         if venue_required:
@@ -1036,6 +1040,7 @@ class Reviewer:
         vertical_state_root: str | Path | None = None,
         vertical: str = "",
         workflow_mode: str | None = None,
+        round_started_ts: float | None = None,
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -1073,6 +1078,7 @@ class Reviewer:
             vertical_state_root=vertical_state_root,
             vertical=vertical,
             workflow_mode=workflow_mode,
+            round_started_ts=round_started_ts,
         )
 
     def _build_prompt(self, **kwargs: Any) -> str:

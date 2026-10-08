@@ -154,6 +154,25 @@ def register_artifact_routes(app, ctx: ServerContext) -> None:
         })
 
     @app.get(
+        "/api/projects/{sid}/delivery-diff",
+        dependencies=[Depends(ctx.require_auth)],
+    )
+    def _delivery_diff(
+        sid: str,
+        response: Response,
+        path: str = Query(..., min_length=1, max_length=1024),
+        before: str = Query(..., pattern=r"^[0-9a-f]{64}$"),
+        after: str = Query(..., pattern=r"^[0-9a-f]{64}$"),
+    ) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "private, no-store"
+        return ctx.not_found_if_none(
+            artifacts.delivery_change(
+                sid, path, before, after, global_root=ctx.project_root_or_404(sid)
+            ),
+            sid,
+        )
+
+    @app.get(
         "/api/projects/{sid}/git-diff",
         dependencies=[Depends(ctx.require_auth)],
     )
