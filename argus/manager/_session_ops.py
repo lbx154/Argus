@@ -584,6 +584,8 @@ class _ManagerSession:
                     options=options,
                     run_label=run_label,
                     resume_thread_id=tid,
+                    # A lost session is rotated below with a handoff.
+                    fresh_on_missing_resume=False,
                 )
                 failed, _detail = _manager_backend_failure(result)
                 if tid and failed and result_has_unrecoverable_resume_state(result):

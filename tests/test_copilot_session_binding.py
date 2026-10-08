@@ -95,7 +95,10 @@ def test_new_session_identity_is_persisted_before_spawn_and_survives_an_exceptio
     tmp_path: Path, copilot,
 ) -> None:
     def fake(kwargs):
-        raise RuntimeError("provider reader failed mid-call")
+        exc = RuntimeError("provider reader failed mid-call")
+        # The CLI had already written a durable session event.
+        exc.provider_session_observed = True
+        raise exc
 
     copilot["install"](fake)
     result = copilot["backend"].run_exec(
