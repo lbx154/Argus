@@ -20,6 +20,7 @@ from argus.core.cost_control import (
 )
 from argus.core.token_usage import extract_token_usage
 from argus.core.usage import UsageLedger
+from argus.core.windows_job import spawn_owned_process, terminate_owned_process
 
 
 @pytest.fixture
@@ -145,7 +146,9 @@ def test_invalid_admission_never_starts_a_reservation(root, field, value):
 
 @pytest.mark.parametrize("observed", [False, True])
 def test_killed_budget_owner_exposes_its_marker_to_normal_python_admission(root, observed):
-    process = subprocess.Popen(
+    # Windows venv python.exe is a launcher, whose PID can differ from the
+    # interpreter holding the budget marker. Own and terminate the whole tree.
+    process = spawn_owned_process(
         [sys.executable, "-m", "argus.adapters.budget_bridge", "--global-root", str(root)],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
@@ -163,15 +166,20 @@ def test_killed_budget_owner_exposes_its_marker_to_normal_python_admission(root,
             process.stdin.flush()
             assert json.loads(responses.get(timeout=10))["ok"]
         assert cost_admission_reason(global_root=root) == ""
-        process.kill()
-        process.wait(timeout=5)
+        if os.name == "nt":
+            assert terminate_owned_process(process) is True
+        else:
+            process.kill()
+            process.wait(timeout=5)
         assert "unresolved provider cost" in cost_admission_reason(global_root=root)
         view = cost_control_snapshot(global_root=root)
         assert view["unacknowledged_observed_cost_usd"] == (0.25 if observed else 0)
         assert view["blocking_unresolved_calls"] == 1
         assert view["in_flight_cost_usd"] == 0
     finally:
-        if process.poll() is None:
+        if os.name == "nt":
+            assert terminate_owned_process(process) is True
+        elif process.poll() is None:
             process.kill()
         process.communicate(timeout=5)
         thread.join(timeout=2)
