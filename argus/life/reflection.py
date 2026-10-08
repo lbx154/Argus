@@ -653,6 +653,7 @@ def _reflect_after_mission(
     if operator_root is not None:
         add_dirs.append(str(operator_root))
     failure = ""
+    stop_kind = ""
     try:
         result = gateway_run_exec(
             backend,
@@ -675,6 +676,7 @@ def _reflect_after_mission(
         int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None)
     ):
         failure = str(getattr(result, "fatal_error", "") or f"exit code {result.exit_code}")
+        stop_kind = str(getattr(result, "stop_kind", "") or "")
 
     after = _snapshot(path for root, _scope in roots for path in _markdown_files(root))
     created_paths, updated_paths = _changed(before, after)
@@ -726,7 +728,7 @@ def _reflect_after_mission(
 
     outcome = {
         "created": created, "updated": updated, "ignored": ignored, "promoted": promoted,
-        "failure": failure, "prompt_chars": len(prompt),
+        "failure": failure, "stop_kind": stop_kind, "prompt_chars": len(prompt),
     }
     if not failure:
         _write_receipt(life_dir, mission_id, {
@@ -918,7 +920,7 @@ def reflect_after_answer(
             )
     except Exception:  # noqa: BLE001 - learning never owns the answer
         log.exception("learning from the answer failed")
-        return {"skipped": "answer learning raised; see the log", "created": [], "updated": []}
+        return {"skipped": "", "failure": "answer learning raised; see the log", "created": [], "updated": []}
 
 
 def _reflect_after_answer(
@@ -946,7 +948,7 @@ def _reflect_after_answer(
         survey_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
         log.warning("reflection: could not prepare %s", survey_dir, exc_info=True)
-        return {"skipped": "survey directory is not writable", "created": [], "updated": []}
+        return {"skipped": "", "failure": "survey directory is not writable", "created": [], "updated": []}
     today = _today()
     existing = _existing_surveys(root)
     operator_root = _operator_root(global_root)
@@ -961,6 +963,7 @@ def _reflect_after_answer(
     if operator_root is not None:
         roots["operator"] = operator_root
     failure = ""
+    stop_kind = ""
     prompt = ""
     published: list[Path] = []
     try:
@@ -986,6 +989,7 @@ def _reflect_after_answer(
             )
             if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
                 failure = str(getattr(result, "fatal_error", "") or f"exit code {result.exit_code}")
+                stop_kind = str(getattr(result, "stop_kind", "") or "")
             else:
                 published = draft.publish()
     except Exception as exc:  # failed or invalid drafts never replace the canonical pages
@@ -1041,7 +1045,7 @@ def _reflect_after_answer(
         log.warning("learning from the answer: model call failed: %s", failure)
     return {
         "skipped": "", "created": created, "updated": updated, "repaired": [],
-        "failure": failure, "prompt_chars": len(prompt),
+        "failure": failure, "stop_kind": stop_kind, "prompt_chars": len(prompt),
     }
 
 
