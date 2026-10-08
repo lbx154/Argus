@@ -49,7 +49,7 @@ _WS = "/work/proj"
     ("text", "expected"),
     [
         ('view: {"path": "/work/proj/src/main.py"}', "查阅 main.py"),
-        ('view: {"path": "/data/sessions/abc/state.json"}', "查阅 Argus 内部文件"),
+        ('view: {"path": "/data/state/projects/abc/state.json"}', "查阅 Argus 内部文件"),
         ('view: {"path": "src/main.py"}', "查阅 main.py"),
         ('grep: {"pattern": "def route", "path": "/work/proj"}', "搜索：def route"),
         ('web_search: {"query": "rl reward shaping"}', "搜索：rl reward shaping"),
@@ -86,8 +86,8 @@ _MISSION = {"kind": "tool_use", "item_id": "7c17ec4c586c", "actor": "reviewer"}
 
 def test_mission_level_item_id_does_not_merge_distinct_calls() -> None:
     dedupe = ProgressDeduper()
-    first = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/a/skill.md"}'}
-    second = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/b/notes.md"}'}
+    first = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/state/skills/a/skill.md"}'}
+    second = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/state/skills/b/notes.md"}'}
     label = describe_progress_step(first, _WS)[0]
     assert label == describe_progress_step(second, _WS)[0] == "查阅 Argus 内部文件"
     assert dedupe.classify(first, label) == "new"
@@ -131,6 +131,23 @@ def test_workspace_from_the_caller_marks_internal_files() -> None:
     assert describe_progress_step(event, _WS)[0] == "查阅 Argus 内部文件"
     inside = {"kind": "tool_use", "text": 'view: {"path": "/work/proj/RESEARCH_NOTES.md"}'}
     assert describe_progress_step(inside, _WS)[0] == "查阅 RESEARCH_NOTES.md"
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        # A repository the operator asked about lives outside the session
+        # workspace; reading it is project work, not Argus plumbing.
+        ("/data/someone/subject-repo/README.md", "查阅 README.md"),
+        ("/srv/state/projects/s-1/handoffs/0f40/CHECKPOINT.md", "查阅 Argus 内部文件"),
+        ("/srv/state/skills/_shared_verticals/research/paper-playbook.md", "查阅 Argus 内部文件"),
+        ("/work/proj/.argus/teams/t1/shards/w1.jsonl", "查阅 Argus 内部文件"),
+        ("/work/proj/.argus/teams/t1/artifacts/routes/route-01.md", "查阅 route-01.md"),
+    ],
+)
+def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> None:
+    event = {"kind": "tool_use", "text": f'read: {{"path": "{path}"}}'}
+    assert describe_progress_step(event, _WS)[0] == expected
 
 
 def test_tally_summarises_a_long_turn_in_plain_counts() -> None:
@@ -185,3 +202,33 @@ def test_strip_shell_wrapper_unwraps_quoted_bash_c() -> None:
     assert strip_shell_wrapper("/bin/bash -lc 'ls -la'") == "ls -la"
     assert strip_shell_wrapper('bash -c "echo hi"') == "echo hi"
     assert strip_shell_wrapper("ls -la") == "ls -la"
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "tool"),
+    [
+        ("tool_use", 'read: {"cells": null, "includeOutputs": false, "path": "/w/handoffs/CHECKPOINT.md"}', "read"),
+        ("command_execution", "cd /w && pytest", "bash"),
+    ],
+)
+def test_failed_call_without_call_id_is_one_failed_step(kind: str, text: str, tool: str) -> None:
+    # The runner reports a failure as a "running" row then a "failed" row with
+    # the same text and no call id. The operator must see one failed step,
+    # not a "completed" step followed by a failed copy of it.
+    from argus.webapi.manager_dispatch import record_turn_step
+
+    base = {"type": "engineer.progress", "kind": kind, "text": text, "actor": "engineer-r1",
+            "agent_layer": "engineer", "tool_name": tool, "item_id": "0f404b224068"}
+    rows = [{**base, "status": "running"},
+            {**base, "status": "failed", "output_excerpt": "includeOutputs requires a notebook cells selection."}]
+    dedupe = ProgressDeduper()
+    steps: list[dict] = []
+    for ts, row in enumerate(rows, start=1):
+        label, detail = describe_progress_step(row, "/w")
+        phase_kind = dedupe.phase_kind(row, label)
+        if not phase_kind:
+            continue
+        record_turn_step(steps, {"kind": phase_kind, "label": label, "detail": detail, "tool": tool,
+                                 "status": row["status"], "output": row.get("output_excerpt", "")}, now=ts)
+    assert [step["status"] for step in steps] == ["failed"]
+    assert steps[0]["ended_ts"] == 2

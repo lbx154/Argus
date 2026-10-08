@@ -102,19 +102,38 @@ _URL_KEYS = ("url", "uri", "href")
 _PATCH_FILE = re.compile(r"\*\*\* (?:Update|Add|Delete) File:\s*(\S+)")
 
 
+# Path segments that only Argus' own plumbing uses: session stores, shared
+# skill libraries, team shards, handoff checkpoints, the shipped verticals.
+# A team's artifacts (routes, reviews) are work products and keep their names.
+_PLUMBING_SEGMENTS = (
+    ("state", "projects"), ("state", "skills"), ("state", "workspaces", "*", ".autors"),
+    ("argus", "verticals"), (".argus", "teams", "*", "shards"), (".autors",),
+    ("role-sessions",), ("copilot-home",),
+)
+
+
+def _is_plumbing(parts: list[str]) -> bool:
+    for marker in _PLUMBING_SEGMENTS:
+        for start in range(len(parts) - len(marker) + 1):
+            if all(want in {"*", parts[start + offset]} for offset, want in enumerate(marker)):
+                return True
+    return False
+
+
 def _short_name(path: str, workspace: str = "") -> str:
     """Return a path the operator can read: a basename, never an absolute path.
 
-    Paths outside the active workspace are Argus' own plumbing (session
-    stores, skill libraries); they are named as such rather than spelled out.
+    Files of Argus' own plumbing (session stores, skill libraries, team
+    shards) are named as such rather than spelled out. Any other file --
+    including a repository outside the session workspace that the operator
+    asked about -- is named by its file name, because reading it is the work.
     """
     text = str(path or "").strip().strip("'\"")
     if not text:
         return ""
-    if os.path.isabs(text) or text.startswith("~"):
-        root = str(workspace or "").rstrip("/")
-        if root and not (text == root or text.startswith(root + "/")):
-            return _INTERNAL_FILE
+    parts = [part for part in text.replace("\\", "/").split("/") if part]
+    if _is_plumbing(parts[:-1]):
+        return _INTERNAL_FILE
     return os.path.basename(text.rstrip("/")) or text
 
 
@@ -190,6 +209,9 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
     verb = _tool_verb(name)
     payload = _parse_args(args)
     path = _first_value(payload, _PATH_KEYS)
+    if verb in {"read", "edit"} and not path and payload is None and args and "{" not in args:
+        # A bare ``read: notes.md`` names its file directly.
+        path = args.split()[0]
     if verb == "edit" and not path:
         match = _PATCH_FILE.search(args or "")
         if match:
@@ -293,6 +315,31 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
         return "working", ""
 
 
+_LEGACY_TOOL_LABEL = re.compile(r"^⚙\s*([\w.-]+)\s*·\s*(.*)$", re.S)
+_RAW_TOOL_TEXT = re.compile(r"^[A-Za-z_][\w.-]{0,40}:\s")
+
+
+def plain_step_label(label: str, tool: str = "", detail: str = "", workspace: str = "") -> str:
+    """Say a stored tool step plainly, whatever shape it was saved in.
+
+    Turn steps saved before plain labels existed read ``⚙ view · {json}``
+    with the full arguments in ``detail``; those are relabelled from the tool
+    and its arguments. A raw ``name: {json}`` text is relabelled the same way.
+    A label that is already plain is returned unchanged, never wrapped again.
+    """
+    text = str(label or "").strip()
+    legacy = _LEGACY_TOOL_LABEL.match(text)
+    if legacy:
+        name = str(tool or "").strip() or legacy.group(1)
+        args = str(detail or "").strip() or legacy.group(2)
+        # ``detail`` of a newer step already carries the ``name: `` prefix.
+        raw = args if _RAW_TOOL_TEXT.match(args) else f"{name}: {args}"
+        return describe_progress_step({"kind": "tool_use", "text": raw}, workspace)[0] or text
+    if _RAW_TOOL_TEXT.match(text):
+        return describe_progress_step({"kind": "tool_use", "text": text}, workspace)[0] or text
+    return text
+
+
 _TERMINAL_FAILURES = frozenset({"failed", "error", "errored", "cancelled", "canceled"})
 
 
@@ -354,6 +401,20 @@ class ProgressDeduper:
     def is_repeat(self, event: Any, label: str) -> bool:
         return self.classify(event, label) == "repeat"
 
+    def phase_kind(self, event: Any, label: str) -> str:
+        """The phase kind to stream for ``event``, or ``""`` to stay silent.
+
+        A new call streams under its own kind. A later report about a call
+        already on screen (it failed) streams as ``tool_result`` so the open
+        step changes in place: a failed read is one failed step, not a
+        "completed" step followed by a second, failed copy of itself.
+        """
+        verdict = self.classify(event, label)
+        if verdict == "repeat":
+            return ""
+        kind = str(event.get("kind") or "") if isinstance(event, dict) else ""
+        return "tool_result" if verdict == "update" else kind
+
 
 class ProgressTally:
     """Running counts of what a long turn has done, for the idle notice."""
@@ -410,5 +471,6 @@ __all__ = [
     "ProgressDeduper",
     "ProgressTally",
     "describe_progress_step",
+    "plain_step_label",
     "strip_shell_wrapper",
 ]

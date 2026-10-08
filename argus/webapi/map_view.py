@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
 from ..core.json_codec import loads_finite_json
-from ..core.progress_step import describe_progress_step
+from ..core.progress_step import plain_step_label
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
 from ..life.memory import LifeMemory, _jsonl_history_paths
@@ -116,8 +116,12 @@ def _step_from_progress(row: dict, workspace: str = "") -> dict:
     kind = str(row.get("kind") or "")
     label = row.get("text") or row.get("action_summary")
     if kind in {"tool_use", "tool_call"}:
-        # The plain "verb + object" label, never ``view: {"path": "/abs"}``.
-        label = describe_progress_step(row, workspace)[0] or label
+        # The plain "verb + object" label, never ``view: {"path": "/abs"}``;
+        # a label that already reads plainly (a manager turn step) is kept.
+        label = plain_step_label(
+            redact_secrets_text(str(label or "")), str(row.get("tool_name") or ""),
+            redact_secrets_text(str(row.get("detail") or "")), workspace,
+        ) or label
     step = {
         "kind": kind,
         "label": text(label, STEP_LABEL_LIMIT),
@@ -333,6 +337,7 @@ def ask_title(asked: str) -> str:
 
 def turn_records(
     rows: list[dict], turns: dict | None = None, asks: dict | None = None,
+    workspace: str = "",
 ) -> dict:
     """Single-agent turns as map cards: what was asked, the work, the answer.
 
@@ -483,7 +488,14 @@ def turn_records(
                     "steps": [
                         {
                             "kind": str(step.get("kind") or "tool_use"),
-                            "label": text(step.get("label"), STEP_LABEL_LIMIT),
+                            "label": text(
+                                plain_step_label(
+                                    str(step.get("label") or ""), str(step.get("tool") or ""),
+                                    str(step.get("detail") or ""), workspace,
+                                ) if str(step.get("kind") or "tool_use") in {"tool_use", "tool_call"}
+                                else step.get("label"),
+                                STEP_LABEL_LIMIT,
+                            ),
                             "ts": _timestamp(step.get("started_ts")),
                             **({"tool": text(step["tool"], 120)} if step.get("tool") else {}),
                             **({"status": text(step["status"], 40)} if step.get("status") else {}),
@@ -606,11 +618,11 @@ def read_map(
                         rows.append(row)
                 except ValueError:
                     continue
-            turns = turn_records(rows, turns, asks)
+            workspace = progress_workspace(life_dir, read_session_meta(root, sid))
+            turns = turn_records(rows, turns, asks, workspace)
             events = list({e["id"]: e for e in [
                 *previous,
-                *normalize_events(rows, task_ids, active, segments,
-                                  progress_workspace(life_dir, read_session_meta(root, sid))),
+                *normalize_events(rows, task_ids, active, segments, workspace),
                 *(event for turn in turns.values() for event in turn["events"]),
             ]}.values())
             binding_truncated |= remember_formations(rows, task_ids, bindings)

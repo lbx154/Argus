@@ -458,7 +458,8 @@ class SelfReplyMixin:
                 elif event_type == "engineer.progress" and not is_reply:
                     label, detail = describe_progress_step(safe_event, progress_workspace)
                     self.tally.observe(safe_event)
-                    if self._dedupe.is_repeat(safe_event, label):
+                    phase_kind = self._dedupe.phase_kind(safe_event, label)
+                    if not phase_kind:
                         self._inner.handle_event(safe_event)
                         return
                     meta = {
@@ -466,7 +467,7 @@ class SelfReplyMixin:
                         for key in _PHASE_META_KEYS
                         if safe_event.get(key) not in (None, "")
                     }
-                    _phase(label, kind=kind, detail=detail, meta=meta or None)
+                    _phase(label, kind=phase_kind, detail=detail, meta=meta or None)
                 self._inner.handle_event(safe_event)
 
             def handle_stream_line(self, stream: str, line: str) -> None:

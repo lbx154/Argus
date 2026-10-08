@@ -1,20 +1,32 @@
 import { useEffect, useState } from 'react';
-import { useI18n } from '../i18n';
+import { useI18n, type Locale } from '../i18n';
+import { plainToolLabel } from '../lib/feedSteps';
+import type { EventMsg } from '../api';
 import { spinnerFrame } from '../lib/soul';
 import { formatStepSeconds, turnStepsElapsedS, type TurnStep } from '../../../core/src/phaseTrail';
 
 const GLYPH: Record<string, string> = { command_execution: '$', tool_use: '⚙', file_change: '✎' };
 const FAILED = new Set(['failed', 'error', 'cancelled', 'canceled']);
 const LEADING_GLYPH = /^(?:[⚙✎↳$…∴▸]|✗ \$)\s*/u;
+const LEGACY_TOOL_LABEL = /^⚙\s*([\w.-]+)\s*·\s*(.*)$/su;
 
 /**
  * The plain "verb + object" label is what a step says; the raw command or
  * arguments it ran with are `secondary`, folded away until asked for.
  */
-export function stepText(step: TurnStep): { primary: string; secondary: string } {
-  const label = step.label.replace(LEADING_GLYPH, '').trim();
+export function stepText(step: TurnStep, locale: Locale = 'zh-CN'): { primary: string; secondary: string } {
   const tool = (step.tool ?? '').trim();
   const detail = (step.detail ?? '').trim();
+  // Turns saved before plain labels stored `⚙ name · {json args}`; say them
+  // the same way new turns do instead of showing the raw call.
+  const legacy = step.label.match(LEGACY_TOOL_LABEL);
+  if (legacy) {
+    const name = legacy[1];
+    const args = detail || legacy[2];
+    const event = { type: 'engineer.progress', kind: 'tool_use', tool_name: tool || name, text: `${name}: ${args}` } as unknown as EventMsg;
+    return { primary: plainToolLabel(event, locale), secondary: args };
+  }
+  const label = step.label.replace(LEADING_GLYPH, '').trim();
   return { primary: label || tool, secondary: detail && detail !== label ? detail : '' };
 }
 
@@ -24,7 +36,7 @@ export function stepText(step: TurnStep): { primary: string; secondary: string }
  * list under a one-line summary so the answer stays in front.
  */
 export function TurnSteps({ steps, live }: { steps: TurnStep[]; live: boolean }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(live);
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -58,7 +70,7 @@ export function TurnSteps({ steps, live }: { steps: TurnStep[]; live: boolean })
       {open ? (
         <ol className="space-y-1 border-t border-line/40 px-3 py-2">
           {steps.map((step, index) => {
-            const { primary, secondary } = stepText(step);
+            const { primary, secondary } = stepText(step, locale);
             const isRunning = step.status === 'running';
             const isFailed = FAILED.has(step.status);
             const elapsed = formatStepSeconds(Math.max(0, (step.ended_ts || now) - step.started_ts));

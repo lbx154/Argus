@@ -632,13 +632,43 @@ def test_team_tool_steps_read_as_plain_actions_without_absolute_paths():
     rows = [
         {"type": "life.mission.started", "item_id": "a", "ts": 1},
         _progress("tool_use", "a", 2, text='view: {"path": "/proj/src/main.py"}', tool_name="view"),
-        _progress("tool_use", "a", 3, text='view: {"path": "/runtime/skills/playbook.md"}', tool_name="view"),
+        _progress("tool_use", "a", 3, text='view: {"path": "/runtime/state/skills/playbook.md"}', tool_name="view"),
         _progress("tool_use", "a", 4, text='glob: {"pattern": "**/*.py"}', tool_name="glob"),
     ]
     segments: dict = {}
     events = normalize_events(rows, {"a"}, set(), segments, "/proj")
     steps = [s for e in events if e["type"] == "work.segment" for s in e["steps"]]
     assert [s["label"] for s in steps] == ["查阅 main.py", "查阅 Argus 内部文件", "查找 .py 文件"]
+
+
+def test_steps_that_already_read_plainly_are_not_relabelled_again():
+    # Manager turn steps are stored already labelled; older ones stored
+    # "⚙ name · {json}" with the full arguments in ``detail``.
+    rows = [
+        {"type": "life.mission.started", "item_id": "a", "ts": 1},
+        _progress("tool_use", "a", 2, text="查阅 Argus 内部文件", tool_name="view", turn_step=True),
+        _progress("tool_use", "a", 3, text='⚙ view · {"path": "/proj/src/ma…', tool_name="view",
+                  turn_step=True, detail='{"path": "/proj/src/main.py"}'),
+    ]
+    events = normalize_events(rows, {"a"}, set(), {}, "/proj")
+    steps = [s for e in events if e["type"] == "work.segment" for s in e["steps"]]
+    assert [s["label"] for s in steps] == ["查阅 Argus 内部文件", "查阅 main.py"]
+
+
+def test_turn_cards_saved_with_raw_tool_labels_read_plainly():
+    detail = '{"cells": null, "includeOutputs": null, "limit": 100, "path": "/proj/README.md"}'
+    rows = [
+        {"type": "ui.operator", "message_id": "web-9-operator", "ts": 9, "text": "看看 README"},
+        {"type": "ui.argus", "message_id": "web-9-argus", "ts": 13, "text": "好了。", "steps": [
+            {"kind": "tool_use", "label": '⚙ read · {"cells": null, "includeOutputs": null, "limit"…',
+             "tool": "read", "detail": detail, "status": "completed", "started_ts": 10.0, "ended_ts": 11.0},
+            {"kind": "command_execution", "label": "$ wc -l README.md", "tool": "bash",
+             "status": "completed", "started_ts": 11.0, "ended_ts": 12.0},
+        ]},
+    ]
+    turns = turn_records(rows, {}, {}, "/proj")
+    work = turns["turn:web-9"]["events"][0]
+    assert [s["label"] for s in work["steps"]] == ["查阅 README.md", "$ wc -l README.md"]
 
 
 def test_two_narrations_without_work_between_them_are_one_thought():
@@ -827,7 +857,7 @@ def test_durable_tool_steps_take_priority_over_legacy_execution_receipts():
     rows[-1]["steps"] = [{"kind": "tool_use", "label": "read: actual.csv",
                          "started_ts": 11, "ended_ts": 12, "status": "completed"}]
     work = turn_records(rows)["turn:web-legacy"]["events"][0]
-    assert work["steps"][0]["label"] == "read: actual.csv"
+    assert work["steps"][0]["label"] == "查阅 actual.csv"
     assert "tool_details_recorded" not in work
     assert work["association"] == "explicit"
 

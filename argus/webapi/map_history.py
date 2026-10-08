@@ -161,19 +161,19 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
             # carry over between pages, like the active-mission window does.
             segments = state.get("segments") or {}
             turn_asks = state.get("turn_asks") or {}
+            workspace = progress_workspace(life_dir)
             for rows in read.batches:
                 owners = known_ids | active | {
                     str(row.get("item_id") or row.get("mission_id") or "") for row in rows
                 }
-                normalized = normalize_events(rows, owners - {""}, active, segments,
-                                              progress_workspace(life_dir))
+                normalized = normalize_events(rows, owners - {""}, active, segments, workspace)
                 omitted.update(e["item_id"] for e in normalized if e["item_id"] not in known_ids)
                 events = [e for e in normalized if e["item_id"] in known_ids]
                 # Turn cards are derived from these very events, so their
                 # records need no owner in the task list to be kept.
                 events.extend(
                     event
-                    for turn in turn_records(rows, {}, turn_asks).values()
+                    for turn in turn_records(rows, {}, turn_asks, workspace).values()
                     for event in turn["events"]
                 )
                 # A rewritten event (a step retired as superseded, streamed

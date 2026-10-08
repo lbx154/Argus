@@ -17,6 +17,17 @@ describe('progress in plain words', () => {
     expect(stepText({ ...step, kind: 'command_execution', label: '$ pytest -q', tool: 'Run tests', detail: '' }).primary).toBe('pytest -q');
   });
 
+  it('turn steps saved before plain labels existed are relabelled when shown', () => {
+    // Stored shape of an older turn: glyph + tool + clipped JSON, full args in detail.
+    const detail = '{"cells": null, "includeOutputs": null, "limit": 100, "path": "/data/proj/README.md"}';
+    const old = { kind: 'tool_use', label: '⚙ read · {"cells": null, "includeOutputs": null, "limit"…', tool: 'read', detail, status: 'completed', started_ts: 1, ended_ts: 2 };
+    const { primary, secondary } = stepText(old, 'zh-CN');
+    expect(primary).toBe('查阅 README.md');
+    expect(secondary).toBe(detail);
+    const view = stepText({ ...old, label: '⚙ view · {"path": "/data/proj/src"}', tool: 'view', detail: '{"path": "/data/proj/src"}' }, 'en');
+    expect(view.primary).toBe('Read src');
+  });
+
   it('feed tool rows read as verb + object without JSON or absolute paths', () => {
     const cases: Array<[EventMsg, string]> = [
       [tool('view: {"path": "/data/proj/work/RESEARCH_NOTES.md"}', 'view'), '查阅 RESEARCH_NOTES.md'],
