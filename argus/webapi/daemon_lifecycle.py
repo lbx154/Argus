@@ -20,6 +20,7 @@ from ..core.session import (
     read_session_meta,
     resolve_session_workdir,
     session_lifecycle_lock,
+    session_name_is_open,
     session_workdir_is_bound,
     update_session_meta,
     write_session_meta,
@@ -594,7 +595,7 @@ def create_daemon(
             sid,
             obj,
             global_root=root,
-            name_session=not bool(meta.display_name),
+            name_session=session_name_is_open(meta),
         )
         def _finish_session(current: SessionMeta) -> None:
             current.objective = obj

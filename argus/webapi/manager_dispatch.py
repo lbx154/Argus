@@ -198,10 +198,10 @@ def manager_bounded_handoff(
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
         if name_session:
-            from ..core.session import read_session_meta
+            from ..core.session import read_session_meta, session_name_is_open
 
             meta = read_session_meta(mem.global_root, sid)
-            if meta is None or not meta.display_name.strip():
+            if session_name_is_open(meta):
                 from ..manager.config_intent import _front_door_classify
 
                 _front_door_classify(

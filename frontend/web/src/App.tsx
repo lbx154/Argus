@@ -18,7 +18,7 @@ import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './comp
 import { PendingBanner } from './components/PendingBanner';
 import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
-import { rankProjects } from '../../core/src/projects';
+import { hasHumanProjectLabel, rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { QuestionFoundation } from './research-brief/QuestionFoundation';
 import { ProgressQuestionsProvider, ProgressQuestionHistoryButton } from './research-brief/ProgressQuestions';
@@ -983,7 +983,7 @@ export default function App() {
         ];
     const proj: PaletteItem[] = projects.map((p) => ({
       id: `p-${p.id}`,
-      label: p.label || p.id,
+      label: hasHumanProjectLabel(p) ? (p.label || p.display_name || '').trim() : p.objective.trim() || t('sidebar.unnamedSession'),
       hint: p.daemon_alive ? `● ${t('common.live')}` : '○',
       keywords: `${p.id} ${p.display_name ?? ''} ${p.objective} ${p.daemon_alive ? 'live running' : 'stopped idle'}`,
       group: t('palette.project'),

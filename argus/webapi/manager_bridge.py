@@ -386,6 +386,12 @@ def _manager_message(
             "kind": "error",
             "reply": "project no longer exists; the message was not processed",
         }
+    if domain_answer is None:
+        # A readable title before any model call: the sidebar must never fall
+        # back to the raw session id while a topic summary is pending/denied.
+        from ..core.session import seed_provisional_session_name
+
+        seed_provisional_session_name(mem.global_root, sid, operator_text)
 
     # Native domain commands stay on this session and do not run a classifier.
     from ..core.workbench_plugins import native_plugin_command

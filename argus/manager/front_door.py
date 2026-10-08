@@ -408,13 +408,17 @@ def _maybe_name_session(
     if not sid or gr is None:
         return ""
     try:
-        from ..core.session import normalize_session_name, update_session_meta
+        from ..core.session import (
+            PROVISIONAL_NAME_SOURCE,
+            normalize_session_name,
+            update_session_meta,
+        )
 
         changed = False
 
         def _rename(meta: Any) -> None:
             nonlocal changed
-            if meta.display_name.strip() and (
+            if meta.display_name.strip() and meta.name_source != PROVISIONAL_NAME_SOURCE and (
                 meta.name_source != "agent" or not (replacing or promote_task_name)
             ):
                 return
