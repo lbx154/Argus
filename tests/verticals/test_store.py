@@ -1062,6 +1062,9 @@ def test_real_hardware_features_install_and_deliver_host_evidence_in_a_fresh_pro
 import json
 import os
 from pathlib import Path
+from tests.verticals.fake_release import hide_installed_community_package
+
+hide_installed_community_package()
 from argus.core.pipeline_state import write_pipeline_state
 from argus.engineer import round_evidence
 from argus.verticals import _registry, store
@@ -1111,6 +1114,7 @@ print(json.dumps({"origin": plugin.origin, "early_refusal": True, "host_evidence
 
 @pytest.mark.integration
 def test_real_community_archives_install_load_and_seed_skills(community_release, monkeypatch, home) -> None:
+    fake.hide_installed_community_package(monkeypatch)
     monkeypatch.setenv(store.CATALOG_ENV, str(community_release))
     loaded = store.load_catalog(refresh=True)
     assert {"digital_circuit", "chip_design", "prose", "modern_poetry"} <= set(loaded["catalog"]["verticals"])

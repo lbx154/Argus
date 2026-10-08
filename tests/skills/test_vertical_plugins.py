@@ -384,6 +384,7 @@ def store_release(tmp_path, monkeypatch):
         fake.spec("store_child", requires=("store_lab",), parents=("store_lab",)),
     ])
     monkeypatch.setenv(store.CATALOG_ENV, str(catalog))
+    fake.hide_installed_community_package(monkeypatch)
     install(monkeypatch, [])
     yield store
     _registry.refresh_vertical_plugins()
