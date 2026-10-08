@@ -9,7 +9,7 @@ name: xplat-dogfood
 on:
   workflow_dispatch:
   push:
-    branches: [ci/xplat-dogfood-20261008]
+    branches: ['ci/xplat-**']
 
 permissions:
   contents: read
@@ -139,7 +139,9 @@ jobs:
           set +e
           XDIST=""
           python -c "import xdist" 2>/dev/null && XDIST="-n auto"
-          python -m pytest -q -p no:cacheprovider --maxfail=0 $XDIST \
+          TARGETS=""
+          [ -f .github/xplat-targets.txt ] && TARGETS="$(grep -v '^#' .github/xplat-targets.txt | tr '\n' ' ')"
+          python -m pytest -q -p no:cacheprovider --maxfail=0 $XDIST $TARGETS \
             --junitxml="$OUT/pytest-junit.xml" > "$OUT/pytest.log" 2>&1
           echo "pytest exit=$?" | tee -a "$OUT/pytest.log"
           tail -60 "$OUT/pytest.log"
