@@ -406,6 +406,9 @@ def test_completed_child_copy_ignores_later_progress_but_rechecks_requested_mode
     assert second["cached"] and len(calls) == 1
     assert second["cards"]["review"] == first["cards"]["review"]
     assert "status" not in calls[0][0]["task"]
+    # The runner is taken to offer the new pin; vetting it is covered elsewhere.
+    from argus.webapi import map_model
+    monkeypatch.setattr(map_model, "pinned_map_model_unavailable", lambda *a, **k: "")
     monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "different-model")
     third = map_narrative.enrich(tmp_path, read_map(sid, tmp_path, life), request, "en-US", project_root=life)
     assert not third["cached"] and len(calls) == 2

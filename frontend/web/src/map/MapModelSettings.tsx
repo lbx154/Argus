@@ -52,6 +52,11 @@ export function MapModelSettings({
       <p className="mt-1 text-xs text-ink-faint">
         {base?.backend_label} · {base?.model || (zh ? "接入默认模型" : "Runner default model")}
       </p>
+      {config.map_model?.note && (
+        <p role="status" data-map-model-note className="mt-1 text-xs text-warn">
+          {zh ? `已改用自动：所选摘要模型在当前接入（${config.map_model.backend}）下不可用。` : config.map_model.note}
+        </p>
+      )}
       <label className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-dim">
         {zh ? "摘要模型" : "Summary model"}
         <select value={selectedModel} disabled={busy} aria-label={zh ? "摘要模型" : "Summary model"}
