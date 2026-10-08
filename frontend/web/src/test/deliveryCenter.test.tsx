@@ -95,3 +95,21 @@ it('keeps intermediate deliveries accessible and announces once their downstream
   expect(hasPendingDeliveryDependents(tasks, 'a')).toBe(true);
   expect(hasPendingDeliveryDependents(tasks.map((task) => task.id === 'c' ? { ...task, status: 'done' } : task), 'a')).toBe(false);
 });
+
+it('labels who checked a delivery and finds the previous version of a redelivered file', async () => {
+  const { deliveryReviewLabel, previousDeliveryVersion } = await import('../components/deliveryPresentation');
+  expect(deliveryReviewLabel({ ...receipt('r'), review_status: 'done' }, true).independent).toBe(true);
+  expect(deliveryReviewLabel({ ...receipt('r'), review_status: 'done' }, true).text).toContain('独立复核');
+  const self = deliveryReviewLabel({ ...receipt('s'), review_status: 'not_assessed' }, false);
+  expect(self.independent).toBe(false);
+  expect(self.text).toMatch(/self-check/i);
+  const snap = (sha: string, stored = true) => [{ path: 'report.md', sha256: sha.repeat(64), size: 1, stored }];
+  const v1 = { ...receipt('v1'), delivered_at: 1, snapshots: snap('a') };
+  const v2 = { ...receipt('v2'), delivered_at: 2, snapshots: snap('b') };
+  const v3 = { ...receipt('v3'), delivered_at: 3, snapshots: snap('b') };
+  expect(previousDeliveryVersion(v2, [v3, v2, v1], 'report.md')).toEqual({ path: 'report.md', before: 'a'.repeat(64), after: 'b'.repeat(64) });
+  // Identical content is not a change; first delivery has nothing to compare.
+  expect(previousDeliveryVersion(v3, [v3, v2, v1], 'report.md')).toEqual({ path: 'report.md', before: 'a'.repeat(64), after: 'b'.repeat(64) });
+  expect(previousDeliveryVersion(v1, [v3, v2, v1], 'report.md')).toBeNull();
+  expect(previousDeliveryVersion({ ...v2, snapshots: snap('b', false) }, [v2, v1], 'report.md')).toBeNull();
+});

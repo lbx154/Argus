@@ -48,7 +48,7 @@ def test_delivery_receipt_prefers_reviewer_evidence_and_rejects_unsafe_paths(
     )
 
     assert receipt is not None
-    assert receipt["delivery_id"] == "delivery:task-1:task_completed"
+    assert receipt["delivery_id"].startswith("delivery:task-1:task_completed:")
     assert receipt["primary_target"]["path"] == "final.md"
     assert [target["path"] for target in receipt["targets"]] == ["final.md"]
 
@@ -284,3 +284,62 @@ def test_first_delivery_stays_readable_after_a_later_delivery_overwrites_the_fil
     big = next(s for s in first["snapshots"] if s["path"] == "big.txt")
     assert big["stored"] is False and len(big["sha256"]) == 64
     assert read_delivery_snapshot(state, big["sha256"]) is None
+
+
+def test_redelivering_the_same_item_is_a_new_delivery_with_its_own_snapshot(
+    tmp_path: Path,
+) -> None:
+    from argus.life.delivery import read_delivery_snapshot
+
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+
+    def deliver() -> dict:
+        receipt = build_delivery_receipt(
+            item_id="site", title="site", summary="", success=True, overall_complete=True,
+            status="done", review_status="done", final_submission_certified=False,
+            workspace=workspace, state_root=state, reviewer_artifacts=["index.html"],
+        )
+        assert receipt is not None
+        return receipt
+
+    (workspace / "index.html").write_text("<p>v1</p>\n", encoding="utf-8")
+    first = deliver()
+    (workspace / "index.html").write_text("<p>v2</p>\n", encoding="utf-8")
+    second = deliver()
+
+    # A later round that changes the same item must reach the operator again.
+    assert first["delivery_id"] != second["delivery_id"]
+    assert read_delivery_snapshot(state, first["snapshots"][0]["sha256"]) == "<p>v1</p>\n"
+
+
+def test_snapshot_store_keeps_only_recent_versions_per_item(tmp_path: Path) -> None:
+    from argus.life.delivery import (
+        MAX_SNAPSHOT_DELIVERIES_PER_ITEM,
+        SNAPSHOT_DIRNAME,
+        read_delivery_snapshot,
+    )
+
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+    receipts = []
+    for n in range(MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 5):
+        (workspace / "notes.md").write_text(f"version {n}\n", encoding="utf-8")
+        receipt = build_delivery_receipt(
+            item_id="notes", title="notes", summary="", success=True, overall_complete=True,
+            status="done", review_status="done", final_submission_certified=False,
+            workspace=workspace, state_root=state, reviewer_artifacts=["notes.md"],
+        )
+        assert receipt is not None
+        receipts.append(receipt)
+
+    blobs = [p for p in (state / SNAPSHOT_DIRNAME).iterdir() if len(p.name) == 64]
+    assert len(blobs) == MAX_SNAPSHOT_DELIVERIES_PER_ITEM
+    assert read_delivery_snapshot(state, receipts[0]["snapshots"][0]["sha256"]) is None
+    assert read_delivery_snapshot(state, receipts[-1]["snapshots"][0]["sha256"]) == (
+        f"version {MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 4}\n"
+    )

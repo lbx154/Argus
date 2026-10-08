@@ -484,6 +484,32 @@ def test_local_microtask_returns_delivery_for_named_workspace_file(
     assert "abcdefghijk" not in outcome.delivery["summary"]
 
 
+def test_research_answer_saved_as_a_report_is_a_delivery(tmp_path: Path) -> None:
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    (workdir / "survey.md").write_text("# Survey\n\nFindings with sources.\n", encoding="utf-8")
+    backend = _FakeBackend(
+        response_message="Summary of the survey; full report in `survey.md`.",
+        started_at=time.time() - 1,
+        call_id="research-call-1",
+    )
+    runner = _make_runner(backend)
+    runner._args.workdir = str(workdir)
+
+    outcome = runner._simple_quick_reply(
+        objective="research the field and write me a survey",
+        sink=_RecordingSink(),
+        root_task_id="research-turn-1",
+    )
+
+    assert outcome.delivery is not None
+    assert outcome.delivery["primary_target"]["path"] == "survey.md"
+    # Nobody independently reviewed a solo research answer.
+    assert outcome.delivery["review_status"] == "not_assessed"
+    # The worker is told when a written report is worth keeping as a file.
+    assert "save it as a Markdown file" in backend.calls[0]["prompt"]
+
+
 def test_local_worker_does_not_deliver_an_unchanged_existing_file(
     tmp_path: Path,
 ) -> None:
