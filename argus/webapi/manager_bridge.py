@@ -20,7 +20,10 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..life.memory import MemoryBundle
 
 from .manager_dispatch import (
     _build_handoff,
@@ -161,64 +164,59 @@ def _recent_team_replay(
     return None
 
 
-def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
-    """Answer *question* with the Manager alone — no classify, no backlog.
+def _answer_inline(sid: str, mem: MemoryBundle, question: str) -> str:
+    """Answer *question* with the Manager alone — no backlog.
 
-    Uses the same front-door runner the classifier would have used, which
-    exists precisely to "reply in-band BEFORE anything reaches the backlog".
-    Any failure returns a plain message rather than falling through to task
-    dispatch: the operator said this was a question, and quietly turning it
-    into queued work is the behaviour `/ask` exists to prevent.
+    Reuse the intake's memory bundle so runner construction retains both the
+    global account context and the project's session root.
+    Failures propagate to the turn boundary as errors, never as successful
+    replies or queued work.
     """
     from ..core.models import RunnerOptions
     from ..core.run_gateway import run_exec as gateway_run_exec
-    from ..life.memory import LifeMemory
     from ..manager.front_door import _ensure_manager_runner
     from ..manager.observation import observe_project
     from ..manager.session_context import conversation_backend
     from ..manager.stage_decider import extract_answer
     from ..roles.prompts.manager import build_quick_reply_prompt
 
-    try:
-        mem = LifeMemory.open(Path(str(life_dir)))
-        chat_state = _chat_state_for(sid)
-        runner = _ensure_manager_runner(chat_state, mem)
-        if runner is None:
-            return (
-                "No conversational backend is available for this project, so "
-                "`/ask` cannot answer inline. Send the message without `/ask` "
-                "to queue it as work instead."
-            )
-        from ..core.operator_context import (
-            append_operator_context,
-            build_operator_context_block,
+    life_dir = mem.project_root
+    chat_state = _chat_state_for(sid)
+    runner = _ensure_manager_runner(chat_state, mem)
+    if runner is None:
+        raise RuntimeError(
+            chat_state.get("manager_runner_error")
+            or "No conversational backend is available for this project"
         )
+    from ..core.operator_context import (
+        append_operator_context,
+        build_operator_context_block,
+    )
 
-        operator_context, _revision = build_operator_context_block(
-            "manager", life_dir, consume_once=False
-        )
-        prompt = build_quick_reply_prompt(objective=question)
-        prompt = append_operator_context(prompt, operator_context)
-        prompt += "\n\n" + observe_project(Path(life_dir)).render()
-        from ..core.knobs import resolve_manager_reply_model
+    operator_context, _revision = build_operator_context_block(
+        "manager", life_dir, consume_once=False
+    )
+    prompt = build_quick_reply_prompt(objective=question)
+    prompt = append_operator_context(prompt, operator_context)
+    prompt += "\n\n" + observe_project(life_dir).render()
+    from ..core.knobs import resolve_manager_reply_model
 
-        result = gateway_run_exec(
-            conversation_backend(runner),
-            prompt=prompt,
-            options=RunnerOptions(model=resolve_manager_reply_model(), skip_git_repo_check=True,
-                                 sandbox_mode="read-only", force_safe_mode=True, working_dir=str(
-                getattr(getattr(runner, "manager", None), "execution_workdir", life_dir)
-            )),
-            run_label="manager-ask",
-        )
-    except Exception:  # noqa: BLE001 - never turn a question into a task
-        log.exception("ask: inline reply failed")
-        return "Could not answer inline just now; nothing was queued."
+    result = gateway_run_exec(
+        conversation_backend(runner),
+        prompt=prompt,
+        options=RunnerOptions(model=resolve_manager_reply_model(), skip_git_repo_check=True,
+                             sandbox_mode="read-only", force_safe_mode=True, working_dir=str(
+            getattr(getattr(runner, "manager", None), "execution_workdir", life_dir)
+        )),
+        run_label="manager-ask",
+    )
 
     if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
-        return "Could not answer inline just now; nothing was queued."
+        raise RuntimeError("The Manager backend failed")
     reply = extract_answer(result).strip()
-    return reply or "The Manager returned an empty reply; nothing was queued."
+    if not reply:
+        raise RuntimeError("The Manager returned an empty reply")
+    return reply
 
 
 def manager_message(
@@ -465,11 +463,18 @@ def _manager_message(
             if reference_context
             else _question
         )
-        reply = _answer_inline(
-            sid,
-            life_dir,
-            compose_message_body(_ask_question, resolved_attachments),
-        )
+        try:
+            reply = _answer_inline(
+                sid,
+                mem,
+                compose_message_body(_ask_question, resolved_attachments),
+            )
+        except Exception as exc:  # noqa: BLE001 - report failure without dispatch
+            log.exception("ask: inline reply failed")
+            return emitter.respond(
+                f"Could not answer inline: {exc}; nothing was queued.",
+                {"kind": "error", "success": False, "error_code": "inline_reply_failed"},
+            )
         return emitter.respond(reply, {"kind": "chat"})
 
     lock = _lock_for(sid)

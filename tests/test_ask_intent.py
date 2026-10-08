@@ -109,6 +109,7 @@ def test_the_shared_command_table_lists_ask() -> None:
 
 
 @pytest.mark.parametrize("prefix", ASK_PREFIXES)
+@pytest.mark.parametrize("cached_runner", [False, True])
 @pytest.mark.parametrize(
     ("exit_code", "agent_messages", "fatal_error", "expected_reply"),
     [
@@ -118,26 +119,31 @@ def test_the_shared_command_table_lists_ask() -> None:
         ),
         pytest.param(
             0, [], None,
-            "The Manager returned an empty reply; nothing was queued.", id="empty",
+            "Could not answer inline: The Manager returned an empty reply; nothing was queued.",
+            id="empty",
         ),
         pytest.param(
             1, ["Incomplete answer."], None,
-            "Could not answer inline just now; nothing was queued.", id="failed",
+            "Could not answer inline: The Manager backend failed; nothing was queued.",
+            id="failed",
         ),
         pytest.param(
             0, ["Incomplete answer."], "backend unavailable",
-            "Could not answer inline just now; nothing was queued.", id="fatal-error",
+            "Could not answer inline: The Manager backend failed; nothing was queued.",
+            id="fatal-error",
         ),
     ],
 )
 def test_the_web_bridge_answers_explicit_asks_without_task_dispatch(
-    tmp_path, monkeypatch, prefix, exit_code, agent_messages, fatal_error, expected_reply,
+    tmp_path, monkeypatch, prefix, cached_runner, exit_code, agent_messages,
+    fatal_error, expected_reply,
 ) -> None:
     from types import SimpleNamespace
 
+    from argus.apps import _runtime
     from argus.core.models import RunnerResult
     from argus.core.transcript import read_turns
-    from argus.life.memory import LifeMemory
+    from argus.life.memory import LifeMemory, MemoryBundle
     from argus.manager import config_intent, front_door
     from argus.roles.prompts.manager import build_quick_reply_prompt
     from argus.webapi import manager_bridge, manager_state
@@ -149,12 +155,21 @@ def test_the_web_bridge_answers_explicit_asks_without_task_dispatch(
     question = "what backends are configured?"
     message = f"{prefix} {question}"
     calls = []
+    intake_memory = []
+    learned_replies = []
+    monkeypatch.setattr(
+        manager_bridge, "_schedule_answer_learning",
+        lambda *args, **kwargs: learned_replies.append(kwargs["reply"]),
+    )
 
     def classify(mem, body, state, **_kwargs):
         assert mem.project_root == life
         assert body == message
         assert state["session_id"] == sid
         calls.append("intake")
+        intake_memory.append(mem)
+        if cached_runner:
+            assert front_door._ensure_manager_runner(state, mem) is runner
         # The shared intake may recommend TEAM work. The explicit prefix
         # still owns routing and must bypass the ordinary task pipeline.
         return None, None, "complex"
@@ -162,6 +177,9 @@ def test_the_web_bridge_answers_explicit_asks_without_task_dispatch(
     def answer(*, prompt, options, run_label):
         assert run_label == "manager-ask"
         assert options.skip_git_repo_check is True
+        assert options.force_safe_mode is True
+        assert options.sandbox_mode == "read-only"
+        assert options.working_dir == str(life)
         assert prompt.startswith(build_quick_reply_prompt(objective=question))
         calls.append("answer")
         return RunnerResult(
@@ -176,7 +194,17 @@ def test_the_web_bridge_answers_explicit_asks_without_task_dispatch(
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     runner = SimpleNamespace(run_exec=answer)
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a, **_k: runner)
+
+    def build_runner(ns):
+        assert isinstance(ns.manager_memory, MemoryBundle)
+        assert ns.manager_memory is intake_memory[0]
+        assert ns.global_root == str(tmp_path)
+        assert ns.manager_session_root == str(life)
+        assert ns.project_state_dir == str(life)
+        calls.append("build")
+        return runner
+
+    monkeypatch.setattr(_runtime, "build_life_runner", build_runner)
     for name in (
         "_classify_operator_turn", "_run_triage_and_fallbacks", "_dispatch_team_mission",
     ):
@@ -184,8 +212,15 @@ def test_the_web_bridge_answers_explicit_asks_without_task_dispatch(
 
     result = manager_bridge.manager_message(sid, message, global_root=tmp_path)
 
-    assert result == {"kind": "chat", "reply": expected_reply}
-    assert calls == ["intake", "answer"]
+    succeeded = exit_code == 0 and bool(agent_messages) and not fatal_error
+    assert result == (
+        {"kind": "chat", "reply": expected_reply}
+        if succeeded else
+        {"kind": "error", "success": False, "error_code": "inline_reply_failed",
+         "reply": expected_reply}
+    )
+    assert learned_replies == ([expected_reply] if succeeded else [])
+    assert calls == ["intake", "build", "answer"]
     assert memory.backlog.all() == []
     assert [(turn["role"], turn["text"]) for turn in read_turns(life)] == [
         ("operator", message),
@@ -193,19 +228,42 @@ def test_the_web_bridge_answers_explicit_asks_without_task_dispatch(
     ]
 
 
-def test_an_inline_answer_never_falls_through_to_dispatch(tmp_path, monkeypatch) -> None:
-    from argus.manager import front_door
-    from argus.webapi import manager_bridge
+@pytest.mark.parametrize("failure", ["missing", "construction", "exception"])
+def test_an_inline_answer_never_falls_through_to_dispatch(
+    tmp_path, monkeypatch, failure,
+) -> None:
+    from argus.life.memory import LifeMemory
+    from argus.manager import config_intent, front_door
+    from argus.webapi import manager_bridge, manager_state
 
+    sid = "s-unavailable-ask"
+    memory = LifeMemory.open(tmp_path / "projects" / sid)
+    monkeypatch.setitem(manager_state._STATES, sid, {})
     monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("backend down")),
+        config_intent, "_front_door_classify", lambda *a, **k: (None, None, "simple"),
     )
 
-    reply = manager_bridge._answer_inline("s-1", tmp_path, "why is the sky blue")
+    def unavailable(state, mem):
+        if failure == "exception":
+            raise RuntimeError("backend down")
+        if failure == "construction":
+            state["manager_runner_error"] = "RuntimeError: backend down"
+        return None
 
-    # A failure returns prose, not an exception and not a queued task. Both
-    # failure branches say so explicitly.
-    assert isinstance(reply, str) and reply
-    assert "queue" in reply
+    def unexpected_dispatch(*args, **kwargs):
+        pytest.fail("failed asks must not dispatch work or learn a successful answer")
+
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", unavailable)
+    monkeypatch.setattr(manager_bridge, "_dispatch_team_mission", unexpected_dispatch)
+    monkeypatch.setattr(manager_bridge, "_schedule_answer_learning", unexpected_dispatch)
+
+    result = manager_bridge.manager_message(
+        sid, "/ask why is the sky blue", global_root=tmp_path,
+    )
+
+    assert result["kind"] == "error"
+    assert result["success"] is False
+    assert result["error_code"] == "inline_reply_failed"
+    assert "nothing was queued" in result["reply"]
+    assert ("No conversational backend" if failure == "missing" else "backend down") in result["reply"]
+    assert memory.backlog.all() == []
