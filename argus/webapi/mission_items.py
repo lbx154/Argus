@@ -437,14 +437,14 @@ def _write_backend_models(root: Path, key: str, models: list[str], default: str)
         pass
 
 
-def _active_backend() -> tuple[str, str]:
-    """The backend the runner will use and its resolved executable (``""`` if absent)."""
+def _active_backend(backend: str | None = None) -> tuple[str, str]:
+    """The backend the runner will use (or ``backend``) and its resolved executable (``""`` if absent)."""
     from ..agent_cli.runner_backend import resolve_runner_bin
     from ..core.backend_readiness import resolve_backend_profile
     from ..core.knob_store import read_persisted_knobs
     from ..core.knobs import resolve_runner_bin_setting
 
-    backend = resolve_backend_profile().backend
+    backend = resolve_backend_profile(backend).backend
     configured = str(
         resolve_runner_bin_setting(backend=backend, env=os.environ, persisted=read_persisted_knobs())
         or ""
@@ -452,7 +452,9 @@ def _active_backend() -> tuple[str, str]:
     return backend, resolve_runner_bin(backend, configured or None) or ""
 
 
-def _backend_model_catalog(global_root: Path | str | None) -> tuple[list[str], str] | None:
+def _backend_model_catalog(
+    global_root: Path | str | None, backend: str | None = None
+) -> tuple[list[str], str] | None:
     """The ACTIVE backend's own model list and its automatic default.
 
     Only Copilot exposes the account's live list (on the ACP ``session/new``
@@ -461,7 +463,7 @@ def _backend_model_catalog(global_root: Path | str | None) -> tuple[list[str], s
     ``_BACKEND_MODELS_WAIT_S``; a slow probe finishes in the background and
     fills the cache under the Argus home for the next request.
     """
-    backend, executable = _active_backend()
+    backend, executable = _active_backend(backend)
     if backend != "copilot" or not executable:
         return None
     root = _global_root(global_root)
@@ -587,6 +589,32 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
     for row in rows:
         row.pop("rank", None)
     return rows[:_MODEL_OPTION_LIMIT]
+
+
+def backend_model_ids(backend: str, global_root: Path | str | None = None) -> list[str]:
+    """Every model id ``backend`` itself is known to accept, for vetting a chat change.
+
+    The backend's own list (Copilot's live account list; the pi harness
+    catalog for pi) plus models that actually answered on this home. Empty
+    when the backend publishes no list: nothing to vet against, so a change
+    is written as asked. Not truncated like the picker rows.
+    """
+    from ..core.backend_readiness import resolve_backend_profile
+
+    name = resolve_backend_profile(backend or None).backend
+    if name == "copilot":
+        live = _backend_model_catalog(global_root, name)
+        models = list(live[0]) if live is not None else []
+    elif name == "pi":
+        models = list(_catalog_model_ids())
+    else:
+        models = []
+    if not models:
+        return []
+    for model in _seen_model_ids(global_root):
+        if model not in models:
+            models.append(model)
+    return [m for m in models if m.lower() not in {"auto", "inherit", "default"}]
 
 
 def get_config(

@@ -17,6 +17,13 @@ export interface LifePeerMessageProcessedEvent extends EventMsg {
   "text": string;
 }
 
+export interface LifeConfigParseFailedEvent extends EventMsg {
+  type: "life.config.parse_failed";
+  payload_schema_version?: 1;
+  "raw": string;
+  "summary"?: string;
+}
+
 export interface AdvisorConsultationRequestedEvent extends EventMsg {
   type: "advisor.consultation.requested";
   payload_schema_version?: 1;
@@ -2114,6 +2121,7 @@ export interface AccountingJournalRepairedEvent extends EventMsg {
 
 export interface EventPayloadByType {
   "life.peer.message.processed": LifePeerMessageProcessedEvent;
+  "life.config.parse_failed": LifeConfigParseFailedEvent;
   "advisor.consultation.requested": AdvisorConsultationRequestedEvent;
   "advisor.consultation.completed": AdvisorConsultationCompletedEvent;
   "advisor.consultation.failed": AdvisorConsultationFailedEvent;
