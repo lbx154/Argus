@@ -464,13 +464,13 @@ def _apply_config_intent(
     chat_state: dict[str, Any],
     *,
     on_confirm: Any = None,
-    model_catalog: Callable[[], Any] | None = None,
+    model_catalog: Callable[[str], Any] | None = None,
 ) -> bool:
     """Apply a parsed ConfigIntent and persist it to its authoritative file.
 
     Backend/model/effort and the host-global budget use knob_store.
-    ``model_catalog`` returns the backend's model ids; a model id outside it is
-    not written until the operator confirms it.
+    ``model_catalog(backend)`` returns that backend's model ids; a model id
+    outside it is not written until the operator confirms it.
     """
     from ..core.knob_store import write_persisted_knobs
 

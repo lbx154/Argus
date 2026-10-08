@@ -241,6 +241,7 @@ class _ExecuteState:
         self.planner_context: str = ""
         self.planner_context_provider: Callable[[], str] | None = None
         self.prelude_context_provider: Callable[[], str] | None = None
+        self.external_wait_hold: Callable[[], bool] | None = None
         self.review_objective: str = ""
         self.seed: str | None = None
         self.mission_scope: str = ""

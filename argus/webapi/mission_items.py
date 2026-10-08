@@ -469,8 +469,7 @@ def _backend_model_catalog(
     root = _global_root(global_root)
     key = f"{backend}:{executable}"
     cached = _read_backend_models(root, key)
-    fresh = cached is not None and time.time() - float(cached.get("fetched_at") or 0) < _BACKEND_MODELS_TTL_S
-    if fresh:
+    if cached is not None and time.time() - float(cached.get("fetched_at") or 0) < _BACKEND_MODELS_TTL_S:
         return list(cached["models"]), str(cached.get("default") or "")
 
     def _probe() -> None:

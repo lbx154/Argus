@@ -111,7 +111,8 @@ def running_tool_after_event(event: dict, current: str) -> str:
         return current
     part = event.get("part")
     if event_type == "tool_use" and isinstance(part, dict):
-        state = part.get("state") if isinstance(part.get("state"), dict) else {}
+        raw_state = part.get("state")
+        state = raw_state if isinstance(raw_state, dict) else {}
         status = str(state.get("status") or "").casefold()
         if status in _STARTED_STATUSES:
             return _tool_label(state.get("input"), fallback=part.get("tool")) or current

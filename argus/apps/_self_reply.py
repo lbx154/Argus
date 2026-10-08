@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import threading
@@ -366,6 +367,7 @@ class SelfReplyMixin:
     """Operator-facing Manager front door mixed into ``_SkillLoopRunner``."""
 
     manager: Manager
+    _args: argparse.Namespace
 
     def _maybe_chat_outcome(
         self,

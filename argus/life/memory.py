@@ -1162,6 +1162,9 @@ class BacklogItem:
     # Optional durable return receipt; kept separate from public outcome dimensions.
     mission_result: dict[str, Any] | None = None
     mission_delivery_id: str = ""
+    # Scheduler snapshot taken when this item was claimed. Transient: never
+    # persisted; the supervisor copies it onto the mission-start event.
+    admission: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
     def new_id(cls) -> str:
@@ -1250,6 +1253,7 @@ class BacklogItem:
 
     def to_jsonable(self) -> dict[str, Any]:
         row = asdict(self)
+        row.pop("admission")
         if self.mission_result is None:
             row.pop("mission_result")
         if not self.mission_delivery_id:
@@ -2709,8 +2713,8 @@ class Backlog:
             admission["running"] = sum(
                 1 for item in items if item.status == "running"
             )
-            # Not a dataclass field, so it is never persisted: the supervisor
-            # copies it onto the mission-start event.
+            # ``to_jsonable`` drops it, so it is never persisted: the
+            # supervisor copies it onto the mission-start event.
             head.admission = admission
             # Pick the cards while the head is still pending, so it does not
             # count as an active task that holds unassigned cards.
