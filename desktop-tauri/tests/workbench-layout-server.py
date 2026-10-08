@@ -15,7 +15,7 @@ def main():
         root = Path(temporary)
         os.environ["ARGUS_SKILL_HOME"] = str(root)
         # Layout tests use real project APIs without depending on installed CLIs.
-        os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = "memory"
+        os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = "codex"
         from argus.core.session import SessionMeta, write_session_meta
         from argus.core.transcript import append_turn
         from argus.life.memory import BacklogItem, LifeMemory

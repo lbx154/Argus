@@ -46,6 +46,8 @@ test.afterEach(async ({ page }, info) => {
 test.afterAll(() => { server?.kill(); });
 
 test('titles expand with the pane and trial model/Key controls remain visible in both themes', async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
   test.setTimeout(60_000);
   await page.route('**/bridge.ts', (route) => route.fulfill({
     contentType: 'application/javascript',
@@ -54,6 +56,7 @@ test('titles expand with the pane and trial model/Key controls remain visible in
       getSetup: async () => ({ complete: true, trialMode: true, host: '127.0.0.1', port: 8799,
         runnerKind: 'copilot', runnerConfigured: true, runnerBins: {}, detectedRunners: {},
         piConfiguration: { configDir: '' }, releaseIdentity: {}, runtimeIdentity: {} }),
+      getTrialStatus: async () => ({ paused: false, tokensRemaining: 900000, tokenLimit: 1000000, stale: false }),
       isWindowVisible: async () => true,
       getAppearance: async () => ({ theme: 'light', resolvedTheme: 'light', startupEyeMotion: 'off' }),
       getUpdateStatus: async () => ({ state: 'idle', currentVersion: '0.1.5', userInitiated: false }),
@@ -74,16 +77,12 @@ test('titles expand with the pane and trial model/Key controls remain visible in
     operator_knobs: [], how_to_change: [],
   } }));
   await page.setViewportSize({ width: 1280, height: 820 });
-  const [configResponse] = await Promise.all([
-    page.waitForResponse(configUrl),
-    page.goto('/'),
-  ]);
-  expect(configResponse.ok()).toBe(true);
-  expect(await configResponse.json()).toMatchObject({ trial_mode: true });
+  await page.goto('/');
   await expect(page.locator('#splash')).toBeHidden();
   const frame = page.frameLocator('#cockpitFrame');
   const title = frame.locator('.topbar-title').filter({ visible: true });
   await expect(title).toBeVisible({ timeout: 20_000 });
+  await frame.locator('nav:has(.workspace-tabs)').getByRole('button', { name: /^(Files|文件)( · \d+)?$/ }).click();
   const narrow = await title.boundingBox();
   const divider = await frame.getByRole('separator', { name: /preview|预览/i }).boundingBox();
   await page.mouse.move(divider!.x + divider!.width / 2, divider!.y + 100);
@@ -94,7 +93,14 @@ test('titles expand with the pane and trial model/Key controls remain visible in
   await page.setViewportSize({ width: 1920, height: 820 });
   await expect.poll(async () => (await title.boundingBox())!.width).toBeGreaterThan(narrow!.width + 250);
   await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  const runtime = frame.locator('.composer-runtime').filter({ visible: true });
+  // Runtime configuration loads when the Map composer is opened.
+  const [configResponse] = await Promise.all([
+    page.waitForResponse(configUrl),
+    frame.locator('.workspace-tabs').getByRole('button', { name: /^(Map|地图)$/ }).click(),
+  ]);
+  expect(configResponse.ok()).toBe(true);
+  expect(await configResponse.json()).toMatchObject({ trial_mode: true });
+  const runtime = frame.locator('.map-island-dock .composer-runtime').filter({ visible: true });
   const trialModel = /^(Trial|试用) · GPT-5\.5 · high$/;
   await expect(runtime.locator('.composer-runtime-model')).toHaveText(trialModel);
   const themeButton = frame.getByRole('button', { name: /theme; switch|主题；切换/ });
@@ -108,6 +114,8 @@ test('titles expand with the pane and trial model/Key controls remain visible in
     expect(Math.abs(icon!.y + icon!.height / 2 - button!.y - button!.height / 2)).toBeLessThan(1);
     await page.screenshot({ path: testInfo.outputPath(`runtime-${theme}.png`) });
   }
+  await runtime.hover();
+  await expect(frame.locator('.map-island-dock')).toHaveAttribute('data-compact', 'false');
   await runtime.getByRole('button', { name: /更换 Key|Change Key/ }).click();
   await expect(page.locator('#trialKey')).toBeVisible();
   await page.keyboard.press('Escape');
@@ -118,6 +126,7 @@ test('titles expand with the pane and trial model/Key controls remain visible in
   await frame.locator('.workspace-tabs').getByRole('button', { name: /^(Map|地图)$/ }).click();
   await expect(frame.locator('.map-island-dock .composer-runtime-model')).toHaveText(trialModel);
   await expect(frame.locator('.map-island-dock .composer-runtime button')).toBeInViewport();
+  expect(errors).toEqual([]);
 });
 
 test('real embedded workbench retains typography and fits the pane between both sidebars', async ({ page }) => {
@@ -139,6 +148,7 @@ test('real embedded workbench retains typography and fits the pane between both 
       getSetup: async () => ({ complete: true, trialMode: true, host: '127.0.0.1', port: 8799,
         runnerKind: 'copilot', runnerConfigured: true, runnerBins: {}, detectedRunners: {},
         piConfiguration: { configDir: '' }, releaseIdentity: {}, runtimeIdentity: {} }),
+      getTrialStatus: async () => ({ paused: false, tokensRemaining: 900000, tokenLimit: 1000000, stale: false }),
       isWindowVisible: async () => true,
       getAppearance: async () => ({ theme: 'light', resolvedTheme: 'light', startupEyeMotion: 'off' }),
       getUpdateStatus: async () => ({ state: 'idle', currentVersion: '0.1.3', userInitiated: false }),
@@ -165,10 +175,12 @@ test('real embedded workbench retains typography and fits the pane between both 
   });
   const before = await composerStyle();
   const workspaceTabs = frame.locator('.workspace-tabs');
-  const workbenchTab = workspaceTabs.getByRole('button', { name: /^(Workbench|工作台)$/ });
-  const activityTab = workspaceTabs.getByRole('button', { name: /^(Activity|动态)$/ });
+  const workbenchMenu = frame.locator('.workspace-more').filter({ visible: true });
+  const workbenchTab = workbenchMenu.getByRole('button', { name: /^(Workbench|工作台)$/ });
+  const activityTab = workspaceTabs.getByRole('button', { name: /^(Conversation|对话)$/ });
   const overviewTab = frame.getByRole('navigation', { name: /^(Workbench modules|工作台模块)$/ })
     .getByRole('button', { name: /^(Project overview|项目概览)$/ });
+  await workbenchMenu.locator(':scope > summary').click();
   await workbenchTab.click();
   // Workbench opens on Execution. Select the overview whose typography and
   // workspace modules this test verifies, independently of module order.
@@ -181,6 +193,7 @@ test('real embedded workbench retains typography and fits the pane between both 
   await activityTab.click();
   await expect(composer).toBeVisible();
   await expect.poll(composerStyle).toEqual(before);
+  await workbenchMenu.locator(':scope > summary').click();
   await workbenchTab.click();
   await overviewTab.click();
 

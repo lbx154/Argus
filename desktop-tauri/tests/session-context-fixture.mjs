@@ -25,10 +25,10 @@ export async function startSessionFixture(options = {}) {
   const manifestPath = process.env.ARGUS_SESSION_WEB_DIST
     ? resolve(dist, 'fixture-release.json') : resolve(checkout, 'argus/release_manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  const protocol = await readFile(resolve(checkout, 'frontend/core/src/protocol.ts'), 'utf8');
-  const capabilities = [...protocol.split('REQUIRED_API_CAPABILITIES = [')[1].split('] as const')[0].matchAll(/'([^']+)'/g)].map(match => match[1]);
-  const schema = Number(protocol.match(/SNAPSHOT_SCHEMA_VERSION = (\d+)/)[1]);
-  const minor = Number(protocol.match(/minServerMinor: (\d+)/)[1]);
+  // Use the same contract source as the frontend generator, independent of
+  // TypeScript re-exports, formatting and build outputs.
+  const protocol = JSON.parse(await readFile(resolve(checkout, 'packages/contracts/schemas/api_protocol.json'), 'utf8'));
+  const { API_CAPABILITIES: capabilities, SNAPSHOT_SCHEMA_VERSION: schema, API_PROTOCOL_MINOR: minor } = protocol;
   const rows = [];
   const snapshots = new Map();
   const files = new Map();
@@ -118,6 +118,7 @@ export async function startSessionFixture(options = {}) {
       if (state.forbidden.has(sid)) return json(response, { error: 'Synthetic session permission denied' }, 403);
       if (method === 'GET') {
         if (endpoint === '/snapshot') return json(response, snapshots.get(sid));
+        if (endpoint === '/learning') return json(response, { jobs: [], pending: 0, revision: 0 });
         if (endpoint === '/artifacts') return json(response, { artifacts: state.missing.has(sid) || state.unlisted.has(sid) ? [] : [files.get(sid)] });
         if (endpoint === '/artifact') {
           if (url.searchParams.get('path') !== REPORT_PATH || state.missing.has(sid)) return json(response, { error: 'Synthetic artifact unavailable' }, 404);
