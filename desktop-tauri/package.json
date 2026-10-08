@@ -12,7 +12,7 @@
     "ui:dev": "vite --config vite.config.ts",
     "ui:build": "vite build --config vite.config.ts",
     "ui:typecheck": "tsc --noEmit",
-    "test:ui": "playwright test",
+    "test:ui": "node --test tests/startup.node.mjs && playwright test",
     "test:copy": "node --test tests/verified-copy.node.mjs",
     "test:release": "node --test tests/windows-release.node.mjs tests/windows-backend.node.mjs",
     "build:preview": "node scripts/build-preview.mjs",

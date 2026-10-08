@@ -12,11 +12,14 @@ import os
 import subprocess
 import sys
 import time
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 from ...core.daemon_lock import is_pid_running
 from ...core.evidence_ledger import EvidenceLedger
+from ...core.file_lock import exclusive_file_lock
 from ...core.portable_filename import (
     legacy_hashed_filename_components,
     portable_filename_component,
@@ -258,7 +261,51 @@ def _launch_durable_command(
 # Task record I/O
 # ---------------------------------------------------------------------------
 
+@contextmanager
+def _task_record_lock(task_id: str, root: Path) -> Iterator[None]:
+    root.mkdir(parents=True, exist_ok=True)
+    component = os.path.normcase(_registry_path(task_id, registry_root=root).name)
+    digest = hashlib.sha256(component.encode("utf-8")).hexdigest()[:32]
+    # Keep a stable lock inode while task JSON files are atomically replaced.
+    with (root / f".argus-{digest}.lock").open("a+b") as handle:
+        with exclusive_file_lock(handle, lock_name=f"subagent task {task_id}"):
+            yield
+
+
 def _write_task(
+    task_id: str,
+    data: dict[str, Any],
+    *,
+    registry_root: Path | str | None = None,
+) -> None:
+    root = _registry_root(registry_root)
+    with _task_record_lock(task_id, root):
+        _write_task_unlocked(task_id, data, registry_root=root)
+
+
+def _merge_worker_identity(
+    task_id: str,
+    run_id: str,
+    worker_pid: int,
+    identity: Mapping[str, Any] | None,
+    *,
+    registry_root: Path | str | None = None,
+) -> bool:
+    """Add submitter-owned fields without replacing worker progress."""
+    root = _registry_root(registry_root)
+    with _task_record_lock(task_id, root):
+        current = _read_task(task_id, registry_root=root)
+        if current is None or str(current.get("run_id") or "") != run_id:
+            return False
+        current.setdefault("worker_pid", worker_pid)
+        current.setdefault("pid", worker_pid)
+        if current["worker_pid"] == worker_pid and identity is not None:
+            current.setdefault("worker_process_identity", dict(identity))
+        _write_task_unlocked(task_id, current, registry_root=root)
+        return True
+
+
+def _write_task_unlocked(
     task_id: str,
     data: dict[str, Any],
     *,
@@ -310,9 +357,17 @@ def _write_task(
         "owner_mission_id",
         os.environ.get("ARGUS_PLUGIN_PARENT_MISSION_ID", "").strip(),
     )
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    tmp = root / f".argus-{uuid.uuid4().hex}.tmp"
+    created = False
+    try:
+        with tmp.open("x", encoding="utf-8", newline="\n") as handle:
+            created = True
+            handle.write(json.dumps(data, indent=2) + "\n")
+        os.replace(tmp, path)
+        created = False
+    finally:
+        if created:
+            tmp.unlink(missing_ok=True)
     for legacy in legacy_paths:
         try:
             legacy_task = json.loads(legacy.read_text(encoding="utf-8"))

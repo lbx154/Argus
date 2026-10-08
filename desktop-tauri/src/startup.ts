@@ -38,18 +38,23 @@ export function visibleEyeCycle(options: {
       && options.enabled() && exposed;
     if (visible) {
       if (!painted) {
-        painted = true;
         // Do not spend a cycle in a native window which WebView2 has created
         // but Windows has not shown yet. Start the original orbit at reveal.
         for (const animation of options.eye.getAnimations()) animation.currentTime = 0;
+      }
+      // A rAF frame timestamp can precede callback execution and layout work.
+      // Start and accumulate on the same clock after verifying actual exposure.
+      const observed = performance.now();
+      if (!painted) {
+        painted = true;
         performance.clearMarks('argus:splash-visible');
         performance.clearMarks('argus:cockpit-visible');
-        performance.mark('argus:splash-visible');
+        performance.mark('argus:splash-visible', { startTime: observed });
       }
       // A blocked/background renderer must not count a large wall-clock gap
       // as visibly rendered animation. A full cycle still needs real frames.
-      if (previous !== undefined) elapsed += Math.min(100, Math.max(0, time - previous));
-      previous = time;
+      if (previous !== undefined) elapsed += Math.min(100, Math.max(0, observed - previous));
+      previous = observed;
       if (!options.motionEnabled() || elapsed >= 1050) { cancel(); return; }
     } else {
       previous = undefined;

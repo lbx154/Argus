@@ -176,6 +176,7 @@ export async function verifyColdStartupTiming(page) {
   result.motionEnabled = result.eyeMode === 'on' || (result.eyeMode === 'system' && !result.reducedMotion);
   assert(Number.isFinite(result.start) && Number.isFinite(result.shown), 'Natural configured cold-start timing is missing.');
   result.visibleMilliseconds = result.shown - result.start;
-  if (result.motionEnabled) assert(result.visibleMilliseconds >= 1030, 'Cold start covered the eye before one visible cycle.');
+  if (result.motionEnabled) assert(result.visibleMilliseconds >= 1030,
+    `Cold start covered the eye before one visible cycle: ${JSON.stringify(result)}`);
   return result;
 }

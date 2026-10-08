@@ -29,6 +29,7 @@ from ._registry import (
     _is_pid_alive,
     _lane_of,
     _list_tasks,
+    _merge_worker_identity,
     _open_discussion_blockers,
     _process_identity,
     _progress_summary,
@@ -485,11 +486,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "task_id": task_id,
             }))
             return 2
-        rec = _read_task(task_id) or initial_task
-        rec.setdefault("worker_pid", worker.pid)
-        rec.setdefault("pid", worker.pid)
-        rec["worker_process_identity"] = _process_identity(worker.pid)
-        _write_task(task_id, rec)
+        _merge_worker_identity(task_id, run_id, worker.pid, _process_identity(worker.pid))
         result = {
             "state": "submitted",
             "task_id": task_id,
@@ -527,21 +524,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
         }))
         return 2
     if pid > 0:
-        # The forked child owns the rich, evolving task record (it writes
-        # "running" with the real training pid + heartbeats). The parent must NOT
-        # clobber that with a stale snapshot — it only merges in the worker pid.
-        rec = _read_task(task_id) or {
-            "state": "running", "task_id": task_id,
-            "run_id": run_id,
-            "description": args.description, "command": args.command,
-            "mode": mode, "run_dir": run_dir, "submitted_at": time.time(),
-            "timeout_seconds": timeout_seconds,
-            "timeout_defaulted": timeout_defaulted,
-        }
-        rec["worker_pid"] = pid
-        rec.setdefault("pid", pid)
-        rec["worker_process_identity"] = _process_identity(pid)
-        _write_task(task_id, rec)
+        # Read and fill ownership under the same lock as worker publication.
+        _merge_worker_identity(task_id, run_id, pid, _process_identity(pid))
         result = {
             "state": "submitted",
             "task_id": task_id,
