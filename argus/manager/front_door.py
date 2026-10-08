@@ -385,6 +385,14 @@ def _derive_session_name(text: str, *, limit: int = 48) -> str:
     return ""
 
 
+# ``name_source`` values owned by the Agent. ``agent`` titles came from a turn
+# that started no task (greeting, chit-chat); the first real task may replace
+# them. ``agent_task`` titles came from a task and change only when the
+# classifier judges the operator moved to a new topic.
+TASK_NAME_SOURCE = "agent_task"
+AGENT_NAME_SOURCES = frozenset({"agent", TASK_NAME_SOURCE})
+
+
 def _maybe_name_session(
     chat_state: dict[str, Any],
     task_text: str,
@@ -415,18 +423,32 @@ def _maybe_name_session(
         )
 
         changed = False
+        # The front door already titled this turn's topic in the operator's
+        # language; the task handoff then only marks that title as task-owned.
+        fresh_turn_title = bool(chat_state.pop("_fresh_agent_name", False))
 
         def _rename(meta: Any) -> None:
             nonlocal changed
-            if meta.display_name.strip() and meta.name_source != PROVISIONAL_NAME_SOURCE and (
-                meta.name_source != "agent" or not (replacing or promote_task_name)
-            ):
-                return
+            source = meta.name_source
+            named = bool(meta.display_name.strip()) and source != PROVISIONAL_NAME_SOURCE
+            if named and source not in AGENT_NAME_SOURCES:
+                return  # operator-owned title
+            if named and not replacing:
+                # A task may replace a title given to earlier chit-chat once;
+                # after that only a classifier-judged topic change renames.
+                if not promote_task_name or source != "agent":
+                    return
+                if fresh_turn_title:
+                    meta.name_source = TASK_NAME_SOURCE
+                    return
             normalized = normalize_session_name(name)
-            if meta.display_name == normalized and meta.name_source == "agent":
+            target_source = TASK_NAME_SOURCE if (
+                promote_task_name or source == TASK_NAME_SOURCE
+            ) else "agent"
+            if meta.display_name == normalized and source == target_source:
                 return
             meta.display_name = normalized
-            meta.name_source = "agent"
+            meta.name_source = target_source
             changed = True
 
         update_session_meta(gr, sid, _rename, create=True)

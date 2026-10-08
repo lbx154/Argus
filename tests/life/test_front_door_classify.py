@@ -334,14 +334,29 @@ def test_front_door_pure_greeting_can_finish_from_one_model_call() -> None:
         "你好",
         run_exec=_exec(
             "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
-            "LIFETIME: NONE\nGREETING: GREETING\n"
-            "NAME: 打招呼"
+            "SELF_MODE: REPLY\nLIFETIME: NONE\nGREETING: GREETING\n"
+            "REPLY: 你好！可以直接让我调研一个方向，或者帮你看看一段代码。\n"
+            "NAME: NONE"
         ),
         greeting_sink=replies.append,
     )
 
     assert decision == (None, None, "simple")
-    assert replies == ["你好，我是 Argus Manager。"]
+    assert replies == ["你好！可以直接让我调研一个方向，或者帮你看看一段代码。"]
+
+
+def test_front_door_greeting_without_model_reply_takes_normal_path() -> None:
+    replies: list[str] = []
+    classify_front_door(
+        "你好",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
+            "LIFETIME: NONE\nGREETING: GREETING\nNAME: NONE"
+        ),
+        greeting_sink=replies.append,
+    )
+
+    assert replies == []
 
 
 def test_front_door_contextual_greeting_does_not_take_one_call_path() -> None:
@@ -832,3 +847,93 @@ def test_prefixes_are_case_insensitive() -> None:
     assert intent == ConfigIntent(knob="safe_mode", roles=(), value="on")
     assert control is None
     assert route == "simple"
+
+
+@pytest.mark.parametrize(
+    ("text", "answer", "kind", "name"),
+    [
+        (
+            "帮我调研一下扩散模型的最新进展",
+            "ROUTE: TEAM\nLIFETIME: BOUNDED\nINTAKE_TYPE: EPHEMERAL\n"
+            "NAME: 扩散模型进展调研",
+            "ephemeral",
+            "扩散模型进展调研",
+        ),
+        (
+            "解释一下这篇论文的主要贡献",
+            "ROUTE: SELF\nSELF_MODE: SYNTHESIZE\nINTAKE_TYPE: EPHEMERAL\n"
+            "NAME: 论文贡献解读",
+            "ephemeral",
+            "论文贡献解读",
+        ),
+        (
+            "给登录页加一个记住我选项",
+            "ROUTE: SELF\nSELF_MODE: IMPLEMENT\nINTAKE_TYPE: EPHEMERAL\n"
+            "NAME: 登录页记住我",
+            "ephemeral",
+            "登录页记住我",
+        ),
+        (
+            "以后都用中文回答",
+            "ROUTE: SELF\nSELF_MODE: INSPECT\nINTAKE_TYPE: STANDING_DIRECTIVE\nNAME: NONE",
+            "standing_directive",
+            "",
+        ),
+        (
+            # A long-term instruction acknowledged in place is still long-term.
+            "以后都用中文回答",
+            "ROUTE: SELF\nSELF_MODE: REPLY\nINTAKE_TYPE: STANDING_DIRECTIVE\n"
+            "REPLY: 好的，以后都用中文回答。\nNAME: NONE",
+            "standing_directive",
+            "",
+        ),
+        (
+            "你好",
+            "ROUTE: SELF\nSELF_MODE: REPLY\nINTAKE_TYPE: EPHEMERAL\n"
+            "GREETING: GREETING\nREPLY: 你好！\nNAME: NONE",
+            "ephemeral",
+            "",
+        ),
+    ],
+)
+def test_front_door_intake_replay(text, answer, kind, name) -> None:
+    intakes: list[dict] = []
+    names: list[str] = []
+    classify_front_door(
+        text,
+        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\n" + answer),
+        intake_sink=intakes.append,
+        name_sink=names.append,
+    )
+
+    assert intakes[0]["kind"] == kind
+    assert [n for n in names if n.upper() != "NONE"] == ([name] if name else [])
+
+
+def test_front_door_standing_reply_turn_keeps_the_model_judgement() -> None:
+    intakes: list[dict] = []
+    classify_front_door(
+        "从现在起回答都先给结论",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nSELF_MODE: REPLY\n"
+            "INTAKE_TYPE: STANDING_DIRECTIVE\nREPLY: 好的\nNAME: NONE"
+        ),
+        intake_sink=intakes.append,
+    )
+
+    assert intakes[0]["kind"] == "standing_directive"
+
+
+def test_front_door_prompt_lets_greeting_reply_when_replies_are_off() -> None:
+    prompt = build_front_door_prompt("你好", allow_reply=False)
+    assert "REPLY must be NONE except for a GREETING" in prompt
+    assert "REPLY greets + 2-3 starter asks" in prompt
+
+
+def test_front_door_prompt_grounds_intake_in_ongoing_intent() -> None:
+    prompt = build_front_door_prompt("帮我调研一下")
+    assert "Unsure: EPHEMERAL" in prompt
+    assert "however big" in prompt
+    assert "govern later turns" in prompt
+    assert "以后都用中文" in prompt
+    assert "message's language" in prompt

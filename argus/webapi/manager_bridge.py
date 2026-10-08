@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .manager_dispatch import (
+    _announce_standing_directive,
     _build_handoff,
     _cancelled_result,
     _classify_operator_turn,
@@ -709,6 +710,7 @@ def _manager_message(
             "self_mode": classify.classified_self_mode or classify.self_mode,
         })
 
+        _announce_standing_directive(chat_state, life_dir, turn_id)
         greeting_result = _maybe_greeting_reply(classify, body, emitter)
         if greeting_result is not None:
             return greeting_result

@@ -745,6 +745,7 @@ def _classify_operator_turn(
             "_frontdoor_operator_question_policy",
             "_frontdoor_authorization",
             "_frontdoor_intake",
+            "_frontdoor_standing_notice",
             "_frontdoor_domain",
             "_frontdoor_skill_vertical",
             "_frontdoor_lookup_subject",
@@ -825,6 +826,33 @@ def _classify_operator_turn(
         frontdoor_failure=frontdoor_failure,
         classified_self_mode=classified_self_mode,
     )
+
+
+def _standing_notice_text(instruction: str) -> str:
+    text = " ".join(str(instruction or "").split())
+    if len(text) > 60:
+        text = text[:59] + "…"
+    if any("\u3400" <= ch <= "\u9fff" for ch in text):
+        return f"已记为长期指令：{text}（之后每一轮都会遵守；说“取消这条长期指令”即可撤销）"
+    return (
+        f"Saved as a standing instruction: {text} (applies to every later turn; "
+        "say “cancel that standing instruction” to revoke it)"
+    )
+
+
+def _announce_standing_directive(
+    chat_state: dict[str, Any], life_dir: Path, turn_id: str,
+) -> None:
+    """Tell the operator, in the conversation, that an instruction now persists.
+
+    Long-term instructions steer every later prompt; recording one silently
+    leaves the operator unable to see or undo it.
+    """
+    instruction = str(chat_state.pop("_frontdoor_standing_notice", "") or "").strip()
+    if instruction:
+        _journal_argus_reply(
+            life_dir, f"{turn_id}-standing", _standing_notice_text(instruction),
+        )
 
 
 def _maybe_greeting_reply(

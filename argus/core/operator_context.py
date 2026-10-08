@@ -1090,6 +1090,8 @@ def freeze_operator_intake(
                     scope, lifetime = "mission", "bounded_increment"
             elif decision.kind == "objective_amendment":
                 scope, lifetime = "mission", "bounded_increment"
+            elif decision.kind == "standing_directive":
+                normalized = decision.preference_value.strip() or normalized
             elif decision.kind == "revocation":
                 normalized = f"Revocation request needs a target revision: {normalized}"
                 scope, lifetime = "mission", "once"
@@ -1178,6 +1180,8 @@ def persist_intake_decision(
         normalized = f"Revocation request needs a target revision: {normalized}"
         lifetime = "once"
         scope = "mission"
+    elif decision.kind == "standing_directive":
+        normalized = decision.preference_value.strip() or normalized
     return append_directive(
         life_dir,
         normalized,
@@ -1246,7 +1250,9 @@ def build_operator_context_block(
             if role == "manager" and directive.source.endswith(".standing_sounding")
             else ""
         )
-        lines.append(f"- directive [{directive.scope}{flag}]: {directive.text}")
+        # The Manager sees the revision so "取消"/"cancel that" can name it.
+        revision = f"; revision {directive.revision}" if role == "manager" else ""
+        lines.append(f"- directive [{directive.scope}{revision}{flag}]: {directive.text}")
     if role in {"planner", "engineer", "teammate"}:
         from ..manager.directive import load_active_manager_directive
 
