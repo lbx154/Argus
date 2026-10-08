@@ -215,9 +215,84 @@ def test_invalid_decisions_have_decision_stage_and_no_control_effects(tmp_path, 
     backend = Backend(outcome)
     record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
     assert record["status"] == "failed" and not record.get("decision") and not record.get("effects") and not record["cited_refs"]
-    assert_failure(tmp_path, record, stage="decision", exit_code=0, call_id=CALL_ID)
+    code = "decision_incomplete" if invalid == "action" else "evidence_outside_snapshot"
+    emitted = assert_failure(tmp_path, record, stage="decision", code=code, exit_code=0, call_id=CALL_ID)
+    assert emitted["error_message"] and emitted["error_message"] == record["error_message"]
+    # Only our own check text is persisted, never text the model wrote.
+    assert "unobserved/private.json" not in emitted["error_message"]
+    if invalid == "unobserved-reference":
+        assert "1 of" in emitted["error_message"]
     assert controls(tmp_path) == before and load_active_manager_directive(tmp_path) is None
     assert len(backend.calls) == 1
+
+
+def test_unreadable_decision_event_names_the_code_and_the_refusing_check(tmp_path):
+    event = project(tmp_path)
+    outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=["I think things look fine overall."])
+    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome), memory_maintenance_enabled=False), tmp_path, event)
+    emitted = assert_failure(tmp_path, record, stage="decision", code="decision_incomplete", exit_code=0, call_id=CALL_ID)
+    assert "action=missing" in emitted["error_message"]
+
+
+def test_provider_failure_event_carries_a_message_without_raw_provider_text(tmp_path):
+    event = project(tmp_path)
+    backend = Backend(RunnerResult(exit_code=1, call_id=CALL_ID, fatal_error="boom " + SECRET + " " + PROMPT_MARKER))
+    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    emitted = assert_failure(tmp_path, record, stage="provider", exit_code=1, call_id=CALL_ID)
+    assert emitted["error_message"] == "RuntimeError"
+
+
+@pytest.mark.parametrize("decorate", ["", "**"])
+def test_named_lines_without_a_colon_are_read_as_the_decision(tmp_path, decorate):
+    """Replies like ``ACTION CONTINUE`` are a clear answer that only omitted the separator."""
+    event = project(tmp_path)
+    text = (
+        f"{decorate}ACTION{decorate} CONTINUE\n\n"
+        f"{decorate}REASON{decorate} The grouping mission has acceptance criteria and has just started; let it run.\n\n"
+        f"{decorate}EVIDENCE_REFS{decorate} backlog.jsonl"
+    )
+    outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=[text])
+    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome), memory_maintenance_enabled=False), tmp_path, event)
+    assert record["status"] == "applied", record.get("failure_reason")
+    assert record["decision"]["action"] == "continue"
+    assert [ref["path"] for ref in record["cited_refs"]] == ["backlog.jsonl"]
+
+
+def test_model_written_action_value_is_not_persisted_in_the_failure(tmp_path):
+    event = project(tmp_path)
+    text = "ACTION: escalate-to-secret-channel\nREASON: odd\nEVIDENCE_REFS: backlog.jsonl"
+    outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=[text])
+    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome), memory_maintenance_enabled=False), tmp_path, event)
+    emitted = assert_failure(tmp_path, record, stage="decision", code="decision_incomplete", exit_code=0, call_id=CALL_ID)
+    assert "escalate" not in emitted["error_message"] and "action=unrecognized" in emitted["error_message"]
+
+
+@pytest.mark.parametrize("final_colon", [False, True])
+def test_colon_less_reply_uses_the_final_block_not_the_draft(final_colon):
+    sep = ": " if final_colon else " "
+    text = (
+        "ACTION STEER\nREASON draft thought\nDIRECTIVE redo everything\nEVIDENCE_REFS draft.json\n\n"
+        f"ACTION{sep}CONTINUE\nREASON{sep}final answer\nEVIDENCE_REFS{sep}backlog.jsonl"
+    )
+    decision = supervision._decision(text)
+    assert decision["action"] == "continue" and decision["reason"] == "final answer"
+    assert decision["cited_refs"] == ["backlog.jsonl"]
+
+
+@pytest.mark.parametrize("prefix", ["> ", "1. ", "- "])
+def test_colon_less_draft_then_decorated_final_block_uses_the_final_block(prefix):
+    text = (
+        "ACTION CONTINUE\nREASON draft\nEVIDENCE_REFS a\n\n"
+        f"{prefix}ACTION: steer\n{prefix}REASON: final\n{prefix}DIRECTIVE: redo the table\n"
+        f"{prefix}EVIDENCE_REFS: backlog.jsonl"
+    )
+    decision = supervision._decision(text)
+    assert decision["action"] == "steer" and decision["reason"] == "final"
+
+
+def test_prose_starting_with_a_key_word_is_not_read_as_a_field():
+    with pytest.raises(ValueError):
+        supervision._decision("Action items remain open.\nReason unclear.\nEvidence_refs none")
 
 
 @pytest.mark.parametrize("failure_class", [OSError, CancelledError])
