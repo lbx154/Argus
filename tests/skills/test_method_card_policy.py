@@ -152,10 +152,15 @@ def test_prompt_blocks_stay_short() -> None:
     # for the stand-in rule after trimming each block, then the reviewer to 220
     # for the dated results and random-input facts after trimming its reading
     # order, then to 260/340/200 for the claim-attainment statement, the
-    # weakest-link reading and the stage rule on unmet clauses; trim before raising.
+    # weakest-link reading and the stage rule on unmet clauses, then the planner
+    # to 260 for the finished shared runner and parallel arm fan-out (arms all
+    # editing one runner serialized behind its owner) after trimming the brief
+    # list and re-issue sentence, then to 270 for the arms' TASK_DEPS on the
+    # runner (without it arms could start before the runner is finished);
+    # trim before raising.
     assert words("engineer", "## Method card and executable spec", "execute") <= 260
     assert words("reviewer", "## Method card first", "evaluate") <= 340
-    assert words("planner", "## Method card, reference and spec first", "plan") <= 200
+    assert words("planner", "## Method card, reference and spec first", "plan") <= 270
 
 
 def test_stage_checklist_and_banners_name_the_card_as_the_named_exception() -> None:
