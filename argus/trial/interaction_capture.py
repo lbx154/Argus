@@ -19,6 +19,7 @@ import time
 
 from argus.core.secret_guard import redact_secrets_record
 from argus.trial.analytics import AnalyticsError, _safe_row, _sanitize
+from argus.trial.hosted_host import HostedHostRequired
 
 MAX_BYTES = 1024 * 1024
 MAX_FRAMES = 2000
@@ -504,6 +505,8 @@ def get_interaction(analytics, tenant_id, id, include_trace=True):
                 result["project_trace"] = {
                     "state": "error", "code": exc.code, "status": exc.status,
                 }
+            except HostedHostRequired:
+                raise
             except Exception:
                 # Never leak exception text (which may contain paths or secrets).
                 result["project_trace"] = {"state": "error", "code": "project_trace_unavailable"}

@@ -1,5 +1,6 @@
 """Service generation uses only caller-provided deployment paths."""
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -24,4 +25,5 @@ def test_generate_only_five_hosted_units_without_legacy_demo(tmp_path, monkeypat
         content = unit.read_text()
         assert str(tmp_path / "deployment") in content
         assert "demo_backend" not in content
-        assert unit.stat().st_mode & 0o777 == 0o600
+        if os.name == "posix":  # Windows grants access through ACLs, not mode bits.
+            assert unit.stat().st_mode & 0o777 == 0o600

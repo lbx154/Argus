@@ -2,18 +2,20 @@ import asyncio
 import os
 
 import pytest
+from hosted_platform import needs_unix_sockets
 
 from argus.trial.socket_forward import create_forward_server
 
 
-def test_concurrent_forwarding_and_half_close_do_not_fork(tmp_path, monkeypatch):
+@needs_unix_sockets
+def test_concurrent_forwarding_and_half_close_do_not_fork(socket_dir, monkeypatch):
     def no_fork():
         raise AssertionError("Connections must not consume new processes")
 
     monkeypatch.setattr(os, "fork", no_fork)
 
     async def exercise():
-        path = str(tmp_path / "upstream.sock")
+        path = str(socket_dir / "upstream.sock")
 
         async def echo(reader, writer):
             payload = await reader.read()
@@ -48,9 +50,10 @@ def test_missing_socket_fails_explicitly(tmp_path):
         asyncio.run(create_forward_server(0, str(tmp_path / "missing.sock")))
 
 
-def test_upstream_failure_does_not_kill_listener(tmp_path, caplog):
+@needs_unix_sockets
+def test_upstream_failure_does_not_kill_listener(socket_dir, caplog):
     async def exercise():
-        path = str(tmp_path / "upstream.sock")
+        path = str(socket_dir / "upstream.sock")
         upstream = await asyncio.start_unix_server(lambda r, w: w.close(), path)
         relay = await create_forward_server(0, path)
         port = relay.sockets[0].getsockname()[1]

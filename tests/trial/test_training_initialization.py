@@ -40,7 +40,7 @@ console.log(JSON.stringify({finished:true,capabilityRemoved:!process.env.ARGUS_T
     ("profile", "runtime_profile_changed"),
     ("receipt", "capture_init_reply_invalid"),
 ])
-def test_real_socket_slow_begin_and_late_or_invalid_ack(training, tmp_path, monkeypatch, mode, reason):
+def test_real_socket_slow_begin_and_late_or_invalid_ack(training, socket_dir, monkeypatch, mode, reason):
     original = training.capture.begin
 
     def begin(*args, **kwargs):
@@ -66,7 +66,7 @@ def test_real_socket_slow_begin_and_late_or_invalid_ack(training, tmp_path, monk
 
         monkeypatch.setattr(bridge, "dispatch", invalid_reply)
     lease = bridge.dispatch(registration(), (os.getpid(), os.getuid(), os.getgid()))["lease"]
-    server = _Server(str(tmp_path / "capture.sock"), _Handler)
+    server = _Server(str(socket_dir / "capture.sock"), _Handler)
     server.bridge = bridge
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:

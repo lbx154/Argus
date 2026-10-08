@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 import pytest
 from cryptography.fernet import Fernet
+from hosted_platform import linux_host_deadlines
 
 from argus.trial.gateway import Settings, create_app, prepare
 from argus.trial.secrets import Vault, write_private
@@ -59,6 +60,7 @@ def asgi_request(app, credential, *, payload=PAYLOAD):
     return asyncio.create_task(app(request_scope(credential), receive, send)), disconnected, messages
 
 
+@linux_host_deadlines
 @pytest.mark.parametrize("phase", ["reserve", "committed-reserve", "submit"])
 @pytest.mark.parametrize("termination", ["cancel", "disconnect", "timeout"])
 def test_late_billing_never_dispatches_after_http_termination(tmp_path, monkeypatch, phase, termination):
@@ -166,6 +168,7 @@ def test_sqlite_error_reconciles_commit_even_when_return_value_is_lost(tmp_path,
     asyncio.run(run())
 
 
+@linux_host_deadlines
 @pytest.mark.parametrize("termination", ["timeout", "disconnect"])
 def test_json_settlement_deadline_and_disconnect_keep_known_usage(tmp_path, termination):
     settings = offline_settings(tmp_path, timeout=0.08 if termination == "timeout" else 2)
@@ -280,6 +283,7 @@ def test_failed_cleanup_is_explicit_and_restart_recovers_conservatively(tmp_path
     asyncio.run(run())
 
 
+@linux_host_deadlines
 def test_repeated_cancelled_requests_keep_billing_work_bounded(tmp_path, monkeypatch):
     settings = offline_settings(tmp_path)
     calls = []

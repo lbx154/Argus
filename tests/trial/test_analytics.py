@@ -5,6 +5,7 @@ import sqlite3
 from contextlib import closing
 
 import pytest
+from hosted_platform import needs_fifo
 
 from argus.trial.analytics import Analytics, AnalyticsError
 
@@ -385,7 +386,7 @@ def test_missing_project_and_invalid_metadata_are_explicit_errors(setup):
     assert analytics.projects("trial-01")["skipped"] == 2
 
 
-@pytest.mark.parametrize("component", ["session", "file", "home", "hardlink", "fifo"])
+@pytest.mark.parametrize("component", ["session", "file", "home", "hardlink", pytest.param("fifo", marks=needs_fifo)])
 def test_trace_denies_symlinks_intermediate_links_and_special_files(setup, component):
     analytics, _, base = setup
     root = project(setup)
