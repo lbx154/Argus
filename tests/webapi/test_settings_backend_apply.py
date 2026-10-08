@@ -44,3 +44,44 @@ def test_a_real_backend_change_is_still_persisted(tmp_path, monkeypatch) -> None
 
     assert not result.get("unchanged")
     assert _stored(tmp_path)["ARGUS_SKILL_RUNNER_BACKEND"] == "codex"
+
+
+def test_env_backend_with_stale_saved_value_is_corrected(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"ARGUS_SKILL_RUNNER_BACKEND": "codex"}), encoding="utf-8"
+    )
+
+    result = set_operator_config("backend", "copilot")
+
+    assert not result.get("unchanged")
+    assert _stored(tmp_path)["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
+
+
+def test_saved_backend_is_read_from_the_store_not_mirrored_into_env(tmp_path, monkeypatch) -> None:
+    import os
+
+    from argus.core.knobs import resolve_knob
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
+
+    set_operator_config("backend", "codex")
+
+    assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
+    resolved = resolve_knob("ARGUS_SKILL_RUNNER_BACKEND", "")
+    assert (resolved.value, resolved.source) == ("codex", "persisted")
+
+
+def test_startup_lets_a_saved_choice_override_the_deployment_env(tmp_path, monkeypatch) -> None:
+    from argus.webapi.mission_items import prefer_saved_over_deployment_env
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    (tmp_path / "config.json").write_text(
+        json.dumps({"ARGUS_SKILL_RUNNER_BACKEND": "codex"}), encoding="utf-8"
+    )
+    env = {"ARGUS_SKILL_RUNNER_BACKEND": "copilot", "ARGUS_SKILL_MODEL": "deploy-model"}
+
+    assert prefer_saved_over_deployment_env(env) == ["ARGUS_SKILL_RUNNER_BACKEND"]
+    assert env == {"ARGUS_SKILL_MODEL": "deploy-model"}

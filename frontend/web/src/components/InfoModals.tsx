@@ -28,6 +28,7 @@ import {
   backendOption,
   configuredBackend,
   configuredBackendSource,
+  savedBackend,
   type BackendOption,
 } from '../lib/backend';
 
@@ -213,10 +214,17 @@ export function ConfigModal({
   };
   const currentBackend = configuredBackend(data);
   const currentBackendSource = configuredBackendSource(data);
+  const currentSavedBackend = savedBackend(data);
+  // Nothing to send when the saved value already is this backend, or nothing is
+  // saved and this is the backend in effect: re-sending the effective one would
+  // save a choice the operator never made. A stale saved value that the
+  // environment hides still counts as something to change.
+  const backendUnchanged = (backend: BackendOption | '') => !backend || (currentSavedBackend
+    ? backendOption(currentSavedBackend) === backend
+    : backend === backendOption(currentBackend));
+  const backendTarget = pendingBackend || backendOption(currentBackend);
   const setBackend = async (backend: BackendOption) => {
-    // Only a backend the operator actually changed is sent: re-sending the one
-    // in effect would save it, and a saved copy outlives the environment that chose it.
-    if (quickConfigBusy || backend === backendOption(currentBackend)) return;
+    if (quickConfigBusy || backendUnchanged(backend)) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
     setQuickConfigError(false);
@@ -350,8 +358,8 @@ export function ConfigModal({
                 <button
                   type="button"
                   data-apply-backend
-                  onClick={() => { if (pendingBackend) void setBackend(pendingBackend); }}
-                  disabled={quickConfigBusy || !pendingBackend || pendingBackend === backendOption(currentBackend)}
+                  onClick={() => { if (backendTarget) void setBackend(backendTarget); }}
+                  disabled={quickConfigBusy || backendUnchanged(backendTarget)}
                   className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40"
                 >
                   {t('settings.applyModel')}
@@ -359,6 +367,13 @@ export function ConfigModal({
                 {currentBackendSource && (
                   <span className="text-[10px] text-ink-faint" data-backend-source={currentBackendSource}>
                     {t(`settings.backendSource.${currentBackendSource}`)}
+                  </span>
+                )}
+                {!backendUnchanged(backendTarget) && (
+                  <span className="text-[10px] text-ink-dim" data-backend-change>
+                    {currentSavedBackend
+                      ? t('settings.backendWillReplace', { saved: backendLabel(currentSavedBackend, t), backend: backendLabel(backendTarget, t) })
+                      : t('settings.backendWillSave', { backend: backendLabel(backendTarget, t) })}
                   </span>
                 )}
               </label>

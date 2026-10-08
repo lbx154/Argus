@@ -104,3 +104,17 @@ it('changing only the model sends only the model, and the backend shows where it
   await act(async () => { applyBackend.props.onClick(); });
   expect(setConfig).toHaveBeenCalledTimes(1);
 });
+
+it('replaces a stale saved backend hidden by the environment and says what changes', async () => {
+  const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
+  const config = baseConfig();
+  config.operator_knobs[0] = { name: 'ARGUS_SKILL_RUNNER_BACKEND', value: 'copilot', source: 'env', saved: 'codex' } as ConfigSnapshot['operator_knobs'][number];
+  await mount(config);
+  expect(renderer!.root.findByProps({ 'aria-label': 'Backend' }).props.value).toBe('copilot');
+  const change = renderer!.root.findByProps({ 'data-backend-change': true });
+  expect(textOf(change as unknown as { children: unknown[] })).toContain('replaces the saved');
+  const applyBackend = renderer!.root.findByProps({ 'data-apply-backend': true });
+  expect(applyBackend.props.disabled).toBe(false);
+  await act(async () => { applyBackend.props.onClick(); });
+  expect(setConfig).toHaveBeenCalledWith('one', 'ARGUS_SKILL_RUNNER_BACKEND', 'copilot');
+});
