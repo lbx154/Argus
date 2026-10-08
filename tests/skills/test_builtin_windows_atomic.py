@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -30,7 +31,7 @@ def test_transient_share_lock_allows_replacement_of_existing_file(
 
     assert destination.read_bytes() == b"new factory text\n"
     assert len(attempted) > 1
-    assert list(tmp_path.glob("seed.md.tmp.*")) == []
+    assert list(tmp_path.iterdir()) == [destination]
 
 
 def test_persistent_share_lock_preserves_original_and_reports_failure(
@@ -54,7 +55,7 @@ def test_persistent_share_lock_preserves_original_and_reports_failure(
 
     assert len(attempts) > 1
     assert destination.read_bytes() == original
-    assert list(tmp_path.glob("seed.md.tmp.*")) == []
+    assert list(tmp_path.iterdir()) == [destination]
 
 
 def test_identical_crlf_winner_finishes_without_repeated_replace_attempts(
@@ -78,7 +79,7 @@ def test_identical_crlf_winner_finishes_without_repeated_replace_attempts(
 
     assert len(attempts) == 1
     assert destination.read_bytes() == b"same factory text\r\n"
-    assert list(tmp_path.glob("seed.md.tmp.*")) == []
+    assert list(tmp_path.iterdir()) == [destination]
 
 
 @pytest.mark.skipif(os.name != "nt", reason="requires Windows file-sharing semantics")
@@ -127,4 +128,49 @@ def test_real_windows_share_lock_is_retried_after_the_holder_releases_it(
 
     assert native_errors and all(error in {5, 32, 33} for error in native_errors)
     assert destination.read_bytes() == b"new factory text\n"
-    assert list(tmp_path.glob("seed.md.tmp.*")) == []
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_long_reference_filename_does_not_expand_temporary_path(tmp_path, monkeypatch):
+    parent = tmp_path / ("p" * (200 - len(str(tmp_path)) - 1))
+    parent.mkdir()
+    destination = parent / "architectural_operator_substitution.md"
+    identifier = UUID(int=3)
+    monkeypatch.setattr(builtins.uuid, "uuid4", lambda: identifier)
+    old_temporary = destination.with_name(destination.name + ".tmp.59760.10110.bb4119ae")
+    assert len(str(old_temporary)) > 259
+    assert len(str(destination)) <= 259
+    attempted = []
+    original_replace = builtins.os.replace
+
+    def replace(source, target):
+        attempted.append(Path(source))
+        return original_replace(source, target)
+
+    monkeypatch.setattr(builtins.os, "replace", replace)
+    builtins._atomic_write_text(destination, "research reference\r\n")
+    assert len(attempted) == 1 and len(str(attempted[0])) <= 259
+    assert destination.read_bytes() == b"research reference\n"
+    assert list(parent.iterdir()) == [destination]
+
+
+def test_temporary_collision_never_overwrites_or_deletes_another_writer(tmp_path, monkeypatch):
+    identifier = UUID(int=4)
+    monkeypatch.setattr(builtins.uuid, "uuid4", lambda: identifier)
+    temporary = tmp_path / f".argus-{identifier.hex}.tmp"
+    temporary.write_bytes(b"another writer's reference")
+    destination = tmp_path / "seed.md"
+    destination.write_bytes(b"existing user edits")
+    with pytest.raises(FileExistsError):
+        builtins._atomic_write_text(destination, "new reference")
+    assert temporary.read_bytes() == b"another writer's reference"
+    assert destination.read_bytes() == b"existing user edits"
+
+
+def test_encoding_failure_preserves_original_and_cleans_owned_temporary(tmp_path):
+    destination = tmp_path / "seed.md"
+    destination.write_bytes(b"existing user edits")
+    with pytest.raises(UnicodeEncodeError):
+        builtins._atomic_write_text(destination, "\ud800")
+    assert destination.read_bytes() == b"existing user edits"
+    assert list(tmp_path.iterdir()) == [destination]

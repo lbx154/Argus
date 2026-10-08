@@ -262,7 +262,7 @@ def test_atomic_write_accepts_concurrent_identical_winner(
     builtins._atomic_write_text(destination, "same runtime seed\n")
 
     assert destination.read_text(encoding="utf-8") == "same runtime seed\n"
-    assert list(tmp_path.glob("shared.md.tmp.*")) == []
+    assert list(tmp_path.iterdir()) == [destination]
 
 
 def test_seeding_refreshes_a_known_unmodified_legacy_builtin(

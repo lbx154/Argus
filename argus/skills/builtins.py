@@ -10,7 +10,6 @@ import hashlib
 import json
 import logging
 import os
-import threading
 import time
 import uuid
 from importlib import resources
@@ -815,11 +814,14 @@ def _validate_builtin(filename: str, text: str) -> None:
 
 def _atomic_write_text(path: Path, text: str) -> None:
     text = text.replace("\r\n", "\n")
-    tmp = path.with_name(
-        f"{path.name}.tmp.{os.getpid()}.{threading.get_ident():x}.{uuid.uuid4().hex[:8]}"
-    )
+    # Keep deep skill/reference paths within Windows MAX_PATH even when the
+    # destination filename is long. Exclusive creation preserves other writers.
+    tmp = path.with_name(f".argus-{uuid.uuid4().hex}.tmp")
+    created = False
     try:
-        tmp.write_text(text, encoding="utf-8", newline="\n")
+        with tmp.open("x", encoding="utf-8", newline="\n") as stream:
+            created = True
+            stream.write(text)
         for attempt in range(8):
             try:
                 os.replace(tmp, path)
@@ -834,7 +836,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
                     raise
                 time.sleep(min(0.02 * (2**attempt), 0.25))
     finally:
-        if tmp.exists():
+        if created:
             try:
                 tmp.unlink()
             except OSError:
