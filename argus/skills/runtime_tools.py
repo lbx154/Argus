@@ -22,6 +22,16 @@ from .store import Skill, SkillStore
 WORKER = Path(__file__).with_name('runtime_worker.py')
 
 
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Restore a document byte-for-byte (text mode would translate newlines again)."""
+    temporary = path.with_name(f'.{path.name}.restoring-{os.getpid()}-{threading.get_ident()}')
+    try:
+        temporary.write_bytes(data)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _json(value) -> str:
     return json.dumps(value, ensure_ascii=True, allow_nan=False, sort_keys=True)
 
@@ -286,7 +296,7 @@ class RuntimeToolService:
                     if data is None:
                         path.unlink(missing_ok=True)
                     else:
-                        _atomic_write_text(path, data.decode())
+                        _atomic_write_bytes(path, data)
                 raise
         return {'revision': record['revision'], 'published': bool(spec),
                 'skill_path': str(skill_path), 'wiki_path': str(wiki_path)}

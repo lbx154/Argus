@@ -109,7 +109,9 @@ process.stdout.write(JSON.stringify(used));
         command = ctx.backend._runner._build_pi_command(resume_thread_id=None, options=cli_options)
         assert runtime.EXTENSION in command
         assert 'evolve_runtime' in ctx.options.trusted_tool_names
-        environment = {'PATH': os.defpath, **ctx.options.extension_env,
+        # Windows sockets cannot initialise without SYSTEMROOT; nothing else is inherited.
+        inherited = {key: os.environ[key] for key in ('SYSTEMROOT', 'WINDIR') if key in os.environ}
+        environment = {'PATH': os.defpath, **inherited, **ctx.options.extension_env,
                        'TEST_FIRST_TURN': '1' if len(observed_calls) == 1 else '0'}
         result = subprocess.run([node, str(script)], env=environment, capture_output=True,
                                 text=True, timeout=15)

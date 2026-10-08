@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 _RUNNING_STALL_ERROR = "executor exited without completing the task"
 _RUNNING_STALL_POLL_SECONDS = 1.0
 _HELPER_WAKE_CHECK_SECONDS = 0.5
+_HELPER_WAKE_SETTLE_SECONDS = 0.05
 
 
 def _backlog_fingerprint(supervisor: Any) -> tuple | None:
@@ -565,8 +566,17 @@ class LifeWorkerRunMixin:
         while True:
             if self._stop.is_set() or primary.done():
                 return True
-            if _backlog_fingerprint(supervisor) != baseline:
-                return False
+            current = _backlog_fingerprint(supervisor)
+            if current != baseline:
+                # Let an in-progress write (truncate-then-write, multi-row
+                # append) settle first, so the helper's next baseline sees the
+                # finished state and one change wakes it once, not twice.
+                while not self._stop.wait(_HELPER_WAKE_SETTLE_SECONDS):
+                    settled = _backlog_fingerprint(supervisor)
+                    if settled == current or time.monotonic() >= deadline:
+                        break
+                    current = settled
+                return self._stop.is_set()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
