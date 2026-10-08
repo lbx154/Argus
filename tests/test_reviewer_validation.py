@@ -37,6 +37,16 @@ from argus.reviewer.validation import (
 )
 from argus.skills.store import SkillStore
 
+# The sandbox mounts host paths at identical container paths, runs as the host
+# uid/gid and requires a local Unix-socket daemon. On other hosts the product
+# stops before any Docker step with an explicit "requires Linux Docker" error
+# (covered by the missing-Docker tests below), so these Docker-pipeline tests
+# only describe Linux behavior.
+REQUIRES_LINUX_DOCKER = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="Reviewer validation is Linux-Docker only; other hosts stop at the platform check",
+)
+
 
 def wait_for_command(options, result):
     deadline = time.monotonic() + 30
@@ -146,7 +156,10 @@ def test_initialization_returns_running_without_requiring_ready_files(
     assert validator.result(result["command_id"])["stdout"] == "completed check"
 
 
-@pytest.mark.parametrize("late_failure", [False, True], ids=["cancelled-setup", "failed-setup"])
+@pytest.mark.parametrize("late_failure", [
+    pytest.param(False, id="cancelled-setup", marks=REQUIRES_LINUX_DOCKER),
+    pytest.param(True, id="failed-setup"),
+])
 def test_unfinished_initialization_cannot_leave_an_earlier_approval(
     tmp_path, monkeypatch, paused_validation_setup, completed_reviewer_metadata, late_failure,
 ):
@@ -395,6 +408,7 @@ def test_validation_is_opt_in_and_does_not_grant_a_native_shell(tmp_path, monkey
         assert COMMAND_TOOL not in {tool["name"] for tool in actions.tools}
 
 
+@REQUIRES_LINUX_DOCKER
 def test_command_has_readonly_inputs_no_network_and_no_bridge_credentials(tmp_path, monkeypatch):
     source = tmp_path / "source"
     source.mkdir()
@@ -445,6 +459,7 @@ def test_command_has_readonly_inputs_no_network_and_no_bridge_credentials(tmp_pa
     validator.close()
 
 
+@REQUIRES_LINUX_DOCKER
 def test_remote_context_cannot_be_disguised_by_a_local_host_variable(tmp_path, monkeypatch):
     monkeypatch.setenv("DOCKER_HOST", "unix:///local/docker.sock")
     monkeypatch.setenv("DOCKER_CONTEXT", "remote")
@@ -463,6 +478,8 @@ def test_missing_docker_never_runs_unsandboxed(tmp_path, monkeypatch):
     result = ReviewValidation(str(tmp_path), [], "ubuntu:24.04").run({"argv": ["/bin/true"]})
     assert result["status"] == "environment_error"
     assert "refusing unsandboxed" in result["error"]
+    if not sys.platform.startswith("linux"):
+        assert f"requires Linux Docker (this host is {sys.platform})" in result["error"]
 
 
 def test_missing_docker_diagnosis_survives_the_bridge(tmp_path, monkeypatch):
@@ -475,7 +492,10 @@ def test_missing_docker_diagnosis_survives_the_bridge(tmp_path, monkeypatch):
     ) as (actions, options):
         result = bridge_request(PREFIX, COMMAND_TOOL, {"argv": ["/bin/true"]}, env=options.extension_env)
         assert result["status"] == "environment_error"
-        assert "Docker is unavailable" in result["error"]
+        expected = (
+            "Docker is unavailable" if sys.platform.startswith("linux") else "requires Linux Docker"
+        )
+        assert expected in result["error"]
         assert "unsandboxed" in result["error"]
         assert json.loads(Path(result["receipt_path"]).read_text())["error"] == result["error"]
         assert actions.decision is None
@@ -519,6 +539,7 @@ def test_command_results_and_cancellation_are_caller_bound(tmp_path, monkeypatch
         second.validation.run({"argv": ["/bin/true"]})
 
 
+@REQUIRES_LINUX_DOCKER
 @pytest.mark.parametrize("exception_type", [RuntimeError, ValueError, KeyError, TypeError])
 def test_unexpected_internal_faults_remain_generic_and_persistent(tmp_path, monkeypatch, exception_type):
     monkeypatch.setenv(IMAGE_ENV, "ubuntu:24.04")
@@ -547,6 +568,7 @@ def test_unexpected_internal_faults_remain_generic_and_persistent(tmp_path, monk
     assert "unexpected-private" not in str(teardown.value)
 
 
+@REQUIRES_LINUX_DOCKER
 def test_expected_docker_diagnostics_are_redacted_before_persistence(tmp_path, monkeypatch):
     monkeypatch.setenv(IMAGE_ENV, "ubuntu:24.04")
     monkeypatch.setenv("DOCKER_HOST", "unix:///synthetic/docker.sock")
@@ -571,6 +593,7 @@ def test_expected_docker_diagnostics_are_redacted_before_persistence(tmp_path, m
         assert actions.decision is None
 
 
+@REQUIRES_LINUX_DOCKER
 @pytest.mark.parametrize("stage", ["context", "image", "create"])
 def test_preflight_deadlines_are_environment_results_with_receipts(tmp_path, monkeypatch, stage):
     from argus.reviewer import validation
@@ -607,6 +630,7 @@ def test_preflight_deadlines_are_environment_results_with_receipts(tmp_path, mon
             validator.close()
 
 
+@REQUIRES_LINUX_DOCKER
 def test_delayed_create_finishes_within_creation_budget(tmp_path, monkeypatch):
     from argus.reviewer import validation
 
@@ -644,6 +668,7 @@ def test_delayed_create_finishes_within_creation_budget(tmp_path, monkeypatch):
     assert result["cleanup_status"] == "removed"
 
 
+@REQUIRES_LINUX_DOCKER
 def test_creation_budget_preserves_other_deadlines(tmp_path, monkeypatch):
     from argus.reviewer import validation
 
@@ -676,6 +701,7 @@ def test_creation_budget_preserves_other_deadlines(tmp_path, monkeypatch):
     )
 
 
+@REQUIRES_LINUX_DOCKER
 @pytest.mark.parametrize("stage", ["context", "image", "create"])
 def test_closure_during_preflight_cannot_start_a_late_command(tmp_path, monkeypatch, stage):
     started, release = threading.Event(), threading.Event()
@@ -724,6 +750,7 @@ def test_closure_during_preflight_cannot_start_a_late_command(tmp_path, monkeypa
     assert json.loads(Path(result["receipt_path"]).read_text())["status"] == "cancelled"
 
 
+@REQUIRES_LINUX_DOCKER
 @pytest.mark.parametrize("failure", ["exit", "timeout", "internal"])
 def test_cleanup_failures_are_bounded_persistent_and_do_not_erase_timeout(tmp_path, monkeypatch, failure):
     docker = tmp_path / "synthetic-docker"
@@ -1095,6 +1122,7 @@ def test_evaluate_cancels_commands_on_normal_and_exceptional_turn_end(tmp_path, 
     assert receipt["exit_code"] is None
 
 
+@REQUIRES_LINUX_DOCKER
 @pytest.mark.parametrize("cleanup_fails", [False, True], ids=["clean", "failed-cleanup"])
 def test_cleanup_failure_invalidates_an_ended_turn_not_the_proof(
     tmp_path, monkeypatch, completed_reviewer_metadata, cleanup_fails,
@@ -1182,6 +1210,7 @@ def test_provider_exception_does_not_invent_completed_call_metadata(
     assert not decision.session_resumed
 
 
+@REQUIRES_LINUX_DOCKER
 @pytest.mark.parametrize("cleanup_fails", [False, True], ids=["receipt-only", "receipt-and-removal"])
 @pytest.mark.parametrize("execution", ["completed", "timed_out", "cancelled"])
 def test_terminal_receipt_failure_invalidates_an_earlier_approval(
@@ -1272,7 +1301,9 @@ def test_terminal_receipt_failure_invalidates_an_earlier_approval(
         assert observed["tool_error"] == "role tool request failed"
 
 
-@pytest.mark.parametrize("write_stage", ["initial", "before_start"])
+@pytest.mark.parametrize("write_stage", [
+    "initial", pytest.param("before_start", marks=REQUIRES_LINUX_DOCKER),
+])
 def test_receipt_write_failure_before_execution_invalidates_approval(
     tmp_path, monkeypatch, completed_reviewer_metadata, write_stage,
 ):

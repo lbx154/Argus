@@ -231,7 +231,10 @@ class ReviewValidation:
         stage = "Docker setup"
         try:
             if not sys.platform.startswith("linux"):
-                raise ReviewEnvironmentError("Read-only Reviewer validation currently requires Linux Docker")
+                raise ReviewEnvironmentError(
+                    "Read-only Reviewer validation currently requires Linux Docker "
+                    f"(this host is {sys.platform}); refusing unsandboxed Reviewer execution"
+                )
             docker = shutil.which("docker")
             if not docker:
                 raise ReviewEnvironmentError("Docker is unavailable; refusing unsandboxed Reviewer execution")

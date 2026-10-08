@@ -60,6 +60,10 @@ def policy_identity() -> dict[str, str]:
 
 
 def canonical_evidence_path(value: str, *, work: Path | None = None) -> str:
+    native = Path(value)
+    if work is not None and native.is_absolute() and native.is_relative_to(work):
+        # The analyzer may echo a host path in native separators (Windows).
+        value = native.relative_to(work).as_posix()
     path = PurePosixPath(value)
     if work is not None and path.is_absolute() and path.is_relative_to(work.as_posix()):
         path = path.relative_to(work.as_posix())

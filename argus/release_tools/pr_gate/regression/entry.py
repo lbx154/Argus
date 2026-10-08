@@ -128,10 +128,11 @@ def build_prompt(
             budget = metadata.get("analysis_budget_seconds")
             if isinstance(budget, int) and budget > 0:
                 prompt += f" The host will stop this Copilot invocation after {budget} seconds."
+    # One separator style: the template appends "/..." to each root.
     replacements = {
-        "/skill/SKILL.md": str(skill),
-        "/runner/": str(runner) + "/",
-        "/work/": str(work) + "/",
+        "/skill/SKILL.md": Path(skill).as_posix(),
+        "/runner/": Path(runner).as_posix() + "/",
+        "/work/": Path(work).as_posix() + "/",
     }
     return re.sub(
         r"/skill/SKILL\.md|/runner/|/work/",
