@@ -239,7 +239,7 @@ def test_priced_settlement_replaces_hold_with_global_ledger_cost(
 
 
 @pytest.mark.parametrize("provider", ["codex", "dsh"])
-def test_unpriced_cost_remains_visible_and_blocks_under_persisted_strict_policy(
+def test_call_with_unpriceable_model_stays_visible_without_blocking_other_models(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     provider: str,
@@ -260,28 +260,47 @@ def test_unpriced_cost_remains_visible_and_blocks_under_persisted_strict_policy(
 
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["unresolved_calls"] == 1
-    assert snapshot["blocking_unresolved_calls"] == 1
-    assert snapshot["unresolved"][0]["blocking"] is True
+    # Nothing will ever settle a model without a price: it is a configuration
+    # problem, not a pending reconciliation that holds every later call.
+    assert snapshot["blocking_unresolved_calls"] == 0
+    assert snapshot["unresolved"][0]["blocking"] is False
+    assert snapshot["unresolved"][0]["missing_price"] is True
     assert snapshot["unresolved"][0]["provider"] == provider
-    assert snapshot["unresolved"][0]["reason"]
-    assert snapshot["policy"] == "block"
+    assert "no configured price for model future-model" in snapshot["unresolved"][0]["reason"]
+    assert snapshot["daily_tokens"] > 0
     assert UsageLedger(project, migrate_legacy=False).records()[0].cost_usd is None
 
-    next_call, reason = _reserve(tmp_path, project, "call-2")
-    assert next_call is None and "unresolved provider cost" in reason
+    # A call on a priced model proceeds.
+    priced, reason = _reserve(tmp_path, project, "call-2")
+    assert priced is not None and reason == ""
+    priced.release(reason="test")
 
-    monkeypatch.delenv("ARGUS_SKILL_UNPRICED_COST_POLICY")
-    control, reason = reserve_call_budget(
-        call_id="control-1",
-        project_root=project,
-        mission_id="manager-turn",
-        provider="copilot",
-        model="gpt-5.5",
-        run_label="manager-frontdoor-classify",
-        global_root=tmp_path,
+    # Repeating the unpriceable model is refused up front, naming the model.
+    for model in ("future-model", ""):
+        again, reason = reserve_call_budget(
+            call_id=f"again-{model or 'default'}",
+            project_root=project,
+            mission_id="manager-turn",
+            provider=provider,
+            model=model,
+            run_label="manager-frontdoor-classify",
+            global_root=tmp_path,
+            global_daily_cap_usd=10.0,
+        )
+        assert again is None
+        assert reason.startswith("unpriced model: future-model has no configured price")
+        assert f"provider={provider}" in reason
+        assert "awaiting usage reconciliation" not in reason
+
+    # Policy allow accepts unpriced calls knowingly.
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
+    allowed, reason = reserve_call_budget(
+        call_id="allowed", project_root=project, mission_id="m", provider=provider,
+        model="future-model", run_label="engineer-r1", global_root=tmp_path,
         global_daily_cap_usd=10.0,
     )
-    assert control is None and "unresolved provider cost" in reason
+    assert allowed is not None and reason == ""
+    allowed.release(reason="test")
 
 
 @pytest.mark.parametrize("daily_cap", [10.0, 0.000001])

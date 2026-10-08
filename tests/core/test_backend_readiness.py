@@ -796,3 +796,51 @@ def test_setup_passes_unspecified_and_explicit_policy(
 
     assert exit_code == setup.SETUP_EXIT_NOT_READY
     assert seen == [None if explicit == "omitted" else explicit]
+
+
+def _custom_provider_codex(monkeypatch, tmp_path, model: str) -> None:
+    from argus.tools import capability_vault
+
+    _fake_codex(monkeypatch, readiness.CODEX_RECOMMENDED_VERSION)
+    monkeypatch.setattr(
+        capability_vault,
+        "read_codex_provider_config",
+        lambda _env=None: capability_vault.CodexProviderConfig(
+            name="local-relay",
+            base_url="http://127.0.0.1:41419/v1",
+            wire_api="responses",
+            requires_openai_auth=False,
+        ),
+    )
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    (home / "config.toml").write_text(f'model = "{model}"\nmodel_provider = "local-relay"\n')
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    for name in ("ARGUS_SKILL_MODEL", "ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_PLAN_MODEL",
+                 "ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_readiness_warns_when_the_backends_own_default_model_has_no_price(
+    monkeypatch, tmp_path,
+) -> None:
+    _custom_provider_codex(monkeypatch, tmp_path, "house-model-without-price")
+
+    report = readiness.check_backend_readiness("codex", "subscription_cli")
+
+    warnings = [w for w in report.warnings if "no configured price" in w]
+    assert len(warnings) == 1
+    assert "house-model-without-price" in warnings[0]
+    assert "ARGUS_SKILL_UNPRICED_COST_POLICY" in warnings[0]
+    assert "--setup --backend" in warnings[0]
+
+
+def test_readiness_stays_quiet_for_a_priced_default_model(monkeypatch, tmp_path) -> None:
+    from argus.core.pricing import MODEL_PRICES_USD_PER_MTOK
+
+    _custom_provider_codex(monkeypatch, tmp_path, next(iter(MODEL_PRICES_USD_PER_MTOK)))
+
+    report = readiness.check_backend_readiness("codex", "subscription_cli")
+
+    assert not [w for w in report.warnings if "no configured price" in w]

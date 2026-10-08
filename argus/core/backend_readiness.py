@@ -958,7 +958,75 @@ def check_backend_readiness(
         # an arbitrary OpenAI-compatible endpoint, so a foreign-looking id may
         # be exactly right and the vault check above already judges the route.
         _check_backend_model_catalog(report, env=env_map)
+    _check_model_pricing(report, env=env_map)
     return report
+
+
+def _codex_configured_model(env: Mapping[str, str]) -> str:
+    """The model Codex picks on its own (``model`` in its config.toml)."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
+        return ""
+    from ..tools.capability_vault import default_codex_config_path
+
+    try:
+        with default_codex_config_path(env).open("rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, ValueError):
+        return ""
+    return str(data.get("model") or "").strip() if isinstance(data, dict) else ""
+
+
+def _check_model_pricing(
+    report: BackendReadiness,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> None:
+    """Warn when the backend's effective model has no price in the catalog.
+
+    Such calls are recorded with token counts but no cost, and under the
+    default ``ARGUS_SKILL_UNPRICED_COST_POLICY=block`` further calls on that
+    model are refused. Saying so here keeps a fresh install from discovering
+    it only after the first chat message. Only Codex is checked: it reports
+    tokens and nothing else, so Argus prices its calls from the catalog;
+    Copilot settles from its own usage logs and the other CLIs either report
+    their own cost or are judged by the model-catalog check above.
+    """
+    from .knobs import resolve_role_model
+    from .pricing import model_price_for
+
+    backend = report.profile.backend
+    if backend != "codex":
+        return
+    env_map = env if env is not None else os.environ
+    models: list[tuple[str, str]] = []
+    for route, role_env in _MODEL_ROLES:
+        try:
+            model = str(resolve_role_model(route, role_env=role_env, env=env_map) or "").strip()
+        except Exception:  # noqa: BLE001 — readiness must not crash on a knob
+            model = ""
+        if model:
+            models.append((model, f"the {route} route"))
+    if not models:
+        configured = _codex_configured_model(env_map)
+        if configured:
+            models.append((configured, "Codex's own config.toml default"))
+    seen: set[str] = set()
+    for model, origin in models:
+        if model in seen:
+            continue
+        seen.add(model)
+        if model_price_for(model) is not None:
+            continue
+        report.warnings.append(
+            f"model {model!r} ({origin}, backend {backend}, backend chosen by "
+            f"{report.profile.backend_source}) has no configured price: its calls are "
+            f"recorded without a cost and, under ARGUS_SKILL_UNPRICED_COST_POLICY=block, "
+            f"further calls on it are refused; set ARGUS_SKILL_MODEL to a priced model, "
+            f"pick another backend with `argus --setup --backend <name>`, or add a price "
+            f"entry for it"
+        )
 
 
 def persist_validated_profile(
