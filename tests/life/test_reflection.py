@@ -897,3 +897,18 @@ def test_both_prompts_keep_the_operator_s_own_affairs_out_of_shared_pages(tmp_pa
     for prompt in (answer, mission):
         assert "keep the operator's own affairs out" in prompt
         assert "read by other projects and other people" in prompt
+
+
+def test_answer_prompt_defaults_to_project_scope(tmp_path: Path) -> None:
+    from argus.life.reflection import build_answer_prompt
+
+    prompt = build_answer_prompt(
+        project_id="s-1", vertical="", operator_text="write me a csv cleaner",
+        reply="done", root=tmp_path, existing=[],
+    )
+    assert "Scope defaults to this project." in prompt
+    assert "whose source text the observed work actually read" in prompt
+    assert "What the assistant says about Argus itself" in prompt
+    assert "is never knowledge" in prompt
+    assert "A one-off engineering deliverable" in prompt
+    assert "`WROTE: nothing`" in prompt
