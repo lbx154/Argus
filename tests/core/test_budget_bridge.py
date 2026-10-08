@@ -156,6 +156,8 @@ def test_killed_budget_owner_exposes_its_marker_to_normal_python_admission(root,
     responses = queue.Queue()
     thread = threading.Thread(target=lambda: [responses.put(line) for line in process.stdout], daemon=True)
     thread.start()
+    owner_api = None
+    owner_handle = None
     try:
         commands = [("reserve", PARAMS), ("start", {})]
         if observed:
@@ -167,7 +169,26 @@ def test_killed_budget_owner_exposes_its_marker_to_normal_python_admission(root,
             assert json.loads(responses.get(timeout=10))["ok"]
         assert cost_admission_reason(global_root=root) == ""
         if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes as w
+
+            state = json.loads((root / "cost-control.json").read_text())
+            owner_pid = state["reservations"][0]["pid"]
+            assert owner_pid != os.getpid()
+            owner_api = ctypes.WinDLL("kernel32", use_last_error=True)
+            owner_api.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+            owner_api.OpenProcess.restype = w.HANDLE
+            owner_api.WaitForSingleObject.argtypes = [w.HANDLE, w.DWORD]
+            owner_api.WaitForSingleObject.restype = w.DWORD
+            owner_api.CloseHandle.argtypes = [w.HANDLE]
+            owner_api.CloseHandle.restype = w.BOOL
+            owner_handle = owner_api.OpenProcess(0x100000 | 0x1000, False, owner_pid)
+            assert owner_handle, ctypes.WinError(ctypes.get_last_error())
+            member = w.BOOL()
+            job = process._argus_windows_job
+            assert job.api.IsProcessInJob(owner_handle, job.handle, ctypes.byref(member)) and member.value
             assert terminate_owned_process(process) is True
+            assert owner_api.WaitForSingleObject(owner_handle, 5000) == 0
         else:
             process.kill()
             process.wait(timeout=5)
@@ -177,12 +198,16 @@ def test_killed_budget_owner_exposes_its_marker_to_normal_python_admission(root,
         assert view["blocking_unresolved_calls"] == 1
         assert view["in_flight_cost_usd"] == 0
     finally:
-        if os.name == "nt":
-            assert terminate_owned_process(process) is True
-        elif process.poll() is None:
-            process.kill()
-        process.communicate(timeout=5)
-        thread.join(timeout=2)
+        try:
+            if os.name == "nt":
+                assert terminate_owned_process(process) is True
+            elif process.poll() is None:
+                process.kill()
+            process.communicate(timeout=5)
+            thread.join(timeout=2)
+        finally:
+            if owner_handle:
+                assert owner_api.CloseHandle(owner_handle)
 
 
 def test_pending_marker_survives_failed_fsync_before_start_ack(root, monkeypatch):
@@ -262,3 +287,167 @@ def test_marker_retired_during_directory_scan_does_not_create_a_phantom_liabilit
 
     monkeypatch.setattr(Path, "iterdir", retiring)
     assert cost_control._failed_finalization_rows(root) == []
+
+
+def _delay_marker_unlock(root, monkeypatch):
+    import portalocker
+
+    from argus.core import cost_control
+
+    original_lock = cost_control.portalocker.lock
+
+    def delayed(handle, flags):
+        if not isinstance(handle, int) and Path(handle.name).parent == root / "cost-control.failed":
+            raise portalocker.exceptions.AlreadyLocked("Windows has not released the marker lock yet")
+        return original_lock(handle, flags)
+
+    monkeypatch.setattr(cost_control.portalocker, "lock", delayed)
+    return cost_control
+
+
+@pytest.mark.parametrize("observed", [False, True])
+def test_dead_owner_blocks_immediately_while_windows_marker_unlock_is_delayed(root, monkeypatch, observed):
+    session = start(root)
+    try:
+        if observed:
+            session.dispatch("observe", {"accounting": observation()})
+        session.pending.close()
+        costs = _delay_marker_unlock(root, monkeypatch)
+        monkeypatch.setattr(costs, "_pid_alive", lambda _pid: False)
+        assert "unresolved provider cost" in cost_admission_reason(global_root=root)
+        view = cost_control_snapshot(global_root=root)
+        assert view["blocking_unresolved_calls"] == 1
+        assert view["unacknowledged_observed_cost_usd"] == (0.25 if observed else 0)
+        assert view["in_flight_cost_usd"] == 0
+        denied, reason = reserve_call_budget(
+            call_id="next-call", project_root=root / "projects/p", mission_id=None,
+            provider="pi", model="model", run_label="other", global_root=root,
+        )
+        assert denied is None and "unresolved provider cost" in reason
+        assert cost_control_snapshot(global_root=root)["unresolved"][0]["call_id"] == session.call_id
+    finally:
+        session.close()
+
+
+def test_locked_marker_with_confirmed_live_owner_remains_in_flight(root, monkeypatch):
+    session = start(root)
+    try:
+        session.dispatch("observe", {"accounting": observation()})
+        _delay_marker_unlock(root, monkeypatch)
+        assert cost_admission_reason(global_root=root) == ""
+        view = cost_control_snapshot(global_root=root)
+        assert view["blocking_unresolved_calls"] == 0
+        assert view["in_flight_cost_usd"] == 0.25
+    finally:
+        session.close()
+
+
+def test_newer_marker_observation_updates_the_delayed_unlock_lower_bound(root, monkeypatch):
+    session = start(root)
+    try:
+        # Crash between the marker's durable write and the reservation update.
+        session.pending.observe(0.25, 110)
+        session.pending.close()
+        with monkeypatch.context() as patch:
+            costs = _delay_marker_unlock(root, patch)
+            patch.setattr(costs, "_pid_alive", lambda _pid: False)
+            assert cost_control_snapshot(global_root=root)["blocking_unresolved_calls"] == 1
+        view = cost_control_snapshot(global_root=root)
+        assert view["unacknowledged_observed_cost_usd"] == 0.25
+        assert view["blocking_unresolved_calls"] == 1
+        assert view["unsettled_tokens"] == 110
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("unrelated", [False, True])
+def test_live_owner_metadata_recovery_retires_only_its_temporary_alias(root, monkeypatch, unrelated):
+    from argus.core import cost_control as costs
+
+    session = start(root)
+    try:
+        state = costs._read_state(root, costs.time.time())
+        state["reservations"] = []
+        if unrelated:
+            state["unresolved"].append({"call_id": "unrelated", "project_id": "p", "pricing_status": "unknown"})
+        costs._write_state(root, state, costs.time.time())
+        _delay_marker_unlock(root, monkeypatch)
+        assert cost_control_snapshot(global_root=root)["blocking_unresolved_calls"] == (2 if unrelated else 1)
+        session.dispatch("observe", {"accounting": observation()})
+        reason = cost_admission_reason(global_root=root)
+        assert ("unresolved provider cost" in reason) if unrelated else (reason == "")
+        view = cost_control_snapshot(global_root=root)
+        assert view["blocking_unresolved_calls"] == (1 if unrelated else 0)
+        assert view["in_flight_cost_usd"] == 0.25
+        assert {row["call_id"] for row in view["unresolved"]} == ({"unrelated"} if unrelated else set())
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("state_missing", [False, True])
+def test_unknown_locked_marker_alias_recovers_after_metadata_becomes_readable(root, monkeypatch, state_missing):
+    from argus.core import cost_control as costs
+    from argus.core.usage import build_usage_record
+
+    session = start(root)
+    try:
+        session.dispatch("observe", {"accounting": observation()})
+        session.pending.close()
+        state = costs._read_state(root, costs.time.time())
+        state["reservations"] = []
+        if state_missing:
+            # Day rollover returns the same empty owner projection.
+            state["day"] = "previous-day"
+        costs._write_state(root, state, costs.time.time())
+        if state_missing:
+            payload = json.loads((root / costs.COST_CONTROL_STATE_FILE).read_text())
+            payload["day"] = "previous-day"
+            (root / costs.COST_CONTROL_STATE_FILE).write_text(json.dumps(payload))
+        with monkeypatch.context() as patch:
+            _delay_marker_unlock(root, patch)
+            assert "unresolved provider cost" in cost_admission_reason(global_root=root)
+            assert cost_control_snapshot(global_root=root)["blocking_unresolved_calls"] == 1
+        view = cost_control_snapshot(global_root=root)
+        assert view["blocking_unresolved_calls"] == 1
+        assert view["unresolved"][0]["call_id"] == session.call_id
+        assert view["unacknowledged_observed_cost_usd"] == 0.25
+        record = build_usage_record(
+            call_id=session.call_id, project_root=root / "projects/p", mission_id=None,
+            provider="pi", model="model", run_label="other", started_at=session.started_at,
+            completed_at=costs.time.time(), status="completed",
+            token_usage=extract_token_usage([{"usage": {"input_tokens": 100, "output_tokens": 10}}]),
+            provider_cost_usd=0.25,
+        )
+        UsageLedger(root / "projects/p", migrate_legacy=False).append(record)
+        assert cost_admission_reason(global_root=root) == ""
+        assert cost_control_snapshot(global_root=root)["unresolved_calls"] == 0
+    finally:
+        session.close()
+
+
+def test_settled_marker_with_delayed_retirement_does_not_leave_a_permanent_alias(root, monkeypatch):
+    from argus.core import cost_control as costs
+
+    session = start(root)
+    try:
+        marker = session.pending.path
+        original_unlink = Path.unlink
+
+        def delayed_unlink(path, *args, **kwargs):
+            if path == marker:
+                raise PermissionError("Windows is still retiring the marker")
+            return original_unlink(path, *args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "unlink", delayed_unlink)
+            with pytest.raises(PermissionError):
+                session.dispatch("settle", {"accounting": observation(), "completed": True, "thread_id": None})
+            _delay_marker_unlock(root, patch)
+            assert "unresolved provider cost" in cost_admission_reason(global_root=root)
+            assert cost_control_snapshot(global_root=root)["blocking_unresolved_calls"] == 1
+        assert cost_admission_reason(global_root=root) == ""
+        assert cost_control_snapshot(global_root=root)["unresolved_calls"] == 0
+        assert not marker.exists()
+        assert costs._read_state(root, costs.time.time())["unresolved"] == []
+    finally:
+        session.close()

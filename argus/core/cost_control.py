@@ -611,7 +611,9 @@ def _record_failed_finalization(
     return path
 
 
-def _failed_finalization_rows(root: Path) -> list[tuple[Path, dict[str, Any]]]:
+def _failed_finalization_rows(
+    root: Path, state: dict[str, Any] | None = None, live_markers: set[str] | None = None,
+) -> list[tuple[Path, dict[str, Any]]]:
     directory = _failed_finalization_dir(root)
     try:
         paths = sorted(path for path in directory.iterdir() if path.suffix == ".json")
@@ -624,13 +626,29 @@ def _failed_finalization_rows(root: Path) -> list[tuple[Path, dict[str, Any]]]:
                 try:
                     portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
                 except portalocker.exceptions.AlreadyLocked:
-                    # A live bridge owns this pending receipt. Its reservation
-                    # already contributes observed spend; do not count it twice.
-                    continue
-                try:
-                    payload = json.load(handle)
-                finally:
-                    portalocker.unlock(handle)
+                    # Windows may retain locks briefly after process death.
+                    # Only a recorded, live owner proves this is in-flight spend.
+                    if state is None:
+                        try:
+                            state = _read_state(root, time.time())
+                        except CostControlStateError:
+                            state = {}
+                    owner = next((row for row in (
+                        *state.get("reservations", []), *state.get("unresolved", []),
+                    ) if row.get("id", row.get("reservation_id")) == path.stem), None)
+                    if (owner is not None and type(owner.get("pid")) is int
+                            and owner["pid"] > 0 and _pid_alive(owner["pid"])):
+                        if live_markers is not None:
+                            live_markers.add(path.stem)
+                        continue
+                    payload = ({**owner, "reservation_id": path.stem,
+                                "pricing_status": "unknown", "reason": FAILED_FINALIZATION_REASON}
+                               if owner is not None else None)
+                else:
+                    try:
+                        payload = json.load(handle)
+                    finally:
+                        portalocker.unlock(handle)
         except FileNotFoundError:
             # A live owner may finish between the directory scan and open.
             continue
@@ -639,6 +657,7 @@ def _failed_finalization_rows(root: Path) -> list[tuple[Path, dict[str, Any]]]:
         if not isinstance(payload, dict) or not payload.get("call_id"):
             payload = {
                 "call_id": f"failed-finalization:{path.stem}",
+                "reservation_id": path.stem,
                 "project_id": "",
                 "pricing_status": "unknown",
                 "reason": f"{FAILED_FINALIZATION_REASON}: marker payload unreadable; "
@@ -651,9 +670,9 @@ def _failed_finalization_rows(root: Path) -> list[tuple[Path, dict[str, Any]]]:
 class PendingBudgetCall:
     """A locked liability marker written BEFORE an external owner may start.
 
-    Losing the process releases the OS lock, immediately exposing the marker to
-    every Python admission reader. No PID-liveness guess or recovery daemon is
-    needed. Interrupted writes remain unreadable barriers rather than zero cost.
+    A lock is excluded only while its recorded owner is alive. Process death
+    exposes the liability even if Windows has not released the lock yet.
+    Interrupted writes remain unreadable barriers rather than zero cost.
     """
 
     def __init__(self, reservation: CallBudgetReservation) -> None:
@@ -723,21 +742,50 @@ def _fold_failed_finalizations(
         or (record.cost_usd is not None and record.pricing_status not in {"partial", "unpriced"})
     }
     acknowledgements = state.get("acknowledgements", {})
-    present = {str(row.get("call_id") or "") for row in state["unresolved"]}
-    for path, row in _failed_finalization_rows(root):
+    # Unreadable markers temporarily use an alias. Retire that alias when its
+    # marker disappears, or replace it with the real identity once readable.
+    retained = []
+    for row in state["unresolved"]:
+        identifier = str(row.get("call_id") or "").removeprefix("failed-finalization:")
+        if str(row.get("call_id") or "").startswith("failed-finalization:") and Path(identifier).name == identifier:
+            try:
+                (_failed_finalization_dir(root) / f"{identifier}.json").stat()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                pass  # Inaccessible evidence remains a barrier.
+        retained.append(row)
+    state["unresolved"] = retained
+    live_markers: set[str] = set()
+    pending_rows = _failed_finalization_rows(root, state, live_markers)
+    live_aliases = {f"failed-finalization:{identifier}" for identifier in live_markers}
+    state["unresolved"] = [row for row in state["unresolved"] if row.get("call_id") not in live_aliases]
+    for path, row in pending_rows:
         call_id = str(row["call_id"])
+        alias = f"failed-finalization:{path.stem}"
+        if call_id != alias:
+            state["unresolved"] = [item for item in state["unresolved"] if item.get("call_id") != alias]
         acknowledged = acknowledgements.get(call_id)
         if call_id in settled or (
             acknowledged and acknowledged.get("project_id") == row.get("project_id")
         ):
             try:
                 path.unlink()
-            except FileNotFoundError:
+            except OSError:
+                # A settled marker can remain temporarily locked on Windows;
+                # defer deletion while the durable ledger/approval retires it.
                 pass
             continue
-        if call_id not in present:
+        existing = next((item for item in state["unresolved"] if item.get("call_id") == call_id), None)
+        if existing is None:
             state["unresolved"].append(row)
-            present.add(call_id)
+        else:
+            # The marker may have a newer durable observation than the state
+            # when the owner died between the two writes. Never lose that bound.
+            cost = max(0.0, float(existing.get("observed_cost_usd") or 0), float(row.get("observed_cost_usd") or 0))
+            tokens = max(0, int(existing.get("observed_tokens") or 0), int(row.get("observed_tokens") or 0))
+            existing.update(row)
+            existing["observed_cost_usd"], existing["observed_tokens"] = cost, tokens
 
 
 def _append_audit(root: Path, event_type: EventType, **payload: Any) -> None:
@@ -954,12 +1002,12 @@ def reserve_call_budget(
             state = _read_state(root, timestamp)
             if project_key:
                 state["project_roots"] = sorted(set(state["project_roots"]) | {project_key})
+            _fold_failed_finalizations(root, state, global_records)
             reservations = _prune_reservations(
                 list(state["reservations"]),
                 records=global_records,
             )
             state["reservations"] = reservations
-            _fold_failed_finalizations(root, state, global_records)
             state["unresolved"] = _unresolved_costs(global_records, list(state["unresolved"]))
             reason = _budget_reason(global_records, state, global_cap, token_cap=caps.global_daily_token_cap)
             if reason:

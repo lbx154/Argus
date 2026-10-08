@@ -187,7 +187,15 @@ def is_pid_running(pid: int) -> bool:
     if os.name == "nt":  # pragma: no cover - exercised on Windows CI
         process_query_limited_information = 0x1000
         still_active = 259
-        kernel32 = ctypes.windll.kernel32
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
         handle = kernel32.OpenProcess(
             process_query_limited_information,
             False,
@@ -196,7 +204,7 @@ def is_pid_running(pid: int) -> bool:
         if not handle:
             return ctypes.get_last_error() == 5
         try:
-            exit_code = ctypes.c_ulong()
+            exit_code = wintypes.DWORD()
             if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
                 return False
             return exit_code.value == still_active

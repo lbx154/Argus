@@ -161,3 +161,16 @@ def test_is_pid_running_dead_pid() -> None:
 def test_is_pid_running_invalid() -> None:
     assert is_pid_running(0) is False
     assert is_pid_running(-1) is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows last-error state")
+def test_dead_pid_does_not_inherit_an_unrelated_access_denied_error() -> None:
+    import ctypes
+
+    previous = ctypes.get_last_error()
+    try:
+        ctypes.set_last_error(5)
+        assert is_pid_running(2_147_483_647) is False
+        assert is_pid_running(os.getpid()) is True
+    finally:
+        ctypes.set_last_error(previous)
