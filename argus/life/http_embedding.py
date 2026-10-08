@@ -251,6 +251,9 @@ class HttpEmbeddingAdapter:
             # here could wait on the same blocked reader we are interrupting.
             raise EmbeddingUnavailable(failure)
         if not result:
+            if time.monotonic() >= deadline:
+                # The worker stopped waiting at the same deadline the caller holds.
+                raise EmbeddingUnavailable("embedding HTTP deadline exceeded")
             raise EmbeddingUnavailable("embedding HTTP response unavailable or oversized")
         return result[0]
 
