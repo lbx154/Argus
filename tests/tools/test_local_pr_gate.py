@@ -39,7 +39,7 @@ def repo(tmp_path, monkeypatch):
     root.mkdir()
     git(root, "init", "--quiet", "--template=")
     git(root, "symbolic-ref", "HEAD", "refs/heads/main")
-    (root / "app.py").write_text("VALUE = 1\n")
+    (root / "app.py").write_bytes(b"VALUE = 1\n")
     (root / "README.md").write_text("# Fixture\n")
     git(root, "add", ".")
     commit(root, "base")
@@ -48,8 +48,22 @@ def repo(tmp_path, monkeypatch):
     return root
 
 
+def probe_environment(work):
+    """Minimal probe-helper environment, plus what Windows needs to start Python."""
+    environment = {
+        "PATH": os.environ.get("PATH", ""),
+        "PR_GATE_WORK_ROOT": str(work), "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    if os.name == "nt":
+        environment.update(
+            (key, os.environ[key]) for key in ("SYSTEMROOT", "SYSTEMDRIVE", "WINDIR")
+            if key in os.environ
+        )
+    return environment
+
+
 def stage_change(repo):
-    (repo / "app.py").write_text("VALUE = 2\n")
+    (repo / "app.py").write_bytes(b"VALUE = 2\n")
     git(repo, "add", "app.py")
 
 
@@ -590,10 +604,7 @@ def test_standalone_probe_flows_into_verifiable_local_report(repo, layout, regre
         subprocess.run(
             [sys.executable, str(root / "runner/probe.py"), "--id", "real",
              "--command", shlex.join([sys.executable, driver])],
-            cwd=work, env={
-                "PATH": os.environ.get("PATH", ""),
-                "PR_GATE_WORK_ROOT": str(work), "PYTHONDONTWRITEBYTECODE": "1",
-            },
+            cwd=work, env=probe_environment(work),
             check=True, capture_output=True, text=True, timeout=30,
         )
         receipt = json.loads((work / "evidence/real/receipt.json").read_text())
@@ -668,18 +679,18 @@ def test_real_fixture_inputs_control_local_report_comparability(
         if declared:
             command += ["--oracle", fixture]
         subprocess.run(
-            command, cwd=work, env={
-                "PATH": os.environ.get("PATH", ""),
-                "PR_GATE_WORK_ROOT": str(work), "PYTHONDONTWRITEBYTECODE": "1",
-            },
+            command, cwd=work, env=probe_environment(work),
             check=True, capture_output=True, text=True, timeout=30,
         )
         receipt = json.loads((work / "evidence/fixture/receipt.json").read_text())
         if not declared:
             for side in ("base", "candidate"):
                 origin = json.loads((work / receipt[side]["source_origin"]["path"]).read_text())
-                assert origin["status"] == "incomplete"
-                assert any(f"unfingerprinted_data_input: {fixture}" in issue for issue in origin["issues"])
+                log = (work / receipt[side]["log"]).read_text(errors="replace")
+                assert origin["status"] == "incomplete", (origin, log)
+                assert any(
+                    f"unfingerprinted_data_input: {fixture}" in issue for issue in origin["issues"]
+                ), (origin, log)
         report_path = work / "report.json"
         report = json.loads(report_path.read_text())
         report.update(verdict=verdict, analysis_mode="targeted", short_circuit_reason=None)
@@ -776,9 +787,9 @@ def test_prompt_reuses_paths_without_recursive_replacement(tmp_path):
     skill = tmp_path / "work" / "policy" / "SKILL.md"
     runner = tmp_path / "work" / "runner"
     prompt = entry.build_prompt(work=work, runner=runner, skill=skill)
-    assert f"Skill at {skill}" in prompt
-    assert f"python {runner}/probe.py" in prompt
-    assert str(work / "input.json") in prompt
+    assert f"Skill at {skill.as_posix()}" in prompt
+    assert f"python {runner.as_posix()}/probe.py" in prompt
+    assert (work / "input.json").as_posix() in prompt
 
 
 def test_native_command_does_not_enable_all_paths():

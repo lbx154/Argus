@@ -31,9 +31,19 @@ OUTPUT_LIMIT_BYTES = 1024 * 1024
 STOP = threading.Event()
 
 
+# Windows processes need these system locations to start reliably; they are
+# machine configuration, not user state or credentials.
+WINDOWS_SYSTEM_ENVIRONMENT = ("SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT")
+
+
 def _environment(root: Path, state: Path) -> dict:
     (state / "home").mkdir()
+    system = {
+        key: os.environ[key] for key in WINDOWS_SYSTEM_ENVIRONMENT
+        if os.name == "nt" and key in os.environ
+    }
     return {
+        **system,
         "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
         "HOME": str(state / "home"),
         "TMPDIR": str(state),
@@ -73,7 +83,7 @@ def _observation(root: Path, command: str, log: Path, result, started: float) ->
         ),
         "output_limit_bytes": OUTPUT_LIMIT_BYTES,
         "seconds": round(time.monotonic() - started, 3),
-        "log": str(log.relative_to(WORK)),
+        "log": log.relative_to(WORK).as_posix(),
         "log_sha256": log_digest,
     }
 
