@@ -35,7 +35,8 @@ describe('composer runtime information', () => {
 });
 
 describe('composer runtime follows the real calls', () => {
-  const lastCall = { backend: 'copilot', model: 'called-model', effort: 'medium', run_label: 'engineer-r1', ts: 1 };
+  const now = () => Date.now() / 1000;
+  const lastCall = { backend: 'copilot', model: 'called-model', effort: 'medium', run_label: 'engineer-r1', role: 'engineer', ts: now() - 60 };
   const configRoles = (model: string, backend = 'copilot') => [
     { role: 'engineer', backend, model, reasoning_effort: null },
     { role: 'manager', backend, model, reasoning_effort: null },
@@ -55,6 +56,28 @@ describe('composer runtime follows the real calls', () => {
     const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running lastCall={lastCall} />);
     expect(html).toContain('called-model');
     expect(html).toMatch(/next call: Claude · applied-model/);
+  });
+
+  it('matches the call to the role that made it, not to the manager by default', () => {
+    // A work label such as "self-implement" names no role; the backend says
+    // which role made the call, and only that role's settings are compared.
+    config = { trial_mode: false, roles: [
+      { role: 'engineer', backend: 'copilot', model: 'called-model', reasoning_effort: null },
+      { role: 'manager', backend: 'copilot', model: 'other-model', reasoning_effort: null },
+    ] as unknown as ConfigSnapshot['roles'] } as typeof config;
+    const call = { ...lastCall, run_label: 'self-implement', role: 'engineer' };
+    const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running lastCall={call} />);
+    expect(html).toContain('called-model');
+    expect(html).not.toContain('data-runtime-next');
+  });
+
+  it('does not present a call from days ago as what the project runs on now', () => {
+    config = { trial_mode: false, roles: configRoles('applied-model', 'claude') } as typeof config;
+    const old = { ...lastCall, backend: 'pi', model: 'old-model', ts: now() - 12 * 86400 };
+    const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running={false} lastCall={old} />);
+    expect(html).not.toContain('old-model');
+    expect(html).not.toContain('data-runtime-next');
+    expect(html).toContain('manager-model');
   });
 
   it('opens the model settings when clicked', () => {

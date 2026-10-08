@@ -2364,3 +2364,11 @@ def test_model_options_keep_a_family_together_newest_first() -> None:
 
     ids = ["beta-2", "alpha-10", "beta-11", "alpha-9.5"]
     assert sorted(ids, key=_version_desc_key) == ["alpha-10", "alpha-9.5", "beta-11", "beta-2"]
+
+
+def test_model_options_family_is_the_name_before_the_version() -> None:
+    """Letters after a version ("4o", "-mini") stay in the same family."""
+    from argus.webapi.mission_items import _version_desc_key
+
+    ids = ["alpha-3-mini", "beta-3", "alpha-4o", "alpha-5.5"]
+    assert sorted(ids, key=_version_desc_key) == ["alpha-5.5", "alpha-4o", "alpha-3-mini", "beta-3"]

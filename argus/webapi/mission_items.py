@@ -540,7 +540,9 @@ def _version_desc_key(model: str) -> tuple[str, tuple[int, ...]]:
     import re as _re
 
     numbers = tuple(-int(part) for part in _re.findall(r"\d+", model))
-    family = _re.sub(r"[\d.]+", "", model)
+    # The family is the name before the first version number: "gpt-4o" and
+    # "gpt-5.4-mini" are both "gpt", not "gpt-o" / "gpt--mini".
+    family = _re.split(r"\d", model, maxsplit=1)[0].rstrip("-._ ")
     # Family first, so one vendor's high version numbers do not scatter the
     # list; within a family the newest release leads.
     return (family, numbers)

@@ -7,6 +7,10 @@ import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktop
 
 type LastCall = NonNullable<Snapshot['last_call']>;
 
+// A call older than this, with nothing running, no longer describes the
+// project: the next call will follow the current settings instead.
+const LAST_CALL_CURRENT_S = 6 * 3600;
+
 const unset = (value: string | null | undefined) => !value || ['auto', 'inherit', 'default'].includes(value.toLowerCase());
 
 /**
@@ -27,15 +31,17 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
   const role = (running ? roles.find((item) => item.active) : undefined)
     ?? roles.find((item) => item.role === 'manager');
   const trial = data?.trial_mode === true;
-  const actual = !trial && lastCall?.backend ? lastCall : null;
+  const recent = !!lastCall && (running || Date.now() / 1000 - (lastCall.ts || 0) < LAST_CALL_CURRENT_S);
+  const actual = !trial && recent && lastCall?.backend ? lastCall : null;
   const backend = actual ? actual.backend : role?.backend;
   const model = trial ? 'GPT-5.5' : actual ? (actual.model || 'auto') : role?.model;
   const effort = trial ? 'high' : actual ? actual.effort : role?.effort;
   // The configured role that made the last call, read from settings so an
   // Apply shows up here immediately rather than after the next call.
-  const configured = actual
-    ? (data?.roles.find((item) => actual.run_label.startsWith(item.role))
-      ?? data?.roles.find((item) => item.role === 'manager'))
+  // The backend names the role whose settings govern the call; without it
+  // there is nothing honest to compare against, so no "next call" hint.
+  const configured = actual?.role
+    ? data?.roles.find((item) => item.role === actual.role)
     : undefined;
   const nextBackend = configured && configured.backend && configured.backend !== actual?.backend ? configured.backend : '';
   const nextModel = configured && !unset(configured.model) && configured.model !== actual?.model ? configured.model : '';

@@ -404,7 +404,7 @@ export interface Snapshot {
   daemon: Daemon;
   roles: Role[];
   /** The newest model call this project opened: what it actually ran on. */
-  last_call?: { backend: string; model: string; effort: string; run_label: string; ts: number } | null;
+  last_call?: { backend: string; model: string; effort: string; run_label: string; role?: string; ts: number } | null;
   backlog: BacklogItem[];
   recent_events: EventMsg[];
   spend_usd?: number | null;
