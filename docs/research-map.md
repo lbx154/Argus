@@ -34,9 +34,9 @@ Subsequent requests use cursors and return changed tasks and new events. Unchang
 
 The recent-record `/map` endpoint remains available: it reads at most the last 8 MiB and retains up to 2,000 matching events, with `coverage.truncated` indicating partial coverage. Full-history pages are not limited to that tail. Index writes, partial trailing lines, file replacement and stale cursors are handled separately from scheduler records.
 
-Card summaries use the same runner, account and provider configuration as the research Engineer. By default, the model and reasoning effort also follow that role. The map does not require a separate API URL or key.
+Card summaries use the runner, account and provider configuration of the Manager (front-door) role, falling back to the research Engineer's when the Manager has no runner. By default they use that model at a light reasoning effort (`low` for drafting, `medium` for the teaching check), independent of the research effort. The map does not require a separate API URL or key.
 
-Open Map model settings from the map header or the existing Settings window to choose a summary model or reasoning effort. Leave the model blank, or choose **Follow research settings**, to restore inheritance. These are instance-wide settings, consistent with the existing research settings. They use the existing authenticated `/api/projects/{sid}/config/set` endpoint and take effect on subsequent generation requests without restarting Argus.
+Open Map model settings from the map header or the existing Settings window to choose a summary model or reasoning effort. Leave the model blank, or choose **Follow the front-door model**, to restore the default model; choose **Auto (light)** or **Auto (medium)** to restore the default draft or check effort. These are instance-wide settings, consistent with the existing research settings. They use the existing authenticated `/api/projects/{sid}/config/set` endpoint and take effect on subsequent generation requests without restarting Argus.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |

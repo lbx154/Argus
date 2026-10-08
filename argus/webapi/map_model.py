@@ -1,4 +1,4 @@
-"""Map text generation through the configured research runner."""
+"""Map text generation through the front-door (Manager) runner at a light effort tier."""
 
 from __future__ import annotations
 
