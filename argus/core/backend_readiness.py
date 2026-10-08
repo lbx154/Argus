@@ -590,6 +590,24 @@ def _probe_copilot_auth(executable: str, timeout_s: float) -> tuple[bool, str]:
     return False, f"{type(last_exc).__name__}: {last_exc}"
 
 
+def probe_copilot_models(executable: str, timeout_s: float) -> tuple[list[str], str]:
+    """Models this Copilot account can use, and the one it picks with no ``--model``.
+
+    Same no-prompt ACP handshake as :func:`_probe_copilot_auth`: the
+    ``session/new`` reply carries the account's live model list, so no tokens
+    are spent. Raises on any transport failure; callers decide the fallback.
+    """
+    from ..agent_cli.copilot_acp import CopilotAcpClient
+
+    client = CopilotAcpClient(executable, lean=True, startup_timeout_s=timeout_s)
+    try:
+        client._ensure_started()
+        client._new_session(str(Path.cwd()))
+        return list(client.available_models), client.default_model
+    finally:
+        client.close()
+
+
 def _probe_cli_auth(
     backend: str,
     executable: str,
