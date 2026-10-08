@@ -74,7 +74,12 @@ Two things follow from that design and explain most of what you will see:
 
 - **A background worker does the work.** Your cockpit, browser tab or terminal
   can close; the project's daemon keeps running and keeps its state under
-  `~/.argus-skill/projects/<id>/`.
+  `~/.argus-skill/projects/<id>/`. A project started from a terminal (no
+  `--new`/`--resume`) gets a 12-hex-digit id derived from its directory (or
+  from the git remote when the directory is a clone), for example
+  `projects/6b8fe5b2f41b`; a session started with `--new`, or from the web UI
+  or API, gets an id such as `s-02d3c282`.
+  `argus --status` prints the full path on its `project` line.
 - **Nothing is "done" until the Reviewer says so.** A task usually takes
   several Engineer rounds. Expect the first small task to take minutes, not
   seconds.
@@ -282,7 +287,13 @@ Its log runs from 08:11:39Z to 08:23:33Z (12 minutes), one task in two
 attempts, `continuous.json` ends with `"done_reason": "planner declared project
 done"`, and it cost $0.91 (12 model calls in `usage.jsonl`). The README it
 wrote gives maximum errors of 6.0e-07, 1.6e-07 and 5.1e-07 for the three
-damping cases against the analytic solution.
+damping cases against the analytic solution. A newcomer dry run on
+2026-10-07 gave this objective to a fresh install (`--bounded --mission-width 1`,
+copilot backend) and the Manager routed it to `vertical=software` (the
+`pipeline` line of `argus --status`), so expect `software` for a small
+script-and-README task like this one. The research campaign above, whose
+objective asks for a short paper and an internal review, ran with
+`vertical=research`.
 
 ### Watch, steer, stop
 

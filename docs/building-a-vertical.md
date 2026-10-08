@@ -368,6 +368,10 @@ actions              disable, uninstall
 operation            install done: install finished
 ```
 
+`actions` uses the store's action names: `argus verticals disable lab_notebook`
+and `argus verticals uninstall lab_notebook` (the same command as
+`argus verticals remove`).
+
 The files landed at `<ARGUS_SKILL_HOME>/verticals/argus_verticals/lab_notebook/`
 next to the store's `registry.json`, and the registry advertises the vertical
 with origin `store`, its skills found automatically next to `stages.py`. To
