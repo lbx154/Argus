@@ -27,6 +27,9 @@ class AgentRunResult:
     provider_turns: int = 0
     provider_turn_cap_hit: bool = False
     model_progress_observed: bool = False
+    # Model output of any kind (items including reasoning, text, tool use),
+    # beyond request lifecycle events. Decides whether a failed call ran.
+    model_output_observed: bool = False
     # Stderr written after the latest model progress event (empty when none
     # was observed): the CLI's account of how the current turn ended.
     terminal_stderr_lines: list[str] = field(default_factory=list)

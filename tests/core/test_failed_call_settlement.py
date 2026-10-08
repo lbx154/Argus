@@ -1,11 +1,13 @@
 """A provider-rejected call settles as failed; a call that ran stays held."""
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
 import pytest
 
+from argus.agent_cli.models import AgentRunResult
 from argus.core.cost_control import (
     cost_admission_reason,
     cost_control_snapshot,
@@ -13,7 +15,11 @@ from argus.core.cost_control import (
 )
 from argus.core.models import RunnerResult
 from argus.core.operator_messages import budget_refusal_reply
-from argus.core.runner_errors import is_provider_http_rejection, result_rejected_before_output
+from argus.core.runner_errors import (
+    is_provider_http_rejection,
+    model_output_observed,
+    result_rejected_before_output,
+)
 from argus.core.token_usage import TokenUsage
 from argus.core.usage import PROVIDER_REJECTED_TIER, UsageLedger, build_usage_record
 
@@ -69,21 +75,103 @@ def test_relay_rejection_is_recognized_from_the_runner_result() -> None:
     assert not is_provider_http_rejection("the reply mentioned status 502 in prose")
 
     failed = RunnerResult(exit_code=1, fatal_error=RELAY_REJECTION)
-    assert result_rejected_before_output(failed, error=RELAY_REJECTION)
+    assert result_rejected_before_output(failed, error=RELAY_REJECTION, model_output=False)
+    # Unknown runner evidence is treated as output: the call stays held.
+    assert not result_rejected_before_output(failed, error=RELAY_REJECTION)
+    # Model output observed by the runner (e.g. a reasoning item) means it ran.
+    assert not result_rejected_before_output(failed, error=RELAY_REJECTION, model_output=True)
     # Evidence the call ran: assistant text, tool activity, a completed turn.
     assert not result_rejected_before_output(
         RunnerResult(exit_code=1, fatal_error=RELAY_REJECTION, agent_messages=["partial"]),
-        error=RELAY_REJECTION)
+        error=RELAY_REJECTION, model_output=False)
     assert not result_rejected_before_output(
         RunnerResult(exit_code=1, fatal_error=RELAY_REJECTION, tool_activity_observed=True),
-        error=RELAY_REJECTION)
+        error=RELAY_REJECTION, model_output=False)
     # A failure that is not an HTTP rejection keeps waiting for usage.
     assert not result_rejected_before_output(
         RunnerResult(exit_code=1, fatal_error="stream disconnected before completion"),
-        error="stream disconnected before completion")
+        error="stream disconnected before completion", model_output=False)
     # A named accounting-pending cause is never cleared by this path.
     assert not result_rejected_before_output(
-        failed, error=RELAY_REJECTION + "\naccounting_pending: lost_session_identity")
+        failed, error=RELAY_REJECTION + "\naccounting_pending: lost_session_identity",
+        model_output=False)
+
+
+def _cli_result(events: list[dict], **fields) -> AgentRunResult:
+    return AgentRunResult(command=["codex"], exit_code=1, json_events=events,
+                          json_event_count=len(events), **fields)
+
+
+LIFECYCLE = [{"type": "thread.started"}, {"type": "turn.started"},
+             {"type": "error", "message": RELAY_REJECTION},
+             {"type": "turn.failed", "error": {"message": RELAY_REJECTION}}]
+
+
+def test_model_output_evidence_from_the_runner() -> None:
+    # Request lifecycle alone is not output, even though it counts as progress.
+    assert not model_output_observed(_cli_result(LIFECYCLE, model_progress_observed=True))
+    reasoning = {"type": "item.completed", "item": {"type": "reasoning", "text": "x"}}
+    assert model_output_observed(_cli_result([*LIFECYCLE[:2], reasoning, *LIFECYCLE[2:]]))
+    assert model_output_observed(_cli_result([*LIFECYCLE[:2], {"type": "item.started"}]))
+    assert model_output_observed(_cli_result(LIFECYCLE, model_output_observed=True))
+    assert model_output_observed(_cli_result(LIFECYCLE, provider_turns=1))
+    # Events dropped from the retained capture cannot prove absence of output.
+    truncated = _cli_result(LIFECYCLE)
+    truncated.json_event_count = len(LIFECYCLE) + 1
+    assert model_output_observed(truncated)
+    # Progress with no retained events to explain it counts as output.
+    assert model_output_observed(_cli_result([], model_progress_observed=True))
+
+
+_FAKE_CODEX = """#!/bin/bash
+if [[ "$*" == *"--version"* ]]; then echo "codex-cli 0.200.0"; exit 0; fi
+cat >/dev/null
+echo '{"type":"thread.started","thread_id":"019a-thread"}'
+echo '{"type":"turn.started"}'
+if [[ "$FAKE_MODE" == "reasoning" ]]; then
+  echo '{"type":"item.completed","item":{"id":"i0","type":"reasoning","text":"thinking"}}'
+fi
+MSG='unexpected status 502 Bad Gateway: upstream died'
+echo "{\\"type\\":\\"error\\",\\"message\\":\\"$MSG\\"}"
+echo "{\\"type\\":\\"turn.failed\\",\\"error\\":{\\"message\\":\\"$MSG\\"}}"
+exit 1
+"""
+
+
+@pytest.mark.parametrize(("mode", "settles"), [("", True), ("reasoning", False)])
+def test_cli_call_rejected_after_reasoning_stays_held(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, settles: bool,
+) -> None:
+    from argus.adapters.agent_cli_backend import AgentCliBackend
+    from argus.core.models import RunnerOptions
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "codex"
+    fake.write_text(_FAKE_CODEX)
+    fake.chmod(0o755)
+    (tmp_path / "codex-home").mkdir()
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
+    monkeypatch.setenv("FAKE_MODE", mode)
+
+    backend = AgentCliBackend(backend="codex")
+    backend.set_usage_context(project_root=home / "projects" / "p1", mission_id="map")
+    result = backend.run_exec(prompt="summarize", options=RunnerOptions(model=MODEL),
+                              run_label="map-summary")
+    assert result.exit_code != 0
+    [row] = UsageLedger(home / "projects" / "p1", migrate_legacy=False).records()
+    assert row.status == "error"
+    reason = cost_admission_reason(global_root=home)
+    if settles:
+        assert (row.pricing_status, row.pricing_tier) == ("not_billed", PROVIDER_REJECTED_TIER)
+        assert reason == ""
+    else:
+        assert row.pricing_status != "not_billed"
+        assert reason.startswith("unresolved provider cost: 1 call(s)")
+        assert f"call={row.call_id}" in reason
 
 
 def test_provider_rejected_call_settles_as_failed_and_does_not_block(home: Path) -> None:
@@ -124,7 +212,8 @@ def test_call_that_ran_without_usage_stays_fail_closed_and_names_the_role(home: 
     assert "call=call-ran" in reason
     assert "role=map-summary" in reason
     assert "project=p1" in reason
-    assert "unblock: POST /api/projects/p1/cost-control/acknowledge" in reason
+    assert "unblock: argus cost acknowledge call-ran --project p1" in reason
+    assert "POST /api/projects/p1/cost-control/acknowledge" in reason
     assert '"call_id": "call-ran"' in reason
     assert "ARGUS_SKILL_UNPRICED_COST_POLICY=allow" in reason
 
@@ -133,8 +222,34 @@ def test_call_that_ran_without_usage_stays_fail_closed_and_names_the_role(home: 
     reply = budget_refusal_reply(refusal, language_hint="中文")
     assert reply is not None
     assert "角色 map-summary" in reply
-    assert "立即解除：POST /api/projects/p1/cost-control/acknowledge" in reply
+    assert "立即解除：argus cost acknowledge call-ran --project p1" in reply
     english = budget_refusal_reply(refusal)
     assert english is not None
     assert "(role map-summary)" in english
-    assert "To unblock now: POST /api/projects/p1/cost-control/acknowledge" in english
+    assert "To unblock now: argus cost acknowledge call-ran --project p1" in english
+
+
+def test_operator_acknowledges_a_held_call_from_the_cli(
+    home: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    from argus.apps.cli._cost import run_cost_command
+    from argus.apps.cli._parser import build_parser
+
+    _settle(home, "call-ran", _failed_record(home, "call-ran", rejected=False))
+    assert cost_admission_reason(global_root=home)
+
+    parser = build_parser()
+    assert run_cost_command(parser.parse_args(["cost", "list"])) == 0
+    assert "call-ran  project=p1  role=map-summary" in capsys.readouterr().out
+    # The decision is explicit: liability and reason are required.
+    with pytest.raises(SystemExit):
+        parser.parse_args(["cost", "acknowledge", "call-ran"])
+    args = parser.parse_args(["cost", "acknowledge", "call-ran", "--liability-usd", "0.05",
+                              "--reason", "relay outage, approved"])
+    assert run_cost_command(args) == 0
+    assert "new model calls are admitted again" in capsys.readouterr().out
+    assert cost_admission_reason(global_root=home) == ""
+    # An unknown call is refused rather than guessed.
+    args = parser.parse_args(["cost", "acknowledge", "nope", "--liability-usd", "1",
+                              "--reason", "x"])
+    assert run_cost_command(args) == 1

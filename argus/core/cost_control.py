@@ -694,9 +694,11 @@ def _budget_reason(
 def unblock_instruction(project_id: str, call_id: str) -> str:
     """The exact operator action that releases one held call."""
     return (
+        f"argus cost acknowledge {call_id} --project {project_id} "
+        '--liability-usd <approved USD> --reason "<why>" (or '
         f"POST /api/projects/{project_id}/cost-control/acknowledge "
         f'{{"call_id": "{call_id}", "liability_usd": <approved USD>, "reason": "<why>"}}'
-        " (approves this call with a budgeted liability), or set "
+        "; either approves this call with a budgeted liability), or set "
         "ARGUS_SKILL_UNPRICED_COST_POLICY=allow"
     )
 

@@ -32,6 +32,7 @@ from ...core.models import RunnerResult
 from ...core.runner_errors import (
     is_execution_host_startup_error,
     is_model_catalog_startup_error,
+    model_output_observed,
     result_has_pre_provider_refusal,
     terminal_failure_diagnostic,
 )
@@ -549,4 +550,5 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         ),
         error=persisted_failure_text,
         startup_receipt=complete_row,
+        model_output=model_output_observed(cli_result),
     )

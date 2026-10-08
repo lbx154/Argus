@@ -41,6 +41,7 @@ def finalize_result(
     premium_requests: float | None = None,
     error: str = "",
     startup_receipt: dict | None = None,
+    model_output: bool | None = None,
 ) -> RunnerResult:
     backend = ctx.backend
     persisted_error = redact_secrets_text(
@@ -171,7 +172,9 @@ def finalize_result(
                 startup_receipt=startup_receipt,
                 rejected_before_output=(
                     status == "error"
-                    and result_rejected_before_output(result, error=persisted_error)
+                    and result_rejected_before_output(
+                        result, error=persisted_error, model_output=model_output,
+                    )
                 ),
             )
             appended = UsageLedger(

@@ -183,14 +183,55 @@ def is_provider_http_rejection(value: object) -> bool:
     return bool(_PROVIDER_HTTP_REJECTION_RE.search(str(value or "")))
 
 
-def result_rejected_before_output(result: Any, *, error: object = "") -> bool:
+# Events a CLI emits around a request whether or not the model produced
+# anything: opening the session/turn, and reporting that it failed.
+_REQUEST_LIFECYCLE_EVENT_TYPES = frozenset({
+    "thread.started", "turn.started", "turn.failed", "error",
+})
+
+
+def model_output_observed(cli_result: Any) -> bool:
+    """Whether the runner saw the model produce anything during this call.
+
+    Any item (reasoning included), assistant text, tool use, provider-turn
+    receipt, or event outside the request lifecycle counts. When the retained
+    event capture is incomplete, or progress was observed without retained
+    events to explain it, the answer is yes: absence of output must be proven.
+    """
+    if (
+        getattr(cli_result, "model_output_observed", False)
+        or getattr(cli_result, "agent_messages", None)
+        or getattr(cli_result, "tool_activity_observed", False)
+        or getattr(cli_result, "provider_turns", 0)
+    ):
+        return True
+    events = list(getattr(cli_result, "json_events", None) or [])
+    if int(getattr(cli_result, "json_event_count", 0) or 0) > len(events):
+        return True
+    if getattr(cli_result, "model_progress_observed", False) and not events:
+        return True
+    return any(
+        not isinstance(event, dict)
+        or str(event.get("type") or "") not in _REQUEST_LIFECYCLE_EVENT_TYPES
+        for event in events
+    )
+
+
+def result_rejected_before_output(
+    result: Any, *, error: object = "", model_output: bool | None = None,
+) -> bool:
     """A failed call whose provider rejected the request before any output.
 
-    Requires every piece of evidence to agree: the process failed, it produced
-    no assistant text and no tool activity, and its terminal diagnostic is an
-    HTTP error status from the provider endpoint. A call that ran and merely
-    lost its usage report never satisfies this, so it stays fail-closed.
+    Requires every piece of evidence to agree: the process failed, the runner
+    reports no model output of any kind (``model_output`` is
+    :func:`model_output_observed` of the raw runner result; unknown counts as
+    output), the result carries no assistant text, tool activity or provider
+    turn, and its terminal diagnostic is an HTTP error status from the provider
+    endpoint. A call that ran and merely lost its usage report never satisfies
+    this, so it stays fail-closed.
     """
+    if model_output is None or model_output:
+        return False
     failed = bool(
         int(getattr(result, "exit_code", 0) or 0) != 0
         or getattr(result, "turn_failed", False)
@@ -230,6 +271,7 @@ __all__ = [
     "is_model_catalog_startup_error",
     "is_pre_provider_refusal_error",
     "is_provider_http_rejection",
+    "model_output_observed",
     "result_rejected_before_output",
     "is_unrecoverable_resume_error",
     "result_has_missing_resume_target",
