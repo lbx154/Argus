@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import collections
 import concurrent.futures
-import fcntl
 import json
 import os
 import random
@@ -17,6 +16,7 @@ import urllib.request
 from pathlib import Path
 
 import jsonschema
+import portalocker
 
 if __package__:
     from .runtime import (
@@ -302,7 +302,10 @@ def execute(root: Path, *, smoke: bool, model: str, workers: int, timeout: int) 
     if command(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE]) != manifest["image_id"]:
         raise ValueError("Worker image changed since preparation")
     with (root / "runner.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            portalocker.lock(lock, portalocker.LOCK_EX | portalocker.LOCK_NB)
+        except portalocker.exceptions.LockException as exc:
+            raise BlockingIOError("another study runner holds the lock") from exc
         token = active_token()
         write_json(root / "execution.json", {
             "started_at": now(), "model": model, "effort": "high", "workers": workers,

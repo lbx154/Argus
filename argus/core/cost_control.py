@@ -222,7 +222,7 @@ def _locked(
     elif not thread_lock.acquire(timeout=max(0.0, timeout_seconds)):
         raise CostControlLockBusyError(f"cost control lock busy: {path}")
     try:
-        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
         try:
             if timeout_seconds is None:
                 portalocker.lock(fd, portalocker.LOCK_EX)
@@ -845,7 +845,7 @@ def _record_failed_finalization(
                   f" ({error})",
     }
     try:
-        fd = os.open(str(path), os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+        fd = os.open(str(path), os.O_CREAT | os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_EXCL, 0o600)
     except FileExistsError:
         # A retried finalization of the same reservation is already retained.
         return path

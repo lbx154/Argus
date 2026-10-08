@@ -107,7 +107,7 @@ def append_knowledge_event(global_root: str | Path, **fields: Any) -> None:
                 poll_seconds=_LOCK_POLL_SECONDS,
                 lock_name=f"knowledge journal lock {lock_path}",
             ):
-                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+                fd = os.open(path, os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_APPEND, 0o644)
                 try:
                     view = memoryview(line)
                     while view:

@@ -309,10 +309,23 @@ def _components_section(card: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _project_venv_python(project_root: Path) -> tuple[Path, str] | None:
+    """The project's venv interpreter and its project-relative display name.
+
+    POSIX venvs keep it in ``bin/python``; Windows venvs in ``Scripts/python.exe``.
+    """
+    for parts in ((".venv", "bin", "python"), (".venv", "Scripts", "python.exe")):
+        candidate = project_root.joinpath(*parts)
+        if candidate.exists():
+            return candidate, "/".join(parts)
+    return None
+
+
 def _interpreter_line(project_root: Path) -> str:
-    python = project_root / ".venv" / "bin" / "python"
-    if not python.exists():
+    found = _project_venv_python(project_root)
+    if found is None:
         return "- Interpreter: no .venv/bin/python in the project (create one before the first run)"
+    python, display = found
     version = ""
     try:
         proc = subprocess.run(
@@ -329,8 +342,8 @@ def _interpreter_line(project_root: Path) -> str:
     # bare `python3 -m pytest`, got nothing, and spent a round on
     # `find / -name pytest` over the whole disk.
     return (
-        f"- Interpreter: .venv/bin/python ({version or 'version unknown'}); "
-        "run tests as `.venv/bin/python -m pytest tests/spec`"
+        f"- Interpreter: {display} ({version or 'version unknown'}); "
+        f"run tests as `{display} -m pytest tests/spec`"
     )
 
 
@@ -380,7 +393,9 @@ def _host_interpreters(project_root: Path) -> list[tuple[str, Path]]:
         seen.add(real)
         found.append((label, path))
 
-    add(".venv/bin/python", project_root / ".venv" / "bin" / "python")
+    venv = _project_venv_python(project_root)
+    if venv is not None:
+        add(venv[1], venv[0])
     add("host runtime (read-only; never install into it)", sys.executable)
     add("python3 on PATH", shutil.which("python3"))
     add("system python3", "/usr/bin/python3")

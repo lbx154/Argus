@@ -407,6 +407,7 @@ def test_personal_fallback_uses_its_own_baseline_and_exact_session(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "operator"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "operator"))  # Path.home() on Windows
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "unavailable-argus"))
     personal = _db(tmp_path / "operator" / ".copilot")
     _insert(

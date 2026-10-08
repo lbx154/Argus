@@ -57,7 +57,7 @@ def test_context_preserves_tools_and_memory_switch(tmp_path, monkeypatch, label,
         bridge_request('ARGUS_PLUGIN_RUNTIME', 'list', {}, env=env)
 
 
-def test_normal_backend_pi_tools_publish_then_reuse_without_a_second_agent(tmp_path, monkeypatch):
+def test_normal_backend_pi_tools_publish_then_reuse_without_a_second_agent(tmp_path, monkeypatch, platform_process_env):
     """Real backend admission/context + native tool handlers + workers; fake only the model."""
     from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
 
@@ -109,7 +109,7 @@ process.stdout.write(JSON.stringify(used));
         command = ctx.backend._runner._build_pi_command(resume_thread_id=None, options=cli_options)
         assert runtime.EXTENSION in command
         assert 'evolve_runtime' in ctx.options.trusted_tool_names
-        environment = {'PATH': os.defpath, **ctx.options.extension_env,
+        environment = {**platform_process_env, 'PATH': os.defpath, **ctx.options.extension_env,
                        'TEST_FIRST_TURN': '1' if len(observed_calls) == 1 else '0'}
         result = subprocess.run([node, str(script)], env=environment, capture_output=True,
                                 text=True, timeout=15)
@@ -131,4 +131,5 @@ process.stdout.write(JSON.stringify(used));
     assert 'run_learned_tool' not in discovery  # Body is read only after selection.
     learned = list((state / 'skills').rglob('*.md'))
     assert any('run_learned_tool' in path.read_text() for path in learned)
-    assert '.autors/runtime/wiki' in render_knowledge_wiki_block(state, role='Engineer')
+    # Wiki directories are host-native absolute paths; compare separator-agnostically.
+    assert '.autors/runtime/wiki' in render_knowledge_wiki_block(state, role='Engineer').replace('\\', '/')

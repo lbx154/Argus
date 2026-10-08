@@ -65,7 +65,7 @@ def _try_slots(directory: Path, count: int) -> BinaryIO | None:
     for index in range(count):
         # Descriptors are not inherited by model/tool children. The OS releases
         # a crashed owner's lock; there is no PID lease that can remain stale.
-        fd = os.open(directory / f"{index}.lock", os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(directory / f"{index}.lock", os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
         handle = os.fdopen(fd, "a+b")
         try:
             portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)

@@ -603,6 +603,10 @@ def test_isolated_workdir_references_only_the_dedicated_account(
         assert not (workdir / ".argus-self-maintenance-runtime/seatbelt-home/.copilot/config.json").exists()
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="simulates macOS by patching sys.platform; worktree isolation itself needs a POSIX host",
+)
 def test_isolated_workdir_uses_macos_sandbox_exec_without_bubblewrap(
     tmp_path,
     monkeypatch,

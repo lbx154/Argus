@@ -205,7 +205,7 @@ def export_pptx(
             output_path=pdf_path,
             inputs=[svg_path, html_path],
             render_metadata_path=metadata if metadata.is_file() else None,
-            command=f"pptx_export.py --pptx {pptx_path.relative_to(root) if pptx_path.is_relative_to(root) else pptx_path}",
+            command=f"pptx_export.py --pptx {pptx_path.relative_to(root).as_posix() if pptx_path.is_relative_to(root) else pptx_path}",
         )
     except Exception as exc:  # noqa: BLE001 - provenance is bookkeeping, the export exists
         print(f"figure provenance not recorded: {exc}", file=sys.stderr)

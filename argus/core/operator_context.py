@@ -485,7 +485,7 @@ class OperatorContextStore:
 
     def _ensure_ownership(self) -> None:
         try:
-            descriptor = os.open(self.ownership_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            descriptor = os.open(self.ownership_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o600)
         except FileExistsError:
             return
         try:
@@ -722,7 +722,7 @@ class OperatorContextStore:
             (json.dumps(asdict(record), ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
             for record in records
         )
-        descriptor = os.open(self.ledger_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+        descriptor = os.open(self.ledger_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o600)
         try:
             if os.write(descriptor, payload) != len(payload):
                 raise OSError("short write while appending operator context")

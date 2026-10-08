@@ -584,13 +584,13 @@ def resolve_vertical(project_root: object = ".") -> str:
         return decided
     key = str(project_root)
     if key in _FALLBACK_WARNED_ROOTS:
-        log.debug("no Manager vertical resolved for %r; research fallback again", project_root)
+        log.debug("no Manager vertical resolved for %s; research fallback again", key)
     else:
         _FALLBACK_WARNED_ROOTS.add(key)
         log.warning(
-            "no Manager vertical resolved for %r; using research only as a low-level "
+            "no Manager vertical resolved for %s; using research only as a low-level "
             "compatibility fallback (formal tasks must classify through Manager)",
-            project_root,
+            key,
         )
     return DEFAULT_VERTICAL
 

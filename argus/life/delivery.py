@@ -414,11 +414,12 @@ def _record_and_prune_snapshots(state_root: Path, item_id: str, digests: list[st
     root = _snapshot_dir(state_root)
     lock_path = root / ".lock"
     try:
-        import fcntl
+        from argus.core.file_lock import exclusive_file_lock
 
         root.mkdir(parents=True, exist_ok=True)
-        with open(lock_path, "a+") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with open(lock_path, "a+") as lock, exclusive_file_lock(
+            lock, lock_name="delivery snapshot index lock"
+        ):
             index_path = root / _SNAPSHOT_INDEX
             try:
                 raw = json.loads(index_path.read_text(encoding="utf-8"))
@@ -447,7 +448,7 @@ def _record_and_prune_snapshots(state_root: Path, item_id: str, digests: list[st
             for blob in root.iterdir():
                 if re.fullmatch(r"[0-9a-f]{64}", blob.name) and blob.name not in keep:
                     blob.unlink(missing_ok=True)
-    except OSError:
+    except (OSError, TimeoutError):
         return
 
 

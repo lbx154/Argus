@@ -35,7 +35,7 @@ def _initialize_checkpoint(path: Path) -> bool:
     """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = os.open(path, os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
         return True
     except OSError as exc:

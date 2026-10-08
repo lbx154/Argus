@@ -153,7 +153,8 @@ def test_pi_extension_invokes_the_host_action():
         import os
 
         script = """
-          const {default: register} = await import(process.argv[1]);
+          const {pathToFileURL} = await import('node:url');
+          const {default: register} = await import(pathToFileURL(process.argv[1]).href);
           const tools = [];
           await register({registerTool: tool => tools.push(tool)});
           const defer = tools.find(tool => tool.name === 'defer_review');
@@ -217,7 +218,8 @@ def test_native_validation_tools_can_query_and_cancel_without_deciding(tmp_path,
     ) as (actions, options):
         if backend == "pi":
             script = """
-              const {default: register} = await import(process.argv[1]);
+              const {pathToFileURL} = await import('node:url');
+          const {default: register} = await import(pathToFileURL(process.argv[1]).href);
               const tools = [];
               await register({registerTool: tool => tools.push(tool)});
               async function call(name, args) {

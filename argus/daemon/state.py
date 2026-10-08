@@ -750,7 +750,7 @@ def _redirect_std_to_log(log_path: Path, *, keep_console: bool = False) -> int |
     Python logs to the terminal / journald), else None."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     saved = os.dup(2) if keep_console else None
-    fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    fd = os.open(str(log_path), os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_APPEND, 0o600)
     os.dup2(fd, sys.stdout.fileno())
     os.dup2(fd, sys.stderr.fileno())
     os.close(fd)
@@ -1363,7 +1363,7 @@ def _daemon_pid_lock_held(pid_path: Path) -> bool | None:
         if msvcrt is None:  # pragma: no cover - Windows safety net
             return None
         try:
-            fd = os.open(str(pid_path), os.O_RDWR)
+            fd = os.open(str(pid_path), os.O_RDWR | getattr(os, "O_BINARY", 0))
         except OSError:
             return None
         try:
@@ -1383,7 +1383,7 @@ def _daemon_pid_lock_held(pid_path: Path) -> bool | None:
     if fcntl is None:  # pragma: no cover - safety net
         return None
     try:
-        fd = os.open(str(pid_path), os.O_RDWR)
+        fd = os.open(str(pid_path), os.O_RDWR | getattr(os, "O_BINARY", 0))
     except OSError:
         return None
     try:

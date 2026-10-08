@@ -411,7 +411,7 @@ def spawn_detached_process(
     os.chdir("/")
     os.umask(0o077)
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    log_fd = os.open(str(log_path), os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_APPEND, 0o600)
     os.dup2(log_fd, sys.stdout.fileno())
     os.dup2(log_fd, sys.stderr.fileno())
     os.close(log_fd)

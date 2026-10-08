@@ -84,7 +84,7 @@ def _append_steering_record(state_root: Path | str, record: dict) -> None:
     payload = (
         json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
     ).encode("utf-8")
-    descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+    descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o600)
     try:
         written = os.write(descriptor, payload)
         if written != len(payload):

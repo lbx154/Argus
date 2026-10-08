@@ -122,7 +122,7 @@ def _metrics_lock(root: Path) -> Iterator[None]:
     with _LOCKS_GUARD:
         thread_lock = _LOCKS.setdefault(key, threading.Lock())
     with thread_lock:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
         try:
             portalocker.lock(fd, portalocker.LOCK_EX)
             yield

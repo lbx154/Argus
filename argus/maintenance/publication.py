@@ -28,7 +28,13 @@ def publish_reviewed_change(repository: Path, candidate: str, receipt_dir: Path)
     """
     repository = repository.expanduser().resolve(strict=True)
     revision = _git(repository, 'rev-parse', '--verify', '--end-of-options', f'{candidate}^{{commit}}').stdout.strip()
-    runtime = receipt_dir.resolve() / 'deployed-runtimes' / revision
+    runtimes = receipt_dir.resolve() / 'deployed-runtimes'
+    # A short name keeps Git's per-worktree paths within the Windows path
+    # limit (Git refuses a $GIT_DIR near MAX_PATH). Older receipts used the
+    # full revision; keep using such a checkout when it already exists.
+    runtime = runtimes / revision
+    if not runtime.exists():
+        runtime = runtimes / revision[:12]
     runtime.parent.mkdir(parents=True, exist_ok=True)
     if not runtime.exists():
         _git(repository, 'worktree', 'add', '--detach', str(runtime), revision)
