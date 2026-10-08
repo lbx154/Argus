@@ -1211,6 +1211,13 @@ def _handle_abort_control(
     )
 
 
+def _model_catalog_ids(chat_state: dict[str, Any], backend: str) -> list[str]:
+    """The model ids ``backend`` accepts, for vetting chat model changes."""
+    from .mission_items import backend_model_ids
+
+    return backend_model_ids(backend, chat_state.get("global_root"))
+
+
 def _maybe_apply_config_intent(
     mem: Any,
     intent: Any,
@@ -1233,7 +1240,13 @@ def _maybe_apply_config_intent(
         return _cancelled_result()
     cfg_lines: list[str] = []
     try:
-        applied = _apply_config_intent(mem, intent, chat_state, on_confirm=cfg_lines.append)
+        applied = _apply_config_intent(
+            mem,
+            intent,
+            chat_state,
+            on_confirm=cfg_lines.append,
+            model_catalog=lambda backend: _model_catalog_ids(chat_state, backend),
+        )
     except Exception:  # noqa: BLE001 — a config-apply hiccup must never block the message
         applied = False
     if not applied:

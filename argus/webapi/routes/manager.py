@@ -165,6 +165,47 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         except MessageRequestCapacityError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    @app.post("/api/projects/{sid}/message/followup", dependencies=[Depends(ctx.require_auth)])
+    async def _post_followup(sid: str, body: MessageIn) -> dict[str, Any]:
+        """A message typed while a Manager turn is still running.
+
+        It shows in the conversation at once and is answered as the next
+        Manager turn once the running one ends; the front door decides, as for
+        any message, whether it steers a live mission or is answered in chat.
+        """
+        text = body.text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="empty message")
+        if body.attachments:
+            raise HTTPException(status_code=400, detail="attachments wait for the running turn to finish")
+        project_root = ctx.project_root_or_404(sid)
+        life_dir = ctx.resolve_or_404(sid)
+        from ..manager_bridge import manager_message
+        from ..manager_followups import pending_followups, queue_followup
+
+        if pending_followups(sid) >= 20:
+            raise HTTPException(status_code=429, detail="Too many queued messages; wait for Argus to catch up.",
+                                headers={"Retry-After": "5"})
+        route_override = body.route_override if body.route_override != "auto" else ""
+
+        def _run_turn(queued_text: str, turn_id: str) -> dict[str, Any]:
+            generation = manager_control_generation(sid)
+            result = manager_message(
+                sid, queued_text, global_root=project_root, defer_dispatch_ack=True,
+                route_override=route_override, turn_id=turn_id,
+            )
+            result = _finish_message(
+                sid, result, generation, global_root=project_root, text=queued_text,
+                request_cancelled=lambda: False,
+            )
+            ctx.invalidate_read_caches()
+            return result
+
+        turn_id = await run_in_threadpool(
+            queue_followup, sid, text, life_dir=life_dir, run_turn=_run_turn,
+        )
+        return {"ok": True, "queued": True, "message_id": f"{turn_id}-operator"}
+
     def _visible_daemon(sid: str) -> dict[str, Any]:
         from ..project_state import daemon_dict
 

@@ -1295,6 +1295,9 @@ class MissionExecutionSettlementMixin:
                     getattr(outcome, "final_review_status", "") or ""
                 ),
                 final_submission_certified=final_submission_certified,
+                review_source=str(
+                    getattr(outcome, "final_review_source", "") or ""
+                ),
                 workspace=delivery_workspace,
                 state_root=self._project_state_root(),
                 stage=state.pipeline_stage_at_start,
@@ -1318,6 +1321,9 @@ class MissionExecutionSettlementMixin:
             "summary": mission_summary,
             "final_output": final_output,
             "execution_workdir": str(state.execution_workdir),
+            "review_source": str(
+                getattr(outcome, "final_review_source", "") or ""
+            ),
             "delivery_candidates": [
                 str(candidate)
                 for candidate in reviewer_artifacts

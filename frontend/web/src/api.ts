@@ -342,7 +342,8 @@ export interface ConfigSnapshot {
   roles: ConfigRole[];
   operator_knobs: ConfigKnob[];
   /** Models the quick picker offers: the harness catalog, models that answered here recently, the current knobs. */
-  model_options?: Array<{ model: string; source: 'backend' | 'catalog' | 'seen' | 'current'; default?: boolean; last_used_at?: number }>;
+  model_options?: Array<{ model: string; source: 'backend' | 'catalog' | 'seen' | 'current'; default?: boolean; last_used_at?: number; invalid?: boolean; offline?: boolean }>;
+  model_auto_resolves_to?: string;
   how_to_change: string[];
 }
 export interface AdvisorConfig {
@@ -1100,6 +1101,9 @@ export const api = {
   },
   gitDiff: (sid: string, signal?: AbortSignal) =>
     getJson<GitDiffView>(P(sid, '/git-diff'), signal),
+  deliveryDiff: (sid: string, change: { path: string; before: string; after: string }, signal?: AbortSignal) =>
+    getJson<{ path: string; available: boolean; diff: string; truncated: boolean }>(
+      P(sid, `/delivery-diff?${new URLSearchParams(change)}`), signal),
   metrics: (signal?: AbortSignal) =>
     getJson<MetricsSnapshot>('/api/metrics', signal),
   sourceUpdateStatus: (signal?: AbortSignal) =>
@@ -1297,6 +1301,9 @@ export const api = {
     await readSSE(res, 'Manager stream', dispatch, signal);
   },
   nudge: (sid: string, text: string) => postJson(P(sid, '/nudge'), { text }),
+  /** A message typed while a Manager reply runs: shown now, answered as the next turn. */
+  queueFollowup: (sid: string, text: string, routeOverride: MessageRouteOverride = 'auto') =>
+    postJson<{ ok: boolean; queued: boolean; message_id: string }>(P(sid, '/message/followup'), { text, route_override: routeOverride }),
   note: (sid: string, text: string) => postJson(P(sid, '/note'), { text }),
   previewPlan: (sid: string, text: string) =>
     postJson<PlanPreview>(P(sid, '/plan'), { text }),

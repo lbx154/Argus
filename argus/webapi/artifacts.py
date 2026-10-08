@@ -515,8 +515,45 @@ def project_git_diff(
     }
 
 
+def delivery_change(
+    sid: str,
+    path: str,
+    before: str,
+    after: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """What changed in one delivered file between two of its deliveries."""
+    from ..life.delivery import delivery_snapshot_diff, read_delivery_snapshot
+
+    state_dir = project_life_dir(sid, global_root=global_root)
+    if state_dir is None:
+        return None
+    before_available = read_delivery_snapshot(state_dir, before) is not None
+    after_available = read_delivery_snapshot(state_dir, after) is not None
+    diff = (
+        delivery_snapshot_diff(
+            state_dir, {"path": path, "sha256": before}, {"path": path, "sha256": after}
+        )
+        or ""
+        if before_available and after_available
+        else ""
+    )
+    encoded = diff.encode("utf-8")
+    truncated = len(encoded) > _GIT_DIFF_LIMIT
+    if truncated:
+        diff = encoded[:_GIT_DIFF_LIMIT].decode("utf-8", errors="replace")
+    return {
+        "path": path,
+        "available": before_available and after_available,
+        "diff": diff,
+        "truncated": truncated,
+    }
+
+
 __all__ = [
     "artifact_workspace",
+    "delivery_change",
     "artifact_metadata",
     "get_project_artifact",
     "list_project_artifacts",

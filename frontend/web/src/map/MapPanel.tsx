@@ -9,7 +9,7 @@ import { Activity, PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
 import type { MapSend, DispatchObserver } from './submission';
-import { attentionReason, splitDraft } from './presentation';
+import { attentionSummary, projectBrief, splitDraft } from './presentation';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
 import './motion.css';
@@ -50,7 +50,7 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, latestCertifiedTask, type Dataset } from "./model";
+import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
@@ -100,6 +100,7 @@ const MINIMAP_STATUS: Record<string, string> = {
   question: "#dcc797",
   failed: "#d9a79f",
   review_unavailable: "#cdbba3",
+  held: "#cdbba3",
   paused: "#cdbba3",
   superseded: "#c5bdcd",
   aborted: "#c6c8cb",
@@ -352,7 +353,9 @@ export function MapCanvas({
   const ordinalOf = useMemo(() => new Map(scene.cards.map((card) => [card.id, card.ordinal])), [scene.cards]);
   const growth = useMapGrowth(scene, !!data.history_loading);
   const plannedWidths = useMemo(() => formationWidths(data.events), [data.events]);
-  const submitFromMap: MapSend = async (text, files = []) => {
+  const submitFromMap: MapSend = async (text, files = [], _observe, options) => {
+    // A note for the running turn has no flight of its own; it joins that turn.
+    if (options?.whileRunning) return composer.onSend(text, files, undefined, options);
     const id = ++dispatchSerial.current;
     const source = canvasRef.current?.querySelector('.map-composer')?.getBoundingClientRect();
     setFlight({ id, text: splitDraft(text).text.replace(/\s+/g, ' ').slice(0, 180), origin: { x: source?.left ?? 20, y: source?.top ?? innerHeight - 100, width: source?.width ?? 260, height: source?.height ?? 56 } });
@@ -976,19 +979,24 @@ export function MapCanvas({
   // a failed task that also carries a question.
   const tally = useMemo(() => {
     const ended = new Set(scene.cards.filter((card) => card.completionScope).map((card) => card.task.id));
-    const buckets = { done: 0, ended: 0, running: 0, question: 0, review_unavailable: 0, failed: 0, other: 0 };
+    const buckets = { done: 0, ended: 0, running: 0, question: 0, review_unavailable: 0, held: 0, failed: 0, other: 0 };
     for (const task of data.tasks) {
       if (ended.has(task.id)) buckets.ended++;
       else if (task.status === "done") buckets.done++;
       else if (ACTIVE.has(task.status)) buckets.running++;
       else if (task.pending_question) buckets.question++;
       else if (statusKey(task) === "review_unavailable") buckets.review_unavailable++;
+      else if (statusKey(task) === "held") buckets.held++;
       else if (task.status === "failed") buckets.failed++;
       else buckets.other++;
     }
     return buckets;
   }, [data.tasks, scene.cards]);
   const complete = tally.done;
+  // The writer's reader-language account of a task's outcome, when cached.
+  const writtenOutcome = useCallback((task: MapTask) => copy?.cards?.[`${task.id}:outcome`]?.summary || "", [copy]);
+  const brief = useMemo(() => data.tasks.some((task) => task.turn_kind !== "qa" && task.kind !== "turn")
+    ? projectBrief(data.tasks, data.events, zh, writtenOutcome) : null, [data.tasks, data.events, zh, writtenOutcome]);
   const focus = (id: string) => {
     setTraceId(null);
     setFocusFeedback("");
@@ -1132,6 +1140,13 @@ export function MapCanvas({
         {copy.generation_error.code === 'cost_unreconciled' && (zh
           ? ' 调用费用待对账，并非预算耗尽。' : ' Provider usage awaits reconciliation, not budget exhaustion.')}
       </div>}
+      {data.kind === "live" && !replaying && brief && (
+        <dl className="map-brief" aria-label={zh ? "项目简报" : "Project brief"}>
+          <div><dt>{zh ? "目标" : "Goal"}</dt><dd title={brief.goal}>{brief.goal}</dd></div>
+          <div><dt>{zh ? "结论" : "Conclusion"}</dt><dd>{brief.conclusion}</dd></div>
+          <div><dt>{zh ? "下一步" : "Next"}</dt><dd>{brief.next}</dd></div>
+        </dl>
+      )}
       {/* The second header line: one sentence on where the work stands, and,
           when something waits on the reader, a link straight to it. */}
       <div className="map-status-row">
@@ -1139,7 +1154,7 @@ export function MapCanvas({
             it in words: the eye takes the proportion, the sentence the detail. */}
         {data.tasks.length > 0 && (
           <span className="map-progress" aria-hidden="true">
-            {(["done", "ended", "running", "question", "review_unavailable", "failed", "other"] as const).map((bucket) =>
+            {(["done", "ended", "running", "question", "review_unavailable", "held", "failed", "other"] as const).map((bucket) =>
               tally[bucket] > 0 ? <i key={bucket} data-bucket={bucket} style={{ flexGrow: tally[bucket] }} /> : null)}
           </span>
         )}
@@ -1152,10 +1167,11 @@ export function MapCanvas({
               complete,
               ended: tally.ended,
               reviewUnavailable: tally.review_unavailable,
+              held: tally.held,
               running: tally.running,
               pending: composer.pending,
               paused,
-              hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "question"].includes(statusKey(task))),
+              hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "held", "question"].includes(statusKey(task))),
               role: activePhase,
               waiting: waiting?.sentence,
               zh,
@@ -1203,7 +1219,16 @@ export function MapCanvas({
       {camera.detailed && attentionIndex >= 0 && (
         <div className="map-attention-detail" role="status">
           <strong>{zh ? "待处理" : "Needs attention"} {attentionIndex + 1} / {attention.length}</strong>
-          <p tabIndex={0}>{attentionReason(attention[attentionIndex], data.events, zh)}</p>
+          {(() => {
+            const summary = attentionSummary(attention[attentionIndex], data.events, zh, writtenOutcome(attention[attentionIndex]));
+            return <div tabIndex={0}>
+              <p>{summary.reason}</p>
+              <p>{summary.next}</p>
+              {summary.detail && (summary.showDetail
+                ? <blockquote className="map-attention-quote"><strong>{zh ? "Manager 的原话" : "The Manager's words"}</strong>{" "}{summary.detail}</blockquote>
+                : <details><summary>{zh ? "原始记录" : "Recorded words"}</summary><p>{summary.detail}</p></details>)}
+            </div>;
+          })()}
         </div>
       )}
       {tracedTask && dependencies && (
@@ -1721,7 +1746,7 @@ export const MapPanel = memo(function MapPanel({
       mounted.current = false;
     };
   }, []);
-  const send: MapSend = useCallback(async (text, files = [], observe) => {
+  const send: MapSend = useCallback(async (text, files = [], observe, options) => {
     let failedBeforeAcceptance = false;
     const accepted = await onSend(text, files, (result) => {
       if (result.type === 'settled' && result.outcome === 'error') failedBeforeAcceptance = true;
@@ -1731,7 +1756,7 @@ export const MapPanel = memo(function MapPanel({
         setAttachments((current) => current.length ? current : files);
       }
       observe?.(result);
-    });
+    }, options);
     if (accepted && !failedBeforeAcceptance && mounted.current) {
       if (currentDraft.current === text) onDraftChange("");
       setAttachments((current) =>
@@ -1891,7 +1916,7 @@ export const MapPanel = memo(function MapPanel({
   );
   const composer = useMemo<MapComposerProps>(
     () => ({
-      footer: <ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive || Boolean(snapshot.manager_requests?.length)} />,
+      footer: <ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive || Boolean(snapshot.manager_requests?.length)} lastCall={snapshot.last_call} onOpenSettings={readOnly ? undefined : onOpenSettings} />,
       routeOverride,
       onRouteOverrideChange,
       value: draft,
@@ -1908,7 +1933,8 @@ export const MapPanel = memo(function MapPanel({
     }),
     [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
      pending, onCancel, focusSignal, snapshot.session.display_name, snapshot.session.id,
-     source, zh, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests],
+     source, zh, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
+     readOnly, onOpenSettings],
   );
   const switchSource = (value: string) => {
     setSource(value);

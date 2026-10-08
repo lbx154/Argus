@@ -242,6 +242,8 @@
 .map-attention-detail { display: flex; align-items: baseline; gap: 10px; }
 .map-attention-detail > strong { flex-shrink: 0; color: #ac724a; }
 .map-attention-detail > p { max-height: 4.5em; overflow-y: auto; white-space: pre-line; }
+.map-attention-quote { margin: 4px 0 0; padding-left: 8px; border-left: 2px solid rgb(var(--line)); max-height: 6em; overflow-y: auto; }
+.map-attention-quote > strong { font-weight: 550; margin-right: 4px; }
 .map-dependencies > div { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 3px 0; }
 .map-dependencies strong { flex: 0 0 70px; font-weight: 550; }
 .map-dependencies button {
@@ -338,6 +340,7 @@
   --state: #bd923f;
 }
 .map-state-paused,
+.map-state-held,
 .map-state-review_unavailable {
   --state: #a58a56;
 }
@@ -942,3 +945,12 @@
 @media (prefers-reduced-motion: reduce) {
   .map-playback button { transition: none; }
 }
+
+/* Three-line project brief: goal, conclusion so far, next step. */
+.map-brief { flex-shrink: 0; margin: 0; padding: 6px 28px 4px; font-size: 12px; color: rgb(var(--ink)); display: grid; gap: 2px; }
+.map-brief > div { display: flex; gap: 10px; min-width: 0; }
+.map-brief dt { flex: 0 0 4em; color: rgb(var(--ink-dim)); font-weight: 550; }
+.map-brief dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-attention-detail > div { max-height: 7em; overflow-y: auto; white-space: pre-line; }
+.map-attention-detail > div > p { margin: 0 0 2px; }
+.map-attention-detail details { color: rgb(var(--ink-dim)); }

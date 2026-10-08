@@ -391,3 +391,41 @@ __all__ = [
     "STALE_LABEL_WINDOW_S",
     "role_activity",
 ]
+
+
+# Short control-plane calls (routing, classification, fact review) that run
+# on a lean model of their own. They precede or follow the work, so the newest
+# of them says nothing about what the work itself runs on.
+_CONTROL_PLANE_MARKERS = ("classify", "frontdoor", "reviewed_facts", "manager-route")
+
+
+def latest_call_runtime(life_dir: Path | str) -> dict[str, Any] | None:
+    """Backend, model and effort of the newest work call this project opened.
+
+    What the composer shows as "running on": the configured value says what
+    the NEXT call will ask for, this says what the last one actually used.
+    Only calls made by a work role count. Map summaries, learning reviews,
+    curation and the Manager's routing/classification calls run on their own
+    (often smaller) models, so naming them would misreport the work.
+    ``role`` is the role whose settings govern the call.
+    """
+    # A long tool-heavy call writes many events after its start; look further
+    # back than the role labels need.
+    for ev in reversed(_tail_jsonl(Path(life_dir) / "events.jsonl", limit=2000)):
+        if canonical_event_type(ev.get("canonical_type") or ev.get("type")) != "agent.io.start":
+            continue
+        label = str(ev.get("run_label") or "")
+        if any(marker in label.lower() for marker in _CONTROL_PLANE_MARKERS):
+            continue
+        role = _event_role(ev)
+        if role is None:
+            continue
+        return {
+            "backend": str(ev.get("backend") or ""),
+            "model": str(ev.get("model") or ""),
+            "effort": str(ev.get("reasoning_effort") or ""),
+            "run_label": label,
+            "role": role,
+            "ts": float(ev.get("ts") or 0.0),
+        }
+    return None

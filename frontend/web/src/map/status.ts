@@ -16,6 +16,7 @@ export function mapStatusSentence(input: {
   complete: number;
   ended?: number;
   reviewUnavailable?: number;
+  held?: number;
   running: number;
   pending: boolean;
   paused: boolean;
@@ -25,17 +26,18 @@ export function mapStatusSentence(input: {
   waiting?: string;
   zh: boolean;
 }): string {
-  const { total, qa = 0, complete, ended = 0, reviewUnavailable = 0, running, pending, paused, hasOpenWork, role, waiting, zh } = input;
+  const { total, qa = 0, complete, ended = 0, reviewUnavailable = 0, held = 0, running, pending, paused, hasOpenWork, role, waiting, zh } = input;
   const allDone = total > 0 && complete === total && ended === 0;
   const allDoneLabel = qa === total && qa > 0 ? (zh ? '已全部回答' : 'all answered') : (zh ? '已全部完成' : 'all completed');
   const counts = zh
     ? [
       total > qa || !total ? `${total - qa} 个任务` : '',
       qa > 0 ? `${qa} 条问答` : '',
-      complete > 0 && !allDone ? `已完成 ${complete}` : "",
-      ended > 0 ? `${ended} 次执行已结束` : "",
-      reviewUnavailable > 0 ? `${reviewUnavailable} 次审查异常` : "",
-      running > 0 ? `进行中 ${running}` : "",
+      complete > 0 && !allDone ? `已完成 ${complete} 个` : "",
+      ended > 0 ? `已结束 ${ended} 个` : "",
+      reviewUnavailable > 0 ? `审查异常 ${reviewUnavailable} 个` : "",
+      held > 0 ? `阶段暂停 ${held} 个` : "",
+      running > 0 ? `进行中 ${running} 个` : "",
     ]
     : [
       total > qa || !total ? `${total - qa} ${total - qa === 1 ? "task" : "tasks"}` : '',
@@ -43,6 +45,7 @@ export function mapStatusSentence(input: {
       complete > 0 && !allDone ? `${complete} done` : "",
       ended > 0 ? `${ended} ${ended === 1 ? "execution" : "executions"} ended` : "",
       reviewUnavailable > 0 ? `${reviewUnavailable} review ${reviewUnavailable === 1 ? "error" : "errors"}` : "",
+      held > 0 ? `${held} on hold` : "",
       running > 0 ? `${running} running` : "",
     ];
   const roleName = role
@@ -65,6 +68,6 @@ export function mapStatusSentence(input: {
         : allDone
           ? allDoneLabel
           : "";
-  return [...counts, state, ended > 0 ? zh ? "执行结束不代表总体目标完成" : "execution completion is not overall completion" : ""]
+  return [...counts, state, ended > 0 ? zh ? "已结束不代表总体目标完成" : "execution completion is not overall completion" : ""]
     .filter(Boolean).join(" · ");
 }

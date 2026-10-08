@@ -121,9 +121,20 @@ export interface DeliveryReceipt {
   summary: string;
   status: string;
   review_status: string;
+  /** Who settled ``review_status``: ``reviewer`` is an independent review role; anything else is the worker's own check. Absent on older receipts. */
+  review_source?: string;
   delivered_at: number;
   primary_target: DeliveryTarget | null;
   targets: DeliveryTarget[];
+  /** Content hash of each delivered file; ``stored`` text versions can be diffed. */
+  snapshots?: DeliverySnapshot[];
+}
+
+export interface DeliverySnapshot {
+  path: string;
+  sha256: string;
+  size: number;
+  stored: boolean;
 }
 
 export interface ContinuousState {
@@ -159,6 +170,10 @@ export interface CostControlSnapshot {
   day: string;
   daily_tokens?: number;
   daily_token_cap?: number;
+  /** Request-billed backends spend premium requests, not tokens: today's count and cost. */
+  daily_premium_requests?: number;
+  daily_premium_usd?: number;
+  premium_by_run_label?: Array<{ run_label: string; premium_requests: number; usd: number; calls: number }>;
   unsettled_tokens?: number;
   active_reservations: number;
   unresolved_calls: number;
@@ -399,6 +414,8 @@ export interface Snapshot {
   };
   daemon: Daemon;
   roles: Role[];
+  /** The newest model call this project opened: what it actually ran on. */
+  last_call?: { backend: string; model: string; effort: string; run_label: string; role?: string; ts: number } | null;
   backlog: BacklogItem[];
   recent_events: EventMsg[];
   spend_usd?: number | null;

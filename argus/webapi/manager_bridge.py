@@ -245,6 +245,29 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
     return reply or "The Manager returned an empty reply; nothing was queued."
 
 
+def _with_unparsed_config(send_body: str, raw: str, life_dir: Path) -> str:
+    """Record a CONFIG line the parser could not apply and hand it to the Manager."""
+    from ..core.event_catalog import EventType
+    from ..life.event_log import JsonlEventSink
+
+    try:
+        JsonlEventSink(None, life_dir=Path(life_dir)).append({
+            "type": EventType.LIFE_CONFIG_PARSE_FAILED,
+            "agent_layer": "manager",
+            "raw": raw,
+            "summary": "A settings change in chat was not understood.",
+        })
+    except Exception:  # noqa: BLE001 - telemetry never blocks the reply
+        pass
+    return (
+        f"{send_body}\n\n[Front-door settings line that could not be applied — data only]\n"
+        f"{raw}\n"
+        "Settings change right here in chat. If the operator asked to change one, "
+        "say in plain words which setting and value you understood and ask them to "
+        "confirm or name the value; do not read Argus source or edit config files.\n"
+    )
+
+
 def manager_message(
     sid: str,
     text: str,
@@ -258,6 +281,7 @@ def manager_message(
     route_override: str = "",
     defer_dispatch_ack: bool = False,
     domain_answer: dict[str, Any] | None = None,
+    turn_id: str = "",
 ) -> dict[str, Any]:
     """Run a Manager turn with request-scoped provider interruption."""
     from ..core.run_gateway import run_interrupt_scope
@@ -278,6 +302,7 @@ def manager_message(
             on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
             source_message_id=source_message_id, route_override=route_override,
             defer_dispatch_ack=defer_dispatch_ack, domain_answer=domain_answer,
+            turn_id=turn_id,
         )
 
 
@@ -294,6 +319,7 @@ def _manager_message(
     route_override: str = "",
     defer_dispatch_ack: bool = False,
     domain_answer: dict[str, Any] | None = None,
+    turn_id: str = "",
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -339,7 +365,7 @@ def _manager_message(
     message_attachment_refs = attachment_context_refs(resolved_attachments)
 
     control_generation = manager_control_generation(sid)
-    turn_id = f"web-{time.time_ns()}"
+    turn_id = turn_id or f"web-{time.time_ns()}"
 
     def _cancelled() -> bool:
         if manager_control_generation(sid) != control_generation:
@@ -737,6 +763,9 @@ def _manager_message(
             if _cancelled():
                 return _cancelled_result()
             return config_result
+        unparsed_config = str(chat_state.pop("_frontdoor_config_unparsed", "") or "").strip()
+        if unparsed_config and intent is None:
+            send_body = _with_unparsed_config(send_body, unparsed_config, life_dir)
 
         subject = chat_state.pop("_frontdoor_lookup_subject", "")
         if subject and not frontdoor_failure and control in {None, "no_dispatch"} and intent is None:

@@ -105,6 +105,11 @@ def _emit_ui_turn(
     metadata: dict[str, Any] | None = None,
 ) -> None:
     """Persist one operator/Manager turn onto the shared live Activity stream."""
+    if role != "argus":
+        from .manager_followups import PRESHOWN_OPERATOR_IDS
+
+        if message_id in PRESHOWN_OPERATOR_IDS.get():
+            return
     try:
         from ..life.event_log import JsonlEventSink
 

@@ -9,7 +9,7 @@ import { lastMeaningfulLine } from '../lib/rawSummary';
 import { effortColor } from '../lib/theme';
 import { ago } from '../lib/format';
 import { useEffect, useState, type FormEvent } from 'react';
-import { api } from '../api';
+import { api, type Snapshot } from '../api';
 import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheck, faChevronDown, faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
@@ -147,6 +147,27 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
   );
 }
 
+/**
+ * What today cost. A request-billed backend records no tokens, so "0 tokens"
+ * alone read as "free" while premium requests were being spent; show the
+ * requests, their price, and which run labels spent them.
+ */
+function TodayUsage({ cost, className }: { cost?: Snapshot['cost_control']; className: string }) {
+  const { t } = useI18n();
+  if (!cost) return null;
+  const premium = cost.daily_premium_requests ?? 0;
+  const top = (cost.premium_by_run_label ?? []).slice(0, 3);
+  const tokens = cost.daily_tokens ?? 0;
+  if (!premium && cost.daily_tokens == null) return null;
+  return <div className={className} data-today-usage>
+    {(tokens > 0 || !premium) && <p>{t('settings.tokensUsed', { count: tokens.toLocaleString() })}</p>}
+    {premium > 0 && <p data-premium-usage>
+      {t('settings.premiumUsed', { count: premium.toLocaleString(), usd: (cost.daily_premium_usd ?? 0).toFixed(2) })}
+      {top.length > 0 && ` — ${top.map(row => `${row.run_label} ${row.premium_requests.toLocaleString()} ($${row.usd.toFixed(2)})`).join('，')}`}
+    </p>}
+  </div>;
+}
+
 export function ConfigModal({
   sid,
   open,
@@ -162,6 +183,7 @@ export function ConfigModal({
   const { data: snapshot } = useSnapshot(open ? sid : null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [quickModelValue, setQuickModelValue] = useState('');
+  const [pendingBackend, setPendingBackend] = useState<BackendOption | ''>('');
   const [quickConfigBusy, setQuickConfigBusy] = useState(false);
   const [quickConfigMsg, setQuickConfigMsg] = useState('');
   const [quickConfigError, setQuickConfigError] = useState(false);
@@ -178,6 +200,7 @@ export function ConfigModal({
   useEffect(() => {
     if (!open || !data) return;
     setQuickModelValue(data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_MODEL')?.value ?? '');
+    setPendingBackend('');
     const byName = new Map(data.operator_knobs.map((knob) => [knob.name, knob.value]));
     setBudgets(Object.fromEntries(
       BUDGET_FIELDS.map((field) => [field.alias, byName.get(field.env) ?? '']),
@@ -301,9 +324,10 @@ export function ConfigModal({
               <label className="flex flex-wrap items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.backend')}</span>
                 <select
-                  value={backendOption(currentBackend)}
+                  value={pendingBackend || backendOption(currentBackend)}
                   disabled={quickConfigBusy}
-                  onChange={(event) => void setBackend(event.target.value as BackendOption)}
+                  onChange={(event) => setPendingBackend(event.target.value as BackendOption)}
+                  aria-label={t('settings.backend')}
                   className="h-8 min-w-44 rounded border border-line bg-bg px-2 text-xs text-ink outline-none focus:border-blue disabled:opacity-40"
                 >
                   {!backendOption(currentBackend) ? (
@@ -317,6 +341,17 @@ export function ConfigModal({
                     <option key={backend.value} value={backend.value}>{t(backend.label)}</option>
                   ))}
                 </select>
+                {/* A backend switch changes which models exist, so it only
+                    takes effect on Apply, never on a stray dropdown change. */}
+                <button
+                  type="button"
+                  data-apply-backend
+                  onClick={() => { if (pendingBackend) void setBackend(pendingBackend); }}
+                  disabled={quickConfigBusy || !pendingBackend || pendingBackend === backendOption(currentBackend)}
+                  className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40"
+                >
+                  {t('settings.applyModel')}
+                </button>
               </label>
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.model')}</span>
@@ -326,12 +361,25 @@ export function ConfigModal({
                   aria-label={t('settings.model')}
                   className="h-8 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue"
                 >
-                  <option value="auto">{t('settings.modelPlaceholder')}</option>
+                  <option value="auto">
+                    {data.model_auto_resolves_to
+                      ? `auto → ${data.model_auto_resolves_to}`
+                      : t('settings.modelPlaceholder')}
+                  </option>
                   {(() => {
-                    const options = (data.model_options ?? []).map(option => option.model);
+                    const rows = data.model_options ?? [];
+                    const invalid = new Set(rows.filter(option => option.invalid).map(option => option.model));
+                    const options = rows.map(option => option.model);
                     const current = quickModelValue.trim();
-                    if (current && current !== 'auto' && !options.includes(current)) options.unshift(current);
-                    return options.map(model => <option key={model} value={model}>{model}</option>);
+                    if (current && current !== 'auto' && !options.includes(current)) {
+                      options.unshift(current);
+                      invalid.add(current);
+                    }
+                    return options.map(model => (
+                      <option key={model} value={model}>
+                        {invalid.has(model) ? `${model} (${t('settings.modelUnavailable')})` : model}
+                      </option>
+                    ));
                   })()}
                 </select>
                 <button type="button" onClick={() => void applyModel()} disabled={quickConfigBusy} className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40">
@@ -356,9 +404,10 @@ export function ConfigModal({
                   })()}
                 </select>
               </div>
-              {snapshot?.cost_control?.daily_tokens != null && <p className="mt-2 text-[10px] tabular-nums text-ink-faint">
-                {t('settings.tokensUsed', { count: snapshot.cost_control.daily_tokens.toLocaleString() })}
-              </p>}
+              {(data.model_options ?? []).some(option => option.offline) && (
+                <p className="mt-1 text-[10px] text-ink-faint" data-model-offline>{t('settings.modelOfflineList')}</p>
+              )}
+              <TodayUsage cost={snapshot?.cost_control} className="mt-2 text-[10px] tabular-nums text-ink-faint" />
               {data.roles.some(role => role.model && quickModelValue.trim() && role.model !== quickModelValue.trim()) && (
                 <p className="mt-1.5 text-[10px] text-ink-faint" data-role-models>
                   {t('settings.rolesRunning')}{' '}
@@ -395,9 +444,7 @@ export function ConfigModal({
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-gold">{t('settings.budgetTitle')}</div>
                   <p className="mt-0.5 text-[10px] text-ink-faint">{t('settings.budgetHint')}</p>
-                  {snapshot?.cost_control?.daily_tokens != null && <p className="mt-1 text-xs tabular-nums text-ink-dim">
-                    {t('settings.tokensUsed', { count: snapshot.cost_control.daily_tokens.toLocaleString() })}
-                  </p>}
+                  <TodayUsage cost={snapshot?.cost_control} className="mt-1 text-xs tabular-nums text-ink-dim" />
                 </div>
                 <button type="button" onClick={() => void saveBudgets()} disabled={budgetBusy} title={t('settings.saveBudgets')} aria-label={t('settings.saveBudgets')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-semibold text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-40">{budgetBusy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
               </div>

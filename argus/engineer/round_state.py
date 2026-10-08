@@ -37,6 +37,8 @@ class RoundLoopState:
     """Mutable state that persists across rounds within one ``run()`` call."""
 
     rounds: list[RoundRecord] = field(default_factory=list)
+    # Wall-clock start of the current Engineer turn (for "changed this round").
+    round_started_wall: float | None = None
     last_engineer_message: str = ""
     no_progress_streak: int = 0
     semantic_stall_streak: int = 0
