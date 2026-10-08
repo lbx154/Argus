@@ -113,8 +113,97 @@ def _exit_status_path(
     return _registry_root(registry_root) / f"{_task_file_component(task_id)}_logs" / name
 
 
-def _task_log_dir(task_id: str) -> Path:
-    return REGISTRY_DIR / f"{_task_file_component(task_id)}_logs"
+def _task_log_dir(
+    task_id: str,
+    *,
+    registry_root: Path | str | None = None,
+) -> Path:
+    return _registry_root(registry_root) / f"{_task_file_component(task_id)}_logs"
+
+
+# Stream files a run writes; the per-task copies are "latest" pointers.
+_RUN_LOG_NAMES = ("stdout.log", "stderr.log", "supervisor.jsonl")
+_LATEST_RUN_FILE = "latest_run"
+
+
+def _run_log_dir(
+    task_id: str,
+    run_id: str,
+    *,
+    registry_root: Path | str | None = None,
+) -> Path:
+    """Directory holding one run's own logs and record.
+
+    Task ids are reused on resubmission, so anything keyed only by task id is
+    overwritten by the next run; each run keeps its evidence here instead.
+    """
+    component = portable_filename_component(str(run_id), windows=os.name == "nt")
+    return _task_log_dir(task_id, registry_root=registry_root) / "runs" / component
+
+
+def _run_record_path(
+    task_id: str,
+    run_id: str,
+    *,
+    registry_root: Path | str | None = None,
+) -> Path:
+    return _run_log_dir(task_id, run_id, registry_root=registry_root) / "task.json"
+
+
+def _prepare_run_logs(task_id: str, run_id: str) -> Path:
+    """Create *run_id*'s log dir and point the stable per-task names at it.
+
+    ``<task>_logs/stdout.log`` (and friends) stay valid for existing readers
+    but now always resolve to the latest run, while earlier runs' files remain
+    under ``runs/<run_id>/``.
+    """
+    log_dir = _task_log_dir(task_id)
+    run_dir = _run_log_dir(task_id, run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for name in _RUN_LOG_NAMES:
+        target = run_dir / name
+        target.touch(exist_ok=True)
+        stable = log_dir / name
+        tmp = log_dir / f".{name}.{os.getpid()}.tmp"
+        tmp.unlink(missing_ok=True)
+        try:
+            tmp.symlink_to(target.relative_to(log_dir))
+        except OSError:
+            try:
+                os.link(target, tmp)
+            except OSError:
+                continue
+        os.replace(tmp, stable)
+    latest_tmp = log_dir / f".{_LATEST_RUN_FILE}.{os.getpid()}.tmp"
+    latest_tmp.write_text(str(run_id) + "\n", encoding="utf-8")
+    os.replace(latest_tmp, log_dir / _LATEST_RUN_FILE)
+    return run_dir
+
+
+def _write_run_record(
+    task_id: str,
+    data: dict[str, Any],
+    *,
+    registry_root: Path | str | None = None,
+) -> None:
+    """Merge *data* into its run's own record so a resubmission cannot erase it."""
+    run_id = str(data.get("run_id") or "")
+    if not run_id:
+        return
+    path = _run_record_path(task_id, run_id, registry_root=registry_root)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            prior = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            prior = {}
+        merged = {**prior, **data} if isinstance(prior, dict) else dict(data)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        # The per-task record below stays authoritative for live state.
+        pass
 
 
 def _legacy_exit_status_paths(
@@ -310,6 +399,12 @@ def _write_task(
         "owner_mission_id",
         os.environ.get("ARGUS_PLUGIN_PARENT_MISSION_ID", "").strip(),
     )
+    if data.get("run_id"):
+        data.setdefault(
+            "run_record",
+            str(_run_record_path(task_id, str(data["run_id"]), registry_root=root)),
+        )
+    _write_run_record(task_id, data, registry_root=root)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)

@@ -28,9 +28,9 @@ from ._registry import (
     _apply_supervisor_usage_fields,
     _exit_status_path,
     _launch_durable_command,
+    _prepare_run_logs,
     _process_identity,
     _read_task,
-    _task_log_dir,
     _write_task,
 )
 from ._reporting import _alert_engineer
@@ -463,17 +463,17 @@ def _run_direct(
     run_dir: str | None = None,
 ) -> None:
     """Run command directly via Popen. No LLM involved."""
-    log_dir = _task_log_dir(task_id)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    stdout_path = log_dir / "stdout.log"
-    stderr_path = log_dir / "stderr.log"
-
     start_time = time.time()
     submitted_task = _read_task(task_id) or {}
     run_id = str(
         submitted_task.get("run_id")
         or f"{task_id}-{time.time_ns()}"
     )
+    # Logs live per run: a resubmitted task id must not truncate the evidence
+    # of its earlier runs. ``<task>_logs/stdout.log`` points at the latest.
+    log_dir = _prepare_run_logs(task_id, run_id)
+    stdout_path = log_dir / "stdout.log"
+    stderr_path = log_dir / "stderr.log"
     timeout_defaulted = bool(submitted_task.get("timeout_defaulted", False))
     timeout_fields = {
         "timeout_seconds": timeout,

@@ -47,9 +47,9 @@ from ._registry import (
     _exit_status_path,
     _launch_durable_command,
     _persist_experiment_record,
+    _prepare_run_logs,
     _process_identity,
     _read_task,
-    _task_log_dir,
     _write_task,
 )
 from ._reporting import _alert_engineer
@@ -623,11 +623,6 @@ def _run_supervised(
     preflight: bool = True,
 ) -> None:
     """Run command with periodic LLM supervisor checks."""
-    log_dir = _task_log_dir(task_id)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    stdout_path = log_dir / "stdout.log"
-    stderr_path = log_dir / "stderr.log"
-    supervisor_log = log_dir / "supervisor.jsonl"
     # Stale transcript from a prior run of the same task-id must not leak into
     # this run's discussion.
     _reset_discussion(task_id)
@@ -638,6 +633,12 @@ def _run_supervised(
         submitted_task.get("run_id")
         or f"{task_id}-{time.time_ns()}"
     )
+    # Logs live per run: a resubmitted task id must not truncate the evidence
+    # of its earlier runs. ``<task>_logs/stdout.log`` points at the latest.
+    log_dir = _prepare_run_logs(task_id, run_id)
+    stdout_path = log_dir / "stdout.log"
+    stderr_path = log_dir / "stderr.log"
+    supervisor_log = log_dir / "supervisor.jsonl"
     timeout_defaulted = bool(submitted_task.get("timeout_defaulted", False))
     timeout_fields = {
         "timeout_seconds": timeout,
