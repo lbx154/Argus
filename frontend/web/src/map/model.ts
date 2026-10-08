@@ -263,10 +263,6 @@ export function statusKey(task: MapTask): string {
     : "unknown";
 }
 
-/** The project's concluding acceptance, if it still is one. A certification
- * says "the project is done" only until work starts again: once any mission
- * starts after it (a new goal, an operator redirect, a retry of the same task),
- * the earlier acceptance describes a past state and must not headline the map. */
 /** The Manager kept this stage open. Read from the current outcome when a
  * terminal event bound one; otherwise from the backlog row's own error, which
  * the settlement writes in the same update that sets ``failed`` and so always
@@ -276,6 +272,10 @@ export function isStageHold(task: MapTask): boolean {
   return !task.outcome?.execution_status && /^manager stage hold:/i.test(task.last_error || "");
 }
 
+/** The project's concluding acceptance, if it still is one. A certification
+ * says "the project is done" only until work starts again: once any mission
+ * starts after it (a new goal, an operator redirect, a retry of the same task),
+ * the earlier acceptance describes a past state and must not headline the map. */
 export function latestCertifiedTask(tasks: MapTask[], events: MapEvent[]): MapTask | undefined {
   const reopenedAfter = (ts: number) => events.some((event) =>
     event.type === "life.mission.started" && event.ts > ts);

@@ -242,6 +242,8 @@
 .map-attention-detail { display: flex; align-items: baseline; gap: 10px; }
 .map-attention-detail > strong { flex-shrink: 0; color: #ac724a; }
 .map-attention-detail > p { max-height: 4.5em; overflow-y: auto; white-space: pre-line; }
+.map-attention-quote { margin: 4px 0 0; padding-left: 8px; border-left: 2px solid rgb(var(--line)); max-height: 6em; overflow-y: auto; }
+.map-attention-quote > strong { font-weight: 550; margin-right: 4px; }
 .map-dependencies > div { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 3px 0; }
 .map-dependencies strong { flex: 0 0 70px; font-weight: 550; }
 .map-dependencies button {

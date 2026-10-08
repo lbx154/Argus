@@ -50,7 +50,7 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, latestCertifiedTask, type Dataset } from "./model";
+import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
@@ -991,8 +991,10 @@ export function MapCanvas({
     return buckets;
   }, [data.tasks, scene.cards]);
   const complete = tally.done;
+  // The writer's reader-language account of a task's outcome, when cached.
+  const writtenOutcome = useCallback((task: MapTask) => copy?.cards?.[`${task.id}:outcome`]?.summary || "", [copy]);
   const brief = useMemo(() => data.tasks.some((task) => task.turn_kind !== "qa" && task.kind !== "turn")
-    ? projectBrief(data.tasks, data.events, zh) : null, [data.tasks, data.events, zh]);
+    ? projectBrief(data.tasks, data.events, zh, writtenOutcome) : null, [data.tasks, data.events, zh, writtenOutcome]);
   const focus = (id: string) => {
     setTraceId(null);
     setFocusFeedback("");
@@ -1216,11 +1218,13 @@ export function MapCanvas({
         <div className="map-attention-detail" role="status">
           <strong>{zh ? "待处理" : "Needs attention"} {attentionIndex + 1} / {attention.length}</strong>
           {(() => {
-            const summary = attentionSummary(attention[attentionIndex], data.events, zh);
+            const summary = attentionSummary(attention[attentionIndex], data.events, zh, writtenOutcome(attention[attentionIndex]));
             return <div tabIndex={0}>
               <p>{summary.reason}</p>
               <p>{summary.next}</p>
-              {summary.detail && <details><summary>{zh ? "原始记录" : "Recorded words"}</summary><p>{summary.detail}</p></details>}
+              {summary.detail && (summary.showDetail
+                ? <blockquote className="map-attention-quote"><strong>{zh ? "Manager 的原话" : "The Manager's words"}</strong>{" "}{summary.detail}</blockquote>
+                : <details><summary>{zh ? "原始记录" : "Recorded words"}</summary><p>{summary.detail}</p></details>)}
             </div>;
           })()}
         </div>
