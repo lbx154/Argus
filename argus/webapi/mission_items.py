@@ -535,13 +535,15 @@ def _seen_model_ids(global_root: Path | str | None, *, now: float | None = None)
     return seen
 
 
-def _version_desc_key(model: str) -> tuple[tuple[int, ...], str]:
+def _version_desc_key(model: str) -> tuple[str, tuple[int, ...]]:
     """Sort key putting the newest release of a family first (numbers compared numerically, descending)."""
     import re as _re
 
     numbers = tuple(-int(part) for part in _re.findall(r"\d+", model))
     family = _re.sub(r"[\d.]+", "", model)
-    return (numbers, family) if numbers else ((1,), model)
+    # Family first, so one vendor's high version numbers do not scatter the
+    # list; within a family the newest release leads.
+    return (family, numbers)
 
 
 def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]:
@@ -580,9 +582,12 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
             options[model] = {"model": model, "source": "catalog"}
             if offline:
                 options[model]["offline"] = True
-    listed = set(options)
     for model, ts in sorted(_seen_model_ids(global_root).items(), key=lambda kv: -kv[1]):
         options.setdefault(model, {"model": model, "source": "seen"})["last_used_at"] = ts
+    # Only the backend's OWN list can say a model is not offered: a model that
+    # answered here recently plainly works, and the harness catalog shown for
+    # backends without a live list is not that backend's list at all.
+    listed = set(options) if live is not None else set()
     try:
         persisted = read_persisted_knobs()
     except Exception:  # noqa: BLE001 - a corrupt store still leaves the catalog

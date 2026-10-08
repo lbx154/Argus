@@ -42,7 +42,7 @@ from ..daemon.protocol import (
 )
 from ..daemon.state import DAEMON_UPGRADE_REQUEST_FILE
 from ..life.memory import LifeMemory
-from ..life.role_activity import RoleActivity, role_activity
+from ..life.role_activity import RoleActivity, latest_call_runtime, role_activity
 from .daemon_liveness import web_daemon_liveness
 from .protocol import SNAPSHOT_SCHEMA_VERSION
 
@@ -652,6 +652,12 @@ def build_snapshot(
         roles = []
         diagnostics.append(diagnostic("roles", exc))
 
+    try:
+        last_call = latest_call_runtime(life_dir)
+    except Exception as exc:  # noqa: BLE001
+        last_call = None
+        diagnostics.append(diagnostic("last_call", exc))
+
     engineer = next(
         (row for row in roles if row.get("role") == "engineer"),
         roles[0] if roles else None,
@@ -790,6 +796,7 @@ def build_snapshot(
         "session": session,
         "daemon": daemon,
         "roles": roles,
+        "last_call": last_call,
         "backlog": backlog,
         "recent_events": recent,
         "spend_usd": spend.cost_usd,

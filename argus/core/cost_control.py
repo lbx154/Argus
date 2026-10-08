@@ -30,7 +30,7 @@ from .daemon_lock import is_pid_running
 from .event_catalog import EventType, new_event
 from .knobs import resolve_budget_caps, resolve_knob
 from .paths import session_states_root
-from .pricing import quote_copilot_usage
+from .pricing import copilot_usd_per_premium_request, quote_copilot_usage
 from .usage import (
     DamagedJournalLine,
     UsageJournalIntegrityError,
@@ -1415,6 +1415,37 @@ def _close_reservation(
     return True
 
 
+def _premium_usage(records: list[UsageRecord]) -> dict[str, Any]:
+    """Today's premium requests and what they cost, total and per run label.
+
+    A subscription backend bills requests, not tokens, so a day of work can
+    read "0 tokens" while spending real quota; this is the figure the operator
+    actually pays in. Same call-id dedupe as the token tally.
+    """
+    by_label: dict[str, dict[str, Any]] = {}
+    unique = {record.call_id: record for record in records}.values()
+    for record in unique:
+        if record.status == "denied":
+            continue
+        requests = float(record.premium_requests or 0.0)
+        if requests <= 0:
+            continue
+        usd = record.premium_request_cost_usd
+        if usd is None:
+            usd = requests * copilot_usd_per_premium_request()
+        label = str(record.run_label or "") or "unlabelled"
+        row = by_label.setdefault(label, {"run_label": label, "premium_requests": 0.0, "usd": 0.0, "calls": 0})
+        row["premium_requests"] += requests
+        row["usd"] += float(usd)
+        row["calls"] += 1
+    rows = sorted(by_label.values(), key=lambda row: (-row["usd"], row["run_label"]))
+    return {
+        "daily_premium_requests": sum(row["premium_requests"] for row in rows),
+        "daily_premium_usd": sum(row["usd"] for row in rows),
+        "premium_by_run_label": rows,
+    }
+
+
 def cost_control_snapshot(
     *,
     global_root: Path | str | None = None,
@@ -1455,6 +1486,7 @@ def cost_control_snapshot(
         "day": state["day"],
         "daily_tokens": tokens,
         "daily_token_cap": resolve_budget_caps(global_root=root).global_daily_token_cap,
+        **_premium_usage(records),
         "unsettled_tokens": unsettled_tokens,
         "active_reservations": len(reservations),
         "unresolved_calls": len(unresolved),

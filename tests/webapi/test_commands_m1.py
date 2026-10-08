@@ -2327,8 +2327,40 @@ def test_model_options_mark_a_current_value_missing_from_the_catalog(ctx, monkey
     monkeypatch.setattr(mission_items, "_active_backend", lambda: ("copilot", "/bin/x"))
     rows = mission_items.model_options(root)
     by_model = {row["model"]: row for row in rows}
-    assert by_model["made-up-id"]["invalid"] is True
-    assert "invalid" not in by_model["family-3"]
+    # Without the backend's own list nothing can say the id is not offered.
+    assert "invalid" not in by_model["made-up-id"]
     assert by_model["family-3"]["offline"] is True  # live list failed: catalog fallback is flagged
     catalog_order = [row["model"] for row in rows if row["source"] == "catalog"]
     assert catalog_order == ["family-10.0", "family-3", "family-2.1"]  # newest version first
+
+
+def test_model_options_never_call_a_model_unavailable_without_the_backends_own_list(
+    ctx, monkeypatch, tmp_path
+) -> None:
+    from argus.webapi import mission_items
+
+    root, _, _ = ctx
+    _model_options_env(monkeypatch, tmp_path, root, ["harness-1"], "other-vendor-id")
+    monkeypatch.setattr(mission_items, "_backend_model_catalog", lambda _root: None)
+    monkeypatch.setattr(mission_items, "_active_backend", lambda: ("claude", "/bin/x"))
+    rows = {row["model"]: row for row in mission_items.model_options(root)}
+    assert "invalid" not in rows["other-vendor-id"]  # the harness catalog is not this backend's list
+    assert "offline" not in rows["harness-1"]
+
+
+def test_a_model_that_answered_recently_is_not_marked_unavailable(ctx, monkeypatch, tmp_path) -> None:
+    from argus.webapi import mission_items
+
+    root, _, _ = ctx
+    _model_options_env(monkeypatch, tmp_path, root, [], "answered-recently")
+    monkeypatch.setattr(mission_items, "_backend_model_catalog", lambda _root: (["listed-1"], "listed-1"))
+    monkeypatch.setattr(mission_items, "_seen_model_ids", lambda _root: {"answered-recently": 1.0})
+    rows = {row["model"]: row for row in mission_items.model_options(root)}
+    assert "invalid" not in rows["answered-recently"]
+
+
+def test_model_options_keep_a_family_together_newest_first() -> None:
+    from argus.webapi.mission_items import _version_desc_key
+
+    ids = ["beta-2", "alpha-10", "beta-11", "alpha-9.5"]
+    assert sorted(ids, key=_version_desc_key) == ["alpha-10", "alpha-9.5", "beta-11", "beta-2"]

@@ -391,3 +391,27 @@ __all__ = [
     "STALE_LABEL_WINDOW_S",
     "role_activity",
 ]
+
+
+def latest_call_runtime(life_dir: Path | str) -> dict[str, Any] | None:
+    """Backend, model and effort of the newest model call this project opened.
+
+    What the composer shows as "running on": the configured value says what
+    the NEXT call will ask for, this says what the last one actually used.
+    Map-summary calls are skipped; they run on their own picker.
+    """
+    # A long tool-heavy call writes many events after its start; look further
+    # back than the role labels need.
+    for ev in reversed(_tail_jsonl(Path(life_dir) / "events.jsonl", limit=2000)):
+        if canonical_event_type(ev.get("canonical_type") or ev.get("type")) != "agent.io.start":
+            continue
+        if str(ev.get("run_label") or "").startswith("map-summary"):
+            continue
+        return {
+            "backend": str(ev.get("backend") or ""),
+            "model": str(ev.get("model") or ""),
+            "effort": str(ev.get("reasoning_effort") or ""),
+            "run_label": str(ev.get("run_label") or ""),
+            "ts": float(ev.get("ts") or 0.0),
+        }
+    return None
