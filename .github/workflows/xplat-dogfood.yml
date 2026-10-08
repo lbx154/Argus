@@ -1,0 +1,176 @@
+name: xplat-dogfood
+
+# Use Argus on real macOS and Windows machines the way docs/getting-started.md
+# tells users to: install, doctor, web cockpit (screenshots), a CLI run on the
+# in-process memory backend, the frontend build, and the full Python suite.
+# No secrets. Steps record failures instead of stopping; every log and
+# screenshot is uploaded as the artifact xplat-<os>.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/xplat-dogfood-20261008]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xplat-dogfood-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dogfood:
+    name: dogfood (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 110
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+      ARGUS_SKILL_WEB_TOKEN: xplat-dogfood-token-0001
+      ARGUS_SKILL_RUNNER_BACKEND: memory
+      OUT: ${{ github.workspace }}/xplat-out
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Prepare output dir
+        run: |
+          mkdir -p "$OUT"
+          echo "ARGUS_DOGFOOD_HOME=$RUNNER_TEMP/argus-web-home" >> "$GITHUB_ENV"
+          {
+            echo "os=${{ matrix.os }}"; uname -a || true
+            python --version; node --version; npm --version
+            git rev-parse HEAD
+          } > "$OUT/env.txt" 2>&1
+
+      # ---- a. Install as getting-started.md says --------------------------
+      # The doc installs from the upstream main.zip; here the same command
+      # shape installs this checkout instead so the run tests this commit.
+      - name: Install (macOS, uv tool install)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          curl -LsSf https://astral.sh/uv/install.sh | sh 2>&1 | tee "$OUT/install-uv.log"
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv --version | tee -a "$OUT/versions.txt"
+          uv tool install --force --python 3.11 "argus @ $GITHUB_WORKSPACE" 2>&1 | tee "$OUT/install.log"
+          uv tool list 2>&1 | tee -a "$OUT/versions.txt"
+
+      - name: Install (Windows, pip install)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          python -m pip install --upgrade pip 2>&1 | Tee-Object -FilePath "$env:OUT/install.log"
+          python -m pip install --upgrade --force-reinstall "argus @ file:///$($env:GITHUB_WORKSPACE -replace '\\','/')" 2>&1 | Tee-Object -FilePath "$env:OUT/install.log" -Append
+          python -m pip --version | Out-File -Append "$env:OUT/versions.txt"
+          py --list 2>&1 | Out-File -Append "$env:OUT/versions.txt"
+          (Get-Command argus -ErrorAction SilentlyContinue | Format-List | Out-String) | Out-File -Append "$env:OUT/versions.txt"
+
+      - name: argus --version / argus doctor
+        continue-on-error: true
+        run: |
+          set +e
+          { echo "which argus: $(command -v argus)"; argus --version; echo "exit=$?"; } 2>&1 | tee -a "$OUT/versions.txt"
+          argus doctor > "$OUT/doctor.txt" 2>&1; echo "argus doctor exit=$?" | tee -a "$OUT/doctor.txt"
+          argus doctor --json > "$OUT/doctor.json" 2> "$OUT/doctor-json.stderr.txt"; echo "argus doctor --json exit=$?" >> "$OUT/doctor.txt"
+          tail -40 "$OUT/doctor.txt"
+
+      # ---- c. Web cockpit as a user starts it -----------------------------
+      - name: Install Playwright (Chromium)
+        continue-on-error: true
+        run: |
+          set +e
+          python -m pip install playwright > "$OUT/playwright-install.log" 2>&1
+          python -m playwright install chromium >> "$OUT/playwright-install.log" 2>&1
+          echo "exit=$?" >> "$OUT/playwright-install.log"
+
+      - name: Web cockpit (argus --web --no-daemon) + screenshots
+        continue-on-error: true
+        timeout-minutes: 15
+        run: python .github/scripts/xplat_dogfood_web.py "$OUT/web"
+
+      # ---- d. CLI end to end on the memory backend -------------------------
+      - name: CLI bounded run (memory backend)
+        continue-on-error: true
+        timeout-minutes: 15
+        run: python .github/scripts/xplat_dogfood_cli.py "$OUT/cli"
+
+      # ---- e. Frontend build -----------------------------------------------
+      - name: Frontend build (npm ci && npx vite build)
+        continue-on-error: true
+        timeout-minutes: 15
+        working-directory: frontend/web
+        run: |
+          set +e -o pipefail
+          npm ci 2>&1 | tee "$OUT/frontend-npm-ci.log"
+          npx vite build 2>&1 | tee "$OUT/frontend-vite-build.log"
+          echo "vite build exit=${PIPESTATUS[0]}" | tee -a "$OUT/frontend-vite-build.log"
+
+      # ---- b. Full Python test suite (last: it installs the dev extras) ---
+      - name: Install test dependencies
+        continue-on-error: true
+        run: |
+          set +e
+          python -m pip install -e ".[dev,qr,trial]" pytest pytest-xdist > "$OUT/pytest-install.log" 2>&1
+          echo "exit=$?" >> "$OUT/pytest-install.log"
+
+      - name: Full Python test suite
+        continue-on-error: true
+        timeout-minutes: 45
+        run: |
+          set +e
+          XDIST=""
+          python -c "import xdist" 2>/dev/null && XDIST="-n auto"
+          python -m pytest -q -p no:cacheprovider --maxfail=0 $XDIST \
+            --junitxml="$OUT/pytest-junit.xml" > "$OUT/pytest.log" 2>&1
+          echo "pytest exit=$?" | tee -a "$OUT/pytest.log"
+          tail -60 "$OUT/pytest.log"
+
+      - name: Summarize failing tests
+        if: always()
+        continue-on-error: true
+        run: |
+          python - <<'PY' > "$OUT/pytest-failures.txt" 2>&1 || true
+          import os, xml.etree.ElementTree as ET
+          path = os.path.join(os.environ["OUT"], "pytest-junit.xml")
+          root = ET.parse(path).getroot()
+          bad = []
+          for case in root.iter("testcase"):
+              for kind in ("failure", "error"):
+                  node = case.find(kind)
+                  if node is not None:
+                      bad.append(f"{kind.upper()} {case.get('classname')}::{case.get('name')} :: {(node.get('message') or '')[:200]}")
+          suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+          for s in suites:
+              print({k: s.get(k) for k in ("tests", "failures", "errors", "skipped", "time")})
+          print(len(bad), "failing")
+          print("\n".join(bad))
+          PY
+          head -80 "$OUT/pytest-failures.txt" || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xplat-${{ matrix.os }}
+          path: xplat-out/
+          if-no-files-found: warn
+          retention-days: 14
