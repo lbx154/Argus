@@ -240,6 +240,7 @@ def test_auth_and_model_routes(settings):
         assert gateway_attempts(client.app.state.store) == []
 
 
+@linux_host_deadlines
 def test_global_tpm_timeout_is_exposed_without_spending_key_allowance(settings, monkeypatch):
     monkeypatch.setattr(store_module, "GLOBAL_TPM", 100_000)
     app = create_app(replace(settings, timeout=1.1), transport=httpx.MockTransport(upstream))
