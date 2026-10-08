@@ -40,13 +40,15 @@ def issue(app):
     return credential
 
 
-def asgi_request(app, credential, *, payload=PAYLOAD):
+def asgi_request(app, credential, *, payload=PAYLOAD, receive_checkpoint=False):
     sent = False
     disconnected = asyncio.Event()
     messages = []
 
     async def receive():
         nonlocal sent
+        if receive_checkpoint:
+            await asyncio.sleep(0)
         if not sent:
             sent = True
             return {"type": "http.request", "body": json.dumps(payload).encode()}
@@ -167,7 +169,8 @@ def test_sqlite_error_reconciles_commit_even_when_return_value_is_lost(tmp_path,
 
 
 @pytest.mark.parametrize("termination", ["timeout", "disconnect"])
-def test_json_settlement_deadline_and_disconnect_keep_known_usage(tmp_path, termination):
+@pytest.mark.parametrize("receive_checkpoint", [False, True])
+def test_json_settlement_deadline_and_disconnect_keep_known_usage(tmp_path, termination, receive_checkpoint):
     settings = offline_settings(tmp_path, timeout=0.08 if termination == "timeout" else 2)
 
     async def run():
@@ -190,7 +193,7 @@ def test_json_settlement_deadline_and_disconnect_keep_known_usage(tmp_path, term
             credential = issue(app)
             store = app.state.store
             writer = HeldWriter(store.path)
-            task, disconnected, messages = asgi_request(app, credential)
+            task, disconnected, messages = asgi_request(app, credential, receive_checkpoint=receive_checkpoint)
             try:
                 await asyncio.wait_for(entered.wait(), 1)
                 started = time.monotonic()

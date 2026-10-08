@@ -381,9 +381,9 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                     raise TrialError(502, "provider_unavailable", "Trial provider could not complete the request.")
                 if payload["stream"]:
                     # StreamingResponse owns downstream disconnect handling
-                    # after handoff. Stop our upstream-header watcher synchronously;
-                    # no await may split handed_off from response ownership.
-                    monitor.stop_disconnect_watch()
+                    # after handoff. Finish the old receive before handing it
+                    # over; the lease owns this response throughout the await.
+                    await monitor.stop_disconnect_watch_for_stream()
                     handed_off = True
                     attempt.streaming()
                     return GatewayStreamingResponse(
@@ -449,6 +449,9 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                                                selected_status=exc.status, error_code=exc.code)
                                 raise
                             except asyncio.CancelledError:
+                                if monitor.disconnect_seen:
+                                    select_outcome("disconnected", selected_status=499, error_code="client_disconnected")
+                                    raise TrialError(499, "client_disconnected", "Client disconnected during billing finalization.") from None
                                 select_outcome("cancelled")
                                 raise
                 finally:

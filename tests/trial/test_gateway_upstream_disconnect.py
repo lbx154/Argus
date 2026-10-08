@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import traceback
 
 import httpx
 import pytest
@@ -13,12 +14,30 @@ from argus.trial.gateway_accounting import GatewayAccounting, RequestMonitor
 from argus.trial.gateway_observation import GatewayAttempt
 from argus.trial.store import Store
 from tests.trial.test_gateway_billing_lifecycle import asgi_request, issue, offline_settings
-from tests.trial.test_gateway_billing_responsiveness import KEY_ID, PAYLOAD, response_data
+from tests.trial.test_gateway_billing_responsiveness import (
+    KEY_ID,
+    PAYLOAD,
+    request_scope,
+    response_data,
+)
+
+
+async def wait_for_termination(task, timeout):
+    started = time.monotonic()
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout)
+    except TimeoutError:
+        stacks = []
+        for pending in asyncio.all_tasks():
+            frames = "".join("".join(traceback.format_stack(frame, limit=3)) for frame in pending.get_stack(limit=3))
+            stacks.append(f"{pending.get_name()} done={pending.done()} cancelling={pending.cancelling()}\n{frames}")
+        pytest.fail(f"Termination exceeded {timeout}s; observed elapsed={time.monotonic() - started:.3f}s\n" + "\n".join(stacks))
 
 
 @pytest.mark.parametrize("phase", ["authorization", "headers", "json-body"])
 @pytest.mark.parametrize("termination", ["disconnect", "cancel"])
-def test_upstream_wait_ends_before_barrier_release(tmp_path, phase, termination):
+@pytest.mark.parametrize("receive_checkpoint", [False, True])
+def test_upstream_wait_ends_before_barrier_release(tmp_path, phase, termination, receive_checkpoint):
     settings = offline_settings(tmp_path)
 
     async def run():
@@ -55,18 +74,18 @@ def test_upstream_wait_ends_before_barrier_release(tmp_path, phase, termination)
                     return await original()
 
                 app.state.copilot.authorization = authorization
-            task, disconnected, messages = asgi_request(app, credential)
+            task, disconnected, messages = asgi_request(app, credential, receive_checkpoint=receive_checkpoint)
             try:
                 await asyncio.wait_for(entered.wait(), 1)
                 start = time.monotonic()
                 if termination == "disconnect":
                     disconnected.set()
-                    await asyncio.wait_for(asyncio.shield(task), 0.3)
+                    await wait_for_termination(task, 0.3)
                     assert [message["status"] for message in messages if message["type"] == "http.response.start"] == [499]
                 else:
                     task.cancel()
                     with pytest.raises(asyncio.CancelledError):
-                        await asyncio.wait_for(asyncio.shield(task), 0.3)
+                        await wait_for_termination(task, 0.3)
                 assert time.monotonic() - start < 0.3
                 assert not release.is_set() and app.state.request_slots._value == 10
                 await asyncio.wait_for(app.state.accounting.wait_idle(), 1)
@@ -82,6 +101,93 @@ def test_upstream_wait_ends_before_barrier_release(tmp_path, phase, termination)
                     assert row["selected_response_status"] == (499 if termination == "disconnect" else None)
             finally:
                 release.set()
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("termination", ["normal", "late-disconnect", "cancel"])
+def test_sse_handoff_waits_for_receive_unwind_without_losing_ownership(tmp_path, termination):
+    settings = offline_settings(tmp_path)
+
+    async def run():
+        entered, unwinding, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        disconnected = asyncio.Event()
+        messages, closed, iterated = [], [], []
+        active = maximum = 0
+        sent = False
+
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                iterated.append(True)
+                yield ("data: " + json.dumps({"type": "response.completed", "response": response_data()}) + "\n\n").encode()
+
+            async def aclose(self):
+                closed.append(True)
+
+        async def receive():
+            nonlocal sent, active, maximum
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": json.dumps({**PAYLOAD, "stream": True}).encode()}
+            active += 1
+            maximum = max(maximum, active)
+            try:
+                if asyncio.current_task().get_name() == "argus-upstream-disconnect":
+                    entered.set()
+                    try:
+                        await asyncio.Event().wait()
+                    except asyncio.CancelledError:
+                        unwinding.set()
+                        await release.wait()
+                        if termination == "late-disconnect":
+                            return {"type": "http.disconnect"}
+                        return {"type": "http.request", "body": b"", "more_body": False}
+                await disconnected.wait()
+                return {"type": "http.disconnect"}
+            finally:
+                active -= 1
+
+        async def send(message):
+            messages.append(message)
+
+        async def provider(request):
+            await entered.wait()
+            return httpx.Response(200, stream=Body())
+
+        app = create_app(settings, transport=httpx.MockTransport(provider))
+        async with app.router.lifespan_context(app):
+            credential = issue(app)
+            task = asyncio.create_task(app(request_scope(credential), receive, send))
+            try:
+                await asyncio.wait_for(unwinding.wait(), 1)
+                assert active == maximum == 1
+                assert not messages and not iterated and not task.done()
+                assert app.state.accounting.pending == 1
+                if termination == "cancel":
+                    task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await wait_for_termination(task, 0.3)
+                    assert active == 1 and app.state.accounting.pending == 1
+                    assert not release.is_set()
+                release.set()
+                if termination != "cancel":
+                    await asyncio.wait_for(task, 1)
+                await asyncio.wait_for(app.state.accounting.wait_idle(), 1)
+                assert maximum == 1 and active == 0
+                assert closed == [True]
+                assert app.state.accounting.pending == 0 and app.state.request_slots._value == 10
+                statuses = [message["status"] for message in messages if message["type"] == "http.response.start"]
+                assert statuses == ([200] if termination == "normal" else [499] if termination == "late-disconnect" else [])
+                assert bool(iterated) == (termination == "normal")
+                status = app.state.store.status(KEY_ID)
+                assert status["active_requests"] == 0
+                assert status["tokens_used"] == (15 if termination == "normal" else prepare({**PAYLOAD, "stream": True}, settings.model)[1])
+            finally:
+                release.set()
+                disconnected.set()
                 if not task.done():
                     task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
@@ -164,6 +270,10 @@ def test_watcher_stop_collects_unstarted_or_swallowed_cancellation(tmp_path, sta
         polls = []
 
         class Request:
+            async def receive(self):
+                await self.is_disconnected()
+                return {"type": "http.request", "body": b"", "more_body": False}
+
             async def is_disconnected(self):
                 if asyncio.current_task().get_name() == "argus-upstream-disconnect":
                     polls.append(True)
@@ -171,8 +281,7 @@ def test_watcher_stop_collects_unstarted_or_swallowed_cancellation(tmp_path, sta
                     try:
                         await asyncio.Event().wait()
                     except asyncio.CancelledError:
-                        # Model is_disconnected's AnyIO cancellation scope
-                        # consuming task cancellation and returning False.
+                        # Model an ASGI receive consuming task cancellation.
                         swallowed.set()
                 return False
 
@@ -203,6 +312,10 @@ def test_lease_capacity_includes_a_watcher_still_unwinding_cancel(tmp_path):
         entered, stopped, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
         class Request:
+            async def receive(self):
+                await self.is_disconnected()
+                return {"type": "http.request", "body": b"", "more_body": False}
+
             async def is_disconnected(self):
                 if asyncio.current_task().get_name() == "argus-upstream-disconnect":
                     entered.set()

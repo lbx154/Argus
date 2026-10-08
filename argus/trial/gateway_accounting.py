@@ -56,8 +56,11 @@ class RequestMonitor:
         self._watcher.add_done_callback(watched)
 
     def stop_disconnect_watch(self):
-        # Request.is_disconnected may consume a cancellation in its AnyIO
-        # scope. The flag and the watcher's own cancelling count still stop it.
+        # Keep the flag as well as cancellation for receives that swallow it.
+        # Cleanup may also stop a watcher already unwinding the stream handoff.
+        # Do not inject a second cancellation into that owned unwind.
+        if self._watch_stop:
+            return
         self._watch_stop = True
         if self._watcher is not None and not self._watcher.done():
             self._watcher.cancel()
@@ -72,15 +75,25 @@ class RequestMonitor:
             ) or self.task is None or self.task.done() or self.task.cancelling() > self.initial_cancelling
 
         while not stopped():
-            disconnected = await self.request.is_disconnected()
-            if stopped():
-                return
-            if disconnected:
+            # The body has already been consumed. Own the remaining receive
+            # until handoff, without a pre-cancelled polling scope that can
+            # suppress a legal checkpoint before http.disconnect is returned.
+            message = await self.request.receive()
+            if message.get("type") == "http.disconnect":
                 self.disconnect_seen = True
                 self.interrupted = True
-                self.task.cancel()
+                if self.task is not None and not self.task.done():
+                    self.task.cancel()
                 return
-            await asyncio.sleep(0.05)
+
+    async def stop_disconnect_watch_for_stream(self):
+        """Return receive ownership before StreamingResponse begins reading."""
+        self.stop_disconnect_watch()
+        if self._watcher_done is not None:
+            # A cancelled handoff may exit, while lease cleanup still owns the
+            # unwinding watcher and any response awaiting close.
+            await asyncio.shield(self._watcher_done)
+        await self.check()
 
     async def wait_watch_stopped(self):
         if self._watcher_done is not None:
@@ -98,7 +111,9 @@ class RequestMonitor:
 
     async def check(self):
         self.check_cancelled()
-        if await self.request.is_disconnected():
+        # An active watcher is the only receive owner. Other checks must not
+        # race it for the same disconnect message.
+        if self.disconnect_seen or (self._watcher is None and await self.request.is_disconnected()):
             self.interrupted = True
             raise TrialError(499, "client_disconnected", "Client disconnected before model dispatch.")
         # Request.is_disconnected uses an AnyIO cancellation scope; retain an
@@ -294,7 +309,9 @@ class AccountingLease:
         return self.inflight
 
     def finish(self):
-        self.monitor.stop_disconnect_watch()
+        # A successful JSON request can still disconnect while its final
+        # write is pending. Keep its sole receive owner until settlement;
+        # interrupted requests stop it when RequestMonitor.done is called.
         if self.response is not None and self.response_close is None:
             self.response_close = asyncio.create_task(self.response.aclose())
             self.accounting.own_response_close(self.response_close)
@@ -341,5 +358,6 @@ class AccountingLease:
                     await _finish_owned(self.response_close)
                 except Exception:
                     pass  # Already reported by the response-close registry.
+            self.monitor.stop_disconnect_watch()
             await self.monitor.wait_watch_stopped()
             self.accounting.release(self)
