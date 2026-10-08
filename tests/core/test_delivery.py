@@ -241,3 +241,46 @@ def test_failed_file_edits_or_reads_do_not_become_delivery_evidence(tmp_path, fa
     (tmp_path / "events.jsonl").write_text("\n".join(map(json.dumps, events)), encoding="utf-8")
 
     assert reviewed_change_paths(tmp_path, tmp_path, "task-web") == []
+
+
+def test_first_delivery_stays_readable_after_a_later_delivery_overwrites_the_file(
+    tmp_path: Path,
+) -> None:
+    from argus.life.delivery import (
+        MAX_SNAPSHOT_BYTES,
+        delivery_snapshot_diff,
+        read_delivery_snapshot,
+    )
+
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir()
+    state.mkdir()
+
+    def deliver(item: str) -> dict:
+        receipt = build_delivery_receipt(
+            item_id=item, title=item, summary="", success=True, overall_complete=True,
+            status="done", review_status="done", final_submission_certified=False,
+            workspace=workspace, state_root=state,
+            reviewer_artifacts=["app.py", "big.txt"],
+        )
+        assert receipt is not None
+        return receipt
+
+    (workspace / "app.py").write_text("print('v1')\n", encoding="utf-8")
+    (workspace / "big.txt").write_text("x" * (MAX_SNAPSHOT_BYTES + 1), encoding="utf-8")
+    first = deliver("task-1")
+    (workspace / "app.py").write_text("print('v2')\n", encoding="utf-8")
+    second = deliver("task-2")
+
+    first_app = next(s for s in first["snapshots"] if s["path"] == "app.py")
+    second_app = next(s for s in second["snapshots"] if s["path"] == "app.py")
+    assert read_delivery_snapshot(state, first_app["sha256"]) == "print('v1')\n"
+    assert read_delivery_snapshot(state, second_app["sha256"]) == "print('v2')\n"
+    diff = delivery_snapshot_diff(state, first_app, second_app) or ""
+    assert "-print('v1')" in diff and "+print('v2')" in diff
+
+    # Large files are identified by hash only; nothing is copied.
+    big = next(s for s in first["snapshots"] if s["path"] == "big.txt")
+    assert big["stored"] is False and len(big["sha256"]) == 64
+    assert read_delivery_snapshot(state, big["sha256"]) is None
