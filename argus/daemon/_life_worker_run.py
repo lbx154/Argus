@@ -474,6 +474,30 @@ class LifeWorkerRunMixin:
         primary chaining them one after another. Returns the primary summary.
         """
         poll = float(getattr(getattr(self, "config", None), "poll_interval", 5.0) or 5.0)
+        resume_lock = threading.Lock()
+        last_resume = [float("-inf")]
+
+        def resume_for_cycle() -> None:
+            # One resume per dispatch cycle, ahead of every worker's claim;
+            # the backlog write wakes the idle helpers so each resumed mission
+            # goes to a free worker instead of waiting for the one that woke it.
+            with resume_lock:
+                now = time.monotonic()
+                if now - last_resume[0] < min(poll, 1.0):
+                    return
+                last_resume[0] = now
+                resume = getattr(supervisors[0], "_resume_automatic_pauses", None)
+                if not callable(resume):
+                    return
+                try:
+                    resume()
+                except Exception:  # noqa: BLE001 - a failed resume retries next cycle
+                    log.exception("daemon: resuming paused missions failed")
+
+        if len(supervisors) > 1:
+            for supervisor in supervisors:
+                supervisor._dispatcher_resumes = True
+            resume_for_cycle()
         with ThreadPoolExecutor(
             max_workers=len(supervisors),
             thread_name_prefix="argus-mission",
@@ -495,6 +519,7 @@ class LifeWorkerRunMixin:
 
             def helper_loop(supervisor: Any) -> None:
                 while True:
+                    resume_for_cycle()
                     baseline = _backlog_fingerprint(supervisor)
                     result = self._run_supervisor_pass(supervisor)
                     if primary.done() or self._stop.is_set():

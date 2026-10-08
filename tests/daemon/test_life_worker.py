@@ -3644,3 +3644,36 @@ def test_idle_helper_honours_backoff_but_wakes_when_backlog_changes(tmp_path: Pa
     assert len(helper_calls) == 2
     assert time.monotonic() - started < 5.0
     assert worker._supervisor_execution_threads == {}
+
+
+def test_dispatcher_resumes_paused_missions_once_before_any_worker_claims(tmp_path: Path) -> None:
+    """With several workers, paused missions are resumed by the dispatcher
+    ahead of every worker's pass, not by whichever worker happens to start a
+    pass, so each resumed mission is claimable by any free worker."""
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=5.0))
+    order: list[str] = []
+    helper_done = threading.Event()
+
+    def primary_run() -> dict:
+        order.append("primary")
+        assert helper_done.wait(5.0)
+        return {"stopped_by": "backlog_empty"}
+
+    def helper_run() -> dict:
+        order.append("helper")
+        helper_done.set()
+        return {"stopped_by": "backlog_empty", "suggested_sleep": 0.01}
+
+    primary = SimpleNamespace(
+        config=SimpleNamespace(worker_id="primary"),
+        run=primary_run,
+        _resume_automatic_pauses=lambda: order.append("resume"),
+    )
+    helper = SimpleNamespace(config=SimpleNamespace(worker_id="parallel-1"), run=helper_run)
+
+    worker._run_supervisor_passes([primary, helper])
+
+    assert order[0] == "resume"
+    assert order.count("resume") == 1
+    assert primary._dispatcher_resumes is True
+    assert helper._dispatcher_resumes is True

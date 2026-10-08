@@ -674,7 +674,11 @@ class LifeSupervisor(
     def _run_with_inbox(self) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         stopped_by: str = ""
-        self._resume_automatic_pauses()
+        # With several mission workers the dispatcher resumes paused missions
+        # once per cycle before any worker claims, so a resumed mission is
+        # claimable by whichever worker is free, not only by the resumer.
+        if not getattr(self, "_dispatcher_resumes", False):
+            self._resume_automatic_pauses()
         while True:
             self._drain_peer_inbox()
             if not self._drain_mission_completions():

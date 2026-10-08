@@ -82,6 +82,14 @@ class MissionExecutionMixin(
                     log.exception("life supervisor: claim rollback failed")
             return {"status": "claim_lost", "item_id": item.id}
         item = claimed
+        # Which limit (ready tasks, GPUs, CPUs, ownership, slots) decided how
+        # many tasks this claim pass could start; carried on the start event.
+        from ..memory import admission_limit
+
+        self._claim_admission = admission_limit(
+            getattr(claimed, "admission", None) or {},
+            int(getattr(self.config, "mission_slots", 1) or 1),
+        )
         # Resolve the claimed node before consulting any repository-facing
         # policy.  Adoption updates the active campaign workdir, so the bound
         # Manager and every later mission phase see the same canonical tree.

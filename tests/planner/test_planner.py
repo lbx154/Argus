@@ -1554,3 +1554,36 @@ def test_structured_planner_payload_drops_only_the_task_with_a_bad_gpu_count(
     assert verdict.error == ""
     assert [t.key for t in verdict.new_tasks] == ["good"]
     assert any("task 1 skipped: gpu_count" in d for d in verdict.diagnostics)
+
+
+def test_planner_reads_the_cores_a_task_keeps_busy() -> None:
+    verdict = parse_planner_text(
+        "\n".join([
+            "PROJECT_DONE=false",
+            "REASON=arms fit side by side",
+            "TASK_KEY=arm-a",
+            "TASK_DEPS=",
+            "TASK_TITLE=Fit arm a",
+            "TASK_OBJECTIVE=Fit it.",
+            "TASK_CPUS=8",
+            "TASK_KEY=writeup",
+            "TASK_DEPS=",
+            "TASK_TITLE=Draft the method section",
+            "TASK_OBJECTIVE=Write it.",
+        ])
+    )
+    assert [task.cpu_count for task in verdict.new_tasks] == [8, 1]
+    payload = parse_planner_payload({
+        "project_done": False,
+        "reason": "arms fit side by side",
+        "tasks": [
+            {"key": "a", "deps": [], "title": "Fit", "objective": "Fit it.",
+             "scope": "bounded", "cpu_count": "16"},
+            {"key": "b", "deps": [], "title": "Write", "objective": "Write it.",
+             "scope": "bounded"},
+            {"key": "c", "deps": [], "title": "Bad", "objective": "Bad.",
+             "scope": "bounded", "cpu_count": "many"},
+        ],
+    })
+    assert [t.cpu_count for t in payload.new_tasks] == [16, 1]
+    assert any("task 3 skipped: cpu_count" in d for d in payload.diagnostics)

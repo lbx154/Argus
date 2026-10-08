@@ -1167,3 +1167,79 @@ def test_gpu_count_survives_the_journal(tmp_path, monkeypatch):
     item = backlog.add(BacklogItem.new(title="train", objective="train", gpu_count=2))
     reloaded = next(row for row in LifeMemory.open(tmp_path / "life").backlog.all() if row.id == item.id)
     assert reloaded.gpu_count == 2
+
+
+# ---------------------------------------------------------------------------
+# CPU cores against the backlog
+# ---------------------------------------------------------------------------
+
+
+def _cpu_backlog(tmp_path, monkeypatch, cores):
+    from argus.life import memory as memory_module
+
+    monkeypatch.setattr(memory_module, "_gpu_cards", lambda: None)
+    monkeypatch.setattr(memory_module, "_usable_cpus", lambda: cores)
+    return LifeMemory.open(tmp_path / "life").backlog
+
+
+def test_a_task_is_claimable_only_while_its_declared_cores_are_free(tmp_path, monkeypatch):
+    from argus.life.memory import admission_limit
+
+    backlog = _cpu_backlog(tmp_path, monkeypatch, 8)
+    sweep = backlog.add(BacklogItem.new(
+        title="arm a sweep", objective="fit", cpu_count=6,
+        parallel_safe=True, owns_paths=["arms/a"],
+    ))
+    claimed = backlog.claim_next(parallel_only=True)
+    assert claimed is not None and claimed.id == sweep.id
+    # Parked on its own background job, the sweep still holds its cores.
+    backlog.update(sweep.id, status="paused_external_work")
+    wide = backlog.add(BacklogItem.new(
+        title="arm b sweep", objective="fit", cpu_count=4,
+        parallel_safe=True, owns_paths=["arms/b"],
+    ))
+    narrow = backlog.add(BacklogItem.new(
+        title="arm c", objective="fit", cpu_count=2,
+        parallel_safe=True, owns_paths=["arms/c"],
+    ))
+    assert {item.id for item in backlog.ready()} == {narrow.id}
+    second = backlog.claim_next(parallel_only=True)
+    assert second is not None and second.id == narrow.id
+    assert backlog.claim_next(parallel_only=True) is None
+    assert next(row for row in backlog.all() if row.id == wide.id).status == "pending"
+    record = admission_limit(second.admission, slots=4)
+    assert record["ready"] == 2 and record["cpu_fit"] == 1
+    assert record["cpus_usable"] == 8 and record["cpus_free"] == 2
+    assert record["limit"] == "cpu"
+
+
+def test_a_task_asking_more_cores_than_exist_takes_the_whole_machine(tmp_path, monkeypatch):
+    backlog = _cpu_backlog(tmp_path, monkeypatch, 4)
+    big = backlog.add(BacklogItem.new(title="big", objective="fit", cpu_count=64))
+    claimed = backlog.claim_next()
+    assert claimed is not None and claimed.id == big.id
+
+
+def test_cpu_count_defaults_to_one_and_survives_the_journal(tmp_path, monkeypatch):
+    backlog = _cpu_backlog(tmp_path, monkeypatch, 8)
+    plain = backlog.add(BacklogItem.new(title="write", objective="write"))
+    wide = backlog.add(BacklogItem.new(title="fit", objective="fit", cpu_count=3))
+    rows = {row.id: row for row in LifeMemory.open(tmp_path / "life").backlog.all()}
+    assert rows[plain.id].cpu_count == 1
+    assert rows[wide.id].cpu_count == 3
+    assert "admission" not in rows[wide.id].to_jsonable()
+
+
+def test_admission_names_the_limit_that_decided():
+    from argus.life.memory import admission_limit
+
+    base = {"ready": 4, "gpu_fit": 4, "cpu_fit": 4, "claimable": 4, "running": 0}
+    assert admission_limit({**base, "ready": 1, "gpu_fit": 1, "cpu_fit": 1,
+                            "claimable": 1}, 4)["limit"] == "ready_tasks"
+    assert admission_limit({**base, "gpu_fit": 2, "cpu_fit": 2,
+                            "claimable": 2}, 4)["limit"] == "gpu"
+    assert admission_limit({**base, "cpu_fit": 1, "claimable": 1}, 4)["limit"] == "cpu"
+    assert admission_limit({**base, "claimable": 1}, 4)["limit"] == "ownership"
+    assert admission_limit({**base, "running": 2}, 4) == {
+        **base, "running": 2, "slots_free": 2, "limit": "slots",
+    }

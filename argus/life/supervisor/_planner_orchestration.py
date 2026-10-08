@@ -300,7 +300,8 @@ class PlannerOrchestrationMixin:
             return (
                 f"{base}; parallel_safe={safe}; "
                 f"owns_paths=[{', '.join(owns)}]; "
-                f"gpus={int(getattr(item, 'gpu_count', 0) or 0)}"
+                f"gpus={int(getattr(item, 'gpu_count', 0) or 0)}; "
+                f"cpus={int(getattr(item, 'cpu_count', 1) or 1)}"
             )
 
         # A subagent event wait is bound by matching the Planner's own words
