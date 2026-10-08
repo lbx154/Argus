@@ -33,7 +33,7 @@ The names the contract reads:
 | `completion_gate` | yes | `"none"`, `"metric"` or `"certified"` |
 | `CHECKLIST_OPTIONAL_STAGES` | no | stages that may have no checklist |
 | `STAGE_ALIASES` | no | `{"experiment": "measure"}`: other names the Manager may use for a stage |
-| `WORKFLOW_MODE` | no | `"staged"`, `"direct"` or `"proportional"` |
+| `WORKFLOW_MODE` | no | `"staged"`, `"direct"` or `"proportional"`; a default only: the Manager chooses `direct` or `staged` for each task it routes, and that choice wins |
 | `MISSION_KIND` | no | `"custom"`, `"optimize"`, `"research"` or `"software"` |
 | `REQUIRE_INDEPENDENT_REVIEW` | no | defaults to `True` |
 | `role_banner(role)` | no | a paragraph each role reads before its task |
@@ -188,10 +188,20 @@ Why these particular choices:
   stage's checklist is met. `"metric"` is for verticals whose completion is a
   number reaching a target; `"certified"` adds an explicit certification step,
   which the research vertical uses for papers. A notebook entry needs neither.
-- `WORKFLOW_MODE = "staged"` makes the Manager move through the stages in
-  order. `"direct"` skips staging for one-shot work; `"proportional"` lets the
-  Manager scale the process to the task. Start with `staged`; the aliases let
-  a Manager that says "experiment" land on `measure`.
+- `WORKFLOW_MODE = "staged"` is the vertical's default for moving through the
+  stages in order. `"direct"` skips staging for one-shot work; `"proportional"`
+  lets the staged pipeline reuse evidence in proportion to the task. Start with
+  `staged`; the aliases let a Manager that says "experiment" land on `measure`.
+- The declared mode is not binding. The Manager decides `workflow_mode` for
+  every task it routes and persists it in `.argus/PIPELINE_STATE.json`; the
+  runtime falls back to the vertical's `WORKFLOW_MODE` only when no decision is
+  stored (`argus/apps/_runtime_execute.py`, `resolve_workflow_mode` in
+  `argus/skills/vertical_select.py`). A small request ("measure one thing and
+  write it down") is usually routed `direct`. In direct mode the Reviewer gets
+  no stage checklist (`argus/roles/prompts/reviewer.py` clears it) and judges
+  the task against its own requirements, so your checklist ids are not in the
+  prompt and cannot show up in the verdict. Your `role_banner` and skills still
+  apply in both modes; the checklist only governs staged runs.
 - `MISSION_KIND = "custom"` because the other three values switch on
   behaviour written for optimization loops, research campaigns and repository
   changes.
@@ -419,8 +429,19 @@ plugin. A name that collides with a built-in is ignored from every source.
   checks the in-tree verticals for the same reason.
 - `argus verticals install` from a local catalog succeeds and
   `argus verticals list` shows the row as `installed` and enabled.
-- One real task ran through it and the Reviewer's verdicts referred to your
-  checklist ids (they appear in the round events in `events.jsonl`).
+- One real task ran through it as a staged run (`"workflow_mode": "staged"`
+  in `.argus/PIPELINE_STATE.json` under the project's state directory, and in
+  the `life.manager.intent.completed` event of `events.jsonl`), and the
+  Reviewer judged it against your checklist. In a staged run the Reviewer's prompt lists each item as
+  `**<id>** — <statement>` and tells it to reply `continue` while any item is
+  unmet; the verdict (`round.review.completed`) is free text with no field for
+  item ids, so it may or may not name them. Check the verdict's `reason`
+  against the items rather than searching for ids. If the run shows
+  `"workflow_mode": "direct"`, the Manager judged the request a one-shot task
+  and the checklist was not used. The Manager picks `staged` only for dependent
+  phases or independent work tracks (`argus/roles/prompts/manager.py`), so give
+  it a request whose stages depend on each other; a vertical that declares
+  `WORKFLOW_PROFILES` is always routed `staged`.
 
 The example under `examples/verticals/` is not scanned by
 `tests/skills/test_vertical_plugins.py` (that file builds synthetic plugins in

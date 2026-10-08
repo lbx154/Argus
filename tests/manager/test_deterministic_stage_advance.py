@@ -612,3 +612,29 @@ def test_replan_rollback_and_illegal_target_still_use_manager(tmp_path) -> None:
     assert invalid.diagnostic == "illegal_advance_target"
     assert _state(state_root)["current_stage"] == "setup"
     assert workdir.is_dir()
+
+
+@pytest.mark.parametrize("workflow_mode", ["direct", "staged"])
+def test_deterministic_completion_reason_matches_whether_a_checklist_was_reviewed(
+    tmp_path, workflow_mode
+) -> None:
+    # Direct workflow gives the Reviewer no stage checklist, so the recorded
+    # reason must not say a checklist was certified; staged keeps saying so.
+    manager, state_root, _workdir = _manager(tmp_path, workflow_mode=workflow_mode)
+
+    decision = manager.decide_stage_transition(
+        review=_review(),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=lambda _prompt: pytest.fail("deterministic decision called model"),
+    )
+
+    assert decision.diagnostic == "deterministic_reviewer_done"
+    if workflow_mode == "direct":
+        assert decision.action == "complete"
+        assert "checklist" in decision.reason
+        assert "certified the current-stage checklist" not in decision.reason
+    else:
+        assert decision.action == "advance"
+        assert "certified the current-stage checklist" in decision.reason
