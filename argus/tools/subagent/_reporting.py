@@ -21,6 +21,7 @@ from ._registry import (
     _progress_summary,
     _read_task,
     _registry_path,
+    _run_record_path,
     _task_log_dir,
     _write_task_if_run_id,
 )
@@ -29,6 +30,19 @@ from ._text import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _task_record_for_report(task_id: str, task_data: dict[str, Any]) -> Path:
+    """This run's own record when it has one, else the per-task record."""
+    explicit = str(task_data.get("run_record") or "")
+    if explicit:
+        return Path(explicit)
+    run_id = str(task_data.get("run_id") or "")
+    if run_id:
+        run_record = _run_record_path(task_id, run_id)
+        if run_record.exists():
+            return run_record
+    return _registry_path(task_id)
 
 
 def _timeout_notice(task_data: dict[str, Any]) -> str:
@@ -118,7 +132,7 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
         f"\nArtifact paths:\n"
         f"- stdout: {task_data.get('stdout_log', str(log_dir / 'stdout.log'))}\n"
         f"- stderr: {task_data.get('stderr_log', str(log_dir / 'stderr.log'))}\n"
-        f"- task record: {_registry_path(task_id)}\n"
+        f"- task record: {_task_record_for_report(task_id, task_data)}\n"
     )
     if sup_log:
         prompt += f"- supervisor log: {sup_log}\n"
@@ -326,7 +340,11 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     stderr_log = task_data.get("stderr_log", str(log_dir / "stderr.log"))
     lines.append(f"- stdout: `{stdout_log}`")
     lines.append(f"- stderr: `{stderr_log}`")
-    lines.append(f"- task record: `{_registry_path(task_id)}`")
+    # Cite this run's own record: the per-task record is overwritten when the
+    # same task id is resubmitted, which would leave the reviewer reading the
+    # wrong run's settings.
+    task_record = _task_record_for_report(task_id, task_data)
+    lines.append(f"- task record: `{task_record}`")
     sup_log = task_data.get("supervisor_log", "")
     if sup_log:
         lines.append(f"- supervisor log: `{sup_log}`")
