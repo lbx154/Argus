@@ -1573,7 +1573,12 @@ class Backlog:
         history = self._dependency_history(items)
         changed = self._cascade_blocked(items, history=history) or changed
         done = self._done_ids([*history, *items])
-        ready = [item for item in items if self._is_ready(item, done)]
+        ready = [
+            item
+            for item in items
+            if self._is_ready(item, done)
+            and not self._origin_already_claimed(item, items)
+        ]
         # An example that reached the backlog before the planner learned to
         # reject it is still sitting there, and a stored item is claimed
         # without being planned again.
@@ -1602,6 +1607,27 @@ class Backlog:
             ]
         ready.sort(key=lambda it: (it.priority, it.ts))
         return ready, changed
+
+    @staticmethod
+    def _origin_already_claimed(
+        candidate: BacklogItem,
+        items: Iterable[BacklogItem],
+    ) -> bool:
+        """Whether another row of the same campaign node holds the claim.
+
+        A continuation that keeps the origin's ``node_key``, or uses the
+        origin's id as its node key, is the same unit of campaign work. While
+        any such row is running or parked on external work, a second worker
+        must not start it in parallel; it becomes claimable once the active
+        row settles. (Same-origin claim exclusion from #133.)
+        """
+        aliases = {candidate.id, str(candidate.node_key or "").strip()} - {""}
+        return any(
+            item.id != candidate.id
+            and item.status in {"running", "paused_external_work"}
+            and aliases & ({item.id, str(item.node_key or "").strip()} - {""})
+            for item in items
+        )
 
     @staticmethod
     def _is_ready(item: BacklogItem, done: set[str]) -> bool:
