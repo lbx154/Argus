@@ -23,6 +23,27 @@ def _path_key(value: str) -> str:
     return os.path.normcase(os.path.abspath(os.path.expanduser(value)))
 
 
+FRAMEWORK_PYTHON_ON_PATH_KNOB = "ARGUS_SKILL_FRAMEWORK_PYTHON_ON_PATH"
+
+
+def framework_python_on_path(env: MutableMapping[str, str] | None = None) -> bool:
+    """Whether daemon child shells get the Argus interpreter first on ``PATH``.
+
+    On by default (the historical behaviour). Hosts whose work must run with the
+    host's own toolchain (for example a task container that ships its own
+    ``python3`` and packages) set ``ARGUS_SKILL_FRAMEWORK_PYTHON_ON_PATH=0``:
+    child shells then keep the host ``PATH`` unchanged, and Argus helpers stay
+    reachable through the exported ``ARGUS_SKILL_PYTHON``.
+    """
+    from .knob_store import persisted_knob
+
+    raw = persisted_knob(
+        FRAMEWORK_PYTHON_ON_PATH_KNOB,
+        env=env if env is not None else os.environ,
+    )
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def configure_framework_python_env(
     env: MutableMapping[str, str] | None = None,
     *,
@@ -54,7 +75,7 @@ def configure_framework_python_env(
         target_env.setdefault("PYTHONUTF8", "1")
         target_env.setdefault("PYTHONIOENCODING", "utf-8")
 
-    if not prepend_python_path:
+    if not prepend_python_path or not framework_python_on_path(target_env):
         return target_env
 
     preferred: list[str] = []
