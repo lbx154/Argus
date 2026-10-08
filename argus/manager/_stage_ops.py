@@ -1077,8 +1077,15 @@ class _StageDecisionMixin:
                         research_target_level=resolve_research_target_level(root),
                         checklist_contract=checklist_contract,
                         trigger_diagnostic="deterministic_reviewer_done",
+                        # Direct mode gives the Reviewer no stage checklist
+                        # (see roles/prompts/reviewer.py), so the recorded
+                        # reason must not claim one was certified.
                         trigger_reason=(
-                            "Reviewer certified the current-stage checklist and "
+                            "Reviewer accepted the direct task (direct workflow "
+                            "carries no stage checklist) and deterministic "
+                            "completion checks passed"
+                            if allow_early_completion
+                            else "Reviewer certified the current-stage checklist and "
                             "deterministic completion checks passed"
                         ),
                         allow_early_completion=allow_early_completion,
