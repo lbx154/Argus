@@ -36,16 +36,19 @@ it('shows real background work after delivery, then refreshes libraries and show
   await settle();
   expect(content(renderer.root)).toContain('知识库已更新 · 1 条');
   expect(content(renderer.root)).toContain('技能库已更新 · 1 条');
-  expect(content(renderer.root)).toContain('用户偏好已检查，无新增');
+  // A library this turn did not change is not mentioned at all.
+  expect(content(renderer.root)).not.toContain('用户偏好');
   expect(content(renderer.root)).toContain('CRISPR 机制与来源');
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['wiki-library'] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['skill-library'] });
 });
 
-it('explains a no-op and never presents it as an update', async () => {
+it('shows nothing for a finished check that added nothing, in the workspace or a library', async () => {
   await mount('unchanged');
-  expect(content(renderer.root)).toContain('知识库已检查，无新增');
-  expect(content(renderer.root)).not.toContain('已更新');
+  expect(renderer.toJSON()).toBeNull();
+  act(() => renderer.unmount());
+  await mount('unchanged', {}, 'knowledge');
+  expect(renderer.toJSON()).toBeNull();
 });
 
 it('offers retry for failed learning without re-sending the user task', async () => {

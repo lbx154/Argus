@@ -573,6 +573,9 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'user.note': {
       const tags = Array.isArray(row(event).tags) ? (row(event).tags as unknown[]).map(String) : [];
+      // A chat config change already answers in the conversation; its note is
+      // grounding for later turns, not something the operator wrote.
+      if (tags.includes('config')) return hidden();
       if (tags.includes('planner')) {
         return model('planner', 'role.planner', '📝', localized(context, 'updated the research plan', '更新了研究计划'), 'dim');
       }

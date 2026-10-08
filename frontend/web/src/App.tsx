@@ -6,6 +6,7 @@ import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteO
 import { SkillLibrary } from './components/SkillLibrary';
 import { WikiLibrary } from './components/WikiLibrary';
 import { LearningStatus } from './components/LearningStatus';
+import { ComposerRuntime } from './components/ComposerRuntime';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import ResearchBrief from './research-brief';
@@ -1214,6 +1215,7 @@ export default function App() {
                       onSlashSelectionChange={setSlashSelection}
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRouteOverride}
+                      footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={() => setOverlay('config')} /> : undefined}
                     />
                     </div>
                   </div>

@@ -123,3 +123,16 @@ def test_telegram_chat_vets_models_like_the_web_chat(tmp_path, monkeypatch, home
 
     assert "ARGUS_SKILL_MODEL" not in read_persisted_knobs()
     assert sent and "nope-1" in sent[-1] and "house-a" in sent[-1]
+
+
+def test_config_change_grounding_note_is_tagged_as_config(home, tmp_path) -> None:
+    import json
+
+    intent = _parse_config_decision("SET effort ALL high")
+    assert _apply_config_intent(home, intent, {}, on_confirm=lambda _line: None, model_catalog=_catalog)
+
+    notes = [
+        json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()
+        if '"user.note"' in line
+    ]
+    assert notes and all(note["tags"] == ["config"] for note in notes)

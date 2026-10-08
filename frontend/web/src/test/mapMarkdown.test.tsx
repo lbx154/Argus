@@ -20,3 +20,11 @@ it('renders full GFM, equations, code and delivery links using the shared reader
   expect(html).toContain('katex'); expect(html).toContain('data-artifact-path="REPORT.md"');
   expect(html).not.toContain('| ---');
 });
+
+it('renders formulas on cards instead of raw LaTeX', () => {
+  const html = renderToStaticMarkup(<button><MarkdownExcerpt>{'嵌入矩阵 \\(X \\in \\mathbb{R}^{n \\times d_{\\text{model}}}\\)，再做投影。'}</MarkdownExcerpt></button>);
+  expect(html).toContain('katex');
+  // The TeX source survives only as the MathML annotation, never as visible text.
+  expect(html.replace(/<annotation[^>]*>.*?<\/annotation>/g, '')).not.toContain('\\mathbb');
+  expect(html).toContain('再做投影');
+});

@@ -486,7 +486,8 @@ def _apply_config_intent(
             print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line)
                   if theme is not None else line, flush=True)
         try:
-            append_note(mem, line)
+            # Tagged so the feed can skip it: the chat reply already says it.
+            append_note(mem, line, tags=["config"])
         except Exception:  # noqa: BLE001 — a grounding nicety, never fatal
             pass
 

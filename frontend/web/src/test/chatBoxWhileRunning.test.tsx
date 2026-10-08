@@ -24,3 +24,16 @@ it("sends a follow-up from the chat view while a reply is running instead of swa
   });
   expect(onSend).toHaveBeenCalledExactlyOnceWith("Also cover the empty input", [], undefined, { whileRunning: true });
 });
+
+it("shows the runtime line under the chat input, as the map composer does", () => {
+  let renderer!: ReactTestRenderer;
+  act(() => {
+    renderer = create(createElement(ChatBox, {
+      value: "", onChange: () => {}, onSend: async () => true, onCancel: () => {},
+      disabled: false, pending: false, attachments: [], onAttachmentsChange: () => {},
+      slashSelection: 0, onSlashSelectionChange: () => {},
+      footer: createElement("div", { "data-runtime-line": true }, "Copilot · model-a · high"),
+    }));
+  });
+  expect(renderer.root.findByProps({ "data-runtime-line": true }).children).toEqual(["Copilot · model-a · high"]);
+});
