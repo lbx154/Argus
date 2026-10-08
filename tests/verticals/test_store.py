@@ -798,6 +798,8 @@ def _chmod_tree(root: Path, mode: int) -> None:
 
 
 def test_enable_and_disable_work_on_a_read_only_host_root(release, tmp_path, monkeypatch) -> None:
+    if os.name == "nt":
+        pytest.skip("Windows ignores POSIX directory mode bits, so chmod cannot make the tree read-only")
     if os.geteuid() == 0:
         pytest.skip("root ignores directory permissions")
     host = tmp_path / "host-root"
@@ -820,6 +822,8 @@ def test_enable_and_disable_work_on_a_read_only_host_root(release, tmp_path, mon
 
 
 def test_toggle_actions_are_not_offered_when_the_overlay_cannot_be_written(release, home) -> None:
+    if os.name == "nt":
+        pytest.skip("Windows ignores POSIX directory mode bits, so chmod cannot make the tree read-only")
     if os.geteuid() == 0:
         pytest.skip("root ignores directory permissions")
     store.install("solo_v", wait=True)

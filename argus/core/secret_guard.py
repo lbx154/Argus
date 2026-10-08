@@ -940,7 +940,7 @@ def scrub_recent_text_artifacts(
                         # the remaining oversized artifact instead of scanning.
                         skipped_paths.append((relative, metadata.st_size))
                         continue
-                    stream_started = time.monotonic()
+                    stream_started = time.perf_counter()  # monotonic ticks ~15 ms on Windows
                     try:
                         count = _scrub_streaming(
                             path,
@@ -968,7 +968,7 @@ def scrub_recent_text_artifacts(
                         errors.append(f"{relative}: UnicodeDecodeError")
                         continue
                     finally:
-                        streaming_seconds_spent += time.monotonic() - stream_started
+                        streaming_seconds_spent += time.perf_counter() - stream_started
                     scanned_files += 1
                     if count:
                         redacted_paths.append(relative)

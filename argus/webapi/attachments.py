@@ -57,9 +57,9 @@ _DIRECTORY_OPEN_FLAGS = (
     | getattr(os, "O_DIRECTORY", 0)
     | getattr(os, "O_NOFOLLOW", 0)
 )
-_FILE_READ_FLAGS = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+_FILE_READ_FLAGS = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
 _FILE_WRITE_FLAGS = (
-    os.O_WRONLY
+    os.O_WRONLY | getattr(os, "O_BINARY", 0)
     | os.O_CREAT
     | os.O_EXCL
     | getattr(os, "O_CLOEXEC", 0)
@@ -466,7 +466,7 @@ def _windows_guard_path(path: Path, *, directory: bool) -> Iterator[None]:
             raise OSError(ctypes.get_last_error(), f"cannot inspect {path}")
         attributes = int(info.dwFileAttributes)
         if attributes & _WIN_FILE_ATTRIBUTE_REPARSE_POINT:
-            raise ValueError(f"attachment storage must not traverse reparse points: {path}")
+            raise ValueError(f"attachment storage must not traverse symlinks or reparse points: {path}")
         is_directory = bool(attributes & _WIN_FILE_ATTRIBUTE_DIRECTORY)
         if directory and not is_directory:
             raise ValueError(f"attachment storage path is not a directory: {path}")
@@ -518,7 +518,7 @@ def _windows_write_file_atomic(parent: Path, name: str, content: bytes) -> None:
     try:
         descriptor = os.open(
             temporary,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOINHERIT", 0),
+            os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOINHERIT", 0),
         )
         with os.fdopen(descriptor, "wb", closefd=True) as handle:
             descriptor = None

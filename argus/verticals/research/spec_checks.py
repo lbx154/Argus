@@ -252,7 +252,9 @@ def parse_summary(output: str) -> tuple[dict[str, int], list[tuple[str, str, str
             counts["SKIPPED"] += count
             rows.append((
                 "SKIPPED",
-                skipped.group("location"),
+                # pytest prints skip locations with the host separator, but
+                # node ids (and the component join below) always use "/".
+                skipped.group("location").replace("\\", "/"),
                 (skipped.group("reason") or "").strip(),
             ))
             continue

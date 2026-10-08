@@ -15,12 +15,20 @@ _WIKI_LOCK_POLL_SECONDS = 0.05
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
+    _atomic_write_bytes(path, text, text_mode=True)
+
+
+def _atomic_write_bytes(path: Path, data: bytes | str, *, text_mode: bool = False) -> None:
+    """Replace ``path`` atomically; bytes are restored exactly as given."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(
         f".{path.name}.writing-{os.getpid()}-{threading.get_ident()}"
     )
     try:
-        temporary.write_text(text, encoding="utf-8")
+        if text_mode:
+            temporary.write_text(str(data), encoding="utf-8")
+        else:
+            temporary.write_bytes(data if isinstance(data, bytes) else str(data).encode("utf-8"))
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)

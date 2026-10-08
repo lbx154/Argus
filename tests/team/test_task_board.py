@@ -205,7 +205,9 @@ def test_legacy_hashed_task_record_migrates_without_duplicate_claim(
         encoding="utf-8",
     )
     canonical_mtime = canonical.stat().st_mtime_ns
-    __import__("os").utime(legacy, ns=(canonical_mtime + 1, canonical_mtime + 1))
+    # NTFS stores mtimes in 100 ns ticks; a 1 ns bump would tie on Windows.
+    newer = canonical_mtime + 1_000_000
+    __import__("os").utime(legacy, ns=(newer, newer))
 
     assert tb.snapshot(tmp_path)[0]["state"] == "done"
 

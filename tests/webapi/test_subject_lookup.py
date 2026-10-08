@@ -79,14 +79,19 @@ def test_search_failure_is_context_for_the_model_not_a_claim_of_nonexistence(tmp
 
 
 def test_source_helpers_execute_from_an_unrelated_workspace(tmp_path, monkeypatch):
+    import os
     import re
     import shlex
     import subprocess
 
     monkeypatch.setattr(subject_lookup, "search_web", lambda *args: {"status": "no_results", "results": []})
     prompt = subject_lookup.lookup_subject("Unseen model", tmp_path)
-    command = re.search(r"`([^`]+web_source.py) '<URL>'`", prompt)[1]
-    result = subprocess.run([*shlex.split(command), "--help"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
+    command = re.search(r"`([^`]+web_source\.py'?) '<URL>'`", prompt)[1]
+    if os.name == "nt":  # The prompt names a PowerShell call on native Windows.
+        argv = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", f"{command} --help; exit $LASTEXITCODE"]
+    else:
+        argv = [*shlex.split(command), "--help"]
+    result = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert "url" in result.stdout
 

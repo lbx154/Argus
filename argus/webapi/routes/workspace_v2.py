@@ -226,7 +226,7 @@ def _open_confined_file(root: Path, raw_path: str) -> tuple[int, os.stat_result]
     if os.name == "nt":
         return _open_confined_file_windows(root, relative)
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
-    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    file_flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     current_fd = _open_workspace_root_fd(root)
     try:
         for part in relative.parts[:-1]:
@@ -286,7 +286,7 @@ def _atomic_write_confined(root: Path, directory: str, name: str, payload: bytes
     if os.name == "nt":
         return _atomic_write_confined_windows(root, directory, name, payload)
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
-    file_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    file_flags = os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     current_fd = _open_workspace_root_fd(root)
     try:
         for part in PurePosixPath(directory).parts:
@@ -427,7 +427,7 @@ def _atomic_write_confined_windows(
         try:
             descriptor = os.open(
                 temporary_path,
-                os.O_WRONLY
+                os.O_WRONLY | getattr(os, "O_BINARY", 0)
                 | os.O_CREAT
                 | os.O_EXCL
                 | getattr(os, "O_BINARY", 0)

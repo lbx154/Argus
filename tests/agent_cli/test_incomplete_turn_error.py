@@ -10,6 +10,7 @@ free of terminal colour codes, with credentials redacted and local paths kept.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from argus.agent_cli import _run_exec
 from argus.agent_cli._env import _STDERR_TAIL_CHARS, _STDERR_TAIL_LINES, stderr_tail
@@ -51,7 +52,7 @@ def test_receipt_comes_first_and_an_empty_stderr_is_said_so() -> None:
         [], receipt="Copilot CLI exited with code 1.", log_hint="/srv/argus/copilot-home/logs",
     ) == (
         "Copilot CLI exited with code 1. It printed nothing on stderr; "
-        "its own log is under /srv/argus/copilot-home/logs."
+        f"its own log is under {Path('/srv/argus/copilot-home') / 'logs'}."
     )
     assert _incomplete_turn_error([], receipt="dsh exited with code 2.") == (
         "dsh exited with code 2. It printed nothing on stderr."
@@ -178,7 +179,7 @@ def test_copilot_exit_one_with_silent_stderr_points_at_its_own_log(monkeypatch) 
 
     assert result.fatal_error == (
         "Copilot CLI exited with code 1. It printed nothing on stderr; "
-        "its own log is under /srv/argus/copilot-home/logs."
+        f"its own log is under {Path('/srv/argus/copilot-home') / 'logs'}."
     )
     # A silent exit says nothing about the service: the session simply died.
     assert not backend_failure_cause(result.fatal_error, exit_code=1).infrastructure

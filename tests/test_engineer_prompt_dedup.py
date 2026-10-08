@@ -66,6 +66,19 @@ def test_engineer_prompt_marks_detail_dependent_operator_options() -> None:
     assert "requires_note:true" not in prompt
 
 
+def _without_host_shell_guidance(prompt: str) -> str:
+    """Drop native-Windows shell guidance, which is host-specific by design."""
+    from argus.roles.prompts.engineer import _WINDOWS_LONG_EXPERIMENT_RULE
+    from argus.roles.task_contract import (
+        NATIVE_WINDOWS_SHELL_CONTRACT,
+        NATIVE_WINDOWS_SHELL_SUMMARY,
+    )
+
+    for text in (NATIVE_WINDOWS_SHELL_CONTRACT, _WINDOWS_LONG_EXPERIMENT_RULE, NATIVE_WINDOWS_SHELL_SUMMARY):
+        prompt = prompt.replace(text, "")
+    return prompt
+
+
 def test_direct_team_prompt_uses_one_mission_contract() -> None:
     marker = "DIRECT_TEAM_CONTRACT_17"
     prompt = build_mission_prompt(
@@ -84,7 +97,7 @@ def test_direct_team_prompt_uses_one_mission_contract() -> None:
     assert "## Original operator request" not in prompt
     assert prompt.count("FULL_VERTICAL_BANNER_MUST_NOT_REPEAT") == 1
     assert "## Shared project Wiki" not in prompt
-    assert len(prompt) < 4_500
+    assert len(_without_host_shell_guidance(prompt)) < 4_500
 
 
 @pytest.mark.parametrize("compact_team", [False, True])

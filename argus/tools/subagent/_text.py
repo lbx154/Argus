@@ -38,7 +38,8 @@ def _find_codex() -> str:
         expanded = str(Path(configured).expanduser())
         if os.path.isfile(expanded) and os.access(expanded, os.X_OK):
             return expanded
-        probed.append(f"{_RUNNER_BIN_ENV}={configured!r} (not an executable file)")
+        # Quote without repr(): repr doubles every Windows path separator.
+        probed.append(f"{_RUNNER_BIN_ENV}='{configured}' (not an executable file)")
 
     codex = shutil.which("codex")
     if codex:

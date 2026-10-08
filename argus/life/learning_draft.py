@@ -25,7 +25,9 @@ def _read(path: Path) -> str:
         raw = handle.read(_FILE_LIMIT + 1)
     if len(raw) > _FILE_LIMIT:
         raise ValueError("learning page exceeds the page size limit")
-    return raw.decode("utf-8")
+    # Pages written by Windows editors or text-mode writers use CRLF; compare
+    # and validate them by content, not by line-ending convention.
+    return raw.decode("utf-8").replace("\r\n", "\n")
 
 
 def _pages(root: Path) -> dict[Path, str]:

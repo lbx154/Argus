@@ -90,7 +90,7 @@ def _usage_writer_active(lock_path: Path) -> bool:
     rather than a truncated record.
     """
     try:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
     except OSError:
         return False
     try:
@@ -251,7 +251,7 @@ def repair_usage_journal(
     attempt = 0
     while True:
         try:
-            fd = os.open(str(copy), os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+            fd = os.open(str(copy), os.O_CREAT | os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_EXCL, 0o600)
             break
         except FileExistsError:
             attempt += 1
@@ -1209,7 +1209,7 @@ class UsageLedger:
             thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
         self.project_root.mkdir(parents=True, exist_ok=True)
         with thread_lock:
-            fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+            fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
             try:
                 if fcntl is not None:
                     fcntl.flock(fd, fcntl.LOCK_EX)
@@ -1762,7 +1762,7 @@ def _exclusive_file_lock(path: Path) -> Iterator[None]:
         thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
     path.parent.mkdir(parents=True, exist_ok=True)
     with thread_lock:
-        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
         try:
             if fcntl is not None:
                 fcntl.flock(fd, fcntl.LOCK_EX)

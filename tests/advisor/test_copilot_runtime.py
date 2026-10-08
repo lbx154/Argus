@@ -55,8 +55,9 @@ class RecordingService:
 
 def mcp_parameters(command):
     path = Path(command[command.index("--additional-mcp-config") + 1][1:])
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    if os.name != "nt":  # Windows protects files with ACLs, not POSIX mode bits.
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     config = json.loads(path.read_text())["mcpServers"]
     assert set(config) == {"argus_advisor"}
     server = config["argus_advisor"]
@@ -66,7 +67,10 @@ def mcp_parameters(command):
     }
     assert server["env"][TOKEN_ENV] not in " ".join(command)
     return path, StdioServerParameters(
-        command=server["command"], args=server["args"], env={"PATH": os.defpath, **server["env"]},
+        command=server["command"], args=server["args"],
+        # Windows children need SystemRoot to initialize sockets and crypto.
+        env={**{name: os.environ[name] for name in ("SYSTEMROOT", "WINDIR") if name in os.environ},
+             "PATH": os.defpath, **server["env"]},
     )
 
 

@@ -217,7 +217,7 @@ def locked_state(project_root: Path | str) -> Iterator[MathState]:
     path = state_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(path.name + ".lock")
-    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(lock_path, flags, 0o600)
     with os.fdopen(descriptor, "a+b") as handle:
         with exclusive_file_lock(handle, lock_name=f"{_STATE_REF} lock"):

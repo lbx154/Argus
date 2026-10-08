@@ -110,7 +110,8 @@ def test_codex_schema_file_lives_for_the_call_and_is_cleaned_on_every_exit(tmp_p
         path = Path(command[command.index("--output-schema") + 1])
         paths.append(path)
         assert json.loads(path.read_text()) == SCHEMA
-        assert path.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":  # Windows protects files with ACLs, not POSIX mode bits.
+            assert path.stat().st_mode & 0o777 == 0o600
         assert prepared.output_schema == SCHEMA
         if raises:
             raise RuntimeError("offline child failure")

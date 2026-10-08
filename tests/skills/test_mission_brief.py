@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -216,6 +217,10 @@ def test_environment_describes_the_tree_as_it_is(project: Path, tmp_path: Path) 
     assert "numpy" in packages
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the fake project interpreter is a shell script, which Windows cannot execute",
+)
 def test_environment_reports_the_project_interpreter_when_present(project: Path, tmp_path: Path) -> None:
     venv_bin = project / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
@@ -467,12 +472,15 @@ def test_the_brief_says_where_torch_is_instead_of_letting_the_engineer_search_th
     )
 
     def fake_run(cmd, **kwargs):
-        has = cmd[0] == "/opt/rt/bin/python"
+        has = Path(cmd[0]) == Path("/opt/rt/bin/python")
         return SimpleNamespace(returncode=0 if has else 1, stdout="2.9.0 True\n" if has else "", stderr="" if has else "ModuleNotFoundError")
 
     monkeypatch.setattr(mb.subprocess, "run", fake_run)
     line = mb._torch_line(tmp_path)
-    assert line.startswith("- Torch on this host: /opt/rt/bin/python [host runtime (read-only; never install into it)]: torch 2.9.0 (CUDA yes); /usr/bin/python3 [python3 on PATH]: no torch.")
+    assert line.startswith(
+        f"- Torch on this host: {Path('/opt/rt/bin/python')} [host runtime (read-only; never install into it)]: "
+        f"torch 2.9.0 (CUDA yes); {Path('/usr/bin/python3')} [python3 on PATH]: no torch."
+    )
     assert "do not scan the disk for packages (`find /`)" in line
     # cached: a second call runs no probe
     monkeypatch.setattr(mb.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("probe ran twice")))

@@ -640,7 +640,7 @@ def _artifact_directory_lock(artifact_root: Path):
     """Serialize preparation, compilation, audit, and publication as one set."""
     artifact_root.mkdir(parents=True, exist_ok=True)
     lock_path = artifact_root / ".lean-artifacts.lock"
-    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(lock_path, flags, 0o600)
     try:
         with os.fdopen(descriptor, "a+b") as handle:

@@ -5,6 +5,7 @@ import json
 import multiprocessing
 import os
 import socket
+import sys
 
 import pytest
 
@@ -260,6 +261,11 @@ def test_unseen_excerpt_tail_edit_fences_a_running_manager_result(tmp_path, fiel
 @pytest.mark.parametrize("filename", ["frontier.json", "latest.json"])
 @pytest.mark.parametrize("rewrite", ["same-inode", "new-inode"])
 def test_oversize_sources_with_equal_prefix_size_and_mtime_keep_distinct_unobserved_identity(tmp_path, monkeypatch, filename, rewrite):
+    if rewrite == "same-inode" and sys.platform == "win32":
+        pytest.skip(
+            "Windows reports creation time as st_ctime, so an in-place rewrite that "
+            "restores size and mtime leaves no stat-visible change to assert"
+        )
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
     source = mission_context_dir(tmp_path, item.id) / filename
