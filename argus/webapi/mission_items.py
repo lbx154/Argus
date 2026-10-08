@@ -6,7 +6,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, MutableMapping
 
 from ..apps._inbox import count_pending_inbox_messages, queue_inbox_message
 from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
@@ -762,6 +762,54 @@ def role_model_pins(persisted: Mapping[str, str] | None = None) -> dict[str, str
     return pins
 
 
+_BACKEND_CONFIG_KNOBS = frozenset(
+    {
+        "ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_ENGINEER_BACKEND",
+        "ARGUS_SKILL_REVIEWER_BACKEND", "ARGUS_SKILL_PLANNER_BACKEND",
+        "ARGUS_SKILL_MANAGER_BACKEND",
+    }
+)
+
+
+# Runner and model choices: what the operator saves wins over the deployment
+# environment the server was started with, which is only a default.
+_SAVED_OVER_DEPLOYMENT_ENV = _BACKEND_CONFIG_KNOBS | {"ARGUS_SKILL_MODEL"}
+
+
+def prefer_saved_over_deployment_env(env: MutableMapping[str, str] | None = None) -> list[str]:
+    """Drop deployment values the operator has overridden in config.json.
+
+    Called once when the web server starts, so the saved runner/model choice
+    resolves from the store (source ``persisted``) instead of being shadowed by
+    the environment; knobs with nothing saved keep the deployment value
+    (source ``env``). Returns the dropped names.
+    """
+    from ..core.knob_store import read_persisted_knobs
+
+    env_map = os.environ if env is None else env
+    saved = read_persisted_knobs()
+    dropped = sorted(
+        name for name in _SAVED_OVER_DEPLOYMENT_ENV
+        if str(saved.get(name, "") or "").strip() and name in env_map
+    )
+    for name in dropped:
+        env_map.pop(name, None)
+    return dropped
+
+
+def _effective_knob(env_name: str) -> Any:
+    """The value ``env_name`` resolves to right now, with its source (env/persisted/default)."""
+    from ..core.knobs import KNOBS, resolve_knob
+
+    knob = next((row for row in KNOBS if row.name == env_name), None)
+    if knob is None or knob.default.startswith("("):
+        # A per-role knob without its own setting follows the shared one; only
+        # an explicit value counts as "in effect" for it.
+        resolved = resolve_knob(env_name, "")
+        return resolved if resolved.value else None
+    return resolve_knob(env_name, knob.default)
+
+
 def set_operator_config(
     name: str,
     value: str,
@@ -779,6 +827,26 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
+    if env_name in _BACKEND_CONFIG_KNOBS:
+        # A form that re-submits the backend it was showing must not turn the
+        # effective choice (often from the deployment environment) into a saved
+        # one. Nothing to write only when the saved value already equals the
+        # choice, or nothing is saved and the choice is what is in effect; a
+        # stale saved value is always replaced by what the operator picked.
+        from ..core.knob_store import read_persisted_knobs
+
+        saved = str(read_persisted_knobs().get(env_name, "") or "").strip().lower()
+        effective = _effective_knob(env_name)
+        if saved == val.lower() or (
+            not saved and effective is not None
+            and effective.value.strip().lower() == val.lower()
+        ):
+            return {
+                "name": env_name, "value": val, "unchanged": True,
+                "source": effective.source if effective is not None else "persisted",
+                "released_role_pins": [], "role_pins": role_model_pins(),
+                "restart_required": False,
+            }
     released: list[str] = []
     if apply_to_roles and env_name == "ARGUS_SKILL_MODEL":
         # The shared choice is meant for every role: release the role pins so
@@ -808,7 +876,13 @@ def set_operator_config(
     # fall through to the generic knob_store write path below like any other knob.
     if not write_persisted_knob(env_name, val):
         raise RuntimeError(f"config setting could not be persisted: {env_name}")
-    os.environ[env_name] = val
+    if env_name in _SAVED_OVER_DEPLOYMENT_ENV:
+        # The saved value is read from config.json; a deployment value in this
+        # server's environment is only a default the operator just overrode, so
+        # drop it rather than copying the saved value over it.
+        os.environ.pop(env_name, None)
+    else:
+        os.environ[env_name] = val
     return {
         "name": env_name, "value": val,
         "released_role_pins": released,

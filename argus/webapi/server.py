@@ -531,6 +531,10 @@ def serve(
         raise RuntimeError(f"webapi refused inconsistent release: {release_error}")
     import uvicorn
 
+    from .mission_items import prefer_saved_over_deployment_env
+
+    # Deployment env is a default; a runner/model choice saved in config.json wins.
+    prefer_saved_over_deployment_env()
     uvicorn.run(
         create_app(global_root=global_root, auth_token=auth_token),
         host=host,

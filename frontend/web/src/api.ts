@@ -332,6 +332,8 @@ export interface ConfigKnob {
   group: string;
   value: string;
   source: string;
+  /** What config.json holds for this knob, even when the environment shadows it. */
+  saved?: string;
   default: string;
   doc: string;
 }

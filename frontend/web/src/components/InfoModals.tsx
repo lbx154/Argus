@@ -27,6 +27,8 @@ import {
   backendLabel,
   backendOption,
   configuredBackend,
+  configuredBackendSource,
+  savedBackend,
   type BackendOption,
 } from '../lib/backend';
 
@@ -211,8 +213,18 @@ export function ConfigModal({
     await queryClient.invalidateQueries({ queryKey: ['map-copy'] });
   };
   const currentBackend = configuredBackend(data);
+  const currentBackendSource = configuredBackendSource(data);
+  const currentSavedBackend = savedBackend(data);
+  // Nothing to send when the saved value already is this backend, or nothing is
+  // saved and this is the backend in effect: re-sending the effective one would
+  // save a choice the operator never made. A stale saved value that the
+  // environment hides still counts as something to change.
+  const backendUnchanged = (backend: BackendOption | '') => !backend || (currentSavedBackend
+    ? backendOption(currentSavedBackend) === backend
+    : backend === backendOption(currentBackend));
+  const backendTarget = pendingBackend || backendOption(currentBackend);
   const setBackend = async (backend: BackendOption) => {
-    if (quickConfigBusy) return;
+    if (quickConfigBusy || backendUnchanged(backend)) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
     setQuickConfigError(false);
@@ -346,12 +358,24 @@ export function ConfigModal({
                 <button
                   type="button"
                   data-apply-backend
-                  onClick={() => { if (pendingBackend) void setBackend(pendingBackend); }}
-                  disabled={quickConfigBusy || !pendingBackend || pendingBackend === backendOption(currentBackend)}
+                  onClick={() => { if (backendTarget) void setBackend(backendTarget); }}
+                  disabled={quickConfigBusy || backendUnchanged(backendTarget)}
                   className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40"
                 >
                   {t('settings.applyModel')}
                 </button>
+                {currentBackendSource && (
+                  <span className="text-[10px] text-ink-faint" data-backend-source={currentBackendSource}>
+                    {t(`settings.backendSource.${currentBackendSource}`)}
+                  </span>
+                )}
+                {!backendUnchanged(backendTarget) && (
+                  <span className="text-[10px] text-ink-dim" data-backend-change>
+                    {currentSavedBackend
+                      ? t('settings.backendWillReplace', { saved: backendLabel(currentSavedBackend, t), backend: backendLabel(backendTarget, t) })
+                      : t('settings.backendWillSave', { backend: backendLabel(backendTarget, t) })}
+                  </span>
+                )}
               </label>
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.model')}</span>

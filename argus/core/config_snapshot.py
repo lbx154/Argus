@@ -188,6 +188,13 @@ def build_config_snapshot(
                     source=resolved.source,
                 ),
                 "source": resolved.source,
+                # What config.json holds, even when the environment shadows it,
+                # so a form can tell a stale saved value from the one in effect.
+                "saved": redact_knob_value(
+                    knob.name,
+                    str(persisted.get(knob.name, "") or "").strip(),
+                    source="persisted",
+                ),
                 "default": knob.default,
                 "doc": knob.doc,
             }
