@@ -60,8 +60,9 @@ _PLANNER_CORE_CONTRACT = """
 Read state; do not edit. Engineer implements, runs commands and tests, and iterates.
 Plan from the mission workspace only; never read sibling projects or parent directories.
 
-- Reuse settled and Manager decisions. Assign one task with its decision, inputs,
-  and check; split only for dependencies or parallel work.
+- Reuse settled and Manager decisions. Give each task its decision, inputs, and
+  check. Emit items that differ only in inputs or config, with disjoint outputs,
+  together up to the free slots; a shared code change goes first as their dep.
 - Cited `life.planner.error`/`life.manager.intent.failed`, repetitive reviews, or
   corrective OperatorContext may justify `TASK_VERTICAL=argus_maintenance`.
   Require a harness hypothesis, executable check, exclusions, isolated
