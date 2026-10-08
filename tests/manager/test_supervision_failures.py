@@ -279,6 +279,17 @@ def test_colon_less_reply_uses_the_final_block_not_the_draft(final_colon):
     assert decision["cited_refs"] == ["backlog.jsonl"]
 
 
+@pytest.mark.parametrize("prefix", ["> ", "1. ", "- "])
+def test_colon_less_draft_then_decorated_final_block_uses_the_final_block(prefix):
+    text = (
+        "ACTION CONTINUE\nREASON draft\nEVIDENCE_REFS a\n\n"
+        f"{prefix}ACTION: steer\n{prefix}REASON: final\n{prefix}DIRECTIVE: redo the table\n"
+        f"{prefix}EVIDENCE_REFS: backlog.jsonl"
+    )
+    decision = supervision._decision(text)
+    assert decision["action"] == "steer" and decision["reason"] == "final"
+
+
 def test_prose_starting_with_a_key_word_is_not_read_as_a_field():
     with pytest.raises(ValueError):
         supervision._decision("Action items remain open.\nReason unclear.\nEvidence_refs none")

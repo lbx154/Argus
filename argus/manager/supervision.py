@@ -178,7 +178,10 @@ _BARE_KEY_LINE = re.compile(
 )
 
 _COLON_KEY_LINE = re.compile(
-    r"^(?:[-*+]\s*)?[`*_]*(?:ARGUS_)?(?P<key>" + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True))
+    # Same decoration as role_reply's key pattern: a bullet, a quote marker or a
+    # list number before the key.
+    r"^(?:[-*+]\s*)?(?:[^\w`*]+\s*)?(?:\d+[.)]\s*)?[`*_]*(?:ARGUS_)?(?P<key>"
+    + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True))
     + r")[`*_]*\s*[:=]\s*(?P<value>.*)$",
     re.IGNORECASE,
 )
