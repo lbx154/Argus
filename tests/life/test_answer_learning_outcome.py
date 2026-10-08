@@ -1,7 +1,7 @@
 """The learning job record says why a turn was not learned, not just that it was not."""
 import pytest
 
-from argus.life import answer_learning, reflection
+from argus.life import reflection
 from argus.life.answer_learning import enqueue_answer, learning_status, retry_learning
 
 
