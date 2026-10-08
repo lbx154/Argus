@@ -28,7 +28,7 @@ def work(tmp_path, monkeypatch):
     for label, value in (("base", 1), ("candidate", 2)):
         root = tmp_path / label
         (root / "src/snapshot_product").mkdir(parents=True)
-        (root / "src/snapshot_product/__init__.py").write_text(f"VALUE = {value}\n")
+        (root / "src/snapshot_product/__init__.py").write_bytes(f"VALUE = {value}\n".encode())
         (root / "tests/_regression_probe").mkdir(parents=True)
         (root / "tests/_regression_probe/check.py").write_text(DRIVER)
     return tmp_path
