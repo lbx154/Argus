@@ -1,6 +1,7 @@
 """Exercise Windows build ordering and preservation with subprocess stand-ins."""
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -160,3 +161,46 @@ def test_build_isolation_preserves_windows_bootstrap_without_ambient_account_con
     assert env["APPDATA"] == str(work / "roaming")
     assert env["PYTHONDONTWRITEBYTECODE"] == "1"
     assert env["RUSTUP_TOOLCHAIN"] == (toolchain or "stable-x86_64-pc-windows-msvc")
+
+
+@pytest.mark.parametrize("size", [0, 3, 2 * 1024 * 1024 + 17])
+def test_native_sha256_works_without_powershell_module_discovery(tmp_path, monkeypatch, size):
+    builder, _desktop, _manifest = _builder(tmp_path, monkeypatch)
+    source = tmp_path / "native [probe] 中文'$().bin"
+    payload = bytes(range(256)) * (size // 256) + bytes(range(size % 256))
+    source.write_bytes(payload)
+    work = tmp_path / "hash-isolation"
+    work.mkdir()
+    env = builder.isolated_environment(work)
+    env["PSModulePath"] = str(work / "unavailable-modules")
+    probe = tmp_path / "hash-probe.ps1"
+    probe.write_text(r'''
+param([string]$NativeScript, [string]$InputFile)
+$ErrorActionPreference = "Stop"
+$PSModuleAutoLoadingPreference = "None"
+if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) {
+    throw "The regression must exercise an unavailable Get-FileHash."
+}
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($NativeScript, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw "Native build script has parsing errors." }
+$definition = $ast.Find({ param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq "Get-NativeSha256"
+}, $true)
+if ($null -eq $definition) { throw "Native SHA-256 helper is missing." }
+. ([ScriptBlock]::Create($definition.Extent.Text))
+Get-NativeSha256 -LiteralPath $InputFile
+[System.IO.File]::Delete($InputFile)  # Prove the stream closed before this process exits.
+''', encoding="utf-8-sig")
+    command = [
+        "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
+        "-ExecutionPolicy", "Bypass", "-File", str(probe),
+        "-NativeScript", str(ROOT / "desktop-tauri/scripts/build-native-tools.ps1"),
+        "-InputFile", str(source),
+    ]
+    completed = subprocess.run(command, env=env, check=True, capture_output=True)
+    assert completed.stdout.strip().decode("ascii").lower() == hashlib.sha256(payload).hexdigest()
+    assert not source.exists()
+    missing = subprocess.run(command, env=env, check=False, capture_output=True)
+    assert missing.returncode != 0

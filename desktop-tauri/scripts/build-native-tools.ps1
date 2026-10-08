@@ -1,6 +1,19 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = "Stop"
+function Get-NativeSha256 {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+    # Get-FileHash is a module script function in Windows PowerShell 5.1.
+    # Module discovery can fail when this isolated build is launched from pwsh.
+    # Use the runtime directly while retaining streaming SHA-256 verification.
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($LiteralPath)
+        try {
+            return [System.BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace("-", "")
+        } finally { $stream.Dispose() }
+    } finally { $algorithm.Dispose() }
+}
 $desktop = Split-Path -Parent $PSScriptRoot
 $repo = Split-Path -Parent $desktop
 $source = Join-Path $PSScriptRoot "platon-headless.rs"
@@ -38,12 +51,12 @@ $candidate = Join-Path $tests "platon-headless-$id.exe"
 & $compiler @flags -O -C panic=abort $source -o $candidate
 if ($LASTEXITCODE -ne 0) { throw "PLATON adapter build failed." }
 $target = Join-Path $output "platon-headless.exe"
-$expected = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash
+$expected = Get-NativeSha256 -LiteralPath $candidate
 if (Test-Path -LiteralPath $target) {
     if (((Get-Item -LiteralPath $target).Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw "Native build output must not be a link."
     }
-    if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $expected) {
+    if ((Get-NativeSha256 -LiteralPath $target) -ne $expected) {
         throw "Native adapter output already exists and differs. Use a fresh workspace; previous output was preserved."
     }
 } else {
@@ -52,7 +65,7 @@ if (Test-Path -LiteralPath $target) {
         $destination = [System.IO.File]::Open($target, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
         try { $input.CopyTo($destination); $destination.Flush($true) } finally { $destination.Dispose() }
     } finally { $input.Dispose() }
-    if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $expected) {
+    if ((Get-NativeSha256 -LiteralPath $target) -ne $expected) {
         throw "Native adapter copy verification failed."
     }
 }
