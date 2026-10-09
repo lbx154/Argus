@@ -152,6 +152,8 @@ class SupervisedEngineer(
 
             on_event = _redacted_on_event
         state = RoundLoopState()
+        if seed_thread_id:
+            state.engineer_thread_ids.add(str(seed_thread_id))
         checkpoint_path = resolve_shared_checkpoint(supervised_config.checkpoint_path)
         capsule_dir = supervised_config.role_session_dir
         revision = objective_revision(objective)

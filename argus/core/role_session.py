@@ -31,6 +31,7 @@ ROLE_SESSION_SIGNALS = frozenset({
     "quality_degradation",
 })
 ROLE_SESSION_SCHEMA_VERSION = 2
+_SEEN_THREAD_IDS_LIMIT = 64
 
 log = logging.getLogger(__name__)
 
@@ -153,6 +154,9 @@ class RoleSessionCapsule:
     static_fingerprint: str = ""
     signal_kind: str = ""
     signal_detail: str = ""
+    # Bounded history of this role's provider threads in the mission, kept so
+    # another role can refuse to resume any of them after a process restart.
+    seen_thread_ids: list[str] = field(default_factory=list)
     updated_at: float = 0.0
     path: Path | None = field(default=None, repr=False)
     action: str = field(default="fresh", repr=False)
@@ -215,6 +219,9 @@ class RoleSessionCapsule:
             capsule.static_fingerprint = str(payload.get("static_fingerprint") or "")
             capsule.signal_kind = str(payload.get("signal_kind") or "")
             capsule.signal_detail = str(payload.get("signal_detail") or "")
+            capsule.seen_thread_ids = [
+                str(item) for item in (payload.get("seen_thread_ids") or []) if item
+            ][-_SEEN_THREAD_IDS_LIMIT:]
         elif payload:
             capsule.action = "rotated"
             capsule.rotation_reason = f"{changed}_changed"
@@ -302,6 +309,10 @@ class RoleSessionCapsule:
             )
             if self.policy == "fresh":
                 return True
+            if self.thread_id and self.thread_id not in self.seen_thread_ids:
+                self.seen_thread_ids = [
+                    *self.seen_thread_ids, self.thread_id,
+                ][-_SEEN_THREAD_IDS_LIMIT:]
             self.decisive_output = redact_secrets_text(
                 decisive_output[:2000], known_values=known_secret_values()
             )
@@ -392,6 +403,7 @@ class RoleSessionCapsule:
                 "static_fingerprint": self.static_fingerprint,
                 "signal_kind": self.signal_kind,
                 "signal_detail": self.signal_detail,
+                "seen_thread_ids": self.seen_thread_ids,
                 "updated_at": self.updated_at,
             }
             self.path.parent.mkdir(parents=True, exist_ok=True)

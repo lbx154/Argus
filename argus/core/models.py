@@ -219,6 +219,11 @@ class ReviewDecision:
     research_result: dict[str, Any] | None = None
     manuscript_snapshot: dict[str, str] | None = None
     venue_review: dict[str, Any] | None = None
+    # Host-owned: set only on a judgment the independent Reviewer call itself
+    # returned. Host placeholders (skipped reviews after an Engineer backend
+    # failure, turn cap, or silent-command stop) and self-reviews keep False,
+    # so they are never carried forward as the Reviewer's own findings.
+    independent_review: bool = False
     # These are host-owned facts; the parser never accepts them from a model.
     venue_review_required: bool = False
     venue_review_passed: bool = False

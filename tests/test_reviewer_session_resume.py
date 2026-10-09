@@ -346,7 +346,7 @@ def test_reviewer_is_fresh_across_rounds(tmp_path: Path) -> None:
     ]
     assert "previous_review_summary" not in reviewer_prompts[0]
     assert "## Incremental re-review boundary" in reviewer_prompts[1]
-    assert "Your previous findings (round 1, `continue`):\nr" in reviewer_prompts[1]
+    assert "Your judgment in round 1 (`continue`):\nr" in reviewer_prompts[1]
     assert "do not invent a new unrelated repair round" in reviewer_prompts[1]
 
 
@@ -361,6 +361,7 @@ def test_previous_review_summary_keeps_only_last_three_one_line_verdicts() -> No
                 status="continue",
                 reason=f"Repeated reason {index}\nwith extra whitespace",
                 next_action=f"action {index}",
+                independent_review=True,
             ),
         ))
 

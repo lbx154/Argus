@@ -169,20 +169,20 @@ _ARTIFACT_SCAN_SKIP_DIRS = frozenset(
 _ARTIFACT_SCAN_MAX_ENTRIES = 50_000
 
 
-def changed_workspace_paths(
+def _changed_artifact_block(
     working_dir: str | Path | None, since_ts: float | None
-) -> list[str]:
-    """Workspace-relative files modified at or after ``since_ts``, newest first.
+) -> str:
+    """List workspace files modified since the round started.
 
     Mission workspaces are usually not git repositories, so this reads file
     modification times under the workspace itself rather than version control.
     Paths are relative to the workspace and never leave it.
     """
     if since_ts is None or working_dir is None:
-        return []
+        return ""
     root = Path(working_dir).expanduser()
     if not root.is_dir():
-        return []
+        return ""
     changed: list[tuple[float, str]] = []
     seen = 0
     stack = [root]
@@ -207,17 +207,10 @@ def changed_workspace_paths(
             if mtime >= since_ts:
                 rel = Path(entry.path).relative_to(root).as_posix()
                 changed.append((mtime, rel))
-    changed.sort(reverse=True)
-    return [rel for _, rel in changed]
-
-
-def _changed_artifact_block(
-    working_dir: str | Path | None, since_ts: float | None
-) -> str:
-    """List workspace files modified since the round started."""
-    paths = changed_workspace_paths(working_dir, since_ts)
-    if not paths:
+    if not changed:
         return ""
+    changed.sort(reverse=True)
+    paths = [rel for _, rel in changed]
     shown = ", ".join(paths[:20])
     if len(paths) > 20:
         shown += f", +{len(paths) - 20} more"
@@ -309,15 +302,13 @@ def render_reviewer_prompt(
     vertical: str = "",
     workflow_mode: str | None = None,
     round_started_ts: float | None = None,
-    rereview_context: str = "",
+    previous_findings: str = "",
 ) -> tuple[str, str]:
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``.
 
-    ``rereview_context`` is the host-built round >= 2 block (the Reviewer's own
-    previous findings, the change set since that review, and a pointer to the
-    full deliverable). When present it carries the previous verdicts and the
-    changed-file list, so those two blocks are not repeated beside it. A first
-    round never receives it and renders exactly as before.
+    ``previous_findings`` is the host's carry-over of this Reviewer's own
+    earlier judgments. When present it is the single copy of those verdicts,
+    replacing the shorter ``prev_review_summary`` line beside it.
     """
     from ...core.project import resolve_project_root
     from ...core.research_contract import (
@@ -625,15 +616,19 @@ def render_reviewer_prompt(
     )
     if _contract_block:
         objective_block += _contract_block + "\n\n"
-    rereview_context = str(rereview_context or "").strip()
+    previous_findings = str(previous_findings or "").strip()
     shared_context_block = _format_engineer_shared_context(
         skill_used=active_skill_id,
-        prev_review_summary="" if rereview_context else prev_review_summary,
+        prev_review_summary="" if previous_findings else prev_review_summary,
     )
     shared_context_block = sanitize_model_visible_text(shared_context_block)
     incremental_review_block = ""
     if round_index > 1 and prev_review_summary.strip():
         incremental_review_block = _INCREMENTAL_REREVIEW_BOUNDARY
+    previous_findings_block = (
+        sanitize_model_visible_text(previous_findings) + "\n\n"
+        if previous_findings else ""
+    )
     # Prefer direct runtime and verifier evidence over the Engineer's summary
     # when callers provide it. Omit the block when no such evidence exists.
     evidence_block = (
@@ -646,11 +641,7 @@ def render_reviewer_prompt(
     # Given only the Engineer's summary, reviewers missed evaluation on the
     # training split; given the artifacts, they caught it. Point at the files
     # this round touched so the Reviewer opens them rather than the account.
-    artifact_block = (
-        "" if rereview_context
-        else _changed_artifact_block(working_dir, round_started_ts)
-    )
-    rereview_block = rereview_context + "\n\n" if rereview_context else ""
+    artifact_block = _changed_artifact_block(working_dir, round_started_ts)
     # Source handoff is a workspace fact, not another unconditional role rule.
     # Keep ordinary reviews small and the static prefix stable across projects.
     source_block = ""
@@ -843,7 +834,7 @@ def render_reviewer_prompt(
         + f"Session ID: {session_id or 'none'}\n"
         + f"{shared_context_block}"
         + f"{incremental_review_block}"
-        + rereview_block
+        + previous_findings_block
         + f"{background_block}"
         + f"Main agent fatal error: {error_text}\n\n"
         + "## Engineer's account of this round\n"
@@ -874,11 +865,12 @@ def render_reviewer_prompt(
             "checkpoint": checkpoint_block,
             "execution_log_audit": engineer_log_audit_block,
             "background": background_block,
-            "shared_context": shared_context_block + incremental_review_block,
+            "shared_context": (
+                shared_context_block + incremental_review_block + previous_findings_block
+            ),
             "main_summary": main_summary,
             "raw_evidence": evidence_block,
             "changed_artifacts": artifact_block,
-            "rereview_context": rereview_block,
             "web_sources": source_block,
         }
     )
@@ -892,7 +884,6 @@ def assemble_reviewer_prompt(static: str, delta: str) -> str:
 
 __all__ = [
     "COLD_READ",
-    "changed_workspace_paths",
     "EVALUATE",
     "OPERATIONS",
     "SCIENCE_LOSS_CHECK",
