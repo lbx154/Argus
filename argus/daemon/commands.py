@@ -273,7 +273,10 @@ def submit_daemon_command(
     issuer: str = "",
     now: float | None = None,
 ) -> DaemonCommandReceipt:
+    from ..core.control_state_guard import refuse_role_control_write
+
     path = Path(root).expanduser()
+    refuse_role_control_write("A daemon lifecycle command", path)
     op = str(operation or "").strip().lower()
     if op not in COMMAND_OPERATIONS:
         raise ValueError(f"unsupported daemon command operation: {operation!r}")

@@ -541,6 +541,13 @@ def serve(
         raise RuntimeError(f"webapi refused inconsistent release: {release_error}")
     import uvicorn
 
+    # A web server a role started releases only its own state root, exactly as
+    # a daemon does (see core/control_state_guard.py). Project roots under it,
+    # such as the parent's project in a shared global root, stay protected.
+    from ..core.control_state_guard import release_role_marker_for
+    from ..core.paths import global_root as default_global_root
+
+    release_role_marker_for(global_root if global_root is not None else default_global_root())
     uvicorn.run(
         create_app(global_root=global_root, auth_token=auth_token),
         host=host,

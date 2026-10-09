@@ -235,6 +235,14 @@ class LifeWorkerBootMixin:
             rf_state.mem = LifeMemory.open(rf_state.cfg.life_dir)
             rf_state.runtime_root = rf_state.cfg.life_dir
         rf_state.mem.init()
+        # A daemon a role started (a scratch project, a benchmark subagent)
+        # runs its own campaign: it may manage its own state root even though
+        # its parent's project stays out of its reach. Its own roles, in turn,
+        # are kept away from this root.
+        from ..core.control_state_guard import orchestrate_state_root, release_role_marker_for
+
+        release_role_marker_for(rf_state.runtime_root)
+        orchestrate_state_root(rf_state.runtime_root)
         if split_memory:
             os.environ["ARGUS_SKILL_SESSION_ID"] = rf_state.cfg.project_fingerprint
         os.environ["ARGUS_SKILL_SESSION_ROOT"] = str(rf_state.runtime_root)
