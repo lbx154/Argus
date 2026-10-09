@@ -28,9 +28,9 @@ import re
 
 from jsonschema import Draft202012Validator, SchemaError
 
-from argus.core.secret_guard import redact_secrets_record
+from argus.core.secret_guard import contains_secret
 
-from .analytics import AnalyticsError, _sanitize
+from .analytics import AnalyticsError, _mask_credentials
 from .research_controls import SID
 
 MAX_EPISODE_BYTES = 128 * 1024
@@ -289,11 +289,12 @@ class TrainingCapture:
                             diagnostic = {"kind": kind, "field": "payload.content" if kind == "tool_result" else "payload.input",
                                           "detector": "public_skill_digest"}
                             raise
-                    redacted = redact_secrets_record(payload)
-                    clean = _sanitize(redacted)
+                    # Detection, not redaction: the switch that turns Argus's
+                    # redaction off must never let a secret into a capture.
+                    clean = _mask_credentials(payload)
                     sensitive = (_hosted_sensitive(clean, sid=sid, mission_id=mission)
                                  if hosted else _sensitive(clean))
-                    if clean != payload or sensitive:
+                    if contains_secret(payload) or clean != payload or sensitive:
                         diagnostic = _content_diagnostic(kind, payload, sid=sid, mission_id=mission)
                         raise ValueError("sensitive_capture_content")
                     if kind == "quarantine":
@@ -754,9 +755,9 @@ def _content_diagnostic(kind, payload, *, sid, mission_id):
         if depth > 30:
             return None
         if isinstance(value, str):
-            if redact_secrets_record(value) != value:
+            if contains_secret(value):
                 return {"kind": kind, "field": field, "detector": "secret_redactor"}
-            if _sanitize(value) != value:
+            if _mask_credentials(value) != value:
                 return {"kind": kind, "field": field, "detector": "analytics_sanitizer"}
             match = _SENSITIVE.search(_public_path_scan_text(value, sid, mission_id))
             if match:
@@ -765,7 +766,7 @@ def _content_diagnostic(kind, payload, *, sid, mission_id):
         elif isinstance(value, dict):
             for key, item in value.items():
                 child = field + "." + (key if key in known else "*")
-                if _sanitize({key: "public-probe"}) != {key: "public-probe"}:
+                if _mask_credentials({key: "public-probe"}) != {key: "public-probe"}:
                     return {"kind": kind, "field": child, "detector": "analytics_sanitizer"}
                 result = walk(str(key), field + ".*", depth + 1) or walk(item, child, depth + 1)
                 if result:

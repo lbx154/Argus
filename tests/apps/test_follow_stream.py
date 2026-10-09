@@ -166,7 +166,7 @@ def test_follow_coalescer_uses_latest_snapshot_even_when_shorter() -> None:
     assert emitted[-1]["text"] == "final answer"
 
 
-def test_follow_progress_render_redacts_raw_secret() -> None:
+def test_follow_progress_render_redacts_raw_secret(redact_secrets_on) -> None:
     secret = "ghp_" + "A" * 36
     rendered = _follow._format_follow_event_body(
         {

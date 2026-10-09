@@ -141,6 +141,16 @@ class ReviewActions:
                 fields["manager_attention"] = judgments["manager_attention"]
             if name == "approve_review":
                 fields["learning"] = judgments["learning"]
+            if _ACTIONS[name][0] == "continue":
+                fields["unverifiable"] = {
+                    "type": "string",
+                    "description": (
+                        "Only when the fact you dispute is hidden from every view you "
+                        "have (e.g. masked or redacted display), so repeating the finding "
+                        "cannot settle it: name the fact and the rerunnable check that "
+                        "would. The Manager sees this."
+                    ),
+                }
             required = ["review"]
             if self.venue_required and name in {"approve_review", "revise_review"}:
                 fields["recommendation"] = {
@@ -224,6 +234,7 @@ class ReviewActions:
             if isinstance(judged, dict):
                 decision.planner_report[key] = judged["verdict"]
                 decision.planner_report[f"{key}_reason"] = str(judged.get("reason") or "")[:500]
+        decision.verification_obstacle = str(payload.get("unverifiable") or "").strip()
         if action == "replan_review":
             decision.planner_report.update(
                 plan_signal="reconsider", challenge=review,

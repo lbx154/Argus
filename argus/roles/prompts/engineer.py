@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ...core.model_visible_text import sanitize_model_visible_text
+from ...core.model_visible_text import (
+    MASKED_DISPLAY_ENGINEER_RULE,
+    sanitize_model_visible_text,
+)
 from ...core.role_decision import decision_footer_instruction
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
@@ -235,7 +238,7 @@ def build_mission_prompt(
             "Never write values that your own labeled measurement contradicts just to "
             "satisfy a review: record the labeled evidence and its command in "
             "CHECKPOINT.md and hand back to the Reviewer asking it to resolve the "
-            "discrepancy.\n\n"
+            "discrepancy. " + MASKED_DISPLAY_ENGINEER_RULE + "\n\n"
             + sanitize_model_visible_text(next_action)
         )
     # Section order in both shapes below: what is the same for every mission

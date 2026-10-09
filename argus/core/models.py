@@ -222,6 +222,10 @@ class ReviewDecision:
     # Reviewer supplies these through its native review action.
     frontier_report: dict[str, Any] = field(default_factory=dict)
     session_signal: dict[str, str] = field(default_factory=dict)
+    # The Reviewer's own judgment that the fact it disputes cannot be observed
+    # through any view it has (a masked display, for example), so repeating the
+    # finding cannot settle it. Routed to the Manager; it decides nothing here.
+    verification_obstacle: str = ""
     review_source: str = "reviewer"
     prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     input_tokens: int = 0
@@ -241,6 +245,20 @@ class ReviewDecision:
     research_result: dict[str, Any] | None = None
     manuscript_snapshot: dict[str, str] | None = None
     venue_review: dict[str, Any] | None = None
+    # Host-owned provenance; the parser never accepts these from a model.
+    # ``reviewer_authored`` is set only on a judgment the independent Reviewer
+    # call itself returned; host placeholders, self-reviews, and host
+    # replacements keep (or reset to) False, so they are never carried forward
+    # as the Reviewer's own findings.
+    reviewer_authored: bool = False
+    # The Reviewer's own status/reason/next_action before any host rewrite
+    # (venue acceptance, pending background run). Later rounds quote these,
+    # and show each rewrite separately from ``host_notes``.
+    reviewer_words: dict[str, str] | None = None
+    host_notes: list[str] = field(default_factory=list)
+    # Why a host-written record stands where no Reviewer judgment was made,
+    # e.g. ``provider_turn_cap``, ``backend_failure``, ``silent_command``.
+    host_placeholder: str = ""
     # These are host-owned facts; the parser never accepts them from a model.
     venue_review_required: bool = False
     venue_review_passed: bool = False
@@ -318,6 +336,9 @@ class ReviewDecision:
         signal = self.session_signal if isinstance(self.session_signal, dict) else {}
         if str(signal.get("kind") or "").strip():
             payload["session_signal"] = dict(signal)
+        obstacle = str(self.verification_obstacle or "").strip()
+        if obstacle:
+            payload["verification_obstacle"] = obstacle[:2000]
         if self.research_result is not None:
             payload["research_result"] = dict(self.research_result)
         payload.update(extras)

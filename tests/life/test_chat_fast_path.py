@@ -454,7 +454,7 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     manager_state._STATES.pop(sid, None)
 
 
-def test_local_microtask_returns_delivery_for_named_workspace_file(
+def test_local_microtask_returns_delivery_for_named_workspace_file(redact_secrets_on, 
     tmp_path: Path,
 ) -> None:
     workdir = tmp_path / "workspace"
@@ -847,7 +847,7 @@ def test_self_learning_review_reports_applied_skill_changes(
     assert completed["removed"] == []
 
 
-def test_manager_self_progress_blocks_redacted_before_live_sink() -> None:
+def test_manager_self_progress_blocks_redacted_before_live_sink(redact_secrets_on) -> None:
     secret = "ghp_" + "A" * 36
     backend = _FakeBackend(
         response_message=f"final token {secret}",

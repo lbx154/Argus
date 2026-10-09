@@ -474,6 +474,7 @@ def idle_termination_review_decision(
     what = f"the command it was running (`{tool}`)" if tool else "the command it was running"
     threshold = max(1, int(threshold or 1))
     return ReviewDecision(
+        host_placeholder="silent_command",
         status="continue",
         reason=(
             "Argus stopped the Engineer's session because neither the model nor "
@@ -512,6 +513,7 @@ def backend_failure_review_decision(
     # The sentence is what a person reads; the runtime's own facts follow the
     # "Technical record:" marker so a consumer can set them aside.
     return ReviewDecision(
+        host_placeholder="backend_failure",
         status="continue",
         reason=(
             "The model service dropped the Engineer's session before it "
@@ -556,6 +558,7 @@ def provider_turn_cap_review_decision(
             " The previous session left this summary before pausing:\n" + summary
         )
     return ReviewDecision(
+        host_placeholder="provider_turn_cap",
         status="continue",
         reason=(
             "The Engineer's session reached the length limit for a single "

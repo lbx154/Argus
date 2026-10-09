@@ -54,7 +54,7 @@ def test_rotated_manager_gets_observed_changes_instead_of_supervision_boilerplat
     assert "Message:\nWhat changed?" in backend.calls[-1][0]
 
 
-def test_continuity_redacts_before_a_credential_crosses_the_excerpt_cutoff(monkeypatch):
+def test_continuity_redacts_before_a_credential_crosses_the_excerpt_cutoff(redact_secrets_on, monkeypatch):
     secret = "sk-" + "privatefixture" * 6
     monkeypatch.setenv("OPENAI_API_KEY", secret)
     result = RunnerResult(exit_code=0, agent_messages=["a" * 2992 + secret])

@@ -48,7 +48,7 @@ def record(analytics, item):
     return get_interaction(analytics, "tenant-a", item.id, include_trace=False)
 
 
-def test_invocation_commits_sanitized_user_input_immediately(analytics):
+def test_invocation_commits_sanitized_user_input_immediately(redact_secrets_on, analytics):
     item = capture(analytics, {
         "text": "Explain reasoning clearly. api_key=synthetic-secret\nKeep my question.",
         "attachments": [{"attachment_id": "attachment-1", "Authorization": "private-auth"}],
@@ -239,7 +239,7 @@ def test_no_private_reasoning_or_raw_provider_frames(analytics, value):
         assert "PRIVATE-" not in "\n".join(db.iterdump())
 
 
-def test_wrapped_phase_delta_payloads_and_response_secrets(analytics):
+def test_wrapped_phase_delta_payloads_and_response_secrets(redact_secrets_on, analytics):
     item = capture(analytics)
     item.feed(frame({"type": "phase", "result": {"label": "Routing"}}))
     item.feed(frame({"type": "delta", "result": {"text": "Visible progress"}}))

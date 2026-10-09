@@ -119,21 +119,50 @@ def _private(value, depth=0):
     return False
 
 
-def _sanitize(value):
+def _mask_credentials(value):
+    """Credential-masked copy, whatever the switch says.
+
+    Detectors compare against this (``_mask_credentials(x) != x``) so that
+    turning masking off never turns a refusal or exclusion off with it.
+    """
     if isinstance(value, dict):
         return {
-            _sanitize(str(key)): (
-                "[REDACTED]" if _SECRET_KEY.search(str(key)) else _sanitize(item)
+            _mask_credentials(str(key)): (
+                "[REDACTED]" if _SECRET_KEY.search(str(key)) else _mask_credentials(item)
             )
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [_sanitize(item) for item in value]
+        return [_mask_credentials(item) for item in value]
     if isinstance(value, str):
         return _INLINE.sub("[REDACTED]", _CREDENTIAL.sub("[REDACTED]", value))
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
+
+
+def _finite_only(value):
+    """JSON-safe copy: non-finite floats become null; text is kept as written."""
+    if isinstance(value, dict):
+        return {str(key): _finite_only(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_finite_only(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _sanitize(value):
+    """What analytics stores and exports.
+
+    Text is kept as written unless ``ARGUS_SKILL_REDACT_SECRETS`` is on, like
+    every other Argus redaction; non-finite numbers always become null.
+    """
+    from argus.core.secret_guard import secret_redaction_enabled
+
+    if secret_redaction_enabled():
+        return _mask_credentials(value)
+    return _finite_only(value)
 
 
 def _safe_row(row):

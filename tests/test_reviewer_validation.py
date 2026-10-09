@@ -569,7 +569,7 @@ def test_unexpected_internal_faults_remain_generic_and_persistent(tmp_path, monk
 
 
 @REQUIRES_LINUX_DOCKER
-def test_expected_docker_diagnostics_are_redacted_before_persistence(tmp_path, monkeypatch):
+def test_expected_docker_diagnostics_are_redacted_before_persistence(redact_secrets_on, tmp_path, monkeypatch):
     monkeypatch.setenv(IMAGE_ENV, "ubuntu:24.04")
     monkeypatch.setenv("DOCKER_HOST", "unix:///synthetic/docker.sock")
     monkeypatch.delenv("DOCKER_CONTEXT", raising=False)

@@ -742,7 +742,16 @@
             "timeout",
             "cancelled",
             "superseded",
-            "observation_incomplete"
+            "observation_incomplete",
+            "busy",
+            "decision_missing",
+            "decision_incomplete",
+            "decision_invalid",
+            "directive_missing",
+            "evidence_uncited",
+            "evidence_outside_snapshot",
+            "advisor_unavailable",
+            "advisor_disposition_missing"
           ]
         },
         "backend_exit_code": {
@@ -1740,6 +1749,9 @@
           "type": "string"
         },
         "failure_cause": {
+          "type": "string"
+        },
+        "verification_obstacle": {
           "type": "string"
         },
         "manager_attention": {
@@ -3870,7 +3882,7 @@
         },
         "round_max": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0
         },
         "semantic_stall_streak": {
           "type": "integer",
@@ -3878,7 +3890,7 @@
         },
         "stall_threshold": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0
         },
         "decision_idle_seconds": {
           "type": "number",
@@ -3886,6 +3898,13 @@
         },
         "forward_progress": {
           "type": "boolean"
+        },
+        "stall_reason": {
+          "type": "string",
+          "enum": [
+            "no_forward_progress",
+            "unverifiable_through_view"
+          ]
         },
         "text": {
           "type": "string"
@@ -3901,7 +3920,7 @@
         },
         "round_max": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0
         },
         "streak": {
           "type": "integer",

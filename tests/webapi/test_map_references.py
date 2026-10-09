@@ -134,7 +134,7 @@ def test_malformed_reference_line_is_left_untouched(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_valid_reference_replaces_marker_and_builds_block(tmp_path: Path) -> None:
+def test_valid_reference_replaces_marker_and_builds_block(redact_secrets_on, tmp_path: Path) -> None:
     life = _life(tmp_path)
     digest_id = digest(_DIGEST_EVENT)
     text = (

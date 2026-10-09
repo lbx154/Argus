@@ -31,6 +31,7 @@ ROLE_SESSION_SIGNALS = frozenset({
     "quality_degradation",
 })
 ROLE_SESSION_SCHEMA_VERSION = 2
+_SEEN_THREAD_IDS_LIMIT = 64
 
 log = logging.getLogger(__name__)
 
@@ -153,6 +154,9 @@ class RoleSessionCapsule:
     static_fingerprint: str = ""
     signal_kind: str = ""
     signal_detail: str = ""
+    # Bounded history of this role's provider threads in the mission, kept so
+    # another role can refuse to resume any of them after a process restart.
+    seen_thread_ids: list[str] = field(default_factory=list)
     updated_at: float = 0.0
     path: Path | None = field(default=None, repr=False)
     action: str = field(default="fresh", repr=False)
@@ -218,6 +222,15 @@ class RoleSessionCapsule:
         elif payload:
             capsule.action = "rotated"
             capsule.rotation_reason = f"{changed}_changed"
+        if payload and payload.get("role") == role:
+            # The role's thread history outlives rotation and context changes:
+            # another role must keep refusing every thread this one used.
+            history = payload.get("seen_thread_ids")
+            seen = [str(item) for item in history if item] if isinstance(history, list) else []
+            previous = str(payload.get("thread_id") or "")
+            if previous and previous not in seen:
+                seen.append(previous)
+            capsule.seen_thread_ids = seen[-_SEEN_THREAD_IDS_LIMIT:]
         if not capsule.thread_id and seed_thread_id and policy != "fresh":
             capsule.thread_id = seed_thread_id
         if policy == "fresh":
@@ -295,11 +308,12 @@ class RoleSessionCapsule:
             raw_input = int(getattr(result, "input_tokens", 0) or 0)
             cached_input = int(getattr(result, "cached_input_tokens", 0) or 0)
             self.input_tokens += max(0, raw_input - max(0, cached_input))
-            self.thread_id = (
-                ""
-                if self.policy == "fresh"
-                else str(getattr(result, "thread_id", "") or "")
-            )
+            result_thread = str(getattr(result, "thread_id", "") or "")
+            if result_thread and result_thread not in self.seen_thread_ids:
+                self.seen_thread_ids = [
+                    *self.seen_thread_ids, result_thread,
+                ][-_SEEN_THREAD_IDS_LIMIT:]
+            self.thread_id = "" if self.policy == "fresh" else result_thread
             if self.policy == "fresh":
                 return True
             self.decisive_output = redact_secrets_text(
@@ -392,6 +406,7 @@ class RoleSessionCapsule:
                 "static_fingerprint": self.static_fingerprint,
                 "signal_kind": self.signal_kind,
                 "signal_detail": self.signal_detail,
+                "seen_thread_ids": self.seen_thread_ids,
                 "updated_at": self.updated_at,
             }
             self.path.parent.mkdir(parents=True, exist_ok=True)

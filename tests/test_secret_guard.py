@@ -27,6 +27,10 @@ from argus.engineer.runner import (
 )
 from argus.life.event_log import JsonlEventSink
 
+# Masking is off by default (ARGUS_SKILL_REDACT_SECRETS); this module tests the
+# masking itself, so it opts in. Default-off behavior is tested at the end.
+pytestmark = pytest.mark.usefixtures("redact_secrets_on")
+
 
 def test_redacts_sensitive_headers_and_known_environment_values() -> None:
     env = {
@@ -1133,3 +1137,151 @@ def test_scrub_without_git_executable_falls_back_to_mtime_scan(
 
     assert report.redacted_paths == ("artifact.yml",)
     assert "<REDACTED:secret>" in artifact.read_text(encoding="utf-8")
+
+
+
+# Credential-shaped values that masking (when on) and detection (always) must
+# catch: literals, prefix-only references, calls on arbitrary names, header
+# literals.
+_MUST_STAY_MASKED = (
+    'token = "live-abcdef1234567890"',
+    "password=Summer2024(xyz)",
+    "password=hunter2hunter2",
+    "api_key: AbCdEf0123456789",
+    "SERVICE_TOKEN=abcd1234efgh5678",
+    "token=$ecretPass99",
+    "auth=Abc(defghijk",
+    "secret = eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+    "Authorization: Bearer abcdefghijklmnopqrstu",
+    "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+    "Authorization: Bearer <sk_live_abcdef1234567890abcdef>",
+    "Authorization: Bearer <real token value 1234567890 abcdef>",
+    "Authorization: Token {a1b2c3d4e5f6a7b8c9d0}",
+    "Authorization: Basic $dXNlcjpwYXNzd29yZA",
+    "Authorization: token $hunter2password",
+    "Authorization: Bearer ${abc123realtokenvalue}",
+    "api_key={real}Xk9fooBarBazQux1234",
+    "api_key={realsecretvalue1234}",
+    "password=${Xk9fooBarBaz",
+    "password=$(Xk9!fooBarBaz",
+    "password={{Xk9fooBarBaz",
+    "password=$SECRETPASSWORD9",
+    "password=$ADMINPASS2024",
+    "password=$UPER_S3CR3T",
+    "api_key=sk_live_51HabcdefGHIJ123(x)",
+    "api_key=sk_live_51HabcdefGHIJ123[0]",
+    "password=supersecret(",
+    "password=correcthorse[1]battery",
+    "token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123(",
+    "token=f(abcdefghijklmnopqrstuvwxyz0123456789)",
+    "token=a.b(REALSECRETVALUE1234567)",
+    "OPENAI_API_KEY=os.environ_SECRETVALUE123",
+    "token=process.envREALSECRET123",
+    "token=os.environXYZREAL",
+    "token=os.environ.get(REALSECRETVALUE1)x",
+    "secret=my_s3cr3t_pass(word)",
+    "client_secret=Ab_CdEfGh12345[",
+)
+
+# The on-disk scrub drops the ambiguous labels (secret/token/password/auth) by
+# design; these are the high-confidence shapes it masks when masking is on.
+_ARTIFACT_MUST_STAY_MASKED = (
+    "api_key: AbCdEf0123456789",
+    "Authorization: Bearer abcdefghijklmnopqrstu",
+    "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+    "Authorization: Bearer <sk_live_abcdef1234567890abcdef>",
+    "Authorization: Bearer <real token value 1234567890 abcdef>",
+    "Authorization: Token {a1b2c3d4e5f6a7b8c9d0}",
+    "Authorization: Basic $dXNlcjpwYXNzd29yZA",
+    "Authorization: token $hunter2password",
+    "Authorization: Bearer ${abc123realtokenvalue}",
+    "api_key={real}Xk9fooBarBazQux1234",
+    "api_key={realsecretvalue1234}",
+    "api_key=sk_live_51HabcdefGHIJ123(x)",
+    "api_key=sk_live_51HabcdefGHIJ123[0]",
+    "OPENAI_API_KEY=os.environ_SECRETVALUE123",
+    "client_secret=Ab_CdEfGh12345[",
+)
+
+
+@pytest.mark.parametrize("line", _MUST_STAY_MASKED)
+def test_literal_credentials_are_masked_when_redaction_is_on(line: str) -> None:
+    assert "<REDACTED:" in redact_secrets_text(line)
+    assert redact_secrets_record({"note": line}) != {"note": line}
+
+
+def test_artifact_scrub_masks_header_and_key_literals_when_on(tmp_path: Path) -> None:
+    artifact = tmp_path / "notes.txt"
+    artifact.write_text("\n".join(_ARTIFACT_MUST_STAY_MASKED) + "\n", encoding="utf-8")
+
+    scrub_recent_text_artifacts(tmp_path, modified_since=0.0)
+
+    lines = artifact.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == len(_ARTIFACT_MUST_STAY_MASKED)
+    assert all("<REDACTED:" in line for line in lines), lines
+
+
+def test_known_value_is_masked_when_on() -> None:
+    value = "sentinel-value-0123456789"
+    text = f'token = os.environ.get("X") or "{value}"\nheaders = f"Bearer {value}"'
+
+    assert value not in redact_secrets_text(text, known_values=(value,))
+
+
+# --- Default: Argus does not rewrite text --------------------------------
+# Masked text cannot be verified; one task spent five extra rounds disputing
+# a line neither role could read. Detection still works with masking off.
+
+
+@pytest.fixture
+def redaction_default(monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_REDACT_SECRETS", raising=False)
+
+
+def test_redaction_is_off_by_default(redaction_default) -> None:
+    assert secret_guard.secret_redaction_enabled() is False
+    line = "Authorization: Bearer abcdefghijklmnopqrstu"
+    record = {"token": "live-abcdef1234567890", "nested": [line]}
+
+    assert redact_secrets_text(line, known_values=("abcdefghijklmnopqrstu",)) == line
+    assert redact_secrets_text_with_count(line) == (line, 0)
+    assert redact_secrets_record(record) is record
+
+
+def test_artifact_scrub_leaves_files_alone_by_default(redaction_default, tmp_path: Path) -> None:
+    artifact = tmp_path / "notes.txt"
+    body = "\n".join(_ARTIFACT_MUST_STAY_MASKED) + "\n"
+    artifact.write_text(body, encoding="utf-8")
+
+    report = scrub_recent_text_artifacts(tmp_path, modified_since=0.0)
+
+    assert artifact.read_text(encoding="utf-8") == body
+    assert report.redacted_paths == () and report.replacement_count == 0
+
+
+def test_persisted_knob_turns_redaction_on(redaction_default) -> None:
+    from argus.core.knob_store import write_persisted_knob
+
+    write_persisted_knob("ARGUS_SKILL_REDACT_SECRETS", "1")
+    assert secret_guard.secret_redaction_enabled() is True
+    assert "<REDACTED:" in redact_secrets_text("api_key: AbCdEf0123456789")
+    write_persisted_knob("ARGUS_SKILL_REDACT_SECRETS", "0")
+    assert secret_guard.secret_redaction_enabled() is False
+
+
+@pytest.mark.parametrize("line", _MUST_STAY_MASKED)
+def test_detection_does_not_depend_on_the_switch(redaction_default, line: str) -> None:
+    assert secret_guard.contains_secret(line)
+    assert secret_guard.contains_secret({"note": [line]})
+    assert not secret_guard.contains_secret("ordinary prose about tokens and passwords")
+
+
+@pytest.mark.parametrize("line", _MUST_STAY_MASKED)
+def test_training_capture_still_flags_secrets_by_default(redaction_default, line: str) -> None:
+    from argus.trial.training_capture import _content_diagnostic
+    from argus.trial.training_data import _sensitive
+
+    diagnostic = _content_diagnostic("message", {"content": line}, sid="s", mission_id="m")
+    assert diagnostic is not None
+    assert diagnostic["detector"] == "secret_redactor"
+    assert _sensitive({"content": line})

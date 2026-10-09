@@ -352,7 +352,7 @@ def test_doctor_repair_ignores_stale_non_argus_checkout(tmp_path) -> None:
     assert stale.resolve() not in add_dirs
 
 
-def test_doctor_advisor_redacts_agent_output(monkeypatch, tmp_path) -> None:
+def test_doctor_advisor_redacts_agent_output(redact_secrets_on, monkeypatch, tmp_path) -> None:
     secret = "sk-example-secret-value-123456"
     monkeypatch.setenv("OPENAI_API_KEY", secret)
     monkeypatch.setattr(
@@ -389,7 +389,7 @@ def test_doctor_advisor_redacts_agent_output(monkeypatch, tmp_path) -> None:
     assert "<REDACTED:" in result["analysis"]
 
 
-def test_doctor_advisor_redacts_custom_life_dir_vault_secret(
+def test_doctor_advisor_redacts_custom_life_dir_vault_secret(redact_secrets_on, 
     monkeypatch,
     tmp_path,
 ) -> None:

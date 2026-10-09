@@ -197,3 +197,9 @@ def _no_stop_leaks_between_tests():
     process_stop.clear_stop()
     yield
     process_stop.clear_stop()
+
+
+@pytest.fixture
+def redact_secrets_on(monkeypatch):
+    """Opt into Argus's credential masking, which is off by default."""
+    monkeypatch.setenv("ARGUS_SKILL_REDACT_SECRETS", "1")

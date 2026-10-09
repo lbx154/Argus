@@ -79,7 +79,7 @@ def test_actual_provider_failures_still_pause_and_prevent_replay(trial_host, mon
     assert refused.stop_kind == "permanent_error"
 
 
-def test_unknown_failure_retains_redacted_diagnosis_without_claiming_insufficient_balance(trial_host, monkeypatch):
+def test_unknown_failure_retains_redacted_diagnosis_without_claiming_insufficient_balance(trial_host, redact_secrets_on, monkeypatch):
     result = run(RunnerResult(
         exit_code=1, fatal_error="Synthetic transport diagnostic synthetic-sensitive-value",
         stop_kind="backend_unavailable",

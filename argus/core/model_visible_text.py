@@ -21,6 +21,24 @@ freshness, correctness, provenance, completion, contradiction, or justify
 metrics, and readable provenance; ignore lower-level identifier adjudication.
 """
 
+# Agent CLIs and Argus mask credentials in what a role sees, so a file view can
+# show ``f"******"`` where the source says ``f"Bearer {token}"``. Neither role
+# can see past the mask; arguing over it from either side cannot converge (one
+# task spent five rounds and most of its cost that way). Both roles keep their
+# judgment; what changes is the evidence they reach for: an executable check
+# whose outcome does not depend on reading the masked span.
+MASKED_DISPLAY_REVIEW_RULE = (
+    "`******` or `<REDACTED:…>` is display masking: it proves neither a defect "
+    "nor a fix, and nobody can show past it. Settle what it hides with a "
+    "rerunnable assertion on a placeholder value that you rerun yourself; the "
+    "Engineer's cited result is not that check."
+)
+MASKED_DISPLAY_ENGINEER_RULE = (
+    "If the review disputes text a display masks (`******`, `<REDACTED:…>`), "
+    "restating the fix cannot help: add a rerunnable test asserting the behavior "
+    "with a harmless placeholder value, run it, and cite its command and result."
+)
+
 _HEX_VALUE = r"[0-9a-f]{7,128}"
 _PREFIXED_DIGEST_RE = re.compile(rf"(?i)\b(?:sha(?:-?1|-?256|-?512)?|md5):{_HEX_VALUE}\b")
 _LABELED_IDENTIFIER_RE = re.compile(
@@ -91,6 +109,8 @@ def has_material_blocker(value: object) -> bool:
 
 
 __all__ = [
+    "MASKED_DISPLAY_ENGINEER_RULE",
+    "MASKED_DISPLAY_REVIEW_RULE",
     "MODEL_INTEGRITY_BOUNDARY",
     "contains_integrity_judgment",
     "has_material_blocker",

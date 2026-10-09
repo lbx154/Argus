@@ -353,7 +353,7 @@ def test_failed_teaching_check_keeps_task_facts_but_does_not_publish_the_uncheck
 
 
 @pytest.mark.parametrize("defect", ["missing-detail", "redaction-required"])
-def test_unusable_reading_replacement_never_partially_applies_scope_or_card_text(monkeypatch, defect):
+def test_unusable_reading_replacement_never_partially_applies_scope_or_card_text(redact_secrets_on, monkeypatch, defect):
     original = card()
     replacement = {**reading_fields(original), "title": "Replacement title", "summary": "Replacement summary",
                    "scope": "Replacement scope", "detail": "Replacement precise conditions"}
@@ -455,7 +455,7 @@ def test_oversize_generated_text_is_rejected_without_replacing_cached_conditions
     assert cached["cards"]["a"] == previous
 
 
-def test_secret_redaction_precedes_checking_and_keeps_the_same_conditions_in_storage(tmp_path, monkeypatch):
+def test_secret_redaction_precedes_checking_and_keeps_the_same_conditions_in_storage(redact_secrets_on, tmp_path, monkeypatch):
     dataset, request = configured_enrichment(monkeypatch)
     generated = card()
     fake_token = "ghp_" + "A" * 36
@@ -481,7 +481,7 @@ def test_secret_redaction_precedes_checking_and_keeps_the_same_conditions_in_sto
     assert fake_token not in json.dumps(persisted)
 
 
-def test_redaction_that_expands_scope_past_its_limit_cannot_clip_the_final_condition():
+def test_redaction_that_expands_scope_past_its_limit_cannot_clip_the_final_condition(redact_secrets_on):
     original = card()["reader_brief"]
     prefix, tail = "api_key=12345678; ", "Only if n > 0."
     original["scope"] = prefix + "x" * (700 - len(prefix) - len(tail)) + tail

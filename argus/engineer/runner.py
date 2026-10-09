@@ -77,17 +77,30 @@ from .round_stop_signals import (
 from .round_waits import RoundWaitsMixin
 
 
-def await_declared_background_run(review: ReviewDecision) -> ReviewDecision:
-    """Hold an acceptance while a declared background run has no terminal result.
+def hold_review_for_pending_background_run(review: ReviewDecision) -> ReviewDecision:
+    """Keep a ``done`` open while a declared background run has no result.
 
-    The host overrides the Reviewer's status here, so its routing judgments no
-    longer describe this verdict and are dropped (read as absent).
+    The Reviewer's own words are preserved in ``reviewer_words`` and the
+    host's change is recorded separately, so later rounds never present the
+    host's sentence as the Reviewer's judgment. The Reviewer's routing
+    judgments no longer describe this verdict and are dropped (read as absent).
     """
     return replace(
         review, status="continue",
         planner_report=without_routing_judgments(review.planner_report),
         reason=review.reason + " The declared background run still has no terminal result.",
         next_action="Await the declared background run, then inspect its result before completing the mission.",
+        reviewer_words=review.reviewer_words or {
+            "status": review.status,
+            "reason": review.reason,
+            "next_action": review.next_action,
+        },
+        host_notes=[
+            *review.host_notes,
+            "the review was held open because a declared background run is "
+            "still pending (your `done` became `continue`, and the host asked "
+            "the Engineer to await the run)",
+        ],
     )
 
 
@@ -168,6 +181,8 @@ class SupervisedEngineer(
 
             on_event = _redacted_on_event
         state = RoundLoopState()
+        if seed_thread_id:
+            state.engineer_thread_ids.add(str(seed_thread_id))
         checkpoint_path = resolve_shared_checkpoint(supervised_config.checkpoint_path)
         capsule_dir = supervised_config.role_session_dir
         revision = objective_revision(objective)
@@ -389,7 +404,7 @@ class SupervisedEngineer(
                 request = parse_external_wait_request(wait_message)
                 waiting = inspect_external_work(workdir, request[1]) if request else None
                 if review.status == "done" and waiting is not None and waiting.waitable:
-                    review = await_declared_background_run(review)
+                    review = hold_review_for_pending_background_run(review)
                 self._acknowledge_external_wait_review(
                     supervised_config=supervised_config, state=state,
                     review=review, on_event=on_event,
