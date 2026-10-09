@@ -30,7 +30,15 @@ from .validation import (
 PREFIX = "ARGUS_PLUGIN_REVIEW"
 SERVER = "argus_review_actions"
 _ACTIONS: dict[str, tuple[ReviewStatus, str]] = {
-    "approve_review": ("done", "The current task is complete; no required repair remains."),
+    "approve_review": (
+        "done",
+        "The current task is complete; no required repair remains. Only after you "
+        "checked each requirement and symptom the task (this increment) states, and "
+        "each acceptance criterion, against the deliverable: tests the Engineer wrote "
+        "show the code matches its reading of the task, not that the reading is "
+        "right, and a stated symptom called intended or out of scope needs support "
+        "in the task text itself.",
+    ),
     "revise_review": ("continue", "Return concrete in-scope repairs to Engineer."),
     "defer_review": ("continue", "Defer judgment until already-running work or missing external evidence returns. This is not failure or acceptance."),
     "request_review_decision": ("blocked", "Ask an actual operator-owned question; ordinary technical repairs use revise_review."),

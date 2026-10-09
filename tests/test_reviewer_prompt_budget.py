@@ -69,6 +69,12 @@ _TASK_OWNED_BLOCKS = (
 # Reviewer with host-recorded runs (~730 chars), also says that a record is
 # what the agent CLI reported, not proof, and which shapes to weigh.
 # Measured at 5_658 with it (5_694 on Windows); the others at 5_371 and 5_463.
+#
+# One rule was then admitted without raising the cap, by compressing the
+# submit paragraph: before approving, check each requirement and symptom the
+# task (this increment) states against the deliverable (Engineer-written tests
+# had carried a misread symptom through review). Measured at 5_534 (5_570 on
+# Windows); the others at 5_247 and 5_339.
 FIXED_PROSE_BUDGET = 5_700
 
 
@@ -394,7 +400,10 @@ def test_reviewer_checks_metric_split_and_requested_deliverable(monkeypatch):
     flat = " ".join(_prompt(measured=False, monkeypatch=monkeypatch).split())
 
     assert "which data split" in flat
-    assert "operator's own words" in flat
+    assert "check each requirement and symptom the task (this increment) states" in flat
+    # A sub-task's Reviewer also sees the whole original request; the bar is
+    # this increment's, not the operator's whole wording.
+    assert "operator's own words" not in flat
 
 
 def _artifact_prompt(workdir, round_started_ts):
