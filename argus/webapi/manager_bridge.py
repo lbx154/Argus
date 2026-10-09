@@ -451,7 +451,7 @@ def _manager_message(
         plugin_reply = native_plugin_command(operator_text, sid=sid,
             life_dir=life_dir, global_root=mem.global_root)
         if plugin_reply is not None:
-            append_turn(life_dir, "operator", body)
+            append_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
             append_turn(life_dir, "argus", plugin_reply)
             _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
             _emit_ui_turn(life_dir, "argus", plugin_reply, message_id=f"{turn_id}-argus")
@@ -523,7 +523,7 @@ def _manager_message(
                 active_mission=mission_is_running(mem),
             )
         try:
-            append_turn(life_dir, "operator", body)
+            append_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
         except Exception:  # noqa: BLE001
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
@@ -588,7 +588,7 @@ def _manager_message(
         # Journal the operator turn (transcript.jsonl role=operator) for
         # resume/replay. Best-effort — never block the reply.
         try:
-            append_turn(life_dir, "operator", body)
+            append_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
         except Exception:  # noqa: BLE001
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
@@ -695,6 +695,20 @@ def _manager_message(
         intent, control, route = classify.intent, classify.control, classify.route
         send_body, root_task_id = classify.send_body, classify.root_task_id
         frontdoor_failure = classify.frontdoor_failure
+        if frontdoor_failure.startswith("provider concurrency limit reached ("):
+            if _cancelled():
+                return _cancelled_result()
+            # No provider ran, so retrying this classification cannot repeat
+            # task execution. The HTTP owner saves the request before ACKing.
+            return {
+                "kind": "provider_busy", "reason": frontdoor_failure,
+                "retry_request": {
+                    "sid": sid, "text": operator_text, "turn_id": turn_id,
+                    "global_root": str(mem.global_root), "attachments": resolved_attachments,
+                    "route_override": route_override, "domain_answer": domain_answer,
+                    "source_channel": source_channel, "source_message_id": source_message_id,
+                },
+            }
         frontdoor_intake = chat_state.get("_frontdoor_intake")
         frontdoor_class.update({
             "greeting": bool(

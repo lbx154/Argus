@@ -94,9 +94,9 @@ def test_state_rejects_undeclared_dependencies_without_sharing_mutable_defaults(
         (_Outcome(False, "budget_exhausted", stage_transition={"action": "hold"}),
          (), "paused_budget", "paused_budget", True),
         (_Outcome(True, "done", stage_transition={"action": "advance"}),
-         (), "stage_continues", "pending", False),
+         (), "stage_continues", "pending", True),
         (_Outcome(True, "done", stage_transition={"action": "hold"}),
-         (), "stage_hold", "failed", False),
+         (), "stage_hold", "failed", True),
         (_Outcome(False, "research_incomplete", stage_transition={"action": "advance"}),
          ("planner", "scope:bounded"), "done", "done", True),
     ],
@@ -127,6 +127,82 @@ def test_execution_branches_preserve_metering_and_publication_order(
         assert event["status"] == result_status
         assert event["known_cost_usd"] == result["known_cost_usd"]
     assert learning == ([stored_status] if publishes and result_status != "paused_budget" else [])
+
+
+def test_intentional_hold_continues_and_publishes_before_next_attempt(tmp_path, monkeypatch):
+    from argus.core.transcript import append_turn, read_turns
+
+    outcome = _Outcome(True, "done", stage_transition={
+        "action": "hold", "diagnostic": "intentional_hold", "target_stage": "ingest",
+        "reason": "继续研究长程信用分配，保留已核实的知识。",
+    })
+    supervisor, memory, item, runner, sink, _ = _mission(tmp_path, monkeypatch, outcome)
+    append_turn(memory.root, "operator", "学习智能体强化学习")
+    first = supervisor._run_one(item)
+    assert first["status"] == "stage_continues"
+    event, stored_status = sink.completions[-1]
+    assert stored_status == "pending"
+    assert event["overall_complete"] is False
+    assert event["campaign_continues"] is True
+    assert event["outcome"]["execution_status"] == "incomplete"
+    supervisor._publish_mission_completion_message(event)
+    assert "自动开始下一轮" in read_turns(memory.root)[-1]["text"]
+    assert "长程信用分配" in read_turns(memory.root)[-1]["text"]
+    stored = next(row for row in memory.backlog.all() if row.id == item.id)
+    assert "长程信用分配" in supervisor._build_mission_prelude(stored)
+    from argus.core.mission_view import update_mission_view_event
+    view = update_mission_view_event(memory.root, event)
+    assert view["mission"]["status"] == "continued"
+
+    runner.outcome = _Outcome(True, "done", stage_transition={"action": "complete"})
+    second = supervisor._run_one(next(row for row in memory.backlog.all() if row.id == item.id))
+    assert second["status"] == "done"
+    assert runner.calls == 2
+    assert len(sink.completions) == 2
+    assert len(UsageLedger(memory.root, migrate_legacy=False).records()) == 2
+
+
+def test_repeated_hold_is_bounded_across_supervisor_restart(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD", "2")
+    outcome = _Outcome(True, "done", stage_transition={
+        "action": "hold", "diagnostic": "intentional_hold", "reason": "Need broader evidence",
+    })
+    supervisor, memory, item, runner, sink, _ = _mission(tmp_path, monkeypatch, outcome)
+    assert supervisor._run_one(item)["status"] == "stage_continues"
+    restarted = LifeSupervisor(memory=LifeMemory.open(memory.root), runner=runner,
+                               sink=sink, config=supervisor.config)
+    second = restarted._run_one(next(row for row in memory.backlog.all() if row.id == item.id))
+    assert second["status"] == "no_progress"
+    assert "2 attempts" in second["stop_reason"]
+    assert sink.completions[-1][1] == "failed"
+    assert sink.completions[-1][0]["resumable"] is False
+
+
+def test_hold_with_operator_question_waits_instead_of_repeating(tmp_path, monkeypatch):
+    outcome = _Outcome(True, "done", stage_transition={
+        "action": "hold", "diagnostic": "intentional_hold", "reason": "Need authorization",
+    })
+    outcome.operator_question = "May I publish the private dataset?"
+    supervisor, memory, item, runner, sink, _ = _mission(tmp_path, monkeypatch, outcome)
+    supervisor._run_one(item)
+    stored = next(row for row in memory.backlog.all() if row.id == item.id)
+    assert stored.status == "paused_operator"
+    assert stored.pending_question == outcome.operator_question
+    assert len(sink.completions) == 1
+
+
+def test_measured_progress_allows_multiple_passes_within_one_stage(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD", "2")
+    outcome = _Outcome(True, "done", stage_transition={
+        "action": "hold", "diagnostic": "intentional_hold", "reason": "Continue extending coverage",
+    })
+    outcome.final_planner_report = {"forward_progress": True}
+    supervisor, memory, item, _, _, _ = _mission(tmp_path, monkeypatch, outcome)
+    for _ in range(3):
+        stored = next(row for row in memory.backlog.all() if row.id == item.id)
+        assert supervisor._run_one(stored)["status"] == "stage_continues"
+    stored = next(row for row in memory.backlog.all() if row.id == item.id)
+    assert stored.consecutive_replans == 0
 
 
 def test_superseded_outcome_is_metered_without_settling_replacement(tmp_path, monkeypatch):

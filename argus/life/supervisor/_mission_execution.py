@@ -48,8 +48,8 @@ class MissionExecutionMixin(
         * Superseded acceptance: meter the call, preserve the replacement task.
         * Recoverable stop: pause helper persists the pause and completion event,
           or requeues external work that changed before it could be parked.
-        * Stage continuation/HOLD: stage helper requeues/fails the bounded item;
-          it does not publish the ordinary mission completion event.
+        * Stage continuation/HOLD: classify the next step, then commit and
+          publish it through the same durable completion path as other outcomes.
         * Ordinary settlement (including chartered iteration): finalizer writes
           backlog outcome, then publisher records learning, usage, and the event.
 
@@ -185,9 +185,7 @@ class MissionExecutionMixin(
         )
 
         if state.iteration is None:
-            transition_result = self._maybe_short_circuit_for_stage_transition(state)
-            if transition_result is not None:
-                return transition_result
+            self._settle_stage_transition(state)
 
         # Finalize the backlog first; only then publish the settled outcome.
         self._finalize_mission_status(state)
