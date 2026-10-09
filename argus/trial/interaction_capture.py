@@ -18,7 +18,7 @@ import threading
 import time
 
 from argus.core.secret_guard import contains_secret, redact_secrets_record
-from argus.trial.analytics import AnalyticsError, _safe_row, _sanitize
+from argus.trial.analytics import AnalyticsError, _mask_credentials, _safe_row, _sanitize
 from argus.trial.hosted_host import HostedHostRequired
 
 MAX_BYTES = 1024 * 1024
@@ -235,7 +235,7 @@ def _decode(raw):
 
 def _valid_task_id(value):
     return (isinstance(value, str) and _TASK_ID.fullmatch(value) is not None
-            and not contains_secret(value) and value == _sanitize(value))
+            and not contains_secret(value) and value == _mask_credentials(value))
 
 
 def _task_reference(result):

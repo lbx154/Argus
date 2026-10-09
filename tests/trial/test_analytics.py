@@ -308,7 +308,7 @@ def test_quota_aggregates_match_readonly_ledgers_and_unknown_is_not_zero(setup):
     assert not analytics.compute_db.exists()
 
 
-def test_trace_observable_workflow_redaction_and_whole_reasoning_row_exclusion(setup):
+def test_trace_observable_workflow_redaction_and_whole_reasoning_row_exclusion(redact_secrets_on, setup):
     analytics, _, _ = setup
     root = project(setup)
     secrets = [
@@ -495,3 +495,42 @@ def test_secret_session_name_and_nonfinite_untrusted_numbers_are_safe_on_export(
     assert "private-user" not in output
     assert "private-pass" not in output
     assert json.loads(output)["rows"][0]["data"]["cost_usd"] is None
+
+
+_ANALYTICS_CREDENTIAL_ROW = {
+    "text": "Authorization: Bearer abcdefghijklmnopqrstuvwxyz and sk-proj-abcdefghijklmnop",
+    "api_key": "live-value-0123456789",
+    "score": float("nan"),
+}
+
+
+def test_analytics_stores_text_as_written_by_default(monkeypatch) -> None:
+    from argus.trial import analytics
+
+    monkeypatch.delenv("ARGUS_SKILL_REDACT_SECRETS", raising=False)
+
+    stored = analytics._sanitize(_ANALYTICS_CREDENTIAL_ROW)
+
+    assert stored == {**_ANALYTICS_CREDENTIAL_ROW, "score": None}
+
+
+def test_analytics_masks_credentials_when_redaction_is_on(redact_secrets_on) -> None:
+    from argus.trial import analytics
+
+    stored = analytics._sanitize(_ANALYTICS_CREDENTIAL_ROW)
+
+    assert stored["api_key"] == "[REDACTED]"
+    assert "abcdefghijklmnopqrstuvwxyz" not in stored["text"]
+    assert "sk-proj-abcdefghijklmnop" not in stored["text"]
+    assert stored["score"] is None
+
+
+def test_training_detectors_still_refuse_credentials_by_default(monkeypatch) -> None:
+    from argus.trial.training_capture import _content_diagnostic
+    from argus.trial.training_data import _sensitive
+
+    monkeypatch.delenv("ARGUS_SKILL_REDACT_SECRETS", raising=False)
+    # Shapes only the analytics filter knows, not the general secret patterns.
+    for payload in ({"content": "use sk-proj-abcdefghijklmnop"}, {"cookie": "session=abc"}):
+        assert _sensitive(payload)
+        assert _content_diagnostic("message", payload, sid="s", mission_id="m") is not None
