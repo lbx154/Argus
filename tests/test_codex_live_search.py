@@ -79,6 +79,30 @@ def test_assigning_framework_default_marks_live_search_as_explicit() -> None:
     assert config._live_search_stages_explicit is True
 
 
+@pytest.mark.parametrize("stages", [frozenset(), frozenset({"scope"}), DEFAULT_LIVE_SEARCH_STAGES])
+def test_historical_positional_search_stages_and_state_root_are_preserved(
+    stages: frozenset[str], tmp_path: Path,
+) -> None:
+    config = EngineerConfig(
+        "test", None, None, None, None, True, True, False, None, False,
+        stages, tmp_path, lean_tool_surface=False,
+    )
+
+    assert config.live_search_stages is stages
+    assert config.vertical_state_root == tmp_path
+    assert config._live_search_stages_explicit is True
+    assert config.lean_tool_surface is False
+
+
+def test_changing_lean_tools_does_not_override_vertical_search_provenance() -> None:
+    config = EngineerConfig(model="test", lean_tool_surface=False)
+    updated = replace(config, lean_tool_surface=True)
+
+    assert config._live_search_stages_explicit is False
+    assert updated._live_search_stages_explicit is False
+    assert updated.lean_tool_surface is True
+
+
 def test_replace_of_unrelated_field_preserves_live_search_provenance() -> None:
     omitted = EngineerConfig(model="test")
     omitted_update = replace(omitted, reasoning_effort="high")

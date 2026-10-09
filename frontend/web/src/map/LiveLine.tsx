@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { elapsedLabel, roleName } from "./alive";
+import { elapsedLabel } from "./alive";
+import { roleActionLabel } from '../lib/taskLanguage';
 
 /** One quiet sentence on the card being worked on right now: who is at it and
  * for how long this run. The clock ticks on its own so the rest of the card
@@ -12,14 +13,13 @@ export function LiveLine({ role, since, zh, text }: { role?: string; since?: num
     const timer = setInterval(() => setNow(Date.now() / 1000), 1000);
     return () => clearInterval(timer);
   }, [since, text]);
-  const who = roleName(role, zh);
   const elapsed = since != null ? elapsedLabel(now - since, zh) : null;
   return (
     <div className="map-card-live" data-testid="map-card-live" data-waiting={!!text || undefined} aria-live="off">
       <i aria-hidden="true" />
       <span title={text}>
         {text ? text : <>
-          {zh ? `${who}正在处理` : `${who} at work`}
+          {roleActionLabel(role, zh)}
           {elapsed ? (zh ? ` · 本次已进行 ${elapsed}` : ` · ${elapsed} this run`) : ""}
         </>}
       </span>

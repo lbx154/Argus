@@ -1288,10 +1288,13 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     chat_state.pop("_self_failure", None)
     captured: list[str] = []
     round_failure: str | None = None
+    from ..core.operator_messages import uses_cjk
+
+    chinese = uses_cjk(body)
     empty_reply = (
-        "[Manager reply unavailable] The SELF turn completed without an assistant "
-        "message. No task was dispatched and the current mission was not changed. "
-        f"Request: {_fallback_request_excerpt(body)}"
+        "这次没有收到回复。没有新增任务，正在进行的任务也没有改变。"
+        if chinese else
+        "No reply came back for this request. No new task was added, and the current task was not changed."
     )
 
     def _reply_for_outcome() -> str:
@@ -1304,9 +1307,11 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             if mode in execution_modes:
                 chat_state["_self_failure"] = reason
             return (
-                "[Manager reply failed] The SELF turn stopped before completion: "
-                f"{reason}. Earlier progress messages are not a completed result; "
-                "partial files may exist. No TEAM task was dispatched."
+                f"这次处理在完成前停下了。原因：{reason}\n\n"
+                "之前的进度消息不代表任务已完成，可能留下了部分文件。没有新增任务。"
+                if chinese else
+                f"This request stopped before it finished. Reason: {reason}\n\n"
+                "Earlier progress messages do not mean the task finished. Partial files may remain. No new task was added."
             )
         if captured:
             # Only the latest successful completed round is the final delivery.
@@ -1314,27 +1319,27 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         if not stop_reason:
             return empty_reply
         return (
-            "[Manager reply unavailable] The SELF turn stopped before producing an "
-            f"assistant message: {stop_reason}. No task was dispatched and the "
-            "current mission was not changed. "
-            f"Request: {_fallback_request_excerpt(body)}"
+            f"这次还没生成回复就停下了。原因：{stop_reason}\n\n没有新增任务，正在进行的任务也没有改变。"
+            if chinese else
+            f"This request stopped before a reply was produced. Reason: {stop_reason}\n\n"
+            "No new task was added, and the current task was not changed."
         )
 
     def _redact_live_text(text: Any) -> str:
         return redact_secrets_text(str(text or ""), known_values=known_secret_values())
 
     def _failure_reply(detail: Any, *, formatted: bool = False) -> str:
-        safe = _redact_live_text(detail).strip()[:1200] or "The Manager returned no completed reply."
+        safe = _redact_live_text(detail).strip()[:1200] or (
+            "没有收到完整回复。" if chinese else "No completed reply was received."
+        )
         chat_state["_self_failure"] = {"detail": safe}
         chat_state.pop("_self_delivery", None)
         chat_state.pop("last_thread_id", None)
         if formatted:
             return safe
-        from ..core.operator_messages import uses_cjk
-
-        if uses_cjk(body):
-            return f"[Manager reply unavailable] 本次处理未正常完成：{safe}。未追加新任务。"
-        return f"[Manager reply unavailable] The SELF turn did not complete: {safe}. No new task was queued."
+        if chinese:
+            return f"这次没能处理完你的请求，没有新增任务。\n\n具体原因：{safe}"
+        return f"This request did not finish. No new task was added.\n\nReason: {safe}"
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
@@ -1362,13 +1367,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             if not txt:
                 return None
             role = str(event.get("agent_layer") or "manager").strip() or "manager"
-            title = {
-                "manager": "Manager",
-                "planner": "Planner",
-                "engineer": "Engineer",
-                "reviewer": "Reviewer",
-            }.get(role, role.title())
-            return role, title + " · " + _clean_follow_text(txt, limit=64)
+            # The role travels as metadata; the visible label names the work.
+            return role, _clean_follow_text(txt, limit=100)
         except Exception:  # noqa: BLE001
             return None
 
@@ -1552,7 +1552,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             if getattr(outcome, "success", None) is False or round_failure:
                 return _failure_reply(getattr(outcome, "stop_reason", "") or round_failure)
             if not captured:
-                return _failure_reply(getattr(outcome, "stop_reason", "") or "模型没有返回可交付的回复")
+                return _failure_reply(getattr(outcome, "stop_reason", "") or "没有收到完整回复")
             delivery = getattr(outcome, "delivery", None)
             if isinstance(delivery, dict):
                 chat_state["_self_delivery"] = delivery

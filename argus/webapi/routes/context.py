@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterator
 from fastapi import Header, HTTPException
 
 from ...core import paths as core_paths
+from ...core.session import durable_session_activity, read_session_meta
 from ..daemon_services import DaemonServices
 from ..index_cache import IndexCache, QueryExecutor, resolve_snapshot_ttl_seconds
 
@@ -147,11 +148,23 @@ class ServerContext:
         )
 
     def _machine_project_costs_uncached(self, *, limit: int) -> list[dict[str, Any]]:
-        return [
-            row for _root, row in self._project_rows(
-                self._list_project_costs, limit=limit, include_empty=False,
+        rows = list(self._project_rows(
+            self._list_project_costs, limit=limit, include_empty=False,
+        ))
+
+        def last_active(item: tuple[Path, dict[str, Any]]) -> float:
+            root, row = item
+            sid = str(row["id"])
+            meta = read_session_meta(root, sid)
+            return max(
+                meta.last_active if meta is not None else 0.0,
+                durable_session_activity(core_paths.session_state_root(sid, root=root)),
             )
-        ][:limit]
+
+        # Match the project index's newest-active ordering before truncating,
+        # using metadata without the index's more expensive daemon status reads.
+        rows.sort(key=last_active, reverse=True)
+        return [row for _root, row in rows[:limit]]
 
     def _project_rows(
         self, read: Callable[..., list[dict[str, Any]]], *, limit: int, include_empty: bool,

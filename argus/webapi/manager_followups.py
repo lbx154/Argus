@@ -26,11 +26,11 @@ PRESHOWN_OPERATOR_IDS: contextvars.ContextVar[frozenset[str]] = contextvars.Cont
     "argus_preshown_operator_ids", default=frozenset(),
 )
 
-_REGISTRY = threading.Lock()
-_QUEUES: dict[str, collections.deque[tuple[str, str]]] = {}
-_WORKERS: dict[str, threading.Thread] = {}
-
 RunTurn = Callable[[str, str], Any]
+
+_REGISTRY = threading.Lock()
+_QUEUES: dict[str, collections.deque[tuple[str, str, RunTurn]]] = {}
+_WORKERS: dict[str, threading.Thread] = {}
 
 
 def pending_followups(sid: str) -> int:
@@ -55,18 +55,19 @@ def queue_followup(
         message_id=f"{turn_id}-operator", metadata={"queued_while_running": True},
     )
     with _REGISTRY:
-        _QUEUES.setdefault(sid, collections.deque()).append((turn_id, body))
+        # Each request owns its route and project context through its callback.
+        _QUEUES.setdefault(sid, collections.deque()).append((turn_id, body, run_turn))
         worker = _WORKERS.get(sid)
         if worker is None or not worker.is_alive():
             worker = threading.Thread(
-                target=_drain, args=(sid, run_turn), name=f"argus-followup-{sid}", daemon=True,
+                target=_drain, args=(sid,), name=f"argus-followup-{sid}", daemon=True,
             )
             _WORKERS[sid] = worker
             worker.start()
     return turn_id
 
 
-def _drain(sid: str, run_turn: RunTurn) -> None:
+def _drain(sid: str) -> None:
     from .manager_state import _lock_for
 
     while True:
@@ -76,7 +77,7 @@ def _drain(sid: str, run_turn: RunTurn) -> None:
                 _QUEUES.pop(sid, None)
                 _WORKERS.pop(sid, None)
                 return
-            turn_id, body = pending.popleft()
+            turn_id, body, run_turn = pending.popleft()
         # Wait for the running turn to finish first, so a Stop aimed at that
         # turn does not also discard what was typed while it ran.
         with _lock_for(sid):

@@ -186,8 +186,7 @@ it("does not count a partial research execution as a completed overall goal", ()
     <QueryClientProvider client={client}><MapCanvas {...props} data={partial} /></QueryClientProvider>,
   ));
   const sentence = renderer.root.findByProps({ className: "map-status-text" }).children.join("");
-  expect(sentence).toContain("1 execution ended");
-  expect(sentence).toContain("execution completion is not overall completion");
+  expect(sentence).toContain("1 ended before their goals were complete");
   expect(sentence).not.toContain("all completed");
   // The header no longer carries a progress strip; the sentence is the only tally.
   expect(renderer.root.findAllByProps({ className: "map-progress-strip" })).toHaveLength(0);

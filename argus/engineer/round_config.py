@@ -140,7 +140,8 @@ class EngineerConfig:
     # tool). Their schemas and notes are resent on every tool step; the
     # Engineer keeps state in CHECKPOINT.md. Built-in MCP servers stay.
     lean_tool_surface: bool = field(
-        default_factory=lambda: _env_bool(_ENGINEER_LEAN_TOOLS_ENV, True)
+        default_factory=lambda: _env_bool(_ENGINEER_LEAN_TOOLS_ENV, True),
+        kw_only=True,
     )
     # Public, historical caller configuration for pipeline stages in which the
     # engineer runs with codex's native live web_search enabled

@@ -41,9 +41,9 @@ export function AgentActivity({ view, roles = [], events = [], taskId, paused = 
     return () => clearInterval(timer);
   }, [active]);
   const name = (value: string) => isAgentRole(value) ? agentRoleName(value, t) : value;
-  return <section className="agent-activity" style={{ '--agent-role-color': agentRoleColor(role) } as CSSProperties} aria-label={zh ? 'Agent 工作详情' : 'Agent work details'}>
-    <header className="agent-activity-heading"><span><Activity size={15} />{zh ? 'Agent 动态' : 'Agent activity'}</span>
-      {onClose && <button type="button" onClick={onClose} aria-label={zh ? '关闭 Agent 详情' : 'Close Agent details'}><X size={17} /></button>}
+  return <section className="agent-activity" style={{ '--agent-role-color': agentRoleColor(role) } as CSSProperties} aria-label={zh ? '工作详情' : 'Work details'}>
+    <header className="agent-activity-heading"><span><Activity size={15} />{zh ? '工作详情' : 'Work details'}</span>
+      {onClose && <button type="button" onClick={onClose} aria-label={zh ? '关闭工作详情' : 'Close work details'}><X size={17} /></button>}
     </header>
     {showTabs && <div className="agent-activity-tabs" role="group" aria-label={zh ? '筛选 Agent' : 'Filter agents'}>
       {AGENT_ROLES.map((value) => <button type="button" key={value} data-role={value} aria-pressed={role === value} style={{ '--agent-role-color': agentRoleColor(value) } as CSSProperties}
@@ -52,15 +52,18 @@ export function AgentActivity({ view, roles = [], events = [], taskId, paused = 
       </button>)}
     </div>}
     <div className="agent-current" data-active={active}>
-      <div className="agent-current-kicker"><span>{active ? name(role) + (zh ? ' Agent 正在工作' : ' is working') : paused ? (zh ? '会话已暂停' : 'Session paused') : (zh ? '最近进度' : 'Latest progress')}</span>
-        {active ? <span className="agent-live-indicator" data-stale={stale ? true : undefined}><i />LIVE{stale && <small className="agent-live-stale">{stale}</small>}</span> : <Pause size={12} />}
+      <div className="agent-current-kicker"><span>{active ? (zh ? '当前工作' : 'Current work') : paused ? (zh ? '工作已暂停' : 'Work paused') : (zh ? '最近进度' : 'Latest progress')}</span>
+        {active ? <span className="agent-live-indicator" data-stale={stale ? true : undefined}><i />{zh ? '处理中' : 'In progress'}{stale && <small className="agent-live-stale">{stale}</small>}</span> : <Pause size={12} />}
       </div>
       <h3>{last || toolIsLatest ? currentTitle : active
         ? (zh ? '尚无本次工作记录' : 'No work recorded for this attempt yet')
         : (zh ? '等待任务分配' : 'Waiting for an assignment')}</h3>
       {update?.detail && <div className="agent-current-summary"><MarkdownContent>{update.detail}</MarkdownContent></div>}
       {!update && last?.detail && <p className="agent-current-summary">{last.detail}</p>}
-      {last && <div className="agent-current-meta"><Clock3 size={12} /><span>{zh ? `${seconds < 60 ? seconds + ' 秒' : seconds < 3600 ? Math.floor(seconds / 60) + ' 分钟' : seconds < 86400 ? Math.floor(seconds / 3600) + ' 小时' : Math.floor(seconds / 86400) + ' 天'}前更新` : `Updated ${seconds < 60 ? seconds + 's' : seconds < 3600 ? Math.floor(seconds / 60) + 'm' : seconds < 86400 ? Math.floor(seconds / 3600) + 'h' : Math.floor(seconds / 86400) + 'd'} ago`}</span>{model && <span>{model}</span>}</div>}
+      {last && <div className="agent-current-meta"><Clock3 size={12} /><span>{zh ? `${seconds < 60 ? seconds + ' 秒' : seconds < 3600 ? Math.floor(seconds / 60) + ' 分钟' : seconds < 86400 ? Math.floor(seconds / 3600) + ' 小时' : Math.floor(seconds / 86400) + ' 天'}前更新` : `Updated ${seconds < 60 ? seconds + 's' : seconds < 3600 ? Math.floor(seconds / 60) + 'm' : seconds < 86400 ? Math.floor(seconds / 3600) + 'h' : Math.floor(seconds / 86400) + 'd'} ago`}</span></div>}
+      <details className="agent-technical-details"><summary>{zh ? '查看运行信息' : 'Runtime details'}</summary>
+        <p>{name(role)}{model ? ` · ${model}` : ''}{last?.round_index != null ? (zh ? ` · 第 ${last.round_index} 轮` : ` · Round ${last.round_index}`) : ''}</p>
+      </details>
     </div>
     <div className="agent-records-heading"><span>{zh ? '工作记录' : 'Work log'}</span><span>{records.length} {zh ? '条' : 'records'}</span></div>
     <div className="agent-records" role="log" aria-live="off">
@@ -72,10 +75,11 @@ export function AgentActivity({ view, roles = [], events = [], taskId, paused = 
         return <article className="agent-record" key={record.id} data-active={running} data-failed={failed}>
           <span className="agent-record-icon"><Icon size={13} /></span>
           <div><div className="agent-record-title"><strong>{activityTitle(record.kind, zh)}</strong><time>{new Date(record.ts * 1000).toLocaleTimeString(zh ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</time></div>
-            <small>{running ? (zh ? '进行中' : 'In progress') : failed ? (zh ? '需要处理' : 'Needs attention') : done ? (zh ? '已完成' : 'Completed') : (zh ? '已记录' : 'Recorded')}{record.round_index != null ? (zh ? ` · 第 ${record.round_index} 轮` : ` · Round ${record.round_index}`) : ''}</small>
+            <small>{running ? (zh ? '进行中' : 'In progress') : failed ? (zh ? '未完成' : 'Did not finish') : done ? (zh ? '已完成' : 'Completed') : (zh ? '已记录' : 'Recorded')}</small>
             {record.detail && <details open={index === 0 || record === update}>
               <summary><span>{zh ? '查看详情' : 'Read details'}</span><ChevronDown size={12} /></summary>
               <div className="agent-record-detail"><MarkdownContent>{record.detail}</MarkdownContent></div>
+              {record.round_index != null && <small>{zh ? `第 ${record.round_index} 轮` : `Round ${record.round_index}`}</small>}
             </details>}
           </div>
         </article>;

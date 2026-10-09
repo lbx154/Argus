@@ -105,7 +105,7 @@ describe('deriveProgressEstimate', () => {
     expect(result.taskEvents[0].action_summary).toBe('running probe');
     expect(result.currentDetail).toContain('run_probe.py');
     expect(result.runtime.state).toBe('unknown');
-    expect(result.currentStep).toBe('当前运行状态暂不可读');
+    expect(result.currentStep).toBe('暂时无法确认任务进度');
   });
 
   it('does not claim current execution or grow elapsed time after the daemon stops', () => {

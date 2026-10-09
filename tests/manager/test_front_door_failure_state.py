@@ -64,9 +64,23 @@ def test_legacy_runner_explicit_failed_round_is_not_a_successful_chat():
 def test_empty_handled_turn_is_a_structured_failure():
     state = {}
     reply = triage(OutcomeRunner([]), state)
-    assert reply.startswith("[Manager reply unavailable]")
-    assert reply.count("[Manager reply unavailable]") == 1
+    assert reply.startswith("This request did not finish.")
+    assert "No new task was added." in reply
+    assert "SELF" not in reply and "[Manager" not in reply
     assert state["_self_failure"]
+
+
+def test_failure_reply_uses_the_request_language_without_internal_role_tokens():
+    state = {}
+    runner = OutcomeRunner([], SimpleNamespace(success=False, stop_reason="连接超时"))
+    reply = manager_triage(
+        object(), "请检查登录失败的原因", state, route="simple",
+        ensure_runner=lambda *_: runner,
+    )
+    assert reply.startswith("这次没能处理完你的请求，没有新增任务。")
+    assert "连接超时" in reply
+    assert "SELF" not in reply and "Manager" not in reply
+    assert state["_self_failure"]["detail"] == "连接超时"
 
 
 def test_internal_type_error_is_not_retried_as_a_legacy_signature():

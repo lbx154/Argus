@@ -1,6 +1,7 @@
 import type { BacklogItem, EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import { operatorDecisionCards } from '../../../core/src/decisions';
 import type { Locale } from '../i18n';
+import { roleActionLabel } from './taskLanguage';
 
 /** The team the current task waits on, as far as the runtime has read it. */
 export interface BackgroundWait {
@@ -266,20 +267,15 @@ export function workStatusLabel(status: WorkStatus, locale: Locale, connected = 
   if (status.reason === 'task_failed') return zh ? '这一步执行未完成' : 'Execution of this step did not finish';
   if (status.reason === 'background_work') return backgroundWaitLabel(status, locale);
   if (status.state === 'running') {
-    const roles: Record<string, [string, string]> = {
-      // The Manager also tidies progress on its own; only an operator's request is "yours".
-      manager: status.foreground ? ['正在处理你的请求', 'Working on your request'] : ['统筹者正在整理进展', 'The Manager is summarizing progress'],
-      planner: ['正在规划下一步', 'Planning the next step'],
-      engineer: ['正在执行当前步骤', 'Working on this step'], reviewer: ['正在核对这一步的结果', 'Checking this step’s result'],
-    };
-    return roles[status.role]?.[zh ? 0 : 1] || (zh ? '正在处理当前任务' : 'Working on the current task');
+    if (status.foreground) return zh ? '正在处理你的请求' : 'Working on your request';
+    return roleActionLabel(status.role, zh, status.title);
   }
-  if (status.reason === 'provider_wait') return zh ? '模型服务等待后重试' : 'Waiting before retrying the model service';
+  if (status.reason === 'provider_wait') return zh ? '模型服务暂时未能完成请求，等待后会重试' : 'The model service could not complete the request; waiting before retrying';
   if (status.reason === 'no_recent_progress') return zh ? '暂时没有收到新的进展' : 'No new progress received recently';
   const labels: Record<WorkStatus['state'], [string, string]> = {
     running: ['正在处理当前任务', 'Working on the current task'], waiting: ['等待下一步工作', 'Waiting for the next step'],
     paused: ['当前任务未在运行', 'The current task is not running'], step_finished: ['这一步已结束', 'This step has ended'],
-    idle: ['等待新任务', 'Ready for a new task'], unknown: ['当前运行状态暂不可读', 'Current runtime status is unavailable'],
+    idle: ['可以开始新任务', 'Ready for a new task'], unknown: ['暂时无法确认任务进度', 'Unable to confirm task progress right now'],
   };
   return labels[status.state][zh ? 0 : 1];
 }

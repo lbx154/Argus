@@ -28,14 +28,14 @@ describe("real stage-hold project", () => {
 
   it("says the hold reason in the reader's language and keeps the Manager's words as detail", () => {
     const zh = attentionSummary(held, payload.events, true);
-    expect(zh.reason).toMatch(/阶段暂停/);
+    expect(zh.reason).toMatch(/工作已暂停/);
     expect(zh.reason).not.toMatch(/Previous simulated|invalidated/);
     expect(zh.detail).toMatch(/^Previous simulated data was invalidated/);
     // Without a reader-language account the Manager's words are the only
     // reason there is, so they are shown rather than folded away.
     expect(zh.showDetail).toBe(true);
     const en = attentionSummary(held, payload.events, false);
-    expect(en.reason).toMatch(/on hold/i);
+    expect(en.reason).toMatch(/work paused/i);
   });
 
   it("says work stopped at the hold instead of promising follow-up work", () => {
@@ -50,7 +50,7 @@ describe("real stage-hold project", () => {
   it("uses the written reader-language account of the hold when one exists", () => {
     const written = "早先的模拟数据已作废，论文还没写，方法还要在真实轨迹上和真实基线比。";
     const zh = attentionSummary(held, payload.events, true, written);
-    expect(zh.reason).toBe(`阶段暂停：${written}`);
+    expect(zh.reason).toBe(`工作已暂停：${written}`);
     expect(zh.showDetail).toBe(false);
     expect(zh.detail).toMatch(/^Previous simulated/);
   });
@@ -58,8 +58,8 @@ describe("real stage-hold project", () => {
   it("gives an outsider the goal, the conclusion so far, and the next step", () => {
     const brief = projectBrief(payload.tasks, payload.events, true);
     expect(brief.goal).toMatch(/^将既往所有模拟及虚构的实验数据/);
-    expect(brief.conclusion).toMatch(/尚无通过验收的最终结论/);
-    expect(brief.conclusion).toMatch(/阶段暂停/);
+    expect(brief.conclusion).toMatch(/还没有经过检查确认的结果/);
+    expect(brief.current).toMatch(/工作已暂停/);
     expect(brief.next).toMatch(/不会自动继续/);
     // The goal already names the task; the conclusion does not repeat it.
     expect(brief.conclusion).not.toContain(held.title.slice(0, 20));
@@ -70,9 +70,9 @@ describe("real stage-hold project", () => {
       running: 0, pending: false, paused: true, hasOpenWork: true, zh: true });
     expect(zh).toContain("7 个任务");
     expect(zh).toContain("已完成 5 个");
-    expect(zh).toContain("已结束 1 个");
-    expect(zh).toContain("审查异常 1 个");
-    expect(zh).toContain("阶段暂停 1 个");
+    expect(zh).toContain("1 个任务结束时目标还没完成");
+    expect(zh).toContain("1 个结果尚未检查成功");
+    expect(zh).toContain("1 个任务暂停，后续工作尚未安排");
     expect(zh).not.toMatch(/次/);
   });
 });

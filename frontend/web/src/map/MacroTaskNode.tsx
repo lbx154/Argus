@@ -98,9 +98,9 @@ export const MapArtifactContext = createContext<{
   onOpenArtifact?: (path: string) => void;
 }>({});
 const KINDS: Record<StepKind, [string, string]> = {
-  plan: ["Planner", "Planner"],
-  execution: ["Engineer", "Engineer"],
-  review: ["Reviewer", "Reviewer"],
+  plan: ["计划", "Plan"],
+  execution: ["动手处理", "Work"],
+  review: ["检查结果", "Check"],
   revision: ["修订", "Revise"],
   result: ["结果", "Result"],
 };
@@ -117,8 +117,8 @@ const STATES: Record<string, [string, string]> = {
   running: ["进行中", "In progress"],
   pending: ["待开始", "Planned"],
   failed: ["执行失败", "Execution failed"],
-  review_unavailable: ["当次审查异常", "Review error on this attempt"],
-  held: ["阶段暂停，等待下一步", "Stage on hold, next step pending"],
+  review_unavailable: ["这次结果检查没有完成", "Result check did not finish"],
+  held: ["工作暂停，后续尚未安排", "Work paused; no next step scheduled"],
   aborted: ["已取消", "Cancelled"],
   cancelled: ["已取消", "Cancelled"],
   skipped: ["已跳过", "Skipped"],
@@ -138,10 +138,10 @@ const STATES: Record<string, [string, string]> = {
 };
 /* One sentence per stage, so a newcomer learns who does what while reading. */
 const KIND_NOTES: Record<StepKind, [string, string]> = {
-  plan: ["规划者决定要做什么、为什么做", "The Planner decides what to do and why"],
-  execution: ["工程师动手把事情做出来", "The Engineer does the work"],
-  review: ["审阅者独立核查结果", "The Reviewer checks the result independently"],
-  revision: ["审阅者要求修改的地方", "What the Reviewer asked to change"],
+  plan: ["接下来要做什么，为什么这样做", "What to do next and why"],
+  execution: ["实际做了什么，遇到了什么问题", "What was done and what happened"],
+  review: ["结果是否正确，有什么依据", "Whether the result is correct and what supports it"],
+  revision: ["检查后发现需要修改的地方", "What the check found needs changing"],
   result: ["这项任务最后得到了什么", "What the task produced in the end"],
 };
 /* A single-agent turn has a different cast: you asked, Argus worked, Argus answered. */

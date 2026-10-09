@@ -34,7 +34,7 @@ describe('shared work status', () => {
     snapshot.roles = [{ role: 'reviewer', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'using a tool', status: 'running', age_s: 1 }];
     const state = currentWorkStatus(snapshot, view);
     expect(state).toMatchObject({ state: 'running', role: 'reviewer' });
-    expect(workStatusLabel(state, 'zh-CN')).toBe('正在核对这一步的结果');
+    expect(workStatusLabel(state, 'zh-CN')).toBe('正在检查结果是否正确');
   });
 
   it('tracks foreground SELF work and its step-less durable delivery without classifying chat or queue receipts', () => {
@@ -79,7 +79,7 @@ describe('shared work status', () => {
     snapshot.roles = [role('planner')];
     const planning = currentWorkStatus(snapshot, view);
     expect(planning).toMatchObject({ state: 'running', role: 'planner' });
-    expect(workStatusLabel(planning, 'zh-CN')).toBe('正在规划下一步');
+    expect(workStatusLabel(planning, 'zh-CN')).toBe('正在安排接下来要做的事');
     snapshot.daemon.alive = false;
     expect(currentWorkStatus(snapshot, view).state).not.toBe('running');
   });
@@ -144,7 +144,7 @@ describe('shared work status', () => {
       { type: 'round.backend_failure.backoff', item_id: 'task', ts: 100, seconds: 60 },
     ], 120);
     expect(status).toMatchObject({ state: 'waiting', reason: 'provider_wait' });
-    expect(workStatusLabel(status, 'zh-CN')).toBe('模型服务等待后重试');
+    expect(workStatusLabel(status, 'zh-CN')).toBe('模型服务暂时未能完成请求，等待后会重试');
   });
 
   it('does not assign a different task’s live worker to a paused task', () => {
@@ -255,7 +255,7 @@ describe('a task waiting on its background team', () => {
     const status = currentWorkStatus(snapshot, view);
     expect(status).toMatchObject({ state: 'running', role: 'manager' });
     expect(status.foreground).toBeUndefined();
-    expect(workStatusLabel(status, 'zh-CN')).toBe('统筹者正在整理进展');
-    expect(workStatusLabel(status, 'en')).toBe('The Manager is summarizing progress');
+    expect(workStatusLabel(status, 'zh-CN')).toBe('正在整理任务进展');
+    expect(workStatusLabel(status, 'en')).toBe('Summarizing progress');
   });
 });

@@ -49,18 +49,18 @@ export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean,
     const detail = recordedDetail(task);
     const said = written.trim();
     return {
-      reason: said
-        ? zh ? `阶段暂停：${said}` : `Stage on hold: ${said}`
+    reason: said
+        ? zh ? `工作已暂停：${said}` : `Work paused: ${said}`
         : detail
-          ? zh ? "阶段暂停：Manager 审查了这一轮工作，判断当前阶段还不能推进，原因见下方 Manager 的原话。"
-            : "Stage on hold: the Manager reviewed this round and judged the stage cannot advance yet; its reason is quoted below."
-          : zh ? "阶段暂停：Manager 审查了这一轮工作，判断当前阶段还不能推进，记录里没有写明原因。"
-            : "Stage on hold: the Manager reviewed this round and judged the stage cannot advance yet; the record gives no reason.",
+          ? zh ? "工作已暂停：当前结果还没有满足要求，具体原因见下方说明。"
+            : "Work paused: the current result does not yet meet the requirements. The reason is shown below."
+          : zh ? "工作已暂停：当前结果还没有满足要求，记录里没有说明具体原因。"
+            : "Work paused: the current result does not yet meet the requirements. No specific reason was recorded.",
       // A recorded hold ends the bounded run: nothing is scheduled after it
       // and nothing resumes on its own, so the next move is the reader's.
       next: zh
-        ? "下一步：工作已在这里停下，不会自动继续。请按暂停原因里 Manager 要求的工作，在对话里告诉团队接下来做什么。"
-        : "Next: work has stopped here and will not resume on its own. Tell the team in the conversation what to do next, starting from what the Manager's hold reason asks for.",
+        ? "工作不会自动继续。请看暂停原因，再在对话里告诉我接下来做什么。"
+        : "Work will not resume on its own. Read the reason, then tell me what to do next in the conversation.",
       detail,
       showDetail: Boolean(detail) && !said,
     };
@@ -80,7 +80,7 @@ const clip = (text: string, size = 80) => text.length > size ? `${text.slice(0, 
 /** Three lines an outsider can read: the current goal, what has been
  * concluded (only an acceptance still standing counts), and what comes next. */
 export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, written: (task: MapTask) => string = () => ""):
-  { goal: string; conclusion: string; next: string } {
+  { goal: string; current: string; conclusion: string; next: string } {
   const work = tasks.filter((task) => task.turn_kind !== "qa" && task.kind !== "turn");
   const byTime = [...work].sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
   const latest = byTime[0];
@@ -89,37 +89,44 @@ export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, 
   const label = (task: MapTask) => {
     const key = statusKey(task);
     return ({
-      held: zh ? "阶段暂停" : "stage on hold",
-      failed: zh ? "执行失败" : "execution failed",
-      review_unavailable: zh ? "审查异常" : "review error",
+      held: zh ? "工作已暂停" : "work paused",
+      failed: zh ? "这项工作没有做完" : "this task did not finish",
+      review_unavailable: zh ? "结果检查没有完成" : "the result check did not finish",
       done: zh ? "已完成" : "done",
       running: zh ? "进行中" : "running",
       pending: zh ? "待开始" : "planned",
       question: zh ? "等你回答" : "waiting on you",
       paused: zh ? "已暂停" : "paused",
-    } as Record<string, string>)[key] || key;
+    } as Record<string, string>)[key] || (zh ? '还没有新的进展记录' : 'No new progress has been recorded');
   };
   // The goal line already names the latest task; saying its title again
   // under the conclusion only repeats it.
   const conclusion = accepted
-    ? zh ? `已通过验收：${clip(accepted.title, 60)}` : `Accepted: ${clip(accepted.title, 60)}`
+    ? zh ? `已确认：${clip(readableRecord(written(accepted) || accepted.summary || accepted.title), 160)}`
+      : `Confirmed: ${clip(readableRecord(written(accepted) || accepted.summary || accepted.title), 160)}`
     : latest
-      ? zh ? `尚无通过验收的最终结论；当前目标的状态：${label(latest)}`
-        : `No accepted conclusion yet; the current goal is: ${label(latest)}`
-      : zh ? "尚无结论" : "No conclusion yet";
+      ? statusKey(latest) === 'review_unavailable'
+        ? zh ? '这次结果检查没有完成，暂时不能确认结果。' : 'The result check did not finish, so the result is not yet confirmed.'
+        : zh ? '还没有经过检查确认的结果。' : 'There is no checked, confirmed result yet.'
+      : zh ? "还没有结果" : "No result yet";
   const running = work.find((task) => ACTIVE.has(task.status));
   const waiting = byTime.find((task) => ["question", "held", "failed", "review_unavailable"].includes(statusKey(task)));
   const queued = [...work].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0)).find((task) => statusKey(task) === "pending");
+  const current = running
+    ? zh ? `正在处理：${clip(running.title, 70)}` : `Working on: ${clip(running.title, 70)}`
+    : latest ? label(latest) : zh ? '可以开始新任务' : 'Ready for a new task';
   const next = running
-    ? zh ? `正在进行：${clip(running.title, 60)}` : `In progress: ${clip(running.title, 60)}`
+    ? queued
+      ? zh ? `待做任务：${clip(queued.title, 70)}` : `Queued next: ${clip(queued.title, 70)}`
+      : zh ? '等当前工作完成，再查看检查结果。' : 'Wait for the current work to finish, then check the result.'
     : waiting && waiting === latest
       ? attentionSummary(waiting, events, zh, written(waiting)).next
       : queued
         ? zh ? `下一步：${clip(queued.title, 60)}` : `Next: ${clip(queued.title, 60)}`
         : accepted
-          ? zh ? "没有排定的后续工作。" : "No further work is scheduled."
-          : zh ? "下一步：没有排定的任务，可在对话里给出方向。" : "Next: nothing is scheduled; give a direction in the conversation.";
-  return { goal, conclusion, next };
+          ? zh ? "可以查看结果，或继续提出要求。" : "Read the result, or tell me what to do next."
+          : zh ? "还没有后续任务，可在对话里告诉我接下来做什么。" : "Nothing else is scheduled. Tell me what to do next in the conversation.";
+  return { goal, current, conclusion, next };
 }
 
 /** Background explanation of recorded work, never an additional research result. */
