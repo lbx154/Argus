@@ -176,6 +176,8 @@ def backend_failure_cause(
     skipped so a path inside a trace cannot pass for a cause.
     """
     text = str(fatal_error or "").strip()
+    if re.match(r"^Process exited with code -?\d+ after model turn completion\.", text):
+        return BackendFailureCause("cli_exit_after_output", _cause_line(text))
     if fatal_error_looks_like_recoverable_reconnect(text):
         return BackendFailureCause()
     lines = [line for line in (raw.strip() for raw in text.splitlines()) if line]
@@ -636,6 +638,7 @@ _INFRASTRUCTURE_FAILURE_OPENINGS: dict[str, str] = {
     "service_tls": "The secure connection to the model service could not be established",
     "service_proxy": "The proxy in front of the model service failed",
     "cli_missing": "The model CLI could not be started",
+    "cli_exit_after_output": "The model returned output, but its launcher failed afterward",
     "service_quota": "The model service reported that its quota is used up",
     "model_catalog": "The model service could not list its models",
     "sign_in": "Argus could not sign in to the model service",
@@ -656,11 +659,17 @@ def infrastructure_failure_review_decision(
         cause.kind, _INFRASTRUCTURE_FAILURE_OPENINGS["service_unreachable"],
     )
     named = f"{opening}: {cause.line}" if cause.line else opening
+    session_result = (
+        "The Engineer returned output before the launcher failed. Preserve that output "
+        "for verification after the launcher is restored; this attempt was not judged. "
+        if cause.kind == "cli_exit_after_output" else
+        "The Engineer's session ended before it produced a result that could be checked, "
+        "so this round was not judged; "
+    )
     return ReviewDecision(
         status="blocked",
         reason=(
-            f"{named}. The Engineer's session ended before it produced a "
-            "result that could be checked, so this round was not judged; "
+            f"{named}. {session_result}"
             "Argus pauses this task and retries it after a short wait. "
             f"Technical record: error={error_text}"
         ),

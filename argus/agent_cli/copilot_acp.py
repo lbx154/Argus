@@ -338,6 +338,7 @@ class CopilotAcpClient:
                 cmd += ["--add-dir", path]
         from ..trial.client import apply_trial_provider
         from .copilot_home import apply_copilot_account
+        from .copilot_launcher import stable_copilot_command
 
         child_env = apply_copilot_account(apply_trial_provider(dict(os.environ)))
         child_env = runner_child_environment(self._agent_bin, env=child_env) or child_env
@@ -345,7 +346,7 @@ class CopilotAcpClient:
             child_env.get("COPILOT_HOME") or Path.home() / ".copilot"
         ).expanduser() / "session-state"
         self._proc = subprocess.Popen(
-            cmd,
+            stable_copilot_command(cmd),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,  # drained by its own thread below; unread it would deadlock

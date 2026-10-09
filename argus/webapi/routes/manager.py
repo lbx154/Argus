@@ -9,7 +9,9 @@ import asyncio
 import json
 import queue
 import threading
+import uuid
 from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
@@ -148,6 +150,46 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
     # isolation while allowing a reloaded browser to recover the request id.
     app.state.message_requests = requests
 
+    from ..deferred_messages import DeferredMessages
+
+    deferred_owner = uuid.uuid4().hex
+
+    def _deferred_cancelled(saved):
+        return (saved.get("_queue_owner") == deferred_owner
+                and saved.get("_queue_generation") != manager_control_generation(saved["sid"]))
+
+    def _retry_message(saved, cancelled):
+        from ..manager_bridge import manager_message
+
+        sid = saved["sid"]
+        # Re-resolve ownership at execution time; deleted/moved projects must
+        # never be recreated from a stale queued request.
+        root = ctx.project_root_or_404(sid)
+        if str(root.resolve()) != str(Path(saved["global_root"]).resolve()):
+            raise ValueError("queued message project root changed")
+        kwargs = {k: v for k, v in saved.items()
+                  if k not in {"sid", "text", "_queue_owner", "_queue_generation"}}
+        generation = manager_control_generation(sid)
+        result = manager_message(sid, saved["text"], **kwargs,
+                                 cancelled=cancelled, defer_dispatch_ack=True)
+        if result.get("kind") == "provider_busy":
+            return result
+        return _finish_message(sid, result, generation, global_root=root,
+                               text=saved["text"], request_cancelled=cancelled)
+
+    deferred = DeferredMessages(_retry_message, cancelled=_deferred_cancelled)
+    app.state.deferred_messages = deferred
+
+    @app.on_event("startup")
+    def _resume_deferred_messages():
+        for root in ctx.roots:
+            for directory in (root / "projects").glob("*/manager-deferred"):
+                deferred.resume(directory.parent)
+
+    @app.on_event("shutdown")
+    def _close_deferred_messages():
+        deferred.close()
+
     def _begin_message(sid: str, request_id: str):
         try:
             return requests.begin(sid, request_id)
@@ -249,6 +291,24 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
 
         if request_cancelled() and superseded():
             return result
+        if result.get("kind") == "provider_busy":
+            if superseded():
+                return result
+            try:
+                queued = deferred.enqueue(ctx.resolve_or_404(sid), {
+                    **result["retry_request"], "_queue_owner": deferred_owner,
+                    "_queue_generation": generation,
+                })
+            except (OSError, ValueError):
+                from ...core.operator_messages import publish_operator_message
+                reply = ("暂时没有空闲调用名额，消息未能加入等待队列，请稍后重试。" if uses_cjk(text) else
+                         "Model capacity is busy and the message could not be saved for retry. Please retry shortly.")
+                publish_operator_message(ctx.resolve_or_404(sid), text=reply,
+                                         message_id=f"{result['retry_request']['turn_id']}-queue-error")
+                queued = {"kind": "error", "reply": reply, "success": False}
+            if callable(on_fragment):
+                on_fragment("delta", {"text": queued["reply"]})
+            return queued
         starts_executor = (
             result.get("kind") == "task"
             and (result.get("dispatch_state") != "already_queued"
