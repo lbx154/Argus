@@ -673,6 +673,9 @@ def test_unpriceable_model_is_refused_up_front_and_acknowledged_risk_still_obeys
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
+    # Refusing a model without a price is the block policy's behaviour; the
+    # default (estimate) counts such a call and lets the next one run.
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-1")
     calls = []
