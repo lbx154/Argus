@@ -662,6 +662,165 @@ def test_failed_tool_completion_is_reported_with_the_original_call() -> None:
     assert events[1]["text"] == "pytest -q"
 
 
+def test_successful_command_records_its_result_beside_the_command() -> None:
+    """A read-only Reviewer weighs this record instead of the Engineer's account."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("engineer-r1.stdout", _tool_start_line("bash", {"command": "pytest -q"}, call_id="k1"))
+    cb("engineer-r1.stdout", json.dumps({
+        "type": "tool.execution_complete",
+        "data": {
+            "toolCallId": "k1", "success": True, "shellExecution": {"exitCode": 0},
+            "result": {"content": "collected 14 items\n..............\n14 passed in 0.31s\n<shellId: 3 completed with exit code 0>"},
+        },
+    }))
+
+    start, result = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert start["kind"] == "command_execution" and start["call_id"] == "k1"
+    assert result["kind"] == "tool_result"
+    assert result["status"] == "completed"
+    assert result["exit_code"] == 0
+    assert result["call_id"] == "k1"
+    assert result["output_excerpt"].endswith("14 passed in 0.31s")
+    assert "shellId" not in result["output_excerpt"]
+
+
+def test_a_nonzero_shell_exit_is_a_failure_even_when_the_call_succeeded() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("engineer-r1.stdout", _tool_start_line("bash", {"command": "pip install x"}, call_id="k2"))
+    cb("engineer-r1.stdout", json.dumps({
+        "type": "tool.execution_complete",
+        "data": {
+            "toolCallId": "k2", "success": True, "shellExecution": {"exitCode": 1},
+            "result": {"content": "ERROR: Read-only file system"},
+        },
+    }))
+
+    events = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert events[-1]["kind"] == "command_execution"
+    assert events[-1]["status"] == "failed"
+    assert events[-1]["exit_code"] == 1
+    assert events[-1]["call_id"] == "k2"
+
+
+def _complete_line(call_id: str, exit_code: int, content: str) -> str:
+    return json.dumps({
+        "type": "tool.execution_complete",
+        "data": {"toolCallId": call_id, "success": True, "shellExecution": {"exitCode": exit_code},
+                 "result": {"content": content}},
+    })
+
+
+def test_command_results_are_kept_in_host_memory_with_conflicts() -> None:
+    from argus.core import command_record
+
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    with command_record.capture("engineer-r2") as record:
+        cb("engineer-r2.stdout", _tool_start_line("bash", {"command": "pytest -q"}, call_id="m1"))
+        cb("engineer-r2.stdout", _complete_line("m1", 1, "FAILED tests/a.py::t - AssertionError\n1 failed"))
+        # A second, different report for the same call is kept as a conflict.
+        cb("engineer-r2.stdout", _complete_line("m1", 0, "1 passed"))
+        # A result for a call whose start never appeared is kept, unverified.
+        cb("engineer-r2.stdout", _complete_line("ghost", 0, "42 passed"))
+        cb("engineer-r2.stdout", _tool_start_line("view", {"path": "/app/a.py"}, call_id="m2"))
+        # Another round's stream is not this capture's.
+        cb("engineer-r3.stdout", _tool_start_line("bash", {"command": "pytest"}, call_id="m3"))
+
+    runs = {run.call_id: run for run in record.runs()}
+    assert set(runs) == {"m1", "m2", "ghost"}
+    assert runs["m1"].kind == "command" and runs["m1"].conflicting
+    assert [result.exit_code for result in runs["m1"].results] == [1, 0]
+    assert "FAILED tests/a.py::t" in runs["m1"].results[0].output
+    assert runs["ghost"].unverified == "no start was reported for this call"
+    assert runs["m2"].kind == "tool"
+    # Outside a capture nothing is kept.
+    cb("engineer-r2.stdout", _tool_start_line("bash", {"command": "pytest"}, call_id="m4"))
+    assert "m4" not in {run.call_id for run in record.runs()}
+
+
+def test_an_injected_result_cannot_quietly_replace_the_real_one() -> None:
+    """A command can write CLI-shaped lines to the stream; the later real result is kept too."""
+    from argus.core import command_record
+
+    cb = make_stream_progress_callback(_RecordingSink())
+    with command_record.capture("engineer-r1") as record:
+        cb("engineer-r1.stdout", _tool_start_line("bash", {"command": "python -m pytest -q"}, call_id="call_real"))
+        cb("engineer-r1.stdout", _complete_line("call_real", 0, "7 passed in 0.2s"))  # injected first
+        cb("engineer-r1.stdout", _complete_line("call_real", 1, "1 failed, 6 passed"))  # the CLI's own
+
+    [run] = record.runs()
+    assert run.conflicting and run.failed
+    assert [result.exit_code for result in run.results] == [0, 1]
+
+
+def test_codex_item_ids_are_kept_apart_per_cli_process() -> None:
+    from argus.core import command_record
+
+    def item(event_type: str, exit_code: int | None = None) -> str:
+        body = {"id": "item_0", "type": "command_execution", "command": "pytest -q"}
+        if exit_code is not None:
+            body.update(status="completed", exit_code=exit_code, aggregated_output=f"exit {exit_code}")
+        return json.dumps({"type": event_type, "item": body})
+
+    cb = make_stream_progress_callback(_RecordingSink())
+    with command_record.capture("engineer-r1") as record:
+        for exit_code in (1, 0):  # an auth replay starts a second CLI process
+            cb("engineer-r1.stdout", json.dumps({"type": "thread.started", "thread_id": "t"}))
+            cb("engineer-r1.stdout", item("item.started"))
+            cb("engineer-r1.stdout", item("item.completed", exit_code))
+
+    runs = record.runs()
+    assert len(runs) == 2
+    assert [run.exit_code for run in runs] == [1, 0]
+    assert not any(run.conflicting or run.unverified for run in runs)
+
+
+def test_command_results_survive_a_sink_that_keeps_no_progress() -> None:
+    """Under signal verbosity the event log drops most command rows; the Reviewer's record does not."""
+    from argus.core import command_record
+
+    class _DroppingSink(_RecordingSink):
+        def handle_event(self, event: dict[str, Any]) -> None:
+            if event.get("type") != "engineer.progress":
+                super().handle_event(event)
+
+    cb = make_stream_progress_callback(_DroppingSink())
+    with command_record.capture("engineer-r1") as record:
+        cb("engineer-r1.stdout", _tool_start_line("bash", {"command": "cargo test"}, call_id="s1"))
+        cb("engineer-r1.stdout", _complete_line("s1", 0, "test result: ok. 12 passed; 0 failed"))
+
+    [run] = record.runs()
+    assert run.exit_code == 0 and "12 passed" in run.output
+
+
+def test_codex_command_keeps_failure_and_summary_lines_not_its_banner() -> None:
+    from argus.core import command_record
+
+    output = "\n".join([
+        "============ test session starts ============", "platform linux -- Python 3.12",
+        "rootdir: /app", "collected 7 items", "tests/test_a.py F......", "=== FAILURES ===",
+        "E   AssertionError: 3 != 2", "=== short test summary info ===",
+        "FAILED tests/test_a.py::test_x - AssertionError", "1 failed, 6 passed in 0.4s",
+    ])
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    with command_record.capture("engineer-r1") as record:
+        cb("engineer-r1.stdout", json.dumps({"type": "item.completed", "item": {
+            "id": "item_3", "type": "command_execution", "command": "pytest -q",
+            "status": "completed", "exit_code": 1, "aggregated_output": output,
+        }}))
+
+    [event] = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert "AssertionError: 3 != 2" in event["output_excerpt"]
+    assert event["output_excerpt"].endswith("1 failed, 6 passed in 0.4s")
+    assert "test session starts" not in event["output_excerpt"]
+    [run] = record.runs()
+    assert run.call_id.endswith(":item_3") and run.exit_code == 1
+    assert "FAILED tests/test_a.py::test_x" in run.output
+
+
 def test_manager_stream_is_operator_visible() -> None:
     """The Manager drives the operator's own turn — its work must be narrated."""
     for label in ("simple-1", "chat-1", "manager-frontdoor-classify", "router-classify"):

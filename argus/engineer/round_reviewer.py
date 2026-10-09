@@ -19,6 +19,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from ..core.command_record import backend_records_command_results
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.operator_messages import uses_cjk
@@ -358,6 +359,9 @@ class RoundReviewerMixin:
                     working_dir=str(workdir),
                     artifact_root=str(workdir),
                     round_started_ts=state.round_started_wall,
+                    engineer_records_commands=backend_records_command_results(
+                        getattr(self, "engineer_runner", None)
+                    ),
                 ),
                 prev_review_summary=_previous_review_summary(state),
                 # Host-gathered round evidence (e.g. a vertical's spec checks):

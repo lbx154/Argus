@@ -724,9 +724,18 @@ def round_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
 
 
 def round_log_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
-    """The host log of the Engineer's actions this round (:mod:`round_log`), in the Reviewer's slot."""
+    """What the host saw of the Engineer's round (:mod:`round_log`), in the Reviewer's slot.
+
+    The calls come from host memory; without them only the host's own event
+    log for the mission is read, never a file near the mission packet.
+    """
     try:
-        text = round_log.render_round_log(request.workdir, request.life_dir, request.round_index)
+        text = round_log.render_round_log(
+            request.workdir, request.round_index,
+            runs=getattr(request, "command_runs", ()) or (),
+            events_path=getattr(request, "events_path", None),
+            dropped=int(getattr(request, "command_runs_dropped", 0) or 0),
+        )
     except Exception:  # noqa: BLE001 - evidence must never break a round
         return None
     return RoundEvidence(reviewer_text=text) if text else None

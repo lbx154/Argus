@@ -23,7 +23,7 @@ from ..core.operator_messages import uses_cjk
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.stop_kinds import StopKind, normalize_stop_kind
-from .tools import review_action_tools
+from .tools import review_action_tools, reviewer_evidence_mode
 
 log = logging.getLogger(__name__)
 
@@ -647,6 +647,9 @@ class ReviewerConfig:
     )
     # Standalone reviews discover persisted policy; mission callers supply theirs.
     workflow_mode: str | None = None
+    # Whether the Engineer's backend reports each command's exit code, so the
+    # host holds a record a read-only Reviewer can weigh.
+    engineer_records_commands: bool = False
 
 
 def _load_wiki_curator_skill_if_present(
@@ -824,6 +827,9 @@ class Reviewer:
             workflow_mode=config.workflow_mode,
             round_started_ts=config.round_started_ts,
             previous_findings=previous_findings,
+            evidence_mode=reviewer_evidence_mode(
+                self.runner, engineer_records_commands=config.engineer_records_commands,
+            ),
         )
         venue_policy = ""
         if venue_required:
@@ -1069,6 +1075,7 @@ class Reviewer:
         workflow_mode: str | None = None,
         round_started_ts: float | None = None,
         previous_findings: str = "",
+        evidence_mode: str = "",
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -1108,6 +1115,7 @@ class Reviewer:
             workflow_mode=workflow_mode,
             round_started_ts=round_started_ts,
             previous_findings=previous_findings,
+            evidence_mode=evidence_mode,
         )
 
     def _build_prompt(self, **kwargs: Any) -> str:

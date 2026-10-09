@@ -27,12 +27,65 @@ metrics, and readable provenance; ignore lower-level identifier adjudication.
 # task spent five rounds and most of its cost that way). Both roles keep their
 # judgment; what changes is the evidence they reach for: an executable check
 # whose outcome does not depend on reading the masked span.
-MASKED_DISPLAY_REVIEW_RULE = (
-    "`******` or `<REDACTED:…>` is display masking: it proves neither a defect "
-    "nor a fix, and nobody can show past it. Settle what it hides with a "
-    "rerunnable assertion on a placeholder value that you rerun yourself; the "
-    "Engineer's cited result is not that check."
+#
+# Which check the Reviewer can reach depends on its tools and on what the host
+# records. A Reviewer that can run commands reruns it. Most Reviewer surfaces
+# only read and search; told to rerun anyway, one A/B arm's Reviewer refused
+# the work in 13 verdicts and asked for an execution surface no role could
+# grant. A read-only Reviewer weighs what the host recorded of a run when the
+# Engineer's backend reports exit codes. That record is what the agent CLI's
+# stream reported, not proof, so the Reviewer still reads what the command ran. Where the
+# backend reports none, the Reviewer asks for evidence in a form it can read.
+# No form accepts the Engineer's word alone.
+EVIDENCE_EXECUTE = "execute"
+EVIDENCE_RECORDED = "recorded"
+EVIDENCE_READ = "read"
+
+_MASKED_DISPLAY = (
+    "`******` or `<REDACTED:…>` is display masking that proves neither a defect "
+    "nor a fix; nobody can show past it, so settle it the same way, with a "
+    "rerunnable assertion on a placeholder value."
 )
+_NOT_EVIDENCE = "the Engineer's cited claim alone is not evidence."
+REVIEW_EVIDENCE_RULE_EXECUTING = (
+    "You can run commands: rerun the decisive check yourself; " + _NOT_EVIDENCE
+    + " If the sandbox blocks the rerun (write or network denied) or your "
+    "command tool is unavailable, judge from recorded runs and your own reading "
+    "instead. " + _MASKED_DISPLAY
+)
+REVIEW_EVIDENCE_RULE_READ_ONLY = (
+    "You can read and search, not run commands; never ask for an execution tool. "
+    "Judge from host-recorded runs and your own reading of code and tests; "
+    + _NOT_EVIDENCE + " A record shows what the agent CLI reported, not proof: "
+    "read the test or script it ran, and weigh pipes, `|| true`, test selection, "
+    "checks edited this round, and conflicting or unverified results. "
+    "An Engineer-written check counts only once you have read it. If that cannot "
+    "settle it, ask the Engineer for one named check whose run the host records. "
+    + _MASKED_DISPLAY
+)
+REVIEW_EVIDENCE_RULE_UNRECORDED = (
+    "You can read and search, not run commands; never ask for an execution tool. "
+    "Judge from your own reading of code and tests and the Engineer's evidence; "
+    + _NOT_EVIDENCE + " If that cannot settle it, ask for the decisive evidence "
+    "in a form you can read, such as an output file in the workspace, and read "
+    "what produced it. " + _MASKED_DISPLAY
+)
+_RULES = {
+    EVIDENCE_EXECUTE: REVIEW_EVIDENCE_RULE_EXECUTING,
+    EVIDENCE_RECORDED: REVIEW_EVIDENCE_RULE_READ_ONLY,
+    EVIDENCE_READ: REVIEW_EVIDENCE_RULE_UNRECORDED,
+}
+
+
+def review_evidence_rule(mode: str) -> str:
+    """The Reviewer's evidence rule for its tools and what the host records.
+
+    ``mode`` is :data:`EVIDENCE_EXECUTE`, :data:`EVIDENCE_RECORDED` or
+    :data:`EVIDENCE_READ`; anything else gets the most cautious read-only form.
+    """
+    return _RULES.get(mode, REVIEW_EVIDENCE_RULE_UNRECORDED)
+
+
 MASKED_DISPLAY_ENGINEER_RULE = (
     "If the review disputes text a display masks (`******`, `<REDACTED:…>`), "
     "restating the fix cannot help: add a rerunnable test asserting the behavior "
@@ -109,11 +162,17 @@ def has_material_blocker(value: object) -> bool:
 
 
 __all__ = [
+    "EVIDENCE_EXECUTE",
+    "EVIDENCE_READ",
+    "EVIDENCE_RECORDED",
     "MASKED_DISPLAY_ENGINEER_RULE",
-    "MASKED_DISPLAY_REVIEW_RULE",
     "MODEL_INTEGRITY_BOUNDARY",
+    "REVIEW_EVIDENCE_RULE_EXECUTING",
+    "REVIEW_EVIDENCE_RULE_READ_ONLY",
+    "REVIEW_EVIDENCE_RULE_UNRECORDED",
     "contains_integrity_judgment",
     "has_material_blocker",
+    "review_evidence_rule",
     "sanitize_model_judgment_text",
     "sanitize_model_visible_text",
 ]
