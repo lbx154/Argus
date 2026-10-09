@@ -254,3 +254,74 @@ def test_host_watchdog_observes_real_child_memory_and_threads():
     finally:
         child.terminate()
         child.wait(timeout=5)
+
+
+@pytest.mark.parametrize('reason', ['memory', 'process/thread', 'resource inspection'])
+def test_transient_runtime_limits_exit_for_automatic_recovery(reason):
+    import subprocess
+    import sys
+
+    from deploy.trial.native_runtime import stop_for_limit
+
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+    with pytest.raises(SystemExit) as result:
+        stop_for_limit(child, reason)
+    assert result.value.code == 75
+    assert child.poll() is not None
+
+
+def test_full_storage_does_not_restart_in_a_loop():
+    import subprocess
+    import sys
+
+    from deploy.trial.native_runtime import stop_for_limit
+
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+    assert stop_for_limit(child, 'workspace storage') is None
+    assert child.poll() is not None
+
+
+def test_unavailable_workspace_shows_retry_page_and_preserves_allowance(config, ledger):
+    client = TestClient(portal_app(config, ledger), base_url='https://preview.example')
+    ledger.settle(ledger.reserve('alice', 1), 0.25)
+    client.post('/login', data={'invite': 'invite-a'}, follow_redirects=False)
+    response = client.get('/')
+    assert response.status_code == 503
+    assert response.headers['content-type'].startswith('text/html')
+    assert response.headers['retry-after'] == '5'
+    assert 'http-equiv="refresh" content="5"' in response.text
+    assert '文件和试用余额已保留' in response.text
+    assert client.get('/trial/budget').json()['remaining_usd'] == 9.75
+    response = client.get('/api/projects')
+    assert response.status_code == 503 and response.headers['retry-after'] == '5'
+    cookie = COOKIE + '=' + client.cookies.get(COOKIE)
+    with client.websocket_connect('wss://preview.example/api/projects/s-test/stream', headers={'Origin': 'https://preview.example', 'Cookie': cookie}) as ws:
+        from starlette.websockets import WebSocketDisconnect
+        with pytest.raises(WebSocketDisconnect) as result:
+            ws.receive_json()
+        assert result.value.code == 1013
+
+
+def test_watchdog_accepts_normal_multirole_copilot_memory():
+    import os
+    from types import SimpleNamespace
+
+    from deploy.trial.native_runtime import ResourceWatchdog
+
+    class ClientProcess:
+        def __init__(self, pid, memory, threads):
+            self.pid, self.memory, self.thread_count = pid, memory, threads
+        def children(self, recursive):
+            return [ClientProcess(2, 1100 * 1024**2, 100)]
+        def memory_info(self):
+            return SimpleNamespace(rss=self.memory)
+        def num_threads(self):
+            return self.thread_count
+        def cpu_times(self):
+            return SimpleNamespace(user=0, system=0, children_user=0, children_system=0)
+
+    monitor = ResourceWatchdog(os.getpid())
+    monitor.process = ClientProcess(1, 1200 * 1024**2, 99)
+    assert monitor.exceeded() == ''  # The previously observed 2.2 GiB / 199-thread case must remain usable.
+    monitor.process.memory = 9 * 1024**3
+    assert monitor.exceeded() == 'memory'

@@ -59,6 +59,8 @@ def sandbox_command(config: dict, tenant: str, command: list[str] | None = None)
         "http_proxy": "http://127.0.0.1:9012", "https_proxy": "http://127.0.0.1:9012",
         "NO_PROXY": "localhost,127.0.0.1", "no_proxy": "localhost,127.0.0.1",
         "ARGUS_SKILL_MAX_ACTIVE_DAEMONS": "1", "ARGUS_SKILL_RESEARCH_BUDGET": "2",
+        "ARGUS_SKILL_MANAGER_WARM_CONTEXT_LIMIT": "2",
+        "ARGUS_SKILL_MANAGER_WARM_CONTEXT_IDLE_SECONDS": "180",
     }
     for knob in ("FRONTDOOR_MODEL", "PLAN_PREVIEW_MODEL", "BOUNDED_DAG_MODEL", "REWRITE_MODEL"):
         env["ARGUS_SKILL_" + knob] = MODEL
@@ -97,7 +99,7 @@ class ResourceWatchdog:
     Account the entire sandbox process tree, including threads. Stop it on
     memory/process excess or sustained CPU excess. Limits stay outside guests.
     """
-    def __init__(self, pid: int, *, memory_bytes: int = 2 * 1024**3, tasks: int = 256, cpu_core: int | None = None):
+    def __init__(self, pid: int, *, memory_bytes: int = 8 * 1024**3, tasks: int = 512, cpu_core: int | None = None):
         import psutil
 
         self.process = psutil.Process(pid)
@@ -169,6 +171,24 @@ def storage_exceeded(directory: str) -> bool:
     return False
 
 
+def stop_for_limit(child: subprocess.Popen, reason: str) -> None:
+    """Release a crowded runtime and let systemd restart transient limits.
+
+    Storage remains on disk, so restarting a full workspace would loop.
+    Memory and processes are released by stopping the namespace; exit 75
+    makes Restart=on-failure bring the web workspace back without resetting
+    either its files or the independent model allowance.
+    """
+    child.terminate()
+    try:
+        child.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        child.kill()
+        child.wait()
+    if reason != "workspace storage":
+        raise SystemExit(75)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=["launch", "inside", "exec"])
@@ -202,13 +222,8 @@ def main():
                         reason = "workspace storage"
                 if reason:
                     print(f"Trial {reason} limit reached; pausing runtime. RSS={watchdog.memory_bytes} threads={watchdog.threads}", flush=True)
-                    child.terminate()
-                    try:
-                        child.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        child.kill()
-                        child.wait()
-                    return  # A clean exit requires an operator restart.
+                    stop_for_limit(child, reason)
+                    return
                 time.sleep(0.5 if args.mode == "launch" else 0.1)
             raise SystemExit(child.returncode)
 

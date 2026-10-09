@@ -56,14 +56,22 @@ ports 80/443, rejecting private networks and metadata endpoints. Shell tools
 that use the configured HTTP/HTTPS proxies can access public internet resources.
 Tools needing direct sockets are unavailable.
 
-The user services request 2 GiB memory, one CPU and 256 task limits per runtime.
+The user services request 8 GiB memory, one CPU and 512 task limits per runtime.
 Some user managers have no delegated resource controllers. An independent
 host-side watchdog always samples aggregate process-tree RSS and thread counts
-at 0.5-second intervals, pausing above 2 GiB / 256 threads. A per-runtime CPU
+at 0.5-second intervals, pausing above 8 GiB / 512 threads. A per-runtime CPU
 core is assigned before startup and the watchdog reasserts every thread's CPU
 affinity, allowing normal work to finish within its capacity. Memory/process
 checks allow short bursts and are not equivalent to kernel cgroup quotas.
-Operator-only logs are retained in the private deployment directory. Root and device directories are
+Operator-only logs are retained in the private deployment directory.
+Keep at most two warm Manager contexts, expiring inactive contexts after three
+minutes. Native Copilot clients for classification, tools and multiple roles
+can exceed 2 GiB in ordinary use; the 8 GiB allowance accommodates this without
+changing the $50 model budget. Memory/thread stops exit with temporary-failure
+status 75 so systemd restarts the runtime after five seconds (up to four starts
+per minute). Storage stops require operator cleanup. Files and the model ledger
+survive these restarts. The portal displays a retrying page while the runtime
+is unavailable. Root and device directories are
 read-only; temporary/shared-memory files use each tenant's monitored disk
 directories. Files have a 32 MiB size limit. A 200 MiB / 10,000-entry workspace monitor pauses
 an oversized runtime; this monitor is not an operating-system disk quota.
