@@ -64,6 +64,33 @@ class ReviewActions:
             fields: dict[str, Any] = {
                 "review": {"type": "string", "minLength": 1, "description": "Your complete natural-language review, including evidence and any next steps. No template or status footer."},
                 "forward_progress": {"type": "boolean", "description": "Whether this round moved toward the operator's goal."},
+                "manager_attention": {
+                    "type": "object",
+                    "description": (
+                        "Does the course need the Manager now: stuck, looping or drifting, "
+                        "plan doubt, evidence you cannot observe, agreement on something "
+                        "unverified, or scope or authority? When unsure, needed."
+                    ),
+                    "properties": {
+                        "verdict": {"enum": ["needed", "not_needed"]},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["verdict", "reason"],
+                    "additionalProperties": False,
+                },
+                "learning": {
+                    "type": "object",
+                    "description": (
+                        "Is anything from this task worth keeping for later work: a failure, "
+                        "a correction, a surprise, a new technique, a reusable pattern?"
+                    ),
+                    "properties": {
+                        "verdict": {"enum": ["worth_reflecting", "nothing_new"]},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["verdict", "reason"],
+                    "additionalProperties": False,
+                },
                 "research_result": research,
                 "session_signal": {
                     "type": "object",
@@ -171,6 +198,11 @@ class ReviewActions:
         )
         if "forward_progress" in payload:
             decision.planner_report["forward_progress"] = payload["forward_progress"]
+        for key in ("manager_attention", "learning"):
+            judged = payload.get(key)
+            if isinstance(judged, dict):
+                decision.planner_report[key] = judged["verdict"]
+                decision.planner_report[f"{key}_reason"] = str(judged.get("reason") or "")[:500]
         if action == "replan_review":
             decision.planner_report.update(
                 plan_signal="reconsider", challenge=review,

@@ -288,3 +288,30 @@ def test_native_validation_tools_can_query_and_cancel_without_deciding(tmp_path,
             assert actions.decision is None
         else:
             assert actions.decision.status == "continue"
+
+
+@pytest.mark.parametrize("action", ["approve_review", "revise_review"])
+def test_reviewer_judges_manager_attention_and_learning_on_the_verdict(action):
+    actions = ReviewActions()
+    actions.dispatch(action, {
+        "review": "The fixture now proves the header.",
+        "manager_attention": {"verdict": "not_needed", "reason": "Clear repair under way."},
+        "learning": {"verdict": "worth_reflecting", "reason": "A masked display hid the value."},
+    })
+    report = actions.decision.planner_report
+    assert report["manager_attention"] == "not_needed"
+    assert report["manager_attention_reason"] == "Clear repair under way."
+    assert report["learning"] == "worth_reflecting"
+    payload = actions.decision.to_event_payload()
+    assert payload["manager_attention"] == "not_needed"
+    assert payload["learning"] == "worth_reflecting"
+    assert payload["learning_reason"] == "A masked display hid the value."
+
+
+def test_the_judgments_are_optional_and_closed_vocabularies():
+    actions = ReviewActions()
+    actions.dispatch("revise_review", {"review": "Repair grouping."})
+    assert "manager_attention" not in actions.decision.planner_report
+    assert "manager_attention" not in actions.decision.to_event_payload()
+    with pytest.raises(ValueError):
+        actions.dispatch("revise_review", {"review": "x", "manager_attention": {"verdict": "maybe", "reason": "?"}})

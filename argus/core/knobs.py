@@ -224,7 +224,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SAFE_MODE", "off", "extra-conservative guardrails", "lifecycle", cockpit=True),
     # --- learning (what Argus keeps from missions and answers) ---
     Knob("ARGUS_SKILL_REFLECTION", "1", "after each mission, look back once and keep at most one lesson page, two fact pages and one procedure when something durable was learned", "learning", cockpit=True),
-    Knob("ARGUS_SKILL_REFLECTION_ROUTINE_BATCH", "3", "routine completions (accepted at the first review, no failure) are reflected on together once this many have finished; failures and corrected missions are always reflected on at once; 1 reflects after every mission", "learning", cockpit=True),
     Knob("ARGUS_SKILL_REFLECTION_MODEL", "auto", "model for the post-mission reflection and answer learning; auto uses the cheap front-door model", "models", cockpit=True),
     Knob("ARGUS_SKILL_ANSWER_LEARNING", "1", "after a researched chat answer, keep a survey page with its sources and a date to re-verify", "learning"),
     Knob("ARGUS_SKILL_CONSOLIDATE_INTERVAL_S", "3600", "seconds between passes that rebuild a vertical's shared knowledge index and recompile its principles from repeated lessons", "learning"),
@@ -303,7 +302,6 @@ _NON_NEGATIVE_INT_KNOBS = frozenset(
         "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
         "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
         "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
-        "ARGUS_SKILL_REFLECTION_ROUTINE_BATCH",
     }
 )
 _NON_NEGATIVE_FLOAT_KNOBS = frozenset({

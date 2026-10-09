@@ -1564,13 +1564,14 @@ class MissionExecutionSettlementMixin:
         only gathers the facts it needs and hands over the project's event
         sink. Nothing here changes the mission result.
         """
-        from ..reflection import is_routine_completion, reflect_after_mission
+        from ..reflection import reflect_after_mission
         from ._evolution import _project_state_root
 
         item, outcome = state.item, state.outcome
         reviewed_fact = getattr(self, "_pending_reviewed_fact", None)
         self._pending_reviewed_fact = None
         review_status = str(getattr(outcome, "final_review_status", "") or "")
+        final_report = getattr(outcome, "final_planner_report", {}) or {}
         workspace = Path(state.execution_workdir or self._project_workdir())
         manager_decision = getattr(item, "manager_decision", {}) or {}
         vertical = (
@@ -1612,16 +1613,11 @@ class MissionExecutionSettlementMixin:
             emit=self._emit,
             elapsed_s=float(state.elapsed or 0.0),
             rounds=int(state.rounds or 0),
-            routine=is_routine_completion(
-                success=bool(
-                    state.success and not state.iteration_requeued and not state.replan_requested
-                ),
-                status=str(state.status or ""),
-                review_status=review_status,
-                rounds=int(state.rounds or 0),
-                stop_kind=str(getattr(state.stop_kind, "value", state.stop_kind) or ""),
-            ),
             reviewed_fact=reviewed_fact,
+            learning=str(final_report.get("learning") or "") if isinstance(final_report, dict) else "",
+            mission_accepted=bool(
+                state.success and not state.iteration_requeued and not state.replan_requested
+            ),
         )
 
     def _build_settled_experience(self, state: _MissionRunState) -> Any:

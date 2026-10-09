@@ -280,6 +280,10 @@ class ReviewDecision:
             ("challenge", "plan_challenge"),
             ("alternative", "plan_alternative"),
             ("authority_impact", "authority_impact"),
+            ("manager_attention", "manager_attention"),
+            ("manager_attention_reason", "manager_attention_reason"),
+            ("learning", "learning"),
+            ("learning_reason", "learning_reason"),
         ):
             value = str(report.get(source_key) or "").strip()
             if value:

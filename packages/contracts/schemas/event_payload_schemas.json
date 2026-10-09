@@ -1741,6 +1741,26 @@
         },
         "failure_cause": {
           "type": "string"
+        },
+        "manager_attention": {
+          "type": "string",
+          "enum": [
+            "needed",
+            "not_needed"
+          ]
+        },
+        "manager_attention_reason": {
+          "type": "string"
+        },
+        "learning": {
+          "type": "string",
+          "enum": [
+            "worth_reflecting",
+            "nothing_new"
+          ]
+        },
+        "learning_reason": {
+          "type": "string"
         }
       }
     },

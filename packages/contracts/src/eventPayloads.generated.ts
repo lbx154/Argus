@@ -476,6 +476,10 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "stop_kind"?: "budget_exhausted" | "cost_unreconciled" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "failure_kind"?: string;
   "failure_cause"?: string;
+  "manager_attention"?: "needed" | "not_needed";
+  "manager_attention_reason"?: string;
+  "learning"?: "worth_reflecting" | "nothing_new";
+  "learning_reason"?: string;
 }
 
 export interface RoundSecretRedactedEvent extends EventMsg {

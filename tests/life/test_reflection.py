@@ -814,8 +814,9 @@ def test_settlement_hands_the_mission_facts_to_reflection(
     assert captured["host_round_log"] == ""
     assert captured["stop_reason"].startswith("status=done;")
     assert captured["rounds"] == 1
-    # Accepted at its first review with nothing going wrong: a routine completion.
-    assert captured["routine"] is True
+    assert captured["mission_accepted"] is True
+    # The final review gave no learning judgment, so reflection is not skipped.
+    assert captured["learning"] == ""
     assert "reviewed_fact" in captured
     assert captured["elapsed_s"] >= 0.0
     assert captured["emit"] == supervisor._emit
@@ -917,150 +918,118 @@ def test_answer_prompt_defaults_to_project_scope(tmp_path: Path) -> None:
     assert "`WROTE: nothing`" in prompt
 
 
-# --------------------------------------------------------------------------- routine batching
+# --------------------------------------------------------------------------- adaptive reflection and reviewed facts
 
 
 @dataclass
 class _ReplyBackend(_Backend):
-    """A stand-in model that answers with the given text."""
+    """A stand-in model whose messages are given; the last one is its final message."""
 
-    reply: str = "WROTE: nothing"
+    replies: list[str] = field(default_factory=lambda: ["WROTE: nothing"])
 
     def run_exec(self, *, prompt: str, options: Any, run_label: str, resume_thread_id=None):
         result = super().run_exec(prompt=prompt, options=options, run_label=run_label)
-        result.agent_messages = [self.reply]
+        if run_label == "manager.reviewed_facts":
+            result.agent_messages = [json.dumps({"append": False})]
+        else:
+            result.agent_messages = list(self.replies)
         return result
 
 
-@pytest.mark.parametrize(("kwargs", "routine"), [
-    ({}, True),
-    ({"success": False}, False),
-    ({"status": "error"}, False),
-    ({"review_status": "continue"}, False),
-    ({"review_status": ""}, False),
-    ({"rounds": 2}, False),
-    ({"rounds": 0}, False),
-    ({"stop_kind": "provider_unavailable"}, False),
-])
-def test_only_a_clean_first_review_acceptance_is_routine(kwargs, routine) -> None:
-    base = dict(success=True, status="done", review_status="done", rounds=1, stop_kind="none")
-    assert reflection.is_routine_completion(**{**base, **kwargs}) is routine
-
-
-def test_routine_completions_are_held_then_reflected_on_together(roots: _Roots) -> None:
-    backend = _ReplyBackend()
-
-    first = roots.reflect(backend, mission_id="m-a", title="Count log severities", rounds=1, routine=True)
-    second = roots.reflect(backend, mission_id="m-b", title="Summarize the release notes", rounds=1, routine=True)
-
-    assert "held" in first["skipped"] and first["deferred"] == 1
-    assert second["deferred"] == 2
-    assert backend.calls == []
-
-    third = roots.reflect(backend, mission_id="m-c", rounds=1, routine=True)
-
-    assert third["skipped"] == "" and sorted(third["batched"]) == ["m-a", "m-b"]
-    assert len(backend.calls) == 1
-    prompt = backend.calls[0]["prompt"]
-    assert "Earlier routine completions" in prompt
-    assert "Count log severities" in prompt and "Summarize the release notes" in prompt
-    receipt = json.loads((roots.life / ".argus" / "REFLECTED.json").read_text(encoding="utf-8"))
-    assert {"m-a", "m-b", "m-c"} <= set(receipt["missions"])
-    assert receipt["missions"]["m-a"]["batched_into"] == "m-c"
-    assert not (roots.life / ".argus" / "REFLECTION_DEFERRED.json").exists()
-
-
-def test_a_corrected_or_failed_mission_reflects_at_once_with_held_ones_folded_in(roots: _Roots) -> None:
-    backend = _ReplyBackend()
-    roots.reflect(backend, mission_id="m-a", title="Count log severities", rounds=1, routine=True)
-
-    result = roots.reflect(backend, mission_id="m-fixed", review_status="done", rounds=3, routine=False)
-
-    assert result["skipped"] == "" and result["batched"] == ["m-a"]
-    assert len(backend.calls) == 1
-    assert "Count log severities" in backend.calls[0]["prompt"]
-
-
-def test_a_failed_batched_call_keeps_the_held_missions(roots: _Roots) -> None:
-    roots.reflect(_ReplyBackend(), mission_id="m-a", rounds=1, routine=True)
-
-    roots.reflect(_ReplyBackend(exit_code=1, fatal_error="provider down"), mission_id="m-b", rounds=2)
-
-    held = json.loads((roots.life / ".argus" / "REFLECTION_DEFERRED.json").read_text(encoding="utf-8"))
-    assert [entry["mission_id"] for entry in held["missions"]] == ["m-a"]
-
-
-def test_a_batch_size_of_one_reflects_after_every_mission(roots: _Roots, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_REFLECTION_ROUTINE_BATCH", "1")
-    backend = _ReplyBackend()
-
-    assert roots.reflect(backend, rounds=1, routine=True)["skipped"] == ""
-    assert len(backend.calls) == 1
-
-
-# --------------------------------------------------------------------------- reviewed facts in the same call
-
-
-def _fact_candidate(roots: _Roots) -> dict[str, Any]:
+def _fact_candidate(**extra: Any) -> dict[str, Any]:
     from argus.manager.reviewed_facts import reviewed_fact_candidate
 
-    return reviewed_fact_candidate(
-        digest_path=roots.home / "reviewed-facts.md",
+    candidate = reviewed_fact_candidate(
         source_campaign="campaign-07",
         reviewer_reason="The held-out effect is confirmed.",
         research_result={"result_class": "verified_new_result", "evidence": ["result.json"]},
-        evidence_refs=["result.json", "log.txt"],
+        evidence_refs=extra.pop("refs", ["result.json", "log.txt"]),
     )
+    return {**candidate, **extra}
 
 
-def test_the_reviewed_fact_judgment_rides_in_the_reflection_call(roots: _Roots) -> None:
-    reply = (
+def _labels(backend: _Backend) -> list[str]:
+    return [call["run_label"] for call in backend.calls]
+
+
+def test_an_accepted_mission_the_reviewer_found_routine_is_not_reflected_on(roots: _Roots) -> None:
+    backend = _ReplyBackend()
+
+    result = roots.reflect(backend, learning="nothing_new", mission_accepted=True, reviewed_fact=_fact_candidate())
+
+    assert "nothing new" in result["skipped"]
+    # The reviewed fact is still judged, on its own.
+    assert _labels(backend) == ["manager.reviewed_facts"]
+
+
+@pytest.mark.parametrize(("learning", "accepted"), [
+    ("worth_reflecting", True), ("", True), ("nothing_new", False),
+])
+def test_reflection_runs_when_asked_unanswered_or_after_a_mission_that_was_not_accepted(
+    roots: _Roots, learning: str, accepted: bool,
+) -> None:
+    backend = _ReplyBackend()
+
+    assert roots.reflect(backend, learning=learning, mission_accepted=accepted)["skipped"] == ""
+    assert _labels(backend) == ["reflection"]
+
+
+def test_the_reviewed_fact_rides_in_the_reflection_call_from_its_final_message(roots: _Roots) -> None:
+    draft = 'REVIEWED_FACT: {"fact": "A draft claim.", "evidence_refs": ["result.json"]}'
+    final = (
         "WROTE: nothing\n"
-        'REVIEWED_FACT: {"source": "m-1", "fact": "The held-out effect survives a new seed.", '
+        'REVIEWED_FACT: {"fact": "The held-out effect survives a new seed.", '
         '"evidence_refs": ["result.json", "made-up.json"]}'
     )
-    backend = _ReplyBackend(reply=reply)
+    backend = _ReplyBackend(replies=[draft, final])
 
-    result = roots.reflect(backend, reviewed_fact=_fact_candidate(roots))
+    result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 
-    assert [call["run_label"] for call in backend.calls] == ["reflection"]
-    prompt = backend.calls[0]["prompt"]
-    assert "Cross-campaign reviewed-facts digest" in prompt and "verified_new_result" in prompt
-    assert "Allowed evidence refs:" in prompt and "- result.json" in prompt
-    assert result["reviewed_facts"] == ["m-1"]
+    assert _labels(backend) == ["reflection"]
+    assert result["reviewed_fact_recorded"] is True
     digest = (roots.home / "reviewed-facts.md").read_text(encoding="utf-8")
-    assert "The held-out effect survives a new seed." in digest
+    assert "The held-out effect survives a new seed." in digest and "A draft claim." not in digest
     assert "`result.json`" in digest and "made-up.json" not in digest
-    # The full record was readable during the call and is gone after it.
     assert not list(roots.home.glob("reviewed-fact-source-*.json"))
 
 
-def test_a_reflection_that_keeps_no_fact_appends_nothing(roots: _Roots) -> None:
-    roots.reflect(_ReplyBackend(reply="WROTE: nothing"), reviewed_fact=_fact_candidate(roots))
+def test_a_fact_only_in_a_draft_message_is_not_recorded(roots: _Roots) -> None:
+    draft = 'REVIEWED_FACT: {"fact": "A draft claim.", "evidence_refs": ["result.json"]}'
 
+    result = roots.reflect(_ReplyBackend(replies=[draft, "WROTE: nothing"]), reviewed_fact=_fact_candidate())
+
+    assert result["reviewed_fact_recorded"] is False
     assert not (roots.home / "reviewed-facts.md").exists()
 
 
-def test_a_held_routine_mission_carries_its_fact_into_the_batch(roots: _Roots) -> None:
-    roots.reflect(_ReplyBackend(), mission_id="m-a", rounds=1, routine=True, reviewed_fact=_fact_candidate(roots))
-    reply = (
-        "WROTE: nothing\n"
-        'REVIEWED_FACT: {"source": "m-a", "fact": "The effect holds on the held-out split.", "evidence_refs": ["log.txt"]}'
+def test_a_failed_reflection_still_judges_the_fact_on_its_own(roots: _Roots) -> None:
+    backend = _ReplyBackend(exit_code=1, fatal_error="provider down")
+
+    roots.reflect(backend, reviewed_fact=_fact_candidate())
+
+    assert _labels(backend) == ["reflection", "manager.reviewed_facts"]
+
+
+def test_the_digest_path_is_the_host_s_not_the_candidate_s(roots: _Roots, tmp_path: Path) -> None:
+    elsewhere = tmp_path / "elsewhere" / "digest.md"
+    final = 'WROTE: nothing\nREVIEWED_FACT: {"fact": "A kept fact.", "evidence_refs": ["log.txt"]}'
+
+    roots.reflect(_ReplyBackend(replies=[final]), reviewed_fact=_fact_candidate(digest_path=str(elsewhere)))
+
+    assert not elsewhere.exists()
+    assert "A kept fact." in (roots.home / "reviewed-facts.md").read_text(encoding="utf-8")
+
+
+def test_the_fact_section_and_its_refs_are_never_cut(roots: _Roots) -> None:
+    refs = [f"evidence/run-{index:03d}.json" for index in range(120)]
+    backend = _ReplyBackend()
+
+    roots.reflect(
+        backend, reviewed_fact=_fact_candidate(refs=refs),
+        objective="x" * 20_000, host_round_log="y" * 20_000, run_reality="z" * 20_000,
     )
-    backend = _ReplyBackend(reply=reply)
 
-    result = roots.reflect(backend, mission_id="m-b", rounds=2)
-
-    assert result["reviewed_facts"] == ["m-a"]
-    assert "Result from mission m-a" in backend.calls[0]["prompt"]
-    assert "The effect holds on the held-out split." in (roots.home / "reviewed-facts.md").read_text(encoding="utf-8")
-
-
-def test_without_a_reflection_call_the_fact_is_judged_on_its_own(roots: _Roots, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_REFLECTION", "0")
-    backend = _ReplyBackend(reply=json.dumps({"append": False}))
-
-    result = roots.reflect(backend, reviewed_fact=_fact_candidate(roots))
-
-    assert "ARGUS_SKILL_REFLECTION" in result["skipped"]
-    assert [call["run_label"] for call in backend.calls] == ["manager.reviewed_facts"]
+    prompt = backend.calls[0]["prompt"]
+    assert "Allowed evidence refs:" in prompt
+    assert all(f"- {ref}" in prompt for ref in refs)
+    assert "verified_new_result" in prompt

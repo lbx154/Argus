@@ -188,7 +188,6 @@ REVIEWED_FACT_CRITERIA = (
 
 def reviewed_fact_candidate(
     *,
-    digest_path: Path | str,
     source_campaign: str,
     reviewer_reason: str,
     research_result: Any,
@@ -201,7 +200,6 @@ def reviewed_fact_candidate(
     if not allowed or not isinstance(research_result, dict):
         return None
     return {
-        "digest_path": str(digest_path),
         "source_campaign": str(source_campaign or ""),
         "reviewer_reason": _clip(reviewer_reason, _REASON_MAX_CHARS),
         "summary": _distill_research_result(research_result),
@@ -211,7 +209,7 @@ def reviewed_fact_candidate(
 
 
 def append_judged_fact(
-    candidate: dict[str, Any], *, fact: Any, evidence_refs: Any,
+    candidate: dict[str, Any], *, digest_path: Path | str, fact: Any, evidence_refs: Any,
 ) -> bool:
     """Append a fact a model judged worth keeping, citing only the allowed refs."""
     prose = " ".join(str(fact or "").split())
@@ -224,12 +222,12 @@ def append_judged_fact(
         return False
     try:
         _append_entry(
-            Path(candidate["digest_path"]),
+            Path(digest_path),
             source_campaign=str(candidate.get("source_campaign") or ""),
             fact=prose,
             evidence_refs=selected,
         )
-    except (OSError, KeyError):
+    except OSError:
         log.warning("Could not append reviewed fact digest", exc_info=True)
         return False
     return True

@@ -85,7 +85,6 @@ class EvolutionMixin:
                 )
 
                 facts_kwargs = dict(
-                    digest_path=reviewed_facts_digest_path(self._budget_global_root()),
                     source_campaign=(source_campaign or str(self._project_workdir())),
                     reviewer_reason=reviewer_reason,
                     research_result=research_result,
@@ -93,11 +92,15 @@ class EvolutionMixin:
                 )
                 try:
                     if reflection_enabled():
-                        # The post-mission reflection makes this judgment in its
-                        # own call, so it costs no separate model request.
+                        # The post-mission reflection carries this judgment in its
+                        # own call, or runs it alone when it does not reflect.
                         self._pending_reviewed_fact = reviewed_fact_candidate(**facts_kwargs)
                     else:
-                        review_and_append_fact(self.runner, **facts_kwargs)
+                        review_and_append_fact(
+                            self.runner,
+                            digest_path=reviewed_facts_digest_path(self._budget_global_root()),
+                            **facts_kwargs,
+                        )
                 except Exception:  # noqa: BLE001 - facts never own settlement
                     log.warning("Manager reviewed-facts hook failed", exc_info=True)
 

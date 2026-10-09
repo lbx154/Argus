@@ -278,8 +278,7 @@ def test_running_review_schedules_supervision_before_the_mission_pipeline_finish
         with manager_pipeline_lock(tmp_path):
             supervisor.sink.handle_event({
                 "type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id,
-                "status": "continue", "reason": "The grouped mean check failed again",
-                "round_index": 2, "forward_progress": False,
+                "status": "continue", "reason": "The grouped mean check failed", "round_index": 1,
             })
             record = wait_for_receipt(tmp_path, "applied")
             assert record["decision"]["action"] == "steer"
@@ -327,8 +326,6 @@ def test_shutdown_bounds_an_uncooperative_backend_and_rejects_its_late_result(tm
 
 @pytest.mark.parametrize("remaining_work", ["none", "pending", "continuous", "issued"])
 def test_completed_finite_work_does_not_start_a_shutdown_bound_check(tmp_path, monkeypatch, remaining_work):
-    """A reviewed success with no task left has no course to steer, continuous or not:
-    the Planner judges what comes next, and its verdict triggers its own check."""
     from argus.manager import supervision
 
     backlog, item = project(tmp_path)
@@ -347,7 +344,7 @@ def test_completed_finite_work_does_not_start_a_shutdown_bound_check(tmp_path, m
             "type": EventType.LIFE_MISSION_COMPLETED, "item_id": item.id,
             "success": True, "status": "done",
         })
-        assert admitted is (remaining_work in {"pending", "issued"})
+        assert admitted is (remaining_work != "none")
         assert bool(dispatched) is admitted
         assert manager.runner.calls == []
     finally:

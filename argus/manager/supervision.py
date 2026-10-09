@@ -213,7 +213,20 @@ def _bare_named_lines(text: str) -> dict[str, str]:
 
 
 _ACTIONS = ("continue", "steer", "wait")
-_LEADING_ACTION = re.compile(r"^[`*_]*(continue|steer|wait)[`*_]*(?=$|[\s\u2014\u2013:;,.(])", re.IGNORECASE)
+# A verb counts only when a separator follows it (a colon, a dash or the end of
+# the line) and what follows does not negate or hedge it: "STEER \u2014 rerun the
+# fixture" is a decision, "Steer is not needed" and "wait and see" are not.
+_LEADING_ACTION = re.compile(
+    r"^[`*_]*(?P<verb>continue|steer|wait)[`*_]*"
+    r"(?:\s*$|\s*(?::|\u2014|\u2013|\s-\s)\s*(?P<rest>.*)$)",
+    re.IGNORECASE | re.DOTALL,
+)
+_HEDGE = re.compile(
+    r"^(?:not\b|no\b|never\b|unless\b|if\b|maybe\b|perhaps\b|unnecessary\b|"
+    r"isn't\b|is not\b|would not\b|wouldn't\b|\?)",
+    re.IGNORECASE,
+)
+_FIRST_VERB = re.compile(r"^[`*_]*(continue|steer|wait)\b", re.IGNORECASE)
 # A rescue reader for replies that put every field on one line
 # ("DECISION: STEER \u2014 ACTION: ... REASON: ... EVIDENCE_REFS: ...") or each
 # key alone on a line with its value below it. Only capitalised keys count,
@@ -251,22 +264,35 @@ def _rescued_fields(text: str) -> dict[str, str]:
             continue
         stop = marks[index + 1][0] if index + 1 < len(marks) else len(source)
         value = " ".join(source[end:stop].split()).strip().strip("`").strip()
-        value = value.rstrip("\u2014\u2013-;,|").strip()
+        # Trailing dashes separate fields; a trailing comma stays, so a verb
+        # followed by one ("STEER, ...") is never read as a clean decision.
+        value = value.rstrip("\u2014\u2013-|").strip()
         if value:
             found[key.lower()] = value
     return found
 
 
+def _leading_verb(text: Any) -> str:
+    match = _LEADING_ACTION.match(str(text or "").strip())
+    if match is None or _HEDGE.match((match.group("rest") or "").strip()):
+        return ""
+    return match.group("verb").lower()
+
+
 def _action_of(value: dict[str, Any]) -> str:
-    """The chosen action: an exact ACTION, else the verb a DECISION or ACTION leads with."""
+    """The chosen action: an exact ACTION, else the verb a DECISION or ACTION states.
+
+    A DECISION whose verb differs from the verb the ACTION text starts with is
+    a conflict, and no action is read from it.
+    """
     stated = str(value.get("action") or "").strip().lower()
     if stated in _ACTIONS:
         return stated
-    for key in ("decision", "action"):
-        match = _LEADING_ACTION.match(str(value.get(key) or "").strip())
-        if match:
-            return match.group(1).lower()
-    return stated
+    decided = _leading_verb(value.get("decision"))
+    first = _FIRST_VERB.match(str(value.get("action") or "").strip())
+    if decided and first and first.group(1).lower() != decided:
+        return "conflicting"
+    return decided or _leading_verb(value.get("action")) or stated
 
 
 def _decision(text: str) -> dict[str, Any]:
@@ -718,9 +744,11 @@ def _dispatch_pending() -> None:
             return
 
 
-#: A run of progressing review rounds is still looked at by the Manager at
-#: least this often, so slow drift behind "progress" verdicts is caught.
-REVIEW_CHECKPOINT_ROUNDS = 3
+#: Consecutive no-progress verdicts after which the Manager is asked even when
+#: the Reviewer did not ask; half the default stall limit, so it can still act.
+STALL_BACKSTOP_STREAK = 2
+#: Reviewer authority impacts that put the decision beyond the Engineer.
+_ESCALATED_AUTHORITY = frozenset({"manager_contract", "operator"})
 
 
 def _flag(value: Any) -> bool | None:
@@ -737,16 +765,61 @@ def _round(value: Any) -> int:
         return 0
 
 
+def _active_tasks(root: Path) -> list[Any]:
+    from ..life.memory import Backlog
+
+    return list(Backlog(root / "backlog.jsonl").active())
+
+
+def _safety_net(root: Path) -> str:
+    """Pending things a Reviewer cannot see from its round; never a judgment."""
+    if _latest_record(root).get("status") == "issued":
+        return "issued decision awaiting delivery"
+    if any(task.pending_question for task in _active_tasks(root)):
+        return "operator question pending"
+    return ""
+
+
+def _reviewer_signal(event: dict[str, Any]) -> str:
+    """A structured Reviewer signal that already means the Manager is wanted."""
+    plan_signal = str(event.get("plan_signal") or "").strip().lower()
+    if plan_signal and plan_signal != "continue":
+        return f"reviewer plan signal: {plan_signal}"
+    if str(event.get("plan_challenge") or "").strip():
+        return "reviewer challenges the plan"
+    if str(event.get("authority_impact") or "").strip().lower() in _ESCALATED_AUTHORITY:
+        return "decision beyond the engineer's authority"
+    if _flag(event.get("checkpoint_recommended")):
+        return "reviewer recommends a checkpoint"
+    signal = event.get("session_signal")
+    if isinstance(signal, dict) and str(signal.get("kind") or "").strip():
+        return "reviewer session signal"
+    if str(event.get("verification_obstacle") or "").strip():
+        return "evidence the reviewer cannot observe"
+    return ""
+
+
+def _attention_reason(event: dict[str, Any]) -> str:
+    """Whether the Reviewer asked for the Manager; absent means it did."""
+    attention = str(event.get("manager_attention") or "").strip().lower()
+    if attention == "not_needed":
+        return _reviewer_signal(event)
+    if attention == "needed":
+        why = " ".join(str(event.get("manager_attention_reason") or "").split())[:200]
+        return f"reviewer asks for the Manager: {why}" if why else "reviewer asks for the Manager"
+    return "reviewer did not say whether the Manager is needed"
+
+
 def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     """Why a mid-mission review needs the Manager's judgment, or "" when it does not.
 
-    A ``continue`` review already carries the Reviewer's concrete findings to the
-    Engineer's next round. A Manager call adds a decision only when something
-    the Reviewer reported calls for one: it is blocked or asks the operator,
-    its own verdict is unclear, a later round made no forward progress by the
-    Reviewer's judgment (a stall, or the same disagreement repeating), the
-    round budget is nearly spent, or the Manager has not looked for several
-    rounds. This only decides when to ask; the decision stays the model's.
+    The Reviewer, which already judges the round, says in ``manager_attention``
+    whether the course needs a Manager look, and its other structured signals
+    (a plan challenge, an authority question, a checkpoint, a session problem,
+    unobservable evidence) count as asking. Only safety nets it cannot see or
+    that are no judgment run regardless: a blocked review or operator question,
+    a missing or unusable verdict, and a pending Manager decision. A run of
+    no-progress verdicts reaches the Manager through ``round.stall``.
     """
     if event.get("status") == "blocked":
         return "blocked review"
@@ -754,53 +827,50 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
         return "operator question"
     if _flag(event.get("review_skipped")) or _flag(event.get("backend_unavailable")):
         return "review verdict unavailable"
-    round_index = _round(event.get("round_index"))
-    if round_index <= 0:
-        return "review round unknown"
-    progress = _flag(event.get("forward_progress"))
-    if round_index > 1 and progress is not True:
-        return "no forward progress after a correction round"
-    round_max = _round(event.get("round_max"))
-    if round_max > 0 and round_index >= round_max - 1:
-        return "round budget nearly spent"
-    latest = _latest_record(root)
-    if latest.get("status") == "issued":
-        return "issued decision awaiting delivery"
-    trigger = latest.get("trigger") if isinstance(latest.get("trigger"), dict) else {}
-    item_id = str(event.get("item_id") or "")
-    last_round = _round(trigger.get("round_index")) if item_id and trigger.get("item_id") == item_id else 0
-    if round_index - last_round >= REVIEW_CHECKPOINT_ROUNDS:
-        return "periodic checkpoint"
-    if any(task.pending_question for task in _active_tasks(root)):
-        return "operator question"
-    return ""
+    return _safety_net(root) or _attention_reason(event)
 
 
-def _active_tasks(root: Path) -> list[Any]:
-    from ..life.memory import Backlog
+def _latest_review(root: Path, item_id: str = "") -> dict[str, Any]:
+    from ..life.memory import _read_jsonl_tail_history
 
-    return list(Backlog(root / "backlog.jsonl").active())
+    for row in reversed(_read_jsonl_tail_history(root / "events.jsonl", 400)):
+        if row.get("type") == EventType.ROUND_REVIEW_COMPLETED and (
+            not item_id or row.get("item_id") == item_id
+        ):
+            return row
+    return {}
 
 
-def _no_course_to_steer(root: Path, event: dict[str, Any]) -> bool:
-    """A reviewed success with no remaining task leaves no Manager decision pending.
+def _settled_consult_reason(root: Path, event: dict[str, Any]) -> str | None:
+    """Whether a reviewed success or a project-done verdict needs the Manager.
 
-    Either the project is finished, or the Planner is about to judge the next
-    step; a Planner verdict that queues more work triggers supervision on its
-    own. A durable issued decision still needs delivery and keeps its check.
+    ``None`` means the event is not such a settlement. A bounded run that is
+    ending has no course to steer, and a check started now races orderly
+    daemon shutdown. Otherwise the final review's ``manager_attention`` decides,
+    as during the mission; without it the Manager looks.
     """
+    from ..daemon.state import read_continuous_state
+
     event_type = event.get("type")
+    continuous = read_continuous_state(root)
     if event_type == EventType.LIFE_MISSION_COMPLETED:
-        settled = event.get("success") is True and event.get("status") == "done"
+        if not (event.get("success") is True and event.get("status") == "done"):
+            return None
+        ending = not continuous.enabled
+        review = _latest_review(root, str(event.get("item_id") or ""))
     elif event_type == EventType.LIFE_PLANNER_VERDICT:
-        settled = event.get("project_done") is True and event.get("status") == "completed"
+        if not (event.get("project_done") is True and event.get("status") == "completed"):
+            return None
+        ending = not continuous.open_ended
+        review = _latest_review(root)
     else:
-        return False
-    return bool(
-        settled
-        and not _active_tasks(root)
-        and _latest_record(root).get("status") != "issued"
-    )
+        return None
+    net = _safety_net(root)
+    if net or _active_tasks(root):
+        return net or "work remains after the mission"
+    if ending:
+        return ""
+    return _attention_reason(review) if review else "no final review to consult"
 
 
 def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) -> bool:
@@ -811,18 +881,20 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
                               EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}
     relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}
     relevant |= event_type == EventType.LIFE_PHASE_STARTED and event.get("agent_layer") == "engineer" and int(event.get("round_index") or 0) > 1
+    relevant |= event_type == EventType.ROUND_STALL and _round(event.get("semantic_stall_streak")) >= STALL_BACKSTOP_STREAK
     if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
         return False
     project_root = Path(root)
-    # A finished success races orderly daemon shutdown and would only report a
-    # cancelled check right after a successful delivery; see _no_course_to_steer.
-    if _no_course_to_steer(project_root, event):
-        return False
     if event_type == EventType.ROUND_REVIEW_COMPLETED:
         reason = _review_consult_reason(project_root, event)
-        if not reason:
-            LOG.debug("Manager supervision not needed for a clear, progressing review")
-            return False
+    elif event_type == EventType.ROUND_STALL:
+        reason = f"{_round(event.get('semantic_stall_streak'))} rounds without forward progress"
+    else:
+        reason = _settled_consult_reason(project_root, event)
+    if reason == "":
+        LOG.debug("Manager supervision not requested for %s", event_type)
+        return False
+    if reason:
         event = {**event, "consult_reason": reason}
     key = str(Path(root).resolve())
     with _GUARD:
