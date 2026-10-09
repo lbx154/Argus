@@ -55,8 +55,8 @@ _DURABLE_WAIT_RULE = (
     "job, save the current checkpoint and give a brief progress update whose final "
     'line is `{"wait_for":"subagent","wait_id":"<task-id>"}`. '
     "Use the existing task ID, including for a job submitted during this same turn. "
-    "This yields to Argus's background monitor; it is not a completed milestone. "
-    "Do not append the normal decision "
+    "This yields to Argus's background monitor; it is not a completed milestone "
+    "or a handoff for another paper review. Do not append the normal decision "
     "footer after that wait line, sleep in a foreground polling loop, or relaunch "
     "the existing job. Argus resumes this Engineer task when the job changes "
     "state; inspect and validate its outputs before claiming completion."
@@ -80,21 +80,6 @@ def _long_experiment_rule() -> str:
         else _POSIX_LONG_EXPERIMENT_RULE
     )
     return " ".join((shell_rule, _ACCELERATOR_ADMISSION_RULE, _DURABLE_WAIT_RULE))
-
-
-def _standing_rules_section() -> str:
-    """The evidence and long-command rules every Engineer turn carries.
-
-    One section with the same bytes in the full and the continuation prompt,
-    so a resumed provider thread that already holds it receives a one-line
-    pointer instead of a second copy (``argus.engineer.round_prompt``).
-    """
-    return (
-        "## Performance evidence and long commands\n"
-        + _PERFORMANCE_DIAGNOSTIC_RULE
-        + "\n\n"
-        + _long_experiment_rule()
-    )
 
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:
@@ -236,11 +221,8 @@ def build_mission_prompt(
     )
     delta_sections: list[str] = []
     if next_action:
-        # The standing instructions and the review text are separate sections
-        # so a resumed session receives only the new review text; the
-        # instructions it already holds are elided as unchanged.
         delta_sections.append(
-            "## Acting on Reviewer guidance\n"
+            "## Reviewer guidance from prior round\n"
             "Build on the verified progress and address the following before declaring done. "
             "Final paper review can request high-impact improvements even after the minimum "
             "acceptance bar is met. Implement those changes and validate them, then return "
@@ -254,7 +236,6 @@ def build_mission_prompt(
             "satisfy a review: record the labeled evidence and its command in "
             "CHECKPOINT.md and hand back to the Reviewer asking it to resolve the "
             "discrepancy.\n\n"
-            "## Reviewer guidance from prior round\n"
             + sanitize_model_visible_text(next_action)
         )
     # Section order in both shapes below: what is the same for every mission
@@ -272,8 +253,9 @@ def build_mission_prompt(
                 "## Active vertical role\n"
                 + sanitize_model_visible_text(role_banner.strip())
             )
+        sections.append(_PERFORMANCE_DIAGNOSTIC_RULE)
         sections.append(ENGINEER_SOURCE_HANDOFF)
-        sections.append(_standing_rules_section())
+        sections.append(_long_experiment_rule())
         sections.append(
             "## Engineer service\n"
             "Manager set the scope and Planner assigned this task. Inspect only what "
@@ -327,9 +309,11 @@ def build_mission_prompt(
         "Web UI: test real Chromium and mobile.\n"
         "Use primary sources when external behavior matters. If repeated attempts fail, "
         "recheck the underlying assumption instead of making another cosmetic tweak.\n"
-        + ENGINEER_SOURCE_HANDOFF
+        + ENGINEER_SOURCE_HANDOFF + "\n"
+        + _PERFORMANCE_DIAGNOSTIC_RULE
+        + "\n"
+        + _long_experiment_rule()
     )
-    sections.append(_standing_rules_section())
     if learning_block:
         sections.append(learning_block)
     sections.append(
@@ -404,10 +388,6 @@ def build_mission_prompt(
 
         prompt = static_text + ("\n\n" + delta_text if delta_text else "")
         return append_operator_context(prompt, operator_context)
-    # Every section below that a resumed provider thread already holds with
-    # the same bytes (the standing rules, the voice, Durable learning) is
-    # replaced by a pointer at send time; only new text costs tokens on the
-    # tool steps that follow. The decision footer is always sent.
     compact = (
         "## Continuation turn\n"
         "Read CHECKPOINT.md, then execute the Reviewer next action. If your own labeled "
@@ -415,15 +395,16 @@ def build_mission_prompt(
         "record the evidence in CHECKPOINT.md and ask the Reviewer to resolve the "
         "discrepancy. Do not repeat an "
         "unchanged failure; use the most informative decisive diagnostic. The original task "
-        "still applies.\n\n"
-        + _standing_rules_section()
-        + "\n\n"
-        + RESEARCHER_VOICE
+        "still applies.\n"
+        + _PERFORMANCE_DIAGNOSTIC_RULE
+        + "\n"
+        + _long_experiment_rule()
         + "\n\n"
         "## Carrying context between rounds\n"
         "Use next_owner=operator only for an operator-owned choice; its question "
         "parks the task. Include operator_question and operator_options in that "
         "decision.\n\n"
+        + RESEARCHER_VOICE + "\n\n"
         + decision_footer_instruction(
             "MILESTONE_STATUS=done\n"
             "RESULT=one or two operator-facing sentences in the operator's language: "

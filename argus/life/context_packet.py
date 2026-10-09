@@ -168,16 +168,13 @@ def _latest_unreviewed_engineer(root: Path) -> tuple[dict[str, Any], Path | None
 
 def render_mission_brief(
     path: Path | str | None, *, include_engineer_account: bool = True,
-    include_review_text: bool = True,
 ) -> str:
     """Project canonical mission/frontier state into one compact role briefing.
 
     The projection selects named semantic fields only. It never reads a
     checkpoint or transcript and writes no state of its own. Unreviewed work is
     distinguished from the last reviewed state. A Reviewer that already receives
-    the current Engineer response can omit that duplicate account, and a
-    prompt that already carries the full review text can omit the brief's
-    abbreviated copies of it.
+    the current Engineer response can omit that duplicate account.
     """
     if not path:
         return ""
@@ -249,13 +246,11 @@ def render_mission_brief(
     if acceptance:
         lines.append(f"- Native check: {acceptance}")
 
-    reason = _brief_text(review.get("reason")) if include_review_text else ""
-    review_label = "Previous review" if pending_engineer else "Last review"
+    reason = _brief_text(review.get("reason"))
     if reason:
         result = f"{status}: {reason}" if status else reason
+        review_label = "Previous review" if pending_engineer else "Last review"
         lines.append(f"- {review_label}: {result}")
-    elif status and reviewed and not include_review_text:
-        lines.append(f"- {review_label}: {status} (full text in this prompt)")
     if pending_path is not None:
         lines.append(f"- Latest work awaiting review: `{pending_path}`")
     engineer_summary = _brief_text(
@@ -269,9 +264,8 @@ def render_mission_brief(
         if missing:
             label = "Previously missing condition" if pending_engineer else "Missing condition"
             lines.append(f"- {label}: " + "; ".join(missing))
-    next_action = (
-        _brief_text(review.get("next_action")) if include_review_text else ""
-    )
+    next_action = _brief_text(review.get("next_action"))
+    # The same text already appears as the review reason one line above.
     if next_action and next_action != reason:
         label = "Previously requested action" if pending_engineer else "Next action"
         lines.append(f"- {label}: {next_action}")

@@ -153,12 +153,6 @@ class RoleSessionCapsule:
     static_fingerprint: str = ""
     signal_kind: str = ""
     signal_detail: str = ""
-    # Digests of prompt sections the current provider thread has already been
-    # given in full. A resumed turn sends a one-line pointer instead of a
-    # byte-identical copy (see ``argus.engineer.round_prompt``); the list is
-    # tied to ``thread_id`` and is emptied whenever the thread changes.
-    delivered_sections: list[str] = field(default_factory=list)
-    pending_sections: list[str] = field(default_factory=list, repr=False)
     updated_at: float = 0.0
     path: Path | None = field(default=None, repr=False)
     action: str = field(default="fresh", repr=False)
@@ -221,11 +215,6 @@ class RoleSessionCapsule:
             capsule.static_fingerprint = str(payload.get("static_fingerprint") or "")
             capsule.signal_kind = str(payload.get("signal_kind") or "")
             capsule.signal_detail = str(payload.get("signal_detail") or "")
-            capsule.delivered_sections = [
-                str(item)
-                for item in (payload.get("delivered_sections") or [])
-                if str(item)
-            ]
         elif payload:
             capsule.action = "rotated"
             capsule.rotation_reason = f"{changed}_changed"
@@ -292,7 +281,6 @@ class RoleSessionCapsule:
         """
         self.persistence_error = ""
         try:
-            previous_thread = self.thread_id
             if self.action != "resumed":
                 self.turns = 0
                 self.input_tokens = 0
@@ -312,7 +300,6 @@ class RoleSessionCapsule:
                 if self.policy == "fresh"
                 else str(getattr(result, "thread_id", "") or "")
             )
-            self._settle_delivered_sections(previous_thread)
             if self.policy == "fresh":
                 return True
             self.decisive_output = redact_secrets_text(
@@ -339,23 +326,6 @@ class RoleSessionCapsule:
             )
             return False
 
-    def _settle_delivered_sections(self, previous_thread: str) -> None:
-        """Record what the provider thread now holds after one turn.
-
-        Sections staged for this turn count as delivered only on the thread
-        that received them. A resumed turn that came back on the same thread
-        adds them to what that thread already held; a new thread holds only
-        this turn's sections; no thread holds nothing.
-        """
-        pending = list(dict.fromkeys(self.pending_sections))
-        self.pending_sections = []
-        if not self.thread_id:
-            self.delivered_sections = []
-            return
-        keep = self.action == "resumed" and previous_thread == self.thread_id
-        held = self.delivered_sections if keep else []
-        self.delivered_sections = list(dict.fromkeys([*held, *pending]))[-200:]
-
     def signal(self, kind: str, detail: str = "") -> None:
         normalized = str(kind or "").strip().lower()
         if normalized not in ROLE_SESSION_SIGNALS:
@@ -370,7 +340,6 @@ class RoleSessionCapsule:
         self.thread_id = ""
         self.turns = 0
         self.input_tokens = 0
-        self.delivered_sections = []
         self.action = "rotated"
         self.rotation_reason = reason
         self.save()
@@ -423,7 +392,6 @@ class RoleSessionCapsule:
                 "static_fingerprint": self.static_fingerprint,
                 "signal_kind": self.signal_kind,
                 "signal_detail": self.signal_detail,
-                "delivered_sections": self.delivered_sections,
                 "updated_at": self.updated_at,
             }
             self.path.parent.mkdir(parents=True, exist_ok=True)

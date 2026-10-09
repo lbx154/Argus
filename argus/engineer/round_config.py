@@ -136,10 +136,9 @@ class EngineerConfig:
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
     # Leave out the agent CLI's own tools the Engineer does not use (for
-    # Copilot CLI: the built-in GitHub MCP server, the session SQL database
-    # and the CLI self-documentation tool). Their schemas and notes are
-    # resent on every tool step; the Engineer reaches GitHub through its
-    # shell and web tools and keeps state in CHECKPOINT.md.
+    # Copilot CLI: the session SQL database and the CLI self-documentation
+    # tool). Their schemas and notes are resent on every tool step; the
+    # Engineer keeps state in CHECKPOINT.md. Built-in MCP servers stay.
     lean_tool_surface: bool = field(
         default_factory=lambda: _env_bool(_ENGINEER_LEAN_TOOLS_ENV, True)
     )

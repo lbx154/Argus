@@ -85,8 +85,8 @@ class RunnerOptions:
     # Drop the parts of an agent CLI's own tool surface that a role never
     # uses. Every tool's schema and usage notes ride along on each model
     # request of the call, i.e. on every tool step. For Copilot CLI this is
-    # its built-in GitHub MCP server, the session SQL todo database and the
-    # CLI's self-documentation tool. Other backends ignore it.
+    # the session SQL todo database and the CLI's self-documentation tool;
+    # built-in MCP servers stay attached. Other backends ignore it.
     lean_tool_surface: bool = False
     full_auto: bool = False
     dangerous_yolo: bool = False

@@ -56,21 +56,17 @@ def experience_run(ctx: Any) -> Iterator[None]:
             "Success is one scoped observation; a failure does not establish impossibility. "
         )
         if service.writable:
-            # The evidence-ref limits and flag syntax live with the tool (the
-            # CLI's ``revise --help``, or the native tool schema), read when a
-            # correction is actually made, not resent on every call.
-            limits = (
-                "the tool's own parameter descriptions"
-                if native
-                else "`python -m argus.tools.experience revise --help`"
-            )
             ctx.prompt += (
-                "When new evidence corrects an existing interpretation, revise that id, or "
-                "retract an invalid one, with its expected_revision, existing evidence files "
-                f"and a reason; {limits} gives the evidence limits, and a stale revision "
-                "needs a fresh get. The host verifies evidence scope and hashes, not the "
-                "interpretation. Similarity alone does not justify rewriting evidence or "
-                "merging conclusions. "
+                "When new evidence corrects an existing interpretation, revise its existing id with "
+                "expected_revision, evidence_refs, reason and changes; retract an invalid capsule with "
+                "expected_revision, evidence_refs and reason. A stale revision requires a fresh get. "
+                "Evidence refs must be existing relative files under workspace: or state:, at most 16 "
+                "complete text files and 32 KiB combined. The host verifies file scope and content hashes, "
+                "not whether an interpretation follows from the evidence. Inspect or extract a bounded "
+                "evidence file yourself when the original artifact is larger. "
+                "Similarity alone does not justify rewriting evidence or merging conclusions. "
+                "The CLI uses search QUERY, get ID, revise ID --expected-revision N --evidence-ref REF "
+                "--reason TEXT --changes JSON, or retract ID with the same evidence/revision/reason flags. "
             )
         yield
 

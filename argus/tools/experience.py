@@ -11,23 +11,12 @@ from ..life.experience_tools import request
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m argus.tools.experience")
     sub = parser.add_subparsers(dest="command", required=True)
-    mutation_help = (
-        "Evidence refs must be existing relative files under workspace: or state:, "
-        "at most 16 complete text files and 32 KiB combined; inspect or extract a "
-        "bounded evidence file yourself when the original is larger. The host "
-        "verifies file scope and content hashes, not whether an interpretation "
-        "follows from the evidence. A stale --expected-revision requires a fresh get."
-    )
     search = sub.add_parser("search", help="find advisory prior experiences")
     search.add_argument("query")
     get = sub.add_parser("get", help="inspect current revision and evidence")
     get.add_argument("experience_id")
     for command in ("revise", "retract"):
-        mutation = sub.add_parser(
-            command,
-            help=f"{command} one experience with evidence",
-            description=mutation_help,
-        )
+        mutation = sub.add_parser(command)
         mutation.add_argument("experience_id")
         mutation.add_argument("--expected-revision", type=int, required=True)
         mutation.add_argument("--evidence-ref", action="append", required=True)

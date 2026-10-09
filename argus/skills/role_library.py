@@ -138,7 +138,8 @@ def render_skill_library_paths(
         "Skill before applying it; if nothing fits, open nothing. Required paths above must be read "
         "when the current operation assigns them. A different role's Skill is reference "
         "material, not a reassignment of authority. Task, evidence and current "
-        "authorization override Skills."
+        "authorization override Skills. No unmatched or automatically guessed bodies "
+        "are injected."
     )
     return discovery
 
