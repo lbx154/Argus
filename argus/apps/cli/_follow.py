@@ -888,15 +888,10 @@ def _daemon_alive_for_events_path(events_path: Path) -> bool | None:
         pid = int(pid_path.read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
         return None
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return None
-    return True
+    from ...core.daemon_lock import is_pid_running
+
+    # Not os.kill(pid, 0): on Windows that terminates the daemon being followed.
+    return is_pid_running(pid)
 
 
 def _format_follow_heartbeat(events_path: Path, current_layer: str, idle_seconds: float) -> str:
