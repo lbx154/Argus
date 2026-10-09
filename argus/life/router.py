@@ -376,6 +376,19 @@ def _parse_config_decision(line: str | None) -> ConfigDecision:
     return intents[0] if len(intents) == 1 else tuple(intents)
 
 
+# The classifier's own vocabulary. A reply that is only one of these words is
+# the model echoing a field label, not an answer to send.
+_CLASSIFIER_WORDS = frozenset({
+    "none", "n/a", "na", "null", "greeting", "reply", "self", "team", "chat",
+    "simple", "complex", "inspect", "steer",
+})
+
+
+def _is_fast_reply(value: str) -> bool:
+    """A non-empty reply that is not a field label echoed back."""
+    return bool(value) and value.strip().rstrip(".。!！").lower() not in _CLASSIFIER_WORDS
+
+
 def _plain_reply(value: str) -> str:
     """Unwrap a reply that arrived as the JSON string the old renderer wrote."""
     if len(value) > 1 and value.startswith('"') and value.endswith('"'):
@@ -553,8 +566,7 @@ def classify_front_door(
         and intent is None
         and control in {None, "no_dispatch"}
         and not authorization
-        and reply.upper() != "NONE"
-        and len(reply) > 0
+        and _is_fast_reply(reply)
     )
     if reply_eligible:
         try:
@@ -602,8 +614,7 @@ def classify_front_door(
         and route == "simple"
         and intent is None
         and control is None
-        and reply.upper() != "NONE"
-        and len(reply) > 0
+        and _is_fast_reply(reply)
     ):
         try:
             greeting_sink(reply)

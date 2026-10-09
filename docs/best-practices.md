@@ -187,7 +187,7 @@ a file you can attach to a report.
 | `ARGUS_SKILL_<ROLE>_BACKEND` | inherits | `ENGINEER`, `REVIEWER`, `PLANNER`, `MANAGER`, `SUPERVISOR` |
 | `ARGUS_SKILL_MODEL` | `auto` | a bare model id (`gpt-5.6-sol`, `copilot/opus-5`); free text reaches the CLI verbatim and every call then fails |
 | `ARGUS_SKILL_<ROLE>_MODEL` | `auto` | `ENGINEER`, `REVIEWER`, `PLAN`, `MANAGER`, `SUPERVISOR` |
-| `ARGUS_SKILL_FRONTDOOR_MODEL` | `auto` | the cheap classifier that reads every message (`gpt-5.4-mini` on Copilot) |
+| `ARGUS_SKILL_FRONTDOOR_MODEL` | `auto` | the classifier that reads every message and may answer a greeting (`gpt-6.1-sol` on Copilot) |
 | `ARGUS_SKILL_<ROLE>_REASONING_EFFORT` | Engineer `xhigh`, others `high`, Supervisor `low` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `ARGUS_SKILL_PI_PROVIDER` / `ARGUS_SKILL_OPENCODE_PROVIDER` | unset | provider prefix for bare model ids on those two backends; on OpenCode the model is dropped without it |
 
