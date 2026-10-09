@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ...core.model_visible_text import (
-    MASKED_DISPLAY_REVIEW_RULE,
     MODEL_INTEGRITY_BOUNDARY,
+    review_evidence_rule,
     sanitize_model_visible_text,
 )
 from ..task_contract import (
@@ -318,6 +318,7 @@ def render_reviewer_prompt(
         RESULT_FIELD_CHOICES,
         resolve_research_target_level,
     )
+    from ...reviewer.tools import reviewer_can_execute
     from ...skills.vertical_select import (
         _persisted_vertical,
         resolve_workflow_mode,
@@ -796,7 +797,7 @@ def render_reviewer_prompt(
         "In `explore`/`develop`, require experimental or research feedback. "
         "Negative results, hedging, limitations, and reruns need grounded "
         "consequences; positive and negative claims share one evidence standard. "
-        + MASKED_DISPLAY_REVIEW_RULE
+        + review_evidence_rule(reviewer_can_execute(getattr(owner, "runner", None)))
         + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_policy

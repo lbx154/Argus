@@ -662,6 +662,48 @@ def test_failed_tool_completion_is_reported_with_the_original_call() -> None:
     assert events[1]["text"] == "pytest -q"
 
 
+def test_successful_command_records_its_result_beside_the_command() -> None:
+    """A read-only Reviewer weighs this record instead of the Engineer's account."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("engineer-r1.stdout", _tool_start_line("bash", {"command": "pytest -q"}, call_id="k1"))
+    cb("engineer-r1.stdout", json.dumps({
+        "type": "tool.execution_complete",
+        "data": {
+            "toolCallId": "k1", "success": True, "shellExecution": {"exitCode": 0},
+            "result": {"content": "collected 14 items\n..............\n14 passed in 0.31s\n<shellId: 3 completed with exit code 0>"},
+        },
+    }))
+
+    start, result = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert start["kind"] == "command_execution" and start["call_id"] == "k1"
+    assert result["kind"] == "tool_result"
+    assert result["status"] == "completed"
+    assert result["exit_code"] == 0
+    assert result["call_id"] == "k1"
+    assert result["output_excerpt"].endswith("14 passed in 0.31s")
+    assert "shellId" not in result["output_excerpt"]
+
+
+def test_a_nonzero_shell_exit_is_a_failure_even_when_the_call_succeeded() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("engineer-r1.stdout", _tool_start_line("bash", {"command": "pip install x"}, call_id="k2"))
+    cb("engineer-r1.stdout", json.dumps({
+        "type": "tool.execution_complete",
+        "data": {
+            "toolCallId": "k2", "success": True, "shellExecution": {"exitCode": 1},
+            "result": {"content": "ERROR: Read-only file system"},
+        },
+    }))
+
+    events = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert events[-1]["kind"] == "command_execution"
+    assert events[-1]["status"] == "failed"
+    assert events[-1]["exit_code"] == 1
+    assert events[-1]["call_id"] == "k2"
+
+
 def test_manager_stream_is_operator_visible() -> None:
     """The Manager drives the operator's own turn — its work must be narrated."""
     for label in ("simple-1", "chat-1", "manager-frontdoor-classify", "router-classify"):

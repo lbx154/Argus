@@ -27,12 +27,37 @@ metrics, and readable provenance; ignore lower-level identifier adjudication.
 # task spent five rounds and most of its cost that way). Both roles keep their
 # judgment; what changes is the evidence they reach for: an executable check
 # whose outcome does not depend on reading the masked span.
-MASKED_DISPLAY_REVIEW_RULE = (
-    "`******` or `<REDACTED:…>` is display masking: it proves neither a defect "
-    "nor a fix, and nobody can show past it. Settle what it hides with a "
-    "rerunnable assertion on a placeholder value that you rerun yourself; the "
-    "Engineer's cited result is not that check."
+#
+# Which check the Reviewer can reach depends on its tools. A Reviewer that can
+# run commands reruns it. Most Reviewer surfaces only read and search; told to
+# rerun anyway, one A/B arm's Reviewer refused the work in 13 verdicts and asked
+# for an execution surface no role could grant. A read-only Reviewer therefore
+# weighs what the host itself observed of a run (command, exit code, output),
+# not the Engineer's account of it, beside its own reading of the code and
+# tests. Neither form accepts the Engineer's word alone.
+_MASKED_DISPLAY = (
+    "`******` or `<REDACTED:…>` is display masking that proves neither a defect "
+    "nor a fix; nobody can show past it, so settle it the same way, with a "
+    "rerunnable assertion on a placeholder value."
 )
+REVIEW_EVIDENCE_RULE_EXECUTING = (
+    "You can run commands: rerun the decisive check yourself; the Engineer's "
+    "cited claim alone is not evidence. " + _MASKED_DISPLAY
+)
+REVIEW_EVIDENCE_RULE_READ_ONLY = (
+    "You can read and search, not run commands; never ask for execution. Judge "
+    "from host-recorded runs (command, exit code, output) and your own reading "
+    "of code and tests; the Engineer's cited claim alone is not evidence. If "
+    "that cannot settle it, ask the Engineer for one named check whose run the "
+    "host records. " + _MASKED_DISPLAY
+)
+
+
+def review_evidence_rule(can_execute: bool) -> str:
+    """The Reviewer's evidence rule for the tools this call actually has."""
+    return REVIEW_EVIDENCE_RULE_EXECUTING if can_execute else REVIEW_EVIDENCE_RULE_READ_ONLY
+
+
 MASKED_DISPLAY_ENGINEER_RULE = (
     "If the review disputes text a display masks (`******`, `<REDACTED:…>`), "
     "restating the fix cannot help: add a rerunnable test asserting the behavior "
@@ -110,10 +135,12 @@ def has_material_blocker(value: object) -> bool:
 
 __all__ = [
     "MASKED_DISPLAY_ENGINEER_RULE",
-    "MASKED_DISPLAY_REVIEW_RULE",
     "MODEL_INTEGRITY_BOUNDARY",
+    "REVIEW_EVIDENCE_RULE_EXECUTING",
+    "REVIEW_EVIDENCE_RULE_READ_ONLY",
     "contains_integrity_judgment",
     "has_material_blocker",
+    "review_evidence_rule",
     "sanitize_model_judgment_text",
     "sanitize_model_visible_text",
 ]

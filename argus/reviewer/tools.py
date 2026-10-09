@@ -54,8 +54,9 @@ def _judgment_fields() -> dict[str, dict[str, Any]]:
     return {
         "manager_attention": judgment(
             "Does the course need the Manager now: stuck, looping or drifting, plan "
-            "doubt, evidence you cannot observe, agreement on something unverified, "
-            "or scope or authority? When unsure, needed.",
+            "doubt, agreement on something unverified, or scope or authority? A "
+            "check you cannot run is not one; ask the Engineer for a host-recorded "
+            "run. When unsure, needed.",
             ["needed", "not_needed"],
         ),
         "learning": judgment(
@@ -253,6 +254,25 @@ class ReviewActions:
         # message, and saved project files cannot manufacture this assignment.
         self.decision = decision
         return {"recorded": action}
+
+
+def reviewer_can_execute(runner: Any) -> bool:
+    """Whether this Reviewer's tools can run commands.
+
+    Every Reviewer call is read-only (``sandbox_mode="read-only"``). Codex keeps
+    its shell inside a read-only sandbox; the other backends reduce the call to
+    file read and search tools. A configured validation image adds
+    :data:`COMMAND_TOOL` on any backend (:func:`review_action_tools`).
+    """
+    if str(getattr(runner, "backend", "")).lower() == "codex":
+        return True
+    from ..core.knobs import resolve_knob
+    from .validation import IMAGE_ENV
+
+    try:
+        return bool(resolve_knob(IMAGE_ENV, "").value.strip())
+    except Exception:  # noqa: BLE001 - an unreadable knob exposes no tool
+        return False
 
 
 @contextmanager

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Any, Callable
 
@@ -847,6 +848,7 @@ def make_stream_progress_callback(
                     "status": "running",
                     "action_summary": _action_summary(kind, text, item),
                     "tool_name": name,
+                    "call_id": call_id,
                 },
             )
             return
@@ -863,12 +865,32 @@ def make_stream_progress_callback(
             result = result if isinstance(result, dict) else {}
             success = data.get("success")
             exit_code = result.get("exitCode", result.get("exit_code"))
+            shell = data.get("shellExecution")
+            if exit_code is None and isinstance(shell, dict):
+                # Current builds report a shell's status here and keep
+                # ``success`` true for a nonzero exit.
+                exit_code = shell.get("exitCode")
             failed = success is False or (
                 isinstance(exit_code, int) and exit_code != 0
             )
             if not failed:
-                # A successful tool call was already reported at start; a second
-                # row per call would double the noise without adding signal.
+                # A successful tool call was already reported at start. A
+                # command's result is the exception: it is what a read-only
+                # Reviewer weighs instead of the Engineer's account of the run,
+                # so the host records it beside the command.
+                if kind == "command_execution":
+                    _emit_progress(
+                        kind="tool_result",
+                        text=_output_tail(result.get("content")) or f"exit {exit_code}",
+                        actor=actor,
+                        extra={
+                            "status": "completed",
+                            "exit_code": exit_code,
+                            "tool_name": name,
+                            "call_id": call_id,
+                            "output_excerpt": _output_tail(result.get("content")),
+                        },
+                    )
                 return
             item = {
                 "type": kind,
@@ -886,9 +908,13 @@ def make_stream_progress_callback(
                 extra={
                     "status": "failed",
                     "exit_code": exit_code,
-                    "output_excerpt": _extract_output_excerpt(item),
+                    # The error a command dies with is at the end of its output.
+                    "output_excerpt": (
+                        _output_tail(result.get("content")) or _extract_output_excerpt(item)
+                    ),
                     "action_summary": _action_summary(kind, text or name, item),
                     "tool_name": name,
+                    "call_id": call_id,
                 },
             )
             return
@@ -1081,6 +1107,20 @@ def _extract_output_excerpt(item: dict[str, Any]) -> str:
     if not lines:
         return ""
     return _truncate(" | ".join(lines[:3]), 360)
+
+
+_SHELL_TRAILER = re.compile(r"^<shellId: .*>$")
+
+
+def _output_tail(raw: Any) -> str:
+    """The last lines of a command's output, where its verdict usually is."""
+    text = raw if isinstance(raw, str) else ("" if raw is None else str(raw))
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    lines = [ln for ln in lines if not _SHELL_TRAILER.match(ln)]
+    if not lines:
+        return ""
+    tail = " | ".join(lines[-3:])
+    return tail if len(tail) <= 360 else "…" + tail[-359:].lstrip()
 
 
 __all__ = ["make_stream_progress_callback"]

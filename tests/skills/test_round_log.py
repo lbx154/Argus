@@ -51,7 +51,9 @@ def test_round_log_names_longest_commands_tests_and_outside_paths(tmp_path: Path
     assert "5 shell commands, 1 file reads, 1 writes over 1.2 min" in text
     assert "old_round.py" not in text
     assert "ran ≤58 s (time to the next action): `CUDA_VISIBLE_DEVICES=2 .venv/bin/python scripts/eval_ruler.py --config c.yaml`" in text
-    assert "tests or evaluations invoked: `.venv/bin/python -m pytest tests/spec`, `CUDA_VISIBLE_DEVICES=2" in text
+    assert "tests and checks run, with the result the host recorded for the latest run:" in text
+    assert "  - `.venv/bin/python -m pytest tests/spec`: no result recorded" in text
+    assert "  - `CUDA_VISIBLE_DEVICES=2" in text
     assert "paths outside the workspace touched:" in text
     assert "/data/other_user/models--Llama-3-8B/snapshots" in text
     assert "/data/v-boxiuli/argus-web-skill-scope-release-cc934eed1/argus" in text
@@ -98,3 +100,88 @@ def test_the_research_vertical_registers_the_provider_and_the_renderer_knows_no_
     assert spec_checks.round_log_evidence in registered_round_evidence_providers()
     source = Path(mod.__file__).read_text(encoding="utf-8")
     assert "engineer.round_evidence" not in source and "register_round_evidence_provider" not in source
+
+
+def _start(ts: float, text: str, call_id: str) -> dict:
+    return {**_event(ts, "command_execution", text), "status": "running", "call_id": call_id}
+
+
+def _result(ts: float, call_id: str, exit_code: int, excerpt: str) -> dict:
+    return {
+        "type": "engineer.progress", "ts": ts, "kind": "tool_result", "agent_layer": "engineer",
+        "tool_name": "bash", "text": excerpt, "status": "completed", "exit_code": exit_code,
+        "call_id": call_id, "output_excerpt": excerpt,
+    }
+
+
+def test_round_log_carries_the_result_the_host_recorded_for_each_check(tmp_path: Path) -> None:
+    """A read-only Reviewer weighs these results instead of the Engineer's account of them."""
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    project = tmp_path / "project"
+    t0 = 1_800_000_000.0
+    rows = [
+        {"type": "round.start", "ts": t0, "round_index": 1},
+        # An older log names a failed command again without a call id.
+        _event(t0 + 0.5, "command_execution", "make build"),
+        {**_event(t0 + 0.6, "command_execution", "make build"), "status": "failed", "exit_code": 1},
+        # Started, then finished: one command, joined by call id.
+        _start(t0 + 1, "python -m pytest -q tests", "c1"),
+        _result(t0 + 9, "c1", 0, "14 passed in 0.31s"),
+        _start(t0 + 10, "python scripts/check_output.py", "c2"),
+        {**_event(t0 + 12, "command_execution", "python scripts/check_output.py"),
+         "status": "failed", "exit_code": 2, "call_id": "c2", "output_excerpt": "AssertionError: row 7"},
+        # Reported once, finished, with its exit code on the same row.
+        {**_event(t0 + 20, "command_execution", "python -m unittest discover -s tests"),
+         "status": "completed", "exit_code": 0, "output_excerpt": "OK"},
+        # A check whose run has no recorded result.
+        _event(t0 + 40, "command_execution", "python verify_score.py"),
+    ]
+    _write_events(project / "events.jsonl", rows)
+
+    text = mod.render_round_log(workdir, project / "handoffs" / "x", 1)
+
+    assert "5 shell commands" in text  # results are not counted as commands
+    assert "  - `python -m pytest -q tests`: exit 0: 14 passed in 0.31s" in text
+    assert "  - `python scripts/check_output.py`: exit 2: AssertionError: row 7" in text
+    assert "  - `python -m unittest discover -s tests`: exit 0: OK" in text
+    assert "  - `python verify_score.py`: no result recorded" in text
+    assert "- other commands that failed: `make build` (exit 1)" in text
+    # The last commands are all checks listed above; nothing is said twice.
+    assert "the round's last commands" not in text
+
+
+def test_the_last_commands_carry_their_results_when_no_check_names_them(tmp_path: Path) -> None:
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    project = tmp_path / "project"
+    t0 = 1_800_000_000.0
+    _write_events(project / "events.jsonl", [
+        {"type": "round.start", "ts": t0, "round_index": 1},
+        _start(t0 + 1, "python read_score.py --xml > out.xml", "r1"),
+        _result(t0 + 2, "r1", 0, "Readable XML is byte-identical to the compressed score member."),
+    ])
+
+    text = mod.render_round_log(workdir, project / "handoffs" / "x", 1)
+
+    assert "- the round's last commands, with the result the host recorded:" in text
+    assert "  - `python read_score.py --xml > out.xml`: exit 0: Readable XML is byte-identical" in text
+
+
+def test_a_result_updates_the_latest_run_of_a_repeated_check(tmp_path: Path) -> None:
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    project = tmp_path / "project"
+    t0 = 1_800_000_000.0
+    _write_events(project / "events.jsonl", [
+        {"type": "round.start", "ts": t0, "round_index": 2},
+        _start(t0 + 1, "pytest -q", "a"),
+        _result(t0 + 2, "a", 1, "1 failed, 13 passed"),
+        _start(t0 + 5, "pytest -q", "b"),
+        _result(t0 + 6, "b", 0, "14 passed"),
+    ])
+
+    text = mod.render_round_log(workdir, project / "handoffs" / "x", 2)
+
+    assert "  - `pytest -q` ×2: exit 0: 14 passed" in text
+    assert "1 failed" not in text

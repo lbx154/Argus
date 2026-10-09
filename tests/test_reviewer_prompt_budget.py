@@ -58,7 +58,15 @@ _TASK_OWNED_BLOCKS = (
 # settled by a check it reruns itself. Without it one task spent five extra
 # rounds, most of its cost, disputing a line neither role could see. Measured
 # at 5_179 with it.
-FIXED_PROSE_BUDGET = 5_300
+#
+# Raised from 5_300 when that rule became capability-aware
+# (``review_evidence_rule``). Told to rerun a check itself, a Reviewer whose
+# tools only read and search refused the Engineer's work in 13 verdicts of one
+# A/B arm and asked for an execution surface nobody could grant. The read-only
+# form (~500 chars) says what it judges from instead: host-recorded runs and
+# its own reading, or one named check whose run the host records. Measured at
+# 5_422 (5_458 on Windows) with it; the executing form is shorter.
+FIXED_PROSE_BUDGET = 5_500
 
 
 def _fixed_prose_chars(reviewer: Reviewer) -> int:
