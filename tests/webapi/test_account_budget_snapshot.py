@@ -45,6 +45,9 @@ def test_snapshot_reports_spend_per_task_and_the_budget(
     assert usage["calls"] == 3
     assert usage["premium_requests"] == pytest.approx(3)
     assert snap["account_budget"]["mission_budget"] == {"requests": 40.0, "usd": 0.0}
+    assert snap["account_budget"]["mission_budget_enforceable"] is True
+    monkeypatch.setenv("ARGUS_SKILL_CHECKPOINT_PERSIST", "0")
+    assert project_state.account_budget_snapshot()["mission_budget_enforceable"] is False
     # The quota probe is off in tests: no account, and nothing is hidden or blocked.
     assert snap["account_budget"]["account"] is None
 

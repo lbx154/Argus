@@ -610,13 +610,16 @@ def account_budget_snapshot() -> dict[str, Any]:
 
     Never waits on the network: a stale quota refreshes in the background.
     """
-    from ..core.budget_signal import mission_budget
+    from ..core.budget_signal import mission_budget, mission_budget_enforceable
     from ..provider_integrations.account_budget import active_account_quota
 
-    quota = active_account_quota(blocking=False)
+    quota = active_account_quota()
     return {
         "account": quota.to_jsonable() if quota is not None else None,
         "mission_budget": mission_budget().to_jsonable(),
+        # A budget needs the persisted project ledger; say so rather than
+        # letting a configured limit silently do nothing.
+        "mission_budget_enforceable": mission_budget_enforceable(),
     }
 
 

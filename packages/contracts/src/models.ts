@@ -191,6 +191,8 @@ export interface AccountBudget {
   account: AccountQuota | null;
   /** Operator per-mission budget; 0 means off. */
   mission_budget: { requests: number; usd: number };
+  /** False when project state is not persisted, so a set budget cannot be enforced. */
+  mission_budget_enforceable?: boolean;
 }
 
 /** Settled spend of one backlog item across its attempts. */

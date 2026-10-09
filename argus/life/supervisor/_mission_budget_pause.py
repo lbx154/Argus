@@ -45,8 +45,8 @@ def _question(marker: dict[str, Any], *, chinese: bool) -> str:
             spent_text += f"（约 ${usd:.2f}）"
         return (
             f"这个任务已用掉 {spent_text}，达到你设的单任务预算（{' / '.join(limits_zh)}）。"
-            "我先停在这里，没有再花钱。要继续就回复“继续”（会按同样的预算再走一段），"
-            "不做了就回复“放弃”。"
+            "我先停在这里，没有再花钱。选“继续”会按同样的预算再走一段；"
+            "选“停止”会结束这个任务并暂停持续工作。"
         )
     spent_text = f"{calls} model calls, {requests:g} premium requests"
     if credits:
@@ -56,29 +56,22 @@ def _question(marker: dict[str, Any], *, chinese: bool) -> str:
     return (
         f"This task has used {spent_text}, reaching the per-mission budget you set "
         f"({' / '.join(limits_en)}). I have stopped here and am not spending more. "
-        "Reply to continue (it gets the same budget again), or tell me to drop it."
+        "Choose Continue to go on with the same budget again, or Stop to close this "
+        "task and pause the campaign."
     )
 
 
-def park_for_mission_budget(runtime: Any, state: "_MissionRunState") -> dict[str, Any] | None:
-    """Park ``state.item`` for the operator when the round loop hit its budget."""
-    from ...core.budget_signal import MISSION_BUDGET_DECISION_KIND, take_mission_budget_pause
+def mission_budget_card(
+    item: Any, marker: dict[str, Any], *, project_id: str = "",
+) -> tuple[str, dict[str, Any]]:
+    """The operator question and decision card for a reached mission budget."""
+    from ...core.budget_signal import MISSION_BUDGET_DECISION_KIND, MISSION_BUDGET_REASON_PREFIX
     from ...core.operator_decision import build_operator_decision
     from ...core.operator_messages import uses_cjk
-    from .pending_notify import notify_pending_question
 
-    item = state.item
-    # The project's state directory: where the round loop's ledger and marker
-    # live (memory.project_root, falling back to the bundle root).
-    project_root = getattr(state, "usage_root", None)
-    if project_root is None:
-        return None
-    marker = take_mission_budget_pause(project_root, item.id)
-    if marker is None:
-        return None
     chinese = uses_cjk(f"{item.title}\n{item.objective}")
     question = _question(marker, chinese=chinese)
-    reason = f"Per-mission budget reached: {marker.get('reached') or ''}".strip()
+    reason = f"{MISSION_BUDGET_REASON_PREFIX} {marker.get('reached') or ''}".strip()
     card = build_operator_decision(
         item_id=item.id,
         title=item.title,
@@ -94,21 +87,69 @@ def park_for_mission_budget(runtime: Any, state: "_MissionRunState") -> dict[str
                 ),
             },
             {
-                "id": "drop",
-                "label": "放弃" if chinese else "Drop this task",
+                # "stop" is the option the decision resolver applies directly:
+                # the task is closed and the standing campaign is paused, with
+                # no new work queued.
+                "id": "stop",
+                "label": "停止" if chinese else "Stop",
                 "description": (
-                    "停止这个任务，不再花费。" if chinese
-                    else "Stop this task and spend nothing more on it."
+                    "结束这个任务并暂停持续工作，不再花费；已有成果保留。" if chinese
+                    else "Close this task and pause the standing campaign; nothing more is "
+                    "spent and current work is kept."
                 ),
             },
         ],
         evidence=list(getattr(item, "context_refs", None) or []),
-        project_id=Path(project_root).name,
+        project_id=project_id,
         previous_decision=item.operator_decision,
     )
     card["decision_kind"] = MISSION_BUDGET_DECISION_KIND
     card["spend"] = marker.get("spent") or {}
     card["budget"] = marker.get("budget") or {}
+    return question, card
+
+
+def park_for_mission_budget(runtime: Any, state: "_MissionRunState") -> dict[str, Any] | None:
+    """Park ``state.item`` for the operator when the round loop hit its budget."""
+    from ...core.budget_signal import (
+        MISSION_BUDGET_DECISION_KIND,
+        MISSION_BUDGET_REASON_PREFIX,
+        compact_usage,
+        mission_budget,
+        mission_usage_summary,
+        take_mission_budget_pause,
+    )
+    from .pending_notify import notify_pending_question
+
+    item = state.item
+    # The project's state directory: where the round loop's ledger and marker
+    # live (memory.project_root, falling back to the bundle root).
+    project_root = getattr(state, "usage_root", None)
+    if project_root is None:
+        return None
+    # Always consume this item's marker so a leftover one can never turn a
+    # later Manager WAIT into a budget card.
+    marker = take_mission_budget_pause(project_root, item.id)
+    if not str(getattr(state, "stop_reason", "") or "").startswith(MISSION_BUDGET_REASON_PREFIX):
+        return None
+    started = float(getattr(state, "t0", 0.0) or 0.0)
+    if marker is not None and float(marker.get("at") or 0.0) < started:
+        marker = None  # written by an earlier attempt
+    current = next((row for row in runtime.memory.backlog.active() if row.id == item.id), None)
+    if current is None or current.status != "running":
+        # Stopped or answered meanwhile; the operator's newer state wins.
+        return None
+    if marker is None:
+        # The pause is identified by its reason; rebuild the figures.
+        budget = mission_budget()
+        summary = mission_usage_summary(project_root, item.id)
+        marker = {
+            "reached": str(state.stop_reason)[len(MISSION_BUDGET_REASON_PREFIX):].strip(" ."),
+            "budget": budget.to_jsonable(),
+            "spent": compact_usage(summary),
+        }
+    question, card = mission_budget_card(item, marker, project_id=Path(project_root).name)
+    reason = f"{MISSION_BUDGET_REASON_PREFIX} {marker.get('reached') or ''}".strip()
     usage_summary = state.usage_summary
     pause_outcome = mission_outcome_dimensions(
         status="paused_operator",
@@ -165,4 +206,4 @@ def park_for_mission_budget(runtime: Any, state: "_MissionRunState") -> dict[str
     }
 
 
-__all__ = ["park_for_mission_budget"]
+__all__ = ["mission_budget_card", "park_for_mission_budget"]

@@ -2,11 +2,10 @@
 
 Three readers share these helpers:
 
-* the roles (Planner, Manager), which receive one compact line describing how
-  the active account is billed and how much of the month remains, so they can
-  prefer fewer, larger calls on request-billed plans and shorter contexts on
-  credit-billed ones. The line is information for their judgement, never a
-  limit;
+* the roles (Planner, Manager), which receive one factual line: how the
+  active account is billed, how much quota remains and when it resets, and
+  the operator's per-mission budget if one is set. It carries no advice and
+  states that spend never reduces review, verification or acceptance checks;
 * the round loop, which pauses a mission and asks the operator once the
   mission's own spend reaches an operator-configured budget. Both budget
   knobs default to 0 (off), so nothing ever pauses unless the operator asked;
@@ -34,6 +33,9 @@ from .usage import UsageLedger, UsageRecord, UsageSummary, summarize_usage
 MISSION_BUDGET_REQUESTS_KNOB = "ARGUS_SKILL_MISSION_BUDGET_REQUESTS"
 MISSION_BUDGET_USD_KNOB = "ARGUS_SKILL_MISSION_BUDGET_USD"
 MISSION_BUDGET_DECISION_KIND = "mission_budget"
+# The round loop's stop reason starts with this; the supervisor recognises a
+# budget pause by it, so a missing or stale marker can never misroute a pause.
+MISSION_BUDGET_REASON_PREFIX = "Per-mission budget reached:"
 _ATTEMPT_SEPARATOR = ":attempt:"
 # 1e9 nano-AIU is one AI credit.
 NANO_AIU_PER_CREDIT = 1_000_000_000
@@ -108,6 +110,15 @@ def mission_budget(env: Mapping[str, str] | None = None) -> MissionBudget:
     )
 
 
+def mission_budget_enforceable(env: Mapping[str, str] | None = None) -> bool:
+    """False when project state is not persisted, so no ledger can be checked."""
+    source = os.environ if env is None else env
+    raw = str(source.get("ARGUS_SKILL_CHECKPOINT_PERSIST") or "").strip().lower()
+    if not raw:
+        raw = persisted_knob("ARGUS_SKILL_CHECKPOINT_PERSIST", env=source).strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 def mission_budget_reached(summary: UsageSummary, budget: MissionBudget) -> str:
     """Plain description of the reached limit, or "" while under budget."""
     reached: list[str] = []
@@ -127,7 +138,7 @@ def _amount(value: float | None) -> str:
 
 
 def account_summary_line(quota: Any) -> str:
-    """One plain clause: billing mode and what is left this month.
+    """One factual clause: billing mode, what is left, when it resets.
 
     ``quota`` is a ``provider_integrations.copilot_account_quota.AccountQuota``.
     """
@@ -138,55 +149,35 @@ def account_summary_line(quota: Any) -> str:
     if quota.unlimited or quota.billing_mode == "unlimited":
         return f"{who}: premium usage is unlimited on this plan"
     if quota.billing_mode == "request":
-        left = _amount(quota.remaining)
-        total = _amount(quota.entitlement)
         return (
-            f"{who}: request-billed (every model call costs a premium request, "
-            f"whatever its size); {left} of {total} left this month{reset}"
+            f"{who}: request-billed (each model call is charged premium requests "
+            "at that model's multiplier, independent of tokens); "
+            f"{_amount(quota.remaining)} of {_amount(quota.entitlement)} premium "
+            f"requests left this month{reset}"
         )
     if quota.billing_mode == "credit":
         percent = "?" if quota.percent_remaining is None else f"{quota.percent_remaining:.0f}%"
         return (
-            f"{who}: credit-billed (calls cost by tokens); {percent} of the monthly "
+            f"{who}: credit-billed (calls are charged by tokens); {percent} of the monthly "
             f"credits left ({_amount(quota.remaining)} of {_amount(quota.entitlement)}){reset}"
         )
     return f"{who}: billing mode unknown"
 
 
-def budget_signal(
-    quota: Any,
-    *,
-    mission: UsageSummary | None = None,
-    budget: MissionBudget | None = None,
-) -> str:
-    """The compact line given to roles; "" when there is nothing to say."""
+def budget_signal(quota: Any, *, budget: MissionBudget | None = None) -> str:
+    """The factual line given to roles; "" when there is nothing to report.
+
+    It states facts only — no advice on how to work. Spend never justifies
+    less review, verification, or acceptance checking, and the line says so.
+    """
     parts: list[str] = []
     if quota is not None:
         parts.append(account_summary_line(quota))
-        if not quota.error:
-            if quota.billing_mode == "request":
-                parts.append(
-                    "prefer fewer, larger calls: fold related checks into one turn "
-                    "rather than many small ones"
-                )
-            elif quota.billing_mode == "credit":
-                parts.append(
-                    "prefer shorter contexts: cite paths and excerpts instead of "
-                    "rereading or pasting large files and logs"
-                )
-            if quota.low:
-                parts.append(
-                    f"LOW: under {quota.to_jsonable()['warn_percent']:g}% of the month "
-                    "is left and the operator has been warned"
-                )
-    if mission is not None and mission.call_count:
-        spent = f"{float(mission.premium_requests or 0.0):g} premium requests"
-        credits = (mission.total_nano_aiu or 0) / NANO_AIU_PER_CREDIT
-        if credits > 0:
-            spent += f", {credits:,.1f} credits"
-        if mission.known_cost_usd:
-            spent += f", ${mission.known_cost_usd:.2f}"
-        parts.append(f"this mission has spent {spent} over {mission.call_count} calls")
+        if not quota.error and quota.low:
+            parts.append(
+                "remaining quota is below the operator's "
+                f"{quota.to_jsonable()['warn_percent']:g}% warning threshold"
+            )
     if budget is not None and budget.enabled:
         limits = []
         if budget.requests > 0:
@@ -194,17 +185,15 @@ def budget_signal(
         if budget.usd > 0:
             limits.append(f"${budget.usd:.2f}")
         parts.append(
-            "the operator set a per-mission budget of " + " / ".join(limits)
-            + "; at that point Argus pauses and asks the operator"
+            "operator per-mission budget: " + " / ".join(limits)
+            + " (when a mission reaches it, Argus pauses and the operator decides)"
         )
     if not parts:
         return ""
     return (
-        "Account budget (information for your judgement, not a limit on what to do): "
-        + "; ".join(parts) + "."
+        "Account budget (facts only): " + "; ".join(parts) + ". "
+        "Spend never reduces review, verification, or acceptance checks."
     )
-
-
 
 
 # The round loop only sees the project state root and item id; the supervisor
@@ -270,6 +259,8 @@ def take_mission_budget_pause(root: Path | str, item_id: str) -> dict[str, Any] 
 
 __all__ = [
     "MISSION_BUDGET_DECISION_KIND",
+    "MISSION_BUDGET_REASON_PREFIX",
+    "mission_budget_enforceable",
     "MISSION_BUDGET_REQUESTS_KNOB",
     "MISSION_BUDGET_USD_KNOB",
     "MissionBudget",

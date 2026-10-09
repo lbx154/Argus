@@ -50,35 +50,52 @@ def _no_budget(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("ARGUS_SKILL_ACCOUNT_QUOTA_WARN_PERCENT", raising=False)
 
 
-def test_request_billed_signal_names_the_count_and_suggests_fewer_calls() -> None:
+def _no_advice(text: str) -> None:
+    lowered = text.lower()
+    for phrase in ("prefer", "fewer", "larger calls", "shorter context", "fold", "excerpt", "warned"):
+        assert phrase not in lowered
+    assert text.endswith("Spend never reduces review, verification, or acceptance checks.")
+
+
+def test_request_billed_signal_states_facts_only() -> None:
     text = budget_signal(_quota("request", remaining=37, entitlement=300, percent=12.3))
     assert "request-billed" in text
-    assert "37 of 300 left this month" in text
-    assert "fewer, larger calls" in text
-    assert "not a limit" in text
-    assert "LOW" not in text
+    assert "multiplier" in text
+    assert "37 of 300 premium requests left this month, resets 2026-11-01" in text
+    assert "warning threshold" not in text
+    _no_advice(text)
 
 
-def test_credit_billed_signal_names_the_share_and_suggests_short_contexts() -> None:
+def test_credit_billed_signal_states_facts_only() -> None:
     text = budget_signal(_quota("credit", remaining=576_234, entitlement=1_000_000, percent=57.6))
     assert "credit-billed" in text
     assert "58% of the monthly credits left" in text
-    assert "shorter contexts" in text
+    _no_advice(text)
 
 
-def test_low_quota_is_flagged_in_the_signal() -> None:
+def test_low_quota_is_reported_as_a_quota_threshold() -> None:
     text = budget_signal(_quota("request", remaining=5, entitlement=300, percent=1.7))
-    assert "LOW: under 10%" in text
+    assert "remaining quota is below the operator's 10% warning threshold" in text
+    assert "of the month" not in text
+    _no_advice(text)
 
 
-def test_unreadable_quota_does_not_advise_a_mode() -> None:
+def test_operator_budget_is_reported_when_set() -> None:
+    text = budget_signal(None, budget=MissionBudget(requests=40))
+    assert "operator per-mission budget: 40 premium requests" in text
+    assert "the operator decides" in text
+    _no_advice(text)
+
+
+def test_unreadable_quota_reports_unknown_mode() -> None:
     text = budget_signal(_quota("unknown", remaining=0, entitlement=0, percent=0, error="URLError"))
     assert "could not be read" in text
-    assert "fewer, larger" not in text and "shorter contexts" not in text
+    _no_advice(text)
 
 
-def test_no_quota_and_no_spend_gives_no_signal() -> None:
+def test_no_quota_and_no_budget_gives_no_signal() -> None:
     assert budget_signal(None) == ""
+    assert budget_signal(None, budget=MissionBudget()) == ""
 
 
 def test_mission_spend_sums_every_attempt_of_one_item(tmp_path: Path) -> None:
@@ -95,8 +112,6 @@ def test_mission_spend_sums_every_attempt_of_one_item(tmp_path: Path) -> None:
     assert rows["item1"]["premium_requests"] == pytest.approx(5)
     assert rows["item1"]["credits"] == pytest.approx(2.5)
     assert rows["item10"]["calls"] == 1
-    text = budget_signal(None, mission=summary)
-    assert "this mission has spent 5 premium requests, 2.5 credits" in text
 
 
 def test_mission_budget_is_off_by_default_and_reached_only_at_the_limit(
@@ -153,9 +168,9 @@ def test_manager_supervision_prompt_carries_the_budget_line(
     assert "Account budget" not in plain
     monkeypatch.setattr(
         "argus.provider_integrations.account_budget.role_budget_signal",
-        lambda **_kw: "Account budget (information for your judgement, not a limit on what to do): x.",
+        lambda **_kw: "Account budget (facts only): x.",
     )
-    assert "Account budget (information" in supervision._prompt(observation)
+    assert "Account budget (facts only): x." in supervision._prompt(observation)
 
 
 def test_role_signal_is_empty_for_non_metered_backends(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -163,3 +178,33 @@ def test_role_signal_is_empty_for_non_metered_backends(monkeypatch: pytest.Monke
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
     assert role_budget_signal(role="planner") == ""
+
+
+def test_role_signal_never_waits_on_the_network(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The prompt path returns at once and leaves the probe to a background thread."""
+    from argus.provider_integrations import copilot_account_quota as quota_mod
+    from argus.provider_integrations.account_budget import role_budget_signal
+
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
+    monkeypatch.setenv("ARGUS_SKILL_ACCOUNT_QUOTA_PROBE", "on")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_TOKEN_FROM_ENV", "1")
+    monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "test-token")
+
+    def never(*_args: object, **_kwargs: object) -> dict[str, Any]:
+        raise AssertionError("the prompt path must not call the provider")
+
+    started: list[object] = []
+
+    class _Thread:
+        def __init__(self, target: Any, name: str, daemon: bool) -> None:
+            self.target = target
+
+        def start(self) -> None:
+            started.append(self.target)
+
+    monkeypatch.setattr(quota_mod, "fetch_copilot_user", never)
+    monkeypatch.setattr(quota_mod.threading, "Thread", _Thread)
+    began = time.monotonic()
+    assert role_budget_signal(role="manager") == ""
+    assert time.monotonic() - began < 1.0
+    assert len(started) == 1

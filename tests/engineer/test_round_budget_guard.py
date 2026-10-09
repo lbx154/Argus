@@ -74,3 +74,22 @@ def test_unreadable_ledger_does_not_stop_work(monkeypatch: pytest.MonkeyPatch, t
 
     monkeypatch.setattr("argus.core.budget_signal.mission_usage_summary", broken)
     assert mission_budget_terminal(_config(tmp_path), RoundLoopState()) is None
+
+
+def test_budget_without_project_state_is_reported_not_silent(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MISSION_BUDGET_REQUESTS", "1")
+    config = SupervisedConfig(session_id="no-state-item", operator_question_policy_root=None)
+    with caplog.at_level("WARNING"):
+        assert mission_budget_terminal(config, RoundLoopState()) is None
+    assert "cannot be enforced" in caplog.text
+
+
+def test_enforceability_follows_checkpoint_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
+    from argus.core.budget_signal import mission_budget_enforceable
+
+    monkeypatch.setenv("ARGUS_SKILL_CHECKPOINT_PERSIST", "0")
+    assert mission_budget_enforceable() is False
+    monkeypatch.setenv("ARGUS_SKILL_CHECKPOINT_PERSIST", "1")
+    assert mission_budget_enforceable() is True

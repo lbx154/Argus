@@ -248,8 +248,9 @@ def _decision(text: str) -> dict[str, Any]:
 def _prompt(observation: ManagerObservation) -> str:
     from ..provider_integrations.account_budget import role_budget_signal
 
-    # Billing mode and what the account has left, for weighing how much more
-    # work a course is worth. Advisory; spend limits are the operator's.
+    # Facts about how the account is billed and what quota remains. It is not
+    # a reason to stop, shorten, or skip verification; any spend limit is the
+    # operator's and is enforced outside this decision.
     budget_line = role_budget_signal(role="manager")
     return (
         "You are the persistent project Manager, supervising the team's progress toward the "

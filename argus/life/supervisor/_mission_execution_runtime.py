@@ -508,6 +508,13 @@ class MissionExecutionRuntimeMixin:
         maybe_warn_low_account_quota(
             global_root(), self._emit, chinese=uses_cjk(f"{item.title}\n{item.objective}"),
         )
+        from ...core.budget_signal import mission_budget, mission_budget_enforceable
+
+        if mission_budget().enabled and not mission_budget_enforceable():
+            log.warning(
+                "per-mission budget is set but ARGUS_SKILL_CHECKPOINT_PERSIST is off; "
+                "the budget cannot be enforced for %s", item.id,
+            )
 
         # Phase-change callback.
         def _phase_cb(layer: str, info: dict[str, Any]) -> None:
@@ -1332,7 +1339,7 @@ class MissionExecutionRuntimeMixin:
             f"{streak} times in a row: {state.stop_reason} "
             "I have stopped retrying this configuration so the failures stop "
             "costing money. Fix the model name or provider access, then reply "
-            "here to resume this task — or tell me to drop it."
+            "here to resume this task — or choose Stop to close it."
         )
         decision_card = build_operator_decision(
             item_id=item.id,
@@ -1349,11 +1356,13 @@ class MissionExecutionRuntimeMixin:
                     ),
                 },
                 {
-                    "id": "drop",
-                    "label": "Drop this task",
+                    # The resolver applies "stop" directly; any other id would
+                    # queue a new paid continuation instead of stopping.
+                    "id": "stop",
+                    "label": "Stop",
                     "description": (
-                        "Stop pursuing this task under the current "
-                        "configuration."
+                        "Close this task and pause the standing campaign; "
+                        "current work is kept."
                     ),
                 },
             ],

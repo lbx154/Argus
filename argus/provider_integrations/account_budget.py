@@ -12,18 +12,20 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..core.budget_signal import budget_signal, mission_budget, mission_usage_summary
+from ..core.budget_signal import budget_signal, mission_budget
 from .copilot_account_quota import AccountQuota, account_quota
 
 
 def active_account_quota(
     *,
     role: str = "engineer",
-    blocking: bool = True,
     root: Path | None = None,
     env: Mapping[str, str] | None = None,
 ) -> AccountQuota | None:
-    """Quota of the account the given role's backend bills, when detectable."""
+    """Cached quota of the account the role's backend bills, when detectable.
+
+    Never waits on the network: a stale entry refreshes in the background.
+    """
     from ..core.knobs import resolve_role_backend
 
     backends: list[str] = []
@@ -35,26 +37,15 @@ def active_account_quota(
     if "copilot" not in backends:
         return None
     try:
-        return account_quota(root=root, env=env, blocking=blocking)
+        return account_quota(root=root, env=env, blocking=False)
     except Exception:  # noqa: BLE001 - advisory signal
         return None
 
 
-def role_budget_signal(
-    *,
-    ledger_root: Path | str | None = None,
-    item_id: str = "",
-    role: str = "engineer",
-) -> str:
-    """Budget line for a role prompt. Never raises."""
+def role_budget_signal(*, role: str = "engineer") -> str:
+    """Factual budget line for a role prompt. Never raises, never blocks."""
     try:
-        quota = active_account_quota(role=role)
-        mission = (
-            mission_usage_summary(ledger_root, item_id)
-            if ledger_root is not None and item_id
-            else None
-        )
-        return budget_signal(quota, mission=mission, budget=mission_budget())
+        return budget_signal(active_account_quota(role=role), budget=mission_budget())
     except Exception:  # noqa: BLE001 - advisory signal
         return ""
 
@@ -91,7 +82,7 @@ def maybe_warn_low_account_quota(
 ) -> bool:
     """Emit one operator alert per account and quota period when quota is low."""
     try:
-        quota = quota if quota is not None else active_account_quota(blocking=False)
+        quota = quota if quota is not None else active_account_quota()
         if quota is None or quota.error or not quota.low:
             return False
         key = f"{quota.provider}:{quota.login}:{quota.reset_date}"

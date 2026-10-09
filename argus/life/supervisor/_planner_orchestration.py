@@ -396,8 +396,8 @@ class PlannerOrchestrationMixin:
             pass
         from ...provider_integrations.account_budget import role_budget_signal
 
-        # How the account is billed and what is left this month, so plans can
-        # favour fewer, larger tasks or leaner context. Advisory only.
+        # Facts only: how the account is billed and what quota remains. Never
+        # a reason to drop review, verification or acceptance work.
         budget_line = role_budget_signal(role="planner")
         return "\n".join(
             [

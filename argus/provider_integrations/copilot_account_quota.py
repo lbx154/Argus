@@ -18,11 +18,11 @@ admission check.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
 import time
-import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -226,14 +226,21 @@ def _config_token(config: Mapping[str, Any]) -> tuple[str, str, str]:
     return "", login, host
 
 
+# The Copilot CLI's own precedence for an ambient token in its environment.
+_CLI_ENV_TOKENS = ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
+
+
 def active_copilot_credential(
     env: Mapping[str, str] | None = None,
 ) -> tuple[str, str, str] | None:
     """(token, login, host) the Copilot workers authenticate with, or None.
 
-    Mirrors ``copilot_home``'s account selection: an opted-in environment
-    token, then a dedicated account home, then the Argus home (which mirrors
-    the operator's login), then the operator's own home.
+    Mirrors how a worker is launched (``copilot_home.apply_copilot_home``):
+    an opted-in environment token always wins; a dedicated account home strips
+    ambient tokens, so its stored login is used; otherwise the CLI prefers a
+    token in its environment over the stored login, so that same token is
+    probed; only then the Argus home (which mirrors the operator's login) and
+    the operator's own home. ``login`` is "" for tokens without a stored login.
     """
     from ..agent_cli.copilot_home import (
         argus_copilot_home,
@@ -253,6 +260,10 @@ def active_copilot_credential(
     if account is not None:
         homes.append(account)
     else:
+        for name in _CLI_ENV_TOKENS:
+            ambient = str(source.get(name) or "").strip()
+            if ambient:
+                return ambient, "", "https://github.com"
         configured = str(source.get("COPILOT_HOME") or "").strip()
         if configured:
             homes.append(Path(configured).expanduser())
@@ -268,12 +279,29 @@ def active_copilot_credential(
     return None
 
 
+def account_key(token: str, login: str, host: str) -> str:
+    """Cache key for one account; a one-way digest stands in for a missing login."""
+    who = login or "token-" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+    return f"{host.rstrip('/')}|{who}"
+
+
 def _api_base(host: str) -> str:
     host = host.rstrip("/")
     if host in {"https://github.com", "http://github.com", "github.com"}:
         return "https://api.github.com"
+    # GitHub Enterprise Server serves its REST API under /api/v3.
     bare = host.split("://", 1)[-1]
-    return f"https://api.{bare}"
+    return f"https://{bare}/api/v3"
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects so the Authorization header never reaches another URL."""
+
+    def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 def fetch_copilot_user(token: str, host: str = "https://github.com") -> dict[str, Any]:
@@ -285,7 +313,7 @@ def fetch_copilot_user(token: str, host: str = "https://github.com") -> dict[str
             "User-Agent": "argus-account-quota",
         },
     )
-    with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT_SECONDS) as response:  # noqa: S310 - fixed https host
+    with _OPENER.open(request, timeout=_HTTP_TIMEOUT_SECONDS) as response:
         payload = json.load(response)
     if not isinstance(payload, dict):
         raise ValueError("unexpected quota payload")
@@ -296,20 +324,32 @@ def _cache_path(root: Path | None) -> Path:
     return (root or global_root()) / _CACHE_FILE
 
 
-def _read_cache(root: Path | None) -> dict[str, Any] | None:
+def _read_cache(root: Path | None, key: str) -> dict[str, Any] | None:
     try:
         value = json.loads(_cache_path(root).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return value if isinstance(value, dict) else None
+    accounts = value.get("accounts") if isinstance(value, dict) else None
+    row = accounts.get(key) if isinstance(accounts, dict) else None
+    return row if isinstance(row, dict) else None
 
 
-def _write_cache(root: Path | None, row: dict[str, Any]) -> None:
+def _write_cache(root: Path | None, key: str, row: dict[str, Any]) -> None:
     path = _cache_path(root)
     try:
+        try:
+            current = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            current = {}
+        accounts = current.get("accounts") if isinstance(current, dict) else None
+        accounts = dict(accounts) if isinstance(accounts, dict) else {}
+        accounts[key] = row
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(f".{os.getpid()}.{time.time_ns()}.tmp")
-        tmp.write_text(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.write_text(
+            json.dumps({"accounts": accounts}, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         os.replace(tmp, path)
     except OSError:
         pass
@@ -341,10 +381,11 @@ def refresh_account_quota(
     if credential is None:
         return None
     token, login, host = credential
+    key = account_key(token, login, host)
     now = time.time()
     try:
         quota = parse_account_quota(fetch_copilot_user(token, host), now=now, env=env)
-    except (OSError, ValueError, urllib.error.URLError) as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure is cached, never raised
         # Keep only the exception type: a provider message could echo headers.
         quota = AccountQuota(
             provider="copilot", login=login, plan="", billing_mode="unknown",
@@ -352,7 +393,7 @@ def refresh_account_quota(
             reset_date="", overage_permitted=False, unlimited=False,
             fetched_at=now, error=type(exc).__name__,
         )
-    _write_cache(root, asdict(quota))
+    _write_cache(root, key, asdict(quota))
     return quota
 
 
@@ -360,16 +401,24 @@ def account_quota(
     *,
     root: Path | None = None,
     env: Mapping[str, str] | None = None,
-    blocking: bool = True,
+    blocking: bool = False,
 ) -> AccountQuota | None:
-    """The cached account quota, refreshed when stale.
+    """The cached quota of the active account, refreshed when stale.
 
-    ``blocking=False`` never waits on the network: it returns whatever is
-    cached and refreshes in a background thread.
+    By default this never waits on the network (DNS included): it returns what
+    is cached for the account and refreshes in a background thread.
+    ``blocking=True`` is for explicit operator commands only.
     """
     if not probe_enabled(env):
         return None
-    cached = _read_cache(root)
+    try:
+        credential = active_copilot_credential(env)
+    except Exception:  # noqa: BLE001 - advisory
+        return None
+    if credential is None:
+        return None
+    key = account_key(*credential)
+    cached = _read_cache(root, key)
     now = time.time()
     if cached is not None and _fresh(cached, now, env):
         return _from_cache(cached)
@@ -377,11 +426,11 @@ def account_quota(
         return refresh_account_quota(root=root, env=env) or (
             _from_cache(cached) if cached is not None else None
         )
-    key = str(_cache_path(root))
+    refresh_key = f"{_cache_path(root)}|{key}"
     with _REFRESH_LOCK:
-        start = key not in _REFRESHING
+        start = refresh_key not in _REFRESHING
         if start:
-            _REFRESHING.add(key)
+            _REFRESHING.add(refresh_key)
     if start:
         def _run() -> None:
             try:
@@ -390,7 +439,7 @@ def account_quota(
                 pass
             finally:
                 with _REFRESH_LOCK:
-                    _REFRESHING.discard(key)
+                    _REFRESHING.discard(refresh_key)
 
         threading.Thread(target=_run, name="argus-account-quota", daemon=True).start()
     return _from_cache(cached) if cached is not None else None
@@ -399,6 +448,7 @@ def account_quota(
 __all__ = [
     "AccountQuota",
     "BillingMode",
+    "account_key",
     "account_quota",
     "active_copilot_credential",
     "classify_billing",

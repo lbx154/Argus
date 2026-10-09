@@ -475,6 +475,10 @@ export function ConfigModal({
                   <TodayUsage cost={snapshot?.cost_control} className="mt-1 text-xs tabular-nums text-ink-dim" />
                   <AccountQuotaPanel quota={snapshot?.account_budget?.account} />
                   <p className="mt-1 text-[10px] text-ink-faint">{t('settings.budget.missionHint')}</p>
+                  {snapshot?.account_budget?.mission_budget_enforceable === false
+                    && ((snapshot.account_budget.mission_budget.requests ?? 0) > 0 || (snapshot.account_budget.mission_budget.usd ?? 0) > 0)
+                    ? <p role="alert" className="mt-1 text-[11px] text-err" data-mission-budget-unenforceable>{t('settings.budget.missionUnenforceable')}</p>
+                    : null}
                 </div>
                 <button type="button" onClick={() => void saveBudgets()} disabled={budgetBusy} title={t('settings.saveBudgets')} aria-label={t('settings.saveBudgets')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-semibold text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-40">{budgetBusy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
               </div>

@@ -235,10 +235,11 @@ right choice when the tasks share four GPUs.
 **Knowing what the account has left.** On Copilot, Argus reads the active
 account's monthly quota (`ARGUS_SKILL_ACCOUNT_QUOTA_PROBE`, on by default,
 cached for `ARGUS_SKILL_ACCOUNT_QUOTA_TTL_SECONDS`) and works out how it is
-billed: request-billed plans charge one premium request per call whatever its
-size, credit-billed seats charge by tokens. The Planner and Manager see one
-line such as "request-billed, 37 of 300 left this month" and can choose fewer,
-larger calls or shorter contexts; the line informs them and limits nothing.
+billed: request-billed plans charge premium requests per call at the model's
+multiplier, credit-billed seats charge by tokens. The Planner and Manager see
+one factual line such as "request-billed … 37 of 300 premium requests left this
+month"; it limits nothing and states that spend never reduces review,
+verification or acceptance checks.
 The web header shows the same figure, each task shows what it has spent, and
 the operator is warned once when less than
 `ARGUS_SKILL_ACCOUNT_QUOTA_WARN_PERCENT` (default 10) is left. If the detected

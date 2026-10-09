@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("HOME", str(tmp_path / "user"))
     for name in (
+        "GH_TOKEN", "GITHUB_TOKEN",
         "ARGUS_SKILL_ACCOUNT_BILLING_MODE", "ARGUS_SKILL_COPILOT_HOME", "COPILOT_HOME",
         "ARGUS_SKILL_COPILOT_TOKEN_FROM_ENV", "COPILOT_GITHUB_TOKEN", "ARGUS_SKILL_COPILOT_TRIAL",
     ):
@@ -88,12 +90,12 @@ def test_low_flag_follows_warn_percent(monkeypatch: pytest.MonkeyPatch) -> None:
     assert parse_account_quota(_user(entitlement=300, remaining=200)).low is True
 
 
-def _write_cli_config(home: Path, login: str = "someone") -> None:
+def _write_cli_config(home: Path, login: str = "someone", token: str = SECRET) -> None:
     home.mkdir(parents=True, exist_ok=True)
     (home / "config.json").write_text(
         "// managed\n" + json.dumps({
             "lastLoggedInUser": {"host": "https://github.com", "login": login},
-            "authTokens": {f"https://github.com:{login}": {"token": SECRET}},
+            "authTokens": {f"https://github.com:{login}": {"token": token}},
         }),
         encoding="utf-8",
     )
@@ -133,7 +135,7 @@ def test_quota_is_cached_and_the_cache_holds_no_token(
         return _user(entitlement=300, remaining=37)
 
     monkeypatch.setattr(quota_mod, "fetch_copilot_user", fake_fetch)
-    first = account_quota()
+    first = account_quota(blocking=True)
     second = account_quota()
     assert first is not None and second is not None
     assert first.remaining == 37 and second.remaining == 37
@@ -152,7 +154,7 @@ def test_failed_probe_is_cached_without_provider_text(
         raise OSError(f"boom {token}")
 
     monkeypatch.setattr(quota_mod, "fetch_copilot_user", failing)
-    quota = account_quota()
+    quota = account_quota(blocking=True)
     assert quota is not None and quota.error == "OSError" and quota.billing_mode == "unknown"
     cache = (tmp_path / "home" / "copilot-account-quota.json").read_text(encoding="utf-8")
     assert SECRET not in cache
@@ -172,5 +174,85 @@ def test_nonblocking_read_returns_cache_and_never_waits(
             started.append(True)
 
     monkeypatch.setattr(quota_mod.threading, "Thread", _Thread)
+    _write_cli_config(tmp_path / "user" / ".copilot")
     assert account_quota(blocking=False) is None
     assert started == [True]
+
+
+@pytest.mark.parametrize("failure", [
+    http.client.IncompleteRead(b""),
+    http.client.RemoteDisconnected("closed"),
+    RuntimeError("anything"),
+])
+def test_every_probe_failure_is_cached_not_raised(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: Exception,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_ACCOUNT_QUOTA_PROBE", "on")
+    _write_cli_config(tmp_path / "user" / ".copilot")
+
+    def failing(token: str, host: str = "https://github.com") -> dict[str, Any]:
+        raise failure
+
+    monkeypatch.setattr(quota_mod, "fetch_copilot_user", failing)
+    quota = quota_mod.refresh_account_quota()
+    assert quota is not None and quota.error == type(failure).__name__
+
+
+def test_ambient_cli_token_is_the_account_probed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    _write_cli_config(tmp_path / "user" / ".copilot")
+    monkeypatch.setenv("GH_TOKEN", "ambient-token")
+    assert active_copilot_credential() == ("ambient-token", "", "https://github.com")
+    monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "copilot-token")
+    assert active_copilot_credential() == ("copilot-token", "", "https://github.com")
+
+
+def test_bound_account_home_ignores_ambient_tokens(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    _write_cli_config(tmp_path / "bound", login="bound")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_HOME", str(tmp_path / "bound"))
+    monkeypatch.setenv("GH_TOKEN", "ambient-token")
+    credential = active_copilot_credential()
+    assert credential is not None and credential[1] == "bound"
+
+
+def test_cache_is_kept_per_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_ACCOUNT_QUOTA_PROBE", "on")
+    _write_cli_config(tmp_path / "user" / ".copilot", login="first", token="first-token")
+    answers = {"first-token": 37.0, "second-token": 250.0}
+    monkeypatch.setattr(
+        quota_mod, "fetch_copilot_user",
+        lambda token, host="https://github.com": _user(entitlement=300, remaining=answers[token]),
+    )
+    assert account_quota(blocking=True).remaining == 37  # type: ignore[union-attr]
+    _write_cli_config(tmp_path / "user" / ".copilot", login="second", token="second-token")
+    # A different account never sees the first account's cached figures.
+    monkeypatch.setattr(quota_mod, "threading", _NoThreads)
+    assert account_quota(blocking=False) is None
+    assert account_quota(blocking=True).remaining == 250  # type: ignore[union-attr]
+    _write_cli_config(tmp_path / "user" / ".copilot", login="first", token="first-token")
+    assert account_quota().remaining == 37  # type: ignore[union-attr]
+
+
+class _NoThreads:
+    class Thread:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+
+def test_enterprise_server_hosts_use_the_api_v3_prefix() -> None:
+    assert quota_mod._api_base("https://github.com") == "https://api.github.com"
+    assert quota_mod._api_base("https://git.example.com") == "https://git.example.com/api/v3"
+
+
+def test_redirects_are_refused_so_the_token_stays_put() -> None:
+    import urllib.request
+
+    request = urllib.request.Request("https://api.github.com/x", headers={"Authorization": "token t"})
+    handler = quota_mod._NoRedirect()
+    assert handler.redirect_request(request, None, 302, "Found", {}, "https://elsewhere.example/") is None
