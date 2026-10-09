@@ -54,6 +54,7 @@ _PROJECT_CACHE_MAX_ENTRIES = 256
 
 _SPEND_CACHE: dict[str, tuple[tuple[int, int, int] | None, UsageSummary]] = {}
 _SPEND_CACHE_LOCK = threading.Lock()
+_MISSION_USAGE_CACHE: dict[str, tuple[tuple[int, int, int] | None, dict[str, Any]]] = {}
 _METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _METRICS_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE_TTL_SECONDS = 60.0
@@ -576,6 +577,52 @@ def settled_spend(
     return total
 
 
+def mission_usage(
+    life_dir: Path,
+    *,
+    diagnostics: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Settled spend per backlog item (all attempts), keyed by item id."""
+    from ..core.budget_signal import usage_by_mission
+
+    key = str(life_dir.resolve())
+    signature = stat_signature(life_dir / "usage.jsonl")
+    with _SPEND_CACHE_LOCK:
+        cached = _MISSION_USAGE_CACHE.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+    try:
+        value = usage_by_mission(UsageLedger(life_dir, migrate_legacy=False).records())
+    except Exception as exc:  # noqa: BLE001 - snapshot remains available
+        if diagnostics is not None:
+            diagnostics.append(diagnostic("mission_usage", exc))
+        return {}
+    with _SPEND_CACHE_LOCK:
+        _store_bounded_cache_entry(
+            _MISSION_USAGE_CACHE, key, (signature, value),
+            max_entries=_PROJECT_CACHE_MAX_ENTRIES,
+        )
+    return value
+
+
+def account_budget_snapshot() -> dict[str, Any]:
+    """Account billing mode/quota and the per-mission budget, for the cockpit.
+
+    Never waits on the network: a stale quota refreshes in the background.
+    """
+    from ..core.budget_signal import mission_budget, mission_budget_enforceable
+    from ..provider_integrations.account_budget import active_account_quota
+
+    quota = active_account_quota()
+    return {
+        "account": quota.to_jsonable() if quota is not None else None,
+        "mission_budget": mission_budget().to_jsonable(),
+        # A budget needs the persisted project ledger; say so rather than
+        # letting a configured limit silently do nothing.
+        "mission_budget_enforceable": mission_budget_enforceable(),
+    }
+
+
 def stat_signature(path: Path) -> tuple[int, int, int] | None:
     try:
         stat = path.stat()
@@ -753,6 +800,12 @@ def build_snapshot(
         diagnostics.append(diagnostic("request_usage", exc))
 
     try:
+        budget = account_budget_snapshot()
+    except Exception as exc:  # noqa: BLE001
+        budget = None
+        diagnostics.append(diagnostic("account_budget", exc))
+
+    try:
         cost_control = _cached_cost_control_snapshot(root, nonblocking=compact)
     except Exception as exc:  # noqa: BLE001
         cost_control = None
@@ -806,6 +859,8 @@ def build_snapshot(
         "global_spend_status": global_spend.pricing_status,
         "global_usage_summary": global_spend.to_jsonable(),
         "request_usage": request_usage,
+        "account_budget": budget,
+        "mission_usage": mission_usage(life_dir, diagnostics=diagnostics),
         "cost_control": cost_control,
         "daemon_commands": daemon_commands,
         "observability": observability,

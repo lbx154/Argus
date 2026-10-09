@@ -630,6 +630,8 @@ def test_build_snapshot_shape_and_failsoft(
         "global_spend_status",
         "global_usage_summary",
         "request_usage",
+        "account_budget",
+        "mission_usage",
         "cost_control",
         "daemon_commands",
         "observability",

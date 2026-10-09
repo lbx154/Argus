@@ -166,6 +166,47 @@ export interface RequestUsage {
   copilot: ProviderRequestUsage;
 }
 
+/** The active provider account's monthly premium quota (no credential). */
+export interface AccountQuota {
+  provider: string;
+  login: string;
+  plan: string;
+  /** request: each call costs a premium request; credit: calls cost by tokens. */
+  billing_mode: 'request' | 'credit' | 'unlimited' | 'unknown';
+  entitlement: number | null;
+  remaining: number | null;
+  used: number | null;
+  percent_remaining: number | null;
+  reset_date: string;
+  overage_permitted: boolean;
+  unlimited: boolean;
+  fetched_at: number;
+  mode_source?: string;
+  error?: string;
+  low: boolean;
+  warn_percent: number;
+}
+
+export interface AccountBudget {
+  account: AccountQuota | null;
+  /** Operator per-mission budget; 0 means off. */
+  mission_budget: { requests: number; usd: number };
+  /** False when project state is not persisted, so a set budget cannot be enforced. */
+  mission_budget_enforceable?: boolean;
+}
+
+/** Settled spend of one backlog item across its attempts. */
+export interface MissionUsage {
+  calls: number;
+  premium_requests: number;
+  credits: number;
+  known_cost_usd: number;
+  pricing_status: string;
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+}
+
 export interface CostControlSnapshot {
   day: string;
   daily_tokens?: number;
@@ -425,6 +466,8 @@ export interface Snapshot {
   global_spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
   global_usage_summary?: UsageSummary;
   request_usage?: RequestUsage | null;
+  account_budget?: AccountBudget | null;
+  mission_usage?: Record<string, MissionUsage>;
   cost_control?: CostControlSnapshot | null;
   daemon_commands?: DaemonCommandState | null;
   observability?: ObservabilitySnapshot | null;

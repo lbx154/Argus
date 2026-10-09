@@ -246,6 +246,12 @@ def _decision(text: str) -> dict[str, Any]:
 
 
 def _prompt(observation: ManagerObservation) -> str:
+    from ..provider_integrations.account_budget import role_budget_signal
+
+    # Facts about how the account is billed and what quota remains. It is not
+    # a reason to stop, shorten, or skip verification; any spend limit is the
+    # operator's and is enforced outside this decision.
+    budget_line = role_budget_signal(role="manager")
     return (
         "You are the persistent project Manager, supervising the team's progress toward the "
         "operator's actual objective. Assess the concrete evidence below. A successful tool "
@@ -264,6 +270,7 @@ def _prompt(observation: ManagerObservation) -> str:
         "Return one line per field written as KEY: value — ACTION, REASON, EVIDENCE_REFS (semicolon-separated paths from evidence_refs), "
         "and DIRECTIVE (only for STEER). REASON must name "
         "the decisive observed condition and what should happen next.\n\n"
+        + (budget_line + "\n\n" if budget_line else "")
         + observation.render()
     )
 

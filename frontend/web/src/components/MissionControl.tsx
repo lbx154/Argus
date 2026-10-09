@@ -1,4 +1,5 @@
 import { AgentActivity } from './AgentActivity';
+import { MissionSpendLine } from './SpendSummary';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   DeliveryReceipt,
@@ -430,6 +431,10 @@ export function MissionControl({
             <p className="mt-1 pl-[1.125rem] text-sm leading-relaxed text-ink-dim">{nextStep}</p>
           ) : null}
         </div>
+        <MissionSpendLine
+          usage={snapshot?.mission_usage?.[view.mission.id]}
+          budget={snapshot?.account_budget?.mission_budget}
+        />
         {missionRunning && currentWork?.detail ? <div className="mt-4 text-sm text-ink-dim">
           <DetailDisclosure detail={plainDetail(currentWork.detail, locale).text} previewLength={EVENT_DETAIL_PREVIEW_LENGTH} textClassName="leading-6" />
         </div> : null}

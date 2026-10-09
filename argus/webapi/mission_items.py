@@ -741,6 +741,8 @@ _CONFIG_ALIASES = {
     "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
     "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
     "copilot_daily_premium": "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
+    "mission_budget_premium": "ARGUS_SKILL_MISSION_BUDGET_REQUESTS",
+    "mission_budget_usd": "ARGUS_SKILL_MISSION_BUDGET_USD",
     "safe_mode": "ARGUS_SKILL_SAFE_MODE",
     "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
     "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
@@ -937,7 +939,7 @@ def set_budget_config(
     from ..core.knob_store import write_persisted_knobs
     from ..core.knobs import normalize_cockpit_knob_value
 
-    optional = {"global_daily_tokens"}
+    optional = {"global_daily_tokens", "mission_budget_premium", "mission_budget_usd"}
     unknown = sorted(set(values) - _BUDGET_BATCH_ALIASES - optional)
     if unknown:
         raise ValueError(f"unsupported budget setting(s): {', '.join(unknown)}")

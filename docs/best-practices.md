@@ -234,6 +234,25 @@ campaign should not exhaust it for the others. `--mission-width` (default 2)
 is the per-project counterpart; the roofline campaign used `1`, which is the
 right choice when the tasks share four GPUs.
 
+**Knowing what the account has left.** On Copilot, Argus reads the active
+account's monthly quota (`ARGUS_SKILL_ACCOUNT_QUOTA_PROBE`, on by default,
+cached for `ARGUS_SKILL_ACCOUNT_QUOTA_TTL_SECONDS`) and works out how it is
+billed: request-billed plans charge premium requests per call at the model's
+multiplier, credit-billed seats charge by tokens. The Planner and Manager see
+one factual line such as "request-billed … 37 of 300 premium requests left this
+month"; it limits nothing and states that spend never reduces review,
+verification or acceptance checks.
+The web header shows the same figure, each task shows what it has spent, and
+the operator is warned once when less than
+`ARGUS_SKILL_ACCOUNT_QUOTA_WARN_PERCENT` (default 10) is left. If the detected
+mode is wrong, set `ARGUS_SKILL_ACCOUNT_BILLING_MODE` to `request` or `credit`.
+
+**A per-task budget, if you want one.** `ARGUS_SKILL_MISSION_BUDGET_REQUESTS`
+and `ARGUS_SKILL_MISSION_BUDGET_USD` (both `0`, off) cap one task's spend
+across its attempts. When a task reaches either, Argus stops at the next round
+boundary and asks you whether to continue or drop it; it never decides that
+by itself.
+
 **What to do with a call whose price is not known yet.**
 `ARGUS_SKILL_UNPRICED_COST_POLICY` is `block` by default: a call whose cost the
 provider has not settled is refused before it starts, because a cap that

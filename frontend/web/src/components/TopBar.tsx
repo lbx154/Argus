@@ -7,6 +7,7 @@ import { roleLabel } from '../lib/enumLabels';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { DaemonSpendBadge } from './DaemonSpendBadge';
+import { AccountQuotaChip } from './SpendSummary';
 import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 
@@ -126,6 +127,7 @@ export function TopBar({
         live={snap.daemon.alive}
         compact
       /> : null}
+      <AccountQuotaChip quota={snap.account_budget?.account} />
       {onToggleMobileView ? (
         <button
           type="button"

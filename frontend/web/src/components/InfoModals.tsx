@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { MapModelSettings } from '../map/MapModelSettings';
 import { AdvisorSettings } from './AdvisorSettings';
+import { AccountQuotaPanel } from './SpendSummary';
 import { useDoctor, useConfig, useIdentity, useTranscript, useSnapshot } from '../hooks';
 import { ApiError } from '../../../core/src/http';
 import { Modal, ModalHeader } from './Modal';
@@ -38,6 +39,8 @@ const BUDGET_FIELDS = [
   { alias: 'codex_daily_requests', env: 'ARGUS_SKILL_CODEX_DAILY_CALL_CAP', label: 'settings.budget.codex', unit: 'settings.unit.calls', step: '1' },
   { alias: 'copilot_daily_requests', env: 'ARGUS_SKILL_COPILOT_DAILY_CALL_CAP', label: 'settings.budget.copilot', unit: 'settings.unit.calls', step: '1' },
   { alias: 'copilot_daily_premium', env: 'ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP', label: 'settings.budget.premium', unit: 'settings.unit.requests', step: '1' },
+  { alias: 'mission_budget_premium', env: 'ARGUS_SKILL_MISSION_BUDGET_REQUESTS', label: 'settings.budget.missionRequests', unit: 'settings.unit.requests', step: '1' },
+  { alias: 'mission_budget_usd', env: 'ARGUS_SKILL_MISSION_BUDGET_USD', label: 'settings.budget.missionUsd', unit: 'settings.unit.usd', step: '0.1' },
 ] as const;
 
 const KNOB_TEXT: Record<string, { label: string; doc: string }> = {
@@ -432,6 +435,7 @@ export function ConfigModal({
                 <p className="mt-1 text-[10px] text-ink-faint" data-model-offline>{t('settings.modelOfflineList')}</p>
               )}
               <TodayUsage cost={snapshot?.cost_control} className="mt-2 text-[10px] tabular-nums text-ink-faint" />
+              <AccountQuotaPanel quota={snapshot?.account_budget?.account} />
               {data.roles.some(role => role.model && quickModelValue.trim() && role.model !== quickModelValue.trim()) && (
                 <p className="mt-1.5 text-[10px] text-ink-faint" data-role-models>
                   {t('settings.rolesRunning')}{' '}
@@ -469,11 +473,18 @@ export function ConfigModal({
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-gold">{t('settings.budgetTitle')}</div>
                   <p className="mt-0.5 text-[10px] text-ink-faint">{t('settings.budgetHint')}</p>
                   <TodayUsage cost={snapshot?.cost_control} className="mt-1 text-xs tabular-nums text-ink-dim" />
+                  <AccountQuotaPanel quota={snapshot?.account_budget?.account} />
+                  <p className="mt-1 text-[10px] text-ink-faint">{t('settings.budget.missionHint')}</p>
+                  {snapshot?.account_budget?.mission_budget_enforceable === false
+                    && ((snapshot.account_budget.mission_budget.requests ?? 0) > 0 || (snapshot.account_budget.mission_budget.usd ?? 0) > 0)
+                    ? <p role="alert" className="mt-1 text-[11px] text-err" data-mission-budget-unenforceable>{t('settings.budget.missionUnenforceable')}</p>
+                    : null}
                 </div>
                 <button type="button" onClick={() => void saveBudgets()} disabled={budgetBusy} title={t('settings.saveBudgets')} aria-label={t('settings.saveBudgets')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-semibold text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-40">{budgetBusy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {BUDGET_FIELDS.filter((field) => field.alias.startsWith('global_') ||
+                  field.alias.startsWith('mission_') ||
                   field.alias.startsWith(`${currentBackend}_`)).map((field) => (
                   <label key={field.alias} className="rounded border border-line/70 bg-bg/60 p-2">
                     <span className="block text-[10px] text-ink-faint">{t(field.label)}</span>

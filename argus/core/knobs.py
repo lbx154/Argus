@@ -179,6 +179,12 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "10000", "host-wide Copilot provider-call cap per local day", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "10000", "host-wide Copilot provider-call cap per rolling hour", "budget"),
     Knob("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "10000", "maximum concurrent Copilot calls across all Argus projects", "budget"),
+    Knob("ARGUS_SKILL_MISSION_BUDGET_REQUESTS", "0", "optional per-mission premium-request budget; when a mission reaches it Argus pauses at a round boundary and asks the operator; 0 disables", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_MISSION_BUDGET_USD", "0", "optional per-mission USD budget (credits and priced tokens); when a mission reaches it Argus pauses at a round boundary and asks the operator; 0 disables", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_ACCOUNT_QUOTA_PROBE", "on", "read the active Copilot account's billing mode and remaining monthly quota for the role budget signal and cockpit; off disables", "budget"),
+    Knob("ARGUS_SKILL_ACCOUNT_QUOTA_TTL_SECONDS", "600", "seconds a fetched account quota is reused before it is read again", "budget"),
+    Knob("ARGUS_SKILL_ACCOUNT_BILLING_MODE", "auto", "account billing mode shown to roles: auto | request | credit; set when detection is wrong", "budget"),
+    Knob("ARGUS_SKILL_ACCOUNT_QUOTA_WARN_PERCENT", "10", "warn the operator once when the account's remaining monthly quota falls below this percentage; never pauses work", "budget"),
     Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", str(DEFAULT_MAX_ACTIVE_DAEMONS), "host-wide active daemon cap", "budget", cockpit=True),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
@@ -307,6 +313,8 @@ _NON_NEGATIVE_INT_KNOBS = frozenset(
 )
 _NON_NEGATIVE_FLOAT_KNOBS = frozenset({
     "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
+    "ARGUS_SKILL_MISSION_BUDGET_REQUESTS",
+    "ARGUS_SKILL_MISSION_BUDGET_USD",
 })
 # A path knob names one absolute filesystem location. ``~`` expands at persist
 # time; a relative path would silently depend on whichever cwd the reading
@@ -537,6 +545,11 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if policy not in {"block", "allow"}:
             raise ValueError(f"{name} must be block or allow")
         return policy
+    if name == "ARGUS_SKILL_ACCOUNT_BILLING_MODE":
+        mode = raw.lower()
+        if mode not in {"auto", "request", "credit"}:
+            raise ValueError(f"{name} must be auto, request, or credit")
+        return mode
     if name == "ARGUS_SKILL_AUTONOMY_MODE":
         mode = raw.lower()
         if mode not in {"cautious", "pragmatic", "autonomous"}:

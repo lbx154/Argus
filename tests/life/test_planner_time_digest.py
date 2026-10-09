@@ -204,3 +204,22 @@ def test_finished_background_jobs_are_measured_separately(tmp_path: Path) -> Non
 
     line = next(row for row in note.splitlines() if row.startswith("- time:"))
     assert "finished background jobs: median 12.0h over 2" in line
+
+
+def test_digest_carries_the_account_budget_line_only_when_known(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    monkeypatch.setattr("argus.provider_integrations.account_budget.role_budget_signal", lambda **_kw: "")
+    assert "- account_budget:" not in supervisor._planner_current_reality_note()
+    monkeypatch.setattr(
+        "argus.provider_integrations.account_budget.role_budget_signal",
+        lambda **_kw: "Account budget: request-billed; 37 of 300 left this month.",
+    )
+    lines = [
+        line for line in supervisor._planner_current_reality_note().splitlines()
+        if line.startswith("- account_budget:")
+    ]
+    assert lines == ["- account_budget: Account budget: request-billed; 37 of 300 left this month."]
