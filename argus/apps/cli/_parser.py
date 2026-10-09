@@ -25,10 +25,6 @@ Vertical Store (community verticals, no pip):
   argus verticals list
   argus verticals install NAME
 
-Cost control:
-  argus cost list
-  argus cost acknowledge CALL_ID --liability-usd USD --reason TEXT
-
 Automation:
   argus --daemon-fg    supervised foreground worker (systemd/debugging)
   argus --daemon       persistent unattended background worker
@@ -757,9 +753,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     _add_verticals_subcommand(subparsers)
-    from ._cost import add_cost_subcommand
-
-    add_cost_subcommand(subparsers)
 
     return parser
 

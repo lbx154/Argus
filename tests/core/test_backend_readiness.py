@@ -832,7 +832,7 @@ def test_readiness_warns_when_the_backends_own_default_model_has_no_price(
     warnings = [w for w in report.warnings if "no configured price" in w]
     assert len(warnings) == 1
     assert "house-model-without-price" in warnings[0]
-    assert "ARGUS_SKILL_UNPRICED_COST_POLICY" in warnings[0]
+    assert "costliest priced call" in warnings[0]
     assert "--setup --backend" in warnings[0]
 
 

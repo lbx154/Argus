@@ -171,7 +171,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0", "concurrent provider processes across all backends and projects; 0 disables", "budget"),
     Knob("ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS", "45", "seconds a provider call queues for a busy concurrency slot before it is refused; 0 refuses at once", "budget"),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "host-global settled-cost admission and reconciliation", "budget"),
-    Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "estimate", "a call whose cost is not settled yet: estimate (count it at the day's costliest priced call and keep working) | block (refuse new calls until it settles or is acknowledged)", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),
@@ -532,13 +531,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if not 1 <= bounded_integer <= maximum:
             raise ValueError(f"{name} must be an integer from 1 to {maximum}")
         return str(bounded_integer)
-    if name == "ARGUS_SKILL_UNPRICED_COST_POLICY":
-        policy = raw.lower()
-        if policy == "allow":
-            policy = "estimate"  # the retired name for the same behaviour
-        if policy not in {"estimate", "block"}:
-            raise ValueError(f"{name} must be estimate or block")
-        return policy
     if name == "ARGUS_SKILL_AUTONOMY_MODE":
         mode = raw.lower()
         if mode not in {"cautious", "pragmatic", "autonomous"}:

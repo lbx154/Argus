@@ -1,9 +1,8 @@
 """A call whose cost is not settled counts as the day's costliest priced call.
 
-That is the default (``ARGUS_SKILL_UNPRICED_COST_POLICY=estimate``): work goes
-on, the daily cap sees a figure that can only err against the campaign, and the
-cockpit shows how much is being counted. ``block`` keeps refusing new calls
-until the operator acknowledges the held one.
+Work goes on, the daily cap sees a figure that can only err against the
+campaign, and the cockpit shows how much is being counted. Nothing is ever
+refused for want of a price.
 """
 from __future__ import annotations
 
@@ -22,7 +21,6 @@ from argus.core.usage import UsageLedger, UsageRecord, build_usage_record
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.delenv("ARGUS_SKILL_UNPRICED_COST_POLICY", raising=False)
     with usage._RECENT_RECORDS_CACHE_LOCK:
         usage._RECENT_RECORDS_CACHE.clear()
     yield
@@ -62,25 +60,15 @@ def _reserve(root: Path, project: Path, call_id: str, *, cap: float = 1000.0, mo
     )
 
 
-def test_estimate_is_the_default_and_allow_means_the_same(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert costs._unpriced_policy() == "estimate"
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
-    assert costs._unpriced_policy() == "estimate"
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
-    assert costs._unpriced_policy() == "block"
-
-
 def test_an_unsettled_call_counts_as_the_days_costliest_priced_call(tmp_path: Path) -> None:
     project = _ledger(tmp_path, _priced(project := tmp_path / "projects" / "research", "p1", 2.0),
                       _priced(project, "p2", 5.0), _unsettled(project, "open"))
 
     snapshot = costs.cost_control_snapshot(global_root=tmp_path)
-    assert snapshot["policy"] == "estimate"
     assert snapshot["unresolved_calls"] == 1
-    assert snapshot["blocking_unresolved_calls"] == 0
     assert snapshot["unpriced_estimate_usd"] == 5.0
     assert snapshot["counted_unpriced_usd"] == 5.0
-    assert snapshot["unacknowledged_observed_cost_usd"] == 0
+    assert snapshot["observed_unpriced_usd"] == 0
     # Settled $7 plus the $5 the open call counts for.
     assert costs.cost_admission_reason(global_root=tmp_path, cap=12.0).startswith(
         "global daily budget exhausted"
@@ -101,7 +89,7 @@ def test_observed_spend_above_the_estimate_is_what_counts(tmp_path: Path) -> Non
 
     snapshot = costs.cost_control_snapshot(global_root=tmp_path)
     assert snapshot["counted_unpriced_usd"] == 30.0
-    assert snapshot["unacknowledged_observed_cost_usd"] == 30.0
+    assert snapshot["observed_unpriced_usd"] == 30.0
     assert costs.cost_admission_reason(global_root=tmp_path, cap=35.0).startswith(
         "global daily budget exhausted"
     )
@@ -123,9 +111,7 @@ def test_without_a_priced_call_only_copilot_counts_one_premium_request(tmp_path:
     assert snapshot["counted_unpriced_usd"] == pytest.approx(copilot_usd_per_premium_request())
 
 
-def test_a_model_without_a_price_is_counted_rather_than_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_model_without_a_price_is_counted_rather_than_refused(tmp_path: Path) -> None:
     project = tmp_path / "projects" / "research"
     _ledger(tmp_path, _priced(project, "p1", 3.0))
     unpriced = build_usage_record(
@@ -143,43 +129,7 @@ def test_a_model_without_a_price_is_counted_rather_than_refused(
     admitted.release(reason="test")
     snapshot = costs.cost_control_snapshot(global_root=tmp_path)
     assert snapshot["counted_unpriced_usd"] == 3.0
-    assert snapshot["unresolved"][0]["missing_price"] is True
-
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
-    refused, reason = _reserve(tmp_path, project, "refused", model="future-model")
-    assert refused is None and reason.startswith("unpriced model")
-
-
-def test_an_acknowledgement_replaces_the_estimate_with_the_operators_figure(tmp_path: Path) -> None:
-    project = tmp_path / "projects" / "research"
-    _ledger(tmp_path, _priced(project, "p1", 5.0), _unsettled(project, "open"))
-    assert costs.cost_admission_reason(global_root=tmp_path, cap=10.0).startswith(
-        "global daily budget exhausted"
-    )
-
-    costs.acknowledge_unpriced_call(
-        global_root=tmp_path, project_id=project.name, call_id="open",
-        liability_usd=1.0, reason="the provider's dashboard shows one dollar",
-    )
-
-    snapshot = costs.cost_control_snapshot(global_root=tmp_path)
-    assert snapshot["pending_liability_usd"] == 1.0
-    assert snapshot["counted_unpriced_usd"] == 0.0
-    assert costs.cost_admission_reason(global_root=tmp_path, cap=6.5) == ""
-
-
-def test_block_still_holds_an_unsettled_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
-    project = tmp_path / "projects" / "research"
-    _ledger(tmp_path, _priced(project, "p1", 5.0), _unsettled(project, "open"))
-
-    refused, reason = _reserve(tmp_path, project, "next")
-    assert refused is None and reason.startswith("unresolved provider cost")
-    snapshot = costs.cost_control_snapshot(global_root=tmp_path)
-    assert snapshot["policy"] == "block"
-    assert snapshot["blocking_unresolved_calls"] == 1
-    assert snapshot["unpriced_estimate_usd"] == 0.0
-    assert snapshot["counted_unpriced_usd"] == 0.0
+    assert "no configured price for model future-model" in snapshot["unresolved"][0]["reason"]
 
 
 def test_journal_repair_estimates_do_not_set_the_days_estimate(tmp_path: Path) -> None:

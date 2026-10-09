@@ -59,12 +59,10 @@ export function CostGauge({
         </Text>
       ) : null}
       {costControl && (costControl.active_reservations > 0 || costControl.unresolved_calls > 0) ? (
-        <Text color={(costControl.blocking_unresolved_calls ?? 0) > 0 ? theme.error : undefined} dimColor={(costControl.blocking_unresolved_calls ?? 0) === 0}>
-          {(costControl.blocking_unresolved_calls ?? 0) > 0
-            ? `cost control · in-flight ${costControl.active_reservations} · held ${costControl.blocking_unresolved_calls} unsettled`
-            : costControl.unresolved_calls > 0
-              ? `cost control · in-flight ${costControl.active_reservations} · unpriced ${costControl.unresolved_calls} · ~$${(costControl.counted_unpriced_usd ?? 0).toFixed(2)} counted`
-              : `cost control · in-flight ${costControl.active_reservations}`}
+        <Text dimColor>
+          {costControl.unresolved_calls > 0
+            ? `cost control · in-flight ${costControl.active_reservations} · unpriced ${costControl.unresolved_calls} · ~$${(costControl.counted_unpriced_usd ?? 0).toFixed(2)} counted`
+            : `cost control · in-flight ${costControl.active_reservations}`}
         </Text>
       ) : null}
       {usageSummary && usageSummary.call_count > 0 ? (

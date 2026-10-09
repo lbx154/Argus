@@ -234,26 +234,17 @@ campaign should not exhaust it for the others. `--mission-width` (default 2)
 is the per-project counterpart; the roofline campaign used `1`, which is the
 right choice when the tasks share four GPUs.
 
-**What to do with a call whose price is not known yet.**
-`ARGUS_SKILL_UNPRICED_COST_POLICY` decides. The default, `estimate`, keeps
-working: until the provider settles the call, it counts toward the daily cap
-at the day's costliest priced call, or at its observed in-flight spend when
-that is higher. The estimate can only make the day look dearer, so the cap
-still holds, and nothing is hidden: the cockpit's cost gauge shows
-`unpriced N · ~$X counted`, and `GET /api/projects/<id>/cost-control` carries
-the same figures as `counted_unpriced_usd` and `unpriced_estimate_usd`. A
-Copilot call on a day without any priced call counts as one premium request.
-
-`block` is the strict alternative: a call whose cost is not settled is refused
-before it starts, the worker shows `paused_cost`, and an operator releases the
-held call with `argus cost acknowledge <call> --project <id> --liability-usd
-<approved> --reason "<why>"` (or the matching `POST .../cost-control/acknowledge`).
-Choose it when every call runs on a metered API key and the cap has to be
-exact to the cent. Earlier releases defaulted to `block`; on a subscription
-CLI that paused fresh installs within a minute, because Copilot's token bill
-arrives a few seconds after the call (the September 2026 trial's `paused_cost`
-cases), which is why the default moved. `allow`, the previous name for not
-blocking, is still accepted in old configurations and now means `estimate`.
+**A call whose price is not known yet** is never refused for that reason.
+Until the provider settles it, it counts toward the daily cap at the day's
+costliest priced call, or at its observed in-flight spend when that is higher,
+so the cap still holds and the figure can only err against the campaign. The
+cockpit's cost gauge shows `unpriced N · ~$X counted`, and
+`GET /api/projects/<id>/cost-control` carries the same figures as
+`counted_unpriced_usd` and `unpriced_estimate_usd`. A Copilot call on a day
+without any priced call counts as one premium request. Earlier releases
+refused new calls until such a call settled; on a subscription CLI that paused
+fresh installs within a minute, because Copilot's token bill arrives a few
+seconds after the call, and the behaviour was removed.
 
 A last practical point: `ARGUS_SKILL_COST_CONTROL` (default `on`) is the
 switch for the whole admission-and-reconciliation layer. Leave it on; turning

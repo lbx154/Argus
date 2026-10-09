@@ -664,7 +664,7 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
     assert "global daily budget exhausted" in str(denied.fatal_error)
 
 
-def test_unpriceable_model_is_refused_up_front_and_acknowledged_risk_still_obeys_cap(
+def test_unpriceable_model_is_counted_and_never_refused(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -673,9 +673,6 @@ def test_unpriceable_model_is_refused_up_front_and_acknowledged_risk_still_obeys
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
-    # Refusing a model without a price is the block policy's behaviour; the
-    # default (estimate) counts such a call and lets the next one run.
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-1")
     calls = []
@@ -710,39 +707,23 @@ def test_unpriceable_model_is_refused_up_front_and_acknowledged_risk_still_obeys
         options=RunnerOptions(model="gpt-5.6-sol"),
         run_label="reviewer",
     )
-
     repeat = backend.run_exec(
         prompt="same unpriced model again",
         options=RunnerOptions(model="future-model"),
         run_label="engineer-r1b",
     )
 
-    assert first.pricing_status == "unpriced"
-    assert first.cost_usd is None
-    # A model without a price never settles; it must not hold priced calls.
+    assert first.pricing_status == "unpriced" and first.cost_usd is None
     assert second.pricing_status == "priced" and not second.fatal_error
-    assert calls == ["engineer-r1", "reviewer"]
-    assert "unpriced model: future-model" in repeat.fatal_error
-    assert repeat.stop_kind == "cost_unreconciled"
-    assert repeat.pricing_status == "not_billed"
-    state = json.loads((root / "cost-control.json").read_text())
-    assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
-    from argus.core.cost_control import acknowledge_unpriced_call
+    assert repeat.pricing_status == "unpriced" and not repeat.fatal_error
+    assert calls == ["engineer-r1", "reviewer", "engineer-r1b"]
+    from argus.core.cost_control import cost_control_snapshot
 
-    acknowledge_unpriced_call(
-        global_root=root, project_id=project.name, call_id=first.call_id,
-        liability_usd=1.0, reason="Operator accepts this one unresolved call",
-    )
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
-    denied = backend.run_exec(
-        prompt="known cap reached",
-        options=RunnerOptions(model="gpt-5.6-sol"),
-        run_label="engineer-r2",
-    )
-    assert calls == ["engineer-r1", "reviewer"]
-    assert denied.stop_kind == "budget_exhausted"
-    assert denied.pricing_status == "not_billed"
-    assert "global daily budget exhausted" in denied.fatal_error
+    snapshot = cost_control_snapshot(global_root=root)
+    # Each unpriced call counts at the day's costliest priced call, the reviewer's.
+    assert sorted(row["call_id"] for row in snapshot["unresolved"]) == sorted([first.call_id, repeat.call_id])
+    assert snapshot["unpriced_estimate_usd"] == pytest.approx(second.cost_usd)
+    assert snapshot["counted_unpriced_usd"] == pytest.approx(2 * second.cost_usd)
 
 
 def test_missing_copilot_resume_target_does_not_poison_cost_control(

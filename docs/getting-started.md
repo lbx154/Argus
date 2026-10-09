@@ -400,12 +400,10 @@ the whole exchange, plus two early calls that were never priced (see below).
 That first message was actually sent twice. The first attempt (also 06:57:51Z)
 came back as `[not dispatched] Manager could not classify this message
 (refused before start: unresolved provider cost ...)`: on a fresh Copilot
-install the first call's price was not yet known, and the policy then in
-force, `block`, refused to spend money it could not price. The default is now
-`estimate`, which counts such a call at the day's costliest priced call and
-continues; [Best practices](best-practices.md#controlling-spend) explains the
-setting (`ARGUS_SKILL_UNPRICED_COST_POLICY`) and when `block` is still the
-right choice.
+install the first call's price was not yet known, and that release refused to
+spend money it could not price. A call like that is no longer refused; it
+counts toward the daily cap at the day's costliest priced call until it
+settles, see [controlling spend](best-practices.md#controlling-spend).
 
 ### The endpoints behind the UI
 

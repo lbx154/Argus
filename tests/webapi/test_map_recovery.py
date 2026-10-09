@@ -132,7 +132,6 @@ def test_bounded_prompt_does_not_mutate_research_evidence_or_effort(tmp_path, mo
 def test_configurable_deadline_preserves_unpriced_receipt_and_running_research(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "100")
     monkeypatch.setenv("ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "600")
     project = tmp_path / "projects/s-map"
@@ -168,7 +167,7 @@ def test_configurable_deadline_preserves_unpriced_receipt_and_running_research(t
     assert row.run_label == "map-summary" and row.cost_usd is None
     assert row.pricing_status == "unpriced"
     assert running.observe_cost(1) == ""
-    assert cost_control.cost_control_snapshot(global_root=tmp_path)["blocking_unresolved_calls"] == 1
+    assert cost_control.cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 1
     assert not list((tmp_path / "map-presentation").glob("generation-*"))
 
 
@@ -194,36 +193,22 @@ def test_provider_output_length_is_validated_not_just_requested(tmp_path, monkey
     assert not list((tmp_path / "map-presentation").glob("generation-*"))
 
 
-def test_cost_acknowledgement_api_requires_auth_and_correct_project(tmp_path, monkeypatch):
+def test_cost_control_api_requires_auth_and_reports_unsettled_calls(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    # Acknowledgement releases a call the block policy holds; estimate never holds one.
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
-    for sid in ["s-map", "s-other"]:
-        write_session_meta(tmp_path, SessionMeta(id=sid, created=1, last_active=1))
+    write_session_meta(tmp_path, SessionMeta(id="s-map", created=1, last_active=1))
     project = tmp_path / "projects/s-map"
     ledger = UsageLedger(project, migrate_legacy=False)
     ledger.append(UsageRecord.from_jsonable({
         "call_id": "map-timeout", "project_id": "s-map", "provider": "pi", "run_label": "map-summary",
         "status": "error", "cost_usd": None, "pricing_status": "unpriced", "completed_at": time.time(),
     }))
-    before = ledger.path.read_bytes()
-    body = {"call_id": "map-timeout", "liability_usd": 5.0, "reason": "Explicit operator approval"}
     headers = {"Authorization": "Bearer test"}
     with TestClient(create_app(global_root=tmp_path, auth_token="test")) as client:
-        path = "/api/projects/s-map/cost-control/acknowledge"
-        assert client.post(path, json=body).status_code == 401
         status_path = "/api/projects/s-map/cost-control"
         assert client.get(status_path).status_code == 401
         status = client.get(status_path, headers=headers).json()
         assert status["cost_control"]["unresolved"][0]["call_id"] == "map-timeout"
-        assert status["admission_reason"].startswith("unresolved provider cost")
-        assert client.post(path.replace("s-map", "s-other"), json=body, headers=headers).status_code == 404
-        assert client.post(path, json={**body, "liability_usd": 0}, headers=headers).status_code == 422
-        result = client.post(path, json=body, headers=headers)
-        assert result.status_code == 200, result.text
-        assert result.json()["cost_control"]["pending_liability_usd"] == 5
-        assert result.json()["cost_control"]["blocking_unresolved_calls"] == 0
-        assert result.json()["admission_reason"] == ""
-        repeated = client.post(path, json=body, headers=headers)
-        assert repeated.json()["acknowledgement"] == result.json()["acknowledgement"]
-    assert ledger.path.read_bytes() == before
+        assert status["cost_control"]["unresolved_calls"] == 1
+        assert status["admission_reason"] == ""
+        # The acknowledgement endpoint is gone: nothing is held, so nothing needs releasing.
+        assert client.post(f"{status_path}/acknowledge", json={}, headers=headers).status_code in {404, 405}

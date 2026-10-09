@@ -24,7 +24,6 @@ describe('conciseConfigKnobs', () => {
       knob('ARGUS_SKILL_RUNNER_BIN', 'backend'),
       knob('ARGUS_SKILL_TELEGRAM_BOT_TOKEN', 'telemetry'),
       knob('ARGUS_SKILL_MAX_ACTIVE_DAEMONS', 'budget'),
-      knob('ARGUS_SKILL_UNPRICED_COST_POLICY', 'budget'),
       knob('ARGUS_SKILL_SAFE_MODE', 'lifecycle'),
       knob('ARGUS_SKILL_ENABLE_TELEGRAM', 'telemetry'),
       knob('ARGUS_SKILL_SHOW_REASONING', 'telemetry'),
