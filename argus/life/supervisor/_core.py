@@ -516,6 +516,28 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001 - reconciliation never blocks work
             log.exception("life supervisor: subagent reconciliation failed")
 
+    def _classify_plan_alternative(self, challenge: str, alternative: str) -> str:
+        """The Manager's label for what carrying out ``alternative`` needs.
+
+        ``""`` when the Manager could not answer (no runner, no usable label);
+        callers then fail safe.
+        """
+        try:
+            classify = getattr(self._bound_manager(), "classify_plan_alternative", None)
+            if not callable(classify):
+                return ""
+            return str(
+                classify(
+                    challenge=challenge,
+                    alternative=alternative,
+                    on_event=getattr(self.sink, "handle_event", None),
+                )
+                or ""
+            )
+        except Exception:  # noqa: BLE001 - an unclassified alternative fails safe
+            log.debug("Manager could not classify a plan alternative", exc_info=True)
+            return ""
+
     def _adjudicate_mission_challenge(self, outcome: dict[str, Any]) -> str:
         """Persist the Manager authority decision before Planner sees a challenge."""
         from ...manager import adjudicate_plan_challenge
@@ -523,13 +545,32 @@ class LifeSupervisor(
         report = outcome.get("planner_report")
         challenge = dict(outcome.get("plan_challenge") or {})
         if not challenge:
+            reviewer_status = str(
+                outcome.get("review_status") or outcome.get("status") or ""
+            )
+            report_dict = report if isinstance(report, dict) else {}
+            # Only an alternative the Reviewer proposed is a proposal; the
+            # stop-reason fallback is not, so it is not sent for judgement
+            # (command forms still count for it).
+            proposed = str(report_dict.get("alternative") or "").strip()
+            alternative_need: str | None = "none"
+            if (
+                proposed
+                and reviewer_status.strip().lower() == "replan_requested"
+                and str(report_dict.get("authority_impact") or "").strip().lower()
+                != "operator"
+            ):
+                alternative_need = self._classify_plan_alternative(
+                    str(report_dict.get("challenge") or outcome.get("review_reason") or ""),
+                    proposed,
+                )
             decision = adjudicate_plan_challenge(
-                report if isinstance(report, dict) else {},
-                reviewer_status=str(
-                    outcome.get("review_status") or outcome.get("status") or ""
-                ),
+                report_dict,
+                reviewer_status=reviewer_status,
                 review_reason=str(outcome.get("review_reason") or ""),
                 next_action=str(outcome.get("stop_reason") or ""),
+                alternative_operator_need=alternative_need,
+                workspace=self._project_workdir(),
             )
             challenge = {
                 "manager_action": decision.action,
@@ -549,8 +590,24 @@ class LifeSupervisor(
         challenge["adjudicated_at"] = now
         challenge["revision_latency_seconds"] = max(0.0, now - raised_at)
         action = str(challenge.get("manager_action") or "revise").strip().lower()
-        if action not in {"keep", "revise", "replace", "ask_operator"}:
+        if action not in {"keep", "revise", "replace", "ask_operator", "blocked"}:
             action = "revise"
+        if action == "replace" and str(challenge.get("alternative") or "").strip():
+            # A challenge decided elsewhere (a second reading, a replayed
+            # decision) still passes the command-form check before it can
+            # replace the plan.
+            from ...manager.plan_challenge import route_plan_alternative
+
+            routed = route_plan_alternative(
+                str(challenge.get("alternative") or ""),
+                "none",
+                workspace=self._project_workdir(),
+            )
+            if routed is not None:
+                action, need, source = routed
+                challenge.update(
+                    authority_impact="operator", operator_need=need, source=source,
+                )
         if action == "ask_operator":
             from ...manager.directive import effective_operator_question_policy
 
@@ -561,7 +618,7 @@ class LifeSupervisor(
                     autonomous_operator_resolution,
                     normalize_operator_need,
                     operator_available,
-                    operator_only_action,
+                    operator_only_command,
                     record_autonomous_assumption,
                 )
 
@@ -577,10 +634,12 @@ class LifeSupervisor(
                 )
                 if need not in OPERATOR_ACTION_NEEDS:
                     # The action backstop applies whatever the label said.
+                    workspace = self._project_workdir()
                     need = (
-                        operator_only_action(challenge.get("alternative"))
-                        or operator_only_action(
-                            report.get("alternative") if isinstance(report, dict) else ""
+                        operator_only_command(challenge.get("alternative"), workspace=workspace)
+                        or operator_only_command(
+                            report.get("alternative") if isinstance(report, dict) else "",
+                            workspace=workspace,
                         )
                         or need
                     )
@@ -702,6 +761,14 @@ class LifeSupervisor(
             reason = str(challenge.get("manager_reason") or "").strip()
             outcome["status"] = "blocked"
             outcome["review_status"] = "blocked"
+            from ...core.autonomy import record_operator_block
+
+            record_operator_block(
+                self._project_state_root(),
+                item_id=item_id,
+                reason=reason,
+                operator_need=str(challenge.get("operator_need") or ""),
+            )
             self.memory.backlog.update(
                 item_id,
                 status="failed",
@@ -2141,6 +2208,15 @@ class LifeSupervisor(
                     if chinese
                     else "This run ended without an openable deliverable."
                 )
+            assumptions_line = ""
+            if success and overall_complete:
+                from ...core.autonomy import render_autonomous_assumptions
+
+                # What was decided without an operator belongs in the
+                # completion message, not only in the event log.
+                assumptions_line = render_autonomous_assumptions(
+                    self._project_state_root()
+                )
             publish_operator_message(
                 life_dir,
                 text="\n".join(
@@ -2150,6 +2226,7 @@ class LifeSupervisor(
                         summary_line,
                         delivery_line,
                         continuation,
+                        assumptions_line,
                     )
                     if part
                 ),

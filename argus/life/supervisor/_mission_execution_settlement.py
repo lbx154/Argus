@@ -581,16 +581,25 @@ class MissionExecutionSettlementMixin:
                 self._artifact_root()
             )
             from ...core.autonomy import (
+                NO_OPERATOR_NEED,
                 assess_operator_intervention,
                 autonomous_operator_resolution,
+                normalize_operator_need,
                 operator_available,
                 resolve_autonomy_mode,
                 technical_continuation,
             )
 
+            raised_need = normalize_operator_need(
+                (getattr(outcome, "final_planner_report", {}) or {}).get("operator_need")
+                if isinstance(getattr(outcome, "final_planner_report", None), dict)
+                else ""
+            )
             if (
                 operator_question_policy == "forbid"
                 or resolve_autonomy_mode() == "autonomous"
+                # The raiser itself said the team can decide this.
+                or raised_need == NO_OPERATOR_NEED
             ):
                 planner_report = dict(
                     getattr(outcome, "final_planner_report", {}) or {}
@@ -819,6 +828,26 @@ class MissionExecutionSettlementMixin:
         ):
             self._share_reviewed_wiki_pages(state, manager_decision)
 
+        if status == "blocked" and not success:
+            from ...core.autonomy import (
+                OPERATOR_ACTION_NEEDS,
+                operator_available,
+                record_operator_block,
+            )
+
+            blocked_need = _operator_classification(outcome).get("operator_need", "")
+            if blocked_need in OPERATOR_ACTION_NEEDS and not operator_available():
+                record_operator_block(
+                    self._project_state_root(),
+                    item_id=item.id,
+                    reason=str(
+                        getattr(outcome, "final_review_reason", "")
+                        or state.stop_reason
+                        or operator_question
+                        or ""
+                    ),
+                    operator_need=blocked_need,
+                )
         forbid_operator_parking = False
         if status == "blocked" and operator_question:
             forbid_operator_parking = (

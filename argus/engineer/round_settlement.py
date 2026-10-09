@@ -42,6 +42,40 @@ def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
     return bool(supervised_config.operator_questions_allowed) and operator_available()
 
 
+def _record_forbidden_question(
+    review: ReviewDecision,
+    supervised_config: "SupervisedConfig",
+    action_need: str,
+) -> None:
+    """Without an operator, keep the record the run report is built from.
+
+    An operator-only need is a block, not an assumption; anything else the
+    team now settles itself is logged as a conflict whose chosen reading the
+    Engineer states (``ASSUMPTION=``) and CHECKPOINT.md keeps.
+    """
+    from ..core.autonomy import (
+        OPERATOR_ACTION_NEEDS,
+        operator_available,
+        record_autonomous_assumption,
+        record_operator_block,
+    )
+
+    root = getattr(supervised_config, "operator_question_policy_root", None)
+    if root is None or operator_available():
+        return
+    if action_need in OPERATOR_ACTION_NEEDS:
+        record_operator_block(
+            root, item_id="", reason=review.operator_question, operator_need=action_need
+        )
+        return
+    record_autonomous_assumption(
+        root,
+        item_id="",
+        conflict=review.operator_question,
+        source="round_question",
+    )
+
+
 def _enforce_operator_question_policy(
     review: ReviewDecision,
     *,
@@ -64,6 +98,7 @@ def _enforce_operator_question_policy(
         # enable. Continuing "autonomously" could only mean faking it, so the
         # mission ends blocked at once and says what was missing.
         repeated = True
+    _record_forbidden_question(review, supervised_config, action_need)
     # ReviewDecision is a plain dataclass, so nothing enforces this field's
     # type at runtime, and it carries model-derived data into a completion
     # decision. ``core.models.ReviewDecision.to_event_payload`` guards the same

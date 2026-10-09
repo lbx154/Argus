@@ -404,6 +404,47 @@ class _StageDecisionMixin:
             ("ACTION", "TARGET_STAGE", "REASON", "RESOLVES_WAIT"),
         ).strip()
 
+    def classify_plan_alternative(
+        self,
+        *,
+        challenge: str,
+        alternative: str,
+        on_event: Any = None,
+    ) -> str:
+        """Label what carrying out a proposed plan alternative needs.
+
+        One read-only Manager turn. Returns one of the operator-need labels,
+        ``"none"``, or ``""`` when no label could be read (the caller then
+        fails safe).
+        """
+        from ..core.autonomy import normalize_operator_need
+
+        prompt = (
+            "A Reviewer proposes replacing the current plan with an alternative. "
+            "Decide whether carrying out the alternative needs the operator, judging "
+            "the actions it would take, not the words it uses.\n\n"
+            f"Challenge: {str(challenge or '')[:1500]}\n"
+            f"Proposed alternative: {str(alternative or '')[:1500]}\n\n"
+            "Labels: credentials (real secrets the work would use), spending "
+            "(money or paid capacity), irreversible_or_external (deleting or "
+            "overwriting data outside the workspace, publishing, releasing, "
+            "deploying, force-pushing, sending outside), scope_or_authority "
+            "(changing the objective, acceptance, or what Argus may do), none.\n"
+            "End with exactly one line: OPERATOR_NEED=<label>"
+        )
+        run_exec, hold = self._build_stage_run_exec(
+            None, on_event, run_label="manager-alternative-authority"
+        )
+        if hold is not None or run_exec is None:
+            return ""
+        raw = self._run_stage_model(run_exec, prompt, None)
+        value = ""
+        for line in str(raw or "").splitlines():
+            key, separator, candidate = line.strip().strip("`").partition("=")
+            if separator and key.strip().upper() == "OPERATOR_NEED":
+                value = candidate.strip()
+        return normalize_operator_need(value)
+
     def _run_stage_model(
         self,
         run_exec: Any,

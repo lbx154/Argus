@@ -65,6 +65,34 @@ def _milestone_is_blocked(outcome: EngineerTurnOutcome) -> bool:
     )
 
 
+def _record_stated_assumption(
+    outcome: EngineerTurnOutcome, supervised_config: "SupervisedConfig"
+) -> None:
+    """Keep the reading the Engineer chose when no operator could be asked.
+
+    The run report lists the reading in the Engineer's own words, from its
+    decision (``assumption``) or footer (``ASSUMPTION=``).
+    """
+    from ..core.autonomy import operator_available, record_autonomous_assumption
+    from ..core.role_handoff import footer_value
+    from ..core.role_reply import decision_footer_text
+
+    root = getattr(supervised_config, "operator_question_policy_root", None)
+    if root is None or operator_available():
+        return
+    reading = ""
+    if isinstance(outcome.decision, dict):
+        reading = str(outcome.decision.get("assumption") or "").strip()
+    if not reading:
+        reading = footer_value(
+            decision_footer_text(outcome.engineer_message), "ASSUMPTION", limit=1200
+        )
+    if reading:
+        record_autonomous_assumption(
+            root, item_id="", reading=reading, source="engineer"
+        )
+
+
 class RoundSelfReviewMixin:
     """Update progress state and settle low-risk work without another model."""
 
@@ -97,6 +125,7 @@ class RoundSelfReviewMixin:
         else:
             state.no_progress_streak += 1
         milestone_done = _milestone_is_done(outcome)
+        _record_stated_assumption(outcome, supervised_config)
         handoff = _round_handoff(outcome)
         if handoff.waits_for_operator:
             from ..core.autonomy import assess_operator_intervention

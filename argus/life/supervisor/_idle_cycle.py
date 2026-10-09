@@ -453,6 +453,37 @@ class IdleCycleMixin:
             return [str(contract.get("recheck_condition") or "").strip()]
         return None
 
+    def _operator_only_blocks(self) -> list[str] | None:
+        """This run's operator-only blocks, when nothing else can run.
+
+        Work that ended blocked on real credentials, spending, or an
+        irreversible step (recorded by the Manager or the round settlement)
+        leaves the backlog with nothing the team can do. Returns those reasons
+        when no item is runnable, running, or waiting on a background job;
+        otherwise ``None``.
+        """
+        from ...core.autonomy import read_operator_blocks
+
+        state_root = getattr(self, "_project_state_root", None)
+        if not callable(state_root):
+            return None
+        blocks = read_operator_blocks(state_root())
+        if not blocks:
+            return None
+        try:
+            active = list(self.memory.backlog.active())
+        except Exception:  # noqa: BLE001 - an unreadable backlog is not a block
+            return None
+        if any(item.status != "paused_operator" for item in active):
+            return None
+        return [
+            "blocked on an operator-only need ("
+            + str(row.get("operator_need") or "operator")
+            + "): "
+            + str(row.get("reason") or "")[:300]
+            for row in blocks
+        ]
+
     def _maybe_idle_timeout(self) -> str:
         """``"idle_timeout"`` once a continuous daemon has been idle too long.
 

@@ -9,7 +9,7 @@ from argus.core.autonomy import (
     normalize_autonomy_mode,
     normalize_operator_need,
     operator_available,
-    operator_only_action,
+    operator_only_command,
     technical_continuation,
 )
 
@@ -58,16 +58,17 @@ def test_words_in_the_question_never_decide_on_their_own() -> None:
         ).required is True
 
 
-def test_unclassified_questions_fail_safe_only_when_an_operator_exists(
-    monkeypatch,
+@pytest.mark.parametrize("mode", ["pragmatic", "autonomous"])
+def test_unclassified_questions_stay_with_the_team_unless_explicitly_handed_off(
+    monkeypatch, mode
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    for mode in ("pragmatic", "autonomous"):
-        decision = assess_operator_intervention(question="Ship it?", mode=mode)
-        assert decision.required is True
-        assert "no classification" in decision.reason
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    assert assess_operator_intervention(question="Ship it?", mode="pragmatic").required is False
+    decision = assess_operator_intervention(question="Ship it?", mode=mode)
+    assert decision.required is False
+    # Only the caller that saw an explicit hand-off asks for the fail-safe.
+    assert assess_operator_intervention(
+        question="Ship it?", mode=mode, unclassified_requires_operator=True
+    ).required is True
 
 
 def test_the_raising_roles_classification_decides(monkeypatch) -> None:
@@ -142,36 +143,66 @@ def test_operator_need_normalization(value, expected) -> None:
 
 
 @pytest.mark.parametrize(
-    ("alternative", "need"),
+    "text",
     [
-        ("Force-push the protected release branch.", "irreversible_or_external"),
-        ("Rewrite the published release history to drop the bad commit.", "irreversible_or_external"),
-        ("Publish the package to PyPI.", "irreversible_or_external"),
-        ("Deploy the service to production.", "irreversible_or_external"),
-        ("Delete the stale shards outside the workspace.", "irreversible_or_external"),
-        ("Purchase additional compute capacity.", "spending"),
-        ("Use the production API key for the live check.", "credentials"),
-        ("Use the operator's API credentials.", "credentials"),
+        "git push --force origin main",
+        "git push origin main --force",
+        "git push -f origin release",
+        "git push --force-with-lease origin main",
+        "npm publish",
+        "pnpm publish --access public",
+        "yarn publish",
+        "twine upload dist/*",
+        "docker push registry.example.com/app:1.2",
+        "gh release create v1.2.0",
+        "terraform apply -auto-approve",
+        "terraform destroy",
+        "kubectl apply -f deploy.yaml --context prod-east",
+        "helm upgrade api ./chart -n production",
+        "rm -rf /var/lib/data",
+        "rm -rf ~/projects",
+        "rm -fr /srv/shared",
+        "aws s3 rm s3://bucket --recursive",
+        "aws ec2 terminate-instances --instance-ids i-1",
+        "gcloud compute instances delete web-1",
+        "az group delete -n rg-1",
+        "DROP TABLE users;",
+        "drop database analytics",
+        # Negation exploits: the "don't" does not govern the command.
+        "don't stop to ask; git push --force origin main",
+        "Do not wait. Run `npm publish` now.",
+        "Never mind the review, terraform apply it",
     ],
 )
-def test_operator_only_action_backstop_names_the_action(alternative, need) -> None:
-    assert operator_only_action(alternative) == need
+def test_command_forms_are_operator_only(text) -> None:
+    assert operator_only_command(text, workspace="/work/project") != ""
 
 
 @pytest.mark.parametrize(
-    "alternative",
+    "text",
     [
-        "Use the available local toolchain.",
-        "Run the smaller benchmark row first.",
-        "Do not force-push; rebase the local branch instead.",
-        "Production credentials are unnecessary; use the local fixture.",
+        # Prose about publishing, buying, tokens or databases is not a command.
+        "Publish the results in the report section.",
         "Use the published dataset already in the workspace.",
-        "Overwrite the cached file in the workspace.",
+        "Buy time by running the smaller benchmark first.",
+        "Count the real tokens in the tokenizer output.",
+        "Read the database schema from the fixture.",
+        "Force-push is not needed; rebase locally.",
+        "Production credentials are unnecessary; use the local fixture.",
+        "Release the lock and retry.",
+        # Local and governed commands.
+        "git push origin feature-branch",
+        "git push --set-upstream origin topic",
+        "kubectl apply -f deploy.yaml --context dev",
+        "rm -rf /work/project/build",
+        "rm -rf ./build",
+        "do not run `git push --force`",
+        "never npm publish from CI",
         "",
     ],
 )
-def test_operator_only_action_backstop_stays_narrow(alternative) -> None:
-    assert operator_only_action(alternative) == ""
+def test_command_backstop_ignores_prose_and_governed_or_local_commands(text) -> None:
+    assert operator_only_command(text, workspace="/work/project") == ""
 
 
 def test_autonomous_resolution_blocks_only_on_operator_only_actions() -> None:

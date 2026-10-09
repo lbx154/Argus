@@ -29,6 +29,8 @@ def test_explicit_replan_with_alternative_replaces_working_plan() -> None:
             "authority_impact": "technical",
         },
         reviewer_status="replan_requested",
+        # The Manager judged that carrying out the alternative needs no operator.
+        alternative_operator_need="none",
     )
 
     assert decision.action == "replace"
@@ -59,6 +61,8 @@ def test_technical_question_uses_the_available_alternative(monkeypatch) -> None:
             "authority_impact": "technical",
         },
         reviewer_status="replan_requested",
+        # The Manager judged that carrying out the alternative needs no operator.
+        alternative_operator_need="none",
         operator_question="Should the benchmark use a smaller diagnostic shape?",
     )
 

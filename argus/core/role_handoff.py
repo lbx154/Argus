@@ -53,6 +53,11 @@ def _named_value(
     return value
 
 
+def footer_value(message: str, name: str, *, limit: int = 500) -> str:
+    """Read one named ``KEY=value`` line from a decision footer."""
+    return _named_value(message, name, limit=limit)
+
+
 def resolve_engineer_handoff(
     *,
     next_owner: object,
@@ -126,6 +131,7 @@ __all__ = [
     "EngineerHandoff",
     "HandoffOwner",
     "decision_engineer_handoff",
+    "footer_value",
     "parse_engineer_handoff",
     "resolve_engineer_handoff",
 ]

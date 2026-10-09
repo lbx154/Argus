@@ -509,6 +509,20 @@ class LifeWorkerRunMixin:
         probe = getattr(supervisor, "_pending_operator_questions", None)
         questions = probe() if callable(probe) else None
         if questions is None:
+            # Work that ended blocked on an operator-only need with nothing
+            # else runnable is the same situation. The Planner gets one more
+            # pass to route around it before the run ends.
+            blocks_probe = getattr(supervisor, "_operator_only_blocks", None)
+            blocks = blocks_probe() if callable(blocks_probe) else None
+            if blocks:
+                self._operator_block_passes = (
+                    int(getattr(self, "_operator_block_passes", 0) or 0) + 1
+                )
+                if self._operator_block_passes >= 2:
+                    questions = blocks
+            else:
+                self._operator_block_passes = 0
+        if questions is None:
             self._operator_wait_since = None
             return False
         now = time.monotonic()
@@ -889,14 +903,23 @@ class LifeWorkerRunMixin:
     def _rf_main_loop(self, rf_state: _RunForeverState) -> None:
         """Drain the backlog until stop is requested, sleeping wakeably."""
 
-        try:
-            from ..core.autonomy import adopt_persisted_operator_availability
+        from ..core.autonomy import start_autonomy_run
 
-            # A project started with --no-operator stays that way however
-            # this worker was started (resume, web, respawn).
-            adopt_persisted_operator_availability(self.config.life_dir)
-        except Exception:  # noqa: BLE001 - availability defaults to present
-            log.debug("could not read the operator availability record", exc_info=True)
+        # Each worker is one run: assumptions and operator-only blocks from an
+        # earlier run of this project are not reported again.
+        start_autonomy_run()
+        self._operator_wait_passes = 0
+        # A running worker makes an earlier "ended waiting for the operator"
+        # marker stale.
+        from ..core.autonomy import clear_operator_wait_marker
+
+        for supervisor in getattr(rf_state, "supervisors", None) or [rf_state.sup]:
+            state_root = getattr(supervisor, "_project_state_root", None)
+            if callable(state_root):
+                try:
+                    clear_operator_wait_marker(state_root())
+                except Exception:  # noqa: BLE001 - a stale marker is harmless
+                    pass
         try:
             while not self._stop.is_set():
                 if self._deployment_handoff_gate():

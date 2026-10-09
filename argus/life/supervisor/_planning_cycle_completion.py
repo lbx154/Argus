@@ -339,7 +339,7 @@ class PlanningCycleCompletionMixin:
             "current_artifact_evidence": evidence,
             # Decisions settled without an operator: the report must name them.
             "autonomous_assumptions": [
-                {key: row.get(key) for key in ("item_id", "conflict", "source", "resolution")}
+                {key: row.get(key) for key in ("conflict", "reading", "source")}
                 for row in read_autonomous_assumptions(self._project_state_root())
             ],
             "current_final_certification": {

@@ -168,8 +168,9 @@ KNOBS: tuple[Knob, ...] = (
     Knob(
         "ARGUS_SKILL_OPERATOR_AVAILABLE",
         "true",
-        "false declares a headless run with nobody to answer questions: the Manager settles operator decisions itself, records the assumption, and continues (also set by --no-operator)",
+        "false declares that nobody can answer questions: the Manager settles questions of meaning itself and records each assumption; operator-only needs end as blocked. Prefer --no-operator, which lasts for one run; a saved off value applies to every run until switched back on",
         "mission",
+        cockpit=True,
     ),
     Knob(
         "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN",
@@ -293,6 +294,7 @@ _TOGGLE_KNOBS = frozenset(
         "ARGUS_SKILL_REFLECTION",
         "ARGUS_SKILL_ANSWER_LEARNING",
         "ARGUS_SKILL_RECALL_SIBLING_WIKIS",
+        "ARGUS_SKILL_OPERATOR_AVAILABLE",
     }
 )
 _NON_NEGATIVE_INT_KNOBS = frozenset({"ARGUS_SKILL_MAX_ACTIVE_DAEMONS"})

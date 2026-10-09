@@ -42,9 +42,11 @@ def engineer_operator_handoff_rule() -> str:
     if not operator_available():
         return (
             "No operator is available in this run: never use next_owner=operator. "
-            "Settle what a requirement means on the most defensible reading and "
-            "record it in CHECKPOINT.md; if a required input or operator-only "
-            "action is missing, report blocked and say what."
+            "Settle only what a requirement means, on the most defensible reading; "
+            "record it in CHECKPOINT.md and state it as ASSUMPTION=<the reading "
+            "you chose>. Never assume facts or results, or fake credentials or "
+            "services; if a required input or operator-only action is missing, "
+            "report blocked and say what."
         )
     return (
         "Use next_owner=operator only for a real operator decision; include one "

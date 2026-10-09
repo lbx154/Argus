@@ -802,6 +802,14 @@ class PlanningContextMixin:
 
         if operator_available():
             return ""
+        from ...core.autonomy import read_operator_blocks
+
+        if read_operator_blocks(self._project_state_root()):
+            # This run already ended work on an operator-only need (real
+            # credentials, spending, an irreversible step). A wait that
+            # follows from it is that block, not a question of meaning to
+            # assume away; it is recorded and the run ends blocked.
+            return ""
         key = str(getattr(contract, "blocker_fingerprint", "") or "").strip()
         condition = str(
             getattr(contract, "recheck_condition", "")

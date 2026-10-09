@@ -86,6 +86,7 @@ def test_a_flat_decision_event_carries_the_challenge_to_the_manager() -> None:
     routed = adjudicate_plan_challenge(
         decision.planner_report,
         reviewer_status=decision.status,
+        alternative_operator_need="none",
     )
     assert routed.action == "replace"
     assert routed.alternative == "Certify admissible cells and narrow the claim."

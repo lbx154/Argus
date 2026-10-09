@@ -10,24 +10,25 @@ sentence such as "production credentials are unnecessary" says nothing about
 whether the operator is needed, and a keyword match on it parked a headless run
 for hours.
 
-The policy fails safe. When an operator is available, a question its raiser
-did not classify goes to the operator. Only a run that declared no operator
-available (``--no-operator``) treats an unclassified question as the team's
-own: there nobody would answer it. In that mode the Manager settles questions
+The policy fails safe where it matters: an Engineer that explicitly hands a
+question to the operator without a usable label reaches the operator while one
+may be asked. Every other unclassified question stays with the team, as it
+always did, so ordinary technical choices do not interrupt anyone. In that mode the Manager settles questions
 of interpretation itself and records the assumption; a need for an action only
 the operator can enable (real credentials, spending, an irreversible or
 outward-facing step) ends the work as blocked, without a question.
 
-One deterministic check remains, :func:`operator_only_action`, and it is
-deliberately about *actions*, not questions: before a plan alternative replaces
-the current plan, an alternative that proposes force-pushing, publishing or
-deploying, deleting data outside the workspace, spending money, or using
-production credentials goes to the operator (or blocks when there is none),
-whatever label it carries. A mislabeled replan can otherwise turn a
-"technical" alternative into an irreversible act with nobody asked; the cost of
-a false positive is one question, the cost of a false negative is not
-recoverable. That asymmetry is why this is the one exception to "no
-deterministic gates over judgement", and why it stays narrow.
+Whether a proposed plan alternative may replace the plan is the Manager's
+judgement too: it labels what carrying the alternative out would need. One
+deterministic check stays behind that judgement as defense in depth,
+:func:`operator_only_command`. It recognises exact command forms only
+(``git push --force``, ``npm publish``, ``terraform apply``, ``rm -rf`` outside
+the workspace, cloud deletes, ``DROP TABLE`` ...), never prose words, and it
+counts whatever label the alternative carries. A mislabeled alternative could
+otherwise run an irreversible command with nobody asked; a false positive
+costs one question, a false negative cannot be undone. That asymmetry is why
+this is the one exception to "no deterministic gates over judgement", and why
+it is limited to commands.
 """
 from __future__ import annotations
 
@@ -87,7 +88,6 @@ _NEED_ALIASES = dict(_NEED_LABELS)
 OPERATOR_AVAILABLE_KNOB = "ARGUS_SKILL_OPERATOR_AVAILABLE"
 BOUNDED_OPERATOR_WAIT_EXIT_KNOB = "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN"
 BOUNDED_OPERATOR_WAIT_EXIT_DEFAULT_MINUTES = 30.0
-OPERATOR_AVAILABILITY_FILENAME = "operator_availability.json"
 AUTONOMOUS_ASSUMPTIONS_FILENAME = "autonomous_assumptions.jsonl"
 OPERATOR_WAIT_EXIT_FILENAME = "operator_wait_exit.json"
 
@@ -158,45 +158,6 @@ def operator_available(*, env: Mapping[str, str] | None = None) -> bool:
     return str(raw or "").strip().lower() not in _FALSE_VALUES
 
 
-def persist_operator_availability(life_dir: Path | str) -> None:
-    """Record this run's declaration so ``--resume`` and respawns keep it."""
-    explicit = str(os.environ.get(OPERATOR_AVAILABLE_KNOB, "") or "").strip()
-    if not explicit:
-        return
-    path = Path(life_dir) / OPERATOR_AVAILABILITY_FILENAME
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({"available": operator_available(), "updated_at": time.time()})
-            + "\n",
-            encoding="utf-8",
-        )
-    except OSError:
-        pass
-
-
-def adopt_persisted_operator_availability(life_dir: Path | str) -> bool | None:
-    """Apply a project's recorded declaration unless this process set one.
-
-    An explicit environment value always wins; otherwise a project that was
-    started with ``--no-operator`` stays without an operator when resumed.
-    """
-    if str(os.environ.get(OPERATOR_AVAILABLE_KNOB, "") or "").strip():
-        return None
-    try:
-        payload = json.loads(
-            (Path(life_dir) / OPERATOR_AVAILABILITY_FILENAME).read_text(encoding="utf-8")
-        )
-    except (OSError, ValueError):
-        return None
-    if not isinstance(payload, dict) or "available" not in payload:
-        return None
-    available = bool(payload.get("available"))
-    if not available:
-        os.environ[OPERATOR_AVAILABLE_KNOB] = "false"
-    return available
-
-
 def bounded_operator_wait_exit_seconds(
     *, env: Mapping[str, str] | None = None
 ) -> float:
@@ -242,11 +203,11 @@ def assess_operator_intervention(
     request) or ``authority_impact`` (from a Reviewer replan). ``reason`` and
     ``next_action`` are context for callers and are never searched for words.
 
-    A question nobody classified fails safe: it needs the operator whenever
-    one is available. ``unclassified_requires_operator`` overrides that only
-    for callers that merely describe an outcome rather than route a question.
-    ``cautious`` mode asks on every explicit question because the operator
-    chose that.
+    A question nobody classified stays with the team, as it always has,
+    except where the caller passes ``unclassified_requires_operator``: the
+    Engineer's explicit ``NEXT_OWNER=operator`` hand-off without a usable
+    label fails safe to the operator while one may be asked. ``cautious`` mode
+    asks on every explicit question because the operator chose that.
     """
     del reason, next_action  # prose is context, not a classification
     selected_mode = normalize_autonomy_mode(mode or resolve_autonomy_mode())
@@ -279,20 +240,13 @@ def assess_operator_intervention(
         return decision(True, "Reviewer marked an operator-owned decision")
     if authority in {"technical", "manager_contract"}:
         return decision(False, "technical or Manager-owned choice is recoverable")
-    fail_safe = (
-        operator_available()
-        if unclassified_requires_operator is None
-        else bool(unclassified_requires_operator)
-    )
-    if fail_safe:
+    if unclassified_requires_operator:
         return decision(
             True,
-            "the question carries no classification, so it goes to the operator",
+            "an explicit hand-off to the operator carries no classification, "
+            "so it goes to the operator",
         )
-    return decision(
-        False,
-        "the question carries no classification and no operator is available",
-    )
+    return decision(False, "reversible technical choice stays with Argus")
 
 
 def autonomous_operator_resolution(operator_need: Any) -> str:
@@ -309,114 +263,110 @@ def autonomous_operator_resolution(operator_need: Any) -> str:
     )
 
 
-# --- the one action-level backstop -------------------------------------------
-_NEGATION_BEFORE = re.compile(
-    r"\b(?:not|no|never|without|avoid|avoiding|don't|do not|must not|instead of)"
-    r"(?:\W+\w+){0,3}\W*$"
-)
-_NEGATION_AFTER = re.compile(
-    r"^\W*(?:\w+\W+){0,3}(?:is |are )?(?:unnecessary|not needed|not required)\b"
-)
-_OPERATOR_ONLY_ACTIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
+# --- defense in depth: command forms only -----------------------------------
+# A command segment: up to the end of the line, a shell separator, or a
+# closing backtick.
+_SEGMENT = r"[^\n;&|`]*"
+_OPERATOR_ONLY_COMMANDS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "irreversible_or_external",
-        re.compile(
-            r"\bforce[- ]?push\w*|\bpush\s+(?:-f|--force)\b|"
-            r"\brewrit\w*\s+(?:the\s+)?(?:protected|published|shared|main|release)\s+"
-            r"(?:\w+\s+)?history\b"
-        ),
+        re.compile(r"\bgit\s+push\b" + _SEGMENT + r"?(?<!\S)(?:--force(?:-with-lease)?(?:=\S*)?|-f)(?!\S)"),
     ),
+    ("irreversible_or_external", re.compile(r"\b(?:npm|pnpm|yarn)\s+publish\b")),
+    ("irreversible_or_external", re.compile(r"\btwine\s+upload\b")),
+    ("irreversible_or_external", re.compile(r"\bdocker\s+push\b")),
+    ("irreversible_or_external", re.compile(r"\bgh\s+release\s+create\b")),
+    ("irreversible_or_external", re.compile(r"\bterraform\s+(?:apply|destroy)\b")),
     (
         "irreversible_or_external",
         re.compile(
-            r"\b(?:publish(?:es|ing)?|releas\w+\s+(?:it\s+|the\s+\w+\s+)?(?:publicly|to\s+"
-            r"(?:pypi|npm|production|the\s+public|users))|deploy\w*\s+(?:it\s+)?to\s+"
-            r"(?:production|prod|staging|the\s+live)|deploy\w*\s+(?:the\s+\w+\s+)?"
-            r"(?:to\s+)?production|submit\w*\s+(?:it\s+)?to\s+the\s+(?:venue|journal|"
-            r"conference))\b"
+            r"\b(?:kubectl|helm)\s+(?:apply|upgrade|delete|install)\b"
+            + _SEGMENT
+            + r"?(?:--context|--kube-context|--namespace|-n)(?:=|\s+)\S*prod"
         ),
     ),
     (
         "irreversible_or_external",
-        re.compile(
-            r"\b(?:delet\w*|overwrit\w*|drop\w*|wip\w*|truncat\w*|rm\s+-rf)\b[^.;\n]{0,60}"
-            r"\b(?:outside\s+the\s+workspace|production|operator(?:'s)?\s+data|"
-            r"user\s+data|customer\s+data|shared\s+(?:data|storage|bucket)|"
-            r"the\s+(?:database|bucket))\b"
-        ),
+        re.compile(r"\b(?:aws|gcloud|az)\s" + _SEGMENT + r"?\b(?:delete|rm|terminate[\w-]*)\b"),
     ),
-    (
-        "spending",
-        re.compile(
-            r"\b(?:purchas\w*|buy(?:ing)?|pay(?:ing)?\s+for|spend\w*\s+(?:more\s+)?"
-            r"(?:money|budget|\$)|increas\w*\s+(?:the\s+)?budget|paid\s+(?:tier|plan|"
-            r"api|service))\b"
-        ),
-    ),
-    (
-        "credentials",
-        re.compile(
-            r"\b(?:production|prod|operator(?:'s)?|real|live)\s+(?:api\s+)?"
-            r"(?:credentials?|keys?|tokens?|secrets?|passwords?)\b"
-        ),
-    ),
+    ("irreversible_or_external", re.compile(r"\bdrop\s+(?:table|database)\b", re.IGNORECASE)),
+)
+_RM_RF = re.compile(
+    r"\brm\s+(?:-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*|-r\s+-f|-f\s+-r)\s+(?P<path>[~/]\S*)"
+)
+# A negation governs a command only when it directly precedes it: "do not run
+# `git push --force`", "never npm publish". "Don't stop; git push --force"
+# is not negated.
+_GOVERNING_NEGATION = re.compile(
+    r"(?:\b(?:do\s+not|don't|never|must\s+not|should\s+not|without)\s+"
+    r"(?:(?:run|use|execute|call|running|using)\s+)?)[`'\"]?\s*$"
 )
 
 
-def operator_only_action(text: Any) -> str:
-    """The operator-only need a proposed *action* implies, or ``""``.
+def _negated(text: str, start: int) -> bool:
+    return bool(_GOVERNING_NEGATION.search(text[max(0, start - 40): start]))
 
-    Applied only to a plan alternative about to replace the plan, never to a
-    question. A negated mention ("do not publish", "production credentials
-    are unnecessary") is not a proposal. See the module docstring for why this
-    narrow check exists.
+
+def operator_only_command(text: Any, *, workspace: Path | str | None = None) -> str:
+    """The operator-only need an exact command form in ``text`` implies, or ``""``.
+
+    Defense in depth behind the Manager's own classification of a plan
+    alternative. It recognises command forms (``git push --force``,
+    ``npm publish``, ``terraform apply``, ``rm -rf`` outside the workspace,
+    cloud deletes, ``DROP TABLE`` ...), never prose words, so a sentence about
+    publishing or tokens does not trigger it and a reworded command cannot hide
+    behind a nearby "don't".
     """
-    lowered = str(text or "").lower()
-    if not lowered.strip():
+    raw = str(text or "")
+    if not raw.strip():
         return ""
-    for need, pattern in _OPERATOR_ONLY_ACTIONS:
+    lowered = raw.lower()
+    for need, pattern in _OPERATOR_ONLY_COMMANDS:
         for match in pattern.finditer(lowered):
-            before = lowered[max(0, match.start() - 40): match.start()]
-            after = lowered[match.end(): match.end() + 40]
-            if _NEGATION_BEFORE.search(before) or _NEGATION_AFTER.search(after):
-                continue
-            return need
+            if not _negated(lowered, match.start()):
+                return need
+    root = str(Path(workspace).expanduser().resolve()) if workspace else ""
+    for match in _RM_RF.finditer(raw):
+        if _negated(lowered, match.start()):
+            continue
+        path = match.group("path").rstrip("`'\".,")
+        if path.startswith("~"):
+            return "irreversible_or_external"
+        if root and (path == root or path.startswith(root.rstrip("/") + "/")):
+            continue
+        return "irreversible_or_external"
     return ""
 
 
-# --- assumptions recorded when nobody could be asked -------------------------
-def record_autonomous_assumption(
-    state_root: Path | str,
-    *,
-    item_id: str,
-    conflict: str,
-    source: str,
-    key: str = "",
-) -> dict[str, Any]:
-    """Append one decision the team settled without an operator."""
-    row = {
-        "ts": time.time(),
-        "key": str(key or ""),
-        "item_id": str(item_id or ""),
-        "conflict": str(conflict or "").strip()[:1200],
-        "source": str(source or ""),
-        "resolution": (
-            "settled on the most defensible interpretation; the chosen reading is "
-            "recorded in CHECKPOINT.md and the run report"
-        ),
-    }
-    path = Path(state_root) / AUTONOMOUS_ASSUMPTIONS_FILENAME
+# --- what was settled without an operator, per run ---------------------------
+RUN_ID_ENV = "ARGUS_AUTONOMY_RUN_ID"
+OPERATOR_BLOCKS_FILENAME = "operator_blocks.jsonl"
+
+
+def current_run_id() -> str:
+    return str(os.environ.get(RUN_ID_ENV, "") or "")
+
+
+def start_autonomy_run() -> str:
+    """Begin a run scope: records written before it no longer appear."""
+    import uuid
+
+    run_id = uuid.uuid4().hex[:16]
+    os.environ[RUN_ID_ENV] = run_id
+    return run_id
+
+
+def _append_row(path: Path, row: dict[str, Any]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
     except OSError:
         pass
-    return row
 
 
-def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
-    path = Path(state_root) / AUTONOMOUS_ASSUMPTIONS_FILENAME
+def _read_run_rows(path: Path) -> list[dict[str, Any]]:
+    run_id = current_run_id()
     rows: list[dict[str, Any]] = []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -427,20 +377,112 @@ def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
             row = json.loads(line)
         except ValueError:
             continue
-        if isinstance(row, dict) and str(row.get("conflict") or "").strip():
+        if isinstance(row, dict) and str(row.get("run_id") or "") == run_id:
             rows.append(row)
     return rows
 
 
+def record_autonomous_assumption(
+    state_root: Path | str,
+    *,
+    item_id: str,
+    conflict: str = "",
+    reading: str = "",
+    source: str,
+    key: str = "",
+) -> dict[str, Any]:
+    """Append one decision settled without an operator, for this run.
+
+    ``conflict`` is what forced a decision; ``reading`` is the interpretation
+    the team actually chose, in its own words, when it has stated one.
+    """
+    row = {
+        "ts": time.time(),
+        "run_id": current_run_id(),
+        "key": str(key or ""),
+        "item_id": str(item_id or ""),
+        "conflict": str(conflict or "").strip()[:1200],
+        "reading": str(reading or "").strip()[:1200],
+        "source": str(source or ""),
+    }
+    if not (row["conflict"] or row["reading"]):
+        return row
+    path = Path(state_root) / AUTONOMOUS_ASSUMPTIONS_FILENAME
+    identity = row["key"] or (row["source"] + ":" + row["conflict"] + ":" + row["reading"])
+    for previous in _read_run_rows(path):
+        previous_identity = str(previous.get("key") or "") or (
+            str(previous.get("source") or "")
+            + ":" + str(previous.get("conflict") or "")
+            + ":" + str(previous.get("reading") or "")
+        )
+        if previous_identity == identity:
+            return previous
+    _append_row(path, row)
+    return row
+
+
+def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in _read_run_rows(Path(state_root) / AUTONOMOUS_ASSUMPTIONS_FILENAME)
+        if str(row.get("conflict") or row.get("reading") or "").strip()
+    ]
+
+
 def render_autonomous_assumptions(state_root: Path | str, *, limit: int = 8) -> str:
-    rows = read_autonomous_assumptions(state_root)
+    rows = read_autonomous_assumptions(state_root)[-limit:]
     if not rows:
         return ""
-    shown = rows[-limit:]
-    lines = [
-        f"- {str(row.get('conflict') or '')[:300]}" for row in shown
-    ]
+    lines = []
+    for row in rows:
+        conflict = str(row.get("conflict") or "").strip()
+        reading = str(row.get("reading") or "").strip()
+        if reading and conflict:
+            lines.append(f"- {conflict[:300]} -> assumed: {reading[:300]}")
+        elif reading:
+            lines.append(f"- assumed: {reading[:300]}")
+        else:
+            lines.append(f"- {conflict[:300]} (the chosen reading is in CHECKPOINT.md)")
     return "Decided without an operator (assumptions to review):\n" + "\n".join(lines)
+
+
+def record_operator_block(
+    state_root: Path | str, *, item_id: str, reason: str, operator_need: str
+) -> None:
+    """Note, for this run, work that ended blocked on an operator-only need."""
+    reason_text = str(reason or "").strip()[:900]
+    if any(
+        str(row.get("reason") or "") == reason_text
+        and str(row.get("item_id") or "") == str(item_id or "")
+        for row in read_operator_blocks(state_root)
+    ):
+        return
+    _append_row(
+        Path(state_root) / OPERATOR_BLOCKS_FILENAME,
+        {
+            "ts": time.time(),
+            "run_id": current_run_id(),
+            "item_id": str(item_id or ""),
+            "reason": str(reason or "").strip()[:900],
+            "operator_need": normalize_operator_need(operator_need),
+        },
+    )
+
+
+def read_operator_blocks(state_root: Path | str) -> list[dict[str, Any]]:
+    return _read_run_rows(Path(state_root) / OPERATOR_BLOCKS_FILENAME)
+
+
+def clear_operator_wait_marker(state_root: Path | str) -> bool:
+    try:
+        (Path(state_root) / OPERATOR_WAIT_EXIT_FILENAME).unlink()
+        return True
+    except OSError:
+        return False
+
+
+def operator_wait_marker_present(state_root: Path | str) -> bool:
+    return (Path(state_root) / OPERATOR_WAIT_EXIT_FILENAME).is_file()
 
 
 def technical_continuation(
@@ -471,18 +513,22 @@ __all__ = [
     "OPERATOR_AVAILABLE_KNOB",
     "OPERATOR_NEEDS",
     "OperatorIntervention",
-    "adopt_persisted_operator_availability",
+    "clear_operator_wait_marker",
+    "current_run_id",
     "assess_operator_intervention",
     "autonomous_operator_resolution",
     "bounded_operator_wait_exit_seconds",
     "normalize_autonomy_mode",
     "normalize_operator_need",
     "operator_available",
-    "operator_only_action",
-    "persist_operator_availability",
+    "operator_only_command",
+    "operator_wait_marker_present",
     "read_autonomous_assumptions",
+    "read_operator_blocks",
     "record_autonomous_assumption",
+    "record_operator_block",
     "render_autonomous_assumptions",
     "resolve_autonomy_mode",
+    "start_autonomy_run",
     "technical_continuation",
 ]

@@ -795,15 +795,6 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
             "readiness probe skipped; backend/auth/config checks still passed.\n"
         )
     cfg = _build_worker_config(args)
-    from ...core.autonomy import (
-        adopt_persisted_operator_availability,
-        persist_operator_availability,
-    )
-
-    # An explicit declaration (``--no-operator`` or the env knob) is recorded
-    # with the project; a later ``--resume`` without one keeps it.
-    persist_operator_availability(cfg.life_dir)
-    adopt_persisted_operator_availability(cfg.life_dir)
     if foreground:
         return run_foreground(cfg)
     receipt = execute_daemon_command(
@@ -1448,6 +1439,8 @@ def _cmd_answer(args: argparse.Namespace) -> int:
         reply = str(result.get("reply") or "").strip()
         if reply:
             sys.stdout.write(f"  result: {reply}\n")
+        if result.get("resume_requested", True) and not result.get("stopped"):
+            _restart_worker_after_operator_wait_exit(bundle)
         return 0
 
     blocked, continuation = backlog.continue_with_operator_reply(
@@ -1493,10 +1486,9 @@ def _restart_worker_after_operator_wait_exit(bundle: Any) -> None:
         return
     rc = int((result or {}).get("rc", 3))
     if rc == 0:
-        try:
-            marker.unlink()
-        except OSError:
-            pass
+        from ...core.autonomy import clear_operator_wait_marker
+
+        clear_operator_wait_marker(bundle.project.root)
         sys.stdout.write("  worker: restarted to continue with the answer\n")
     else:
         detail = str((result or {}).get("error") or "start refused")
