@@ -277,6 +277,8 @@ class RoundPromptMixin:
                 shared_checkpoint_instructions(
                     checkpoint_path,
                     role="engineer",
+                    # The capsule block already lists the role-state index.
+                    index_listed=bool(capsule_block),
                 ),
             )
             if block

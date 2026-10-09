@@ -265,7 +265,8 @@ def render_mission_brief(
             label = "Previously missing condition" if pending_engineer else "Missing condition"
             lines.append(f"- {label}: " + "; ".join(missing))
     next_action = _brief_text(review.get("next_action"))
-    if next_action:
+    # The same text already appears as the review reason one line above.
+    if next_action and next_action != reason:
         label = "Previously requested action" if pending_engineer else "Next action"
         lines.append(f"- {label}: {next_action}")
     if isinstance(review.get("venue_review"), Mapping):
