@@ -1,10 +1,13 @@
 name: xplat-dogfood
 
 # Use Argus on real macOS and Windows machines the way docs/getting-started.md
-# tells users to: install, doctor, web cockpit (screenshots), a CLI run on the
-# in-process memory backend, the frontend build, and the full Python suite.
-# No secrets. Steps record failures instead of stopping; every log and
-# screenshot is uploaded as the artifact xplat-<os>.
+# tells users to: install, doctor, the web cockpit (chat, settings, a task the
+# Manager/Planner/Engineer/Reviewer team carries out), CLI runs, the frontend
+# build and a Python test selection. No secrets: the backend is a fake
+# `codex` CLI (.github/scripts/xplat_fake_codex.py) that speaks the real
+# subprocess protocol, so every role still runs as a spawned child process.
+# Steps record failures instead of stopping; every log and screenshot is
+# uploaded as the artifact xplat-<os>.
 
 on:
   workflow_dispatch:
@@ -34,8 +37,11 @@ jobs:
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
       ARGUS_SKILL_WEB_TOKEN: xplat-dogfood-token-0001
-      ARGUS_SKILL_RUNNER_BACKEND: memory
+      ARGUS_SKILL_RUNNER_BACKEND: codex
+      # The fake backend answers instantly; a stuck loop must not hit the cap.
+      ARGUS_SKILL_CODEX_DAILY_CALL_CAP: "5000"
       OUT: ${{ github.workspace }}/xplat-out
+      FAKE_CODEX_LOG_DIR: ${{ github.workspace }}/xplat-out/fake-codex-calls
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +51,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Prepare output dir
         run: |
@@ -56,6 +62,23 @@ jobs:
             python --version; node --version; npm --version
             git rev-parse HEAD
           } > "$OUT/env.txt" 2>&1
+
+      # A credential-free stand-in for the codex CLI, first on PATH.
+      - name: Install fake codex backend
+        run: |
+          BIN="$RUNNER_TEMP/fakebin"
+          mkdir -p "$BIN"
+          cp .github/scripts/xplat_fake_codex.py "$BIN/codex_fake.py"
+          PY="$(python -c 'import sys; print(sys.executable)')"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf '@echo off\r\n"%s" "%%~dp0codex_fake.py" %%*\r\n' "$PY" > "$BIN/codex.cmd"
+            cat "$BIN/codex.cmd"
+            cygpath -w "$BIN" >> "$GITHUB_PATH"
+          else
+            printf '#!/bin/sh\nexec "%s" "%s/codex_fake.py" "$@"\n' "$PY" "$BIN" > "$BIN/codex"
+            chmod +x "$BIN/codex"
+            echo "$BIN" >> "$GITHUB_PATH"
+          fi
 
       # ---- a. Install as getting-started.md says --------------------------
       # The doc installs from the upstream main.zip; here the same command
@@ -89,6 +112,7 @@ jobs:
         run: |
           set +e
           { echo "which argus: $(command -v argus)"; argus --version; echo "exit=$?"; } 2>&1 | tee -a "$OUT/versions.txt"
+          { echo "which codex: $(command -v codex)"; codex --version; echo "exit=$?"; } 2>&1 | tee -a "$OUT/versions.txt"
           argus doctor > "$OUT/doctor.txt" 2>&1; echo "argus doctor exit=$?" | tee -a "$OUT/doctor.txt"
           argus doctor --json > "$OUT/doctor.json" 2> "$OUT/doctor-json.stderr.txt"; echo "argus doctor --json exit=$?" >> "$OUT/doctor.txt"
           tail -40 "$OUT/doctor.txt"
@@ -102,15 +126,15 @@ jobs:
           python -m playwright install chromium >> "$OUT/playwright-install.log" 2>&1
           echo "exit=$?" >> "$OUT/playwright-install.log"
 
-      - name: Web cockpit (argus --web --no-daemon) + screenshots
+      - name: Web cockpit (argus --web) chat, settings, team tasks
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: python .github/scripts/xplat_dogfood_web.py "$OUT/web"
 
-      # ---- d. CLI end to end on the memory backend -------------------------
-      - name: CLI bounded run (memory backend)
+      # ---- d. CLI end to end on the fake backend ---------------------------
+      - name: CLI --ask and bounded runs (fake codex backend)
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: python .github/scripts/xplat_dogfood_cli.py "$OUT/cli"
 
       # ---- e. Frontend build -----------------------------------------------
@@ -132,7 +156,7 @@ jobs:
           python -m pip install -e ".[dev,qr,trial]" pytest pytest-xdist > "$OUT/pytest-install.log" 2>&1
           echo "exit=$?" >> "$OUT/pytest-install.log"
 
-      - name: Full Python test suite
+      - name: Python tests (.github/xplat-targets.txt, else the full suite)
         continue-on-error: true
         timeout-minutes: 45
         run: |

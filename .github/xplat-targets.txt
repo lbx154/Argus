@@ -1,0 +1,3 @@
+# Pytest targets for the xplat-dogfood workflow (one per line). Other
+# jobs cover the full suite; this keeps the real-use run short.
+tests/apps/test_cli_parser.py
