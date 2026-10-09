@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ...core.model_visible_text import (
+    MASKED_DISPLAY_REVIEW_RULE,
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_visible_text,
 )
@@ -794,7 +795,9 @@ def render_reviewer_prompt(
         "Stay within this profile; require no future-proofing. "
         "In `explore`/`develop`, require experimental or research feedback. "
         "Negative results, hedging, limitations, and reruns need grounded "
-        "consequences; positive and negative claims share one evidence standard.\n\n"
+        "consequences; positive and negative claims share one evidence standard. "
+        + MASKED_DISPLAY_REVIEW_RULE
+        + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_policy
         + ("" if _requires_engineering_audit else _verification_directive())

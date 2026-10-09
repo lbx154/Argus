@@ -336,7 +336,7 @@ def test_intermediate_project_symlink_not_followed(setup):
         journal.append_user_event("tenant-one", "s-project", "feedback", {"text": "no"})
 
 
-def test_redaction_private_channel_and_raw_tool_exclusion(setup):
+def test_redaction_private_channel_and_raw_tool_exclusion(redact_secrets_on, setup):
     _, journal, _, paths = setup
     append(paths["tenant-one"],
            {"type": "ui.operator", "text": "Try sk-abcdefghijklmnop and password=not-for-export"},

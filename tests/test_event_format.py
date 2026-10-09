@@ -155,7 +155,7 @@ def test_match_info_diagnostic_still_renders() -> None:
     assert rendered == "🎯 matched parser skill"
 
 
-def test_engineer_progress_redacts_raw_secret() -> None:
+def test_engineer_progress_redacts_raw_secret(redact_secrets_on) -> None:
     secret = "ghp_" + "A" * 36
     rendered = format_event_message(
         {

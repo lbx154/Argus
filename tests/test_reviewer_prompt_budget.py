@@ -51,7 +51,14 @@ _TASK_OWNED_BLOCKS = (
 # channel rather than tightening the prose. Research surprise judgment is
 # measured separately because it applies only to research-result reviews.
 # Re-compress before raising this.
-FIXED_PROSE_BUDGET = 5_000
+#
+# Raised from 5_000 for one deliberate contract block: the masked-display rule
+# (~260 chars, MASKED_DISPLAY_REVIEW_RULE). It tells the Reviewer that a
+# `******`/`<REDACTED:…>` span proves neither a defect nor a fix and must be
+# settled by a check it reruns itself. Without it one task spent five extra
+# rounds, most of its cost, disputing a line neither role could see. Measured
+# at 5_179 with it.
+FIXED_PROSE_BUDGET = 5_300
 
 
 def _fixed_prose_chars(reviewer: Reviewer) -> int:

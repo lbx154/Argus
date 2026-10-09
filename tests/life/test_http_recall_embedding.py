@@ -620,7 +620,7 @@ def test_discarding_the_vector_cache_does_not_reset_spend_budget(tmp_path, embed
     assert len(embedding_server.requests) == 1
 
 
-def test_credentials_are_redacted_before_http_and_absent_from_derived_state(tmp_path, embedding_server, monkeypatch, caplog):
+def test_credentials_are_redacted_before_http_and_absent_from_derived_state(redact_secrets_on, tmp_path, embedding_server, monkeypatch, caplog):
     secret = "fixture-private-embedding-bearer-never-persist"
     monkeypatch.setenv("ARGUS_TEST_EMBEDDING_SECRET", secret)
     configure(tmp_path, embedding_server, credential_env="ARGUS_TEST_EMBEDDING_SECRET", cache_entries=1)

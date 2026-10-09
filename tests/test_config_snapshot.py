@@ -16,7 +16,7 @@ def _isolated_argus_home(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
 
 
-def test_config_snapshot_resolves_role_hyperparameters() -> None:
+def test_config_snapshot_resolves_role_hyperparameters(redact_secrets_on) -> None:
     snapshot = build_config_snapshot(
         env={
             "ARGUS_SKILL_RUNNER_BACKEND": "copilot",

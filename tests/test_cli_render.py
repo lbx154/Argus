@@ -70,7 +70,7 @@ def test_life_mission_completed_renders_a_human_outcome() -> None:
     assert "stage=" not in rendered
 
 
-def test_engineer_progress_terminal_redacts_raw_secret() -> None:
+def test_engineer_progress_terminal_redacts_raw_secret(redact_secrets_on) -> None:
     secret = "ghp_" + "A" * 36
     rendered = render_event_for_terminal(
         {

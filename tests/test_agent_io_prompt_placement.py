@@ -45,7 +45,7 @@ def test_raw_transcript_is_a_sibling_of_the_history_log() -> None:
     "manager-frontdoor-classify", "planner.acceptance_dependencies", "reviewer_control",
     "engineer-r1", "reviewer", "manager-frontdoor-direct",
 ])
-def test_control_protocol_is_diagnostic_while_real_updates_stay_visible(tmp_path, monkeypatch, label):
+def test_control_protocol_is_diagnostic_while_real_updates_stay_visible(redact_secrets_on, tmp_path, monkeypatch, label):
     from argus.adapters.agent_cli_backend._io_log import AgentIOLogger
 
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "full")
@@ -169,7 +169,7 @@ def test_no_consumer_reads_the_prompt_off_an_event_row() -> None:
     assert offenders == [], offenders
 
 
-def test_the_prompt_is_redacted_on_its_way_to_the_raw_transcript(
+def test_the_prompt_is_redacted_on_its_way_to_the_raw_transcript(redact_secrets_on, 
     tmp_path: Path,
 ) -> None:
     """Moving the prompt must not move it around the credential guard.

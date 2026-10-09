@@ -118,12 +118,13 @@ describe('the web feed line', () => {
     expect(rendered?.text).toBe('I need the operator to choose the report format.');
   });
 
-  it('redacts a credential that slipped into agent speech and says so', () => {
+  it('shows a credential-shaped token as written and flags it', () => {
     const rendered = line({
       type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer',
       text: 'using token ghp_abcdefghijklmnopqrstuvwxyz0123456789',
     });
-    expect(rendered).toMatchObject({ text: 'using token <REDACTED:github-token>', sensitive: true });
+    // Masked text cannot be verified; ARGUS_SKILL_REDACT_SECRETS masks upstream.
+    expect(rendered).toMatchObject({ text: 'using token ghp_abcdefghijklmnopqrstuvwxyz0123456789', sensitive: true });
   });
 
   it('shows real command and tool details instead of generic summaries', () => {

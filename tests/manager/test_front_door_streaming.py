@@ -124,7 +124,7 @@ def test_manager_triage_streams_all_reply_progress_kinds(reply_kind: str) -> Non
     ]
 
 
-def test_manager_triage_redacts_direct_reply_progress_before_streaming() -> None:
+def test_manager_triage_redacts_direct_reply_progress_before_streaming(redact_secrets_on) -> None:
     secret = "ghp_" + "A" * 36
     fragments: list[tuple[str, dict]] = []
 
@@ -266,7 +266,7 @@ def test_manager_triage_carries_tool_facts_on_phase_frames() -> None:
     ]
 
 
-def test_manager_triage_redacts_legacy_progress_phase_fallback() -> None:
+def test_manager_triage_redacts_legacy_progress_phase_fallback(redact_secrets_on) -> None:
     secret = "ghp_" + "A" * 36
     fragments: list[tuple[str, dict]] = []
 

@@ -104,6 +104,16 @@ class ReviewActions:
                     "additionalProperties": False,
                 },
             }
+            if _ACTIONS[name][0] == "continue":
+                fields["unverifiable"] = {
+                    "type": "string",
+                    "description": (
+                        "Only when the fact you dispute is hidden from every view you "
+                        "have (e.g. masked or redacted display), so repeating the finding "
+                        "cannot settle it: name the fact and the rerunnable check that "
+                        "would. The Manager sees this."
+                    ),
+                }
             required = ["review"]
             if self.venue_required and name in {"approve_review", "revise_review"}:
                 fields["recommendation"] = {
@@ -171,6 +181,7 @@ class ReviewActions:
         )
         if "forward_progress" in payload:
             decision.planner_report["forward_progress"] = payload["forward_progress"]
+        decision.verification_obstacle = str(payload.get("unverifiable") or "").strip()
         if action == "replan_review":
             decision.planner_report.update(
                 plan_signal="reconsider", challenge=review,

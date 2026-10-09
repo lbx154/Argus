@@ -22,9 +22,9 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, SchemaError
 
-from argus.core.secret_guard import redact_secrets_record
+from argus.core.secret_guard import contains_secret
 
-from .analytics import _sanitize
+from .analytics import _mask_credentials
 from .training_capture import HOSTED_PROFILE, _hosted_sensitive
 from .training_public_assets import check_public_skill_event
 from .training_schema import pi_execution_arguments, pi_schema_equal, pi_strict_schema
@@ -216,7 +216,7 @@ def _sample(sample, location, *, portable=False, source=None):
     # Scan the strictly decoded semantic object. The original rows and bytes
     # remain untouched for the format correspondence and manifest hash checks.
     _require(not _hosted_sensitive(normalized, **_public_binding(source))
-             and _sanitize(redact_secrets_record(normalized)) == normalized,
+             and not contains_secret(normalized) and _mask_credentials(normalized) == normalized,
              "sensitive_training_content", location)
     return normalized, calls, results
 
@@ -279,7 +279,7 @@ def _check_public_sources(trajectories):
                      "private_or_unknown_episode_field", spot)
             payload = event["payload"]
             _require(isinstance(payload, dict) and not _hosted_sensitive(payload, **_public_binding(source))
-                     and _sanitize(redact_secrets_record(payload)) == payload, "sensitive_source_content", spot)
+                     and not contains_secret(payload) and _mask_credentials(payload) == payload, "sensitive_source_content", spot)
             kind = event["kind"]
             try:
                 check_public_skill_event(kind, payload)
