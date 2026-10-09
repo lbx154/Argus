@@ -391,82 +391,45 @@ def test_answer_restarts_a_worker_that_ended_on_the_question(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize(
-    ("label", "alternative", "expected"),
+    "alternative",
     [
-        # Operator available: any label but none, or no label, asks.
-        ("credentials", "Use the deployment account for the live check.", "ask_operator"),
-        ("scope_or_authority", "Narrow the claim to the admissible cells.", "ask_operator"),
-        (None, "Narrow the claim to the admissible cells.", "ask_operator"),
-        ("none", "Narrow the claim to the admissible cells.", "replace"),
-        # Defense in depth: an exact command form asks whatever the label.
-        ("none", "Run `git push --force origin release` to drop the commit.", "ask_operator"),
-        # Prose about force-pushing is not a command form.
-        ("none", "Do not force-push; rebase the local branch instead.", "replace"),
+        "Load the data with polars instead of pandas.",
+        "Reduce the dataset size to the first 10k rows.",
+        "Follow the spec line in section 2.",
     ],
 )
-def test_plan_alternative_routing_with_an_operator(monkeypatch, label, alternative, expected) -> None:
+def test_plan_alternatives_route_exactly_as_on_dev_with_an_operator(
+    monkeypatch, alternative
+) -> None:
     from argus.manager.plan_challenge import adjudicate_plan_challenge
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     decision = adjudicate_plan_challenge(
         {"authority_impact": "technical", "challenge": "c", "alternative": alternative},
         reviewer_status="replan_requested",
-        alternative_operator_need=label,
     )
-    assert decision.action == expected
+    assert decision.action == "replace"
 
 
-@pytest.mark.parametrize(
-    ("label", "alternative", "expected"),
-    [
-        # No operator: a label means blocked.
-        ("credentials", "Use the deployment account for the live check.", "blocked"),
-        ("scope_or_authority", "Narrow the claim to the admissible cells.", "blocked"),
-        # No label: blocked only when a command form fires, else continue.
-        (None, "Narrow the claim to the admissible cells.", "replace"),
-        (None, "Then `npm publish` the package.", "blocked"),
-        ("none", "Then `terraform apply` the change.", "blocked"),
-        ("none", "Narrow the claim to the admissible cells.", "replace"),
-    ],
-)
-def test_plan_alternative_routing_without_an_operator(monkeypatch, label, alternative, expected) -> None:
-    from argus.manager.plan_challenge import adjudicate_plan_challenge
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    decision = adjudicate_plan_challenge(
-        {"authority_impact": "technical", "challenge": "c", "alternative": alternative},
-        reviewer_status="replan_requested",
-        alternative_operator_need=label,
-    )
-    assert decision.action == expected
-
-
-def test_supervisor_asks_the_manager_to_classify_the_alternative(tmp_path, monkeypatch) -> None:
+def test_no_operator_alternative_flagged_by_devs_check_ends_blocked(
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     supervisor, _sink = _supervisor(tmp_path, runner=object())
-    asked: list[tuple[str, str]] = []
-
-    def classify(challenge, alternative):
-        asked.append((challenge, alternative))
-        return "spending"
-
-    monkeypatch.setattr(supervisor, "_classify_plan_alternative", classify)
     item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="Scale the run", objective="scale the run")
+        BacklogItem.new(title="Ship the fix", objective="ship the fix")
     )
     outcome = _conflict_outcome(
         item.id,
-        authority_impact="technical",
-        alternative="Move the sweep to the larger cluster tier.",
+        authority_impact="operator",
+        alternative="Force-push the protected release branch.",
     )
-    action = supervisor._adjudicate_mission_challenge(outcome)
-    assert asked and asked[0][1] == "Move the sweep to the larger cluster tier."
-    assert action == "blocked"
+    assert supervisor._adjudicate_mission_challenge(outcome) == "blocked"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.status == "failed"
     from argus.core.autonomy import read_operator_blocks
 
-    assert read_operator_blocks(supervisor._project_state_root())[-1]["operator_need"] == "spending"
+    assert read_operator_blocks(supervisor._project_state_root())
 
 
 def test_reviewer_decision_request_carries_its_classification() -> None:
@@ -916,3 +879,37 @@ def test_operator_only_block_with_nothing_runnable_ends_after_one_more_pass(
     # Runnable work resets it.
     supervisor.memory.backlog.add(BacklogItem.new(title="Other", objective="other"))
     assert supervisor._operator_only_blocks() is None
+
+
+def test_multi_line_assumption_is_kept_whole(tmp_path, monkeypatch) -> None:
+    from argus.core.autonomy import read_autonomous_assumptions, start_autonomy_run
+    from argus.engineer.round_self_review import _record_stated_assumption
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    start_autonomy_run()
+    outcome = SimpleNamespace(
+        decision=None,
+        engineer_message=(
+            "Done.\nDecision:\nMILESTONE_STATUS=done\n"
+            "ASSUMPTION=The release rule wins over the WIP rule for MB-1010.\n"
+            "WO-WIP-002 is therefore not continued; the conflict is in CHECKPOINT.md.\n"
+            "NEXT_OWNER=reviewer"
+        ),
+    )
+    _record_stated_assumption(outcome, SimpleNamespace(operator_question_policy_root=tmp_path))
+    reading = read_autonomous_assumptions(tmp_path)[-1]["reading"]
+    assert reading.startswith("The release rule wins")
+    assert reading.endswith("the conflict is in CHECKPOINT.md.")
+
+
+def test_assumption_wording_never_targets_graded_deliverables(monkeypatch, tmp_path) -> None:
+    from argus.core.autonomy import AUTONOMOUS_ASSUMPTION_INSTRUCTION
+    from argus.core.operator_context import build_operator_context_block
+    from argus.engineer.round_config import OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    (tmp_path / "life").mkdir()
+    block, _ = build_operator_context_block("engineer", tmp_path / "life")
+    for text in (AUTONOMOUS_ASSUMPTION_INSTRUCTION, OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION, block):
+        assert "CHECKPOINT.md and the run report" in text
+        assert "in the deliverable" not in text

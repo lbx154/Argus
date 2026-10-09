@@ -516,28 +516,6 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001 - reconciliation never blocks work
             log.exception("life supervisor: subagent reconciliation failed")
 
-    def _classify_plan_alternative(self, challenge: str, alternative: str) -> str:
-        """The Manager's label for what carrying out ``alternative`` needs.
-
-        ``""`` when the Manager could not answer (no runner, no usable label);
-        callers then fail safe.
-        """
-        try:
-            classify = getattr(self._bound_manager(), "classify_plan_alternative", None)
-            if not callable(classify):
-                return ""
-            return str(
-                classify(
-                    challenge=challenge,
-                    alternative=alternative,
-                    on_event=getattr(self.sink, "handle_event", None),
-                )
-                or ""
-            )
-        except Exception:  # noqa: BLE001 - an unclassified alternative fails safe
-            log.debug("Manager could not classify a plan alternative", exc_info=True)
-            return ""
-
     def _adjudicate_mission_challenge(self, outcome: dict[str, Any]) -> str:
         """Persist the Manager authority decision before Planner sees a challenge."""
         from ...manager import adjudicate_plan_challenge
@@ -545,32 +523,13 @@ class LifeSupervisor(
         report = outcome.get("planner_report")
         challenge = dict(outcome.get("plan_challenge") or {})
         if not challenge:
-            reviewer_status = str(
-                outcome.get("review_status") or outcome.get("status") or ""
-            )
-            report_dict = report if isinstance(report, dict) else {}
-            # Only an alternative the Reviewer proposed is a proposal; the
-            # stop-reason fallback is not, so it is not sent for judgement
-            # (command forms still count for it).
-            proposed = str(report_dict.get("alternative") or "").strip()
-            alternative_need: str | None = "none"
-            if (
-                proposed
-                and reviewer_status.strip().lower() == "replan_requested"
-                and str(report_dict.get("authority_impact") or "").strip().lower()
-                != "operator"
-            ):
-                alternative_need = self._classify_plan_alternative(
-                    str(report_dict.get("challenge") or outcome.get("review_reason") or ""),
-                    proposed,
-                )
             decision = adjudicate_plan_challenge(
-                report_dict,
-                reviewer_status=reviewer_status,
+                report if isinstance(report, dict) else {},
+                reviewer_status=str(
+                    outcome.get("review_status") or outcome.get("status") or ""
+                ),
                 review_reason=str(outcome.get("review_reason") or ""),
                 next_action=str(outcome.get("stop_reason") or ""),
-                alternative_operator_need=alternative_need,
-                workspace=self._project_workdir(),
             )
             challenge = {
                 "manager_action": decision.action,
@@ -579,7 +538,6 @@ class LifeSupervisor(
                 "alternative": decision.alternative,
                 "authority_impact": decision.authority_impact,
                 "source": decision.source,
-                "operator_need": decision.operator_need,
                 "raised_at": time.time(),
             }
         now = time.time()
@@ -590,24 +548,8 @@ class LifeSupervisor(
         challenge["adjudicated_at"] = now
         challenge["revision_latency_seconds"] = max(0.0, now - raised_at)
         action = str(challenge.get("manager_action") or "revise").strip().lower()
-        if action not in {"keep", "revise", "replace", "ask_operator", "blocked"}:
+        if action not in {"keep", "revise", "replace", "ask_operator"}:
             action = "revise"
-        if action == "replace" and str(challenge.get("alternative") or "").strip():
-            # A challenge decided elsewhere (a second reading, a replayed
-            # decision) still passes the command-form check before it can
-            # replace the plan.
-            from ...manager.plan_challenge import route_plan_alternative
-
-            routed = route_plan_alternative(
-                str(challenge.get("alternative") or ""),
-                "none",
-                workspace=self._project_workdir(),
-            )
-            if routed is not None:
-                action, need, source = routed
-                challenge.update(
-                    authority_impact="operator", operator_need=need, source=source,
-                )
         if action == "ask_operator":
             from ...manager.directive import effective_operator_question_policy
 
@@ -615,56 +557,65 @@ class LifeSupervisor(
                 from ...core.autonomy import (
                     AUTONOMOUS_ASSUMPTION_INSTRUCTION,
                     OPERATOR_ACTION_NEEDS,
-                    autonomous_operator_resolution,
                     normalize_operator_need,
                     operator_available,
-                    operator_only_command,
                     record_autonomous_assumption,
                 )
+                from ...manager._plan_boundary import assess_plan_boundary
 
-                # The raising role's own classification decides: an action
-                # only the operator can enable (real credentials, spending, an
-                # irreversible or outward-facing step) cannot be assumed into
-                # being, so it blocks; a scope or interpretation question is
-                # settled here on the most defensible reading, recorded, and
-                # the work continues.
+                reviewer_alternative = str(
+                    challenge.get("alternative") or ""
+                ).strip()
+                # dev's own boundary check, unchanged.
+                boundary = assess_plan_boundary(
+                    question=str(
+                        challenge.get("operator_question")
+                        or outcome.get("operator_question")
+                        or challenge.get("challenge")
+                        or outcome.get("review_reason")
+                        or ""
+                    ),
+                    reason=str(challenge.get("challenge") or ""),
+                    next_action=reviewer_alternative,
+                    planner_report={},
+                    mode="autonomous",
+                )
+                nobody_to_ask = not operator_available()
                 need = normalize_operator_need(
                     challenge.get("operator_need")
                     or (report.get("operator_need") if isinstance(report, dict) else "")
                 )
-                if need not in OPERATOR_ACTION_NEEDS:
-                    # The action backstop applies whatever the label said.
-                    workspace = self._project_workdir()
-                    need = (
-                        operator_only_command(challenge.get("alternative"), workspace=workspace)
-                        or operator_only_command(
-                            report.get("alternative") if isinstance(report, dict) else "",
-                            workspace=workspace,
-                        )
-                        or need
-                    )
-                action = (
-                    "blocked"
-                    if autonomous_operator_resolution(need) == "blocked"
-                    else "revise"
+                # Without an operator, a need the raising role classified as an
+                # operator-only action blocks too: nobody can enable it.
+                blocked = boundary.required or (
+                    nobody_to_ask and need in OPERATOR_ACTION_NEEDS
                 )
-                nobody_to_ask = not operator_available()
-                if action == "blocked":
+                action = "blocked" if blocked else "revise"
+                if blocked:
                     challenge["manager_reason"] = (
                         (
                             "No operator is available in this run"
-                            if nobody_to_ask
-                            else "Operator questions are forbidden"
+                            + (
+                                f" and the work needs an operator-only action ({need})"
+                                if need in OPERATOR_ACTION_NEEDS
+                                else ""
+                            )
+                            + "; no in-scope revision can cross this "
+                            "operator-owned boundary, so the mission is blocked "
+                            "without a question."
                         )
-                        + f"; the work needs an operator-only action ({need}) that "
-                        "no in-scope revision can provide, so the mission is "
-                        "blocked without a question."
+                        if nobody_to_ask
+                        else "Operator questions are forbidden and do not grant "
+                        "authority; no in-scope revision can cross this "
+                        "operator-owned boundary, so the mission is blocked "
+                        "without a question."
                     )
-                    challenge["operator_need"] = need
+                    if need in OPERATOR_ACTION_NEEDS:
+                        challenge["operator_need"] = need
                 elif nobody_to_ask:
                     # Only a run that declared no operator settles the open
                     # decision on an assumption; a directive that merely
-                    # forbids questions keeps the stricter revision below.
+                    # forbids questions keeps dev's stricter revision.
                     challenge["manager_reason"] = (
                         "No operator is available in this run, so the Manager "
                         "settles the open decision itself: the Planner revises "

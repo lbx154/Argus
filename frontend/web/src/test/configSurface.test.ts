@@ -4,6 +4,7 @@ import {
   compactConfigSource,
   conciseConfigKnobs,
   connectionTopology,
+  noOperatorMode,
 } from '../lib/configSurface';
 
 const knob = (name: string, group = 'internal'): ConfigKnob => ({
@@ -25,6 +26,7 @@ describe('conciseConfigKnobs', () => {
       knob('ARGUS_SKILL_TELEGRAM_BOT_TOKEN', 'telemetry'),
       knob('ARGUS_SKILL_MAX_ACTIVE_DAEMONS', 'budget'),
       knob('ARGUS_SKILL_SAFE_MODE', 'lifecycle'),
+      knob('ARGUS_SKILL_OPERATOR_AVAILABLE', 'mission'),
       knob('ARGUS_SKILL_ENABLE_TELEGRAM', 'telemetry'),
       knob('ARGUS_SKILL_SHOW_REASONING', 'telemetry'),
     ]);
@@ -32,11 +34,13 @@ describe('conciseConfigKnobs', () => {
     expect(result.map((item) => item.name)).toEqual([
       'ARGUS_SKILL_MAX_ACTIVE_DAEMONS',
       'ARGUS_SKILL_SAFE_MODE',
+      'ARGUS_SKILL_OPERATOR_AVAILABLE',
       'ARGUS_SKILL_ENABLE_TELEGRAM',
       'ARGUS_SKILL_SHOW_REASONING',
     ]);
     expect(result.map((item) => item.group)).toEqual([
       'Limits',
+      'Safety',
       'Safety',
       'Interface',
       'Interface',
@@ -62,5 +66,17 @@ describe('connectionTopology', () => {
     expect(connectionTopology('https://argus.example', 's-1').eventStream).toBe(
       'wss://argus.example/api/projects/s-1/stream',
     );
+  });
+});
+
+describe('noOperatorMode', () => {
+  const operator = (value: string): ConfigKnob => ({ ...knob('ARGUS_SKILL_OPERATOR_AVAILABLE', 'mission'), value });
+  it('is on only when the operator switch is off', () => {
+    expect(noOperatorMode([operator('0')])).toBe(true);
+    expect(noOperatorMode([operator('false')])).toBe(true);
+    expect(noOperatorMode([operator('true')])).toBe(false);
+    expect(noOperatorMode([operator('1')])).toBe(false);
+    expect(noOperatorMode([])).toBe(false);
+    expect(noOperatorMode(undefined)).toBe(false);
   });
 });

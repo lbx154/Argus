@@ -22,7 +22,6 @@ class PlanChallengeDecision:
     alternative: str = ""
     authority_impact: str = "technical"
     source: str = "manager_authority_policy"
-    operator_need: str = ""
 
 
 def adjudicate_plan_challenge(
@@ -32,15 +31,8 @@ def adjudicate_plan_challenge(
     review_reason: str = "",
     next_action: str = "",
     operator_question: str = "",
-    alternative_operator_need: str | None = None,
-    workspace: Any = None,
 ) -> PlanChallengeDecision:
-    """Route a Reviewer challenge without promoting Planner prose to authority.
-
-    ``alternative_operator_need`` is the Manager's own classification of what
-    carrying out the proposed alternative needs (a label, ``"none"``, or
-    missing). See :func:`route_plan_alternative`.
-    """
+    """Route a Reviewer challenge without promoting Planner prose to authority."""
     report = planner_report if isinstance(planner_report, Mapping) else {}
     status = str(reviewer_status or "").strip().lower()
     challenge = str(report.get("challenge") or review_reason or "").strip()
@@ -58,9 +50,9 @@ def adjudicate_plan_challenge(
             authority_impact=authority,
         )
     if authority == "operator" or str(operator_question or "").strip():
-        from ..core.autonomy import assess_operator_intervention
+        from ._plan_boundary import assess_plan_boundary
 
-        intervention = assess_operator_intervention(
+        intervention = assess_plan_boundary(
             question=(
                 str(operator_question or "").strip()
                 or challenge
@@ -68,10 +60,7 @@ def adjudicate_plan_challenge(
             ),
             reason=challenge,
             next_action=alternative,
-            planner_report={
-                "authority_impact": authority,
-                "operator_need": report.get("operator_need") or "",
-            },
+            planner_report={"authority_impact": authority},
         )
         if intervention.required:
             return PlanChallengeDecision(
@@ -80,33 +69,8 @@ def adjudicate_plan_challenge(
                 challenge=challenge,
                 alternative=alternative,
                 authority_impact="operator",
-                operator_need=intervention.operator_need,
             )
     if alternative:
-        routed = route_plan_alternative(
-            alternative,
-            alternative_operator_need,
-            workspace=workspace,
-        )
-        if routed is not None:
-            action, need, source = routed
-            return PlanChallengeDecision(
-                action=action,
-                reason=(
-                    "Carrying out the proposed alternative needs the operator"
-                    + (f" ({need})" if need else " (the Manager could not classify it)")
-                    + (
-                        "; it is held for the operator"
-                        if action == "ask_operator"
-                        else "; no operator is available, so the mission is blocked"
-                    )
-                ),
-                challenge=challenge,
-                alternative=alternative,
-                authority_impact="operator",
-                source=source,
-                operator_need=need,
-            )
         return PlanChallengeDecision(
             action="replace",
             reason="Later evidence supports a concrete alternative to the current plan",
@@ -122,49 +86,4 @@ def adjudicate_plan_challenge(
     )
 
 
-def route_plan_alternative(
-    alternative: str,
-    manager_operator_need: str | None,
-    *,
-    workspace: Any = None,
-) -> tuple[str, str, str] | None:
-    """Decide whether a proposed alternative may replace the plan.
-
-    Two layers. The primary one is judgement: the Manager labels what carrying
-    out the alternative needs. With an operator available, any label other
-    than ``none`` (or no label at all) goes to the operator; without one, a
-    label means blocked. Behind it, as defense in depth, exact command forms
-    (:func:`core.autonomy.operator_only_command`) always count, whatever the
-    label says. Returns ``(action, operator_need, source)`` or ``None`` when
-    the alternative may replace the plan.
-    """
-    from ..core.autonomy import (
-        NO_OPERATOR_NEED,
-        OPERATOR_NEEDS,
-        normalize_operator_need,
-        operator_available,
-        operator_only_command,
-    )
-
-    label = normalize_operator_need(manager_operator_need)
-    command_need = operator_only_command(alternative, workspace=workspace)
-    if label in OPERATOR_NEEDS:
-        need, source = label, "manager_alternative_classification"
-    elif command_need:
-        need, source = command_need, "operator_only_command"
-    else:
-        need, source = "", "manager_alternative_unclassified"
-    if operator_available():
-        if label == NO_OPERATOR_NEED and not command_need:
-            return None
-        return ("ask_operator", need, source)
-    if need:
-        return ("blocked", need, source)
-    return None
-
-
-__all__ = [
-    "PlanChallengeDecision",
-    "adjudicate_plan_challenge",
-    "route_plan_alternative",
-]
+__all__ = ["PlanChallengeDecision", "adjudicate_plan_challenge"]

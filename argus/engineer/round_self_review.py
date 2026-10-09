@@ -65,6 +65,30 @@ def _milestone_is_blocked(outcome: EngineerTurnOutcome) -> bool:
     )
 
 
+def _footer_block(footer: str, name: str, *, limit: int = 2400) -> str:
+    """A ``NAME=`` footer value with its continuation lines kept whole.
+
+    The value runs until the next ``KEY=`` control line, so a reading the
+    Engineer wrote over several lines is recorded as written.
+    """
+    collected: list[str] = []
+    capturing = False
+    for raw_line in str(footer or "").splitlines():
+        line = raw_line.strip().strip("`")
+        key, separator, value = line.partition("=")
+        is_control = bool(separator) and key.strip().isupper() and " " not in key.strip()
+        if is_control:
+            if capturing:
+                break
+            if key.strip() == name:
+                capturing = True
+                collected.append(value.strip())
+            continue
+        if capturing:
+            collected.append(raw_line.rstrip())
+    return "\n".join(part for part in collected).strip()[:limit]
+
+
 def _record_stated_assumption(
     outcome: EngineerTurnOutcome, supervised_config: "SupervisedConfig"
 ) -> None:
@@ -74,7 +98,6 @@ def _record_stated_assumption(
     decision (``assumption``) or footer (``ASSUMPTION=``).
     """
     from ..core.autonomy import operator_available, record_autonomous_assumption
-    from ..core.role_handoff import footer_value
     from ..core.role_reply import decision_footer_text
 
     root = getattr(supervised_config, "operator_question_policy_root", None)
@@ -84,9 +107,7 @@ def _record_stated_assumption(
     if isinstance(outcome.decision, dict):
         reading = str(outcome.decision.get("assumption") or "").strip()
     if not reading:
-        reading = footer_value(
-            decision_footer_text(outcome.engineer_message), "ASSUMPTION", limit=1200
-        )
+        reading = _footer_block(decision_footer_text(outcome.engineer_message), "ASSUMPTION")
     if reading:
         record_autonomous_assumption(
             root, item_id="", reading=reading, source="engineer"

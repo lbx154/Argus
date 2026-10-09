@@ -18,17 +18,9 @@ of interpretation itself and records the assumption; a need for an action only
 the operator can enable (real credentials, spending, an irreversible or
 outward-facing step) ends the work as blocked, without a question.
 
-Whether a proposed plan alternative may replace the plan is the Manager's
-judgement too: it labels what carrying the alternative out would need. One
-deterministic check stays behind that judgement as defense in depth,
-:func:`operator_only_command`. It recognises exact command forms only
-(``git push --force``, ``npm publish``, ``terraform apply``, ``rm -rf`` outside
-the workspace, cloud deletes, ``DROP TABLE`` ...), never prose words, and it
-counts whatever label the alternative carries. A mislabeled alternative could
-otherwise run an irreversible command with nobody asked; a false positive
-costs one question, a false negative cannot be undone. That asymmetry is why
-this is the one exception to "no deterministic gates over judgement", and why
-it is limited to commands.
+Plan-challenge routing (a Reviewer replan and its proposed alternative) is
+not changed here: it keeps dev's own boundary check, in
+``manager/_plan_boundary.py``.
 """
 from __future__ import annotations
 
@@ -263,81 +255,6 @@ def autonomous_operator_resolution(operator_need: Any) -> str:
     )
 
 
-# --- defense in depth: command forms only -----------------------------------
-# A command segment: up to the end of the line, a shell separator, or a
-# closing backtick.
-_SEGMENT = r"[^\n;&|`]*"
-_OPERATOR_ONLY_COMMANDS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    (
-        "irreversible_or_external",
-        re.compile(r"\bgit\s+push\b" + _SEGMENT + r"?(?<!\S)(?:--force(?:-with-lease)?(?:=\S*)?|-f)(?!\S)"),
-    ),
-    ("irreversible_or_external", re.compile(r"\b(?:npm|pnpm|yarn)\s+publish\b")),
-    ("irreversible_or_external", re.compile(r"\btwine\s+upload\b")),
-    ("irreversible_or_external", re.compile(r"\bdocker\s+push\b")),
-    ("irreversible_or_external", re.compile(r"\bgh\s+release\s+create\b")),
-    ("irreversible_or_external", re.compile(r"\bterraform\s+(?:apply|destroy)\b")),
-    (
-        "irreversible_or_external",
-        re.compile(
-            r"\b(?:kubectl|helm)\s+(?:apply|upgrade|delete|install)\b"
-            + _SEGMENT
-            + r"?(?:--context|--kube-context|--namespace|-n)(?:=|\s+)\S*prod"
-        ),
-    ),
-    (
-        "irreversible_or_external",
-        re.compile(r"\b(?:aws|gcloud|az)\s" + _SEGMENT + r"?\b(?:delete|rm|terminate[\w-]*)\b"),
-    ),
-    ("irreversible_or_external", re.compile(r"\bdrop\s+(?:table|database)\b", re.IGNORECASE)),
-)
-_RM_RF = re.compile(
-    r"\brm\s+(?:-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*|-r\s+-f|-f\s+-r)\s+(?P<path>[~/]\S*)"
-)
-# A negation governs a command only when it directly precedes it: "do not run
-# `git push --force`", "never npm publish". "Don't stop; git push --force"
-# is not negated.
-_GOVERNING_NEGATION = re.compile(
-    r"(?:\b(?:do\s+not|don't|never|must\s+not|should\s+not|without)\s+"
-    r"(?:(?:run|use|execute|call|running|using)\s+)?)[`'\"]?\s*$"
-)
-
-
-def _negated(text: str, start: int) -> bool:
-    return bool(_GOVERNING_NEGATION.search(text[max(0, start - 40): start]))
-
-
-def operator_only_command(text: Any, *, workspace: Path | str | None = None) -> str:
-    """The operator-only need an exact command form in ``text`` implies, or ``""``.
-
-    Defense in depth behind the Manager's own classification of a plan
-    alternative. It recognises command forms (``git push --force``,
-    ``npm publish``, ``terraform apply``, ``rm -rf`` outside the workspace,
-    cloud deletes, ``DROP TABLE`` ...), never prose words, so a sentence about
-    publishing or tokens does not trigger it and a reworded command cannot hide
-    behind a nearby "don't".
-    """
-    raw = str(text or "")
-    if not raw.strip():
-        return ""
-    lowered = raw.lower()
-    for need, pattern in _OPERATOR_ONLY_COMMANDS:
-        for match in pattern.finditer(lowered):
-            if not _negated(lowered, match.start()):
-                return need
-    root = str(Path(workspace).expanduser().resolve()) if workspace else ""
-    for match in _RM_RF.finditer(raw):
-        if _negated(lowered, match.start()):
-            continue
-        path = match.group("path").rstrip("`'\".,")
-        if path.startswith("~"):
-            return "irreversible_or_external"
-        if root and (path == root or path.startswith(root.rstrip("/") + "/")):
-            continue
-        return "irreversible_or_external"
-    return ""
-
-
 # --- what was settled without an operator, per run ---------------------------
 RUN_ID_ENV = "ARGUS_AUTONOMY_RUN_ID"
 OPERATOR_BLOCKS_FILENAME = "operator_blocks.jsonl"
@@ -521,7 +438,6 @@ __all__ = [
     "normalize_autonomy_mode",
     "normalize_operator_need",
     "operator_available",
-    "operator_only_command",
     "operator_wait_marker_present",
     "read_autonomous_assumptions",
     "read_operator_blocks",

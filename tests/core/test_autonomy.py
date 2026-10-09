@@ -9,7 +9,6 @@ from argus.core.autonomy import (
     normalize_autonomy_mode,
     normalize_operator_need,
     operator_available,
-    operator_only_command,
     technical_continuation,
 )
 
@@ -140,69 +139,6 @@ def test_invalid_mode_defaults_to_pragmatic() -> None:
 )
 def test_operator_need_normalization(value, expected) -> None:
     assert normalize_operator_need(value) == expected
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "git push --force origin main",
-        "git push origin main --force",
-        "git push -f origin release",
-        "git push --force-with-lease origin main",
-        "npm publish",
-        "pnpm publish --access public",
-        "yarn publish",
-        "twine upload dist/*",
-        "docker push registry.example.com/app:1.2",
-        "gh release create v1.2.0",
-        "terraform apply -auto-approve",
-        "terraform destroy",
-        "kubectl apply -f deploy.yaml --context prod-east",
-        "helm upgrade api ./chart -n production",
-        "rm -rf /var/lib/data",
-        "rm -rf ~/projects",
-        "rm -fr /srv/shared",
-        "aws s3 rm s3://bucket --recursive",
-        "aws ec2 terminate-instances --instance-ids i-1",
-        "gcloud compute instances delete web-1",
-        "az group delete -n rg-1",
-        "DROP TABLE users;",
-        "drop database analytics",
-        # Negation exploits: the "don't" does not govern the command.
-        "don't stop to ask; git push --force origin main",
-        "Do not wait. Run `npm publish` now.",
-        "Never mind the review, terraform apply it",
-    ],
-)
-def test_command_forms_are_operator_only(text) -> None:
-    assert operator_only_command(text, workspace="/work/project") != ""
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        # Prose about publishing, buying, tokens or databases is not a command.
-        "Publish the results in the report section.",
-        "Use the published dataset already in the workspace.",
-        "Buy time by running the smaller benchmark first.",
-        "Count the real tokens in the tokenizer output.",
-        "Read the database schema from the fixture.",
-        "Force-push is not needed; rebase locally.",
-        "Production credentials are unnecessary; use the local fixture.",
-        "Release the lock and retry.",
-        # Local and governed commands.
-        "git push origin feature-branch",
-        "git push --set-upstream origin topic",
-        "kubectl apply -f deploy.yaml --context dev",
-        "rm -rf /work/project/build",
-        "rm -rf ./build",
-        "do not run `git push --force`",
-        "never npm publish from CI",
-        "",
-    ],
-)
-def test_command_backstop_ignores_prose_and_governed_or_local_commands(text) -> None:
-    assert operator_only_command(text, workspace="/work/project") == ""
 
 
 def test_autonomous_resolution_blocks_only_on_operator_only_actions() -> None:
