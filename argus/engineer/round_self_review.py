@@ -65,6 +65,55 @@ def _milestone_is_blocked(outcome: EngineerTurnOutcome) -> bool:
     )
 
 
+def _footer_block(footer: str, name: str, *, limit: int = 2400) -> str:
+    """A ``NAME=`` footer value with its continuation lines kept whole.
+
+    The value runs until the next ``KEY=`` control line, so a reading the
+    Engineer wrote over several lines is recorded as written.
+    """
+    collected: list[str] = []
+    capturing = False
+    for raw_line in str(footer or "").splitlines():
+        line = raw_line.strip().strip("`")
+        key, separator, value = line.partition("=")
+        is_control = bool(separator) and key.strip().isupper() and " " not in key.strip()
+        if is_control:
+            if capturing:
+                break
+            if key.strip() == name:
+                capturing = True
+                collected.append(value.strip())
+            continue
+        if capturing:
+            collected.append(raw_line.rstrip())
+    return "\n".join(part for part in collected).strip()[:limit]
+
+
+def _record_stated_assumption(
+    outcome: EngineerTurnOutcome, supervised_config: "SupervisedConfig"
+) -> None:
+    """Keep the reading the Engineer chose when no operator could be asked.
+
+    The run report lists the reading in the Engineer's own words, from its
+    decision (``assumption``) or footer (``ASSUMPTION=``).
+    """
+    from ..core.autonomy import operator_available, record_autonomous_assumption
+    from ..core.role_reply import decision_footer_text
+
+    root = getattr(supervised_config, "operator_question_policy_root", None)
+    if root is None or operator_available():
+        return
+    reading = ""
+    if isinstance(outcome.decision, dict):
+        reading = str(outcome.decision.get("assumption") or "").strip()
+    if not reading:
+        reading = _footer_block(decision_footer_text(outcome.engineer_message), "ASSUMPTION")
+    if reading:
+        record_autonomous_assumption(
+            root, item_id="", reading=reading, source="engineer"
+        )
+
+
 class RoundSelfReviewMixin:
     """Update progress state and settle low-risk work without another model."""
 
@@ -97,13 +146,25 @@ class RoundSelfReviewMixin:
         else:
             state.no_progress_streak += 1
         milestone_done = _milestone_is_done(outcome)
+        _record_stated_assumption(outcome, supervised_config)
         handoff = _round_handoff(outcome)
         if handoff.waits_for_operator:
             from ..core.autonomy import assess_operator_intervention
+            from .round_settlement import _operator_questions_allowed
 
+            # The Engineer classified its own question; words in the question
+            # or the round message are not consulted. An explicit
+            # NEXT_OWNER=operator it did not classify fails safe and goes to
+            # the operator, when one may be asked. A question without that
+            # explicit handoff (or a run where questions cannot be asked) is
+            # a technical fact for the Reviewer.
             intervention = assess_operator_intervention(
                 question=handoff.operator_question,
-                reason=outcome.engineer_message,
+                operator_need=handoff.operator_need,
+                unclassified_requires_operator=(
+                    handoff.source == "structured"
+                    and _operator_questions_allowed(supervised_config)
+                ),
             )
             if not intervention.required:
                 # The Reviewer sees the Engineer's question in the ordinary
@@ -121,6 +182,7 @@ class RoundSelfReviewMixin:
                         "plan_signal": "continue",
                         "challenge": handoff.operator_question,
                         "authority_impact": "operator",
+                        "operator_need": intervention.operator_need,
                     },
                 ),
                 round_index=round_index,

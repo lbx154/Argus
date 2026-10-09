@@ -246,6 +246,7 @@ class PlanningCycleCompletionMixin:
         """Separate historical stage decisions from current workspace evidence."""
         import hashlib
 
+        from ...core.autonomy import read_autonomous_assumptions
         from ...core.manuscript_snapshot import manuscript_review_status
         from ...core.pipeline_state import read_pipeline_state
         from ...core.stage_certificate import all_stage_reviews
@@ -336,6 +337,11 @@ class PlanningCycleCompletionMixin:
                 "Do not reuse old titles, page counts, or numerical results as final."
             ),
             "current_artifact_evidence": evidence,
+            # Decisions settled without an operator: the report must name them.
+            "autonomous_assumptions": [
+                {key: row.get(key) for key in ("conflict", "reading", "source")}
+                for row in read_autonomous_assumptions(self._project_state_root())
+            ],
             "current_final_certification": {
                 "certified": (
                     self._journal_has_final_certification()

@@ -165,6 +165,19 @@ KNOBS: tuple[Knob, ...] = (
         "mission",
         cockpit=True,
     ),
+    Knob(
+        "ARGUS_SKILL_OPERATOR_AVAILABLE",
+        "true",
+        "false declares that nobody can answer questions: the Manager settles questions of meaning itself and records each assumption; operator-only needs end as blocked. Prefer --no-operator, which lasts for one run; a saved off value applies to every run until switched back on",
+        "mission",
+        cockpit=True,
+    ),
+    Knob(
+        "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN",
+        "30",
+        "minutes a bounded run whose only remaining work is an unanswered operator question waits before it ends as blocked: needs operator; 0 waits indefinitely; ignored (no wait) when no operator is available",
+        "mission",
+    ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
     Knob("ARGUS_SKILL_STALL_THRESHOLD", "(vertical)", "consecutive Reviewer no-progress verdicts that end a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
     Knob("ARGUS_SKILL_NO_PROGRESS_THRESHOLD", "(vertical)", "consecutive empty Engineer turns that end a mission unless the Reviewer reports progress; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
@@ -281,6 +294,7 @@ _TOGGLE_KNOBS = frozenset(
         "ARGUS_SKILL_REFLECTION",
         "ARGUS_SKILL_ANSWER_LEARNING",
         "ARGUS_SKILL_RECALL_SIBLING_WIKIS",
+        "ARGUS_SKILL_OPERATOR_AVAILABLE",
     }
 )
 _NON_NEGATIVE_INT_KNOBS = frozenset({"ARGUS_SKILL_MAX_ACTIVE_DAEMONS"})

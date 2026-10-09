@@ -1297,6 +1297,21 @@ def build_operator_context_block(
                 f"available={'yes' if capability.available else 'no'}, "
                 f"handle={capability.route}"
             )
+    from .autonomy import operator_available
+
+    if not operator_available():
+        lines.append(
+            "- operator availability: no operator is available during this run, "
+            "so no question will be answered. Do not ask one or wait for one. "
+            "Where a decision would normally go to the operator, the team takes "
+            "the most defensible interpretation of what a requirement means and "
+            "records that assumption, with the conflict behind it, in "
+            "CHECKPOINT.md and the run report, never inside a machine-graded "
+            "deliverable. Never assume facts, data, or results, and never "
+            "substitute placeholder credentials or mocked services; still never "
+            "spend money, use real credentials, or take irreversible or "
+            "outward-facing actions without authority."
+        )
     if role == "reviewer":
         lines.append(
             "- Reviewer boundary: acceptance preferences may clarify or tighten "

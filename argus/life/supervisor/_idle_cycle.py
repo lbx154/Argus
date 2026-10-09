@@ -405,6 +405,85 @@ class IdleCycleMixin:
         self._suggested_sleep_s = self._idle_backoff_seconds()
         return self._suggested_sleep_s
 
+    def _pending_operator_questions(self) -> list[str] | None:
+        """Open operator questions when they are the only thing left, else ``None``.
+
+        True of a backlog whose live items are all parked on an operator answer
+        (``paused_operator``), or pending behind such an item, with nothing
+        running, claimable, or waiting on a background job. With an empty
+        backlog it is true of a Planner wait that only the operator can end.
+        An unreadable backlog is not evidence of anything, so it answers
+        ``None``.
+        """
+        try:
+            active = list(self.memory.backlog.active())
+        except Exception:  # noqa: BLE001 - an unreadable backlog is not a wait
+            return None
+        parked = [item for item in active if item.status == "paused_operator"]
+        blocked = {item.id for item in parked}
+        others = [item for item in active if item.id not in blocked]
+        grew = True
+        while grew:
+            grew = False
+            for item in others:
+                if (
+                    item.id not in blocked
+                    and item.status == "pending"
+                    and blocked.intersection(getattr(item, "deps", ()) or ())
+                ):
+                    blocked.add(item.id)
+                    grew = True
+        if any(item.id not in blocked for item in others):
+            return None
+        if parked:
+            return [
+                str(getattr(item, "pending_question", "") or item.title or "").strip()
+                for item in parked
+            ]
+        loader = getattr(self, "_load_planner_waiting_contract_state", None)
+        try:
+            contract = loader() if callable(loader) else None
+        except Exception:  # noqa: BLE001 - an unreadable wait is not a wait
+            contract = None
+        if (
+            isinstance(contract, dict)
+            and contract.get("active")
+            and contract.get("operator_action_required")
+        ):
+            return [str(contract.get("recheck_condition") or "").strip()]
+        return None
+
+    def _operator_only_blocks(self) -> list[str] | None:
+        """This run's operator-only blocks, when nothing else can run.
+
+        Work that ended blocked on real credentials, spending, or an
+        irreversible step (recorded by the Manager or the round settlement)
+        leaves the backlog with nothing the team can do. Returns those reasons
+        when no item is runnable, running, or waiting on a background job;
+        otherwise ``None``.
+        """
+        from ...core.autonomy import read_operator_blocks
+
+        state_root = getattr(self, "_project_state_root", None)
+        if not callable(state_root):
+            return None
+        blocks = read_operator_blocks(state_root())
+        if not blocks:
+            return None
+        try:
+            active = list(self.memory.backlog.active())
+        except Exception:  # noqa: BLE001 - an unreadable backlog is not a block
+            return None
+        if any(item.status != "paused_operator" for item in active):
+            return None
+        return [
+            "blocked on an operator-only need ("
+            + str(row.get("operator_need") or "operator")
+            + "): "
+            + str(row.get("reason") or "")[:300]
+            for row in blocks
+        ]
+
     def _maybe_idle_timeout(self) -> str:
         """``"idle_timeout"`` once a continuous daemon has been idle too long.
 

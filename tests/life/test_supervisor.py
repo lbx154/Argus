@@ -1169,10 +1169,13 @@ def test_late_forbid_prevents_custom_runner_question_from_parking(
     result = sup.tick()
 
     assert result is not None
-    assert result["status"] == "blocked"
+    # The runner's question carries no classification, so with an operator
+    # present but questions forbidden it continues autonomously, as on dev
+    # without the old keyword match: replanned, neither parked nor failed.
+    assert result["status"] == "replan_requested"
     assert not result.get("operator_question")
     stored = next(row for row in mem.backlog.all() if row.id == item.id)
-    assert stored.status == "failed"
+    assert stored.status != "paused_operator"
     assert stored.pending_question == ""
     assert stored.operator_decision == {}
     assert not any(

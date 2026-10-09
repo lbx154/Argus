@@ -1154,7 +1154,13 @@ def build_project_completion_report_prompt(
         "If a current artifact or claim cannot be verified, omit the exact claim "
         "and state the evidence limitation rather than substituting historical "
         "numbers. Cite the current output paths in the report.\n\n"
-        f"## Operator objective\n{objective.strip() or '(not recorded)'}\n\n"
+        + (
+            "Name each recorded assumption in autonomous_assumptions (the conflict "
+            "and the reading chosen) in its own line, as decided without an operator.\n\n"
+            if completion_context.get("autonomous_assumptions")
+            else ""
+        )
+        + f"## Operator objective\n{objective.strip() or '(not recorded)'}\n\n"
         f"## Completion trigger\n{completion_reason.strip() or '(not recorded)'}\n\n"
         f"## Complete project stage ledger\n{ledger}\n"
     )

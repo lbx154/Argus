@@ -523,6 +523,32 @@ def active_operator_question_policy(
     return record.operator_question_policy if record is not None else "unchanged"
 
 
+def effective_operator_question_policy(
+    state_root: Path | str | None,
+    *,
+    expected_objective: str | None = None,
+) -> OperatorQuestionPolicy:
+    """The question policy the running team must follow.
+
+    A run that declared no operator available (``--no-operator`` or
+    ``ARGUS_SKILL_OPERATOR_AVAILABLE=false``) forbids operator questions
+    whatever the directive says: nobody would answer them. Otherwise the
+    Manager directive's policy applies. Callers that persist or inherit a
+    directive's own policy keep using :func:`active_operator_question_policy`,
+    so a run-level setting never leaks into a stored directive.
+    """
+    from ..core.autonomy import operator_available
+
+    if not operator_available():
+        return "forbid"
+    if expected_objective is None:
+        return active_operator_question_policy(state_root)
+    return active_operator_question_policy(
+        state_root,
+        expected_objective=expected_objective,
+    )
+
+
 def clear_active_manager_directive(state_root: Path | str) -> bool:
     """Explicitly retire all standing directives and clear legacy metadata."""
     path = _directive_path(state_root)
@@ -547,6 +573,7 @@ __all__ = [
     "OperatorQuestionPolicy",
     "active_manager_directive_message",
     "active_operator_question_policy",
+    "effective_operator_question_policy",
     "append_steering_directive",
     "clear_active_manager_directive",
     "load_active_manager_directive",

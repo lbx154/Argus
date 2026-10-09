@@ -103,6 +103,10 @@ class LifeWorkerConfig:
     # mission alive after the planner certifies ``project_done`` instead of
     # hard-stopping. Set False (via ``--bounded``) for a one-shot bounded goal.
     continuous_open_ended: bool = True
+    # A bounded run nobody watches (a foreground CLI or harness run) ends as
+    # "blocked: needs operator" once only an unanswered question remains.
+    # Off for workers the web cockpit starts: their operator answers in the UI.
+    operator_wait_exit: bool = False
     # Parent-only diagnostic populated by the clean launcher.  It is
     # deliberately excluded from config_payload(): the child does not need to
     # receive its own launch failure, while WebAPI needs the captured helper
@@ -143,6 +147,7 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         ),
         "resume_continuous": config.resume_continuous,
         "continuous_open_ended": config.continuous_open_ended,
+        "operator_wait_exit": config.operator_wait_exit,
     }
 
 
@@ -225,6 +230,7 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         ),
         resume_continuous=bool(data.get("resume_continuous")),
         continuous_open_ended=bool(data.get("continuous_open_ended", True)),
+        operator_wait_exit=bool(data.get("operator_wait_exit", False)),
     )
 
 __all__ = ["LifeWorkerConfig", "config_from_payload", "config_payload"]
