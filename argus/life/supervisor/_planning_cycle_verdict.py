@@ -120,6 +120,7 @@ class PlanningCycleVerdictMixin:
                     if row.title == _OPERATOR_DIRECTION_TITLE
                     and "operator_decision" in (row.tags or [])
                     and row.status == "paused_operator"
+                    and row.objective == str(self.config.continuous_objective or row.objective)
                 ),
                 None,
             )
@@ -376,6 +377,9 @@ class PlanningCycleVerdictMixin:
                     # during a replan that review has already been assessed —
                     # assessing it is what produced the revision request.
                     reconciliation = self._reconcile_reviewed_stage_empty_plan(verdict)
+            if reconciliation in {"advance", "complete", "rollback", "hold"}:
+                # The Manager acted on the empty plan; that is not a failed turn.
+                state.planner_turn_not_failed = True
             if reconciliation in {"advance", "complete", "rollback"}:
                 return PLAN_RETRY
             if reconciliation == "hold":

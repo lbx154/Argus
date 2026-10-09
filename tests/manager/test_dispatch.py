@@ -436,6 +436,89 @@ def test_staged_nodes_carry_the_stage_the_supervisor_replays(memory, monkeypatch
         assert PlanningCycleEnqueueMixin._item_pipeline_stage(item) == "delivery"
 
 
+def _research_state(root, stage):
+    from argus.core.pipeline_state import write_pipeline_state
+
+    write_pipeline_state(
+        root, {"vertical": "research", "workflow_mode": "staged", "current_stage": stage},
+    )
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("dot", "paper"),
+        ("absolute_root", "paper"),
+        ("nested_without_state", "paper"),
+        ("nested_with_state", "experiment"),
+        ("deferred_clone", "paper"),
+    ],
+)
+def test_node_stage_follows_where_the_node_really_runs(memory, monkeypatch, case, expected):
+    """Root-level spellings and stateless nested dirs take the state-root stage."""
+    from argus.life.supervisor._planning_cycle_enqueue import PlanningCycleEnqueueMixin
+
+    state_root = front_door._life_dir_for(memory)
+    workspace = memory.project_worktree
+    _research_state(state_root, "paper")
+    plain = workspace / "nested" / "plain"
+    plain.mkdir(parents=True)
+    own = workspace / "nested" / "own"
+    own.mkdir(parents=True)
+    _research_state(own, "experiment")
+    first = SimpleNamespace(key="first", deps=(), title="First", objective="prepare")
+    workdirs = {
+        "dot": ".",
+        "absolute_root": str(workspace.resolve()),
+        "nested_without_state": "nested/plain",
+        "nested_with_state": "nested/own",
+        # Not cloned yet: the node falls back to the campaign workdir.
+        "deferred_clone": "nested/not-cloned-yet",
+    }
+    node = SimpleNamespace(
+        key="node",
+        deps=("first",),
+        title="Node",
+        objective="do the work",
+        execution_workdir=workdirs[case],
+    )
+    plan = SimpleNamespace(reason="r", error="", tasks=(first, node))
+    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
+
+    dispatch.enqueue_mission(memory, "staged request", {"backend": "codex"})
+
+    items = {item.node_key: item for item in memory.backlog.all()}
+    assert PlanningCycleEnqueueMixin._item_pipeline_stage(items["first"]) == "paper"
+    assert PlanningCycleEnqueueMixin._item_pipeline_stage(items["node"]) == expected
+
+
+def test_resumed_campaign_workdir_takes_the_state_root_stage(memory, monkeypatch):
+    """After a campaign adopted its own workdir, root nodes still follow the state root."""
+    from argus.core.campaign_workdir import adopt_campaign_workdir
+    from argus.life.supervisor._planning_cycle_enqueue import PlanningCycleEnqueueMixin
+
+    state_root = front_door._life_dir_for(memory)
+    base = memory.project_worktree
+    campaign = base / "campaign"
+    campaign.mkdir()
+    subprocess.run(["git", "init", "-q", str(campaign)], check=True)
+    adopt_campaign_workdir(
+        state_root=state_root, base_root=base, current_root=base, requested="campaign",
+    )
+    _research_state(state_root, "paper")
+    plan = SimpleNamespace(
+        reason="r",
+        error="",
+        tasks=(SimpleNamespace(key="k", deps=(), title="T", objective="o"),),
+    )
+    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
+
+    item, _, _ = dispatch.enqueue_mission(memory, "resume the campaign", {"backend": "codex"})
+
+    assert dispatch._resolve_manager_workdir(memory) == campaign.resolve()
+    assert PlanningCycleEnqueueMixin._item_pipeline_stage(item) == "paper"
+
+
 def test_bounded_dispatch_rejects_context_ref_outside_worktree(memory, monkeypatch):
     commit_calls = []
 
