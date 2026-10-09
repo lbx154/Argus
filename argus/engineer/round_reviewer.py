@@ -154,8 +154,17 @@ def _active_manager_directive_for_reviewer(
             raise OperatorContextUnavailable("Current Reviewer OperatorContext read was cancelled") from exc
         except Exception as exc:
             raise OperatorContextUnavailable("Current Reviewer OperatorContext is unavailable") from exc
-        if message:
-            return [message]
+        # Acceptances of an impossible check, scoped to this item or to a
+        # named check; never to the whole objective.
+        from ..core.residual_risk import reviewer_block
+        from .obstacle_stall import mission_item_id
+
+        try:
+            accepted = reviewer_block(root, item_id=mission_item_id(supervised_config))
+        except Exception:  # noqa: BLE001 - an unreadable record accepts nothing
+            accepted = ""
+        if message or accepted:
+            return [text for text in (message, accepted) if text]
     return []
 
 
@@ -548,6 +557,14 @@ class RoundReviewerMixin:
                         "told the enforced two-round progress rule"
                     ),
                 })
+        from .obstacle_stall import carried_obstacle_hint
+
+        carried_hint = carried_obstacle_hint(
+            state.carried_obstacle_streak, state.carried_obstacle,
+            supervised_config.stall_threshold,
+        )
+        if carried_hint:
+            escalate_hint = f"{escalate_hint}\n\n{carried_hint}" if escalate_hint else carried_hint
         # Evaluate the reviewer, retrying ONLY the reviewer on an infra flake.
         # The engineer's output for THIS round is already valid and in hand, so
         # a reviewer subprocess crash / 429 / missing-output-schema must retry

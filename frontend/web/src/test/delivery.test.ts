@@ -56,6 +56,34 @@ const artifact = (path: string, source: ArtifactInfo['source']): ArtifactInfo =>
 });
 
 describe('completed delivery presentation', () => {
+  it('names an accepted residual risk instead of a plain pass', async () => {
+    const risk = 'Live feed ingestion: live behaviour is unverified. (accepted by the operator)';
+    const markup = renderToStaticMarkup(createElement(DeliveryNotice, {
+      delivery: { ...delivery, review_source: 'reviewer', residual_risk: risk },
+      onOpen: () => undefined, onDismiss: () => undefined,
+    }));
+    expect(markup).toContain(`Verified with residual risk: ${risk}`);
+    const plain = renderToStaticMarkup(createElement(DeliveryNotice, {
+      delivery, onOpen: () => undefined, onDismiss: () => undefined,
+    }));
+    expect(plain).not.toContain('residual risk');
+    const { deliveryReviewLabel } = await import('../components/deliveryPresentation');
+    const label = deliveryReviewLabel({ ...delivery, review_source: 'reviewer', residual_risk: risk }, false);
+    expect(label.text).toBe('Independently reviewed · residual risk');
+    expect(label.title).toContain(risk);
+
+    const { renderLine } = await import('../../../core/src/eventRender');
+    const context = { locale: 'en', density: 'full', showReasoning: false, unknownEventPolicy: 'hide' } as const;
+    const review = renderLine({ type: 'round.review.completed', status: 'done', reason: 'Read the fixture test.', residual_risk: risk }, context);
+    expect(review?.text).toContain(`verified with residual risk: ${risk}`);
+    expect(review?.text).not.toContain('was satisfied');
+    const completed = renderLine({
+      type: 'life.mission.completed', status: 'done', success: true, outcome_class: 'completed',
+      title: 'Ingest the feed', summary: `Verified with residual risk: ${risk}. Built ingest.`, residual_risk: risk,
+    }, context);
+    expect(completed?.text).toContain('completed with residual risk');
+    expect(completed?.text).toContain(risk);
+  });
   it('shows formatted outcome text without raw Markdown or workspace link targets', () => {
     const markup = renderToStaticMarkup(createElement(DeliveryNotice, {
       delivery: { ...delivery, summary: '**CNY**: 130.00\n\n[Download summary.csv](sandbox:/private/workspace/summary.csv)' },

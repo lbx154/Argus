@@ -226,6 +226,19 @@ class ReviewDecision:
     # through any view it has (a masked display, for example), so repeating the
     # finding cannot settle it. Routed to the Manager; it decides nothing here.
     verification_obstacle: str = ""
+    # The task, packet or environment statement, quoted verbatim, that makes
+    # the check in ``verification_obstacle`` impossible here (its resource
+    # exists only at grading or deploy time). The host checked the quote.
+    verification_obstacle_basis: str = ""
+    # On an accepting verdict: a decisive check impossible here, approved on an
+    # acceptance the operator (or, with no operator, the Manager) made for that
+    # check. ``residual_risk`` is the one-line statement every completion
+    # surface shows instead of a plain "verified" (CLI review and mission
+    # lines, the mission summary and delivery card, the Manager's observation);
+    # ``residual_risk_detail`` keeps the check, quoted basis, evidence and
+    # acceptance. The host validated both before recording the verdict.
+    residual_risk: str = ""
+    residual_risk_detail: dict[str, Any] = field(default_factory=dict)
     review_source: str = "reviewer"
     prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     input_tokens: int = 0
@@ -339,6 +352,14 @@ class ReviewDecision:
         obstacle = str(self.verification_obstacle or "").strip()
         if obstacle:
             payload["verification_obstacle"] = obstacle[:2000]
+        basis = str(self.verification_obstacle_basis or "").strip()
+        if basis:
+            payload["verification_obstacle_basis"] = basis[:1000]
+        residual_risk = str(self.residual_risk or "").strip()
+        if residual_risk:
+            payload["residual_risk"] = residual_risk[:2000]
+            if self.residual_risk_detail:
+                payload["residual_risk_detail"] = dict(self.residual_risk_detail)
         if self.research_result is not None:
             payload["research_result"] = dict(self.research_result)
         payload.update(extras)

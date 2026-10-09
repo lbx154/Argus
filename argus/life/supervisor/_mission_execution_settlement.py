@@ -1299,6 +1299,14 @@ class MissionExecutionSettlementMixin:
             ),
         )
         mission_summary = " ".join(raw_mission_summary.split())[:1200]
+        residual_risk = (
+            " ".join(str(getattr(outcome, "final_residual_risk", "") or "").split())[:600]
+            if success else ""
+        )
+        if residual_risk:
+            # Approved with one check left unverified on an accepted risk: the
+            # summary every surface shows says so before anything else.
+            mission_summary = f"Verified with residual risk: {residual_risk}. {mission_summary}"[:1200].strip()
         final_output = str(getattr(outcome, "final_output", "") or "").strip()
         # A completed mission needs one durable, operator-facing receipt rather
         # than three loosely related hints (event, chat text, and sidebar).
@@ -1357,6 +1365,7 @@ class MissionExecutionSettlementMixin:
                 review_source=str(
                     getattr(outcome, "final_review_source", "") or ""
                 ),
+                residual_risk=residual_risk,
                 workspace=delivery_workspace,
                 state_root=self._project_state_root(),
                 stage=state.pipeline_stage_at_start,
@@ -1378,6 +1387,7 @@ class MissionExecutionSettlementMixin:
             "success": success,
             "status": status,
             "summary": mission_summary,
+            "residual_risk": residual_risk,
             "final_output": final_output,
             "execution_workdir": str(state.execution_workdir),
             "review_source": str(

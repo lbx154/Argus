@@ -1298,6 +1298,7 @@ def build_operator_context_block(
                 f"handle={capability.route}"
             )
     from .autonomy import operator_available
+    from .model_visible_text import LABELLED_FIXTURE_CARVE_OUT
 
     if not operator_available():
         lines.append(
@@ -1310,8 +1311,10 @@ def build_operator_context_block(
             "deliverable. An interpretation may settle ambiguity between "
             "requirements; it never drops or explains away an explicit "
             "requirement or reported symptom. Never assume facts, data, or "
-            "results, and never "
-            "substitute placeholder credentials or mocked services; still never "
+            "results, and never substitute placeholder credentials or mocked "
+            "services in what is delivered. "
+            + LABELLED_FIXTURE_CARVE_OUT
+            + " Still never "
             "spend money, use real credentials, or take irreversible or "
             "outward-facing actions without authority."
         )

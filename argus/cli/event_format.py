@@ -335,6 +335,10 @@ def _render_round_review_completed(event: dict[str, Any]) -> str:
         "replan_requested": "↺ the current route needs revision",
         "no_progress": "🚫 no useful change was found",
     }.get(status, "review finished")
+    residual_risk = _trunc(str(event.get("residual_risk") or "").strip(), 300)
+    if status == "done" and residual_risk:
+        # Approved with one check left unverified: never shown as plain "verified".
+        outcome = f"⚠ verified with residual risk: {residual_risk}"
     parts = [f"{label}: {outcome}"]
     if reason:
         parts.append(f"   ↳ {reason}")
@@ -413,7 +417,15 @@ def _render_life_mission_completed(event: dict[str, Any]) -> str:
     if isinstance(outcome, dict):
         resumable = resumable or outcome.get("resumable") is True
     chinese = uses_cjk(f"{title}\n{summary}")
-    if success or outcome_class == "completed":
+    residual_risk = str(event.get("residual_risk") or "").strip()
+    if (success or outcome_class == "completed") and residual_risk:
+        headline = (
+            f"已完成，但有残余风险：{title}。" if chinese
+            else f"Completed with residual risk: {title}."
+        )
+        if residual_risk not in summary:
+            summary = f"{summary} Residual risk: {_trunc(residual_risk, 300)}".strip()
+    elif success or outcome_class == "completed":
         headline = f"已完成：{title}。" if chinese else f"Completed: {title}."
     elif status.startswith("paused_") or resumable:
         headline = f"已暂停：{title}。" if chinese else f"Paused: {title}."

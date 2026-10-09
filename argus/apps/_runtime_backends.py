@@ -68,6 +68,10 @@ class _Outcome:
     operator_options: list[dict] = field(default_factory=list)
     final_review_status: str = ""
     final_review_source: str = ""
+    # The final accepting verdict's residual risk: one check left unverified
+    # on an operator's or Manager's acceptance. Every completion surface
+    # shows it instead of a plain "verified".
+    final_residual_risk: str = ""
     final_review_reason: str = ""
     final_review_next_action: str = ""
     final_message: str = ""

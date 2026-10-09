@@ -688,6 +688,31 @@ def _engineer_log_audit_block(
     )
 
 
+def _review_grounding(
+    config: Any, *, task_parts: tuple[str, ...], operator_messages: list[str],
+) -> Any:
+    """What the Reviewer's "impossible here" quotes and acceptances must match.
+
+    The task as given (never the Engineer's account), the operator context the
+    Reviewer was shown, and the workspace for a quoted environment file.
+    """
+    from ..core.autonomy import operator_available
+    from .tools import ReviewGrounding
+
+    roots = tuple(dict.fromkeys(
+        str(root) for root in (
+            getattr(config, "working_dir", None), getattr(config, "artifact_root", None),
+            getattr(config, "vertical_state_root", None),
+        ) if root
+    ))
+    return ReviewGrounding(
+        task_text="\n".join(str(part or "") for part in task_parts),
+        operator_text="\n".join(str(message or "") for message in operator_messages),
+        roots=roots,
+        operator_available=operator_available(),
+    )
+
+
 def _note_host_venue_rewrite(decision: ReviewDecision) -> None:
     """Record, apart from the Reviewer's words, what venue enforcement changed."""
     words = decision.reviewer_words or {}
@@ -936,6 +961,11 @@ class Reviewer:
                         live_search=True,
                     ),
                     venue=venue, venue_required=venue_required,
+                    grounding=_review_grounding(
+                        config,
+                        task_parts=(objective, original_objective or "", scope, planner_review_instruction),
+                        operator_messages=operator_messages or [],
+                    ),
                 ) as (actions, options):
                     result = gateway_run_exec(
                         self.runner, prompt=prompt, resume_thread_id=resume,

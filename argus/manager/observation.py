@@ -198,6 +198,8 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         "summary",
         "reason",
         "verification_obstacle",
+        "verification_obstacle_basis",
+        "residual_risk",
         "success",
         "outcome",
         "agent_layer",
@@ -231,6 +233,15 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     facts["manager_supervision"] = {key: supervision[key] for key in (
         "id", "status", "decision", "effects", "issued_at", "applied_at",
     ) if key in supervision}
+    from ..core.residual_risk import residual_risk_records
+
+    # Every acceptance of a check left unverified, with its id so the Manager
+    # can revoke one; a revoked one stays listed as revoked.
+    facts["accepted_residual_risks"] = [
+        {key: row.get(key) for key in ("id", "item_id", "check", "risk", "accepted_by", "basis")}
+        | {"revoked": bool(row.get("revoked_at"))}
+        for row in residual_risk_records(root)[-16:]
+    ]
     try:
         from ..advisor.receipts import recent_receipts
 
@@ -247,7 +258,8 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     # budget omission, or secret redaction can hide a meaningful source change.
     revision = _digest({
         **_semantic({key: value for key, value in facts.items()
-                     if key not in {"roles", "daemon", "recent_events", "evidence_refs", "continuous_enabled", "manager_supervision"}}),
+                     if key not in {"roles", "daemon", "recent_events", "evidence_refs", "continuous_enabled",
+                                    "manager_supervision", "accepted_residual_risks"}}),
         "daemon_health": facts["daemon"]["health"],
         "backlog_revision": backlog_revision,
         "source_semantics": source_semantics,

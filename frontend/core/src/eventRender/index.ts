@@ -375,6 +375,11 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
         return model('reviewer', 'role.reviewer', '↪', `${localized(context, 'no review this round', '这一轮没有审阅')} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, 'info');
       }
       const status = stringField(event, 'status');
+      const residualRisk = status === 'done' ? clean(stringField(event, 'residual_risk'), 200) : '';
+      if (residualRisk) {
+        // Approved with one check left unverified on an accepted risk: never a plain pass.
+        return model('reviewer', 'role.reviewer', '⚠', `${localized(context, 'verified with residual risk', '已验证，但有残余风险')}: ${residualRisk} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, 'warn');
+      }
       const tone: RenderTone = status === 'done' ? 'ok' : status === 'blocked' || status === 'no_progress' ? 'err' : 'warn';
       const glyph = status === 'done' ? '✅' : status === 'blocked' || status === 'no_progress' ? '⛔' : '↻';
       return model('reviewer', 'role.reviewer', glyph, `${reviewVerdict(status, context)} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, tone);
@@ -382,6 +387,12 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.mission.completed': {
       const presentation = missionOutcomePresentation(row(event));
       const summary = clean(stringField(event, 'summary'), 240);
+      const residualRisk = clean(stringField(event, 'residual_risk'), 200);
+      if (residualRisk && presentation.tone === 'ok') {
+        const label = localized(context, 'completed with residual risk', '已完成，但有残余风险');
+        const detail = summary.includes(residualRisk) ? summary : `${residualRisk}${summary ? ` · ${summary}` : ''}`;
+        return model('engineer', 'role.engineer', '⚠', `${label} · ${detail}`, 'warn', { rule: true });
+      }
       return model('engineer', 'role.engineer', presentation.glyph, summary ? `${presentation.label} · ${summary}` : presentation.label, presentation.tone, { rule: true });
     }
     case 'life.mission.failed':

@@ -56,6 +56,12 @@ const REVIEW_PASSED = new Set(['done', 'passed', 'approved', 'accepted']);
 export function deliveryReviewLabel(receipt: DeliveryReceipt, zh: boolean): { independent: boolean; text: string; title: string } {
   const status = String(receipt.review_status || '').toLowerCase();
   const source = String(receipt.review_source || '').toLowerCase();
+  const residualRisk = String(receipt.residual_risk || '').trim();
+  if (REVIEW_PASSED.has(status) && source === 'reviewer' && residualRisk) return {
+    independent: true,
+    text: zh ? '独立复核通过 · 有残余风险' : 'Independently reviewed · residual risk',
+    title: zh ? `有一项检查在此环境中无法进行，已被接受为残余风险：${residualRisk}` : `One check was impossible here and its risk was accepted: ${residualRisk}`,
+  };
   if (REVIEW_PASSED.has(status) && source === 'reviewer') return {
     independent: true,
     text: zh ? '独立复核通过' : 'Independently reviewed',

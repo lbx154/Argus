@@ -383,6 +383,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "scope"?: string;
   "status": string;
   "summary"?: string;
+  "residual_risk"?: string;
   "final_output"?: string;
   "outcome_class"?: "completed" | "incomplete" | "stalled" | "blocked" | "failed" | "ended";
   "outcome"?: { "execution_status": string; "review_status": string; "stage_certification": string; "interruption_kind": string; "resumable": boolean; };
@@ -401,7 +402,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "stop_kind"?: "budget_exhausted" | "cost_unreconciled" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "recoverable"?: boolean;
   "delivery_id"?: string;
-  "delivery"?: { "schema_version"?: number; "delivery_id"?: string; "kind"?: string; "item_id"?: string; "title"?: string; "summary"?: string; "status"?: string; "review_status"?: string; "review_source"?: string; "delivered_at"?: number; "primary_target"?: Record<string, unknown> | null; "targets"?: Array<Record<string, unknown>>; } | null;
+  "delivery"?: { "schema_version"?: number; "delivery_id"?: string; "kind"?: string; "item_id"?: string; "title"?: string; "summary"?: string; "status"?: string; "review_status"?: string; "review_source"?: string; "residual_risk"?: string; "delivered_at"?: number; "primary_target"?: Record<string, unknown> | null; "targets"?: Array<Record<string, unknown>>; } | null;
   "operator_question"?: string;
   "stop_reason"?: string;
   "failure_kind"?: string;
@@ -477,6 +478,9 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "failure_kind"?: string;
   "failure_cause"?: string;
   "verification_obstacle"?: string;
+  "verification_obstacle_basis"?: string;
+  "residual_risk"?: string;
+  "residual_risk_detail"?: Record<string, unknown>;
   "manager_attention"?: "needed" | "not_needed";
   "manager_attention_reason"?: string;
   "learning"?: "worth_reflecting" | "nothing_new";

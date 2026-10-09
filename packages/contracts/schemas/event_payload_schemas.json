@@ -1308,6 +1308,9 @@
         "summary": {
           "type": "string"
         },
+        "residual_risk": {
+          "type": "string"
+        },
         "final_output": {
           "type": "string"
         },
@@ -1458,6 +1461,9 @@
               "type": "string"
             },
             "review_source": {
+              "type": "string"
+            },
+            "residual_risk": {
               "type": "string"
             },
             "delivered_at": {
@@ -1753,6 +1759,15 @@
         },
         "verification_obstacle": {
           "type": "string"
+        },
+        "verification_obstacle_basis": {
+          "type": "string"
+        },
+        "residual_risk": {
+          "type": "string"
+        },
+        "residual_risk_detail": {
+          "type": "object"
         },
         "manager_attention": {
           "type": "string",

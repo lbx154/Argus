@@ -5,7 +5,7 @@ import json
 import os
 import sys
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,9 +13,11 @@ from typing import Any, Iterator
 
 from jsonschema import ValidationError, validate
 
+from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
 from ..core.models import ReviewDecision, ReviewStatus, RunnerOptions
 from ..core.operator_decision import normalize_agent_options
 from ..core.research_contract import RESULT_FIELD_CHOICES, normalize_research_result
+from ..core.residual_risk import REVIEWER_BLOCK_PROSE as _ACCEPTED_BLOCK_PROSE
 from ..core.role_tool_bridge import CallBoundBridge, bridge_request
 from ..core.venue_review import ACCEPTED_RECOMMENDATIONS, RECOMMENDATIONS
 from .validation import (
@@ -78,14 +80,95 @@ def _judgment_fields() -> dict[str, dict[str, Any]]:
     }
 
 
+@dataclass(frozen=True)
+class ReviewGrounding:
+    """What a Reviewer's quotes are checked against.
+
+    ``task_text`` is the task as the Reviewer was given it (objective, scope,
+    packet context); ``operator_text`` is the operator context it was shown,
+    including any accepted residual risks; ``roots`` are the directories a
+    quoted file may come from. Nothing the Engineer wrote this round is a
+    source: a statement that a check is impossible must come from the task,
+    its packet or the environment.
+    """
+
+    task_text: str = ""
+    operator_text: str = ""
+    roots: tuple[str, ...] = ()
+    operator_available: bool = True
+
+
+_QUOTE_FOLD = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "`": " ", "*": " "})
+_MIN_QUOTE_CHARS = 20
+# An operator may accept by choosing an option ("Accept the residual risk").
+_MIN_ACCEPTANCE_CHARS = 12
+_MAX_SOURCE_BYTES = 2_000_000
+
+
+def _folded(text: str) -> str:
+    return " ".join(str(text or "").translate(_QUOTE_FOLD).casefold().split())
+
+
+def _quote_found(quote: str, source: str, grounding: ReviewGrounding) -> str:
+    """Why ``quote`` is not grounded in ``source``, or "" when it is."""
+    needle = _folded(quote).strip(" .\"'")
+    if len(needle) < _MIN_QUOTE_CHARS:
+        return f"quote at least {_MIN_QUOTE_CHARS} characters of the statement, verbatim"
+    source = str(source or "").strip()
+    if source.lower() in {"", "task", "packet", "task text"}:
+        return "" if needle in _folded(grounding.task_text) else (
+            "that statement is not in the task text or packet you were given"
+        )
+    for root in grounding.roots:
+        try:
+            base = Path(root).resolve()
+            candidate = (base / source).resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if not candidate.is_relative_to(base) or not candidate.is_file():
+            continue
+        try:
+            with candidate.open("rb") as handle:
+                text = handle.read(_MAX_SOURCE_BYTES).decode("utf-8", "replace")
+        except OSError:
+            continue
+        if needle in _folded(text):
+            return ""
+        return f"that statement is not in {source}"
+    return f"{source} is not a readable file in this workspace"
+
+
+def _basis_field() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "description": (
+            "Required when you call a check impossible here because what it needs "
+            "exists only at grading or deploy time: the task, packet or environment "
+            "statement that says so, quoted verbatim, and its source ('task', or a "
+            "file path in the workspace). The host checks the quote. Without such a "
+            "statement the check is missing, not impossible."
+        ),
+        "properties": {
+            "quote": {"type": "string", "minLength": _MIN_QUOTE_CHARS},
+            "source": {"type": "string", "minLength": 1},
+        },
+        "required": ["quote", "source"],
+        "additionalProperties": False,
+    }
+
+
 class ReviewActions:
     def __init__(
         self, *, venue: str = "", venue_required: bool = False,
         validation: ReviewValidation | None = None,
+        grounding: ReviewGrounding | None = None,
     ) -> None:
+        from ..core.autonomy import operator_available
+
         self.venue = venue
         self.venue_required = venue_required
         self.validation = validation
+        self.grounding = grounding or ReviewGrounding(operator_available=operator_available())
         self.decision: ReviewDecision | None = None
         self.tools = self._tools()
 
@@ -152,15 +235,58 @@ class ReviewActions:
                 fields["manager_attention"] = judgments["manager_attention"]
             if name == "approve_review":
                 fields["learning"] = judgments["learning"]
-            if _ACTIONS[name][0] == "continue":
+            # A replanning Reviewer can be stopped by the same obstacle; one
+            # task replanned four times over a token only its grader receives.
+            if _ACTIONS[name][0] in {"continue", "replan_requested"}:
                 fields["unverifiable"] = {
                     "type": "string",
                     "description": (
-                        "Only when the fact you dispute is hidden from every view you "
-                        "have (e.g. masked or redacted display), so repeating the finding "
-                        "cannot settle it: name the fact and the rerunnable check that "
-                        "would. The Manager sees this."
+                        "Only when a decisive check cannot happen in this environment, "
+                        "so repeating the finding cannot settle it: the fact is hidden "
+                        "from every view you have (e.g. masked or redacted display), or "
+                        "the task, packet or environment says the check needs a resource "
+                        "that exists only at grading or deploy time (quote it in "
+                        "impossible_because). Name the check, the best evidence you can "
+                        "reach instead (a rerunnable check, or a test fixture), and the "
+                        "risk left. " + FIXTURE_EVIDENCE_RULE + " " + (
+                            "Leaving it unverified is the operator's decision: ask them "
+                            "with request_review_decision (operator_need "
+                            "scope_or_authority)."
+                            if self.grounding.operator_available else
+                            "No operator is available, so the Manager sees this and "
+                            "decides whether to accept that risk."
+                        )
                     ),
+                }
+                fields["impossible_because"] = _basis_field()
+            if name == "approve_review":
+                fields["residual_risk"] = {
+                    "type": "object",
+                    "description": (
+                        "Only when one decisive check stays unverified because it is "
+                        "impossible here and leaving it so was accepted: by the operator "
+                        "(quote their words) or, in a run with no operator, by the "
+                        "Manager (cite the risk id listed under Accepted residual risk). "
+                        "Without that acceptance, do not approve. The evidence you judged "
+                        "it from must be something you read yourself. "
+                        + FIXTURE_EVIDENCE_RULE
+                        + " The Engineer's word alone is never that evidence."
+                    ),
+                    "properties": {
+                        "check": {"type": "string", "minLength": 3},
+                        "evidence": {"type": "string", "minLength": 3},
+                        "risk": {"type": "string", "minLength": 3},
+                        "impossible_because": _basis_field(),
+                        "accepted_by": {"enum": ["operator", "manager"]},
+                        "acceptance": {
+                            "type": "string", "minLength": 3,
+                            "description": "The operator's acceptance quoted verbatim, or the Manager's risk id.",
+                        },
+                    },
+                    "required": [
+                        "check", "evidence", "risk", "impossible_because", "accepted_by", "acceptance",
+                    ],
+                    "additionalProperties": False,
                 }
             required = ["review"]
             if self.venue_required and name in {"approve_review", "revise_review"}:
@@ -239,6 +365,7 @@ class ReviewActions:
         research = normalize_research_result(payload.get("research_result"))
         if "research_result" in payload and research is None:
             raise ValueError("The research assessment is incomplete.")
+        self._check_grounding(payload)
         status = _ACTIONS[action][0]
         decision = ReviewDecision(
             status=status, reason=review,
@@ -260,6 +387,12 @@ class ReviewActions:
                 decision.planner_report[key] = judged["verdict"]
                 decision.planner_report[f"{key}_reason"] = str(judged.get("reason") or "")[:500]
         decision.verification_obstacle = str(payload.get("unverifiable") or "").strip()
+        basis = payload.get("impossible_because")
+        if isinstance(basis, dict):
+            decision.verification_obstacle_basis = " ".join(str(basis["quote"]).split())[:1000]
+        risk = payload.get("residual_risk")
+        if isinstance(risk, dict):
+            decision.residual_risk, decision.residual_risk_detail = _residual_risk_record(risk)
         if action == "replan_review":
             decision.planner_report.update(
                 plan_signal="reconsider", challenge=review,
@@ -278,6 +411,73 @@ class ReviewActions:
         # message, and saved project files cannot manufacture this assignment.
         self.decision = decision
         return {"recorded": action}
+
+    def _check_grounding(self, payload: dict[str, Any]) -> None:
+        """Refuse an ungrounded "impossible here" or an unaccepted residual risk.
+
+        The refusal goes back to the Reviewer as the tool's error, so it can
+        correct the call: quote the statement, ask the right party, or revise.
+        """
+        grounding = self.grounding
+        basis = payload.get("impossible_because")
+        if isinstance(basis, dict):
+            if not str(payload.get("unverifiable") or "").strip():
+                raise ValueError("impossible_because supports unverifiable; name the check there too.")
+            problem = _quote_found(basis["quote"], basis["source"], grounding)
+            if problem:
+                raise ValueError(
+                    f"impossible_because: {problem}. A check is impossible here only when "
+                    "the task, its packet or the environment says so; otherwise it is "
+                    "missing, so ask the Engineer for it."
+                )
+        risk = payload.get("residual_risk")
+        if not isinstance(risk, dict):
+            return
+        problem = _quote_found(risk["impossible_because"]["quote"], risk["impossible_because"]["source"], grounding)
+        if problem:
+            raise ValueError(
+                f"residual_risk.impossible_because: {problem}. Without that statement the "
+                "check is missing, not impossible: revise instead of approving."
+            )
+        acceptance = str(risk["acceptance"]).strip()
+        if risk["accepted_by"] == "manager":
+            if grounding.operator_available:
+                raise ValueError(
+                    "An operator is available, so accepting this risk is theirs to decide: "
+                    "ask with request_review_decision (operator_need scope_or_authority)."
+                )
+            if f"[{acceptance.strip('[]')}]" not in grounding.operator_text:
+                raise ValueError(
+                    "residual_risk.acceptance must be a risk id listed under Accepted "
+                    "residual risk for this task; without one, the Manager has not accepted it."
+                )
+            return
+        if not grounding.operator_available:
+            raise ValueError(
+                "No operator is available in this run; only the Manager can accept this "
+                "risk. Name it in unverifiable on a revise_review instead."
+            )
+        operator_words = grounding.operator_text.replace(_ACCEPTED_BLOCK_PROSE, " ")
+        if len(_folded(acceptance)) < _MIN_ACCEPTANCE_CHARS or _folded(acceptance) not in _folded(operator_words):
+            raise ValueError(
+                "residual_risk.acceptance must quote the operator's own acceptance, verbatim "
+                f"and at least {_MIN_ACCEPTANCE_CHARS} characters; if they have not accepted "
+                "it, ask with request_review_decision."
+            )
+
+
+def _residual_risk_record(risk: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    from ..core.residual_risk import sanitize_text
+
+    check, rest = sanitize_text(risk["check"], 240), sanitize_text(risk["risk"])
+    who = "the operator" if risk["accepted_by"] == "operator" else "the Manager"
+    detail = {
+        "check": check, "risk": rest, "evidence": sanitize_text(risk["evidence"]),
+        "basis": sanitize_text(risk["impossible_because"]["quote"], 400),
+        "basis_source": sanitize_text(risk["impossible_because"]["source"], 200),
+        "accepted_by": risk["accepted_by"], "acceptance": sanitize_text(risk["acceptance"], 400),
+    }
+    return f"{check}: {rest} (accepted by {who})", detail
 
 
 def validation_available(image: str) -> bool:
@@ -343,6 +543,7 @@ def reviewer_evidence_mode(runner: Any, *, engineer_records_commands: bool) -> s
 @contextmanager
 def review_action_tools(
     runner: Any, options: RunnerOptions, *, venue: str, venue_required: bool,
+    grounding: ReviewGrounding | None = None,
 ) -> Iterator[tuple[ReviewActions, RunnerOptions]]:
     backend = str(getattr(runner, "backend", "")).lower()
     if backend not in {"pi", "copilot", "codex", "claude", "qoder", "memory", ""}:
@@ -354,7 +555,9 @@ def review_action_tools(
     validation = configured_validation(options.working_dir, approved_dirs)
     if validation is not None and backend == "copilot":
         read_dirs.append(str(validation.output_root))
-    actions = ReviewActions(venue=venue, venue_required=venue_required, validation=validation)
+    actions = ReviewActions(
+        venue=venue, venue_required=venue_required, validation=validation, grounding=grounding,
+    )
     with CallBoundBridge(
         actions.dispatch, env_prefix=PREFIX,
         on_close=validation.close if validation is not None else None,

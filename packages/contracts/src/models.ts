@@ -122,6 +122,8 @@ export interface DeliveryReceipt {
   review_status: string;
   /** Who settled ``review_status``: ``reviewer`` is an independent review role; anything else is the worker's own check. Absent on older receipts. */
   review_source?: string;
+  /** One check approved unverified on an accepted risk (operator, or Manager with no operator); shown instead of a plain pass. */
+  residual_risk?: string;
   delivered_at: number;
   primary_target: DeliveryTarget | null;
   targets: DeliveryTarget[];

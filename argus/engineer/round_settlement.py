@@ -210,6 +210,7 @@ def _next_semantic_stall_streak(
     current_streak: int,
     *,
     blocked_on_healthy_work: bool = False,
+    obstacle_streak: int = 0,
 ) -> tuple[int, bool | None]:
     """Count consecutive explicit no-progress ``continue`` verdicts.
 
@@ -223,13 +224,96 @@ def _next_semantic_stall_streak(
     six campaigns in ninety minutes, including the MATH-500 gate the whole run-03
     paper rests on. Work that is stalled or needs attention still counts, so a
     dead job cannot buy unlimited rounds, and the round budget is untouched.
+
+    ``obstacle_streak`` is the current run of rounds naming one obstacle
+    (:func:`_advance_obstacle_run`), which a replan does not reset and which
+    may continue an earlier mission's run (``obstacle_stall.py``).
     """
     forward_progress = _review_forward_progress(review)
     if blocked_on_healthy_work:
         return 0, forward_progress
+    obstacle_streak = max(0, int(obstacle_streak))
     if review.status == "continue" and forward_progress is False:
-        return max(0, int(current_streak)) + 1, forward_progress
+        return max(max(0, int(current_streak)) + 1, obstacle_streak), forward_progress
+    if review.status == "replan_requested" and forward_progress is False and obstacle_streak:
+        return obstacle_streak, forward_progress
     return 0, forward_progress
+
+
+def _advance_obstacle_run(
+    state: RoundLoopState,
+    review: ReviewDecision,
+    forward_progress: bool | None,
+    *,
+    blocked_on_healthy_work: bool = False,
+) -> None:
+    """Extend, restart or end the run of rounds that name one obstacle.
+
+    Only a Reviewer's no-progress verdict that names an obstacle counts. The
+    same obstacle (normalised comparison) extends the run; a different one
+    starts its own. An earlier mission's carry is offered once, to this
+    mission's first obstacle run, and only if it names the same obstacle.
+    """
+    from ..core.residual_risk import sanitize_text
+    from .obstacle_stall import MAX_OBSTACLE_CHARS, same_obstacle
+
+    obstacle = sanitize_text(review.verification_obstacle, MAX_OBSTACLE_CHARS)
+    if (
+        blocked_on_healthy_work
+        or (review.review_source or "reviewer") != "reviewer"
+        or forward_progress is not False
+        or not obstacle
+        or review.status not in {"continue", "replan_requested"}
+    ):
+        state.obstacle_streak, state.obstacle_text = 0, ""
+        return
+    if state.obstacle_streak and same_obstacle(obstacle, state.obstacle_text):
+        state.obstacle_streak += 1
+    elif state.carried_obstacle_streak and same_obstacle(obstacle, state.carried_obstacle):
+        state.obstacle_streak = state.carried_obstacle_streak + 1
+    else:
+        state.obstacle_streak = 1
+    state.obstacle_text = obstacle
+    state.carried_obstacle_streak, state.carried_obstacle = 0, ""
+
+
+def _carry_obstacle_stall(
+    state: RoundLoopState,
+    review: ReviewDecision,
+    forward_progress: bool | None,
+) -> None:
+    """Keep this mission's obstacle run for the next mission, or clear it."""
+    if (review.review_source or "reviewer") != "reviewer":
+        return
+    from .obstacle_stall import clear_obstacle_stall, record_obstacle_stall
+
+    root, objective = state.obstacle_stall_root, state.obstacle_stall_objective
+    detail = review.residual_risk_detail if review.status == "done" else {}
+    if root is not None and detail.get("accepted_by") == "operator":
+        # The operator's acceptance, which the Reviewer quoted and the host
+        # matched against the operator's own words, is kept like the Manager's.
+        import hashlib
+
+        from ..core.residual_risk import accept_residual_risk
+
+        try:
+            accept_residual_risk(
+                root, check=detail.get("check", ""), risk=detail.get("risk", ""),
+                accepted_by="operator", item_id=state.mission_item_id,
+                basis=detail.get("basis", ""),
+                source_ref="operator:" + hashlib.sha256(
+                    str(detail.get("acceptance", "")).encode("utf-8")
+                ).hexdigest()[:16],
+            )
+        except OSError:
+            log.warning("operator residual-risk acceptance could not be recorded", exc_info=True)
+    if forward_progress is True or review.status == "done":
+        clear_obstacle_stall(root, objective)
+        state.carried_obstacle_streak, state.carried_obstacle = 0, ""
+    elif state.obstacle_streak > 0:
+        record_obstacle_stall(
+            root, objective, streak=state.obstacle_streak, obstacle=state.obstacle_text,
+        )
 
 
 # Half of every failed mission across seven campaigns ended on one of the stall
@@ -374,13 +458,19 @@ class RoundSettlementMixin:
             next_semantic_stall_streak = state.semantic_stall_streak
             forward_progress = None
         else:
+            _advance_obstacle_run(
+                state, review, explicit_forward_progress,
+                blocked_on_healthy_work=healthy_work,
+            )
             next_semantic_stall_streak, forward_progress = (
                 _next_semantic_stall_streak(
                     review,
                     state.semantic_stall_streak,
                     blocked_on_healthy_work=healthy_work,
+                    obstacle_streak=state.obstacle_streak,
                 )
             )
+            _carry_obstacle_stall(state, review, forward_progress)
         now_monotonic = time.monotonic()
         next_decision_progress_at = (
             state.last_decision_progress_at
@@ -530,6 +620,15 @@ class RoundSettlementMixin:
             blocked_on_healthy_work=healthy_work,
         )
         if terminal_status is not None:
+            if (
+                supervised_config.stall_threshold > 0
+                and state.semantic_stall_streak >= supervised_config.stall_threshold
+            ):
+                # The stall fired: the Manager now sees it. One firing per
+                # obstacle, so the next mission does not inherit it.
+                from .obstacle_stall import clear_obstacle_stall
+
+                clear_obstacle_stall(state.obstacle_stall_root, state.obstacle_stall_objective)
             return control_return(
                 (
                     terminal_status,

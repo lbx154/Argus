@@ -660,6 +660,10 @@
         },
         "reason": "focused checks passed",
         "reasoning_output_tokens": 1,
+        "residual_risk": "residual risk",
+        "residual_risk_detail": {
+          "value": "recorded"
+        },
         "review_skipped": true,
         "review_source": "review source",
         "round_index": 1,
@@ -672,7 +676,8 @@
         "ts": 1700000034,
         "type": "round.review.completed",
         "usage_scope": "delta",
-        "verification_obstacle": "verification obstacle"
+        "verification_obstacle": "verification obstacle",
+        "verification_obstacle_basis": "verification obstacle basis"
       },
       "id": "round.review.completed"
     },
@@ -1046,6 +1051,7 @@
           "primary_target": {
             "value": "recorded"
           },
+          "residual_risk": "residual risk",
           "review_source": "review source",
           "review_status": "review status",
           "schema_version": 1,
@@ -1089,6 +1095,7 @@
         "research_result": {
           "value": "recorded"
         },
+        "residual_risk": "residual risk",
         "rounds": 1,
         "scope": "frontend/core",
         "status": "done",
