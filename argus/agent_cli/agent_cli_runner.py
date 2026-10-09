@@ -100,6 +100,8 @@ class RunnerOptions:
     disable_tools: bool = False
     output_schema: dict | None = None
     isolate_workdir: bool = False
+    # See ``argus.core.models.RunnerOptions.lean_tool_surface``.
+    lean_tool_surface: bool = False
     skip_git_repo_check: bool = False
     # Enable codex's native live web_search tool (``-c web_search="live"``).
     live_search: bool = False
