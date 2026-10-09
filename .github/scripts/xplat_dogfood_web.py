@@ -92,6 +92,46 @@ def process_snapshot(label: str) -> None:
         save(f"processes-{label}.txt", f"snapshot failed: {exc!r}\n{traceback.format_exc()}")
 
 
+def pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=30).stdout
+        return str(pid) in out
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def daemon_watch(sid: str, label: str, seconds: float = 40.0) -> dict:
+    """Follow the project's daemon process for a while after a task finishes."""
+    root = HOME / "projects" / sid
+    timeline = []
+    t0 = time.time()
+    while time.time() - t0 < seconds:
+        try:
+            pid = int((root / "daemon.pid").read_text(encoding="utf-8").strip() or 0)
+        except (OSError, ValueError):
+            pid = 0
+        try:
+            status = json.loads((root / "daemon.status.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            status = {}
+        timeline.append({"t": round(time.time() - t0, 1), "pid": pid, "alive": pid_alive(pid),
+                         "state": status.get("state") or status.get("status"),
+                         "status_pid": status.get("pid")})
+        time.sleep(2)
+    save(f"daemon-watch-{label}.json", timeline)
+    died = [row for row in timeline if row["pid"] and not row["alive"]]
+    return {"first": timeline[0] if timeline else None, "last": timeline[-1] if timeline else None,
+            "pid_seen_dead_at": died[0]["t"] if died else None}
+
+
 def project_events(sid: str) -> list[dict]:
     path = HOME / "projects" / sid / "events.jsonl"
     events = []
@@ -178,6 +218,17 @@ def main() -> int:
             stage("browser_crashed", False, error=repr(exc), tb=traceback.format_exc())
     finally:
         process_snapshot("final")
+        if os.name == "nt":
+            try:
+                query = ("Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddHours(-2)} "
+                         "-ErrorAction SilentlyContinue | Where-Object { $_.ProviderName -match "
+                         "'Application Error|Windows Error Reporting|Application Hang' } | "
+                         "Select-Object TimeCreated,ProviderName,Id,Message | Format-List | Out-String -Width 400")
+                events = subprocess.run(["powershell", "-NoProfile", "-Command", query], capture_output=True,
+                                        text=True, encoding="utf-8", errors="replace", timeout=120)
+                save("windows-application-errors.txt", events.stdout + events.stderr)
+            except Exception as exc:  # noqa: BLE001
+                save("windows-application-errors.txt", repr(exc))
         if REPORT.get("sid"):
             # Stopping the project's daemon exercises the OS stop/signal path.
             try:
@@ -420,8 +471,9 @@ def run_task(page, sid: str, text: str, filename: str, label: str, expected: int
         page.wait_for_timeout(1000)
         page.screenshot(path=str(OUT / f"{label}-delivery.png"), full_page=True)
         finished = bool(result.pop("ok", False))
+        watch = daemon_watch(sid, label)
         stage(label, finished and produced is not None, mission_completed=finished,
-              delivery=delivery, file=str(produced or ""), output=output, **result)
+              delivery=delivery, daemon_after=watch, file=str(produced or ""), output=output, **result)
         for name in ("Back to map", "返回地图"):
             back = page.get_by_role("button", name=re.compile(name))
             if back.count():

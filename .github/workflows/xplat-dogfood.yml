@@ -36,6 +36,8 @@ jobs:
     env:
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
+      # A native crash of the server or a daemon then leaves a stack in its log.
+      PYTHONFAULTHANDLER: "1"
       ARGUS_SKILL_WEB_TOKEN: xplat-dogfood-token-0001
       ARGUS_SKILL_RUNNER_BACKEND: codex
       # The fake backend answers instantly; a stuck loop must not hit the cap.
