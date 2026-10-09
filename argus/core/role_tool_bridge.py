@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import socketserver
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Mapping
@@ -53,6 +54,15 @@ class CallBoundBridge:
             daemon_threads = True
             block_on_close = False
             request_queue_size = MAX_HANDLER_THREADS * 2
+
+            def server_bind(self) -> None:
+                # HTTPServer.server_bind resolves socket.getfqdn() only to fill
+                # the cosmetic server_name. A reverse lookup of 127.0.0.1 can
+                # block for ~35 s on macOS, which delayed every tool-enabled
+                # role call by that much. The bridge is loopback-only.
+                socketserver.TCPServer.server_bind(self)
+                host, port = self.server_address[:2]
+                self.server_name, self.server_port = str(host), int(port)
 
             def process_request(self, request: Any, client_address: Any) -> None:
                 if not handler_slots.acquire(blocking=False):
