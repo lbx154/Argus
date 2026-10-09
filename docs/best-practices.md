@@ -84,6 +84,46 @@ On the command line the objective must travel with `--continuous`
 shell quoting. Add `--bounded` when the objective is finite; without it the
 worker keeps proposing follow-up work after the project is declared done.
 
+## Avoiding unproductive experiment reruns
+
+Start with the cheapest check that can actually reject an unready experiment:
+the required tool must work in the execution environment, inputs must exist,
+and shared preparation must succeed. A readiness pass is not a scientific
+result. Keep dependencies inside an existing script or Make target where
+possible, and propagate failures instead of launching their dependents.
+
+When preparation is already a background job, a dependent submission can bind
+its successful receipt:
+
+```bash
+python -m argus.tools.subagent submit --task-id experiment \
+  --command "python run_experiment.py" --depends-on preparation
+```
+
+Replace the command and prerequisite with those of your project. The
+prerequisite must already be `done` with an actual exit code of zero in the
+same project's task registry. Missing, running, or failed prerequisites cause
+submission to return exit code 1 with `state: blocked`; no dependent job is
+created. This is not a queue that starts automatically when preparation
+finishes. The worker checks the recorded prerequisite `run_id` again before
+execution, including after resource admission. A replaced prerequisite is
+rejected. `--no-preflight` cannot disable this dependency check.
+
+Resubmitting the same task with the same command requires
+`--rerun-reason "what changed, or why an independent replay is necessary"`.
+The new receipt and report retain that explanation and the previous
+`run_id`. A changed command is recorded as such without another explanation.
+Neither a reason string nor a different task name proves that the inputs
+changed. Reuse accepted evidence whose inputs are unchanged, and preserve
+failed attempts instead of overwriting them.
+
+Argus keeps its job logs and receipts per run; arbitrary output files written
+by your command still need separate attempt directories. The runtime does not
+infer hidden dependencies inside scripts or certify their numerical results.
+Engineer and Reviewer share the distinction between readiness and validation;
+producer-written logs cannot replace an independent checker or external
+observation required by the acceptance contract.
+
 ## Changing direction while it runs
 
 Argus gives you three ways to speak to a running project. They are not

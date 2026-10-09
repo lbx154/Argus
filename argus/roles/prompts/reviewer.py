@@ -64,6 +64,14 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
     "finding; the Engineer's report that it recalculated them is not that check.\n\n"
 )
 
+_EXPERIMENT_EVIDENCE_RULE = (
+    "For experiments, inspect the run's recorded prerequisites, earlier run "
+    "and stated change where relevant to the claim. A reason string is not proof "
+    "that inputs changed. Readiness is not scientific validation, and producer-written "
+    "logs cannot replace the independent checker or external observation required "
+    "by the acceptance contract.\n\n"
+)
+
 def evaluate_request(
     project_root: Path | str,
     *,
@@ -802,6 +810,7 @@ def render_reviewer_prompt(
             or reviewer_evidence_mode(getattr(owner, "runner", None), engineer_records_commands=False)
         )
         + "\n\n"
+        + _EXPERIMENT_EVIDENCE_RULE
         + RESEARCHER_VOICE + "\n\n"
         + decision_policy
         + ("" if _requires_engineering_audit else _verification_directive())

@@ -33,8 +33,10 @@ from ._direct_run import (
 from ._discuss_run import _run_discussion
 from ._discussion_log import _discussion_path, _reset_discussion
 from ._experiment_preflight import (
+    PrerequisiteError,
     experiment_launch_preflight,
     release_experiment_launch_claim,
+    resolve_prerequisites,
 )
 from ._llm import _run_supervisor_with_usage
 from ._normalize import _clean_concern, _norm_decision
@@ -640,9 +642,12 @@ def _run_supervised(
     stderr_path = log_dir / "stderr.log"
     supervisor_log = log_dir / "supervisor.jsonl"
     timeout_defaulted = bool(submitted_task.get("timeout_defaulted", False))
-    timeout_fields = {
+    run_fields = {
         "timeout_seconds": timeout,
         "timeout_defaulted": timeout_defaulted,
+        **{key: submitted_task[key] for key in (
+            "prerequisites", "previous_run_id", "rerun_reason",
+        ) if key in submitted_task},
     }
     worker_identity = _process_identity(os.getpid())
     claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
@@ -666,6 +671,7 @@ def _run_supervised(
             cwd=cwd,
             run_dir=resolved_run_dir,
             claim_owner=claim_owner,
+            prerequisites=submitted_task.get("prerequisites"),
         )
         if deterministic_reject:
             td = {
@@ -684,7 +690,7 @@ def _run_supervised(
                 "mode": "supervised",
                 "run_dir": resolved_run_dir,
                 "supervisor_log": str(supervisor_log),
-                **timeout_fields,
+                **run_fields,
             }
             _apply_supervisor_usage_fields(
                 td,
@@ -717,7 +723,7 @@ def _run_supervised(
                 "started_at": start_time, "mode": "supervised",
                 "run_dir": resolved_run_dir,
                 "supervisor_log": str(supervisor_log),
-                **timeout_fields,
+                **run_fields,
             }, model=model, totals=supervisor_usage_totals)
             _write_task(task_id, preflight_task)
             # (A) Deterministic provenance interlock FIRST (cheap, no LLM): a
@@ -800,7 +806,7 @@ def _run_supervised(
                     "discussion_path": str(_discussion_path(task_id)),
                     "supervisor_log": str(supervisor_log),
                     **guard_status_fields,
-                    **timeout_fields,
+                    **run_fields,
                 }
                 _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
                 _write_task(task_id, td)
@@ -825,6 +831,9 @@ def _run_supervised(
             project_root=Path.cwd(),
         )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
+            prerequisites = submitted_task.get("prerequisites")
+            if prerequisites:
+                resolve_prerequisites(prerequisites, expected_runs=prerequisites)
             proc = _launch_durable_command(
                 task_id=task_id,
                 run_id=run_id,
@@ -860,7 +869,7 @@ def _run_supervised(
                     _exit_status_path(task_id, run_id).resolve()
                 ),
                 **guard_status_fields,
-                **timeout_fields,
+                **run_fields,
             }, model=model, totals=supervisor_usage_totals)
             _write_task(task_id, running_task)
 
@@ -896,7 +905,7 @@ def _run_supervised(
                         "pid": proc.pid, "worker_pid": os.getpid(),
                         "process_identity": command_identity,
                         "worker_process_identity": worker_identity,
-                        **timeout_fields,
+                        **run_fields,
                         "timeout_message": (
                             f"Hard timeout reached after {timeout} seconds; "
                             "this was the configured --timeout limit."
@@ -1023,7 +1032,7 @@ def _run_supervised(
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 "supervisor_log": str(supervisor_log),
                 **guard_status_fields,
-                **timeout_fields,
+                **run_fields,
             }
             _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
             _write_task(task_id, td)
@@ -1042,12 +1051,15 @@ def _run_supervised(
             "worker_process_identity": worker_identity,
             "run_dir": resolved_run_dir,
             **guard_status_fields,
-            **timeout_fields,
+            **run_fields,
         }
+        if isinstance(exc, PrerequisiteError):
+            td["preflight"] = True
         _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
         _write_task(task_id, td)
-        report = _alert_engineer(task_id, "CRASHED", td)
-        _persist_experiment_record(task_id, "CRASHED", td, cwd, report)
+        event = "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError) else "CRASHED"
+        report = _alert_engineer(task_id, event, td)
+        _persist_experiment_record(task_id, event, td, cwd, report)
     finally:
         if resource_lease is not None:
             resource_lease.release()

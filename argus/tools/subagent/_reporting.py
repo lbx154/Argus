@@ -5,6 +5,7 @@ inbox queuing, and the EARLY-STOPPED reply-back instruction block.
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,9 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
     )
     if checks:
         prompt += f"Supervisor checks: {checks}\n"
+    for key in ("prerequisites", "previous_run_id", "rerun_reason"):
+        if key in task_data:
+            prompt += f"{key}: {json.dumps(task_data[key], ensure_ascii=False)}\n"
     if decision:
         prompt += f"Your last decision: {decision} | health: {health}\n"
     if stop_reason:
@@ -345,6 +349,9 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     # wrong run's settings.
     task_record = _task_record_for_report(task_id, task_data)
     lines.append(f"- task record: `{task_record}`")
+    for key in ("prerequisites", "previous_run_id", "rerun_reason"):
+        if key in task_data:
+            lines.append(f"- {key}: {json.dumps(task_data[key], ensure_ascii=False)}")
     sup_log = task_data.get("supervisor_log", "")
     if sup_log:
         lines.append(f"- supervisor log: `{sup_log}`")

@@ -392,6 +392,9 @@ def _write_task(
                 "resource_owner",
                 "owner_team_task_id",
                 "owner_mission_id",
+                "prerequisites",
+                "previous_run_id",
+                "rerun_reason",
             ])
         preserved_fields = {
             key: existing[key]

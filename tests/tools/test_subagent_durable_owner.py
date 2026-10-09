@@ -31,6 +31,48 @@ def _wait_for_terminal_record(path: Path, *, timeout: float = 10.0) -> dict:
     return record
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX durable CLI integration")
+def test_cli_prerequisites_block_failure_and_run_after_real_success(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[2]
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(repo),
+        "ARGUS_SKILL_HOME": str(tmp_path / "argus-home"),
+    }
+    command = shlex.join([
+        sys.executable, "-c", "from pathlib import Path; Path('ran').write_text('executed')",
+    ])
+
+    def submit(task_id: str, launch: str, *extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "argus.tools.subagent", "submit",
+             "--task-id", task_id, "--command", launch, "--timeout", "10", *extra],
+            cwd=tmp_path, env=env, text=True, capture_output=True, timeout=15, check=False,
+        )
+
+    failed = submit("failed-setup", "exit 2")
+    assert failed.returncode == 0, failed.stderr
+    failure = _wait_for_terminal_record(tmp_path / ".argus_subagents/failed-setup.json")
+    assert failure.get("exit_code") == 2, failure
+    blocked = submit("dependent", command, "--depends-on", "failed-setup")
+    assert blocked.returncode == 1, blocked.stdout
+    assert json.loads(blocked.stdout)["state"] == "blocked"
+    assert not (tmp_path / "ran").exists()
+    assert not (tmp_path / ".argus_subagents/dependent.json").exists()
+
+    ready = submit("ready", "printf ready")
+    assert ready.returncode == 0, ready.stderr
+    prerequisite = _wait_for_terminal_record(tmp_path / ".argus_subagents/ready.json")
+    assert prerequisite.get("exit_code") == 0, prerequisite
+    admitted = submit("dependent", command, "--depends-on", "ready")
+    assert admitted.returncode == 0, admitted.stderr
+    completed = _wait_for_terminal_record(tmp_path / ".argus_subagents/dependent.json")
+    assert completed.get("state") == "done", completed
+    assert completed["prerequisites"] == {"ready": prerequisite["run_id"]}
+    assert (tmp_path / "ran").read_text() == "executed"
+    assert "failed-setup" not in completed["prerequisites"]
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX owner-loss integration test")
 def test_direct_job_survives_worker_owner_death(tmp_path: Path) -> None:
     repo = Path(__file__).resolve().parents[2]

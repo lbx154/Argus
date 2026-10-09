@@ -86,6 +86,18 @@ _DURABLE_WAIT_RULE = (
     "the existing job. Argus resumes this Engineer task when the job changes "
     "state; inspect and validate its outputs before claiming completion."
 )
+_EXPERIMENT_PREREQUISITE_RULE = (
+    "Before expensive work, run the cheapest decisive input/tool/readiness check. "
+    "For separate durable jobs, declare real prerequisites with "
+    "`--depends-on <task-id> ...`; an unresolved prerequisite blocks submission, "
+    "not a new polling task. Within a script or build, propagate prerequisite "
+    "failures instead of running dependent steps anyway. Reuse accepted checks "
+    "until their inputs change or contrary evidence appears. Resubmitting the "
+    "same task and command requires `--rerun-reason '<change or new evidence>'`; "
+    "a new task name or output directory alone is not new evidence. Keep separate "
+    "output directories for independent trials; retain failures and original "
+    "acceptance criteria. A readiness pass is not a scientific result."
+)
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
     "For commands over two minutes on native Windows, use Windows PowerShell 5.1 syntax "
@@ -104,7 +116,10 @@ def _long_experiment_rule() -> str:
         if native_shell_contract()
         else _POSIX_LONG_EXPERIMENT_RULE
     )
-    return " ".join((shell_rule, _ACCELERATOR_ADMISSION_RULE, _DURABLE_WAIT_RULE))
+    return " ".join((
+        shell_rule, _ACCELERATOR_ADMISSION_RULE, _EXPERIMENT_PREREQUISITE_RULE,
+        _DURABLE_WAIT_RULE,
+    ))
 
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:

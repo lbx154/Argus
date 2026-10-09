@@ -11,13 +11,14 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import portalocker
 
-from ._registry import REGISTRY_DIR, _list_tasks, _recorded_process_alive
+from ._registry import REGISTRY_DIR, _list_tasks, _read_task, _recorded_process_alive
 
 _LOCAL_INPUT_FLAGS = frozenset({
     "config",
@@ -50,6 +51,35 @@ _SHELL_BUILTINS = frozenset({
 })
 _CLAIMS_LOCK = threading.Lock()
 _HELD_CLAIMS: dict[tuple[str, str], Any] = {}
+
+
+class PrerequisiteError(ValueError):
+    """A declared prerequisite cannot authorize dependent execution."""
+
+
+def resolve_prerequisites(
+    task_ids: Iterable[str], *, expected_runs: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Bind successful prerequisite receipts, not just reusable task names."""
+    resolved: dict[str, str] = {}
+    for task_id in dict.fromkeys(task_ids):
+        record = _read_task(task_id)
+        if record is None:
+            raise PrerequisiteError(f"prerequisite {task_id!r} has no task receipt")
+        run_id = record.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            raise PrerequisiteError(f"prerequisite {task_id!r} has no recorded run_id")
+        if expected_runs is not None and expected_runs[task_id] != run_id:
+            raise PrerequisiteError(f"prerequisite {task_id!r} changed after submission")
+        code = record.get("exit_code")
+        if record.get("state") != "done" or type(code) is not int or code != 0:
+            raise PrerequisiteError(
+                f"prerequisite {task_id!r} did not pass "
+                f"(state={record.get('state')!r}, exit_code={code!r}); "
+                "resolve it before starting dependent work"
+            )
+        resolved[task_id] = run_id
+    return resolved
 
 
 def _shell_command_available(executable: str) -> bool:
@@ -345,8 +375,14 @@ def experiment_launch_preflight(
     run_dir: str | None,
     claim_owner: str | None = None,
     now: float | None = None,
+    prerequisites: Mapping[str, str] | None = None,
 ) -> tuple[bool, str]:
     """Reject deterministic zero-work launches before a process is spawned."""
+    if prerequisites:
+        try:
+            resolve_prerequisites(prerequisites, expected_runs=prerequisites)
+        except ValueError as exc:
+            return True, str(exc)
     base = Path(cwd).expanduser().resolve()
     if not base.is_dir():
         return True, f"working directory does not exist: {base}"
