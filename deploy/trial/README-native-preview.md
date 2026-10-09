@@ -56,10 +56,10 @@ ports 80/443, rejecting private networks and metadata endpoints. Shell tools
 that use the configured HTTP/HTTPS proxies can access public internet resources.
 Tools needing direct sockets are unavailable.
 
-The user services request 1 GiB memory, one CPU and 128 task limits per runtime.
+The user services request 2 GiB memory, one CPU and 256 task limits per runtime.
 Some user managers have no delegated resource controllers. An independent
 host-side watchdog always samples aggregate process-tree RSS and thread counts
-at 0.5-second intervals, pausing above 1 GiB / 128 threads. A per-runtime CPU
+at 0.5-second intervals, pausing above 2 GiB / 256 threads. A per-runtime CPU
 core is assigned before startup and the watchdog reasserts every thread's CPU
 affinity, allowing normal work to finish within its capacity. Memory/process
 checks allow short bursts and are not equivalent to kernel cgroup quotas.

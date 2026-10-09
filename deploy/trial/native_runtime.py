@@ -97,7 +97,7 @@ class ResourceWatchdog:
     Account the entire sandbox process tree, including threads. Stop it on
     memory/process excess or sustained CPU excess. Limits stay outside guests.
     """
-    def __init__(self, pid: int, *, memory_bytes: int = 1024**3, tasks: int = 128, cpu_core: int | None = None):
+    def __init__(self, pid: int, *, memory_bytes: int = 2 * 1024**3, tasks: int = 256, cpu_core: int | None = None):
         import psutil
 
         self.process = psutil.Process(pid)
