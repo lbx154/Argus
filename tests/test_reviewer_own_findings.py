@@ -16,12 +16,12 @@ from argus.engineer.reviewer_findings import (
 )
 from argus.engineer.round_reviewer import _previous_review_summary
 from argus.engineer.round_state import RoundLoopState
-from argus.engineer.runner import hold_review_for_pending_background_run
 from argus.engineer.round_stop_signals import (
     backend_failure_review_decision,
     idle_termination_review_decision,
     provider_turn_cap_review_decision,
 )
+from argus.engineer.runner import hold_review_for_pending_background_run
 from argus.life.context_packet import render_mission_brief
 from argus.reviewer import Reviewer
 
@@ -285,9 +285,9 @@ def test_background_wait_hold_keeps_the_reviewer_words_and_labels_the_host_chang
 def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
     tmp_path: Path,
 ) -> None:
+    from argus.core.models import RunnerResult
     from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
     from argus.core.role_tool_bridge import bridge_request
-    from argus.core.models import RunnerResult
     from argus.reviewer import ReviewerConfig
     from argus.skills.vertical_select import persist_vertical
 
