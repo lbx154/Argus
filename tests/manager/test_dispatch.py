@@ -394,6 +394,48 @@ def test_bounded_dispatch_persists_real_dependency_dag(memory, monkeypatch):
     assert verdict["enqueued_tasks"] == 3
 
 
+def test_staged_nodes_carry_the_stage_the_supervisor_replays(memory, monkeypatch):
+    """Planner nodes are bound to the stage kept in the project state root.
+
+    The Manager records the campaign stage under the project state root while
+    the team works in a separate workspace with no pipeline state. Tagging the
+    nodes from the workspace gave them the vertical's first stage, the
+    supervisor never replayed their reviewed results for the real stage, the
+    campaign could not certify, and no delivery was ever announced.
+    """
+    from argus.core.pipeline_state import write_pipeline_state
+    from argus.life.supervisor._planning_cycle_enqueue import (
+        PlanningCycleEnqueueMixin,
+    )
+    from argus.skills.stage_machine import current_stage
+
+    state_root = front_door._life_dir_for(memory)
+    workspace = memory.project_worktree
+    assert state_root != workspace
+    write_pipeline_state(
+        state_root,
+        {"vertical": "software", "workflow_mode": "staged", "current_stage": "delivery"},
+    )
+    assert current_stage(state_root) == "delivery"
+    assert current_stage(workspace) != "delivery"
+    plan = SimpleNamespace(
+        reason="write it, then run it",
+        error="",
+        tasks=(
+            SimpleNamespace(key="write", deps=(), title="Write greet.py", objective="write greet.py"),
+            SimpleNamespace(key="run", deps=("write",), title="Run greet.py", objective="run greet.py"),
+        ),
+    )
+    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
+
+    dispatch.enqueue_mission(memory, "plan it in steps", {"backend": "codex"})
+
+    items = {item.node_key: item for item in memory.backlog.all()}
+    assert set(items) == {"write", "run"}
+    for item in items.values():
+        assert PlanningCycleEnqueueMixin._item_pipeline_stage(item) == "delivery"
+
+
 def test_bounded_dispatch_rejects_context_ref_outside_worktree(memory, monkeypatch):
     commit_calls = []
 
