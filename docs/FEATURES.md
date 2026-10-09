@@ -117,8 +117,7 @@ Planner outcomes are:
 - `completed`: the finite operator objective is complete;
 - `research_incomplete`, `paused_no_breakthrough`, or
   `exhausted_current_methods`: recoverable research pauses;
-- `paused_budget`, `provider_cooldown`, or `infra_blocked`: recoverable runtime
-  pauses;
+- `paused_budget` (the task's iteration-cycle ceiling), `provider_cooldown` or `infra_blocked`: recoverable runtime pauses;
 - `error`: planning failed and is surfaced.
 
 ### Engineer

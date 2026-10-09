@@ -75,7 +75,6 @@ def test_users_normal_pi_turn_learns_and_next_turn_reuses(tmp_path, monkeypatch)
         'apiKey': 'local-fixture', 'models': [{'id': 'model', 'reasoning': False}],
     }}}))
     monkeypatch.setenv('ARGUS_SKILL_HOME', str(tmp_path / 'global'))
-    monkeypatch.setenv('ARGUS_SKILL_COST_CONTROL', 'off')
     monkeypatch.setenv('ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING', '1')
     monkeypatch.setenv('ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS', '20')
     monkeypatch.setenv('PI_CODING_AGENT_DIR', str(config))

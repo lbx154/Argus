@@ -297,9 +297,7 @@ class Curator:
             max_total_in_flight
             if max_total_in_flight is not None
             else int(
-                environment.get("ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT")
-                or environment.get("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY")
-                or "2"
+                environment.get("ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT") or "2"
             )
         )
         if int(configured_total) <= 0:

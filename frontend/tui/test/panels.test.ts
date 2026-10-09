@@ -26,7 +26,7 @@ import { CostGauge } from '../src/components/CostGauge.js';
 import { MissionCockpit } from '../src/components/MissionCockpit.js';
 import { PendingDecisionPrompt } from '../src/components/PendingDecisionPrompt.js';
 import { emptyMissionView } from '../../core/src/missionView.js';
-import type { EventMsg, ResourceStatus, Snapshot, StatusView } from '../src/api.js';
+import type { EventMsg, ResourceStatus, Snapshot, StatusView, UsageSummary } from '../src/api.js';
 import { SLASH_COMMANDS } from '../src/input/slash.js';
 
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -298,7 +298,7 @@ test('operator decision prompt never fabricates choices when the agent supplied 
   assert.doesNotMatch(output, /按建议继续|给出其他指示|保留当前结果并停止/);
 });
 
-test('operations panel owns cost, quota, pid, backend, and model details', async () => {
+test('operations panel owns cost, pid, backend, and model details', async () => {
   const missionView = emptyMissionView();
   missionView.storage.project_skill_dir = '/state/project/skills';
   missionView.storage.project_skill_count = 3;
@@ -311,27 +311,23 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
     session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
     daemon: {
       alive: true, pid: 42, uptime_seconds: 600, backend: 'copilot', backend_label: 'Copilot',
-      global_daily_cap_usd: 200,
       protocol: { name: 'argus.daemon', major: 1, minor: 1 },
     },
     roles: [{
       role: 'engineer', backend: 'copilot', backend_label: 'Copilot', model: 'gpt-5.6-sol',
       effort: 'xhigh', active: false, label: 'idle', status: 'idle', age_s: null,
     }],
-    backlog: [], recent_events: [], global_spend_usd: 12.5, global_spend_status: 'priced',
-    request_usage: {
-      day: '2026-07-11',
-      codex: { provider: 'codex', day: '2026-07-11', daily_calls: 9, daily_cap: 300, remaining: 291 },
-      copilot: { provider: 'copilot', day: '2026-07-11', daily_calls: 403, daily_cap: 1000, remaining: 597, premium_requests: 551, premium_cap: 1000 },
-    },
+    backlog: [], recent_events: [],
+    usage_summary: { call_count: 3, cost_usd: 1.25, pricing_status: 'priced', input_tokens: 10, output_tokens: 2 },
+    global_usage_summary: { call_count: 40, cost_usd: 12.5, pricing_status: 'priced' },
     mission_view: missionView,
   } as Snapshot;
   const output = await renderPanel({ kind: 'operations' }, 60, { snap, viewportRows: 40 });
   assert.match(output, /pid 42/);
   assert.match(output, /Copilot/);
   assert.match(output, /gpt-5\.6-sol/);
-  assert.match(output, /model\/API spend/);
-  assert.match(output, /403\/1000/);
+  assert.match(output, /model\/API spend \$1\.25/);
+  assert.match(output, /today, all projects \$12\.50/);
   assert.match(output, /self-evolution storage/);
   assert.match(output, /\/state\/project\/skills/);
   assert.match(output, /\.autors\/demo\/wiki/);
@@ -352,7 +348,6 @@ test('status panel renders degraded and contended resource status', async () => 
       pid: 42,
       uptime_seconds: 60,
       backend: 'codex',
-      global_daily_cap_usd: null,
     },
     roles: [],
     active_role: null,
@@ -458,92 +453,37 @@ test('daemon replacement modal gives Ctrl-C/Ctrl-D exit priority even while busy
   );
 });
 
-test('request quotas render alongside monetary spend', async () => {
-  const output = await renderNode(
-    React.createElement(CostGauge, {
-      daemon: undefined,
-      width: 120,
-      requestUsage: {
-        day: '2026-07-11',
-        codex: {
-          provider: 'codex', day: '2026-07-11', daily_calls: 12,
-          daily_cap: 300, remaining: 288,
-        },
-        copilot: {
-          provider: 'copilot', day: '2026-07-11', daily_calls: 8,
-          daily_cap: 100, remaining: 92, premium_requests: 2.5,
-          premium_cap: 20, premium_remaining: 17.5,
-        },
-      },
-    }),
-    120,
-  );
-  assert.match(output, /Codex 12\/300/);
-  assert.match(output, /Copilot 8\/100/);
-  assert.match(output, /premium 2\.5\/20/);
-});
-
-test('cost control exposes in-flight reservations and unresolved pricing', async () => {
-  const output = await renderNode(
-    React.createElement(CostGauge, {
-      settledUsd: 0.2,
-      spendStatus: 'partial',
-      daemon: undefined,
-      width: 120,
-      costControl: {
-        day: '2026-07-11',
-        active_reservations: 2,
-        unresolved_calls: 1,
-        unresolved: [],
-        policy: 'block',
-      },
-    }),
-    120,
-  );
-  assert.match(output, /in-flight 2/);
-  assert.match(output, /unresolved 1/);
+const usageSummary = (overrides: Partial<UsageSummary> = {}): UsageSummary => ({
+  call_count: 1, known_cost_usd: 0, cost_usd: 0, pricing_status: 'priced',
+  priced_calls: 1, partial_calls: 0, unpriced_calls: 0, not_billed_calls: 0,
+  input_tokens: 0, cached_input_tokens: 0, cache_write_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0,
+  premium_requests: 0, total_nano_aiu: 0, premium_request_cost_usd: 0,
+  ...overrides,
 });
 
 test('partial usage never renders as a zero-dollar cumulative cost', async () => {
   const output = await renderNode(
     React.createElement(CostGauge, {
-      settledUsd: null,
-      spendStatus: 'partial',
-      daemon: undefined,
+      usage: usageSummary({ cost_usd: null, pricing_status: 'partial' }),
+      globalUsage: usageSummary({ cost_usd: 3, known_cost_usd: 3 }),
       width: 120,
     }),
     120,
   );
-  assert.match(output, /model\/API spend partial/);
+  assert.match(output, /model\/API spend partial · today, all projects \$3\.00/);
   assert.doesNotMatch(output, /\$0\.00/);
 });
 
-test('fresh project renders zero global cost and configured global budget', async () => {
-  const output = await renderNode(
-    React.createElement(CostGauge, {
-      settledUsd: null,
-      spendStatus: 'empty',
-      daemon: {
-        alive: false,
-        pid: null,
-        uptime_seconds: null,
-        backend: 'copilot',
-        global_daily_cap_usd: 55,
-      },
-      width: 120,
-    }),
-    120,
-  );
-  assert.match(output, /model\/API spend \$0\.00/);
-  assert.match(output, /cap \$55\/d/);
+test('fresh project renders zero spend for itself and for today', async () => {
+  const output = await renderNode(React.createElement(CostGauge, { width: 120 }), 120);
+  assert.match(output, /model\/API spend \$0\.00 · today, all projects \$0\.00/);
+  assert.doesNotMatch(output, /cap|remaining|paused/);
 });
 
 test('usage gauge shows token inputs behind model API spend', async () => {
   const output = await renderNode(
     React.createElement(CostGauge, {
-      settledUsd: 0.31624875,
-      spendStatus: 'priced',
-      usageSummary: {
+      usage: {
         call_count: 2,
         known_cost_usd: 0.31624875,
         cost_usd: 0.31624875,
@@ -561,14 +501,13 @@ test('usage gauge shows token inputs behind model API spend', async () => {
         total_nano_aiu: 31624875000,
         premium_request_cost_usd: 0.08,
       },
-      daemon: undefined,
       width: 120,
     }),
     120,
   );
   assert.match(output, /model\/API spend \$0\.32/);
   assert.match(output, /tokens · input 50505/);
-  assert.match(output, /output 20/);
+  assert.match(output, /output 20 · reasoning 0 · premium 2\.0/);
 });
 
 test('pending Manager line exposes stop-waiting help at narrow widths', async () => {
@@ -867,7 +806,6 @@ test('24-row operations panel stays below Ink full-screen clear threshold', asyn
     session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
     daemon: {
       alive: false, pid: null, uptime_seconds: null, backend: 'copilot', backend_label: 'Copilot',
-      global_daily_cap_usd: 10_000,
       protocol: { name: 'argus.daemon', major: 1, minor: 1 },
     },
     roles: ['manager', 'planner', 'engineer', 'reviewer'].map((role) => ({
@@ -875,14 +813,6 @@ test('24-row operations panel stays below Ink full-screen clear threshold', asyn
       effort: 'xhigh', active: false, label: 'idle', status: 'idle', age_s: null,
     })),
     backlog: [], recent_events: [], spend_usd: 0, spend_status: 'priced',
-    request_usage: {
-      day: '2026-07-19',
-      codex: { provider: 'codex', day: '2026-07-19', daily_calls: 0, daily_cap: 300, remaining: 300 },
-      copilot: { provider: 'copilot', day: '2026-07-19', daily_calls: 476, daily_cap: 10_000, remaining: 9_524, premium_requests: 109, premium_cap: 10_000 },
-    },
-    cost_control: {
-      active_reservations: 1, unresolved_calls: 108,
-    },
     usage_summary: {
       input_tokens: 16_296, cached_input_tokens: 14_848, cache_write_tokens: 0,
       output_tokens: 103, reasoning_output_tokens: 61, call_count: 1,
@@ -1029,7 +959,7 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
 
   const snap = {
     session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 0 },
+    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
     roles: [], recent_events: [],
     backlog: [item, { ...item, id: 'done-1', title: 'Old result', status: 'done' }],
   } as Snapshot;

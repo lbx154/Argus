@@ -25,7 +25,7 @@ mixes concerns:
   * ``_io_log``  — per-call JSONL event logging and raw stream batching.
   * ``_result``  — stop-kind classification and result/usage normalization.
   * ``_exec``    — provider-execution orchestration (one call's
-    cost-reservation/quota/spawn/finalize flow).
+    admission/spawn/finalize flow).
   * ``_core``    — the public ``AgentCliBackend`` facade class.
 
 Only the names re-exported below are meant to be imported from outside

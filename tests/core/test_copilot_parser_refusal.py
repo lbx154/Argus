@@ -4,7 +4,6 @@ import time
 
 import pytest
 
-from argus.core.cost_control import cost_control_snapshot, reserve_call_budget
 from argus.core.token_usage import TokenUsage
 from argus.core.usage import UsageLedger, UsageRecord, build_usage_record
 
@@ -92,30 +91,6 @@ def test_any_observed_usage_or_inconsistent_row_is_preserved(tmp_path, change):
     record = UsageLedger(p, migrate_legacy=False).records()[0]
     assert record.pricing_status == "partial"
     assert record.cost_usd == change.get("cost_usd")
-
-
-@pytest.mark.parametrize("error", ["network timeout", "unknown failure", "",
-                                      "Tool said: " + ERROR, ERROR + "\nmodel output"])
-def test_unknown_network_and_quoted_text_still_block(tmp_path, error):
-    project(tmp_path, r={**row(), "error": error})
-    snap = cost_control_snapshot(global_root=tmp_path)
-    assert snap["unresolved_calls"] == 1
-
-
-def test_cross_project_admission_releases_only_parser_item(tmp_path):
-    p = project(tmp_path)
-    p2 = tmp_path / "projects" / "p2"
-    p2.mkdir()
-    for target in (p, p2):
-        reservation, reason = reserve_call_budget(
-            call_id="probe-" + target.name, project_root=target, mission_id=None,
-            provider="copilot", model="gpt-6-astra", run_label="test",
-            global_root=tmp_path)
-        assert reservation is not None, reason
-        reservation.release(reason="test complete")
-    unknown = {**row(), "call_id": "unknown", "error": "network timeout"}
-    (p2 / "usage.jsonl").write_text(json.dumps(unknown) + "\n")
-    assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 1
 
 
 def test_new_failure_uses_the_same_trusted_receipt(tmp_path):

@@ -338,8 +338,6 @@ _NON_EVENT_MODULES = frozenset({
     "agent_cli/copilot_acp.py",
     # repairs/history.jsonl, the doctor's own audit ledger.
     "maintenance/repair.py",
-    # The Copilot guard's usage ledger.
-    "provider_integrations/copilot_guard.py",
     # Map observation nodes projected from events for the web map.
     "webapi/map_team.py",
     "webapi/map_view.py",

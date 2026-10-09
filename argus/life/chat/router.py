@@ -412,7 +412,7 @@ class CommandRouter:
 
     def _cmd_status(self, _arg: str) -> None:
         from ...daemon.life_worker import (
-            format_budget_status,
+            format_spend_status,
             read_continuous_state,
             read_daemon_status,
         )
@@ -491,7 +491,7 @@ class CommandRouter:
             lines.append(f"🕰️ 历史：{' · '.join(history_parts)}")
 
         lines.append(f"📬 收件箱: {inbox_pending} 条待处理")
-        lines.append(f"💵 {format_budget_status(mem.journal, status=ds)}")
+        lines.append(f"💵 {format_spend_status(status=ds)}")
 
         # Cost
         lines.append(f"💵 累计成本: <b>{_esc(total_cost_text)}</b>")

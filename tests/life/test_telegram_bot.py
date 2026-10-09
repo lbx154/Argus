@@ -202,8 +202,7 @@ def test_status_keeps_ids_pids_and_raw_enums_out_of_the_narrative(
             started_at_iso=None,
             uptime_seconds=60,
             life_dir=life_dir,
-            global_daily_cap_usd=0.0,
-        ),
+            ),
     )
     monkeypatch.setattr(
         "argus.daemon.life_worker.read_continuous_state",

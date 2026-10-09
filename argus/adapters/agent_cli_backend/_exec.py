@@ -28,7 +28,6 @@ from typing import TYPE_CHECKING
 from ...core.models import RunnerOptions, RunnerResult
 from ...core.runner_receipts import is_provider_turn_cap_receipt
 from ...core.secret_guard import redact_secrets_text
-from ._budget_monitor import monitor_budget
 from ._exec_admission import admit
 from ._exec_context import _ExecContext
 from ._exec_spawn import spawn_and_finish
@@ -177,7 +176,7 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
 
             from ...trial.training_runtime import capture_runtime_call
 
-            with monitor_budget(ctx, cli_options), capture_runtime_call(ctx, cli_options):
+            with capture_runtime_call(ctx, cli_options):
                 return spawn_and_finish(ctx, cli_options)
         finally:
             release_provider_slot(slot)

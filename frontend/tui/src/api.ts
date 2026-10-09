@@ -9,7 +9,6 @@ import type {
   DaemonAdmission,
   EventMsg,
   ProjectRow,
-  RequestUsage,
   Role,
   Snapshot,
   UsageSummary,
@@ -30,12 +29,10 @@ import type { ResourceStatus } from '../../core/src/resourceStatus.generated.js'
 export type {
   ArtifactInfo,
   BacklogItem,
-  CostControlSnapshot,
   Daemon,
   DaemonAdmission,
   EventMsg,
   ProjectRow,
-  RequestUsage,
   Role,
   Snapshot,
   UsageSummary,
@@ -89,7 +86,6 @@ export interface StatusView {
   daemon: Daemon;
   roles: Role[];
   active_role: string | null;
-  request_usage?: RequestUsage;
 }
 
 export interface DoctorCheck {

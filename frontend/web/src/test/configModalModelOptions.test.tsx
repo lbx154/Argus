@@ -68,23 +68,6 @@ it('saves a backend switch only on Apply, never on the dropdown change', async (
   expect(setConfig).toHaveBeenCalledWith('one', 'ARGUS_SKILL_RUNNER_BACKEND', 'copilot');
 });
 
-it("shows today's premium requests and their cost by run label, not just tokens", async () => {
-  await mount(baseConfig(), {
-    daemon: { alive: false },
-    cost_control: {
-      day: 'd', active_reservations: 0, unresolved_calls: 0, unresolved: [], policy: 'allow',
-      daily_tokens: 0, daily_premium_requests: 12, daily_premium_usd: 0.48,
-      premium_by_run_label: [{ run_label: 'engineer', premium_requests: 9, usd: 0.36, calls: 9 }],
-    },
-  });
-  const usage = renderer!.root.findByProps({ 'data-premium-usage': true });
-  const text = textOf(usage as unknown as { children: unknown[] });
-  expect(text).toContain('Premium requests today: 12');
-  expect(text).toContain('0.48');
-  expect(text).toContain('engineer 9');
-  expect(textOf(renderer!.root.findByProps({ 'data-today-usage': true }) as unknown as { children: unknown[] })).not.toContain('0 tokens');
-});
-
 it('changing only the model sends only the model, and the backend shows where it comes from', async () => {
   const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
   const config = baseConfig();

@@ -30,7 +30,6 @@ function snapshot(): Snapshot {
       pid: null,
       uptime_seconds: null,
       backend: null,
-      global_daily_cap_usd: null,
     },
     roles: [],
     backlog: [],

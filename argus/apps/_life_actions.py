@@ -164,9 +164,6 @@ def render_run_command(
     from ._runtime_supervisor import _invoke_supervisor
 
     cfg = chat_state.get("config", {})
-    from ..core.knobs import resolve_budget_caps
-
-    global_budget = resolve_budget_caps().global_daily_cap_usd
     parser = argparse.ArgumentParser(prog="/run", add_help=False)
     parser.add_argument("--once", action="store_true")
     parser.add_argument(
@@ -179,11 +176,6 @@ def render_run_command(
         type=int,
         default=int(cfg.get("cycles", 0)),
     )
-    parser.add_argument(
-        "--global-daily-cap-usd",
-        type=float,
-        default=global_budget,
-    )
     parser.add_argument("--quiet", action="store_true")
     try:
         args = parser.parse_args(list(opts))
@@ -193,8 +185,7 @@ def render_run_command(
     lines = [
         (
             f"/run: backend={args.backend}  "
-            f"max_missions={'1 (once)' if args.once else args.max_missions}  "
-            f"global_daily_cap=${args.global_daily_cap_usd:.2f}"
+            f"max_missions={'1 (once)' if args.once else args.max_missions}"
         ),
         "       (foreground; Ctrl-C requests graceful stop)",
     ]
@@ -206,7 +197,6 @@ def render_run_command(
         backend=args.backend,
         once=args.once,
         max_missions=args.max_missions,
-        global_daily_cap_usd=args.global_daily_cap_usd,
         quiet=args.quiet,
         seed_thread_id=seed,
     )
@@ -269,7 +259,7 @@ def render_config_cmd(
                 config_lines.append(f"  {key:20s} = {value}")
         config_lines.append("")
         config_lines.append(
-            "  usage: /config cycles=10 budget=50 daily_cap=300 engineer_effort=xhigh"
+            "  usage: /config cycles=10 engineer_effort=xhigh"
         )
         return "\n".join(config_lines)
 

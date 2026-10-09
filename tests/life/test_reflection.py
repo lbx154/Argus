@@ -791,7 +791,7 @@ def test_settlement_hands_the_mission_facts_to_reflection(
         runner=_Runner(),
         sink=sink,
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=1),
+            budget=LifeBudget(max_missions=1),
             project_worktree=tmp_path / "campaign",
         ),
     )
@@ -846,7 +846,7 @@ def test_a_failing_reflection_never_changes_the_mission_result(
         runner=_Runner(),
         sink=_Sink(),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=1),
+            budget=LifeBudget(max_missions=1),
             project_worktree=tmp_path / "campaign",
         ),
     )

@@ -900,8 +900,6 @@ export function App({
               busy={pending}
               spentUsd={snap?.global_spend_usd}
               spendStatus={snap?.global_spend_status}
-              globalDailyCapUsd={snap?.daemon.global_daily_cap_usd}
-              requestUsage={snap?.request_usage}
             />
           ) : null}
           {/* Ink 5 retains a root pointer to the latest Static node after unmount;

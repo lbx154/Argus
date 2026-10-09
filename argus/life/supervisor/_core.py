@@ -1,7 +1,7 @@
 """Schedule missions and consume operator input for one persistent daemon.
 
 The supervisor owns the outer loop, invokes the mission runner for each
-claimed backlog item, and applies budget and idle-backoff policy. Memory is
+claimed backlog item, and applies the mission ceiling and idle-backoff policy. Memory is
 passed as separate context so it does not change the objective or mission ID.
 """
 
@@ -88,7 +88,7 @@ class LifeSupervisor(
     Public API:
 
     - :meth:`run` — drive missions until backlog is exhausted, the
-      iteration cap is hit, the budget is tripped, or ``stop_event``
+      iteration cap is hit, or ``stop_event``
       is set. Returns a summary dict (mission count, costs, statuses).
 
     - :meth:`tick` — process a single backlog item if available; useful
@@ -432,20 +432,16 @@ class LifeSupervisor(
 
         Provider fences, operator pauses, and scientific/infrastructure blocks
         stay explicit: time passing does not establish quota recovery.
-        Budget pauses wake only after the cheap global-cap preflight succeeds.
+        Items an older release left in ``paused_budget``/``paused_cost`` resume
+        with the rest: spending is recorded, never a reason to hold work.
         """
         statuses = {
             "paused_provider_cooldown",
             "paused_daemon_shutdown",
         }
-        try:
-            budget_ok, _reason = self.config.budget.can_start(
-                global_root=self._budget_global_root(),
-            )
-        except Exception:  # noqa: BLE001 - keep budget pauses conservative
-            budget_ok = False
-        if budget_ok:
-            statuses.update({"paused_budget", "paused_cost"})
+        # Work paused by the retired spending checks resumes like any other
+        # paused work: spending is recorded, never a reason to hold a mission.
+        statuses.update({"paused_budget", "paused_cost"})
         resumed = self.memory.backlog.resume_paused_statuses(statuses)
         from ...engineer.external_work import inspect_external_work
 
@@ -702,8 +698,6 @@ class LifeSupervisor(
             self._reload_continuous_config()
             stop_reason = self._maybe_stop()
             if stop_reason:
-                if stop_reason in {"paused_budget", "paused_cost"}:
-                    self._enter_pause_backoff()
                 if stop_reason != "__silent_stop__":
                     self._emit_status(stop_reason)
                 stopped_by = stop_reason
@@ -1171,33 +1165,6 @@ class LifeSupervisor(
         )
         if obsolete_final_submission is not None:
             return obsolete_final_submission
-
-        budget_global_root = self._budget_global_root()
-        ok, reason = self.config.budget.can_start(
-            global_root=budget_global_root,
-        )
-        if not ok:
-            # Don't fail the item — it'll be retried next supervisor
-            # run when the daily cap rolls over. Emit a heartbeat-gated event
-            # so a long budget pause cannot flood the timeline.
-            unpriced = reason.startswith("unresolved provider cost")
-            pause_status = "paused_cost" if unpriced else "paused_budget"
-            self._emit_status(f"{'cost reconciliation' if unpriced else 'budget'} block: {reason}")
-            if self._should_journal_idle_repeat(pause_status):
-                self._emit({
-                    "type": EventType.LIFE_BUDGET_PAUSE,
-                    "stop_kind": "cost_unreconciled" if unpriced else "budget_exhausted",
-                    "item_id": item.id,
-                    "title": item.title,
-                    "reason": reason,
-                    "agent_layer": "supervisor",
-                })
-            return {
-                "status": pause_status,
-                "item_id": item.id,
-                "reason": reason,
-                "recoverable": True,
-            }
 
         if (
             not self.config.continuous
@@ -1725,9 +1692,7 @@ class LifeSupervisor(
         delivered = accepted is not False
         if delivered:
             event_type = str(event.get("type") or "")
-            if event_type == EventType.LIFE_BUDGET_PAUSE:
-                self._publish_budget_pause_message(event)
-            elif (
+            if (
                 event_type == EventType.LIFE_MISSION_COMPLETED
                 and event.get("certification_recovered") is not True
             ):
@@ -2154,39 +2119,6 @@ class LifeSupervisor(
             os.fsync(handle.fileno())
         _fsync_parent(root / "transcript.jsonl")
         return True
-
-    def _publish_budget_pause_message(self, event: dict[str, Any]) -> None:
-        """Surface a durable, deduplicated budget pause in the Manager chat."""
-        try:
-            from ...core.operator_messages import publish_operator_message, uses_cjk
-
-            project = getattr(self.memory, "project", None)
-            life_dir = getattr(project, "root", None) or getattr(self.memory, "root", None)
-            if life_dir is None:
-                return
-            item_id = str(event.get("item_id") or "")
-            title = str(event.get("title") or "current task").strip()
-            reason = str(event.get("reason") or "budget cap reached").strip()
-            chinese = uses_cjk(f"{title}\n{reason}")
-            text = (
-                f"项目已达到预算上限，任务已暂停：{title}。\n"
-                "现有进度已保存；提高项目预算或缩小任务后即可继续。"
-                if chinese
-                else f"Paused because this project reached its budget limit: {title}.\n"
-                "Existing work is saved; raise the project budget or narrow the task to continue."
-            )
-            publish_operator_message(
-                life_dir,
-                text=text,
-                message_id=f"budget-pause-{item_id}-{reason}",
-                event_fields={
-                    "budget_pause": True,
-                    "item_id": item_id,
-                    "reason": reason,
-                },
-            )
-        except Exception:  # noqa: BLE001 - alerting must not break supervision
-            log.exception("life supervisor: failed to publish budget pause chat alert")
 
     def _plan_alongside_running_work(self, running_items: list[Any]) -> None:
         """Let the Planner fill an idle mission slot while other work runs.

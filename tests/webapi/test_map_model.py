@@ -10,7 +10,7 @@ from argus.agent_cli.models import AgentRunResult
 from argus.core.knob_store import write_persisted_knobs
 from argus.core.models import RunnerResult
 from argus.core.session import SessionMeta, write_session_meta
-from argus.core.usage import UsageLedger, UsageRecord
+from argus.core.usage import UsageLedger
 from argus.webapi import map_model
 from argus.webapi.server import create_app
 
@@ -286,9 +286,6 @@ def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkey
     phases = []
     receipts = []
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "100")
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "100")
-
     def run(self, **kwargs):
         assert phases == ["planning"]
         options = kwargs["options"]
@@ -432,27 +429,6 @@ def test_expired_map_deadline_does_not_report_a_model_phase(tmp_path, monkeypatc
     assert phases == []
     assert receipts == []
     assert not (tmp_path / "map-presentation").exists()
-
-
-def test_shared_budget_denies_map_before_provider_call(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.000001")
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "100")
-
-    def unexpected(*args, **kwargs):
-        pytest.fail("An over-budget map request reached the provider")
-
-    monkeypatch.setattr(AgentCliRunner, "run_exec", unexpected)
-    UsageLedger(tmp_path / "projects/s-budget").append(UsageRecord.from_jsonable({
-        "call_id": "earlier-research-call", "project_id": "s-budget", "status": "completed",
-        "pricing_status": "priced", "cost_usd": 1, "completed_at": time.time(),
-    }))
-    with pytest.raises(OSError, match="did not complete"):
-        map_model.run_map_model(
-            "Summarize records", {}, map_model.MapModel("codex", "gpt-5.4-mini", "low", sys.executable),
-            project_root=tmp_path / "projects/s-budget", global_root=tmp_path,
-        )
 
 
 def test_historical_generation_requires_an_owning_session(tmp_path, monkeypatch):

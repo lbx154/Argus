@@ -8,7 +8,6 @@ import {
 } from '../../../core/src/missionView.js';
 import { outcomeDimensionSummary } from '../../../core/src/missionOutcome.js';
 import type { MissionTimelineItem, MissionView } from '../../../core/src/types.js';
-import type { RequestUsage } from '../api.js';
 import { theme } from '../theme.js';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
@@ -29,26 +28,10 @@ function timelineColor(item: MissionTimelineItem): string | undefined {
   return undefined;
 }
 
-export function budgetSummary(
-  spentUsd?: number | null,
-  spendStatus?: string,
-  globalDailyCapUsd?: number | null,
-): string {
-  const spent = spentUsd == null
+export function spendSummary(spentUsd?: number | null, spendStatus?: string): string {
+  return spentUsd == null
     ? spendStatus && spendStatus !== 'empty' ? spendStatus : '$0.00 model calls'
     : `$${spentUsd.toFixed(2)} model calls`;
-  const global = globalDailyCapUsd ? ` / $${globalDailyCapUsd.toFixed(0)} daily cap` : '';
-  return spent + global;
-}
-
-export function requestSummary(requestUsage?: RequestUsage | null): string {
-  const codex = requestUsage?.codex;
-  const copilot = requestUsage?.copilot;
-  return [
-    `Codex ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'}`,
-    `Copilot ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'}`,
-    `premium ${(copilot?.premium_requests ?? 0).toFixed(1)}/${copilot?.premium_cap || '∞'}`,
-  ].join(' · ');
 }
 
 export function MissionCockpit({
@@ -58,8 +41,6 @@ export function MissionCockpit({
   busy = false,
   spentUsd,
   spendStatus,
-  globalDailyCapUsd,
-  requestUsage,
 }: {
   view: MissionView;
   width: number;
@@ -68,8 +49,6 @@ export function MissionCockpit({
   busy?: boolean;
   spentUsd?: number | null;
   spendStatus?: string;
-  globalDailyCapUsd?: number | null;
-  requestUsage?: RequestUsage | null;
 }) {
   const mission = displayObjective(
     view.mission.objective || view.mission.title || 'Waiting for a mission',
@@ -136,9 +115,8 @@ export function MissionCockpit({
         <Text wrap="truncate-end">
           <Text dimColor>MODEL SPEND </Text>
           <Text color={spendStatus === 'partial' || spendStatus === 'unpriced' ? theme.warning : theme.success}>
-            {budgetSummary(spentUsd, spendStatus, globalDailyCapUsd)}
+            {spendSummary(spentUsd, spendStatus)}
           </Text>
-          <Text dimColor>{` · ${requestSummary(requestUsage)}`}</Text>
         </Text>
         {outcome.length ? (
           <Text wrap="truncate-end">
@@ -220,16 +198,8 @@ export function MissionCockpit({
       <Box>
         <Text dimColor>MODEL SPEND </Text>
         <Text color={spendStatus === 'partial' || spendStatus === 'unpriced' ? theme.warning : theme.success}>
-          {budgetSummary(
-            spentUsd,
-            spendStatus,
-            globalDailyCapUsd,
-          )}
+          {spendSummary(spentUsd, spendStatus)}
         </Text>
-      </Box>
-      <Box>
-        <Text dimColor>REQUESTS </Text>
-        <Text dimColor wrap="truncate-end">{requestSummary(requestUsage)}</Text>
       </Box>
       {outcome.length ? (
         <Box>

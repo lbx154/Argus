@@ -11,7 +11,6 @@ from typing import Any, Mapping, MutableMapping
 from ..apps._inbox import count_pending_inbox_messages, queue_inbox_message
 from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
 from ..core.config_snapshot import build_config_snapshot
-from ..core.provider_quota import provider_usage_snapshot
 from ..core.role_config import resolve_all_roles
 from ..core.session import (
     session_lifecycle_lock,
@@ -207,7 +206,6 @@ def get_status(
         "daemon": daemon,
         "roles": roles,
         "active_role": active,
-        "request_usage": provider_usage_snapshot(root=_global_root(global_root)),
     }
 
 
@@ -657,7 +655,7 @@ def get_config(
     project_state_dir: Path | str | None = None,
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Runtime settings snapshot with the host-global USD budget and the model options."""
+    """Runtime settings snapshot with the model options."""
     snapshot = build_config_snapshot(env=os.environ)
     try:
         snapshot["model_options"] = model_options(global_root)
@@ -674,26 +672,6 @@ def get_config(
         snapshot["map_model"] = {"backend": resolved.backend, "model": resolved.model, "note": resolved.note}
     except Exception:  # noqa: BLE001 - the snapshot must never fail on the map runner
         snapshot["map_model"] = None
-    if project_state_dir is None:
-        return snapshot
-    from ..core.knobs import resolve_budget_caps
-
-    budget = resolve_budget_caps(
-        project_state_dir=project_state_dir,
-        global_root=global_root,
-    )
-    values = {
-        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": (
-            budget.global_daily_cap_usd,
-            "global:config.json",
-        ),
-    }
-    for row in snapshot.get("operator_knobs", []):
-        name = row.get("name")
-        if name in values:
-            value, source = values[name]
-            row["value"] = str(value)
-            row["source"] = source
     return snapshot
 
 
@@ -734,13 +712,8 @@ _CONFIG_ALIASES = {
     "reviewer_effort": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
     "planner_effort": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
     "manager_effort": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
-    "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
-    "global_daily_tokens": "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP",
     "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
     "daemon_limit": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
-    "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
-    "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
-    "copilot_daily_premium": "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
     "safe_mode": "ARGUS_SKILL_SAFE_MODE",
     "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
     "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
@@ -884,8 +857,6 @@ def set_operator_config(
             ),
             source="web.config",
         )
-    # Budget caps are ordinary config.json knobs now (budget.json retired) — they
-    # fall through to the generic knob_store write path below like any other knob.
     if env_name == "ARGUS_SKILL_MAP_MODEL":
         # A map pin is chosen from the active runner's list; remember which
         # runner, so a later backend switch does not send it somewhere that
@@ -912,62 +883,8 @@ def set_operator_config(
         "restart_required": env_name not in {
             "ARGUS_SKILL_MAP_MODEL", "ARGUS_SKILL_MAP_REASONING_EFFORT",
             "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT",
-            "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
-            "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP",
         },
     }
-
-
-_BUDGET_BATCH_ALIASES = frozenset(
-    {
-        "global_daily_cap",
-        "codex_daily_requests",
-        "copilot_daily_requests",
-        "copilot_daily_premium",
-    }
-)
-
-
-def set_budget_config(
-    values: dict[str, str],
-    *,
-    project_state_dir: Path | str,
-    global_root: Path | str,
-) -> dict[str, Any]:
-    from ..core.knob_store import write_persisted_knobs
-    from ..core.knobs import normalize_cockpit_knob_value
-
-    optional = {"global_daily_tokens"}
-    unknown = sorted(set(values) - _BUDGET_BATCH_ALIASES - optional)
-    if unknown:
-        raise ValueError(f"unsupported budget setting(s): {', '.join(unknown)}")
-    normalized: dict[str, str] = {}
-    for alias in _BUDGET_BATCH_ALIASES | (optional & set(values)):
-        if alias not in values:
-            raise ValueError(f"missing budget setting: {alias}")
-        env_name = _CONFIG_ALIASES[alias]
-        normalized[env_name] = normalize_cockpit_knob_value(
-            env_name,
-            str(values[alias]),
-        )
-    from ..core.operator_context import IntakeDecision, persist_intake_decision
-
-    # Budget caps are ordinary config.json knobs now (budget.json retired) — write
-    # the whole normalized batch (caps + quota knobs) to the knob_store.
-    if not write_persisted_knobs(normalized):
-        raise RuntimeError("budget settings could not be persisted")
-    for key, value in normalized.items():
-        os.environ[key] = value
-    rendered = ", ".join(f"{key}={normalized[key]}" for key in sorted(normalized))
-    try:
-        persist_intake_decision(project_state_dir, rendered, IntakeDecision(
-            kind="preference", scope="project", applies_to_roles=("manager", "planner"),
-            preference_kind="workflow", preference_value=rendered), source="web.config.budget")
-    except OSError:
-        # The authoritative setting is already saved. A failed optional context
-        # note must not tell the user that the budget change failed.
-        pass
-    return {"values": dict(normalized), "restart_required": True}
 
 
 def set_identity(

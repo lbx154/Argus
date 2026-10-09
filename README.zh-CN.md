@@ -703,12 +703,11 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 
 ## 安装排障
 
-- 未知价格或缺失用量会保留展示并继续对账，不会单独阻止新调用或中断运行中的调用，
-  也不会被当作免费。Argus 会重新核对 Copilot 迟到或部分上报的费用；
-  其他 token 记录中的模型已有定价且 token 数量完整时，会补齐待定费用。
-  已知结算费用与运行中观测到的费用仍受全局日预算限制，后端速率限额和试用密钥的服务端额度仍有效。
-  请查看待对账记录中的 provider、model 和原因，以及 Argus 数据目录的 `cost-control.json`
-  和对应项目的 `usage.jsonl`，不要删除账本。诊断命令应在终端运行，不要直接发到 Web 聊天框。
+- 未知价格或缺失用量会保留在项目的 `usage.jsonl` 中继续展示，不会阻止新调用或中断运行中的调用。
+  Argus 会重新核对 Copilot 迟到或部分上报的费用；记录中的模型已有定价且 token 数量完整时，
+  会补齐待定费用。Argus 自身没有花费上限：使用自己的订阅时，限额由服务商决定；
+  使用托管试用时，限额是邀请对应的网关 token 额度。不要删除账本。
+  诊断命令应在终端运行，不要直接发到 Web 聊天框。
 
 - PowerShell 用 `Get-Command argus -All`，macOS/Linux 用 `type -a argus`
   确认 shell 实际调用哪个 executable；更新后 `argus --version` 的 release id

@@ -1175,7 +1175,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "core/operator_presence.py -> apps",
     "core/plugin_manager.py -> agent_cli",
     "core/project_api.py -> life",
-    "core/provider_quota.py -> provider_integrations",
     "core/role_config.py -> agent_cli",
     "core/sandbox.py -> <root>",
     "core/stage_certificate.py -> skills",
@@ -1240,7 +1239,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "<root> -> argus.verticals._base",
     "adapters -> argus.agent_cli._env",
     "adapters -> argus.agent_cli._structured_output",
-    "adapters -> argus.core.cost_control._local_day_start",
     "agent_cli -> argus.daemon.state._terminate_windows_process_tree",
     "apps -> argus.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
     "apps -> argus.manager._session_ops",
@@ -1938,10 +1936,9 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     # keyword naming the Skill directory, not another project-state alias.
     "project_dir": 34,
     "manager_session_root": 24,
-    # 23 = 22 + verticals/store.py: the Vertical Store's ``used_by`` scan walks the
-    # session-state collection through the one canonical accessor rather than a
-    # seventh spelling; it drops back when ``core.paths`` gains ``projects_root``.
-    "session_states_root": 22,
+    # 20 after the cost-control layer left (its own host-wide ledger walk is
+    # gone; core/usage.py now holds the one daily roll-up across projects).
+    "session_states_root": 20,
     "session_state_root": 31,
 }
 

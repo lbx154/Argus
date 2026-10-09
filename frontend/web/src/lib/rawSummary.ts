@@ -35,7 +35,7 @@ export function outputSummary(text: string, limit = 160): { first: string; lines
   return { first: lines.length ? clip(lines[0].trim(), limit) : '', lines: lines.length };
 }
 
-export type MetricFigureKey = 'calls' | 'failed' | 'slowest' | 'inFlight' | 'reservations';
+export type MetricFigureKey = 'calls' | 'failed' | 'slowest';
 
 export interface MetricFigure {
   key: MetricFigureKey;
@@ -45,14 +45,13 @@ export interface MetricFigure {
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 
 /**
- * The three or four numbers a person watching a run cares about: how many model
- * calls today, how many failed, how slow the slow ones were, and what is still
- * being paid for. Web request counts and SLO bookkeeping stay in the raw block.
+ * The three numbers a person watching a run cares about: how many model calls
+ * today, how many failed, and how slow the slow ones were. Web request counts
+ * and SLO bookkeeping stay in the raw block.
  */
 export function metricsFigures(metrics: MetricsSnapshot | null | undefined): MetricFigure[] {
   if (!metrics) return [];
   const provider = metrics.provider ?? {};
-  const cost = metrics.cost_control ?? {};
   const figures: MetricFigure[] = [];
   const completed = num(provider.completed) ?? 0;
   const errors = num(provider.errors) ?? 0;
@@ -60,9 +59,5 @@ export function metricsFigures(metrics: MetricsSnapshot | null | undefined): Met
   figures.push({ key: 'failed', value: String(errors) });
   const p95 = num(provider.p95_duration_ms);
   if (p95 && p95 > 0) figures.push({ key: 'slowest', value: `${(p95 / 1000).toFixed(1)}s` });
-  const inFlight = num(cost.in_flight_cost_usd);
-  const reservations = num(cost.active_reservations);
-  if (inFlight !== null && inFlight >= 0) figures.push({ key: 'inFlight', value: `$${inFlight.toFixed(2)}` });
-  else if (reservations !== null && reservations >= 0) figures.push({ key: 'reservations', value: String(reservations) });
   return figures;
 }

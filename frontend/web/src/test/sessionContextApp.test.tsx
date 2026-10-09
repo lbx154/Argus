@@ -71,7 +71,7 @@ let client: QueryClient;
 let parent: { postMessage: ReturnType<typeof vi.fn> };
 function snapshot(sid: string): Snapshot {
   return { session: { id: sid, display_name: sid, objective: '', last_active: 1, cwd: `/synthetic/${sid}` },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null }, roles: [], backlog: [], recent_events: [] };
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null}, roles: [], backlog: [], recent_events: [] };
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
