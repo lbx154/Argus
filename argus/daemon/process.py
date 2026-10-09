@@ -120,6 +120,14 @@ def _windows_daemon_command(config: Any) -> list[str]:
         command.append("--resume-continuous")
     if not config.continuous_open_ended:
         command.append("--bounded")
+        # Explicit, because the child runs --daemon-fg --bounded, whose
+        # default would treat it as an unattended run.
+        command.extend(
+            [
+                "--operator-wait-exit",
+                "on" if getattr(config, "operator_wait_exit", False) else "off",
+            ]
+        )
     command.extend(["--mission-width", str(getattr(config, "mission_width", 2))])
     return command
 

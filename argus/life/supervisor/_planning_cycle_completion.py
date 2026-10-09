@@ -255,6 +255,8 @@ class PlanningCycleCompletionMixin:
             _vertical_primary_targets,
         )
 
+        from ...core.autonomy import read_autonomous_assumptions
+
         pipeline = read_pipeline_state(self._artifact_root())
         stages = pipeline.get("stages")
         stage_history = pipeline.get("stage_history")
@@ -336,6 +338,11 @@ class PlanningCycleCompletionMixin:
                 "Do not reuse old titles, page counts, or numerical results as final."
             ),
             "current_artifact_evidence": evidence,
+            # Decisions settled without an operator: the report must name them.
+            "autonomous_assumptions": [
+                {key: row.get(key) for key in ("item_id", "conflict", "source", "resolution")}
+                for row in read_autonomous_assumptions(self._project_state_root())
+            ],
             "current_final_certification": {
                 "certified": (
                     self._journal_has_final_certification()

@@ -101,12 +101,21 @@ class RoundSelfReviewMixin:
         if handoff.waits_for_operator:
             from ..core.autonomy import assess_operator_intervention
 
-            # The Engineer classified its own question: only an operator_need
-            # it named makes this an operator decision. Words in the question
-            # or the round message are not consulted.
+            from .round_settlement import _operator_questions_allowed
+
+            # The Engineer classified its own question; words in the question
+            # or the round message are not consulted. An explicit
+            # NEXT_OWNER=operator it did not classify fails safe and goes to
+            # the operator, when one may be asked. A question without that
+            # explicit handoff (or a run where questions cannot be asked) is
+            # a technical fact for the Reviewer.
             intervention = assess_operator_intervention(
                 question=handoff.operator_question,
                 operator_need=handoff.operator_need,
+                unclassified_requires_operator=(
+                    handoff.source == "structured"
+                    and _operator_questions_allowed(supervised_config)
+                ),
             )
             if not intervention.required:
                 # The Reviewer sees the Engineer's question in the ordinary

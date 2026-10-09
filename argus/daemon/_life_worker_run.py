@@ -482,19 +482,29 @@ class LifeWorkerRunMixin:
             log.error("daemon: failed stalled running item %s", item.id)
         return failed
 
-    def _bounded_operator_wait_expired(self, supervisors: Any) -> bool:
+    def _bounded_operator_wait_expired(
+        self, supervisors: Any, *, enabled: bool = True
+    ) -> bool:
         """End a bounded run that has nothing left but an unanswered question.
 
-        A bounded worker that is only waiting on the operator used to sit until
-        an outside timeout killed it. It now waits the configured grace
-        (``ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN``; none at all when no
-        operator is available), then records a ``blocked: needs operator``
-        outcome and exits. The question and the parked work stay on disk, so
-        answering it and resuming continues where the run stopped. This is
-        about not hanging; it never caps work that is still running.
+        Applies only where nobody is watching: a run that declared no operator
+        (no grace at all: nobody can answer) or a foreground CLI/harness
+        bounded run (``operator_wait_exit``; grace from
+        ``ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN``). Workers the web
+        cockpit starts keep waiting for the answer in the UI. On exit the run
+        records ``blocked: needs operator``; the question and the parked work
+        stay on disk, and ``argus --answer`` restarts the worker. This is about
+        not hanging; it never caps work that is still running.
         """
-        from ..core.autonomy import bounded_operator_wait_exit_seconds
+        from ..core.autonomy import (
+            OPERATOR_WAIT_EXIT_FILENAME,
+            bounded_operator_wait_exit_seconds,
+            operator_available,
+        )
 
+        if not enabled and operator_available():
+            self._operator_wait_since = None
+            return False
         supervisor = next(iter(supervisors or ()), None)
         probe = getattr(supervisor, "_pending_operator_questions", None)
         questions = probe() if callable(probe) else None
@@ -510,21 +520,44 @@ class LifeWorkerRunMixin:
         if grace < 0 or now - since < grace:
             return False
         text = _bounded_operator_wait_text(questions)
-        log.warning("daemon: bounded run %s; exiting (answer and resume to continue)", text)
+        log.warning("daemon: bounded run %s; exiting (answer to continue)", text)
         emit = getattr(supervisor, "_emit", None)
         status = getattr(supervisor, "_emit_status", None)
+        state_root = getattr(supervisor, "_project_state_root", None)
+        root = (
+            state_root()
+            if callable(state_root)
+            else getattr(getattr(supervisor, "memory", None), "root", None)
+        )
         try:
+            if root is not None:
+                import json as _json
+
+                (Path(root) / OPERATOR_WAIT_EXIT_FILENAME).write_text(
+                    _json.dumps(
+                        {
+                            "outcome": "blocked: needs operator",
+                            "questions": questions,
+                            "waited_seconds": round(now - since, 1),
+                            "ts": time.time(),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
             if callable(emit):
                 from ..core.event_catalog import EventType
 
                 emit({
-                    "type": EventType.LIFE_DAEMON_IDLE_TIMEOUT,
-                    "idle_seconds": round(now - since, 1),
-                    "agent_layer": "manager",
+                    "type": EventType.LIFE_LIFECYCLE_BLOCK,
+                    "lifecycle_state": "needs_operator",
+                    "reason": text,
                     "text": text,
+                    "agent_layer": "manager",
                 })
             if callable(status):
-                status(text + " (answer the question and resume to continue)")
+                status(text + " (answer it with argus --answer to continue)")
         except Exception:  # noqa: BLE001 - the exit itself must still happen
             log.exception("daemon: could not record the operator-wait outcome")
         return True
@@ -857,6 +890,14 @@ class LifeWorkerRunMixin:
         """Drain the backlog until stop is requested, sleeping wakeably."""
 
         try:
+            from ..core.autonomy import adopt_persisted_operator_availability
+
+            # A project started with --no-operator stays that way however
+            # this worker was started (resume, web, respawn).
+            adopt_persisted_operator_availability(self.config.life_dir)
+        except Exception:  # noqa: BLE001 - availability defaults to present
+            log.debug("could not read the operator availability record", exc_info=True)
+        try:
             while not self._stop.is_set():
                 if self._deployment_handoff_gate():
                     break
@@ -942,7 +983,12 @@ class LifeWorkerRunMixin:
                                 circuit.get("callsite") or "unknown callsite",
                             )
                             break
-                        if self._bounded_operator_wait_expired(supervisors):
+                        if self._bounded_operator_wait_expired(
+                            supervisors,
+                            enabled=bool(
+                                getattr(rf_state.cfg, "operator_wait_exit", False)
+                            ),
+                        ):
                             break
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly

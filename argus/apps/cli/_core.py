@@ -726,6 +726,21 @@ def _build_worker_config(args: argparse.Namespace):
         ),
         resume_continuous=getattr(args, "resume_continuous", False),
         continuous_open_ended=not bool(getattr(args, "bounded", False)),
+        operator_wait_exit=_operator_wait_exit_enabled(args),
+    )
+
+
+def _operator_wait_exit_enabled(args: argparse.Namespace) -> bool:
+    """A foreground bounded run is the one launched for nobody to watch.
+
+    Workers the web cockpit starts are detached and answered in the UI, so
+    they never end on an unanswered question.
+    """
+    choice = str(getattr(args, "operator_wait_exit", "auto") or "auto")
+    if choice in {"on", "off"}:
+        return choice == "on"
+    return bool(getattr(args, "bounded", False)) and bool(
+        getattr(args, "daemon_fg", False)
     )
 
 
@@ -780,6 +795,15 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
             "readiness probe skipped; backend/auth/config checks still passed.\n"
         )
     cfg = _build_worker_config(args)
+    from ...core.autonomy import (
+        adopt_persisted_operator_availability,
+        persist_operator_availability,
+    )
+
+    # An explicit declaration (``--no-operator`` or the env knob) is recorded
+    # with the project; a later ``--resume`` without one keeps it.
+    persist_operator_availability(cfg.life_dir)
+    adopt_persisted_operator_availability(cfg.life_dir)
     if foreground:
         return run_foreground(cfg)
     receipt = execute_daemon_command(
@@ -1440,7 +1464,43 @@ def _cmd_answer(args: argparse.Namespace) -> int:
         sys.stdout.write(f"  asked:  {question[:160]}\n")
     sys.stdout.write(f"  answer: {answer[:160]}\n")
     sys.stdout.write(f"  continues as: {continuation.id} ({continuation.status})\n")
+    _restart_worker_after_operator_wait_exit(bundle)
     return 0
+
+
+def _restart_worker_after_operator_wait_exit(bundle: Any) -> None:
+    """Start the worker again if it ended waiting for this answer.
+
+    A bounded run that nobody watched ends as "blocked: needs operator" and
+    leaves a marker. Answering is what it was waiting for, so the answer
+    resumes it instead of leaving the continuation queued with no worker.
+    """
+    from ...core.autonomy import OPERATOR_WAIT_EXIT_FILENAME
+
+    marker = Path(bundle.project.root) / OPERATOR_WAIT_EXIT_FILENAME
+    if not marker.is_file():
+        return
+    try:
+        from ...webapi.daemon_lifecycle import start_project_daemon
+
+        result = start_project_daemon(
+            bundle.project.fingerprint,
+            global_root=bundle.global_root,
+            resume_continuous=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - the answer itself is recorded
+        sys.stderr.write(f"argus: answered, but the worker did not restart: {exc}\n")
+        return
+    rc = int((result or {}).get("rc", 3))
+    if rc == 0:
+        try:
+            marker.unlink()
+        except OSError:
+            pass
+        sys.stdout.write("  worker: restarted to continue with the answer\n")
+    else:
+        detail = str((result or {}).get("error") or "start refused")
+        sys.stderr.write(f"argus: answered, but the worker did not restart: {detail}\n")
 
 
 def _cmd_notify(args: argparse.Namespace) -> int:

@@ -153,37 +153,6 @@ def test_bounded_increment_does_not_claim_project_or_stage_completion(tmp_path) 
     )
 
 
-def test_failed_mission_explains_reason_and_next_action(tmp_path) -> None:
-    memory = LifeMemory.open(tmp_path)
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=_Runner(),
-        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
-        config=LifeSupervisorConfig(continuous=False, open_ended=False),
-    )
-
-    supervisor._emit({
-        "type": "life.mission.completed",
-        "item_id": "task-failed",
-        "title": "Run the external validator",
-        "success": False,
-        "status": "blocked",
-        "stop_reason": "The required credentials are unavailable.",
-        "next_action": "Provide credentials or remove the external requirement.",
-        # The team's own classification marks this as the operator's call;
-        # the words in the reason do not.
-        "operator_need": "credentials",
-    })
-
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
-    assert text.startswith("Cannot continue yet: Run the external validator.")
-    assert "Reason: Continuing requires an access credential from you." in text
-    assert "Your decision: Provide credentials" in text
-    assert "Team ended" not in text
-
-
 def test_technical_blocker_does_not_pretend_a_human_decision_is_needed(tmp_path) -> None:
     memory = LifeMemory.open(tmp_path)
     supervisor = LifeSupervisor(
@@ -376,3 +345,71 @@ def test_continued_mission_names_the_next_queued_task(tmp_path) -> None:
         in transcript[0]["text"]
     )
     assert "Planner is selecting" not in transcript[0]["text"]
+
+
+class _CredentialBlockedRunner:
+    """A mission that ended blocked because it needs real credentials, as the
+    round settlement records it: the raising role's classification travels in
+    the final planner report, not in the wording of the reason."""
+
+    def execute(self, **_kwargs):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            success=False,
+            status="blocked",
+            stop_reason="The external validator rejected the anonymous request.",
+            rounds=1,
+            matched_skill_name="",
+            skill_distilled=True,
+            had_follow_up=False,
+            final_message="blocked",
+            operator_question="",
+            operator_options=[],
+            research_result=None,
+            final_review_reason="The external validator needs an account.",
+            final_review_next_action="Provide the validator account or drop that check.",
+            final_planner_report={
+                "plan_signal": "continue",
+                "authority_impact": "technical",
+                "operator_need": "credentials",
+            },
+        )
+
+
+def test_real_completion_event_for_a_credential_block_names_the_operator_decision(
+    tmp_path,
+) -> None:
+    from argus.life.memory import BacklogItem
+    from argus.life.supervisor import LifeBudget
+
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_CredentialBlockedRunner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=2),
+            poll_interval_seconds=0.01,
+            continuous=False,
+            open_ended=False,
+        ),
+    )
+    memory.backlog.add(
+        BacklogItem.new(title="Run the external validator", objective="validate")
+    )
+
+    supervisor.tick()
+
+    completed = [
+        event
+        for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if (event := json.loads(line)).get("type") == "life.mission.completed"
+    ]
+    assert completed and completed[-1]["operator_need"] == "credentials"
+    assert completed[-1]["authority_impact"] == "technical"
+    texts = [
+        json.loads(line)["text"]
+        for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert any("Your decision: Provide the validator account" in text for text in texts)

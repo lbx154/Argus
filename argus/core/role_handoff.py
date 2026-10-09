@@ -28,7 +28,9 @@ class EngineerHandoff:
         return self.next_owner == "operator" and bool(self.operator_question)
 
 
-def _named_value(message: str, name: str, *, limit: int = 500) -> str:
+def _named_value(
+    message: str, name: str, *, limit: int = 500, keep_none: bool = False
+) -> str:
     value = ""
     expected = name.casefold()
     for line in str(message or "").splitlines():
@@ -42,7 +44,12 @@ def _named_value(message: str, name: str, *, limit: int = 500) -> str:
         key, separator, candidate = normalized_line.partition("=")
         if separator and key.strip().casefold() == expected:
             normalized = candidate.strip()
-            value = "" if normalized.casefold().rstrip(".") in _EMPTY_VALUES else normalized[:limit]
+            value = (
+                ""
+                if not keep_none
+                and normalized.casefold().rstrip(".") in _EMPTY_VALUES
+                else normalized[:limit]
+            )
     return value
 
 
@@ -110,7 +117,8 @@ def parse_engineer_handoff(message: str) -> EngineerHandoff:
         next_owner=_named_value(footer, "NEXT_OWNER", limit=32),
         operator_question=_named_value(footer, "OPERATOR_QUESTION"),
         operator_options=tuple(parse_agent_operator_options(footer)),
-        operator_need=_named_value(footer, "OPERATOR_NEED", limit=64),
+        # "none" is a classification here, not an empty value.
+        operator_need=_named_value(footer, "OPERATOR_NEED", limit=64, keep_none=True),
     )
 
 

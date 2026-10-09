@@ -169,6 +169,18 @@ class ReviewActions:
                     "required": ["id", "label", "description"],
                     "additionalProperties": False,
                 }}
+                fields["operator_need"] = {
+                    "type": "string",
+                    "enum": [
+                        "credentials", "spending", "irreversible_or_external",
+                        "scope_or_authority", "none",
+                    ],
+                    "description": (
+                        "Why only the operator can decide: credentials (real secrets the "
+                        "work needs), spending, irreversible_or_external, or "
+                        "scope_or_authority; none if the team can decide."
+                    ),
+                }
                 required.append("question")
             if name == "replan_review":
                 fields["alternative"] = {"type": "string"}
@@ -229,6 +241,8 @@ class ReviewActions:
         )
         if "forward_progress" in payload:
             decision.planner_report["forward_progress"] = payload["forward_progress"]
+        if action == "request_review_decision" and payload.get("operator_need"):
+            decision.planner_report["operator_need"] = payload["operator_need"]
         for key in ("manager_attention", "learning"):
             judged = payload.get(key)
             if isinstance(judged, dict):

@@ -201,7 +201,9 @@ def test_project_local_paper_edit_question_reaches_reviewer_not_operator_pause(
                 "MILESTONE_STATUS=continue\n"
                 "NEXT_OWNER=operator\n"
                 "OPERATOR_QUESTION=Should I edit project-local paper/main.tex "
-                "to present the scoped result?"
+                "to present the scoped result?\n"
+                # The Engineer's own classification: not an operator decision.
+                "OPERATOR_NEED=none"
             ),
             thread_id="t1",
         ),
@@ -694,6 +696,7 @@ def test_internal_review_request_is_not_operator_authority(
                 "MILESTONE_STATUS=continue\n"
                 "NEXT_OWNER=operator\n"
                 "OPERATOR_QUESTION=Please authorize invoking the independent Reviewer.\n"
+                "OPERATOR_NEED=none\n"
                 "OPERATOR_OPTIONS=approve :: Approve :: Grant authorization."
             ),
             thread_id="t1",
@@ -794,10 +797,10 @@ def test_structured_engineer_handoff_continues_without_early_review(
     assert len(rounds) == 1
 
 
-def test_a_negated_credential_mention_does_not_park_the_round(tmp_path: Path) -> None:
-    """The Engineer asked for Reviewer access and said credentials were not
-    needed; a word match on "credential" parked a headless run for hours. With
-    no operator_need of its own, the question goes to the Reviewer."""
+def _freight_question_round(tmp_path: Path, *, need_line: str = ""):
+    """The Engineer round from the freight trial: an explicit operator
+    handoff whose question mentions credentials only to say they are not
+    needed."""
     backend = MemoryBackend()
     backend.queue(
         "engineer-r1",
@@ -807,25 +810,57 @@ def test_a_negated_credential_mention_does_not_park_the_round(tmp_path: Path) ->
                 "NEXT_OWNER=operator\n"
                 "OPERATOR_QUESTION=Provide the Reviewer with original packet access "
                 "and bounded local execution; production credentials are unnecessary."
+                + need_line
             ),
             thread_id="t1",
         ),
     )
     backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
-
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="build the dispatch tool",
         engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
         supervised_config=SupervisedConfig(max_rounds=2, require_independent_review=True),
         workdir=tmp_path,
     )
+    return backend, status, rounds
 
+
+def test_a_negated_credential_mention_does_not_park_a_run_without_operator(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    backend, status, rounds = _freight_question_round(tmp_path)
     assert [label for label, _prompt, _options in backend.history] == [
         "engineer-r1",
         "reviewer",
     ]
     assert status == "done"
-    assert rounds[0].review.review_source == "reviewer"
+
+
+def test_the_engineers_none_classification_sends_the_question_to_the_reviewer(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+    backend, status, rounds = _freight_question_round(
+        tmp_path, need_line="\nOPERATOR_NEED=none"
+    )
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    assert status == "done"
+
+
+def test_an_unclassified_explicit_operator_handoff_fails_safe_to_the_operator(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # The word "credentials" plays no part: the explicit handoff without a
+    # classification is what routes it to the operator.
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+    backend, status, rounds = _freight_question_round(tmp_path)
+    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
+    assert status == "blocked"
+    assert rounds[0].review.review_source == "engineer_operator_question"
 
 
 def test_a_classified_credential_need_still_parks_the_round(tmp_path: Path) -> None:

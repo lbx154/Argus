@@ -22,6 +22,7 @@ class PlanChallengeDecision:
     alternative: str = ""
     authority_impact: str = "technical"
     source: str = "manager_authority_policy"
+    operator_need: str = ""
 
 
 def adjudicate_plan_challenge(
@@ -72,8 +73,30 @@ def adjudicate_plan_challenge(
                 challenge=challenge,
                 alternative=alternative,
                 authority_impact="operator",
+                operator_need=intervention.operator_need,
             )
     if alternative:
+        # The one action-level backstop (see core.autonomy): an alternative
+        # that would force-push, publish or deploy, delete data outside the
+        # workspace, spend money, or use production credentials goes to the
+        # operator before it can replace the plan, whatever label the
+        # challenge carried. Without an operator it blocks instead.
+        from ..core.autonomy import operator_only_action
+
+        action_need = operator_only_action(alternative)
+        if action_need:
+            return PlanChallengeDecision(
+                action="ask_operator",
+                reason=(
+                    "The proposed alternative is an operator-only action "
+                    f"({action_need}); it cannot replace the plan without the operator"
+                ),
+                challenge=challenge,
+                alternative=alternative,
+                authority_impact="operator",
+                source="operator_only_action_backstop",
+                operator_need=action_need,
+            )
         return PlanChallengeDecision(
             action="replace",
             reason="Later evidence supports a concrete alternative to the current plan",

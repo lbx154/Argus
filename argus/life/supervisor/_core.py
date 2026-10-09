@@ -538,6 +538,7 @@ class LifeSupervisor(
                 "alternative": decision.alternative,
                 "authority_impact": decision.authority_impact,
                 "source": decision.source,
+                "operator_need": decision.operator_need,
                 "raised_at": time.time(),
             }
         now = time.time()
@@ -556,9 +557,12 @@ class LifeSupervisor(
             if effective_operator_question_policy(self.memory.root) == "forbid":
                 from ...core.autonomy import (
                     AUTONOMOUS_ASSUMPTION_INSTRUCTION,
+                    OPERATOR_ACTION_NEEDS,
                     autonomous_operator_resolution,
                     normalize_operator_need,
                     operator_available,
+                    operator_only_action,
+                    record_autonomous_assumption,
                 )
 
                 # The raising role's own classification decides: an action
@@ -571,32 +575,66 @@ class LifeSupervisor(
                     challenge.get("operator_need")
                     or (report.get("operator_need") if isinstance(report, dict) else "")
                 )
+                if need not in OPERATOR_ACTION_NEEDS:
+                    # The action backstop applies whatever the label said.
+                    need = (
+                        operator_only_action(challenge.get("alternative"))
+                        or operator_only_action(
+                            report.get("alternative") if isinstance(report, dict) else ""
+                        )
+                        or need
+                    )
                 action = (
                     "blocked"
                     if autonomous_operator_resolution(need) == "blocked"
                     else "revise"
                 )
-                why_no_question = (
-                    "No operator is available in this run"
-                    if not operator_available()
-                    else "Operator questions are forbidden"
-                )
-                challenge["manager_reason"] = (
-                    why_no_question
-                    + " and that does not grant authority; "
-                    + (
-                        f"the work needs an operator-only action ({need}) that no "
-                        "in-scope revision can provide, so the mission is blocked "
-                        "without a question."
-                        if action == "blocked"
-                        else "the Manager settles the open decision itself: the "
-                        "Planner revises within existing authority on the most "
-                        "defensible interpretation and records that assumption."
+                nobody_to_ask = not operator_available()
+                if action == "blocked":
+                    challenge["manager_reason"] = (
+                        (
+                            "No operator is available in this run"
+                            if nobody_to_ask
+                            else "Operator questions are forbidden"
+                        )
+                        + f"; the work needs an operator-only action ({need}) that "
+                        "no in-scope revision can provide, so the mission is "
+                        "blocked without a question."
                     )
-                )
-                if action == "revise":
+                    challenge["operator_need"] = need
+                elif nobody_to_ask:
+                    # Only a run that declared no operator settles the open
+                    # decision on an assumption; a directive that merely
+                    # forbids questions keeps the stricter revision below.
+                    challenge["manager_reason"] = (
+                        "No operator is available in this run, so the Manager "
+                        "settles the open decision itself: the Planner revises "
+                        "within existing authority on the most defensible "
+                        "interpretation and records that assumption."
+                    )
                     challenge["manager_instruction"] = AUTONOMOUS_ASSUMPTION_INSTRUCTION
                     challenge["autonomous_assumption"] = True
+                    conflict = str(
+                        challenge.get("challenge")
+                        or outcome.get("review_reason")
+                        or ""
+                    ).strip()
+                    record_autonomous_assumption(
+                        self._project_state_root(),
+                        item_id=str(outcome.get("item_id") or ""),
+                        conflict=conflict,
+                        source="mission_challenge",
+                    )
+                    self._emit_status(
+                        "Decided without an operator (assumption recorded for the "
+                        f"report): {conflict[:240]}"
+                    )
+                else:
+                    challenge["manager_reason"] = (
+                        "Operator questions are forbidden and do not grant authority; "
+                        "the Planner must revise strictly within existing "
+                        "authority without using the Reviewer alternative."
+                    )
                 challenge["authority_impact"] = "operator"
                 challenge["alternative"] = ""
                 challenge["operator_question"] = ""
@@ -2002,6 +2040,10 @@ class LifeSupervisor(
                         ),
                         "operator_need": event.get("operator_need") or "",
                     },
+                    # This only describes an outcome; it routes no question,
+                    # so an unclassified blocker is not presented as the
+                    # operator's decision.
+                    unclassified_requires_operator=False,
                 )
                 if operator_question:
                     publish_operator_message(
